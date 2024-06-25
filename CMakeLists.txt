@@ -10,11 +10,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ------------------------------------------------------------------
-# Options
-# ------------------------------------------------------------------
-option(EVOENGINE_BUILD_APP_DEMO "Build EvoEngine Application Demo" OFF)
-
-# ------------------------------------------------------------------
 # Build types
 # ------------------------------------------------------------------
 # Set a default build type if none was specified
