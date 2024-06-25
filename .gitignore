@@ -8,20 +8,8 @@ docs/
 #3rdParty
 3rdParty
 
-# Exclude PhysX binaries
-3rdParty/physx/win.x86_64.vc143.mt/debug/PhysXGpu_64.dll
-3rdParty/physx/win.x86_64.vc143.mt/release/PhysXGpu_64.dll
-3rdParty/shaderc/lib/shaderc_combined.lib
-3rdParty/shaderc/lib/shaderc_combined_d.lib
-
 # Include Resource folder
 !Resources/
-
-# Exclude Temp projects folder
-Resources/Temp Projects/
-
-# Exclude Temp projects folder
-Resources/Example Projects/
 
 # Prerequisites
 *.d
