@@ -1,0 +1,22 @@
+precision_level: 4
+noises_2d:
+  min_max: [-1000, 1000]
+  noise_descriptors:
+    - type: 2
+      frequency: 1
+      intensity: 1
+      multiplier: 0.0199999996
+      min: -10
+      max: 10
+      offset: 0
+      shift: [0, 0, 0]
+      ridgid: true
+    - type: 2
+      frequency: 8
+      intensity: 1
+      multiplier: 0.00999999978
+      min: -10
+      max: 10
+      offset: 0
+      shift: [0, 0, 0]
+      ridgid: false

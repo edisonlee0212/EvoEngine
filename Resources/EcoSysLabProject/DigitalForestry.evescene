@@ -1,0 +1,109 @@
+environment:
+  background_color: [1, 1, 1]
+  environment_gamma: 2.20000005
+  ambient_light_intensity: 0.800000012
+  environment_type: 0
+  environmental_map:
+    asset_handle_: 0
+    asset_type_name_: ""
+main_camera:
+  entity_handle_: 6473886116481235690
+  private_component_type_name_: Camera
+entity_metadata_list:
+  - n: Main Camera
+    h: 6473886116481235690
+    e: true
+    s: false
+    r: 6473886116481235690
+    pc:
+      - tn: Camera
+        e: true
+        x: 1
+        y: 1
+        use_clear_color: false
+        clear_color: [0, 0, 0]
+        near_distance: 0.100000001
+        far_distance: 200
+        fov: 120
+        skybox:
+          asset_handle_: 77
+          asset_type_name_: Cubemap
+        post_processing_stack:
+          asset_handle_: 0
+          asset_type_name_: ""
+  - n: Directional Light
+    h: 4549134868711857240
+    e: true
+    s: false
+    r: 4549134868711857240
+    pc:
+      - tn: DirectionalLight
+        e: true
+        cast_shadow: true
+        bias: 0.100000001
+        diffuse: [1, 1, 1]
+        diffuse_brightness: 1
+        light_size: 0.00999999978
+        normal_offset: 0.0500000007
+  - n: Climate
+    h: 16141221334833496213
+    e: true
+    s: false
+    r: 16141221334833496213
+    pc:
+      - tn: Climate
+        e: true
+        m_climateDescriptor:
+          asset_handle_: 18020656765688137943
+          asset_type_name_: ClimateDescriptor
+  - n: Soil
+    h: 8756950485509484996
+    e: true
+    s: false
+    r: 8756950485509484996
+    pc:
+      - tn: Soil
+        e: true
+        soil_descriptor:
+          asset_handle_: 2602803847738692072
+          asset_type_name_: SoilDescriptor
+systems_:
+  - type_name: PhysicsSystem
+    enabled_: true
+    rank_: 1
+    handle_: 462650561693495121
+data_component_storage_list:
+  - entity_size: 130
+    chunk_capacity: 126
+    entity_alive_count: 4
+    data_component_types:
+      - type_name: Transform
+        type_size: 64
+        type_offset: 0
+      - type_name: GlobalTransform
+        type_size: 64
+        type_offset: 64
+      - type_name: TransformUpdateFlag
+        type_size: 2
+        type_offset: 128
+    chunk_array:
+      - h: 6473886116481235690
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAoEAAACBBAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAoEAAACBBAACAPw=="
+          - d: !!binary "AAE="
+      - h: 4549134868711857240
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIAz//9/PwAAAAAAAAAA//9/vwAAgDMAAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIAz//9/PwAAAAAAAAAA//9/vwAAgDMAAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAE="
+      - h: 16141221334833496213
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAA="
+      - h: 8756950485509484996
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAA="

@@ -1,0 +1,120 @@
+{
+  "Version": "1.0.0",
+  "Units": "Millimeters",
+  "ScanHeads": [
+    {
+      "Id": 0,
+      "ProductType": "JS50WX",
+      "Serial": 20302,
+      "Orientation": "CableIsDownstream",
+      "Alignments": [
+        {
+          "Camera": "CameraB",
+          "Laser": "Laser1",
+          "ShiftX": 0.0,
+          "ShiftY": 0.0,
+          "RollDeg": 0.0
+        },
+        {
+          "Camera": "CameraA",
+          "Laser": "Laser1",
+          "ShiftX": 0.0,
+          "ShiftY": 0.0,
+          "RollDeg": 0.0
+        }
+      ],
+      "Windows": [
+        {
+          "Camera": "CameraB",
+          "Laser": "Laser1",
+          "Enabled": true,
+          "Vertices": [
+            {
+              "X": -10000.0,
+              "Y": 10000.0
+            },
+            {
+              "X": 10000.0,
+              "Y": 10000.0
+            },
+            {
+              "X": 10000.0,
+              "Y": 0.0
+            },
+            {
+              "X": -10000.0,
+              "Y": 0.0
+            }
+          ]
+        },
+        {
+          "Camera": "CameraA",
+          "Laser": "Laser1",
+          "Enabled": true,
+          "Vertices": [
+            {
+              "X": -10000.0,
+              "Y": 10000.0
+            },
+            {
+              "X": 10000.0,
+              "Y": 10000.0
+            },
+            {
+              "X": 10000.0,
+              "Y": 0.0
+            },
+            {
+              "X": -10000.0,
+              "Y": 0.0
+            }
+          ]
+        }
+      ],
+      "ExclusionMasks": [
+        {
+          "Camera": "CameraB",
+          "Laser": "Laser1",
+          "Enabled": true,
+          "ExcludedRegions": []
+        },
+        {
+          "Camera": "CameraA",
+          "Laser": "Laser1",
+          "Enabled": true,
+          "ExcludedRegions": []
+        }
+      ],
+      "Exposure": {
+        "MinLaserOnTimeUs": 100,
+        "DefLaserOnTimeUs": 200,
+        "MaxLaserOnTimeUs": 1000,
+        "MinExposureTimeUs": 10000,
+        "DefExposureTimeUs": 500000,
+        "MaxExposureTimeUs": 1000000,
+        "LaserDetectionThreshold": 120,
+        "SaturationThreshold": 500,
+        "SaturationPercentage": 100
+      }
+    }
+  ],
+  "PhaseTableEntries": [
+    {
+      "Id": 0,
+      "Phase": 0,
+      "Camera": "CameraA",
+      "Laser": "Laser1"
+    },
+    {
+      "Id": 0,
+      "Phase": 1,
+      "Camera": "CameraB",
+      "Laser": "Laser1"
+    }
+  ],
+  "JsSetup": {
+    "Version": "16.2.0",
+    "Name": "Default",
+    "DefaultFixture": "Lines (mm)"
+  }
+}

@@ -1,0 +1,42 @@
+m_environment:
+  m_backgroundColor: [1, 1, 1]
+  m_environmentGamma: 2.20000005
+  m_ambientLightIntensity: 0.800000012
+  m_environmentType: 0
+  m_environment:
+    m_assetHandle: 0
+    m_assetTypeName: ""
+m_mainCamera:
+  m_entityHandle: 0
+  m_privateComponentTypeName: Camera
+m_entityMetadataList:
+  - m_name: LogGrader
+    m_handle: 12298027176277425128
+    m_enabled: true
+    m_static: false
+    Root.Handle: 12298027176277425128
+    m_privateComponentElements:
+      - m_typeName: LogGrader
+        m_enabled: true
+m_systems:
+  []
+m_dataComponentStorages:
+  - m_entitySize: 130
+    m_chunkCapacity: 126
+    m_entityAliveCount: 1
+    m_dataComponentTypes:
+      - m_name: Transform
+        m_size: 64
+        m_offset: 0
+      - m_name: GlobalTransform
+        m_size: 64
+        m_offset: 64
+      - m_name: TransformUpdateFlag
+        m_size: 2
+        m_offset: 128
+    m_chunkArray:
+      - m_handle: 12298027176277425128
+        DataComponents:
+          - Data: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - Data: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - Data: !!binary "AAA="

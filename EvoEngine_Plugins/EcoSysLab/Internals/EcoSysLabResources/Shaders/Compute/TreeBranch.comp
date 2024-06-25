@@ -1,0 +1,182 @@
+
+/*
+in uvec3 gl_NumWorkGroups;
+in uvec3 gl_WorkGroupID;
+in uvec3 gl_LocalInvocationID;
+in uvec3 gl_GlobalInvocationID;
+in uint  gl_LocalInvocationIndex;
+*/
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct Branch
+{
+	vec4 startRadius;
+	vec4 endRadius;
+};
+
+struct Vertex
+{
+	vec3 m_position;
+	vec3 m_normal;
+	vec3 m_tangent;
+	vec3 m_color;
+	vec2 m_texCoord;
+};
+
+layout(std430, binding=0) buffer Branches
+{
+	Branch branch[];
+};
+
+layout(std430, binding=1) buffer TreeMeshVertices
+{
+	Vertex treeVertices[];
+};
+
+layout(std430, binding=2) buffer TreeIndices
+{
+	uint treeIndices[];
+};
+
+
+float pi = 3.1415926535897932384626433832795;
+
+
+void generate_vertices_for_circle(uint resolution, const uint v_off,
+	vec3 center, vec3 ax1, vec3 ax2, float radius, bool upside=true)
+{
+	const uint vertices_per_circle = resolution+1; // TODO: last vertex on the circle has to be doubled since it needs two different UVs
+	for(uint i=0; i<vertices_per_circle-1; ++i)
+	{
+		float angle = 2*pi / resolution * float(i);
+		treeVertices[v_off+i].m_position = center + sin(angle)*ax1*radius + cos(angle)*ax2*radius;
+		treeVertices[v_off+i].m_normal   = sin(angle)*ax1 + cos(angle)*ax2;
+
+		if(upside)
+			treeVertices[v_off+i].m_texCoord = vec2(float(i)/resolution, 0);
+		else
+			treeVertices[v_off+i].m_texCoord = vec2(float(i)/resolution, 1);
+	}
+	treeVertices[v_off+vertices_per_circle-1].m_position = center;
+	treeVertices[v_off+vertices_per_circle-1].m_texCoord = vec2(0, 1);
+	if(upside)
+		treeVertices[v_off+vertices_per_circle-1].m_normal = cross(ax1, ax2);
+	else
+		treeVertices[v_off+vertices_per_circle-1].m_normal = cross(ax2, ax1);
+}
+
+void generate_indices_for_circle(uint resolution, const uint v_off, const uint i_off, bool upside=true)
+{
+	for(uint i=0; i<resolution-1; ++i)
+	{
+		if(upside)
+		{
+			treeIndices[i_off+3*i + 0] = v_off+i+1;
+			treeIndices[i_off+3*i + 1] = v_off+i+0;
+		}
+		else
+		{
+			treeIndices[i_off+3*i + 0] = v_off+i+0;
+			treeIndices[i_off+3*i + 1] = v_off+i+1;
+		}
+		treeIndices[i_off+3*i + 2] = v_off+resolution;
+	}
+	// last triangle wraps around and uses first vertex again
+	if(upside)
+	{
+		treeIndices[i_off+3*(resolution-1) + 0] = v_off;
+		treeIndices[i_off+3*(resolution-1) + 1] = v_off + resolution-1;
+	}
+	else
+	{
+		treeIndices[i_off+3*(resolution-1) + 0] = v_off + resolution-1;
+		treeIndices[i_off+3*(resolution-1) + 1] = v_off;
+	}
+
+	treeIndices[i_off+3*(resolution-1) + 2] = v_off + resolution;
+}
+
+
+void main()
+{
+	const uint resolution = 12;
+	const uint vertices_per_circle = resolution+1;
+	const uint v_off = vertices_per_circle*2 * gl_GlobalInvocationID.x;
+	const uint i_off = (resolution*3*2 + resolution*3*2) * gl_GlobalInvocationID.x;
+
+	vec3 branch_start   = branch[gl_GlobalInvocationID.x].startRadius.xyz;
+	vec3 branch_end     = branch[gl_GlobalInvocationID.x].endRadius.xyz;
+	float radius_start  = branch[gl_GlobalInvocationID.x].startRadius.w;
+	float radius_end    = branch[gl_GlobalInvocationID.x].endRadius.w;
+
+	vec3 ax_main = normalize(branch_end - branch_start);
+	
+	// find two perpendicular directions
+	vec3 ax_tmp = vec3(1, 0, 0);
+	if( ax_main.yz == vec2(0, 0) )
+		ax_tmp = vec3(0, 1, 0);
+	vec3 ax1 = cross(ax_main, ax_tmp);
+	vec3 ax2 = cross(ax_main, ax1);
+	
+	generate_vertices_for_circle(resolution, v_off,                     branch_start, ax1, ax2, radius_start, false);
+	generate_vertices_for_circle(resolution, v_off+vertices_per_circle, branch_end,   ax1, ax2, radius_end,   true);
+	// lower circle
+	/*
+	for(uint i=0; i<vertices_per_circle-1; ++i)
+	{
+		float angle = 2*pi / resolution * float(i);
+		treeVertices[v_off+i].m_position = branch_start + sin(angle)*ax1*branch_radius + cos(angle)*ax2*branch_radius;
+		treeVertices[v_off+i].m_color    = vec3(1, float(i % 2), 0);
+	}
+	treeVertices[v_off+vertices_per_circle-1].m_position = branch_start;
+	treeVertices[v_off+vertices_per_circle-1].m_color    = vec3(0, 1, 0);
+
+	// upper circle
+	for(uint i=resolution+1; i<(2*vertices_per_circle-1); ++i)
+	{
+		float angle = 2*pi / resolution * float(i);
+		treeVertices[v_off+i].m_position = branch_end + sin(angle)*ax1*branch_radius + cos(angle)*ax2*branch_radius;
+		treeVertices[v_off+i].m_color    = vec3(1, float(i % 2), 0);
+	}
+	treeVertices[v_off+2*vertices_per_circle-1].m_position = branch_end;
+	treeVertices[v_off+2*vertices_per_circle-1].m_color    = vec3(0, 1, 0);
+	*/
+
+	/////////// Index buffer
+	
+	// zero everything
+	for(uint i = 0; i<(resolution*3*2 + resolution*3*2); ++i)
+		treeIndices[i_off + i] = 0;
+
+	// lower circle
+	generate_indices_for_circle(resolution, v_off, i_off, false);
+
+	// upper circle
+	generate_indices_for_circle(resolution, v_off + vertices_per_circle, i_off + resolution*3, true);
+
+
+
+	// side
+	uint i_off_sub = i_off + resolution*3*2;
+	uint v_off_lower = v_off;
+	uint v_off_upper = v_off+vertices_per_circle;
+	for(uint i=0; i<resolution-1; ++i)
+	{
+		treeIndices[i_off_sub+i*6 + 0] = v_off_lower+i + 1;
+		treeIndices[i_off_sub+i*6 + 1] = v_off_lower+i + 0;
+		treeIndices[i_off_sub+i*6 + 2] = v_off_upper+i + 0;
+		
+		treeIndices[i_off_sub+i*6 + 3] = v_off_lower+i + 1;
+		treeIndices[i_off_sub+i*6 + 4] = v_off_upper+i + 0;
+		treeIndices[i_off_sub+i*6 + 5] = v_off_upper+i + 1;
+	}
+
+	treeIndices[i_off_sub+(resolution-1)*6 + 0] = v_off_lower + 0;
+	treeIndices[i_off_sub+(resolution-1)*6 + 1] = v_off_lower + resolution-1;
+	treeIndices[i_off_sub+(resolution-1)*6 + 2] = v_off_upper + resolution-1;
+	
+	treeIndices[i_off_sub+(resolution-1)*6 + 3] = v_off_lower + 0;
+	treeIndices[i_off_sub+(resolution-1)*6 + 4] = v_off_upper + resolution-1;
+	treeIndices[i_off_sub+(resolution-1)*6 + 5] = v_off_upper + 0;
+}

@@ -1,0 +1,77 @@
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shader_draw_parameters : enable
+#extension GL_EXT_control_flow_attributes : require
+
+const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * EXT_MESH_SUBGROUP_SIZE;
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+layout(triangles) out;
+layout(max_vertices = MESHLET_MAX_VERTICES_SIZE, max_primitives = MESHLET_MAX_TRIANGLES_SIZE) out;
+
+const uint MESHLET_VERTEX_ITERATIONS    = ((MESHLET_MAX_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint MESHLET_PRIMITIVE_ITERATIONS = ((MESHLET_MAX_TRIANGLES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+layout(location = 0) out MS_V_OUT {
+	vec3 FragPos;
+	vec3 Normal;
+	vec3 Tangent;
+	vec2 TexCoord;
+} ms_v_out[];
+
+struct Task{
+	uint	instanceIndex;
+	uint	baseID;
+	uint8_t	deltaIDs[EXT_MESHLET_PER_TASK];
+};
+
+taskPayloadSharedEXT Task ts_in;
+// gl_WorkGroupID.x runs from [0 .. parentTask.groupCountX - 1]
+uint meshletID = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
+uint laneID = gl_LocalInvocationID.x;
+
+layout(location = 5) out flat uint currentInstanceIndex[];
+
+void main()
+{
+	uint instanceIndex = ts_in.instanceIndex;
+	
+	mat4 model = EE_INSTANCES[instanceIndex].model;
+
+	Meshlet meshlet = EE_MESHLETS[meshletID];
+
+	uint verticesSize = meshlet.verticesSize;
+	uint triangleSize = meshlet.triangleSize;
+	SetMeshOutputsEXT(verticesSize, triangleSize);
+	mat4 projectionView = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
+	[[unroll]]
+	for (uint i = 0; i < uint(MESHLET_VERTEX_ITERATIONS); ++i)
+	{
+		uint vert = laneID + i * WORKGROUP_SIZE;
+
+		if ((WORKGROUP_SIZE * MESHLET_VERTEX_ITERATIONS > MESHLET_MAX_VERTICES_SIZE) && vert >= MESHLET_MAX_VERTICES_SIZE) break;
+
+		Vertex v = EE_VERTEX_DATA_CHUNKS[meshletID].vertices[vert];
+		vec3 N = normalize(vec3(model * vec4(v.normal.xyz, 0.0)));
+		vec3 T = normalize(vec3(model * vec4(v.tangent.xyz, 0.0)));
+		// re-orthogonalize T with respect to N
+		T = normalize(T - dot(T, N) * N);
+		ms_v_out[vert].FragPos =	vec3(model * vec4(v.position.xyz, 1.0));
+		ms_v_out[vert].Normal = N;
+		ms_v_out[vert].Tangent = T;
+		ms_v_out[vert].TexCoord = v.tex_coord.xy;
+		gl_MeshVerticesEXT[vert].gl_Position = projectionView * vec4(ms_v_out[vert].FragPos, 1.0);
+		currentInstanceIndex[vert] = instanceIndex;
+	}
+	[[unroll]]
+	for (uint i = 0; i < uint(MESHLET_PRIMITIVE_ITERATIONS); ++i)
+	{
+		uint prim = laneID + i * WORKGROUP_SIZE;
+		if(prim <= triangleSize){
+			gl_PrimitiveTriangleIndicesEXT[prim] = 
+				uvec3(
+					meshlet.indices[prim * 3],
+					meshlet.indices[prim * 3 + 1],
+					meshlet.indices[prim * 3 + 2]);
+		}
+	}
+}

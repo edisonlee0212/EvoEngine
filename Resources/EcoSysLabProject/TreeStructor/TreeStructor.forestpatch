@@ -1,0 +1,22 @@
+m_gridDistance: [1, 1]
+m_positionOffsetMean: [0.400000006, 0.400000006]
+m_positionOffsetVariance: [0, 0]
+m_rotationOffsetVariance: [0, 0, 0]
+m_minLowBranchPruning: 0.150000006
+m_maxLowBranchPruning: 0.300000012
+m_simulationTime: 9
+m_startTimeMax: 1
+m_treeDescriptor:
+  m_assetHandle: 9246494936330300409
+  m_assetTypeName: TreeDescriptor
+m_simulationSettings:
+  m_deltaTime: 0.0821999982
+  m_soilSimulation: false
+  m_autoClearFruitAndLeaves: true
+  m_crownShynessDistance: 0.0500000007
+  m_maxNodeCount: 0
+  m_skylightIntensity: 1
+  m_shadowDistanceLoss: 1
+  m_detectionRadius: 0.5
+  m_environmentLightIntensity: 0.00999999978
+  m_blurIteration: 0

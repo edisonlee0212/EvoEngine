@@ -1,0 +1,47 @@
+m_capacity:
+  m_minMax: [-1000, 1000]
+  m_noiseDescriptors:
+    []
+m_permeability:
+  m_minMax: [-1000, 1000]
+  m_noiseDescriptors:
+    []
+m_density:
+  m_minMax: [-1000, 1000]
+  m_noiseDescriptors:
+    []
+m_initialNutrients:
+  m_minMax: [-1000, 1000]
+  m_noiseDescriptors:
+    []
+m_initialWater:
+  m_minMax: [-1000, 1000]
+  m_noiseDescriptors:
+    []
+m_thickness:
+  m_minMax: [-1000, 1000]
+  m_noiseDescriptors:
+    - m_type: 0
+      m_frequency: 0.100000001
+      m_intensity: 1
+      m_multiplier: 1
+      m_min: -10
+      m_max: 10
+      m_offset: 0
+      m_shift: [0, 0, 0]
+      m_ridgid: false
+m_albedoTexture:
+  m_assetHandle: 0
+  m_assetTypeName: ""
+m_roughnessTexture:
+  m_assetHandle: 0
+  m_assetTypeName: ""
+m_metallicTexture:
+  m_assetHandle: 0
+  m_assetTypeName: ""
+m_normalTexture:
+  m_assetHandle: 0
+  m_assetTypeName: ""
+m_heightTexture:
+  m_assetHandle: 0
+  m_assetTypeName: ""
