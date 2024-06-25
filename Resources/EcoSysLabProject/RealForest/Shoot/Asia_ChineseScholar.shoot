@@ -1,0 +1,76 @@
+base_internode_count: 1
+straight_trunk: 0
+base_node_apical_angle_mean_variance: [0, 0]
+growth_rate: 0.200000003
+roll_angle:
+  asset_handle_: 0
+  asset_type_name_: ""
+apical_angle:
+  asset_handle_: 0
+  asset_type_name_: ""
+roll_angle_noise_2d:
+  min_max: [-1000, 1000]
+  noise_descriptors:
+    - type: 0
+      frequency: 0.100000001
+      intensity: 1
+      multiplier: 1
+      min: -10
+      max: 10
+      offset: 0
+      shift: [0, 0, 0]
+      ridgid: false
+apical_angle_noise_2d:
+  min_max: [-1000, 1000]
+  noise_descriptors:
+    - type: 0
+      frequency: 0.100000001
+      intensity: 1
+      multiplier: 1
+      min: -10
+      max: 10
+      offset: 0
+      shift: [0, 0, 0]
+      ridgid: false
+branching_angle_mean_variance: [75, 2]
+roll_angle_mean_variance: [0, 0]
+apical_angle_mean_variance: [0, 2]
+gravitropism: 0
+phototropism: 0.00999999978
+horizontal_tropism: 0.0299999993
+gravity_bending_strength: 0
+gravity_bending_thickness_factor: 1
+gravity_bending_max: 1
+internode_length: 0.0299999993
+internode_length_thickness_factor: 0.150000006
+end_node_thickness: 0.00200000009
+thickness_accumulation_factor: 0.449999988
+thickness_age_factor: 9.99999975e-06
+internode_shadow_factor: 0.00999999978
+lateral_bud_count: 2
+max_order: -1
+apical_bud_extinction_rate: 0
+lateral_bud_flushing_rate: 0.200000003
+apical_control: 0.970000029
+height_control: 0
+root_distance_control: -2
+apical_dominance: 1
+apical_dominance_loss: 0.0500000007
+trunk_protection: false
+max_flow_length: 0
+light_pruning_factor: 0
+branch_strength: 1
+branch_strength_thickness_factor: 3
+branch_strength_lighting_threshold: 0.200000003
+branch_strength_lighting_loss: 0.899999976
+branch_breaking_factor: 1
+branch_breaking_multiplier: 1
+leaf_flushing_lighting_requirement: 0.100000001
+leaf_fall_probability: 3
+leaf_distance_to_branch_end_limit: 10
+fruit_flushing_lighting_requirement: 0.100000001
+fruit_fall_probability: 3
+fruit_distance_to_branch_end_limit: 0
+bark_material:
+  asset_handle_: 0
+  asset_type_name_: ""

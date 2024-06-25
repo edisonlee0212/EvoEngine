@@ -1,0 +1,45 @@
+[Header]
+ICOfile = "Topanga_Forest_B_thumb.jpg"
+PREVIEWfile = "Topanga_Forest_B_preview.jpg"
+Name = "Topanga Forest B"
+Author = "Blochi"
+Location = "Los Angeles"
+Comment = "between two ferns, old river bed, green jungle in the santa monica mountains"
+GEOlat = 34.0913581847222250
+GEOlong = -118.5415954588888900
+Link = "http://www.hdrlabs.com/sibl/archive.html"
+Date = "2009:07:10"
+Time = "14:00:00"
+Height = 1.600000
+
+[Background]
+BGfile = "Topanga_Forest_B_8k.jpg"
+BGmap = 1
+BGu = 0.000000
+BGv = 0.000000
+BGheight = 4096
+
+[Enviroment]
+EVfile = "Topanga_Forest_B_Env.hdr"
+EVmap = 1
+EVu = 0.000000
+EVv = 0.000000
+EVheight = 180
+EVmulti = 1.000000
+EVgamma = 1.600000
+
+[Reflection]
+REFfile = "Topanga_Forest_B_3k.hdr"
+REFmap = 1
+REFu = 0.000000
+REFv = 0.000000
+REFheight = 1600
+REFmulti = 1.000000
+REFgamma = 1.600000
+
+[Sun]
+SUNcolor = 254,239,205
+SUNmulti = 1.049993
+SUNu = 0.988000
+SUNv = 0.092000
+

@@ -1,0 +1,139 @@
+environment:
+  background_color: [1, 1, 1]
+  environment_gamma: 2.20000005
+  ambient_light_intensity: 0.800000012
+  environment_type: 0
+  environmental_map:
+    asset_handle_: 0
+    asset_type_name_: ""
+main_camera:
+  entity_handle_: 594487307992612524
+  private_component_type_name_: Camera
+entity_metadata_list:
+  - n: Main Camera
+    h: 594487307992612524
+    e: true
+    s: false
+    r: 594487307992612524
+    pc:
+      - tn: Camera
+        e: true
+        x: 1
+        y: 1
+        use_clear_color: false
+        clear_color: [0, 0, 0]
+        near_distance: 0.100000001
+        far_distance: 200
+        fov: 120
+        background_intensity: 1
+        skybox:
+          asset_handle_: 77
+          asset_type_name_: Texture2D
+        post_processing_stack:
+          asset_handle_: 0
+          asset_type_name_: ""
+  - n: Directional Light
+    h: 4980998256074025614
+    e: true
+    s: false
+    r: 4980998256074025614
+    pc:
+      - tn: DirectionalLight
+        e: true
+        cast_shadow: true
+        bias: 0.100000001
+        diffuse: [1, 1, 1]
+        diffuse_brightness: 1
+        light_size: 0.00999999978
+        normal_offset: 0.0500000007
+  - n: PlayGround
+    h: 1555701816245088991
+    e: true
+    s: false
+    r: 1555701816245088991
+    pc:
+      - tn: Soil
+        e: true
+        soil_descriptor:
+          asset_handle_: 3687705187368430382
+          asset_type_name_: SoilDescriptor
+  - n: Climate
+    h: 14400056215606250942
+    e: true
+    s: false
+    r: 14400056215606250942
+    pc:
+      - tn: Climate
+        e: true
+        climate_descriptor:
+          asset_handle_: 18020656765688137943
+          asset_type_name_: ClimateDescriptor
+  - n: TreeStructor
+    h: 16181465756841632068
+    e: true
+    s: false
+    r: 16181465756841632068
+    pc:
+      - tn: TreeStructor
+        e: true
+        tree_descriptor:
+          asset_handle_: 11433142983488560832
+          asset_type_name_: TreeDescriptor
+  - n: BBCloud Converter
+    h: 2634850789993334228
+    e: true
+    s: false
+    r: 2634850789993334228
+    pc:
+      - tn: BillboardCloudsConverter
+        e: true
+systems_:
+  - type_name: PhysicsSystem
+    enabled_: true
+    rank_: 1
+    handle_: 15921670767449097606
+data_component_storage_list:
+  - entity_size: 130
+    chunk_capacity: 126
+    entity_alive_count: 6
+    data_component_types:
+      - type_name: Transform
+        type_size: 64
+        type_offset: 0
+      - type_name: GlobalTransform
+        type_size: 64
+        type_offset: 64
+      - type_name: TransformUpdateFlag
+        type_size: 2
+        type_offset: 128
+    chunk_array:
+      - h: 594487307992612524
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAoEAAACBBAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAoEAAACBBAACAPw=="
+          - d: !!binary "AAE="
+      - h: 4980998256074025614
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIAz//9/PwAAAAAAAAAA//9/vwAAgDMAAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIAz//9/PwAAAAAAAAAA//9/vwAAgDMAAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAE="
+      - h: 1555701816245088991
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAA="
+      - h: 14400056215606250942
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAA="
+      - h: 16181465756841632068
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAA="
+      - h: 2634850789993334228
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAA="

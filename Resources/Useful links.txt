@@ -1,0 +1,2 @@
+https://community.arm.com/developer/tools-software/graphics/b/blog/posts/multi-threading-in-vulkan
+https://software.intel.com/content/www/cn/zh/develop/articles/api-without-secrets-introduction-to-vulkan-preface.html

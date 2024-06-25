@@ -1,0 +1,7 @@
+bark_x_frequency: 3
+bark_y_frequency: 5
+bark_depth: 0.200000003
+base_frequency: 1
+base_max_distance: 1
+base_distance_decrease_factor: 2
+base_depth: 0.400000006

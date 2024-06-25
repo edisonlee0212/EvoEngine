@@ -1,0 +1,49 @@
+m_precisionLevel: 4
+m_noises2D:
+  m_minMax: [-1000, 1000]
+  m_noiseDescriptors:
+    - m_type: 2
+      m_frequency: 1
+      m_intensity: 1
+      m_multiplier: 0.0199999996
+      m_min: -10
+      m_max: 10
+      m_offset: 0
+      m_shift: [0, 0, 0]
+      m_ridgid: true
+    - m_type: 2
+      m_frequency: 8
+      m_intensity: 1
+      m_multiplier: 0.00999999978
+      m_min: -10
+      m_max: 10
+      m_offset: 0
+      m_shift: [0, 0, 0]
+      m_ridgid: false
+    - m_type: 2
+      m_frequency: 0.0500000007
+      m_intensity: 1
+      m_multiplier: 1
+      m_min: -10
+      m_max: 10
+      m_offset: 0
+      m_shift: [0, 0, 0]
+      m_ridgid: false
+    - m_type: 2
+      m_frequency: 0.5
+      m_intensity: 1
+      m_multiplier: 0.150000006
+      m_min: -10
+      m_max: 10
+      m_offset: 0
+      m_shift: [0, 0, 0]
+      m_ridgid: false
+    - m_type: 2
+      m_frequency: 0.200000003
+      m_intensity: 1
+      m_multiplier: 0.200000003
+      m_min: -10
+      m_max: 10
+      m_offset: 0
+      m_shift: [0, 0, 0]
+      m_ridgid: false

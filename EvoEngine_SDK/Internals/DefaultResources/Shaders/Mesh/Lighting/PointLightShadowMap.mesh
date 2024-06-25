@@ -1,0 +1,44 @@
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shader_draw_parameters : enable
+layout(local_size_x = 1) in;
+layout(triangles) out;
+layout(max_vertices = MESHLET_MAX_VERTICES_SIZE, max_primitives = MESHLET_MAX_TRIANGLES_SIZE) out;
+
+struct Task{
+	uint instanceIndex;
+	uint meshletOffset;
+};
+
+taskPayloadSharedEXT Task ts_in;
+
+void main()
+{
+	uint instanceIndex = ts_in.instanceIndex;
+	uint meshletIndex = ts_in.meshletOffset + gl_WorkGroupID.x;
+
+	mat4 model = EE_INSTANCES[instanceIndex].model;
+
+	Meshlet meshlet = EE_MESHLETS[meshletIndex];
+
+	uint verticesSize = meshlet.verticesSize;
+	uint triangleSize = meshlet.triangleSize;
+	uint chunkIndex = meshletIndex;
+
+	SetMeshOutputsEXT(verticesSize, triangleSize);
+
+	for (uint i = 0; i < verticesSize; ++i)
+	{
+		Vertex v = EE_VERTEX_DATA_CHUNKS[chunkIndex].vertices[i];
+		gl_MeshVerticesEXT[i].gl_Position = 
+			EE_POINT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX] * model * vec4(v.position.xyz, 1.0);
+	}
+
+	for (uint i = 0; i < triangleSize; ++i)
+	{
+		gl_PrimitiveTriangleIndicesEXT[i] = 
+			uvec3(
+				meshlet.indices[i * 3],
+				meshlet.indices[i * 3 + 1],
+				meshlet.indices[i * 3 + 2]);
+	}
+}

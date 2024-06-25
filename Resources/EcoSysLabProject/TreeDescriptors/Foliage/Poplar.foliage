@@ -1,0 +1,13 @@
+leaf_size: [0.0199999996, 0.100000001]
+leaf_count_per_internode: 3
+position_variance: 0.0500000007
+rotation_variance: 0.300000012
+branching_angle: 15
+max_node_thickness: 1
+min_root_distance: 0
+max_end_distance: 9
+horizontal_tropism: 0
+gravitropism: 0
+leaf_material:
+  asset_handle_: 0
+  asset_type_name_: ""

@@ -1,0 +1,22 @@
+grid_distance: [0.75, 0.75]
+position_offset_mean: [0.5, 0.5]
+position_offset_variance: [0, 0]
+rotation_offset_variance: [0, 0, 0]
+min_low_branch_pruning: 0
+max_low_branch_pruning: 0
+simulation_time: 8
+start_time_max: 3
+tree_descriptor:
+  asset_handle_: 11398769019857713664
+  asset_type_name_: TreeDescriptor
+simulation_settings:
+  delta_time: 0.0821999982
+  soil_simulation: false
+  auto_clear_fruit_and_leaves: true
+  crown_shyness_distance: 0.150000006
+  max_node_count: 0
+  skylight_intensity: 1
+  shadow_distance_loss: 1
+  detection_radius: 0.5
+  environment_light_intensity: 0.00999999978
+  blur_iteration: 0

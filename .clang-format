@@ -1,0 +1,45 @@
+Language: Cpp
+BasedOnStyle: Google
+ColumnLimit: 120
+
+# Force pointers aligned to the type
+DerivePointerAlignment: true
+
+# Align pointer to the left next to the type
+PointerAlignment: Left
+
+# Only sort headers in each include block
+SortIncludes: true
+IncludeBlocks: Preserve
+
+# Indents directives after the hash.
+#   #if defined(WIN)
+#   #  include <windows.h>
+#   #else
+#   #  include <curl.h>
+#   #endif
+IndentPPDirectives: AfterHash
+
+# no special treatment for foreach statement.
+ForEachMacros: ['']
+
+# two spaces in front of "//"
+SpacesBeforeTrailingComments: 2
+
+# Disable merging short lambdas(one liner for example) fitting on a single line
+AllowShortLambdasOnASingleLine: None
+
+# Disable merging short block (like "while (x) { y; }") fitting on a single line
+AllowShortBlocksOnASingleLine: Never
+
+# Disable merging short case (like "case 1: x = 1; break;") fitting on a single line
+AllowShortCaseLabelsOnASingleLine: false
+
+# Disable merging short function (like "int f() { return 0; }") fitting on a single line
+AllowShortFunctionsOnASingleLine: None
+
+# Disable merging short if (like "if (x) return;") fitting on a single line
+AllowShortIfStatementsOnASingleLine: Never
+
+# Disable merging short loop (like "while (x) continue;") fitting on a single line
+AllowShortLoopsOnASingleLine: false

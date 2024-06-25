@@ -1,0 +1,17 @@
+m_environment:
+  m_backgroundColor: [1, 1, 1]
+  m_environmentGamma: 2.20000005
+  m_ambientLightIntensity: 0.800000012
+  m_environmentType: 0
+  m_environment:
+    m_assetHandle: 0
+    m_assetTypeName: ""
+m_mainCamera:
+  m_entityHandle: 0
+  m_privateComponentTypeName: ""
+m_entityMetadataList:
+  []
+m_systems:
+  []
+m_dataComponentStorages:
+  []

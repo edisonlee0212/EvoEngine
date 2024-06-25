@@ -1,0 +1,15 @@
+shoot_descriptor:
+  asset_handle_: 5455210738745733711
+  asset_type_name_: ShootDescriptor
+foliage_descriptor:
+  asset_handle_: 15695656714071605862
+  asset_type_name_: FoliageDescriptor
+bark_descriptor:
+  asset_handle_: 14533734447200540296
+  asset_type_name_: BarkDescriptor
+fruit_descriptor:
+  asset_handle_: 0
+  asset_type_name_: ""
+flower_descriptor:
+  asset_handle_: 0
+  asset_type_name_: ""
