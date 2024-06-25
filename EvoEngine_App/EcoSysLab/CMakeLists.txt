@@ -5,7 +5,7 @@ if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR} AND EVOENGINE_PLUGIN_ECOS
 		set(DEFAULT_PROJECT_DEF ECOSYSLAB_DEFAULT_PROJECT_FOLDER=\"${DEFAULT_PROJECT_DIR}\")
 
 		add_executable(EcoSysLabApp
-			src/EcoSysLabApp.cpp)
+			EcoSysLabApp.cpp)
 		
 		target_compile_definitions(EcoSysLabApp
 			PRIVATE
@@ -30,5 +30,71 @@ if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR} AND EVOENGINE_PLUGIN_ECOS
 
 		file(COPY imgui.ini DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 		evoengine_copy_resources(EcoSysLabApp ${CMAKE_CURRENT_BINARY_DIR})
+	endif ()
+
+	option(DATASET_GENERATOR_APPLICATION "Build DatasetGenerator application" ON)
+	if(DATASET_GENERATOR_APPLICATION)
+		set(DEFAULT_PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Resources/EcoSysLabProject/)
+		set(DEFAULT_PROJECT_DEF DATASET_GENERATOR_DEFAULT_PROJECT_FOLDER=\"${DEFAULT_PROJECT_DIR}\")
+
+		add_executable(DatasetGeneratorApp
+			DatasetGeneratorApp.cpp)
+		
+		target_compile_definitions(DatasetGeneratorApp
+			PRIVATE
+			${DEFAULT_PROJECT_DEF}
+			${EVOENGINE_DEFS}
+			)
+		target_include_directories(DatasetGeneratorApp
+			PRIVATE
+			${EVOENGINE_INCLUDES}
+			)
+
+		target_precompile_headers(DatasetGeneratorApp
+			PRIVATE
+			${EVOENGINE_PCHS}
+			)
+
+		target_link_libraries(DatasetGeneratorApp
+			PRIVATE
+			EvoEngine_SDK
+			${EvoEngine_Plugins}
+			)
+
+		file(COPY imgui.ini DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+		evoengine_copy_resources(DatasetGeneratorApp ${CMAKE_CURRENT_BINARY_DIR})
+	endif ()
+
+	option(LOG_GRADER_APPLICATION "Build LogGrader application" ON)
+	if(LOG_GRADER_APPLICATION)
+		set(DEFAULT_PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Resources/EcoSysLabProject/)
+		set(DEFAULT_PROJECT_DEF LOG_GRADER_DEFAULT_PROJECT_FOLDER=\"${DEFAULT_PROJECT_DIR}\")
+
+		add_executable(LogGraderApp
+			LogGraderApp.cpp)
+		
+		target_compile_definitions(LogGraderApp
+			PRIVATE
+			${DEFAULT_PROJECT_DEF}
+			${EVOENGINE_DEFS}
+			)
+		target_include_directories(LogGraderApp
+			PRIVATE
+			${EVOENGINE_INCLUDES}
+			)
+
+		target_precompile_headers(LogGraderApp
+			PRIVATE
+			${EVOENGINE_PCHS}
+			)
+
+		target_link_libraries(LogGraderApp
+			PRIVATE
+			EvoEngine_SDK
+			${EvoEngine_Plugins}
+			)
+
+		file(COPY imgui.ini DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+		evoengine_copy_resources(LogGraderApp ${CMAKE_CURRENT_BINARY_DIR})
 	endif ()
 endif ()
