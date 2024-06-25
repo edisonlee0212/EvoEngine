@@ -334,7 +334,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
       ClassRegistry::RegisterPrivateComponent<PlanetTerrain>("PlanetTerrain");
 
       application_info.project_path = resource_folder_path / "Example Projects/Planet/Planet.eveproj";
-      ProjectManager::SetActionAfterSceneLoad([&](const std::shared_ptr<Scene>& scene) {
+      ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
 #pragma region Preparations
         const auto main_camera = scene->main_camera.Get<Camera>();
         main_camera->Resize({640, 480});
