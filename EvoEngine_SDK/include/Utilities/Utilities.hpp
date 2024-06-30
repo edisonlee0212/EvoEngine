@@ -1,6 +1,6 @@
 #pragma once
 #include <shaderc/shaderc.hpp>
-
+#include "RandomSampler.hpp"
 namespace evo_engine {
 class FileUtils {
  public:

@@ -4,16 +4,16 @@
 using namespace evo_engine;
 
 glm::vec3 Bound::Size() const {
-  return (max - min) / 2.0f;
+  return (max - min) * .5f;
 }
 
 glm::vec3 Bound::Center() const {
-  return (max + min) / 2.0f;
+  return (max + min) * .5f;
 }
 
 bool Bound::InBound(const glm::vec3& position) const {
-  const glm::vec3 center = (min + max) / 2.0f;
-  const glm::vec3 size = (max - min) / 2.0f;
+  const glm::vec3 center = (min + max) * .5f;
+  const glm::vec3 size = (max - min) * .5f;
   if (glm::abs(position.x - center.x) > size.x)
     return false;
   if (glm::abs(position.y - center.y) > size.y)
@@ -29,12 +29,12 @@ void Bound::ApplyTransform(const glm::mat4& transform) {
   min = glm::vec3(FLT_MAX);
   max = glm::vec3(-FLT_MAX);
 
-  // Transform all of the corners, and keep track of the greatest and least
+  // Transform all the corners, and keep track of the greatest and least
   // values we see on each coordinate axis.
   for (int i = 0; i < 8; i++) {
     glm::vec3 transformed = transform * glm::vec4(corners[i], 1.0f);
-    min = (glm::min)(min, transformed);
-    max = (glm::max)(max, transformed);
+    min = glm::min(min, transformed);
+    max = glm::max(max, transformed);
   }
 }
 

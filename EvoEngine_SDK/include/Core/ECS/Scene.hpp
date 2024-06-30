@@ -1344,7 +1344,7 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   const auto capacity = storage.chunk_capacity;
   const auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array, &entities](unsigned i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
     auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
@@ -1378,7 +1378,7 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   const auto capacity = storage.chunk_capacity;
   const auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array, &entities](unsigned i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
     auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
@@ -1417,7 +1417,7 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   const auto capacity = storage.chunk_capacity;
   const auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array, &entities](unsigned i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
     auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
@@ -1463,7 +1463,7 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   const auto capacity = storage.chunk_capacity;
   const auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array, &entities](unsigned i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
     auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
@@ -1516,7 +1516,7 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   const auto capacity = storage.chunk_capacity;
   const auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array, &entities](unsigned i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
     auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
@@ -1575,7 +1575,7 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   const auto capacity = storage.chunk_capacity;
   const auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array, &entities](unsigned i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
     auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
@@ -1640,7 +1640,7 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   const auto capacity = storage.chunk_capacity;
   const auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array, &entities](unsigned i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
     auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
@@ -1711,7 +1711,7 @@ JobHandle Scene::ForEachStorage(
   const auto capacity = storage.chunk_capacity;
   const auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array, &entities](unsigned i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
     auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);

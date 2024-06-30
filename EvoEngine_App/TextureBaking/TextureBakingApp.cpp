@@ -1,12 +1,10 @@
 #include "AnimationPlayer.hpp"
 #include "Application.hpp"
 #include "ClassRegistry.hpp"
+#include "CpuRayTracer.hpp"
 #include "CpuRayTracerCamera.hpp"
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
-#include "PlanetTerrainSystem.hpp"
-#include "StarClusterSystem.hpp"
-#include "PerlinNoiseStage.hpp"
 #include "PlayerController.hpp"
 #include "Prefab.hpp"
 #include "RenderLayer.hpp"
@@ -14,6 +12,8 @@
 #include "WindowLayer.hpp"
 
 #include "PostProcessingStack.hpp"
+
+#include "MeshColoring.hpp"
 
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 #include <CUDAModule.hpp>
@@ -25,8 +25,7 @@
 
 #endif
 using namespace evo_engine;
-using namespace planet;
-using namespace Galaxy;
+
 #pragma region Helpers
 #ifdef PHYSICS_PLUGIN
 Entity CreateDynamicCube(const float& mass, const glm::vec3& color, const glm::vec3& position,
@@ -48,14 +47,14 @@ Entity CreateSphere(const glm::vec3& color, const glm::vec3& position, const glm
                     const std::string& name);
 #endif
 
-enum class DemoSetup { Empty, Rendering, Galaxy, Planets };
+enum class DemoSetup { Empty, Rendering };
 Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name, bool add_spheres);
 void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info);
 Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name);
 #pragma endregion
 
 int main() {
-  constexpr DemoSetup demo_setup = DemoSetup::Rendering;
+  constexpr DemoSetup demo_setup = DemoSetup::Empty;
   Application::PushLayer<WindowLayer>();
   Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
@@ -66,10 +65,13 @@ int main() {
 #ifdef PHYSICS_PLUGIN
   Application::PushLayer<PhysicsLayer>();
 #endif
-  
+
 #ifdef CPU_RAY_TRACER_PLUGIN
   ClassRegistry::RegisterPrivateComponent<CpuRayTracerCamera>("CpuRayTracerCamera");
 #endif
+
+  ClassRegistry::RegisterPrivateComponent<MeshColoring>("MeshColoring");
+
   ApplicationInfo application_info;
   SetupDemoScene(demo_setup, application_info);
 
@@ -315,145 +317,6 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
           last_frame_playing = Application::IsPlaying();
         });
 #pragma endregion
-      });
-    } break;
-    case DemoSetup::Galaxy: {
-      application_info.application_name = "Galaxy Demo";
-      ClassRegistry::RegisterSystem<StarClusterSystem>("StarClusterSystem");
-      application_info.project_path = resource_folder_path / "Example Projects/Galaxy/Galaxy.eveproj";
-      ProjectManager::SetActionAfterSceneLoad([&](const std::shared_ptr<Scene>& scene) {
-        const auto main_camera = scene->main_camera.Get<Camera>();
-        main_camera->Resize({640, 480});
-        const auto main_camera_entity = main_camera->GetOwner();
-        scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
-#pragma region Star System
-        auto star_cluster_system = scene->GetOrCreateSystem<StarClusterSystem>(SystemGroup::SimulationSystemGroup);
-#pragma endregion
-        main_camera->use_clear_color = true;
-      });
-    } break;
-    case DemoSetup::Planets: {
-      application_info.application_name = "Planets Demo";
-      ClassRegistry::RegisterSystem<PlanetTerrainSystem>("PlanetTerrainSystem");
-      ClassRegistry::RegisterPrivateComponent<PlanetTerrain>("PlanetTerrain");
-
-      application_info.project_path = resource_folder_path / "Example Projects/Planet/Planet.eveproj";
-      ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
-#pragma region Preparations
-        const auto main_camera = scene->main_camera.Get<Camera>();
-        main_camera->Resize({640, 480});
-        const auto main_camera_entity = main_camera->GetOwner();
-        auto main_camera_transform = scene->GetDataComponent<Transform>(main_camera_entity);
-        main_camera_transform.SetPosition(glm::vec3(0, -4, 25));
-        scene->SetDataComponent(main_camera_entity, main_camera_transform);
-        scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
-        // auto postProcessing = scene->GetOrSetPrivateComponent<PostProcessing>(mainCameraEntity).lock();
-
-        const auto surface_material = ProjectManager::CreateTemporaryAsset<Material>();
-        const auto border_texture =
-            std::dynamic_pointer_cast<Texture2D>(ProjectManager::GetOrCreateAsset("Textures/border.png"));
-        surface_material->SetAlbedoTexture(border_texture);
-
-        auto pts = scene->GetOrCreateSystem<planet::PlanetTerrainSystem>(SystemGroup::SimulationSystemGroup);
-
-        pts->Enable();
-
-        PlanetInfo pi;
-        Transform planet_transform;
-
-        planet_transform.SetPosition(glm::vec3(0.0f, 0.0f, 0.0f));
-        planet_transform.SetEulerRotation(glm::vec3(0.0f));
-        pi.max_lod_level = 8;
-        pi.lod_distance = 7.0;
-        pi.radius = 10.0;
-        pi.index = 0;
-        pi.resolution = 8;
-
-        // Serialization not implemented.
-
-        auto planet1 = scene->CreateEntity("Planet 1");
-        const auto planet_terrain1 = scene->GetOrSetPrivateComponent<PlanetTerrain>(planet1).lock();
-        planet_terrain1->terrain_construction_stages.emplace_back(std::make_shared<PerlinNoiseStage>());
-        planet_terrain1->surface_material = surface_material;
-        planet_terrain1->SetPlanetInfo(pi);
-        scene->SetDataComponent(planet1, planet_transform);
-        planet_transform.SetPosition(glm::vec3(35.0f, 0.0f, 0.0f));
-        pi.max_lod_level = 20;
-        pi.lod_distance = 7.0;
-        pi.radius = 15.0;
-        pi.index = 1;
-
-        auto planet2 = scene->CreateEntity("Planet 2");
-        const auto planet_terrain2 = scene->GetOrSetPrivateComponent<PlanetTerrain>(planet2).lock();
-        planet_terrain2->surface_material = surface_material;
-        planet_terrain2->SetPlanetInfo(pi);
-        scene->SetDataComponent(planet2, planet_transform);
-        planet_transform.SetPosition(glm::vec3(-20.0f, 0.0f, 0.0f));
-        pi.max_lod_level = 4;
-        pi.lod_distance = 7.0;
-        pi.radius = 5.0;
-        pi.index = 2;
-
-        auto planet3 = scene->CreateEntity("Planet 3");
-        const auto planet_terrain3 = scene->GetOrSetPrivateComponent<PlanetTerrain>(planet3).lock();
-        planet_terrain3->surface_material = surface_material;
-        planet_terrain3->SetPlanetInfo(pi);
-        scene->SetDataComponent(planet3, planet_transform);
-#pragma endregion
-
-#pragma region Lights
-        const auto shared_mat = ProjectManager::CreateTemporaryAsset<Material>();
-        Transform ltw;
-
-        Entity dle = scene->CreateEntity("Directional Light");
-        auto dlc = scene->GetOrSetPrivateComponent<DirectionalLight>(dle).lock();
-        dlc->diffuse = glm::vec3(1.0f);
-        ltw.SetScale(glm::vec3(0.5f));
-
-        Entity ple = scene->CreateEntity("Point Light 1");
-        auto plmmc = scene->GetOrSetPrivateComponent<MeshRenderer>(ple).lock();
-        plmmc->mesh = Resources::GetResource<Mesh>("PRIMITIVE_SPHERE");
-        plmmc->material.Set<Material>(shared_mat);
-        auto plc = scene->GetOrSetPrivateComponent<PointLight>(ple).lock();
-        plc->constant = 1.0f;
-        plc->linear = 0.09f;
-        plc->quadratic = 0.032f;
-        plc->diffuse = glm::vec3(1.0f);
-        plc->diffuse_brightness = 5;
-
-        scene->SetDataComponent(ple, ltw);
-
-        Entity ple2 = scene->CreateEntity("Point Light 2");
-        auto plc2 = scene->GetOrSetPrivateComponent<PointLight>(ple2).lock();
-        plc2->constant = 1.0f;
-        plc2->linear = 0.09f;
-        plc2->quadratic = 0.032f;
-        plc2->diffuse = glm::vec3(1.0f);
-        plc2->diffuse_brightness = 5;
-
-        scene->SetDataComponent(ple2, ltw);
-        scene->SetEntityName(ple2, "Point Light 2");
-        auto plmmc2 = scene->GetOrSetPrivateComponent<MeshRenderer>(ple2).lock();
-        plmmc2->mesh = Resources::GetResource<Mesh>("PRIMITIVE_SPHERE");
-        plmmc2->material.Set<Material>(shared_mat);
-
-#pragma endregion
-        Application::RegisterLateUpdateFunction([=]() {
-          auto scene = Application::GetActiveScene();
-          Transform ltw;
-          ltw.SetScale(glm::vec3(0.5f));
-#pragma region LightsPosition
-          ltw.SetPosition(glm::vec4(
-              glm::vec3(0.0f, 20.0f * glm::sin(Times::Now() / 2.0f), -20.0f * glm::cos(Times::Now() / 2.0f)), 0.0f));
-          scene->SetDataComponent(dle, ltw);
-          ltw.SetPosition(glm::vec4(
-              glm::vec3(-20.0f * glm::cos(Times::Now() / 2.0f), 20.0f * glm::sin(Times::Now() / 2.0f), 0.0f), 0.0f));
-          scene->SetDataComponent(ple, ltw);
-          ltw.SetPosition(glm::vec4(
-              glm::vec3(20.0f * glm::cos(Times::Now() / 2.0f), 15.0f, 20.0f * glm::sin(Times::Now() / 2.0f)), 0.0f));
-          scene->SetDataComponent(ple2, ltw);
-#pragma endregion
-        });
       });
     } break;
     default: {

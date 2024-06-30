@@ -1,5 +1,5 @@
 #pragma once
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 
 #  include <CUDAModule.hpp>
 using namespace evo_engine;

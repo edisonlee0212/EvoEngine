@@ -3,7 +3,7 @@
 //
 
 #include "CBTFImporter.hpp"
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include "CompressedBTF.hpp"
 #endif
 
@@ -65,7 +65,7 @@ void eco_sys_lab::CBTFImporter::Update() {
   }
   auto path = m_importFolders.back();
   m_importFolders.pop_back();
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
   auto asset = ProjectManager::CreateTemporaryAsset<CompressedBTF>();
   asset->ImportFromFolder(path);
   asset->Export(m_currentExportFolder.string() + "\\" + path.filename().string() + ".cbtf");

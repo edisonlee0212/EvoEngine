@@ -4,7 +4,7 @@ namespace evo_engine {
 struct PointCloudSample;
 struct HitInfo;
 
-#ifndef BUILD_WITH_RAYTRACER
+#ifndef OPTIX_RAY_TRACER_PLUGIN
 struct HitInfo {
   glm::vec3 position = glm::vec3(0.0f);
   glm::vec3 normal = glm::vec3(0.0f);

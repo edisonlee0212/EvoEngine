@@ -1,5 +1,5 @@
 #pragma once
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include <CUDAModule.hpp>
 #endif
 #include "ILayer.hpp"
@@ -12,7 +12,7 @@ class SorghumLayer : public ILayer {
   static void ObjExportHelper(glm::vec3 position, std::shared_ptr<Mesh> mesh, std::ofstream& of, unsigned& start_index);
 
  public:
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  pragma region Illumination
   int m_seed = 0;
   float push_distance = 0.001f;

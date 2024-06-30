@@ -12,7 +12,6 @@ struct GlobalTransform : IDataComponent {
   bool operator==(const GlobalTransform &other) const {
     return other.value == value;
   }
-#pragma region Get &set
   bool Decompose(glm::vec3 &translation, glm::vec3 &euler_angles, glm::vec3 &scale) const {
     using namespace glm;
     using T = float;
@@ -272,7 +271,12 @@ struct GlobalTransform : IDataComponent {
   void SetValue(const glm::vec3 &position, const glm::quat &rotation, const glm::vec3 &scale) {
     value = glm::translate(position) * glm::mat4_cast(rotation) * glm::scale(scale);
   }
-#pragma endregion
+  glm::vec3 TransformPoint(const glm::vec3 &point) const {
+    return value * glm::vec4(point, 1.f);
+  }
+  glm::vec3 TransformVector(const glm::vec3 &vector) const {
+    return value * glm::vec4(vector, 0.f);
+  }
 };
 struct Transform : IDataComponent {
   glm::mat4 value =
@@ -280,7 +284,6 @@ struct Transform : IDataComponent {
   bool operator==(const GlobalTransform &other) const {
     return other.value == value;
   }
-#pragma region Get &set
   bool Decompose(glm::vec3 &translation, glm::vec3 &euler_angles, glm::vec3 &scale) const {
     using namespace glm;
     using T = float;
@@ -540,6 +543,11 @@ struct Transform : IDataComponent {
   void SetValue(const glm::vec3 &position, const glm::quat &rotation, const glm::vec3 &scale) {
     value = glm::translate(position) * glm::mat4_cast(rotation) * glm::scale(scale);
   }
-#pragma endregion
+  glm::vec3 TransformPoint(const glm::vec3 &point) const {
+    return value * glm::vec4(point, 1.f);
+  }
+  glm::vec3 TransformVector(const glm::vec3 &vector) const {
+    return value * glm::vec4(vector, 0.f);
+  }
 };
 }  // namespace evo_engine

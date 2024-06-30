@@ -163,7 +163,7 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.inverse_projection = glm::inverse(camera_info_block.projection);
   camera_info_block.inverse_view = glm::inverse(camera_info_block.view);
   camera_info_block.inverse_projection_view =
-      glm::inverse(camera_info_block.projection) * glm::inverse(camera_info_block.view);
+      glm::inverse(camera_info_block.projection * camera_info_block.view);
   camera_info_block.reserved_parameters1 =
       glm::vec4(near_distance, far_distance, glm::tan(glm::radians(fov * 0.5f)), glm::tan(glm::radians(fov * 0.25f)));
   camera_info_block.clear_color = glm::vec4(clear_color, background_intensity);

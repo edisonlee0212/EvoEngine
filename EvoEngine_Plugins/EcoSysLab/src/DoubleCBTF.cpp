@@ -3,13 +3,13 @@
 //
 
 #include "DoubleCBTF.hpp"
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include "CompressedBTF.hpp"
 #endif
 using namespace eco_sys_lab;
 bool DoubleCBTF::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
   if (editor_layer->DragAndDropButton<CompressedBTF>(top, "Top"))
     changed = true;
   if (editor_layer->DragAndDropButton<CompressedBTF>(bottom, "Bottom"))

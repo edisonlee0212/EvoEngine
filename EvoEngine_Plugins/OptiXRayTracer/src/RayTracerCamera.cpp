@@ -35,7 +35,7 @@ bool RayTracerCamera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer
     ray_properties.OnInspect();
     if (ImGui::TreeNode("Debug")) {
         static float debug_scale = 0.25f;
-        ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
+        ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 10.0f);
         debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
         ImGui::Image(render_texture->GetColorImTextureId(),
                 ImVec2(camera_properties_.m_frame.m_size.x * debug_scale,

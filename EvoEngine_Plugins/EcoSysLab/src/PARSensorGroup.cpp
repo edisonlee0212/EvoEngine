@@ -2,7 +2,7 @@
 // Created by lllll on 2/23/2022.
 //
 #include <Jobs.hpp>
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include "Graphics.hpp"
 #  include "PARSensorGroup.hpp"
 #  include "RayTracerLayer.hpp"

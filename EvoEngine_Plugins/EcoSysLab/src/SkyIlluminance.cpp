@@ -3,7 +3,7 @@
 //
 #include "SkyIlluminance.hpp"
 #include "rapidcsv.h"
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include "RayTracerLayer.hpp"
 #endif
 
@@ -81,7 +81,7 @@ bool SkyIlluminance::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   ImGui::Checkbox("Auto Apply", &auto_apply);
   if (ImGui::SliderFloat("Time", &time, m_minTime, m_maxTime)) {
     snapshot = Get(time);
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
     if (auto_apply) {
       auto& env_prop = Application::GetLayer<RayTracerLayer>()->environment_properties;
       env_prop.m_sunDirection = snapshot.GetSunDirection();

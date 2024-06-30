@@ -3,14 +3,14 @@
 //
 
 #include "CBTFGroup.hpp"
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include "DoubleCBTF.hpp"
 #endif
 
 using namespace eco_sys_lab;
 bool CBTFGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
   static AssetRef temp;
   if (editor_layer->DragAndDropButton<DoubleCBTF>(temp, ("Drop to add..."))) {
     m_doubleCBTFs.emplace_back(temp);

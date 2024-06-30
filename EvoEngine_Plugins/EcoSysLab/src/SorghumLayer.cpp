@@ -1,4 +1,4 @@
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include <TriangleIlluminationEstimator.hpp>
 #  include "BTFMeshRenderer.hpp"
 #  include "RayTracerLayer.hpp"
@@ -15,7 +15,7 @@
 #include "SorghumCoordinates.hpp"
 #include "SorghumDescriptor.hpp"
 #include "SorghumPointCloudScanner.hpp"
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include "CBTFGroup.hpp"
 #  include "DoubleCBTF.hpp"
 #  include "PARSensorGroup.hpp"
@@ -31,7 +31,7 @@ void SorghumLayer::OnCreate() {
   ClassRegistry::RegisterAsset<SorghumGrowthStages>("SorghumGrowthStages", {".sgs"});
   ClassRegistry::RegisterAsset<SorghumStateGenerator>("SorghumStateGenerator", {".ssg"});
   ClassRegistry::RegisterAsset<SorghumField>("SorghumField", {".sorghumfield"});
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
   ClassRegistry::RegisterAsset<PARSensorGroup>("PARSensorGroup", {".parsensorgroup"});
   ClassRegistry::RegisterAsset<CBTFGroup>("CBTFGroup", {".cbtfg"});
   ClassRegistry::RegisterAsset<DoubleCBTF>("DoubleCBTF", {".dcbtf"});
@@ -118,7 +118,7 @@ void SorghumLayer::GenerateMeshForAllSorghums(
 void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto scene = GetScene();
   if (ImGui::Begin("Sorghum Layer")) {
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
     if (ImGui::TreeNodeEx("Illumination Estimation")) {
       ImGui::DragInt("Seed", &m_seed);
       ImGui::DragFloat("Push distance along normal", &push_distance, 0.0001f, -1.0f, 1.0f, "%.5f");
@@ -191,7 +191,7 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     });
 
     static bool opened = false;
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
     if (processing && !opened) {
       ImGui::OpenPopup("Illumination Estimation");
       opened = true;
@@ -305,7 +305,7 @@ void SorghumLayer::ExportAllSorghumsModel(const std::string& filename) {
   }
 }
 
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 void SorghumLayer::CalculateIlluminationFrameByFrame() {
   auto scene = GetScene();
   const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<TriangleIlluminationEstimator>();
@@ -342,7 +342,7 @@ void SorghumLayer::CalculateIllumination() {
 #endif
 void SorghumLayer::Update() {
   auto scene = GetScene();
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
   if (processing) {
     processing_index--;
     if (processing_index == -1) {

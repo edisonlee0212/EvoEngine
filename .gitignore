@@ -11,6 +11,8 @@ docs/
 # Include Resource folder
 !Resources/
 
+Resources/Example Projects
+
 # Prerequisites
 *.d
 

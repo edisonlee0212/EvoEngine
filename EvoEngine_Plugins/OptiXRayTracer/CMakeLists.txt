@@ -33,7 +33,7 @@ cuda_compile_and_embed(CAMERA_RENDERING_PTX ${RAY_TRACER_DIRECTORY}/src/ptx/Came
 cuda_compile_and_embed(ILLUMINATION_ESTIMATION_PTX ${RAY_TRACER_DIRECTORY}/src/ptx/IlluminationEstimation.cu)
 cuda_compile_and_embed(POINT_CLOUD_SCANNING_PTX ${RAY_TRACER_DIRECTORY}/src/ptx/PointCloudScanning.cu)
 
-add_library(RayTracerPlugin
+add_library(OptiXRayTracerPlugin
 	STATIC
 	#Default
 	${CAMERA_RENDERING_PTX}
@@ -47,7 +47,7 @@ add_library(RayTracerPlugin
 	#${CMAKE_MODULE_PATH}/FindOptiX.cmake
 	)
 
-set_property(TARGET RayTracerPlugin PROPERTY CUDA_ARCHITECTURES 61-real 61-virtual)
+set_property(TARGET OptiXRayTracerPlugin PROPERTY CUDA_ARCHITECTURES 61-real 61-virtual)
 
 if (NOT WIN32)
 	message(STATUS CUDALIB=${CUDA_TOOLKIT_ROOT_DIR})
@@ -58,22 +58,22 @@ message(STATUS CUDA_LIBRARIES:${CUDA_LIBRARIES})
 message(STATUS CUDA_CUDA_LIBRARY:${CUDA_CUDA_LIBRARY})
 # Linker settings for all platforms
 if (NOT WIN32)
-	target_link_libraries(RayTracerPlugin
+	target_link_libraries(OptiXRayTracerPlugin
 		cuda
 	)
 else()
-	target_link_libraries(RayTracerPlugin
+	target_link_libraries(OptiXRayTracerPlugin
 		${CUDA_LIBRARIES}
 		${CUDA_CUDA_LIBRARY}
 	)
 endif ()
 
-target_compile_definitions(RayTracerPlugin
+target_compile_definitions(OptiXRayTracerPlugin
 	PRIVATE
 	${EVOENGINE_SDK_DEFS}
 	${EVOENGINE_PLUGINS_DEFS}
 	)	
-target_include_directories(RayTracerPlugin
+target_include_directories(OptiXRayTracerPlugin
 	PRIVATE
 	${EVOENGINE_SDK_INCLUDES}
 	${EVOENGINE_PLUGINS_INCLUDES}
@@ -85,6 +85,6 @@ if (WIN32)
 endif ()
 
 set(EVOENGINE_PLUGINS_INCLUDES ${EVOENGINE_PLUGINS_INCLUDES} ${RAY_TRACER_INCLUDES} PARENT_SCOPE)
-set(EVOENGINE_PLUGINS_DEFS ${EVOENGINE_PLUGINS_DEFS} RAY_TRACER_PLUGIN PARENT_SCOPE)
+set(EVOENGINE_PLUGINS_DEFS ${EVOENGINE_PLUGINS_DEFS} OPTIX_RAY_TRACER_PLUGIN PARENT_SCOPE)
 
-set(EvoEngine_Plugins ${EvoEngine_Plugins} RayTracerPlugin PARENT_SCOPE)
+set(EvoEngine_Plugins ${EvoEngine_Plugins} OptiXRayTracerPlugin PARENT_SCOPE)

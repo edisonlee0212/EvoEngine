@@ -3,7 +3,7 @@
 //
 
 #include "EcoSysLabLayer.hpp"
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include <RayTracerLayer.hpp>
 #endif
 #include "BarkDescriptor.hpp"
@@ -223,7 +223,7 @@ void EcoSysLabLayer::Visualization() {
       auto& treeModel = tree->tree_model;
       auto& treeVisualizer = tree->tree_visualizer;
       const auto globalTransform = scene->GetDataComponent<GlobalTransform>(m_selectedTree);
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
       const auto rayTracerLayer = Application::GetLayer<RayTracerLayer>();
 #endif
       if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == KeyActionType::Release &&
@@ -350,7 +350,7 @@ void EcoSysLabLayer::Visualization() {
                 ImGui::End();
                 ImGui::PopStyleVar();
               }
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
               else if (rayTracerLayer) {
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
                 if (ImGui::Begin("Scene (RT)")) {

@@ -1,5 +1,5 @@
 #include "SorghumPointCloudScanner.hpp"
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <RayTracer.hpp>
 #  include <RayTracerLayer.hpp>
@@ -48,9 +48,9 @@ void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointClou
       const glm::vec3 center = glm::vec3{x, m_droneHeight, z} - glm::vec3(start_point.x, 0, start_point.y);
       Jobs::RunParallelFor(m_droneSample, [&](const unsigned sample_index) {
         auto& sample = point_cloud_samples[m_droneSample * (i * y_step_size + step) + sample_index];
-        sample.direction = glm::sphericalRand(1.0f);
-        sample.direction.y = -glm::abs(sample.direction.y);
-        sample.start = center;
+        sample.m_direction = glm::sphericalRand(1.0f);
+        sample.m_direction.y = -glm::abs(sample.m_direction.y);
+        sample.m_start = center;
       });
     }
   }
@@ -62,9 +62,9 @@ void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointClou
       const glm::vec3 center = glm::vec3{x, m_droneHeight, z} - glm::vec3(start_point.x, 0, start_point.y);
       Jobs::RunParallelFor(m_droneSample, [&](const unsigned sample_index) {
         auto& sample = point_cloud_samples[start_index + m_droneSample * (i * x_step_size + step) + sample_index];
-        sample.direction = glm::sphericalRand(1.0f);
-        sample.direction.y = -glm::abs(sample.direction.y);
-        sample.start = center;
+        sample.m_direction = glm::sphericalRand(1.0f);
+        sample.m_direction.y = -glm::abs(sample.m_direction.y);
+        sample.m_start = center;
       });
     }
   }
@@ -102,12 +102,12 @@ void SorghumGantryCaptureSettings::GenerateSamples(std::vector<PointCloudSample>
     const glm::vec3 center = glm::vec3{m_step.x * x, 0.f, m_step.y * y} - glm::vec3(start_point.x, 0, start_point.y);
 
     auto& sample1 = point_cloud_samples[i];
-    sample1.direction = glm::normalize(glm::rotate(front, glm::radians(m_scannerAngle), up));
-    sample1.start = center - sample1.direction * (m_sampleHeight / glm::cos(glm::radians(m_scannerAngle)));
+    sample1.m_direction = glm::normalize(glm::rotate(front, glm::radians(m_scannerAngle), up));
+    sample1.m_start = center - sample1.m_direction * (m_sampleHeight / glm::cos(glm::radians(m_scannerAngle)));
 
     auto& sample2 = point_cloud_samples[y_step_size * x_step_size + i];
-    sample2.direction = glm::normalize(glm::rotate(front, glm::radians(-m_scannerAngle), up));
-    sample2.start = center - sample2.direction * (m_sampleHeight / glm::cos(glm::radians(m_scannerAngle)));
+    sample2.m_direction = glm::normalize(glm::rotate(front, glm::radians(-m_scannerAngle), up));
+    sample2.m_start = center - sample2.m_direction * (m_sampleHeight / glm::cos(glm::radians(m_scannerAngle)));
   });
 }
 
@@ -118,7 +118,7 @@ bool SorghumGantryCaptureSettings::SampleFilter(const PointCloudSample& sample) 
 
 void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
                                        const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const {
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
   if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())

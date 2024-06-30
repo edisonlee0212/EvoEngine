@@ -11,7 +11,7 @@
 #include "Tree.hpp"
 #include "TreeStructor.hpp"
 #include "WindowLayer.hpp"
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
@@ -35,7 +35,7 @@ void register_layers(bool enableWindowLayer, bool enableEditorLayer) {
   Application::PushLayer<RenderLayer>();
   Application::PushLayer<EcoSysLabLayer>();
   Application::PushLayer<SorghumLayer>();
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
   Application::PushLayer<RayTracerLayer>();
 #endif
 }

@@ -3,7 +3,7 @@
 //
 #include <Application.hpp>
 
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
@@ -74,7 +74,7 @@ int main() {
   Application::PushLayer<WindowLayer>();
   Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
   Application::PushLayer<RayTracerLayer>();
 #endif
   Application::PushLayer<EcoSysLabLayer>();
@@ -88,7 +88,7 @@ int main() {
   applicationConfigs.project_path = std::filesystem::absolute(resourceFolderPath / "SorghumProject" / "test.eveproj");
   Application::Initialize(applicationConfigs);
 
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 
   auto rayTracerLayer = Application::GetLayer<RayTracerLayer>();
 #endif

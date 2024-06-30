@@ -54,8 +54,8 @@ extern "C" __global__ void __raygen__CR() {
   auto pixelAlbedo = glm::vec3(0.f);
   auto pixelPosition = glm::vec3(0.0f);
 
-  float halfX = cameraRenderingLaunchParams.m_cameraProperties.m_frame.m_size.x / 2.0f;
-  float halfY = cameraRenderingLaunchParams.m_cameraProperties.m_frame.m_size.y / 2.0f;
+  float halfX = cameraRenderingLaunchParams.m_cameraProperties.m_frame.m_size.x * .5f;
+  float halfY = cameraRenderingLaunchParams.m_cameraProperties.m_frame.m_size.y * .5f;
 
   for (int sampleID = 0; sampleID < numPixelSamples; sampleID++) {
     glm::vec2 screen =

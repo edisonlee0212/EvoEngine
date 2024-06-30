@@ -58,7 +58,7 @@ struct Camera {
 	mat4 projection_view;
 	mat4 inverse_projection;
 	mat4 inverse_view;
-	mat4 interse_projection_view;
+	mat4 inverse_projection_view;
 	vec4 clear_color;
 	vec4 reserved1;
 	vec4 reserved_2;
@@ -298,8 +298,8 @@ float EE_LINEARIZE_DEPTH(float ndcDepth)
 }
 
 vec3 EE_DEPTH_TO_WORLD_POS(vec2 tex_coords, float ndcDepth) {
-	vec4 viewPos = vec4(EE_DEPTH_TO_VIEW_POS(tex_coords, ndcDepth), 1.0);
-	vec4 worldPos = EE_CAMERAS[EE_CAMERA_INDEX].inverse_view * viewPos;
+	vec4 clipPos = vec4(EE_DEPTH_TO_CLIP_POS(tex_coords, ndcDepth), 1.0);
+	vec4 worldPos = EE_CAMERAS[EE_CAMERA_INDEX].inverse_projection_view * clipPos;
 	worldPos = worldPos / worldPos.w;
 	return worldPos.xyz;
 }

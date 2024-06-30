@@ -1,5 +1,5 @@
 #include "TreePointCloudScanner.hpp"
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <RayTracer.hpp>
 #  include <RayTracerLayer.hpp>
@@ -161,9 +161,9 @@ void TreePointCloudCircularCaptureSettings::GenerateSamples(std::vector<PointClo
         const float yAngle =
             (y - m_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) / static_cast<float>(m_resolution) * m_fov / 2.0f;
         auto& sample = pointCloudSamples[counter * m_resolution * m_resolution + i];
-        sample.direction =
+        sample.m_direction =
             glm::normalize(glm::rotate(glm::rotate(front, glm::radians(xAngle), left), glm::radians(yAngle), up));
-        sample.start = position;
+        sample.m_start = position;
       });
       counter++;
     }
@@ -201,13 +201,13 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
       const glm::vec3 center = glm::vec3{x, m_backpackHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
       Jobs::RunParallelFor(m_backpackSample, [&](unsigned sampleIndex) {
         auto& sample = pointCloudSamples[m_backpackSample * (i * yStepSize + step) + sampleIndex];
-        sample.direction = glm::sphericalRand(1.0f);
+        sample.m_direction = glm::sphericalRand(1.0f);
         if (glm::linearRand(0.0f, 1.0f) > 0.3f) {
-          sample.direction.y = glm::abs(sample.direction.y);
+          sample.m_direction.y = glm::abs(sample.m_direction.y);
         } else {
-          sample.direction.y = -glm::abs(sample.direction.y);
+          sample.m_direction.y = -glm::abs(sample.m_direction.y);
         }
-        sample.start = center;
+        sample.m_start = center;
       });
     }
   }
@@ -220,13 +220,13 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
       const glm::vec3 center = glm::vec3{x, m_backpackHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
       Jobs::RunParallelFor(m_backpackSample, [&](unsigned sampleIndex) {
         auto& sample = pointCloudSamples[startIndex + m_backpackSample * (i * xStepSize + step) + sampleIndex];
-        sample.direction = glm::sphericalRand(1.0f);
+        sample.m_direction = glm::sphericalRand(1.0f);
         if (glm::linearRand(0.0f, 1.0f) > 0.3f) {
-          sample.direction.y = glm::abs(sample.direction.y);
+          sample.m_direction.y = glm::abs(sample.m_direction.y);
         } else {
-          sample.direction.y = -glm::abs(sample.direction.y);
+          sample.m_direction.y = -glm::abs(sample.m_direction.y);
         }
-        sample.start = center;
+        sample.m_start = center;
       });
     }
   }
@@ -239,9 +239,9 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
       const glm::vec3 center = glm::vec3{x, m_droneHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
       Jobs::RunParallelFor(m_droneSample, [&](unsigned sampleIndex) {
         auto& sample = pointCloudSamples[m_droneSample * (i * yStepSize + step) + sampleIndex];
-        sample.direction = glm::sphericalRand(1.0f);
-        sample.direction.y = -glm::abs(sample.direction.y);
-        sample.start = center;
+        sample.m_direction = glm::sphericalRand(1.0f);
+        sample.m_direction.y = -glm::abs(sample.m_direction.y);
+        sample.m_start = center;
       });
     }
   }
@@ -254,9 +254,9 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
       const glm::vec3 center = glm::vec3{x, m_droneHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
       Jobs::RunParallelFor(m_droneSample, [&](unsigned sampleIndex) {
         auto& sample = pointCloudSamples[startIndex + m_droneSample * (i * xStepSize + step) + sampleIndex];
-        sample.direction = glm::sphericalRand(1.0f);
-        sample.direction.y = -glm::abs(sample.direction.y);
-        sample.start = center;
+        sample.m_direction = glm::sphericalRand(1.0f);
+        sample.m_direction.y = -glm::abs(sample.m_direction.y);
+        sample.m_start = center;
       });
     }
   }
@@ -273,7 +273,7 @@ bool TreePointCloudGridCaptureSettings::SampleFilter(const PointCloudSample& sam
 void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& meshGeneratorSettings,
                                     const std::filesystem::path& savePath,
                                     const std::shared_ptr<PointCloudCaptureSettings>& captureSettings) const {
-#ifdef BUILD_WITH_RAYTRACER
+#ifdef OPTIX_RAY_TRACER_PLUGIN
 
   const auto ecoSysLabLayer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
