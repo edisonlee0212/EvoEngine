@@ -1,2 +1,3 @@
 add_subdirectory(Demo)
 add_subdirectory(EcoSysLab)
+add_subdirectory(TextureBaking)

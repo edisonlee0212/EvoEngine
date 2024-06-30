@@ -13,10 +13,12 @@ add_library(TextureBakingPlugin
 target_compile_definitions(TextureBakingPlugin
 	PRIVATE
 	${EVOENGINE_SDK_DEFS}
+	${EVOENGINE_PLUGINS_DEFS}
 	)	
 target_include_directories(TextureBakingPlugin
 	PRIVATE
 	${EVOENGINE_SDK_INCLUDES}
+	${EVOENGINE_PLUGINS_INCLUDES}
 	${TEXTURE_BAKING_INCLUDES}
 	)
 
@@ -26,6 +28,7 @@ set(TEXTURE_BAKING_PCH ${TEXTURE_BAKING_PCH} PARENT_SCOPE)
 target_precompile_headers(TextureBakingPlugin
 	PRIVATE
 	${EVOENGINE_SDK_PCH}
+	${EVOENGINE_PLUGINS_PCHS}
 	${TEXTURE_BAKING_PCH}
 	)
 
