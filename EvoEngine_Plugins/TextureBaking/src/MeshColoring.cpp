@@ -1,6 +1,7 @@
 #include "MeshColoring.hpp"
-#include "MeshTracing.hpp"
+#include "MeshTracer.hpp"
 #include "Prefab.hpp"
+#include "Times.hpp"
 
 using namespace evo_engine;
 using namespace mesh_tracing;
@@ -150,14 +151,18 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 
   static AssetRef bvh_prefab_ref;
-  static MeshTracer mesh_tracer;
+  static AssetRef bvh_mesh_ref;
+  static MeshTracer bvh_mesh_tracer;
 
-  static std::shared_ptr<ParticleInfoList> particle_info_list;
-  static std::vector<ParticleInfo> particle_infos;
-  bool refresh_aabb = false;
-  if (!particle_info_list)
-    particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  static std::shared_ptr<ParticleInfoList> bvh_particle_info_list;
+  static std::vector<ParticleInfo> bvh_particle_infos;
+  bool bvh_refresh_aabb = false;
+  static bool has_bvh = false;
+  if (!bvh_particle_info_list)
+    bvh_particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+
   EditorLayer::DragAndDropButton<Prefab>(bvh_prefab_ref, "BVH Prefab");
+  EditorLayer::DragAndDropButton<Prefab>(bvh_mesh_ref, "BVH Mesh");
   if (const auto bvh_prefab = bvh_prefab_ref.Get<Prefab>()) {
     bvh_prefab->GatherAssets();
     if (const std::shared_ptr<Mesh> target_mesh = find_mesh(bvh_prefab)) {
@@ -167,40 +172,150 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       Jobs::RunParallelFor(vertices.size(), [&](const size_t i) {
         positions.at(i) = vertices.at(i).position;
       });
-      mesh_tracer.Initialize(positions, triangles, 8, 8192);
-      refresh_aabb = true;
+      bvh_mesh_tracer.Initialize(positions, triangles, 8, 8192);
+      bvh_refresh_aabb = true;
+      has_bvh = true;
     }
     bvh_prefab_ref.Clear();
   }
-
-  static int min_tree_depth = 0;
-  static int max_tree_depth = 10;
-  std::vector<MeshTracer::Aabb> aabbs{};
-  
-  if (ImGui::DragInt("Min Depth", &min_tree_depth, 1, 0, max_tree_depth)) {
-    refresh_aabb = true;
-    min_tree_depth = glm::clamp(min_tree_depth, 0, max_tree_depth);
-  }
-  if (ImGui::DragInt("Max Depth", &max_tree_depth, 1, min_tree_depth, 8192)) {
-    refresh_aabb = true;
-    max_tree_depth = glm::clamp(max_tree_depth, min_tree_depth, 8192);
-  }
-  if (refresh_aabb) {
-    mesh_tracer.bvh.CollectAabb(min_tree_depth, max_tree_depth, aabbs);
-    particle_infos.resize(aabbs.size());
-    Jobs::RunParallelFor(aabbs.size(), [&](const size_t i) {
-      auto& particle_info = particle_infos.at(i);
-      const auto& aabb = aabbs.at(i);
-      particle_info.instance_color = glm::vec4(glm::abs(glm::sphericalRand(1.f)), 0.5f);
-      particle_info.instance_matrix.value = glm::translate(aabb.center) * glm::scale(aabb.size * 2.f);
+  if (const auto bvh_mesh = bvh_mesh_ref.Get<Mesh>()) {
+    auto vertices = bvh_mesh->UnsafeGetVertices();
+    const auto triangles = bvh_mesh->UnsafeGetTriangles();
+    std::vector<glm::vec3> positions(vertices.size());
+    Jobs::RunParallelFor(vertices.size(), [&](const size_t i) {
+      positions.at(i) = vertices.at(i).position;
     });
-    particle_info_list->SetParticleInfos(particle_infos);
+    bvh_mesh_tracer.Initialize(positions, triangles, 8, 8192);
+    bvh_refresh_aabb = true;
+    has_bvh = true;
+
+    bvh_mesh_ref.Clear();
   }
-  if (!particle_infos.empty()) {
+
+  if (has_bvh) {
+    std::vector<MeshTracer::Aabb> aabbs{};
+    static bool display_level = true;
+    if (display_level) {
+      static int level = 0;
+      if (ImGui::DragInt("Level", &level, 1, 0, 8192)) {
+        bvh_refresh_aabb = true;
+        level = glm::clamp(level, 0, 8192);
+        bvh_mesh_tracer.bvh.CollectAabb(level, level + 1, aabbs);
+      }
+    } else {
+      static int min_tree_depth = 0;
+      static int max_tree_depth = 10;
+      if (ImGui::DragInt("Min Depth", &min_tree_depth, 1, 0, 8192)) {
+        bvh_refresh_aabb = true;
+        min_tree_depth = glm::clamp(min_tree_depth, 0, max_tree_depth);
+        bvh_mesh_tracer.bvh.CollectAabb(min_tree_depth, max_tree_depth, aabbs);
+      }
+      if (ImGui::DragInt("Max Depth", &max_tree_depth, 1, min_tree_depth, 8192)) {
+        bvh_refresh_aabb = true;
+        max_tree_depth = glm::clamp(max_tree_depth, min_tree_depth, 8192);
+        bvh_mesh_tracer.bvh.CollectAabb(min_tree_depth, max_tree_depth, aabbs);
+      }
+    }
+    if (bvh_refresh_aabb) {
+      bvh_particle_infos.resize(aabbs.size());
+      Jobs::RunParallelFor(aabbs.size(), [&](const size_t i) {
+        auto& particle_info = bvh_particle_infos.at(i);
+        const auto& aabb = aabbs.at(i);
+        particle_info.instance_color = glm::vec4(glm::abs(glm::sphericalRand(1.f)), 0.5f);
+        particle_info.instance_matrix.value = glm::translate(aabb.center) * glm::scale(aabb.size * 2.f);
+      });
+      bvh_particle_info_list->SetParticleInfos(bvh_particle_infos);
+    }
+  }
+
+  static AssetRef boundary_test_prefab_ref;
+  static AssetRef boundary_test_mesh_ref;
+  static MeshTracer mesh_tracer;
+
+  static std::shared_ptr<ParticleInfoList> boundary_test_particle_info_list;
+  static std::vector<ParticleInfo> boundary_test_particle_infos;
+  static bool boundary_test_updated = false;
+  if (!boundary_test_particle_info_list)
+    boundary_test_particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+
+  EditorLayer::DragAndDropButton<Prefab>(boundary_test_prefab_ref, "Boundary Prefab");
+  EditorLayer::DragAndDropButton<Mesh>(boundary_test_mesh_ref, "Boundary Mesh");
+
+  size_t testing_ray_size = 65536 * 16;
+  if (const auto boundary_test_prefab = boundary_test_prefab_ref.Get<Prefab>()) {
+    boundary_test_prefab->GatherAssets();
+    if (const std::shared_ptr<Mesh> target_mesh = find_mesh(boundary_test_prefab)) {
+      auto vertices = target_mesh->UnsafeGetVertices();
+      const auto triangles = target_mesh->UnsafeGetTriangles();
+      std::vector<glm::vec3> positions(vertices.size());
+      Jobs::RunParallelFor(vertices.size(), [&](const size_t i) {
+        positions.at(i) = vertices.at(i).position;
+      });
+      mesh_tracer.Initialize(positions, triangles, 8, 8192);
+      boundary_test_updated = true;
+    }
+    boundary_test_prefab_ref.Clear();
+  }
+  if (const auto boundary_test_mesh = boundary_test_mesh_ref.Get<Mesh>()) {
+    auto vertices = boundary_test_mesh->UnsafeGetVertices();
+    const auto triangles = boundary_test_mesh->UnsafeGetTriangles();
+    std::vector<glm::vec3> positions(vertices.size());
+    Jobs::RunParallelFor(vertices.size(), [&](const size_t i) {
+      positions.at(i) = vertices.at(i).position;
+    });
+    mesh_tracer.Initialize(positions, triangles, 8, 8192);
+    boundary_test_updated = true;
+    boundary_test_mesh_ref.Clear();
+  }
+  if (boundary_test_updated) {
+    boundary_test_particle_infos.resize(testing_ray_size);
+    std::vector<glm::vec3> ray_directions(testing_ray_size);
+    for(auto& direction : ray_directions) {
+      direction = glm::sphericalRand(1.f);
+    }
+    ray_directions.back() = glm::vec3(0, 0, 1);
+    const auto start_time = Times::Now();
+    Jobs::RunParallelFor(testing_ray_size, [&](const size_t testing_ray_index) {
+      MeshTracer::TraceParameters trace_parameters{};
+      trace_parameters.origin = glm::vec3(0.f);
+      trace_parameters.direction = ray_directions.at(testing_ray_index);
+      trace_parameters.t_min = 0.f;
+      trace_parameters.t_max = FLT_MAX;
+      mesh_tracer.Trace(
+          trace_parameters,
+          [&](const MeshTracer::HitInfo& hit_info) {
+            auto& particle_info = boundary_test_particle_infos.at(testing_ray_index);
+            particle_info.instance_color = glm::vec4(1.f, 1.f, 1.f, 0.5f);
+            particle_info.instance_matrix.value = glm::translate(hit_info.hit) * glm::scale(glm::vec3(1.f));
+          },
+          [&]() {
+            EVOENGINE_ERROR("Missed!")
+          },
+          [&](const MeshTracer::HitInfo&) {
+          });
+    });
+    const auto elapsed_time = Times::Now() - start_time;
+    EVOENGINE_LOG("Tracing finished in " + std::to_string(elapsed_time) + " seconds with " + std::to_string(Jobs::GetWorkerSize()) + " thread(s).")
+    boundary_test_particle_info_list->SetParticleInfos(boundary_test_particle_infos);
+    boundary_test_updated = false;
+  }
+
+  if (!bvh_particle_infos.empty()) {
     GizmoSettings gizmo_settings;
+    gizmo_settings.depth_test = true;
     gizmo_settings.draw_settings.blending = true;
     auto global_transform = scene->GetDataComponent<GlobalTransform>(owner);
-    editor_layer->DrawGizmoCubes(particle_info_list, global_transform.value, 1, gizmo_settings);
+    editor_layer->DrawGizmoCubes(bvh_particle_info_list, global_transform.value, 1, gizmo_settings);
+  }
+  static float point_size = 0.01f;
+  ImGui::DragFloat("Point size", &point_size, 0.001f, 0.001f, 1.f);
+  if (!boundary_test_particle_infos.empty()) {
+    GizmoSettings gizmo_settings;
+    gizmo_settings.depth_test = true;
+    gizmo_settings.depth_write = true;
+    gizmo_settings.draw_settings.blending = true;
+    auto global_transform = scene->GetDataComponent<GlobalTransform>(owner);
+    editor_layer->DrawGizmoCubes(boundary_test_particle_info_list, global_transform.value, point_size, gizmo_settings);
   }
   return false;
 }

@@ -1,4 +1,4 @@
-#include "MeshTracing.hpp"
+#include "MeshTracer.hpp"
 
 using namespace mesh_tracing;
 using namespace evo_engine;
@@ -35,9 +35,9 @@ void MeshTracer::Bvh::Initialize(const std::vector<glm::vec3>& input_vertices,
   aabb.center = (max_bound + min_bound) * .5f;
   aabb.size = (max_bound - min_bound) * .5f;
   const auto count = input_triangles.size();
-  triangle_indices.resize(count);
+  triangle_info_list.resize(count);
   Jobs::RunParallelFor(count, [&](const size_t i) {
-    triangle_indices.at(i) = static_cast<uint32_t>(i);
+    triangle_info_list.at(i) = {static_cast<uint32_t>(i), 0};
   });
   enum class Axis { X, Y, Z };
   struct SplitResult {
@@ -52,15 +52,15 @@ void MeshTracer::Bvh::Initialize(const std::vector<glm::vec3>& input_vertices,
     glm::vec3 min_v = glm::vec3(FLT_MAX);
     glm::vec3 max_v = glm::vec3(-FLT_MAX);
     void AddPoint(const glm::vec3& p) {
-      min_v = min(p, min_v);
-      max_v = max(p, max_v);
+      min_v = glm::min(p, min_v);
+      max_v = glm::max(p, max_v);
     }
     void Combine(const BucketAabb& other) {
       min_v = glm::min(min_v, other.min_v);
       max_v = glm::max(max_v, other.max_v);
     }
     [[nodiscard]] float ComputeCost(const int triangle_count) const {
-      const glm::vec3 size = max_v - min_v;
+      const auto size = max_v - min_v;
       const float surface_area = 2.0f * (size.x * size.y + size.x * size.z + size.x * size.y);
       return static_cast<float>(triangle_count) * surface_area;
     }
@@ -101,11 +101,11 @@ void MeshTracer::Bvh::Initialize(const std::vector<glm::vec3>& input_vertices,
     SplitResult ret;
 
     BucketAabb centroids_aabb;
-    for (uint32_t triangle_index : parent.triangle_indices) {
-      const auto tri = input_triangles[triangle_index];
-      const auto p0 = input_vertices[tri.x];
-      const auto p1 = input_vertices[tri.y];
-      const auto p2 = input_vertices[tri.z];
+    for (const auto& triangle_info : parent.triangle_info_list) {
+      const auto triangle = input_triangles[triangle_info.triangle_index];
+      const auto p0 = input_vertices[triangle.x];
+      const auto p1 = input_vertices[triangle.y];
+      const auto p2 = input_vertices[triangle.z];
       const auto centroid = (p0 + p1 + p2) / 3.0f;
       centroids_aabb.AddPoint(centroid);
     }
@@ -117,8 +117,8 @@ void MeshTracer::Bvh::Initialize(const std::vector<glm::vec3>& input_vertices,
     BucketAabb buckets_aabb_y[16];
     BucketAabb buckets_aabb_z[16];
 
-    for (uint32_t triangle_index : parent.triangle_indices) {
-      const auto triangle = input_triangles[triangle_index];
+    for (const auto& triangle_info : parent.triangle_info_list) {
+      const auto triangle = input_triangles[triangle_info.triangle_index];
       const auto p0 = input_vertices[triangle.x];
       const auto p1 = input_vertices[triangle.y];
       const auto p2 = input_vertices[triangle.z];
@@ -145,7 +145,7 @@ void MeshTracer::Bvh::Initialize(const std::vector<glm::vec3>& input_vertices,
       buckets_aabb_z[k].AddPoint(p2);
     }
 
-    const uint32_t triangle_count = static_cast<uint32_t>(parent.triangle_indices.size());
+    const uint32_t triangle_count = static_cast<uint32_t>(parent.triangle_info_list.size());
     const auto split_x = select_split_from_buckets(buckets_x, buckets_aabb_x, triangle_count);
     const auto split_y = select_split_from_buckets(buckets_y, buckets_aabb_y, triangle_count);
     const auto split_z = select_split_from_buckets(buckets_z, buckets_aabb_z, triangle_count);
@@ -165,10 +165,10 @@ void MeshTracer::Bvh::Initialize(const std::vector<glm::vec3>& input_vertices,
     }
     return ret;
   };
-  std::function<void(Bvh& parent, uint32_t current_tree_depth)> binary_division_bvh;
+  std::function<void(Bvh & parent, uint32_t current_tree_depth)> binary_division_bvh;
   binary_division_bvh = [&](Bvh& parent, uint32_t current_tree_depth) {
-    if (parent.triangle_indices.size() <= max_triangle_per_leaf || current_tree_depth >= max_tree_depth) {
-      parent.subtree_triangle_size = static_cast<uint32_t>(parent.triangle_indices.size());
+    if (parent.triangle_info_list.size() <= max_triangle_per_leaf || current_tree_depth >= max_tree_depth) {
+      parent.subtree_triangle_size = static_cast<uint32_t>(parent.triangle_info_list.size());
       return;
     }
     parent.children.resize(2);
@@ -177,33 +177,33 @@ void MeshTracer::Bvh::Initialize(const std::vector<glm::vec3>& input_vertices,
     glm::vec3 aabb_min_r(FLT_MAX);
     glm::vec3 aabb_max_r(-FLT_MAX);
     const SplitResult split = find_best_split(parent);
-    for (uint32_t triangle_index : parent.triangle_indices) {
-      const auto& triangle = input_triangles[triangle_index];
-      const glm::vec3 p0 = input_vertices[triangle.x];
-      const glm::vec3 p1 = input_vertices[triangle.y];
-      const glm::vec3 p2 = input_vertices[triangle.z];
+    for (const auto& triangle_info : parent.triangle_info_list) {
+      const auto& triangle = input_triangles[triangle_info.triangle_index];
+      const auto p0 = input_vertices[triangle.x];
+      const auto p1 = input_vertices[triangle.y];
+      const auto p2 = input_vertices[triangle.z];
 
-      if (const glm::vec3 c = (p0 + p1 + p2) * (1.0f / 3.0f); (split.axis == Axis::X && c.x <= split.split) ||
-                                                              (split.axis == Axis::Y && c.y <= split.split) ||
-                                                              (split.axis == Axis::Z && c.z <= split.split)) {
-        parent.children[0].triangle_indices.push_back(triangle_index);
+      if (const auto c = (p0 + p1 + p2) * (1.0f / 3.0f); (split.axis == Axis::X && c.x <= split.split) ||
+                                                         (split.axis == Axis::Y && c.y <= split.split) ||
+                                                         (split.axis == Axis::Z && c.z <= split.split)) {
+        parent.children[0].triangle_info_list.push_back(triangle_info);
         aabb_min_l = min(aabb_min_l, min(p0, min(p1, p2)));
         aabb_max_l = max(aabb_max_l, max(p0, max(p1, p2)));
       } else {
-        parent.children[1].triangle_indices.push_back(triangle_index);
+        parent.children[1].triangle_info_list.push_back(triangle_info);
         aabb_min_r = min(aabb_min_r, min(p0, min(p1, p2)));
         aabb_max_r = max(aabb_max_r, max(p0, max(p1, p2)));
       }
     }
 
-    if (parent.children[0].triangle_indices.empty() || parent.children[1].triangle_indices.empty()) {
+    if (parent.children[0].triangle_info_list.empty() || parent.children[1].triangle_info_list.empty()) {
       // Unable to subdivide... We brake here
       parent.children.clear();
-      parent.subtree_triangle_size = static_cast<uint32_t>(parent.triangle_indices.size());
+      parent.subtree_triangle_size = static_cast<uint32_t>(parent.triangle_info_list.size());
       return;
     }
 
-    parent.triangle_indices.clear();
+    parent.triangle_info_list.clear();
 
     parent.children[0].aabb = Aabb{(aabb_min_l + aabb_max_l) * 0.5f, (aabb_max_l - aabb_min_l) * 0.5f};
     parent.children[1].aabb = Aabb{(aabb_min_r + aabb_max_r) * 0.5f, (aabb_max_r - aabb_min_r) * 0.5f};
@@ -217,8 +217,8 @@ void MeshTracer::Bvh::Initialize(const std::vector<glm::vec3>& input_vertices,
     aabb_max_l = parent.children[0].aabb.center + parent.children[0].aabb.size;
     aabb_min_r = parent.children[1].aabb.center - parent.children[1].aabb.size;
     aabb_max_r = parent.children[1].aabb.center + parent.children[1].aabb.size;
-    const glm::vec3 aabb_min = min(aabb_min_l, aabb_min_r);
-    const glm::vec3 aabb_max = max(aabb_max_l, aabb_max_r);
+    const auto aabb_min = glm::min(aabb_min_l, aabb_min_r);
+    const auto aabb_max = glm::max(aabb_max_l, aabb_max_r);
     parent.aabb.center = (aabb_max + aabb_min) * 0.5f;
     parent.aabb.size = (aabb_max - aabb_min) * 0.5f;
 
@@ -236,14 +236,16 @@ void MeshTracer::Bvh::Clear() {
   aabb = {};
   subtree_triangle_size = 0;
   children.clear();
-  triangle_indices.clear();
+  triangle_info_list.clear();
 }
 
-void MeshTracer::Bvh::CollectAabb(const uint32_t min_tree_depth, const uint32_t max_tree_depth, std::vector<Aabb>& aabbs) const {
+void MeshTracer::Bvh::CollectAabb(const uint32_t min_tree_depth, const uint32_t max_tree_depth,
+                                  std::vector<Aabb>& aabbs) const {
   std::function<void(const Bvh& current_bvh, uint32_t current_depth)> collect_aabb;
   collect_aabb = [&](const Bvh& current_bvh, const uint32_t current_depth) {
     if (current_depth < max_tree_depth) {
-      if(current_depth >= min_tree_depth) aabbs.emplace_back(current_bvh.aabb);
+      if (current_depth >= min_tree_depth)
+        aabbs.emplace_back(current_bvh.aabb);
       for (const auto& child : current_bvh.children) {
         collect_aabb(child, current_depth + 1);
       }
@@ -261,7 +263,7 @@ void MeshTracer::Initialize(const std::vector<glm::vec3>& input_vertices,
   aabb = bvh.aabb;
   std::function<void(const Bvh& current_bvh)> construct_flatten_bvh_with_mesh;
   construct_flatten_bvh_with_mesh = [&](const Bvh& current_bvh) {
-    if (current_bvh.children.empty() && current_bvh.triangle_indices.empty()) {
+    if (current_bvh.children.empty() && current_bvh.triangle_info_list.empty()) {
       // Children node without triangles? Skip it
       return;
     }
@@ -278,36 +280,121 @@ void MeshTracer::Initialize(const std::vector<glm::vec3>& input_vertices,
         return;
       }
     }
-    flattened_bvh_nodes.emplace_back();
-    FlattenedBvhNode& d = flattened_bvh_nodes.back();
+    f_bvh_nodes.emplace_back();
+    FlattenedBvhNode& d = f_bvh_nodes.back();
     d.aabb_min = current_bvh.aabb.center - current_bvh.aabb.size;
     d.aabb_max = current_bvh.aabb.center + current_bvh.aabb.size;
-    d.start = static_cast<uint32_t>(input_vertices.size());
-    for (uint32_t triangle_index : current_bvh.triangle_indices) {
-      const auto& triangle = input_triangles.at(triangle_index);
+    d.f_bvh_vertices_start_index = static_cast<uint32_t>(f_bvh_vertices.size());
+    for (const auto& triangle_info : current_bvh.triangle_info_list) {
+      const auto& triangle = input_triangles.at(triangle_info.triangle_index);
       const auto& p0 = input_vertices.at(triangle.x);
-      const auto& p1 = input_vertices.at(triangle.x);
-      const auto& p2 = input_vertices.at(triangle.x);
-      flattened_bvh_original_face_id.push_back(triangle_index);
-      flattened_bvh_positions.push_back(p0);
-      flattened_bvh_positions.push_back(p1);
-      flattened_bvh_positions.push_back(p2);
+      const auto& p1 = input_vertices.at(triangle.y);
+      const auto& p2 = input_vertices.at(triangle.z);
+      f_bvh_triangle_index.emplace_back(triangle_info.triangle_index);
+      f_bvh_instance_index.emplace_back(triangle_info.instance_index);
+      f_bvh_vertices.emplace_back(p0);
+      f_bvh_vertices.emplace_back(p1);
+      f_bvh_vertices.emplace_back(p2);
     }
-    d.end = static_cast<uint32_t>(flattened_bvh_positions.size());
-    const size_t index = flattened_bvh_nodes.size() - 1;  // Because d gets invalidated by fillMeshData!
+    d.f_bvh_vertices_end_index = static_cast<uint32_t>(f_bvh_vertices.size());
+    const size_t current_node_index = f_bvh_nodes.size() - 1;
     if (!current_bvh.children.empty()) {
       construct_flatten_bvh_with_mesh(current_bvh.children[0]);
       construct_flatten_bvh_with_mesh(current_bvh.children[1]);
     }
-    flattened_bvh_nodes[index].jump = static_cast<uint32_t>(flattened_bvh_nodes.size());
+    f_bvh_nodes[current_node_index].next_f_bvh_node_index = static_cast<uint32_t>(f_bvh_nodes.size());
   };
   construct_flatten_bvh_with_mesh(bvh);
 }
 
 void MeshTracer::Clear() {
-  flattened_bvh_nodes.clear();
-  flattened_bvh_original_face_id.clear();
-  flattened_bvh_positions.clear();
+  f_bvh_nodes.clear();
+  f_bvh_triangle_index.clear();
+  f_bvh_instance_index.clear();
+  f_bvh_vertices.clear();
   aabb = {};
   bvh.Clear();
+}
+
+glm::vec3 MeshTracer::Barycentric(const glm::vec3& p, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c) {
+  const auto v0 = b - a;
+  const auto v1 = c - a;
+  const auto v2 = p - a;
+  const auto d00 = dot(v0, v0);
+  const auto d01 = dot(v0, v1);
+  const auto d11 = dot(v1, v1);
+  const auto d20 = dot(v2, v0);
+  const auto d21 = dot(v2, v1);
+  const auto denominator = d00 * d11 - d01 * d01;
+  const auto y = (d11 * d20 - d01 * d21) / denominator;
+  const auto z = (d00 * d21 - d01 * d20) / denominator;
+  return {1.0f - y - z, y, z};
+}
+
+void MeshTracer::Trace(const TraceParameters& trace_parameters, const std::function<void(HitInfo)>& closest_hit_func,
+                       const std::function<void()>& miss_func, const std::function<void(HitInfo)>& any_hit_func) const {
+  uint32_t current_f_bvh_index = 0;
+  float current_distance = trace_parameters.t_max;
+  const auto ray_direction = glm::normalize(trace_parameters.direction);
+  HitInfo closest_hit_info{};
+  bool has_hit = false;
+  unsigned flags = static_cast<unsigned>(trace_parameters.flags);
+  const bool enforce_any_hit = flags & static_cast<unsigned>(TraceFlags::EnforceAnyHit);
+  while (current_f_bvh_index < f_bvh_nodes.size()) {
+    const auto& f_bvh_node = f_bvh_nodes.at(current_f_bvh_index);
+#pragma region RayAABB
+    glm::vec3 t1 = (f_bvh_node.aabb_min - trace_parameters.origin) / ray_direction;
+    glm::vec3 t2 = (f_bvh_node.aabb_max - trace_parameters.origin) / ray_direction;
+    const glm::vec3 current_t_min = glm::min(t1, t2);
+    const glm::vec3 current_t_max = glm::max(t1, t2);
+    const float min_d = glm::max(current_t_min.x, glm::max(current_t_min.y, current_t_min.z));
+    const float max_d = glm::min(current_t_max.x, glm::min(current_t_max.y, current_t_max.z));
+#pragma endregion
+    if (const float ray_aabb_distance = max_d >= 0 && min_d <= max_d ? min_d : FLT_MAX;
+        ray_aabb_distance <= (enforce_any_hit ? trace_parameters.t_max : current_distance)) {
+#pragma region Test all triangles
+      for (uint32_t test_vertex_index = f_bvh_node.f_bvh_vertices_start_index;
+           test_vertex_index < f_bvh_node.f_bvh_vertices_end_index; test_vertex_index += 3) {
+        const auto& a = f_bvh_vertices.at(test_vertex_index);
+        const auto& b = f_bvh_vertices.at(test_vertex_index + 1);
+        const auto& c = f_bvh_vertices.at(test_vertex_index + 2);
+        const auto test_triangle_normal = glm::normalize(glm::cross(b - a, c - a));
+        const auto normal_test = glm::dot(ray_direction, test_triangle_normal);
+        // Skip this triangle if it's parallel with the ray.
+        if (normal_test == 0.f)
+          continue;
+        const auto hit_distance =
+            (glm::dot(a, test_triangle_normal) - glm::dot(trace_parameters.origin, test_triangle_normal)) / normal_test;
+        if (hit_distance >= trace_parameters.t_min &&
+            hit_distance < (enforce_any_hit ? trace_parameters.t_max : current_distance)) {
+          const auto hit = trace_parameters.origin + ray_direction * hit_distance;
+          if (const auto barycentric = Barycentric(hit, a, b, c); barycentric.x >= 0.f && barycentric.x <= 1.f &&
+                                                                  barycentric.y >= 0.f && barycentric.y <= 1.f &&
+                                                                  barycentric.z >= 0.f && barycentric.z <= 1.f) {
+            has_hit = true;
+            HitInfo current_hit_info{};
+            current_hit_info.vertex_index = test_vertex_index;
+            current_hit_info.triangle_index = f_bvh_triangle_index.at(test_vertex_index / 3);
+            current_hit_info.instance_index = f_bvh_instance_index.at(test_vertex_index / 3);
+            current_hit_info.hit = hit;
+            current_hit_info.barycentric = barycentric;
+            current_hit_info.back_face = normal_test > 0.f;
+            any_hit_func(current_hit_info);
+            if (!enforce_any_hit || hit_distance < current_distance) {
+              closest_hit_info = current_hit_info;
+            }
+          }
+        }
+      }
+#pragma endregion
+      current_f_bvh_index++;
+    } else {
+      current_f_bvh_index = f_bvh_node.next_f_bvh_node_index;
+    }
+  }
+  if (has_hit) {
+    closest_hit_func(closest_hit_info);
+  } else {
+    miss_func();
+  }
 }
