@@ -17,8 +17,13 @@ if(EVOENGINE_PLUGIN_CPU_RAY_TRACER)
   add_subdirectory(CpuRayTracer)
 endif()
 
+option(EVOENGINE_PLUGIN_MESH_REPAIR "Build the mesh repair plugin" ON)
+if(EVOENGINE_PLUGIN_CPU_RAY_TRACER AND EVOENGINE_PLUGIN_MESH_REPAIR)
+  add_subdirectory(MeshRepair)
+endif()
+
 option(EVOENGINE_PLUGIN_TEXTURE_BAKING "Build the texture baking plugin" ON)
-if(EVOENGINE_PLUGIN_TEXTURE_BAKING)
+if(EVOENGINE_PLUGIN_CPU_RAY_TRACER AND EVOENGINE_PLUGIN_TEXTURE_BAKING)
   add_subdirectory(TextureBaking)
 endif()
 

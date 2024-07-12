@@ -393,31 +393,33 @@ void CpuRayTracer<MeshRecord, NodeRecord>::Trace(
               const auto node_space_hit_distance = (glm::dot(p0, node_space_triangle_normal) -
                                                     glm::dot(node_space_ray_origin, node_space_triangle_normal)) /
                                                    normal_test;
-              const auto node_space_hit = node_space_ray_origin + node_space_ray_direction * node_space_hit_distance;
-              const auto scene_space_hit = node_global_transform.TransformPoint(node_space_hit);
-              const auto scene_hit_distance = glm::distance(scene_space_ray_origin, scene_space_hit);
-              if (node_space_hit_distance >= 0 && scene_hit_distance >= ray_descriptor.t_min &&
-                  scene_hit_distance <= test_distance) {
-                if (const auto barycentric = Barycentric(node_space_hit, p0, p1, p2);
-                    barycentric.x >= 0.f && barycentric.x <= 1.f && barycentric.y >= 0.f && barycentric.y <= 1.f &&
-                    barycentric.z >= 0.f && barycentric.z <= 1.f) {
-                  HitInfo any_hit_info;
-                  any_hit_info.hit = scene_space_hit;
-                  any_hit_info.normal = node_global_transform.TransformVector(node_space_triangle_normal);
-                  any_hit_info.distance = scene_hit_distance;
-                  any_hit_info.barycentric = barycentric;
-                  any_hit_info.back_face = normal_test > 0.f;
-                  any_hit_info.triangle_index =
-                      mesh_instance.flattened_bvh_triangle_group.element_indices[test_triangle_index];
-                  any_hit_info.mesh_index = node_instance.flattened_bvh_mesh_group.element_indices[test_mesh_index];
-                  any_hit_info.node_index = flattened_bvh_node_group_.element_indices[test_node_index];
-                  any_hit_func(any_hit_info);
-                  if (!enforce_any_hit) {
-                    test_distance = scene_hit_distance;
-                  }
-                  if (any_hit_info.distance < closest_hit_info.distance) {
-                    has_hit = true;
-                    closest_hit_info = any_hit_info;
+              // node_space_hit_distance > 0 instead of node_space_hit_distance >= 0 to avoid self-intersection
+              if (node_space_hit_distance > 0) {
+                const auto node_space_hit = node_space_ray_origin + node_space_ray_direction * node_space_hit_distance;
+                const auto scene_space_hit = node_global_transform.TransformPoint(node_space_hit);
+                const auto scene_hit_distance = glm::distance(scene_space_ray_origin, scene_space_hit);
+                if (scene_hit_distance >= ray_descriptor.t_min && scene_hit_distance <= test_distance) {
+                  if (const auto barycentric = Barycentric(node_space_hit, p0, p1, p2);
+                      barycentric.x >= 0.f && barycentric.x <= 1.f && barycentric.y >= 0.f && barycentric.y <= 1.f &&
+                      barycentric.z >= 0.f && barycentric.z <= 1.f) {
+                    HitInfo any_hit_info;
+                    any_hit_info.hit = scene_space_hit;
+                    any_hit_info.normal = node_global_transform.TransformVector(node_space_triangle_normal);
+                    any_hit_info.distance = scene_hit_distance;
+                    any_hit_info.barycentric = barycentric;
+                    any_hit_info.back_face = normal_test > 0.f;
+                    any_hit_info.triangle_index =
+                        mesh_instance.flattened_bvh_triangle_group.element_indices[test_triangle_index];
+                    any_hit_info.mesh_index = node_instance.flattened_bvh_mesh_group.element_indices[test_mesh_index];
+                    any_hit_info.node_index = flattened_bvh_node_group_.element_indices[test_node_index];
+                    any_hit_func(any_hit_info);
+                    if (!enforce_any_hit) {
+                      test_distance = scene_hit_distance;
+                    }
+                    if (any_hit_info.distance < closest_hit_info.distance) {
+                      has_hit = true;
+                      closest_hit_info = any_hit_info;
+                    }
                   }
                 }
               }
