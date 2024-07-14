@@ -25,17 +25,6 @@ struct GlobalTransform : IDataComponent {
       for (length_t j = 0; j < 4; ++j)
         local_matrix[i][j] /= local_matrix[3][3];
 
-    // perspectiveMatrix is used to solve for perspective, but it also provides
-    // an easy way to test for singularity of the upper 3x3 component.
-    mat4 perspective_matrix(local_matrix);
-
-    for (length_t i = 0; i < 3; i++)
-      perspective_matrix[i][3] = static_cast<T>(0);
-    perspective_matrix[3][3] = static_cast<T>(1);
-
-    if (epsilonEqual(determinant(perspective_matrix), static_cast<T>(0), epsilon<T>()))
-      return false;
-
     // First, isolate perspective.  This is the messiest.
     if (epsilonNotEqual(local_matrix[0][3], static_cast<T>(0), epsilon<T>()) ||
         epsilonNotEqual(local_matrix[1][3], static_cast<T>(0), epsilon<T>()) ||
@@ -69,7 +58,7 @@ struct GlobalTransform : IDataComponent {
     // Now, compute Y scale and normalize 2nd row.
     scale.y = length(row[1]);
     row[1] = glm::detail::scale(row[1], static_cast<T>(1));
-    // skew.z /= scale.y;
+    skew.z /= scale.y;
 
     // Compute XZ and YZ shears, orthogonality 3rd row.
     skew.y = glm::dot(row[0], row[2]);
@@ -80,8 +69,8 @@ struct GlobalTransform : IDataComponent {
     // Next, get Z scale and normalize 3rd row.
     scale.z = length(row[2]);
     row[2] = glm::detail::scale(row[2], static_cast<T>(1));
-    // skew.y /= scale.z;
-    // skew.x /= scale.z;
+    skew.y /= scale.z;
+    skew.x /= scale.z;
 
     // At this point, the matrix (in rows[]) is orthonormal.
     // Check for a coordinate system flip.  If the determinant
@@ -115,18 +104,6 @@ struct GlobalTransform : IDataComponent {
     for (length_t i = 0; i < 4; ++i)
       for (length_t j = 0; j < 4; ++j)
         local_matrix[i][j] /= local_matrix[3][3];
-
-    // perspectiveMatrix is used to solve for perspective, but it also provides
-    // an easy way to test for singularity of the upper 3x3 component.
-    mat4 perspective_matrix(local_matrix);
-
-    for (length_t i = 0; i < 3; i++)
-      perspective_matrix[i][3] = static_cast<T>(0);
-    perspective_matrix[3][3] = static_cast<T>(1);
-
-    /// TODO: Fixme!
-    if (epsilonEqual(determinant(perspective_matrix), static_cast<T>(0), epsilon<T>()))
-      return false;
 
     // First, isolate perspective.  This is the messiest.
     if (epsilonNotEqual(local_matrix[0][3], static_cast<T>(0), epsilon<T>()) ||
@@ -297,17 +274,6 @@ struct Transform : IDataComponent {
       for (length_t j = 0; j < 4; ++j)
         local_matrix[i][j] /= local_matrix[3][3];
 
-    // perspectiveMatrix is used to solve for perspective, but it also provides
-    // an easy way to test for singularity of the upper 3x3 component.
-    mat4 perspective_matrix(local_matrix);
-
-    for (length_t i = 0; i < 3; i++)
-      perspective_matrix[i][3] = static_cast<T>(0);
-    perspective_matrix[3][3] = static_cast<T>(1);
-
-    if (epsilonEqual(determinant(perspective_matrix), static_cast<T>(0), epsilon<T>()))
-      return false;
-
     // First, isolate perspective.  This is the messiest.
     if (epsilonNotEqual(local_matrix[0][3], static_cast<T>(0), epsilon<T>()) ||
         epsilonNotEqual(local_matrix[1][3], static_cast<T>(0), epsilon<T>()) ||
@@ -341,7 +307,7 @@ struct Transform : IDataComponent {
     // Now, compute Y scale and normalize 2nd row.
     scale.y = length(row[1]);
     row[1] = glm::detail::scale(row[1], static_cast<T>(1));
-    // skew.z /= scale.y;
+    skew.z /= scale.y;
 
     // Compute XZ and YZ shears, orthogonality 3rd row.
     skew.y = glm::dot(row[0], row[2]);
@@ -352,8 +318,8 @@ struct Transform : IDataComponent {
     // Next, get Z scale and normalize 3rd row.
     scale.z = length(row[2]);
     row[2] = glm::detail::scale(row[2], static_cast<T>(1));
-    // skew.y /= scale.z;
-    // skew.x /= scale.z;
+    skew.y /= scale.z;
+    skew.x /= scale.z;
 
     // At this point, the matrix (in rows[]) is orthonormal.
     // Check for a coordinate system flip.  If the determinant
@@ -387,18 +353,6 @@ struct Transform : IDataComponent {
     for (length_t i = 0; i < 4; ++i)
       for (length_t j = 0; j < 4; ++j)
         local_matrix[i][j] /= local_matrix[3][3];
-
-    // perspectiveMatrix is used to solve for perspective, but it also provides
-    // an easy way to test for singularity of the upper 3x3 component.
-    mat4 perspective_matrix(local_matrix);
-
-    for (length_t i = 0; i < 3; i++)
-      perspective_matrix[i][3] = static_cast<T>(0);
-    perspective_matrix[3][3] = static_cast<T>(1);
-
-    /// TODO: Fixme!
-    if (epsilonEqual(determinant(perspective_matrix), static_cast<T>(0), epsilon<T>()))
-      return false;
 
     // First, isolate perspective.  This is the messiest.
     if (epsilonNotEqual(local_matrix[0][3], static_cast<T>(0), epsilon<T>()) ||

@@ -383,14 +383,13 @@ bool RayTracerLayer::UpdateScene(const std::shared_ptr<Scene>& scene) {
   }
   return false;
 }
-
+PrivateComponentRegistration<BTFMeshRenderer> btfmr_registry("BTFMeshRenderer");
+PrivateComponentRegistration<TriangleIlluminationEstimator> tie_registry("TriangleIlluminationEstimator");
+PrivateComponentRegistration<RayTracerCamera> rtc_registry("RayTracerCamera");
+PrivateComponentRegistration<BasicPointCloudScanner> bpcs_registry("BasicPointCloudScanner");
+AssetRegistration<CompressedBTF> cbtf_registry("CompressedBTF", {".cbtf"});
 void RayTracerLayer::OnCreate() {
   CudaModule::Init();
-  ClassRegistry::RegisterPrivateComponent<BTFMeshRenderer>("BTFMeshRenderer");
-  ClassRegistry::RegisterPrivateComponent<TriangleIlluminationEstimator>("TriangleIlluminationEstimator");
-  ClassRegistry::RegisterPrivateComponent<RayTracerCamera>("RayTracerCamera");
-  ClassRegistry::RegisterPrivateComponent<BasicPointCloudScanner>("BasicPointCloudScanner");
-  ClassRegistry::RegisterAsset<CompressedBTF>("CompressedBTF", {".cbtf"});
 
   scene_camera = Serialization::ProduceSerializable<RayTracerCamera>();
   scene_camera->OnCreate();
@@ -400,10 +399,10 @@ void RayTracerLayer::OnCreate() {
 }
 
 void RayTracerLayer::PreUpdate() {
-    if (const auto editor_layer = Application::GetLayer<EditorLayer>();
-        show_scene_window && editor_layer && rendering_enabled) {
-      scene_camera->Ready(editor_layer->GetSceneCameraPosition(), editor_layer->GetSceneCameraRotation());
-    }
+  if (const auto editor_layer = Application::GetLayer<EditorLayer>();
+      show_scene_window && editor_layer && rendering_enabled) {
+    scene_camera->Ready(editor_layer->GetSceneCameraPosition(), editor_layer->GetSceneCameraRotation());
+  }
 }
 
 void RayTracerLayer::LateUpdate() {

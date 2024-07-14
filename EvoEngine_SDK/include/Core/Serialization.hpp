@@ -414,16 +414,30 @@ class Serialization : public ISingleton<Serialization> {
   friend class ISerializable;
   friend class ProjectManager;
   friend class ClassRegistry;
-  std::map<std::string, std::function<std::shared_ptr<IDataComponent>(size_t&, size_t&)>> data_component_generators_;
-  std::map<std::string, std::function<std::shared_ptr<ISerializable>(size_t&)>> serializable_generators_;
-  std::map<std::string,
-           std::function<void(std::shared_ptr<IPrivateComponent>, const std::shared_ptr<IPrivateComponent>&)>>
+  friend class EditorLayer;
+  friend class Scene;
+  std::unordered_map<std::string, std::function<std::shared_ptr<IDataComponent>(size_t&, size_t&)>>
+      data_component_generators_;
+  std::unordered_map<std::string, std::function<std::shared_ptr<ISerializable>(size_t&)>> serializable_generators_;
+  std::unordered_map<std::string,
+                     std::function<void(std::shared_ptr<IPrivateComponent>, const std::shared_ptr<IPrivateComponent>&)>>
       private_component_cloners_;
-  std::map<std::string, std::function<void(std::shared_ptr<ISystem>, const std::shared_ptr<ISystem>&)>> system_cloners_;
-  std::map<std::string, size_t> data_component_ids_;
-  std::map<std::string, size_t> serializable_ids_;
-  std::map<size_t, std::string> data_component_names_;
-  std::map<size_t, std::string> serializable_names_;
+  std::unordered_map<std::string, std::function<void(std::shared_ptr<ISystem>, const std::shared_ptr<ISystem>&)>>
+      system_cloners_;
+
+  std::unordered_map<std::string, size_t> data_component_ids_;
+  std::unordered_map<size_t, size_t> data_component_sizes_;
+  std::unordered_map<size_t, std::string> data_component_names_;
+
+  std::unordered_map<std::string, size_t> private_component_ids_;
+  std::unordered_map<size_t, std::string> private_component_names_;
+
+  std::unordered_map<std::string, size_t> system_ids_;
+  std::unordered_map<size_t, std::string> system_names_;
+
+  std::unordered_map<std::string, size_t> serializable_ids_;
+  std::unordered_map<size_t, std::string> serializable_names_;
+
   template <typename T = IDataComponent>
   static bool RegisterDataComponentType(const std::string& name);
   template <typename T = ISerializable>
@@ -432,7 +446,7 @@ class Serialization : public ISingleton<Serialization> {
   static bool RegisterPrivateComponentType(const std::string& name);
   template <typename T = ISystem>
   static bool RegisterSystemType(const std::string& name);
-  static bool RegisterDataComponentType(const std::string& type_name, const size_t& type_index,
+  static bool RegisterDataComponentType(const std::string& type_name, const size_t& type_index, const size_t& type_size,
                                         const std::function<std::shared_ptr<IDataComponent>(size_t&, size_t&)>& func);
   static bool RegisterSerializableType(const std::string& type_name, const size_t& type_index,
                                        const std::function<std::shared_ptr<ISerializable>(size_t&)>& func);
@@ -442,7 +456,7 @@ class Serialization : public ISingleton<Serialization> {
       const std::function<void(std::shared_ptr<IPrivateComponent>, const std::shared_ptr<IPrivateComponent>&)>&
           clone_func);
   static bool RegisterSystemType(
-      const std::string& type_name,
+      const std::string& type_name, const size_t& type_index,
       const std::function<void(std::shared_ptr<ISystem>, const std::shared_ptr<ISystem>&)>& clone_func);
 
  public:
@@ -452,6 +466,7 @@ class Serialization : public ISingleton<Serialization> {
                                     const std::shared_ptr<IPrivateComponent>& source);
   static void CloneSystem(const std::shared_ptr<ISystem>& target, const std::shared_ptr<ISystem>& source);
   static std::shared_ptr<ISerializable> ProduceSerializable(const std::string& type_name, size_t& hash_code);
+  static std::shared_ptr<ISerializable> ProduceSerializable(const std::string& type_name);
   static auto ProduceSerializable(const std::string& type_name, size_t& hash_code, const Handle& handle)
       -> std::shared_ptr<ISerializable>;
   template <typename T = ISerializable>
@@ -460,12 +475,16 @@ class Serialization : public ISingleton<Serialization> {
   static std::string GetDataComponentTypeName();
   template <typename T = ISerializable>
   static std::string GetSerializableTypeName();
-  static std::string GetSerializableTypeName(const size_t& type_index);
-  static bool HasSerializableType(const std::string& type_index);
-  static bool HasComponentDataType(const std::string& type_index);
-  static size_t GetSerializableTypeId(const std::string& type_index);
-  static size_t GetDataComponentTypeId(const std::string& type_index);
+  static std::string GetSerializableTypeName(const size_t& type_id);
+  static bool HasSerializableType(const std::string& type_name);
+  static bool HasSerializableType(const size_t& type_id);
 
+  static bool HasComponentDataType(const std::string& type_name);
+  static bool HasComponentDataType(const size_t& type_id);
+
+  static size_t GetSerializableTypeId(const std::string& type_name);
+  static size_t GetDataComponentTypeId(const std::string& type_name);
+  static size_t GetDataComponentTypeSize(const size_t& type_id);
   static void SaveAssetList(const std::string& name, const std::vector<AssetRef>& target, YAML::Emitter& out);
   static void LoadAssetList(const std::string& name, std::vector<AssetRef>& target, const YAML::Node& in);
 
@@ -477,11 +496,13 @@ class Serialization : public ISingleton<Serialization> {
 
 template <typename T>
 std::string Serialization::GetDataComponentTypeName() {
-  return GetInstance().data_component_names_.find(typeid(T).hash_code())->second;
+  const auto& serialization = GetInstance();
+  return serialization.data_component_names_.find(typeid(T).hash_code())->second;
 }
 template <typename T>
 std::string Serialization::GetSerializableTypeName() {
-  return GetInstance().serializable_names_.find(typeid(T).hash_code())->second;
+  const auto& serialization = GetInstance();
+  return serialization.serializable_names_.find(typeid(T).hash_code())->second;
 }
 
 template <typename T>
@@ -503,7 +524,7 @@ void Serialization::DeserializeVector(const std::string& name, std::vector<T>& t
 
 template <typename T>
 bool Serialization::RegisterDataComponentType(const std::string& name) {
-  return RegisterDataComponentType(name, typeid(T).hash_code(), [](size_t& hash_code, size_t& size) {
+  return RegisterDataComponentType(name, typeid(T).hash_code(), sizeof(T), [](size_t& hash_code, size_t& size) {
     hash_code = typeid(T).hash_code();
     size = sizeof(T);
     return std::move(std::dynamic_pointer_cast<IDataComponent>(std::make_shared<T>()));
@@ -533,14 +554,15 @@ bool Serialization::RegisterPrivateComponentType(const std::string& name) {
 }
 template <typename T>
 bool Serialization::RegisterSystemType(const std::string& name) {
-  return RegisterSystemType(name, [](const std::shared_ptr<ISystem>& target, const std::shared_ptr<ISystem>& source) {
-    target->handle_ = source->handle_;
-    target->rank_ = source->rank_;
-    target->enabled_ = source->enabled_;
-    *std::dynamic_pointer_cast<T>(target) = *std::dynamic_pointer_cast<T>(source);
-    target->started_ = false;
-    target->PostCloneAction(source);
-  });
+  return RegisterSystemType(name, typeid(T).hash_code(),
+                            [](const std::shared_ptr<ISystem>& target, const std::shared_ptr<ISystem>& source) {
+                              target->handle_ = source->handle_;
+                              target->rank_ = source->rank_;
+                              target->enabled_ = source->enabled_;
+                              *std::dynamic_pointer_cast<T>(target) = *std::dynamic_pointer_cast<T>(source);
+                              target->started_ = false;
+                              target->PostCloneAction(source);
+                            });
 }
 #pragma endregion
 
@@ -579,7 +601,7 @@ std::shared_ptr<T> Serialization::ProduceSerializable() {
     ret_val->type_name_ = type_name;
     return std::move(std::static_pointer_cast<T>(ret_val));
   }
-  EVOENGINE_ERROR("PrivateComponent " + type_name + "is not registered!");
+  EVOENGINE_ERROR("Serializable " + type_name + "is not registered!")
   throw 1;
 }
 }  // namespace evo_engine

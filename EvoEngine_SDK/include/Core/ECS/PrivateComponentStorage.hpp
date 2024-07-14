@@ -24,6 +24,7 @@ class PrivateComponentStorage {
   void DeleteEntity(const Entity &entity);
   template <typename T = IPrivateComponent>
   std::shared_ptr<T> GetOrSetPrivateComponent(const Entity &entity);
+  std::shared_ptr<IPrivateComponent> GetOrSetPrivateComponent(const Entity &entity, const size_t &type_id);
   void SetPrivateComponent(const Entity &entity, size_t id);
   template <typename T = IPrivateComponent>
   void RemovePrivateComponent(const Entity &entity, const std::shared_ptr<IPrivateComponent> &private_component);

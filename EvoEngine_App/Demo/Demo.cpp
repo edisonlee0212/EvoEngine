@@ -55,7 +55,7 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
 #pragma endregion
 
 int main() {
-  constexpr DemoSetup demo_setup = DemoSetup::Rendering;
+  constexpr DemoSetup demo_setup = DemoSetup::Galaxy;
   Application::PushLayer<WindowLayer>();
   Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
@@ -321,7 +321,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
       application_info.application_name = "Galaxy Demo";
       ClassRegistry::RegisterSystem<StarClusterSystem>("StarClusterSystem");
       application_info.project_path = resource_folder_path / "Example Projects/Galaxy/Galaxy.eveproj";
-      ProjectManager::SetActionAfterSceneLoad([&](const std::shared_ptr<Scene>& scene) {
+      ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
         const auto main_camera = scene->main_camera.Get<Camera>();
         main_camera->Resize({640, 480});
         const auto main_camera_entity = main_camera->GetOwner();

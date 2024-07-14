@@ -48,12 +48,12 @@ class Prefab : public IAsset {
   static void GatherAssetsWalker(const std::shared_ptr<Prefab>& walker, std::unordered_map<Handle, AssetRef>& assets);
 
  protected:
-  bool LoadInternal(const std::filesystem::path& path) override;
-  bool SaveInternal(const std::filesystem::path& path) const override;
-  bool LoadModelInternal(const std::filesystem::path& path, bool optimize = false,
+  [[nodiscard]] bool LoadInternal(const std::filesystem::path& path) override;
+  [[nodiscard]] bool SaveInternal(const std::filesystem::path& path) const override;
+  [[nodiscard]] bool LoadModelInternal(const std::filesystem::path& path, bool optimize = false,
                          unsigned flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace |
                                           aiProcess_GenSmoothNormals);
-  bool SaveModelInternal(const std::filesystem::path& path) const;
+  [[nodiscard]] bool SaveModelInternal(const std::filesystem::path& path) const;
 
  public:
   std::string instance_name;
@@ -69,8 +69,9 @@ class Prefab : public IAsset {
   template <typename T = IPrivateComponent>
   std::shared_ptr<T> GetPrivateComponent();
   void OnCreate() override;
-
-  [[maybe_unused]] Entity ToEntity(const std::shared_ptr<Scene>& scene, bool auto_adjust_size = false) const;
+  [[nodiscard]] Bound GetBoundingBox() const;
+  [[nodiscard]] Transform CalculateAdjustedTransform(bool rescale = true, bool recenter = true) const;
+  [[maybe_unused]] Entity ToEntity(const std::shared_ptr<Scene>& scene, bool rescale = false, bool recenter = false) const;
 
   void LoadModel(const std::filesystem::path& path, bool optimize = false,
                  unsigned flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals);

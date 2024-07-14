@@ -10,6 +10,7 @@
 #include "PrivateComponentRef.hpp"
 #include "ProjectManager.hpp"
 #include "Scene.hpp"
+#include "Serialization.hpp"
 #include "Strands.hpp"
 #include "Texture2D.hpp"
 namespace evo_engine {
@@ -102,7 +103,6 @@ class EditorLayer : public ILayer {
   [[nodiscard]] bool MainCameraWindowFocused() const;
   bool enable_view_gizmos = true;
   bool enable_gizmos = true;
-  bool transform_reload = false;
   bool transform_read_only = false;
 
   void RegisterEditorCamera(const std::shared_ptr<Camera>& camera);
@@ -281,6 +281,7 @@ class EditorLayer : public ILayer {
                                             const glm::vec2& mouse_position) const;
 
   EntityArchetype basic_entity_archetype_;
+  Transform previously_stored_transform_;
   glm::vec3 previously_stored_position_;
   glm::vec3 previously_stored_rotation_;
   glm::vec3 previously_stored_scale_;
@@ -299,15 +300,6 @@ class EditorLayer : public ILayer {
   std::map<std::string, std::shared_ptr<Texture2D>> assets_icons_;
   std::map<size_t, std::function<bool(Entity entity, IDataComponent* data, bool is_root)>>
       component_data_inspector_map_;
-  std::vector<std::pair<size_t, std::function<void(Entity owner)>>> private_component_menu_list_;
-  std::vector<std::pair<size_t, std::function<void(float rank)>>> system_menu_list_;
-  std::vector<std::pair<size_t, std::function<void(Entity owner)>>> component_data_menu_list_;
-  template <typename T1 = IPrivateComponent>
-  void RegisterPrivateComponent();
-  template <typename T1 = ISystem>
-  void RegisterSystem();
-  template <typename T1 = IDataComponent>
-  void RegisterDataComponent();
 
   std::vector<std::weak_ptr<AssetRecord>> asset_record_bus_;
   std::map<std::string, std::vector<AssetRef>> asset_ref_bus_;
@@ -346,67 +338,6 @@ template <typename T1>
 void EditorLayer::RegisterComponentDataInspector(
     const std::function<bool(Entity entity, IDataComponent* data, bool is_root)>& func) {
   component_data_inspector_map_.insert_or_assign(typeid(T1).hash_code(), func);
-}
-
-template <typename T>
-void EditorLayer::RegisterSystem() {
-  const auto scene = Application::GetActiveScene();
-  auto func = [&](float rank) {
-    if (scene->GetSystem<T>())
-      return;
-    if (auto system_name = Serialization::GetSerializableTypeName<T>(); ImGui::Button(system_name.c_str())) {
-      scene->GetOrCreateSystem(system_name, rank);
-    }
-  };
-  for (int i = 0; i < system_menu_list_.size(); i++) {
-    if (system_menu_list_[i].first == typeid(T).hash_code()) {
-      system_menu_list_[i].second = func;
-      return;
-    }
-  }
-  system_menu_list_.emplace_back(typeid(T).hash_code(), func);
-}
-
-template <typename T>
-void EditorLayer::RegisterPrivateComponent() {
-  auto func = [&](const Entity owner) {
-    const auto scene = Application::GetActiveScene();
-    if (scene->HasPrivateComponent<T>(owner))
-      return;
-    if (ImGui::Button(Serialization::GetSerializableTypeName<T>().c_str())) {
-      scene->GetOrSetPrivateComponent<T>(owner);
-    }
-  };
-  for (int i = 0; i < private_component_menu_list_.size(); i++) {
-    if (private_component_menu_list_[i].first == typeid(T).hash_code()) {
-      private_component_menu_list_[i].second = func;
-      return;
-    }
-  }
-  private_component_menu_list_.emplace_back(typeid(T).hash_code(), func);
-}
-
-template <typename T>
-void EditorLayer::RegisterDataComponent() {
-  if (const auto id = typeid(T).hash_code(); id == typeid(Transform).hash_code() ||
-                                             id == typeid(GlobalTransform).hash_code() ||
-                                             id == typeid(TransformUpdateFlag).hash_code())
-    return;
-  auto func = [](const Entity owner) {
-    const auto scene = Application::GetActiveScene();
-    if (scene->HasPrivateComponent<T>(owner))
-      return;
-    if (ImGui::Button(Serialization::GetDataComponentTypeName<T>().c_str())) {
-      scene->AddDataComponent<T>(owner, T());
-    }
-  };
-  for (int i = 0; i < component_data_menu_list_.size(); i++) {
-    if (component_data_menu_list_[i].first == typeid(T).hash_code()) {
-      component_data_menu_list_[i].second = func;
-      return;
-    }
-  }
-  component_data_menu_list_.emplace_back(typeid(T).hash_code(), func);
 }
 
 template <typename T>

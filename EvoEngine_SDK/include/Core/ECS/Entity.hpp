@@ -135,22 +135,20 @@ inline void LoadList(const std::string &name, std::vector<EntityRef> &target, co
 
 constexpr size_t archetype_chunk_size = 16384;
 
-struct ComponentDataChunk {
-  void *chunk_data;
+class ComponentDataChunk {
+  std::vector<char> chunk_data_ = std::vector<char>(archetype_chunk_size);
+public:
   template <typename T>
   T GetData(const size_t &offset);
-  [[nodiscard]] IDataComponent *GetDataPointer(const size_t &offset) const;
-  template <typename T>
-  void SetData(const size_t &offset, const T &data);
-  void SetData(const size_t &offset, const size_t &size, IDataComponent *data) const;
-  void ClearData(const size_t &offset, const size_t &size) const;
-
-  ComponentDataChunk &operator=(const ComponentDataChunk &source);
+  [[nodiscard]] void *RefData(const size_t &offset);
+  [[nodiscard]] const void *PeekData(const size_t &offset) const;
+  void SetData(const size_t &offset, const size_t &size, const void *data);
+  void ClearData(const size_t &offset, const size_t &size);
 };
 
 struct DataComponentChunkArray {
-  std::vector<Entity> entity_array;
-  std::vector<ComponentDataChunk> chunk_array;
+  std::vector<Entity> entity_array{};
+  std::vector<ComponentDataChunk> chunks{};
   DataComponentChunkArray &operator=(const DataComponentChunkArray &source);
 };
 
@@ -158,7 +156,7 @@ struct EntityArchetypeInfo {
   std::string archetype_name = "New Entity Archetype";
   size_t entity_size = 0;
   size_t chunk_capacity = 0;
-  std::vector<DataComponentType> data_component_types;
+  std::vector<DataComponentType> data_component_types{};
   template <typename T>
   bool HasType() const;
   bool HasType(const size_t &type_index) const;
@@ -194,7 +192,7 @@ struct DataComponentStorage {
   template <typename T>
   bool HasType() const;
   bool HasType(const size_t &type_id) const;
-  DataComponentChunkArray chunk_array;
+  DataComponentChunkArray chunk_array{};
   DataComponentStorage() = default;
   DataComponentStorage(const EntityArchetypeInfo &entity_archetype_info);
   DataComponentStorage &operator=(const DataComponentStorage &source);

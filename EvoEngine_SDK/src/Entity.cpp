@@ -1,9 +1,6 @@
 #include "Entity.hpp"
 #include "Entities.hpp"
-#include "EntityMetadata.hpp"
-#include "IPrivateComponent.hpp"
 #include "ISerializable.hpp"
-// #include "ProjectManager.hpp"
 #include "Application.hpp"
 #include "Scene.hpp"
 using namespace evo_engine;
@@ -32,7 +29,7 @@ bool Entity::operator!=(const Entity &other) const {
 }
 
 size_t Entity::operator()(Entity const &key) const {
-  return static_cast<size_t>(index_);
+  return index_;
 }
 
 unsigned Entity::GetIndex() const {
@@ -42,22 +39,20 @@ unsigned Entity::GetVersion() const {
   return version_;
 }
 
-IDataComponent *ComponentDataChunk::GetDataPointer(const size_t &offset) const {
-  return reinterpret_cast<IDataComponent *>(static_cast<char *>(chunk_data) + offset);
+void *ComponentDataChunk::RefData(const size_t &offset) {
+  return &chunk_data_[offset];
 }
 
-void ComponentDataChunk::SetData(const size_t &offset, const size_t &size, IDataComponent *data) const {
-  memcpy(static_cast<void *>(static_cast<char *>(chunk_data) + offset), data, size);
+const void *ComponentDataChunk::PeekData(const size_t &offset) const {
+  return &chunk_data_[offset];
 }
 
-void ComponentDataChunk::ClearData(const size_t &offset, const size_t &size) const {
-  memset(static_cast<void *>(static_cast<char *>(chunk_data) + offset), 0, size);
+void ComponentDataChunk::SetData(const size_t &offset, const size_t &size, const void *data) {
+  memcpy(&chunk_data_[offset], data, size);
 }
 
-ComponentDataChunk &ComponentDataChunk::operator=(const ComponentDataChunk &source) {
-  chunk_data = static_cast<void *>(calloc(1, Entities::GetArchetypeChunkSize()));
-  memcpy(chunk_data, source.chunk_data, Entities::GetArchetypeChunkSize());
-  return *this;
+void ComponentDataChunk::ClearData(const size_t &offset, const size_t &size) {
+  memset(&chunk_data_[offset], 0, size);
 }
 
 bool EntityArchetype::IsNull() const {
@@ -114,15 +109,7 @@ DataComponentStorage::DataComponentStorage(const EntityArchetypeInfo &entity_arc
   chunk_capacity = entity_archetype_info.chunk_capacity;
 }
 
-DataComponentStorage &DataComponentStorage::operator=(const DataComponentStorage &source) {
-  data_component_types = source.data_component_types;
-  entity_size = source.entity_size;
-  chunk_capacity = source.chunk_capacity;
-  entity_count = source.entity_count;
-  entity_alive_count = source.entity_alive_count;
-  chunk_array = source.chunk_array;
-  return *this;
-}
+DataComponentStorage &DataComponentStorage::operator=(const DataComponentStorage &source) = default;
 
 bool DataComponentStorage::HasType(const size_t &type_id) const {
   for (const auto &type : data_component_types) {
@@ -150,7 +137,7 @@ void EntityRef::Update() {
   if (entity_handle_.GetValue() == 0) {
     Clear();
     return;
-  } 
+  }
   if (value_.GetIndex() == 0) {
     if (!scene)
       Clear();
@@ -168,8 +155,8 @@ void EntityRef::Update() {
 
 DataComponentChunkArray &DataComponentChunkArray::operator=(const DataComponentChunkArray &source) {
   entity_array = source.entity_array;
-  chunk_array.resize(source.chunk_array.size());
-  for (int i = 0; i < chunk_array.size(); i++)
-    chunk_array[i] = source.chunk_array[i];
+  chunks.resize(source.chunks.size());
+  for (size_t i = 0; i < chunks.size(); i++)
+    chunks[i] = source.chunks[i];
   return *this;
 }

@@ -1,5 +1,6 @@
 #include "CpuRayTracerCamera.hpp"
 
+#include "ClassRegistry.hpp"
 #include "CpuRayTracer.hpp"
 #include "TextureStorage.hpp"
 using namespace evo_engine;

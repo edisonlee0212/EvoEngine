@@ -67,24 +67,25 @@ class Scene final : public IAsset {
   std::map<Handle, std::shared_ptr<ISystem>> mapped_systems_;
   Bound world_bound_;
   void SerializeDataComponentStorage(const DataComponentStorage& storage, YAML::Emitter& out) const;
-  void DeserializeDataComponentStorage(size_t storage_index, DataComponentStorage& data_component_storage, const YAML::Node& in);
+  void DeserializeDataComponentStorage(size_t storage_index, DataComponentStorage& data_component_storage,
+                                       const YAML::Node& in);
 
   static void SerializeSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out);
 #pragma region Entity Management
   void DeleteEntityInternal(unsigned entity_index);
 
-  std::vector<std::reference_wrapper<DataComponentStorage>> QueryDataComponentStorageList(unsigned entity_query_index);
+  std::vector<std::reference_wrapper<DataComponentStorage>> QueryDataComponentStorageList(size_t entity_query_index);
   std::optional<std::pair<std::reference_wrapper<DataComponentStorage>, unsigned>> GetDataComponentStorage(
-      unsigned entity_archetype_index);
+      size_t entity_archetype_index);
   template <typename T = IDataComponent>
   void GetDataComponentArrayStorage(const DataComponentStorage& storage, std::vector<T>& container, bool check_enable);
   void GetEntityStorage(const DataComponentStorage& storage, std::vector<Entity>& container, bool check_enable) const;
   static size_t SwapEntity(DataComponentStorage& storage, size_t index1, size_t index2);
   void SetEnableSingle(const Entity& entity, const bool& value);
-  void SetDataComponent(const unsigned& entity_index, size_t id, size_t size, IDataComponent* data);
+  void SetDataComponent(const unsigned& entity_index, size_t id, size_t size, const void* data);
   friend class Serialization;
-  IDataComponent* GetDataComponentPointer(const Entity& entity, const size_t& id);
-  IDataComponent* GetDataComponentPointer(unsigned entity_index, const size_t& id);
+  void* GetDataComponentPointer(const Entity& entity, const size_t& id);
+  void* GetDataComponentPointer(unsigned entity_index, const size_t& id);
 
   void SetPrivateComponent(const Entity& entity, const std::shared_ptr<IPrivateComponent>& ptr);
 
@@ -94,46 +95,52 @@ class Scene final : public IAsset {
   void RemoveDataComponent(const Entity& entity, const size_t& type_index);
   template <typename T = IDataComponent>
   T GetDataComponent(const size_t& index);
+
   template <typename T = IDataComponent>
   [[nodiscard]] bool HasDataComponent(const size_t& index) const;
+  [[nodiscard]] bool HasDataComponent(const Entity& entity, size_t type_id) const;
+  [[nodiscard]] bool HasDataComponent(const size_t& index, size_t type_id) const;
+
+  void AddDataComponent(const Entity& entity, size_t type_id);
+
   template <typename T = IDataComponent>
   void SetDataComponent(const size_t& index, const T& value);
 
 #pragma region ForEach
   template <typename T1 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                            std::function<void(int i, Entity entity, T1&)>&& func, bool check_enable = true);
   template <typename T1 = IDataComponent, typename T2 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                            std::function<void(int i, Entity entity, T1&, T2&)>&& func, bool check_enable = true);
   template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                            std::function<void(int i, Entity entity, T1&, T2&, T3&)>&& func, bool check_enable = true);
   template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
             typename T4 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                            std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&)>&& func,
                            bool check_enable = true);
   template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
             typename T4 = IDataComponent, typename T5 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                            std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&)>&& func,
                            bool check_enable = true);
   template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
             typename T4 = IDataComponent, typename T5 = IDataComponent, typename T6 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                            std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&)>&& func,
                            bool check_enable = true);
   template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
             typename T4 = IDataComponent, typename T5 = IDataComponent, typename T6 = IDataComponent,
             typename T7 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                            std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&, T7&)>&& func,
                            bool check_enable = true);
   template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
             typename T4 = IDataComponent, typename T5 = IDataComponent, typename T6 = IDataComponent,
             typename T7 = IDataComponent, typename T8 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                            std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&, T7&, T8&)>&& func,
                            bool check_enable = true);
 
@@ -142,6 +149,9 @@ class Scene final : public IAsset {
 #pragma endregion
   friend class EditorLayer;
   [[nodiscard]] EntityMetadata& GetEntityMetadata(const Entity& entity);
+  bool HasSystem(const size_t& type_id);
+  std::shared_ptr<ISystem> CreateSystem(const size_t& type_id, float order);
+  void AddPrivateComponent(const Entity& entity, const size_t& type_id);
 
  protected:
   bool LoadInternal(const std::filesystem::path& path) override;
@@ -211,9 +221,9 @@ class Scene final : public IAsset {
   [[nodiscard]] bool IsEntityValid(const Entity& entity) const;
   [[nodiscard]] bool IsEntityEnabled(const Entity& entity) const;
   [[nodiscard]] bool IsEntityRoot(const Entity& entity) const;
-  [[nodiscard]] bool IsEntityStatic(const Entity& entity);
+  [[nodiscard]] bool IsEntityStatic(const Entity& entity) const;
   [[nodiscard]] bool IsEntityAncestorSelected(const Entity& entity) const;
-  Entity GetRoot(const Entity& entity);
+  Entity GetRoot(const Entity& entity) const;
   std::string GetEntityName(const Entity& entity);
   void SetEntityName(const Entity& entity, const std::string& name);
   void SetEntityStatic(const Entity& entity, bool value);
@@ -221,7 +231,7 @@ class Scene final : public IAsset {
   void SetParent(const Entity& child, const Entity& parent, const bool& recalculate_transform = false);
   [[nodiscard]] Entity GetParent(const Entity& entity) const;
   [[nodiscard]] std::vector<Entity> GetChildren(const Entity& entity);
-  [[nodiscard]] Entity GetChild(const Entity& entity, int index) const;
+  [[nodiscard]] Entity GetChild(const Entity& entity, size_t index) const;
   [[nodiscard]] size_t GetChildrenAmount(const Entity& entity) const;
   void ForEachChild(const Entity& entity, const std::function<void(Entity child)>& func) const;
   void RemoveChild(const Entity& child, const Entity& parent);
@@ -250,6 +260,7 @@ class Scene final : public IAsset {
   template <typename T = IPrivateComponent>
   [[nodiscard]] bool HasPrivateComponent(const Entity& entity) const;
   [[nodiscard]] bool HasPrivateComponent(const Entity& entity, const std::string& type_name) const;
+  [[nodiscard]] bool HasPrivateComponent(const Entity& entity, const size_t& type_id) const;
 #pragma endregion
 #pragma region Entity Management
   [[maybe_unused]] Entity CreateEntity(const std::string& name = "New Entity");
@@ -260,11 +271,11 @@ class Scene final : public IAsset {
   [[maybe_unused]] std::vector<Entity> CreateEntities(const size_t& amount, const std::string& name = "New Entity");
   void DeleteEntity(const Entity& entity);
   Entity GetEntity(const Handle& handle);
-  Entity GetEntity(const size_t& index);
+  Entity GetEntity(const size_t& index) const;
   void ForEachPrivateComponent(const Entity& entity,
                                const std::function<void(PrivateComponentElement& data)>& func) const;
   void GetAllEntities(std::vector<Entity>& target);
-  void ForAllEntities(const std::function<void(int i, Entity entity)>& func) const;
+  void ForAllEntities(const std::function<void(size_t i, Entity entity)>& func) const;
 
   Bound GetEntityBoundingBox(const Entity& entity);
 #pragma endregion
@@ -282,10 +293,10 @@ class Scene final : public IAsset {
   const std::vector<Entity>& UnsafeGetAllEntities();
   void UnsafeForEachDataComponent(
 
-      const Entity& entity, const std::function<void(const DataComponentType& type, void* data)>& func) const;
+      const Entity& entity, const std::function<void(const DataComponentType& type, void* data)>& func);
   void UnsafeForEachEntityStorage(
 
-      const std::function<void(int i, const std::string& name, const DataComponentStorage& storage)>& func);
+      const std::function<void(size_t i, const std::string& name, const DataComponentStorage& storage)>& func);
 
   /**
    * \brief Unsafe method, directly retrieve the pointers and sizes of component data array.
@@ -406,21 +417,10 @@ void Scene::DestroySystem() {
   }
 }
 template <typename T>
-std::shared_ptr<T> Scene::GetOrCreateSystem(float rank) {
+std::shared_ptr<T> Scene::GetOrCreateSystem(const float rank) {
   if (const auto search = indexed_systems_.find(typeid(T).hash_code()); search != indexed_systems_.end())
     return std::dynamic_pointer_cast<T>(search->second);
-  auto ptr = Serialization::ProduceSerializable<T>();
-  auto system = std::dynamic_pointer_cast<ISystem>(ptr);
-  system->scene_ = std::dynamic_pointer_cast<Scene>(GetSelf());
-  system->handle_ = Handle();
-  system->rank_ = rank;
-  systems_.insert({rank, system});
-  indexed_systems_[typeid(T).hash_code()] = system;
-  mapped_systems_[system->handle_] = system;
-  system->started_ = false;
-  system->OnCreate();
-  SetUnsaved();
-  return ptr;
+  return std::dynamic_pointer_cast<T>(CreateSystem(typeid(T).hash_code(), rank));
 }
 
 #pragma region GetSetHas
@@ -458,7 +458,7 @@ void Scene::AddDataComponent(const Entity& entity, const T& value) {
   new_archetype_info.data_component_types.clear();
   for (const auto& i : copy) {
     bool found = false;
-    for (const auto j : new_archetype_info.data_component_types) {
+    for (const auto& j : new_archetype_info.data_component_types) {
       if (i == j) {
         found = true;
         break;
@@ -579,13 +579,13 @@ void Scene::RemoveDataComponent(const Entity& entity) {
 template <typename T>
 void Scene::SetDataComponent(const Entity& entity, const T& value) {
   assert(IsEntityValid(entity));
-  SetDataComponent(entity.index_, typeid(T).hash_code(), sizeof(T), (IDataComponent*)&value);
+  SetDataComponent(entity.index_, typeid(T).hash_code(), sizeof(T), static_cast<const void*>(&value));
 }
 template <typename T>
 void Scene::SetDataComponent(const size_t& index, const T& value) {
   const size_t id = typeid(T).hash_code();
-  assert(index < m_sceneDataStorage.m_entityMetadataList.size());
-  SetDataComponent(index, id, sizeof(T), (IDataComponent*)&value);
+  assert(index < scene_data_storage_.entity_metadata_list.size());
+  SetDataComponent(index, id, sizeof(T), static_cast<void*>(&value));
 }
 template <typename T>
 T Scene::GetDataComponent(const Entity& entity) {
@@ -595,7 +595,7 @@ T Scene::GetDataComponent(const Entity& entity) {
       scene_data_storage_.data_component_storage_list[entity_info.data_component_storage_index];
   const size_t chunk_index = entity_info.chunk_array_index / data_component_storage.chunk_capacity;
   const size_t chunk_pointer = entity_info.chunk_array_index % data_component_storage.chunk_capacity;
-  ComponentDataChunk& chunk = data_component_storage.chunk_array.chunk_array[chunk_index];
+  ComponentDataChunk& chunk = data_component_storage.chunk_array.chunks[chunk_index];
   const size_t id = typeid(T).hash_code();
   if (id == typeid(Transform).hash_code()) {
     return chunk.GetData<T>(chunk_pointer * sizeof(Transform));
@@ -613,7 +613,7 @@ T Scene::GetDataComponent(const Entity& entity) {
       return chunk.GetData<T>(type.type_offset * data_component_storage.chunk_capacity + chunk_pointer * sizeof(T));
     }
   }
-  EVOENGINE_LOG("ComponentData doesn't exist");
+  EVOENGINE_LOG("ComponentData doesn't exist")
   return T();
 }
 template <typename T>
@@ -649,7 +649,7 @@ T Scene::GetDataComponent(const size_t& index) {
       scene_data_storage_.data_component_storage_list[entity_info.data_component_storage_index];
   const size_t chunk_index = entity_info.chunk_array_index / data_component_storage.chunk_capacity;
   const size_t chunk_pointer = entity_info.chunk_array_index % data_component_storage.chunk_capacity;
-  ComponentDataChunk& chunk = data_component_storage.chunk_array.chunk_array[chunk_index];
+  ComponentDataChunk& chunk = data_component_storage.chunk_array.chunks[chunk_index];
   const size_t id = typeid(T).hash_code();
   if (id == typeid(Transform).hash_code()) {
     return chunk.GetData<T>(chunk_pointer * sizeof(Transform));
@@ -672,28 +672,7 @@ T Scene::GetDataComponent(const size_t& index) {
 }
 template <typename T>
 bool Scene::HasDataComponent(const size_t& index) const {
-  if (index > scene_data_storage_.entity_metadata_list.size())
-    return false;
-  const EntityMetadata& entity_info = scene_data_storage_.entity_metadata_list.at(index);
-  auto& data_component_storage =
-      scene_data_storage_.data_component_storage_list[entity_info.data_component_storage_index];
-
-  const size_t id = typeid(T).hash_code();
-  if (id == typeid(Transform).hash_code()) {
-    return true;
-  }
-  if (id == typeid(GlobalTransform).hash_code()) {
-    return true;
-  }
-  if (id == typeid(TransformUpdateFlag).hash_code()) {
-    return true;
-  }
-  for (const auto& type : data_component_storage.data_component_types) {
-    if (type.type_index == id) {
-      return true;
-    }
-  }
-  return false;
+  return HasDataComponent(index, typeid(T).hash_code());
 }
 
 template <typename T>
@@ -751,8 +730,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies, const Entit
   std::vector<JobHandle> jobs;
   const auto queried_storage_list = QueryDataComponentStorageList(entity_query);
   for (const auto i : queried_storage_list) {
-    if (const auto job = ForEachStorage(dependencies, i.get(), std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, i.get(), std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -764,8 +742,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies, const Entit
   const auto queried_storage_list = QueryDataComponentStorageList(entity_query);
   std::vector<JobHandle> jobs;
   for (const auto i : queried_storage_list) {
-    if (const auto job = ForEachStorage(dependencies, i.get(), std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, i.get(), std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -777,9 +754,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies, const Entit
   const auto queried_storage_list = QueryDataComponentStorageList(entity_query);
   std::vector<JobHandle> jobs;
   for (const auto i : queried_storage_list) {
-    if (const auto job = ForEachStorage(
-            dependencies, i.get(), std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, i.get(), std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -791,9 +766,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies, const Entit
   const auto queried_storage_list = QueryDataComponentStorageList(entity_query);
   std::vector<JobHandle> jobs;
   for (const auto i : queried_storage_list) {
-    if (const auto job =
-            ForEachStorage(dependencies, i.get(), std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, i.get(), std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -805,9 +778,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies, const Entit
   const auto queried_storage_list = QueryDataComponentStorageList(entity_query);
   std::vector<JobHandle> jobs;
   for (const auto i : queried_storage_list) {
-    if (const auto job = ForEachStorage(dependencies, i.get(), std::move(func),
-                                        check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, i.get(), std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -820,9 +791,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies, const Entit
   const auto queried_storage_list = QueryDataComponentStorageList(entity_query);
   std::vector<JobHandle> jobs;
   for (const auto i : queried_storage_list) {
-    if (const auto job = ForEachStorage(dependencies, i.get(),
-                                        std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, i.get(), std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -835,9 +804,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies, const Entit
   const auto queried_storage_list = QueryDataComponentStorageList(entity_query);
   std::vector<JobHandle> jobs;
   for (const auto i : queried_storage_list) {
-    if (const auto job = ForEachStorage(
-            dependencies, i.get(), std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, i.get(), std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -850,10 +817,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies, const Entit
   const auto queried_storage_list = QueryDataComponentStorageList(entity_query);
   std::vector<JobHandle> jobs;
   for (const auto i : queried_storage_list) {
-    if (const auto job =
-            ForEachStorage(dependencies, i.get(),
-                           std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, i.get(), std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -865,8 +829,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies,
   auto& storage_list = scene_data_storage_.data_component_storage_list;
   std::vector<JobHandle> jobs;
   for (auto i = storage_list.begin() + 1; i < storage_list.end(); ++i) {
-    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -878,8 +841,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies,
   auto& storage_list = scene_data_storage_.data_component_storage_list;
   std::vector<JobHandle> jobs;
   for (auto i = storage_list.begin() + 1; i < storage_list.end(); ++i) {
-    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -891,8 +853,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies,
   auto& storage_list = scene_data_storage_.data_component_storage_list;
   std::vector<JobHandle> jobs;
   for (auto i = storage_list.begin() + 1; i < storage_list.end(); ++i) {
-    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -904,9 +865,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies,
   auto& storage_list = scene_data_storage_.data_component_storage_list;
   std::vector<JobHandle> jobs;
   for (auto i = storage_list.begin() + 1; i < storage_list.end(); ++i) {
-    if (const auto job =
-            ForEachStorage(dependencies, *i, std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -918,9 +877,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies,
   auto& storage_list = scene_data_storage_.data_component_storage_list;
   std::vector<JobHandle> jobs;
   for (auto i = storage_list.begin() + 1; i < storage_list.end(); ++i) {
-    if (const auto job =
-            ForEachStorage(dependencies, *i, std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -933,8 +890,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies,
   auto& storage_list = scene_data_storage_.data_component_storage_list;
   std::vector<JobHandle> jobs;
   for (auto i = storage_list.begin() + 1; i < storage_list.end(); ++i) {
-    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -947,9 +903,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies,
   auto& storage_list = scene_data_storage_.data_component_storage_list;
   std::vector<JobHandle> jobs;
   for (auto i = storage_list.begin() + 1; i < storage_list.end(); ++i) {
-    if (const auto job = ForEachStorage(
-            dependencies, *i, std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -962,9 +916,7 @@ JobHandle Scene::ForEach(const std::vector<JobHandle>& dependencies,
   auto& storage_list = scene_data_storage_.data_component_storage_list;
   std::vector<JobHandle> jobs;
   for (auto i = storage_list.begin() + 1; i < storage_list.end(); ++i) {
-    if (const auto job = ForEachStorage(
-            dependencies, *i, std::move(func), check_enable);
-        job.Valid())
+    if (const auto job = ForEachStorage(dependencies, *i, std::move(func), check_enable); job.Valid())
       jobs.emplace_back(job);
   }
   return Jobs::Combine(jobs);
@@ -1254,17 +1206,15 @@ std::vector<std::pair<T*, size_t>> Scene::UnsafeGetDataComponentArray(const Enti
     if (!found)
       continue;
     const auto capacity = i.chunk_capacity;
-    const auto& chunk_array = i.chunk_array;
+    auto& chunk_array = i.chunk_array;
     const auto chunk_size = entity_count / capacity;
     const auto chunk_reminder = entity_count % capacity;
     for (int chunk_index = 0; chunk_index < chunk_size; chunk_index++) {
-      auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
-      T* ptr = reinterpret_cast<T*>(data + target_type.type_offset * capacity);
+      T* ptr = static_cast<T*>(chunk_array.chunks[chunk_index].RefData(target_type.type_offset * capacity));
       return_value.emplace_back(ptr, capacity);
     }
     if (chunk_reminder > 0) {
-      auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_size].chunk_data);
-      T* ptr = reinterpret_cast<T*>(data + target_type.type_offset * capacity);
+      T* ptr = static_cast<T*>(chunk_array.chunks[chunk_size].RefData(target_type.type_offset * capacity));
       return_value.emplace_back(ptr, chunk_reminder);
     }
   }
@@ -1296,8 +1246,8 @@ void Scene::GetDataComponentArrayStorage(const DataComponentStorage& storage, st
         Jobs::RunParallelFor(amount, [&](size_t i, size_t thread_index) {
           const auto chunk_index = i / capacity;
           const auto remainder = i % capacity;
-          auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
-          T* address1 = reinterpret_cast<T*>(data + type.type_offset * capacity);
+          const T* address1 =
+              static_cast<const T*>(chunk_array.chunks[chunk_index].PeekData(type.type_offset * capacity));
           if (const auto entity = entities.at(i);
               !scene_data_storage_.entity_metadata_list.at(entity.index_).entity_enabled)
             return;
@@ -1313,14 +1263,12 @@ void Scene::GetDataComponentArrayStorage(const DataComponentStorage& storage, st
         const auto remain_amount = amount % capacity;
         for (size_t i = 0; i < chunk_amount; i++) {
           memcpy(&container.at(container.size() - remain_amount - capacity * (chunk_amount - i)),
-                 reinterpret_cast<void*>(static_cast<char*>(storage.chunk_array.chunk_array[i].chunk_data) +
-                                         capacity * target_type.type_offset),
+                 storage.chunk_array.chunks[i].PeekData(capacity * target_type.type_offset),
                  capacity * target_type.type_size);
         }
         if (remain_amount > 0)
           memcpy(&container.at(container.size() - remain_amount),
-                 reinterpret_cast<void*>(static_cast<char*>(storage.chunk_array.chunk_array[chunk_amount].chunk_data) +
-                                         capacity * target_type.type_offset),
+                 storage.chunk_array.chunks[chunk_amount].PeekData(capacity * target_type.type_offset),
                  remain_amount * target_type.type_size);
       }
     }
@@ -1328,8 +1276,8 @@ void Scene::GetDataComponentArrayStorage(const DataComponentStorage& storage, st
 }
 #pragma region ForEachStorage
 template <typename T1>
-JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
-                                std::function<void(int i, Entity entity, T1&)>&& func, bool check_enable) {
+JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+                                std::function<void(int i, Entity entity, T1&)>&& func, const bool check_enable) {
   auto target_type1 = Typeof<T1>();
   const auto entity_count = storage.entity_alive_count;
   auto found1 = false;
@@ -1342,13 +1290,13 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   if (!found1)
     return JobHandle();
   const auto capacity = storage.chunk_capacity;
-  const auto& chunk_array = storage.chunk_array;
+  auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
-    auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
-    T1* address1 = reinterpret_cast<T1*>(data + target_type1.type_offset * capacity);
+    auto& chunk = chunk_array.chunks[chunk_index];
+    T1* address1 = static_cast<T1*>(chunk.RefData(target_type1.type_offset * capacity));
     const auto entity = entities.at(i);
     if (check_enable && !scene_data_storage_.entity_metadata_list.at(entity.index_).entity_enabled)
       return;
@@ -1356,8 +1304,8 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   });
 }
 template <typename T1, typename T2>
-JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
-                                std::function<void(int i, Entity entity, T1&, T2&)>&& func, bool check_enable) {
+JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+                                std::function<void(int i, Entity entity, T1&, T2&)>&& func, const bool check_enable) {
   auto target_type1 = Typeof<T1>();
   auto target_type2 = Typeof<T2>();
   const auto entity_count = storage.entity_alive_count;
@@ -1376,14 +1324,14 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   if (!found1 || !found2)
     return JobHandle();
   const auto capacity = storage.chunk_capacity;
-  const auto& chunk_array = storage.chunk_array;
+  auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
-    auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
-    T1* address1 = reinterpret_cast<T1*>(data + target_type1.type_offset * capacity);
-    T2* address2 = reinterpret_cast<T2*>(data + target_type2.type_offset * capacity);
+    auto& chunk = chunk_array.chunks[chunk_index];
+    T1* address1 = static_cast<T1*>(chunk.RefData(target_type1.type_offset * capacity));
+    T2* address2 = static_cast<T2*>(chunk.RefData(target_type2.type_offset * capacity));
     const auto entity = entities.at(i);
     if (check_enable && !scene_data_storage_.entity_metadata_list.at(entity.index_).entity_enabled)
       return;
@@ -1391,8 +1339,9 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   });
 }
 template <typename T1, typename T2, typename T3>
-JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
-                                std::function<void(int i, Entity entity, T1&, T2&, T3&)>&& func, bool check_enable) {
+auto Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+                           std::function<void(int i, Entity entity, T1&, T2&, T3&)>&& func, const bool check_enable)
+    -> JobHandle {
   auto target_type1 = Typeof<T1>();
   auto target_type2 = Typeof<T2>();
   auto target_type3 = Typeof<T3>();
@@ -1415,15 +1364,15 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   if (!found1 || !found2 || !found3)
     return JobHandle();
   const auto capacity = storage.chunk_capacity;
-  const auto& chunk_array = storage.chunk_array;
+  auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
-    auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
-    T1* address1 = reinterpret_cast<T1*>(data + target_type1.type_offset * capacity);
-    T2* address2 = reinterpret_cast<T2*>(data + target_type2.type_offset * capacity);
-    T3* address3 = reinterpret_cast<T3*>(data + target_type3.type_offset * capacity);
+    auto& chunk = chunk_array.chunks[chunk_index];
+    T1* address1 = static_cast<T1*>(chunk.RefData(target_type1.type_offset * capacity));
+    T2* address2 = static_cast<T2*>(chunk.RefData(target_type2.type_offset * capacity));
+    T3* address3 = static_cast<T3*>(chunk.RefData(target_type3.type_offset * capacity));
     const auto entity = entities.at(i);
     if (check_enable && !scene_data_storage_.entity_metadata_list.at(entity.index_).entity_enabled)
       return;
@@ -1431,7 +1380,7 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   });
 }
 template <typename T1, typename T2, typename T3, typename T4>
-JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                                 std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&)>&& func,
                                 const bool check_enable) {
   auto target_type1 = Typeof<T1>();
@@ -1461,16 +1410,16 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   if (!found1 || !found2 || !found3 || !found4)
     return JobHandle();
   const auto capacity = storage.chunk_capacity;
-  const auto& chunk_array = storage.chunk_array;
+  auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
-    auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
-    T1* address1 = reinterpret_cast<T1*>(data + target_type1.type_offset * capacity);
-    T2* address2 = reinterpret_cast<T2*>(data + target_type2.type_offset * capacity);
-    T3* address3 = reinterpret_cast<T3*>(data + target_type3.type_offset * capacity);
-    T4* address4 = reinterpret_cast<T4*>(data + target_type4.type_offset * capacity);
+    auto& chunk = chunk_array.chunks[chunk_index];
+    T1* address1 = static_cast<T1*>(chunk.RefData(target_type1.type_offset * capacity));
+    T2* address2 = static_cast<T2*>(chunk.RefData(target_type2.type_offset * capacity));
+    T3* address3 = static_cast<T3*>(chunk.RefData(target_type3.type_offset * capacity));
+    T4* address4 = static_cast<T4*>(chunk.RefData(target_type4.type_offset * capacity));
     const auto entity = entities.at(i);
     if (check_enable && !scene_data_storage_.entity_metadata_list.at(entity.index_).entity_enabled)
       return;
@@ -1479,7 +1428,7 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   });
 }
 template <typename T1, typename T2, typename T3, typename T4, typename T5>
-JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                                 std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&)>&& func,
                                 const bool check_enable) {
   auto target_type1 = Typeof<T1>();
@@ -1514,17 +1463,17 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   if (!found1 || !found2 || !found3 || !found4 || !found5)
     return JobHandle();
   const auto capacity = storage.chunk_capacity;
-  const auto& chunk_array = storage.chunk_array;
+  auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
-    auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
-    T1* address1 = reinterpret_cast<T1*>(data + target_type1.type_offset * capacity);
-    T2* address2 = reinterpret_cast<T2*>(data + target_type2.type_offset * capacity);
-    T3* address3 = reinterpret_cast<T3*>(data + target_type3.type_offset * capacity);
-    T4* address4 = reinterpret_cast<T4*>(data + target_type4.type_offset * capacity);
-    T5* address5 = reinterpret_cast<T5*>(data + target_type5.type_offset * capacity);
+    auto& chunk = chunk_array.chunks[chunk_index];
+    T1* address1 = static_cast<T1*>(chunk.RefData(target_type1.type_offset * capacity));
+    T2* address2 = static_cast<T2*>(chunk.RefData(target_type2.type_offset * capacity));
+    T3* address3 = static_cast<T3*>(chunk.RefData(target_type3.type_offset * capacity));
+    T4* address4 = static_cast<T4*>(chunk.RefData(target_type4.type_offset * capacity));
+    T5* address5 = static_cast<T5*>(chunk.RefData(target_type5.type_offset * capacity));
     const auto entity = entities.at(i);
     if (check_enable && !scene_data_storage_.entity_metadata_list.at(entity.index_).entity_enabled)
       return;
@@ -1533,7 +1482,7 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   });
 }
 template <typename T1, typename T2, typename T3, typename T4, typename T5, typename T6>
-JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                                 std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&)>&& func,
                                 const bool check_enable) {
   auto target_type1 = Typeof<T1>();
@@ -1573,18 +1522,18 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   if (!found1 || !found2 || !found3 || !found4 || !found5 || !found6)
     return JobHandle();
   const auto capacity = storage.chunk_capacity;
-  const auto& chunk_array = storage.chunk_array;
+  auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
-    auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
-    T1* address1 = reinterpret_cast<T1*>(data + target_type1.type_offset * capacity);
-    T2* address2 = reinterpret_cast<T2*>(data + target_type2.type_offset * capacity);
-    T3* address3 = reinterpret_cast<T3*>(data + target_type3.type_offset * capacity);
-    T4* address4 = reinterpret_cast<T4*>(data + target_type4.type_offset * capacity);
-    T5* address5 = reinterpret_cast<T5*>(data + target_type5.type_offset * capacity);
-    T6* address6 = reinterpret_cast<T6*>(data + target_type6.type_offset * capacity);
+    auto& chunk = chunk_array.chunks[chunk_index];
+    T1* address1 = static_cast<T1*>(chunk.RefData(target_type1.type_offset * capacity));
+    T2* address2 = static_cast<T2*>(chunk.RefData(target_type2.type_offset * capacity));
+    T3* address3 = static_cast<T3*>(chunk.RefData(target_type3.type_offset * capacity));
+    T4* address4 = static_cast<T4*>(chunk.RefData(target_type4.type_offset * capacity));
+    T5* address5 = static_cast<T5*>(chunk.RefData(target_type5.type_offset * capacity));
+    T6* address6 = static_cast<T6*>(chunk.RefData(target_type6.type_offset * capacity));
     const auto entity = entities.at(i);
     if (check_enable && !scene_data_storage_.entity_metadata_list.at(entity.index_).entity_enabled)
       return;
@@ -1593,7 +1542,7 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   });
 }
 template <typename T1, typename T2, typename T3, typename T4, typename T5, typename T6, typename T7>
-JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
+JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
                                 std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&, T7&)>&& func,
                                 const bool check_enable) {
   auto target_type1 = Typeof<T1>();
@@ -1638,19 +1587,19 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
   if (!found1 || !found2 || !found3 || !found4 || !found5 || !found6 || !found7)
     return JobHandle();
   const auto capacity = storage.chunk_capacity;
-  const auto& chunk_array = storage.chunk_array;
+  auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
-    auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
-    T1* address1 = reinterpret_cast<T1*>(data + target_type1.type_offset * capacity);
-    T2* address2 = reinterpret_cast<T2*>(data + target_type2.type_offset * capacity);
-    T3* address3 = reinterpret_cast<T3*>(data + target_type3.type_offset * capacity);
-    T4* address4 = reinterpret_cast<T4*>(data + target_type4.type_offset * capacity);
-    T5* address5 = reinterpret_cast<T5*>(data + target_type5.type_offset * capacity);
-    T6* address6 = reinterpret_cast<T6*>(data + target_type6.type_offset * capacity);
-    T7* address7 = reinterpret_cast<T7*>(data + target_type7.type_offset * capacity);
+    auto& chunk = chunk_array.chunks[chunk_index];
+    T1* address1 = static_cast<T1*>(chunk.RefData(target_type1.type_offset * capacity));
+    T2* address2 = static_cast<T2*>(chunk.RefData(target_type2.type_offset * capacity));
+    T3* address3 = static_cast<T3*>(chunk.RefData(target_type3.type_offset * capacity));
+    T4* address4 = static_cast<T4*>(chunk.RefData(target_type4.type_offset * capacity));
+    T5* address5 = static_cast<T5*>(chunk.RefData(target_type5.type_offset * capacity));
+    T6* address6 = static_cast<T6*>(chunk.RefData(target_type6.type_offset * capacity));
+    T7* address7 = static_cast<T7*>(chunk.RefData(target_type7.type_offset * capacity));
     const auto entity = entities.at(i);
     if (check_enable && !scene_data_storage_.entity_metadata_list.at(entity.index_).entity_enabled)
       return;
@@ -1660,8 +1609,8 @@ JobHandle Scene::ForEachStorage(const std::vector<JobHandle>& dependencies, cons
 }
 template <typename T1, typename T2, typename T3, typename T4, typename T5, typename T6, typename T7, typename T8>
 JobHandle Scene::ForEachStorage(
-    const std::vector<JobHandle>& dependencies, const DataComponentStorage& storage,
-    std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&, T7&, T8&)>&& func, bool check_enable) {
+    const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+    std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&, T7&, T8&)>&& func, const bool check_enable) {
   auto target_type1 = Typeof<T1>();
   auto target_type2 = Typeof<T2>();
   auto target_type3 = Typeof<T3>();
@@ -1709,20 +1658,20 @@ JobHandle Scene::ForEachStorage(
   if (!found1 || !found2 || !found3 || !found4 || !found5 || !found6 || !found7 || !found8)
     return JobHandle();
   const auto capacity = storage.chunk_capacity;
-  const auto& chunk_array = storage.chunk_array;
+  auto& chunk_array = storage.chunk_array;
   const auto& entities = chunk_array.entity_array;
-  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=](const size_t i) {
+  return Jobs::ScheduleParallelFor(dependencies, entity_count, [=, &chunk_array](const size_t i) {
     const auto chunk_index = i / capacity;
     const auto remainder = i % capacity;
-    auto* data = static_cast<char*>(chunk_array.chunk_array[chunk_index].chunk_data);
-    T1* address1 = reinterpret_cast<T1*>(data + target_type1.type_offset * capacity);
-    T2* address2 = reinterpret_cast<T2*>(data + target_type2.type_offset * capacity);
-    T3* address3 = reinterpret_cast<T3*>(data + target_type3.type_offset * capacity);
-    T4* address4 = reinterpret_cast<T4*>(data + target_type4.type_offset * capacity);
-    T5* address5 = reinterpret_cast<T5*>(data + target_type5.type_offset * capacity);
-    T6* address6 = reinterpret_cast<T6*>(data + target_type6.type_offset * capacity);
-    T7* address7 = reinterpret_cast<T7*>(data + target_type7.type_offset * capacity);
-    T8* address8 = reinterpret_cast<T8*>(data + target_type8.type_offset * capacity);
+    auto& chunk = chunk_array.chunks[chunk_index];
+    T1* address1 = static_cast<T1*>(chunk.RefData(target_type1.type_offset * capacity));
+    T2* address2 = static_cast<T2*>(chunk.RefData(target_type2.type_offset * capacity));
+    T3* address3 = static_cast<T3*>(chunk.RefData(target_type3.type_offset * capacity));
+    T4* address4 = static_cast<T4*>(chunk.RefData(target_type4.type_offset * capacity));
+    T5* address5 = static_cast<T5*>(chunk.RefData(target_type5.type_offset * capacity));
+    T6* address6 = static_cast<T6*>(chunk.RefData(target_type6.type_offset * capacity));
+    T7* address7 = static_cast<T7*>(chunk.RefData(target_type7.type_offset * capacity));
+    T8* address8 = static_cast<T8*>(chunk.RefData(target_type8.type_offset * capacity));
     const auto entity = entities.at(i);
     if (check_enable && !scene_data_storage_.entity_metadata_list.at(entity.index_).entity_enabled)
       return;

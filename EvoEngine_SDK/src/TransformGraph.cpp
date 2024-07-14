@@ -7,10 +7,6 @@
 #include "Scene.hpp"
 using namespace evo_engine;
 
-DataComponentRegistration<Transform> transform_registry("Transform");
-DataComponentRegistration<GlobalTransform> global_transform_registry("GlobalTransform");
-DataComponentRegistration<TransformUpdateFlag> transform_update_status_registry("TransformUpdateFlag");
-
 void TransformGraph::Initialize() {
   auto& transform_graph = GetInstance();
   transform_graph.transform_query_ = Entities::CreateEntityQuery();
@@ -21,23 +17,23 @@ void TransformGraph::CalculateTransformGraph(const std::shared_ptr<Scene>& scene
                                              const std::vector<EntityMetadata>& entity_infos,
                                              const GlobalTransform& parent_global_transform, const Entity& parent) {
   const auto& entity_info = entity_infos.at(parent.GetIndex());
-  for (const auto& entity : entity_info.children) {
-    auto* transform_status = reinterpret_cast<TransformUpdateFlag*>(
-        scene->GetDataComponentPointer(entity.GetIndex(), typeid(TransformUpdateFlag).hash_code()));
+  for (const auto& child : entity_info.children) {
+    auto* transform_status = static_cast<TransformUpdateFlag*>(
+        scene->GetDataComponentPointer(child.GetIndex(), typeid(TransformUpdateFlag).hash_code()));
+    transform_status->transform_modified = false;
     GlobalTransform ltw;
     if (transform_status->global_transform_modified) {
-      ltw = scene->GetDataComponent<GlobalTransform>(entity.GetIndex());
-      reinterpret_cast<Transform*>(scene->GetDataComponentPointer(entity.GetIndex(), typeid(Transform).hash_code()))
+      ltw = scene->GetDataComponent<GlobalTransform>(child.GetIndex());
+      static_cast<Transform*>(scene->GetDataComponentPointer(child.GetIndex(), typeid(Transform).hash_code()))
           ->value = glm::inverse(parent_global_transform.value) * ltw.value;
       transform_status->global_transform_modified = false;
     } else {
-      auto ltp = scene->GetDataComponent<Transform>(entity.GetIndex());
+      auto ltp = scene->GetDataComponent<Transform>(child.GetIndex());
       ltw.value = parent_global_transform.value * ltp.value;
-      *reinterpret_cast<GlobalTransform*>(
-          scene->GetDataComponentPointer(entity.GetIndex(), typeid(GlobalTransform).hash_code())) = ltw;
+      *static_cast<GlobalTransform*>(
+          scene->GetDataComponentPointer(child.GetIndex(), typeid(GlobalTransform).hash_code())) = ltw;
     }
-    transform_status->transform_modified = false;
-    CalculateTransformGraph(scene, entity_infos, ltw, entity);
+    CalculateTransformGraph(scene, entity_infos, ltw, child);
   }
 }
 void TransformGraph::CalculateTransformGraphs(const std::shared_ptr<Scene>& scene, const bool check_static) {
@@ -48,15 +44,14 @@ void TransformGraph::CalculateTransformGraphs(const std::shared_ptr<Scene>& scen
   // ProfilerLayer::StartEvent("TransformManager");
   Jobs::Wait(scene->ForEach<Transform, GlobalTransform, TransformUpdateFlag>(
       {}, transform_graph.transform_query_,
-      [&](int i, Entity entity, Transform& transform, GlobalTransform& global_transform,
+      [&](int i, const Entity entity, Transform& transform, GlobalTransform& global_transform,
           TransformUpdateFlag& transform_status) {
         const EntityMetadata& entity_info = scene->scene_data_storage_.entity_metadata_list.at(entity.GetIndex());
+        transform_status.transform_modified = false;
         if (entity_info.parent.GetIndex() != 0) {
-          transform_status.transform_modified = false;
           return;
         }
         if (check_static && entity_info.entity_static) {
-          transform_status.transform_modified = false;
           return;
         }
         if (transform_status.global_transform_modified) {
@@ -76,7 +71,36 @@ void TransformGraph::CalculateTransformGraphForDescendants(const std::shared_ptr
   if (!scene)
     return;
   auto& transform_graph = GetInstance();
+  const auto& entity_index = entity.GetIndex();
   const auto& entity_infos = scene->scene_data_storage_.entity_metadata_list;
+  const EntityMetadata& entity_info = scene->scene_data_storage_.entity_metadata_list.at(entity_index);
+  auto* transform_status = static_cast<TransformUpdateFlag*>(
+      scene->GetDataComponentPointer(entity_index, typeid(TransformUpdateFlag).hash_code()));
+  auto* transform = static_cast<Transform*>(scene->GetDataComponentPointer(entity_index, typeid(Transform).hash_code()));
+  auto* global_transform = static_cast<GlobalTransform*>(scene->GetDataComponentPointer(entity_index, typeid(GlobalTransform).hash_code()));
+
+  if (entity_info.parent.GetIndex() != 0) {
+    //Not root
+    const auto parent_global_transform = scene->GetDataComponent<GlobalTransform>(entity_info.parent);
+    GlobalTransform ltw;
+    if (transform_status->global_transform_modified) {
+      ltw = scene->GetDataComponent<GlobalTransform>(entity_index);
+      transform->value = glm::inverse(parent_global_transform.value) * ltw.value;
+      transform_status->global_transform_modified = false;
+    } else {
+      const auto ltp = scene->GetDataComponent<Transform>(entity_index);
+      ltw.value = parent_global_transform.value * ltp.value;
+      global_transform->value = ltw.value;
+    }
+  } else {
+    //Root
+    if (transform_status->global_transform_modified) {
+      transform->value = global_transform->value;
+      transform_status->global_transform_modified = false;
+    } else {
+      global_transform->value = transform->value;
+    }
+  }
   transform_graph.CalculateTransformGraph(scene, entity_infos,
-                                         scene->GetDataComponent<GlobalTransform>(entity.GetIndex()), entity);
+                                          scene->GetDataComponent<GlobalTransform>(entity_index), entity);
 }

@@ -188,12 +188,7 @@ EntityArchetype Entities::CreateEntityArchetype(const std::string &name, T arg, 
 
 template <typename T>
 T ComponentDataChunk::GetData(const size_t &offset) {
-  return T(*reinterpret_cast<T *>(static_cast<char *>(chunk_data) + offset));
-}
-
-template <typename T>
-void ComponentDataChunk::SetData(const size_t &offset, const T &data) {
-  *reinterpret_cast<T *>(static_cast<char *>(chunk_data) + offset) = data;
+  return T(*reinterpret_cast<T *>(chunk_data_.data() + offset));
 }
 
 template <typename T, typename... Ts>

@@ -23,22 +23,23 @@
 using namespace eco_sys_lab;
 using namespace evo_engine;
 
-void SorghumLayer::OnCreate() {
-  ClassRegistry::RegisterAsset<SorghumState>("SorghumState", {".ss"});
-  ClassRegistry::RegisterPrivateComponent<Sorghum>("Sorghum");
+AssetRegistration<SorghumState> sorghum_state_registry("SorghumState", {".ss"});
+PrivateComponentRegistration<Sorghum> sorghum_registry("Sorghum");
 
-  ClassRegistry::RegisterAsset<SorghumDescriptor>("SorghumDescriptor", {".sorghum"});
-  ClassRegistry::RegisterAsset<SorghumGrowthStages>("SorghumGrowthStages", {".sgs"});
-  ClassRegistry::RegisterAsset<SorghumStateGenerator>("SorghumStateGenerator", {".ssg"});
-  ClassRegistry::RegisterAsset<SorghumField>("SorghumField", {".sorghumfield"});
+AssetRegistration<SorghumDescriptor> sd_registry("SorghumDescriptor", {".sorghum"});
+AssetRegistration<SorghumGrowthStages> sgt_registry("SorghumGrowthStages", {".sgs"});
+AssetRegistration<SorghumStateGenerator> ssg_registry("SorghumStateGenerator", {".ssg"});
+AssetRegistration<SorghumField> sf_registry("SorghumField", {".sorghumfield"});
 #ifdef OPTIX_RAY_TRACER_PLUGIN
-  ClassRegistry::RegisterAsset<PARSensorGroup>("PARSensorGroup", {".parsensorgroup"});
-  ClassRegistry::RegisterAsset<CBTFGroup>("CBTFGroup", {".cbtfg"});
-  ClassRegistry::RegisterAsset<DoubleCBTF>("DoubleCBTF", {".dcbtf"});
+AssetRegistration<PARSensorGroup> parssg_registry("PARSensorGroup", {".parsensorgroup"});
+AssetRegistration<CBTFGroup> cbtfg_registry("CBTFGroup", {".cbtfg"});
+AssetRegistration<DoubleCBTF> dcbtf_registry("DoubleCBTF", {".dcbtf"});
 #endif
-  ClassRegistry::RegisterAsset<SkyIlluminance>("SkyIlluminance", {".skyilluminance"});
-  ClassRegistry::RegisterAsset<SorghumCoordinates>("SorghumCoordinates", {".sorghumcoords"});
-  ClassRegistry::RegisterPrivateComponent<SorghumPointCloudScanner>("SorghumPointCloudScanner");
+AssetRegistration<SkyIlluminance> si_registry("SkyIlluminance", {".skyilluminance"});
+AssetRegistration<SorghumCoordinates> sc_registry("SorghumCoordinates", {".sorghumcoords"});
+PrivateComponentRegistration<SorghumPointCloudScanner> spcs_registry("SorghumPointCloudScanner");
+
+void SorghumLayer::OnCreate() {
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
     auto texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
     texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources/Textures") /

@@ -149,24 +149,24 @@ void StarClusterPattern::OnInspect() {
 
 void StarClusterPattern::Apply(const bool &force_update_all_stars, const bool &only_update_colors) {
   SetAb();
-  Application::GetActiveScene()
-      ->ForEach<StarInfo, StarClusterIndex, StarOrbit, StarOrbitOffset, StarOrbitProportion, SurfaceColor>(
-          {}, [&](int i, Entity entity, StarInfo &star_info, const StarClusterIndex &star_cluster_index,
-                  StarOrbit &star_orbit, StarOrbitOffset &star_orbit_offset, StarOrbitProportion &star_orbit_proportion,
-                  SurfaceColor &surface_color) {
-            if (!force_update_all_stars && star_info.initialized)
-              return;
-            if (star_cluster_index.m_value != this->star_cluster_index.m_value)
-              return;
-            star_info.initialized = true;
-            const auto proportion = star_orbit_proportion.value;
-            if (!only_update_colors) {
-              star_orbit_offset = GetOrbitOffset(proportion);
-              star_orbit = GetOrbit(proportion);
-            }
-            surface_color.value = GetColor(proportion);
-            surface_color.intensity = GetIntensity(proportion);
-          });
+  Jobs::Wait(Application::GetActiveScene()
+                 ->ForEach<StarInfo, StarClusterIndex, StarOrbit, StarOrbitOffset, StarOrbitProportion, SurfaceColor>(
+                     {}, [&](int i, Entity entity, StarInfo &star_info, const StarClusterIndex &star_cluster_index,
+                             StarOrbit &star_orbit, StarOrbitOffset &star_orbit_offset,
+                             StarOrbitProportion &star_orbit_proportion, SurfaceColor &surface_color) {
+                       if (!force_update_all_stars && star_info.initialized)
+                         return;
+                       if (star_cluster_index.m_value != this->star_cluster_index.m_value)
+                         return;
+                       star_info.initialized = true;
+                       const auto proportion = star_orbit_proportion.value;
+                       if (!only_update_colors) {
+                         star_orbit_offset = GetOrbitOffset(proportion);
+                         star_orbit = GetOrbit(proportion);
+                       }
+                       surface_color.value = GetColor(proportion);
+                       surface_color.intensity = GetIntensity(proportion);
+                     }));
 }
 
 bool StarClusterSystem::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
@@ -216,7 +216,7 @@ void StarClusterSystem::CalculateStarPositionSync() {
   // galaxy. StarOrbit: The orbit which contains the function for calculating the position based on current time
   // and proportion value. StarOrbitOffset: The position offset of the star, used to add irregularity to the
   // position.
-  scene->ForEach<StarOrbitProportion, StarPosition, StarOrbit, StarOrbitOffset>(
+  Jobs::Wait(scene->ForEach<StarOrbitProportion, StarPosition, StarOrbit, StarOrbitOffset>(
       {}, star_query_,
       [=](int i, Entity entity, const StarOrbitProportion &star_proportion, StarPosition &star_position,
           const StarOrbit &star_orbit, const StarOrbitOffset &star_orbit_offset) {
@@ -224,7 +224,7 @@ void StarClusterSystem::CalculateStarPositionSync() {
         star_position.value =
             star_orbit.GetPoint(star_orbit_offset.value, star_proportion.value * 360.0f + galaxy_time_, true);
       },
-      false);
+      false));
   const auto used_time = Times::Now() - calc_position_timer_;
   calc_position_result_ = calc_position_result_ * counter_ / (counter_ + 1) + used_time / (counter_ + 1);
 
@@ -237,7 +237,7 @@ void StarClusterSystem::CalculateStarPositionSync() {
 void StarClusterSystem::ApplyPosition() {
   auto scene = GetScene();
   apply_position_timer_ = Times::Now();
-  scene->ForEach<StarPosition, GlobalTransform, Transform, SurfaceColor, DisplayColor>(
+  Jobs::Wait(scene->ForEach<StarPosition, GlobalTransform, Transform, SurfaceColor, DisplayColor>(
       {}, star_query_,
       [this](int i, Entity entity, const StarPosition &position, GlobalTransform &global_transform,
              Transform &transform, const SurfaceColor &surface_color, DisplayColor &display_color) {
@@ -248,7 +248,7 @@ void StarClusterSystem::ApplyPosition() {
         display_color.value = surface_color.value;
         display_color.intensity = surface_color.intensity;
       },
-      false);
+      false));
   apply_position_timer_ = Times::Now() - apply_position_timer_;
 }
 
@@ -266,27 +266,26 @@ void StarClusterSystem::CopyPosition(const bool &reverse) {
   std::vector<ParticleInfo> particle_infos;
 
   particle_infos.resize(star_amount);
-  scene->ForEach<GlobalTransform, DisplayColor>(
+  Jobs::Wait(scene->ForEach<GlobalTransform, DisplayColor>(
       {}, star_query_,
       [&](int i, Entity entity, const GlobalTransform &global_transform, const DisplayColor &display_color) {
         particle_infos[i].instance_matrix.value = global_transform.value;
         particle_infos[i].instance_color = glm::vec4(display_color.value * display_color.intensity, 1.0f);
       },
-      false);
+      false));
   matrices->SetParticleInfos(particle_infos);
 }
-
+DataComponentRegistration<StarPosition> sp_registry("StarPosition");
+DataComponentRegistration<SelectionStatus> ss_registry("SelectionStatus");
+DataComponentRegistration<StarInfo> si_registry("StarInfo");
+DataComponentRegistration<SurfaceColor> sc_registry("SurfaceColor");
+DataComponentRegistration<DisplayColor> dp_registry("DisplayColor");
+DataComponentRegistration<OriginalColor> oc_registry("OriginalColor");
+DataComponentRegistration<StarOrbitOffset> soo_registry("StarOrbitOffset");
+DataComponentRegistration<StarOrbitProportion> sop_registry("StarOrbitProportion");
+DataComponentRegistration<StarOrbit> so_registry("StarOrbit");
+DataComponentRegistration<StarClusterIndex> sci_recistry("StarClusterIndex");
 void StarClusterSystem::OnCreate() {
-  ClassRegistry::RegisterDataComponent<StarPosition>("StarPosition");
-  ClassRegistry::RegisterDataComponent<SelectionStatus>("SelectionStatus");
-  ClassRegistry::RegisterDataComponent<StarInfo>("StarInfo");
-  ClassRegistry::RegisterDataComponent<SurfaceColor>("SurfaceColor");
-  ClassRegistry::RegisterDataComponent<DisplayColor>("DisplayColor");
-  ClassRegistry::RegisterDataComponent<OriginalColor>("OriginalColor");
-  ClassRegistry::RegisterDataComponent<StarOrbitOffset>("StarOrbitOffset");
-  ClassRegistry::RegisterDataComponent<StarOrbitProportion>("StarOrbitProportion");
-  ClassRegistry::RegisterDataComponent<StarOrbit>("StarOrbit");
-  ClassRegistry::RegisterDataComponent<StarClusterIndex>("StarClusterIndex");
   Enable();
 }
 

@@ -42,6 +42,34 @@ void PrivateComponentStorage::DeleteEntity(const Entity &entity) {
   }
 }
 
+std::shared_ptr<IPrivateComponent> PrivateComponentStorage::GetOrSetPrivateComponent(const Entity &entity,
+                                                                                     const size_t &type_id) {
+  if (const auto search = p_owners_collections_map_.find(type_id); search != p_owners_collections_map_.end()) {
+    if (const auto search2 = p_owners_collections_list_[search->second].second.owners_map.find(entity);
+        search2 == p_owners_collections_list_[search->second].second.owners_map.end()) {
+      p_owners_collections_list_[search->second].second.owners_map.insert(
+          {entity, p_owners_collections_list_[search->second].second.owners_list.size()});
+      p_owners_collections_list_[search->second].second.owners_list.push_back(entity);
+    }
+  } else {
+    POwnersCollection collection;
+    collection.owners_map.insert({entity, 0});
+    collection.owners_list.push_back(entity);
+    p_owners_collections_map_.insert({type_id, p_owners_collections_list_.size()});
+    p_owners_collections_list_.emplace_back(type_id, std::move(collection));
+  }
+  if (const auto p_search = private_component_pool_.find(type_id);
+      p_search != private_component_pool_.end() && !p_search->second.empty()) {
+    const auto back = p_search->second.back();
+    p_search->second.pop_back();
+    back->handle_ = Handle();
+    return back;
+  }
+  size_t temp;
+  return std::dynamic_pointer_cast<IPrivateComponent>(
+      Serialization::ProduceSerializable(Serialization::GetSerializableTypeName(type_id), temp));
+}
+
 void PrivateComponentStorage::SetPrivateComponent(const Entity &entity, size_t id) {
   if (const auto search = p_owners_collections_map_.find(id); search != p_owners_collections_map_.end()) {
     if (const auto search2 = p_owners_collections_list_[search->second].second.owners_map.find(entity);

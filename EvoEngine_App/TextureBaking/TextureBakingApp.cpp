@@ -66,12 +66,11 @@ int main() {
   Application::PushLayer<PhysicsLayer>();
 #endif
 
+  PrivateComponentRegistration<MeshColoring> mesh_coloring_registry("MeshColoring");
+
 #ifdef CPU_RAY_TRACER_PLUGIN
-  ClassRegistry::RegisterPrivateComponent<CpuRayTracerCamera>("CpuRayTracerCamera");
+  PrivateComponentRegistration<CpuRayTracerCamera> cpu_ray_tracer_camera_registry("CpuRayTracerCamera");
 #endif
-
-  ClassRegistry::RegisterPrivateComponent<MeshColoring>("MeshColoring");
-
   ApplicationInfo application_info;
   SetupDemoScene(demo_setup, application_info);
 

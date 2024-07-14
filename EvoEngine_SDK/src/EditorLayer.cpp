@@ -15,7 +15,6 @@
 #include "Times.hpp"
 #include "WindowLayer.hpp"
 using namespace evo_engine;
-
 void EditorLayer::OnCreate() {
   if (!Application::GetLayer<WindowLayer>()) {
     throw std::runtime_error("EditorLayer requires WindowLayer!");
@@ -35,13 +34,13 @@ void EditorLayer::OnCreate() {
     return false;
   });
   RegisterComponentDataInspector<Transform>([&](const Entity entity, IDataComponent* data, bool) {
-    static Entity previous_entity;
+    static Entity previous_entity{};
     auto* ltp = static_cast<Transform*>(static_cast<void*>(data));
     bool edited = false;
     const auto scene = Application::GetActiveScene();
     const auto status = scene->GetDataComponent<TransformUpdateFlag>(entity);
-    const bool reload = previous_entity != entity ||
-                        transform_reload;  // || status.transform_modified || status.global_transform_modified;
+    const bool reload = previous_entity != entity || previously_stored_transform_.value != ltp->value ||
+                        status.transform_modified || status.global_transform_modified;
     if (reload) {
       previous_entity = entity;
       ltp->Decompose(previously_stored_position_, previously_stored_rotation_, previously_stored_scale_);
@@ -49,8 +48,10 @@ void EditorLayer::OnCreate() {
       local_position_selected_ = true;
       local_rotation_selected_ = false;
       local_scale_selected_ = false;
+
+      previously_stored_transform_ = *ltp;
     }
-    if (ImGui::DragFloat3("##LocalPosition", &previously_stored_position_.x, 0.1f, 0, 0, "%.3f",
+    if (ImGui::DragFloat3("##LocalPosition", &previously_stored_position_.x, 0.01f, 0, 0, "%.3f",
                           reload ? ImGuiSliderFlags_ReadOnly : 0))
       edited = true;
     ImGui::SameLine();
@@ -78,8 +79,8 @@ void EditorLayer::OnCreate() {
       ltp->value = glm::translate(previously_stored_position_) *
                    glm::mat4_cast(glm::quat(glm::radians(previously_stored_rotation_))) *
                    glm::scale(previously_stored_scale_);
+      previously_stored_transform_ = *ltp;
     }
-    transform_reload = false;
     transform_read_only = false;
     return edited;
   });
@@ -462,8 +463,17 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           if (ImGui::BeginPopupContextItem("DataComponentInspectorPopup")) {
             ImGui::Text("Add data component: ");
             ImGui::Separator();
-            for (auto& i : component_data_menu_list_) {
-              i.second(selected_entity_);
+
+            for (const auto& i : Serialization::GetInstance().data_component_ids_) {
+              const auto id = i.second;
+              const auto name = i.first;
+              if (id == typeid(Transform).hash_code() || id == typeid(GlobalTransform).hash_code() ||
+                  id == typeid(TransformUpdateFlag).hash_code())
+                continue;
+
+              if (!scene->HasDataComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
+                scene->AddDataComponent(selected_entity_, id);
+              }
             }
             ImGui::Separator();
             ImGui::EndPopup();
@@ -496,8 +506,12 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           if (ImGui::BeginPopupContextItem("PrivateComponentInspectorPopup")) {
             ImGui::Text("Add private component: ");
             ImGui::Separator();
-            for (auto& i : private_component_menu_list_) {
-              i.second(selected_entity_);
+            for (const auto& i : Serialization::GetInstance().private_component_ids_) {
+              const auto id = i.second;
+              const auto name = i.first;
+              if (!scene->HasPrivateComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
+                scene->AddPrivateComponent(selected_entity_, id);
+              }
             }
             ImGui::Separator();
             ImGui::EndPopup();
@@ -1583,7 +1597,7 @@ void EditorLayer::CameraWindowDragAndDrop() const {
     }
 
     else if (asset->GetTypeName() == "Prefab") {
-      const auto entity = std::dynamic_pointer_cast<Prefab>(asset)->ToEntity(scene, true);
+      const auto entity = std::dynamic_pointer_cast<Prefab>(asset)->ToEntity(scene, true, true);
       scene->SetEntityName(entity, asset->GetTitle());
     } else if (asset->GetTypeName() == "Mesh") {
       const auto entity = scene->CreateEntity(asset->GetTitle());

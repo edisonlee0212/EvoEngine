@@ -2,12 +2,12 @@
 #include "Console.hpp"
 using namespace evo_engine;
 
-std::string Serialization::GetSerializableTypeName(const size_t &type_index) {
-  return GetInstance().serializable_names_.find(type_index)->second;
+std::string Serialization::GetSerializableTypeName(const size_t &type_id) {
+  return GetInstance().serializable_names_.find(type_id)->second;
 }
 
 bool Serialization::RegisterDataComponentType(
-    const std::string &type_name, const size_t &type_index,
+    const std::string &type_name, const size_t &type_index, const size_t &type_size,
     const std::function<std::shared_ptr<IDataComponent>(size_t &, size_t &)> &func) {
   auto &serialization = GetInstance();
   if (serialization.data_component_names_.find(type_index) != GetInstance().data_component_names_.end()) {
@@ -15,6 +15,7 @@ bool Serialization::RegisterDataComponentType(
     return false;
   }
   serialization.data_component_names_[type_index] = type_name;
+  serialization.data_component_sizes_[type_index] = type_size;
   serialization.data_component_ids_[type_name] = type_index;
   return serialization.data_component_generators_.insert({type_name, func}).second;
 }
@@ -44,13 +45,24 @@ bool Serialization::RegisterPrivateComponentType(
     const std::string &type_name, const size_t &type_index,
     const std::function<void(std::shared_ptr<IPrivateComponent>, const std::shared_ptr<IPrivateComponent> &)>
         &clone_func) {
-  auto &serialization_manager = GetInstance();
-  return serialization_manager.private_component_cloners_.insert({type_name, clone_func}).second;
+  auto &serialization = GetInstance();
+  serialization.private_component_names_[type_index] = type_name;
+  serialization.private_component_ids_[type_name] = type_index;
+  return serialization.private_component_cloners_.insert({type_name, clone_func}).second;
 }
+bool Serialization::RegisterSystemType(
+    const std::string &type_name, const size_t &type_index,
+    const std::function<void(std::shared_ptr<ISystem>, const std::shared_ptr<ISystem> &)> &clone_func) {
+  auto &serialization = GetInstance();
+  serialization.system_names_[type_index] = type_name;
+  serialization.system_ids_[type_name] = type_index;
+  return serialization.system_cloners_.insert({type_name, clone_func}).second;
+}
+
 std::shared_ptr<ISerializable> Serialization::ProduceSerializable(const std::string &type_name, size_t &hash_code) {
-  auto &serialization_manager = GetInstance();
-  const auto it = serialization_manager.serializable_generators_.find(type_name);
-  if (it != serialization_manager.serializable_generators_.end()) {
+  auto &serialization = GetInstance();
+  if (const auto it = serialization.serializable_generators_.find(type_name);
+      it != serialization.serializable_generators_.end()) {
     auto ret_val = it->second(hash_code);
     ret_val->type_name_ = type_name;
     ret_val->handle_ = Handle();
@@ -59,11 +71,26 @@ std::shared_ptr<ISerializable> Serialization::ProduceSerializable(const std::str
   EVOENGINE_ERROR("Serializable " + type_name + " is not registered!")
   return nullptr;
 }
+
+std::shared_ptr<ISerializable> Serialization::ProduceSerializable(const std::string &type_name) {
+  auto &serialization = GetInstance();
+  if (const auto it = serialization.serializable_generators_.find(type_name);
+      it != serialization.serializable_generators_.end()) {
+    size_t temp;
+    auto ret_val = it->second(temp);
+    ret_val->type_name_ = type_name;
+    ret_val->handle_ = Handle();
+    return ret_val;
+  }
+  EVOENGINE_ERROR("Serializable " + type_name + " is not registered!")
+  return nullptr;
+}
+
 std::shared_ptr<ISerializable> Serialization::ProduceSerializable(const std::string &type_name, size_t &hash_code,
                                                                   const Handle &handle) {
-  auto &serialization_manager = GetInstance();
-  const auto it = serialization_manager.serializable_generators_.find(type_name);
-  if (it != serialization_manager.serializable_generators_.end()) {
+  auto &serialization = GetInstance();
+  const auto it = serialization.serializable_generators_.find(type_name);
+  if (it != serialization.serializable_generators_.end()) {
     auto ret_val = it->second(hash_code);
     ret_val->type_name_ = type_name;
     ret_val->handle_ = handle;
@@ -160,12 +187,14 @@ YAML::Emitter &evo_engine::operator<<(YAML::Emitter &out, const glm::u16vec4 &v)
   return out;
 }
 
-size_t Serialization::GetDataComponentTypeId(const std::string &type_index) {
-  auto &serialization_manager = GetInstance();
-  if (HasComponentDataType(type_index)) {
-    return serialization_manager.data_component_ids_[type_index];
-  }
-  return 0;
+size_t Serialization::GetDataComponentTypeId(const std::string &type_name) {
+  const auto &serialization = GetInstance();
+  return serialization.data_component_ids_.at(type_name);
+}
+
+size_t Serialization::GetDataComponentTypeSize(const size_t &type_id) {
+  const auto &serialization = GetInstance();
+  return serialization.data_component_sizes_.at(type_id);
 }
 
 void Serialization::SaveAssetList(const std::string &name, const std::vector<AssetRef> &target, YAML::Emitter &out) {
@@ -191,18 +220,28 @@ void Serialization::LoadAssetList(const std::string &name, std::vector<AssetRef>
   }
 }
 
-size_t Serialization::GetSerializableTypeId(const std::string &type_index) {
-  auto &serialization_manager = GetInstance();
-  if (HasSerializableType(type_index)) {
-    return serialization_manager.serializable_ids_[type_index];
-  }
-  return 0;
+size_t Serialization::GetSerializableTypeId(const std::string &type_name) {
+  const auto &serialization = GetInstance();
+  return serialization.serializable_ids_.at(type_name);
 }
-bool Serialization::HasSerializableType(const std::string &type_index) {
-  return GetInstance().serializable_ids_.find(type_index) != GetInstance().serializable_ids_.end();
+bool Serialization::HasSerializableType(const std::string &type_name) {
+  const auto &serialization = GetInstance();
+  return serialization.serializable_ids_.find(type_name) != serialization.serializable_ids_.end();
 }
-bool Serialization::HasComponentDataType(const std::string &type_index) {
-  return GetInstance().data_component_ids_.find(type_index) != GetInstance().data_component_ids_.end();
+
+bool Serialization::HasSerializableType(const size_t &type_id) {
+  const auto &serialization = GetInstance();
+  return serialization.serializable_names_.find(type_id) != serialization.serializable_names_.end();
+}
+
+bool Serialization::HasComponentDataType(const std::string &type_name) {
+  const auto &serialization = GetInstance();
+  return serialization.data_component_ids_.find(type_name) != serialization.data_component_ids_.end();
+}
+
+bool Serialization::HasComponentDataType(const size_t &type_id) {
+  const auto &serialization = GetInstance();
+  return serialization.data_component_names_.find(type_id) != serialization.data_component_names_.end();
 }
 
 void Serialization::ClonePrivateComponent(const std::shared_ptr<IPrivateComponent> &target,
@@ -210,8 +249,8 @@ void Serialization::ClonePrivateComponent(const std::shared_ptr<IPrivateComponen
   const auto target_type_name = target->GetTypeName();
   const auto source_type_name = source->GetTypeName();
   assert(target_type_name == source_type_name);
-  if (auto &serialization_manager = GetInstance(); serialization_manager.HasSerializableType(target_type_name)) {
-    serialization_manager.private_component_cloners_[target_type_name](target, source);
+  if (auto &serialization = GetInstance(); serialization.HasSerializableType(target_type_name)) {
+    serialization.private_component_cloners_.at(target_type_name)(target, source);
   } else {
     EVOENGINE_ERROR("PrivateComponent " + target_type_name + "is not registered!")
   }
@@ -220,18 +259,12 @@ void Serialization::CloneSystem(const std::shared_ptr<ISystem> &target, const st
   const auto target_type_name = target->GetTypeName();
   auto source_type_name = source->GetTypeName();
   assert(target_type_name == source_type_name);
-  auto &serialization_manager = GetInstance();
-  if (serialization_manager.HasSerializableType(target_type_name)) {
-    serialization_manager.system_cloners_[target_type_name](target, source);
+  const auto &serialization = GetInstance();
+  if (serialization.HasSerializableType(target_type_name)) {
+    serialization.system_cloners_.at(target_type_name)(target, source);
   } else {
     EVOENGINE_ERROR("System " + target_type_name + "is not registered!")
   }
-}
-bool Serialization::RegisterSystemType(
-    const std::string &type_name,
-    const std::function<void(std::shared_ptr<ISystem>, const std::shared_ptr<ISystem> &)> &clone_func) {
-  auto &serialization_manager = GetInstance();
-  return serialization_manager.system_cloners_.insert({type_name, clone_func}).second;
 }
 
 YAML::Emitter &evo_engine::operator<<(YAML::Emitter &out, const glm::u8vec4 &v) {

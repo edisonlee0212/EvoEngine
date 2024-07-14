@@ -47,8 +47,6 @@ class Application final : public ISingleton<Application> {
 
   std::vector<std::function<void(const std::shared_ptr<Scene>& new_scene)>> post_attach_scene_functions_;
 
-  static void InitializeRegistry();
-
   ApplicationExecutionStatus application_execution_status_ = ApplicationExecutionStatus::Stop;
 
  public:

@@ -9,6 +9,11 @@
 #include "Times.hpp"
 #include "TransformGraph.hpp"
 using namespace evo_engine;
+PrivateComponentRegistration<Joint> joint_registry("Joint");
+PrivateComponentRegistration<RigidBody> rigidbody_registry("RigidBody");
+AssetRegistration<Collider> collider_registry("Collider", {".uecollider"});
+AssetRegistration<PhysicsMaterial> physics_material_registry("PhysicsMaterial", {".evephysicsmaterial"});
+SystemRegistration<PhysicsSystem> physics_system_registry("PhysicsSystem");
 
 YAML::Emitter &evo_engine::operator<<(YAML::Emitter &out, const PxVec2 &v) {
   out << YAML::Flow;
@@ -56,11 +61,6 @@ void PhysicsLayer::PreUpdate() {
   UploadJointLinks(active_scene);
 }
 void PhysicsLayer::OnCreate() {
-  ClassRegistry::RegisterPrivateComponent<Joint>("Joint");
-  ClassRegistry::RegisterPrivateComponent<RigidBody>("RigidBody");
-  ClassRegistry::RegisterAsset<Collider>("Collider", {".uecollider"});
-  ClassRegistry::RegisterAsset<PhysicsMaterial>("PhysicsMaterial", {".evephysicsmaterial"});
-  ClassRegistry::RegisterSystem<PhysicsSystem>("PhysicsSystem");
   physics_foundation_ = PxCreateFoundation(PX_PHYSICS_VERSION, allocator_, error_callback_);
   if (!physics_foundation_)
     EVOENGINE_ERROR("PxCreateFoundation failed!");
@@ -108,8 +108,7 @@ void PhysicsLayer::UploadTransforms(const std::shared_ptr<Scene> &scene, const b
       if (rigid_body->current_registered_) {
         if (rigid_body->kinematic_) {
           if (freeze || update_all) {
-            rigid_body->rigid_actor_
-                      ->setGlobalPose(PxTransform(*(PxMat44 *)(void *)&global_transform.value));
+            rigid_body->rigid_actor_->setGlobalPose(PxTransform(*(PxMat44 *)(void *)&global_transform.value));
           } else {
             static_cast<PxRigidDynamic *>(rigid_body->rigid_actor_)
                 ->setKinematicTarget(PxTransform(*(PxMat44 *)(void *)&global_transform.value));
@@ -176,7 +175,9 @@ void PhysicsLayer::UploadRigidBodyShapes(const std::shared_ptr<Scene> &scene,
 #pragma region Update shape
   for (auto entity : *rigid_body_entities) {
     const auto rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(entity).lock();
-    if (const bool should_register = scene->IsEntityValid(entity) && scene->IsEntityEnabled(entity) && rigid_body->IsEnabled(); rigid_body->current_registered_ == false && should_register) {
+    if (const bool should_register =
+            scene->IsEntityValid(entity) && scene->IsEntityEnabled(entity) && rigid_body->IsEnabled();
+        rigid_body->current_registered_ == false && should_register) {
       rigid_body->current_registered_ = true;
       physics_scene->physics_scene_->addActor(*rigid_body->rigid_actor_);
     } else if (rigid_body->current_registered_ == true && !should_register) {
@@ -219,8 +220,9 @@ void PhysicsLayer::UploadJointLinks(const std::shared_ptr<Scene> &scene,
     auto joint = scene->GetOrSetPrivateComponent<Joint>(entity).lock();
     const auto rigid_body1 = joint->rigid_body1.Get<RigidBody>();
     const auto rigid_body2 = joint->rigid_body2.Get<RigidBody>();
-    if (const bool should_register = scene->IsEntityValid(entity) && scene->IsEntityEnabled(entity) && joint->IsEnabled() &&
-                                    (rigid_body1 && rigid_body2); !joint->linked_ && should_register) {
+    if (const bool should_register = scene->IsEntityValid(entity) && scene->IsEntityEnabled(entity) &&
+                                     joint->IsEnabled() && (rigid_body1 && rigid_body2);
+        !joint->linked_ && should_register) {
       auto owner_gt = scene->GetDataComponent<GlobalTransform>(rigid_body1->GetOwner());
       owner_gt.SetScale(glm::vec3(1.0f));
       auto linker_gt = scene->GetDataComponent<GlobalTransform>(rigid_body2->GetOwner());
@@ -333,7 +335,8 @@ void PhysicsSystem::DownloadRigidBodyTransforms(const std::vector<Entity> *rigid
   auto &list = rigid_body_entities;
   Jobs::RunParallelFor(rigid_body_entities->size(), [&](unsigned index) {
     const auto rigid_body_entity = list->at(index);
-    if (const auto rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(rigid_body_entity).lock(); rigid_body->current_registered_ && !rigid_body->kinematic_) {
+    if (const auto rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(rigid_body_entity).lock();
+        rigid_body->current_registered_ && !rigid_body->kinematic_) {
       PxTransform transform = rigid_body->rigid_actor_->getGlobalPose();
       glm::vec3 position = *(glm::vec3 *)(void *)&transform.p;
       glm::quat rotation = *(glm::quat *)(void *)&transform.q;

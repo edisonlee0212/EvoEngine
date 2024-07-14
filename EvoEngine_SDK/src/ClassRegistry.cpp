@@ -1,2 +1,16 @@
 #include "ClassRegistry.hpp"
+
+#include "AnimationPlayer.hpp"
+#include "LODGroup.hpp"
+#include "Lights.hpp"
+#include "MeshRenderer.hpp"
+#include "PlayerController.hpp"
+#include "PointCloud.hpp"
+#include "SkinnedMeshRenderer.hpp"
+#include "UnknownPrivateComponent.hpp"
+#include "WayPoints.hpp"
+#include "StrandsRenderer.hpp"
+#include "PostProcessingStack.hpp"
+#include "Prefab.hpp"
+#include "Shader.hpp"
 using namespace evo_engine;

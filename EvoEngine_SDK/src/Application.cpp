@@ -34,7 +34,49 @@
 #include "WayPoints.hpp"
 #include "WindowLayer.hpp"
 using namespace evo_engine;
+DataComponentRegistration<Transform> transform_registry("Transform");
+DataComponentRegistration<GlobalTransform> global_transform_registry("GlobalTransform");
+DataComponentRegistration<TransformUpdateFlag> transform_update_status_registry("TransformUpdateFlag");
 
+const auto ray_registry = DataComponentRegistration<Ray>("Ray");
+const auto camera_registry = PrivateComponentRegistration<Camera>("Camera");
+const auto animation_player_registry = PrivateComponentRegistration<AnimationPlayer>("AnimationPlayer");
+const auto player_controller_registry = PrivateComponentRegistration<PlayerController>("PlayerController");
+const auto particles_registry = PrivateComponentRegistration<Particles>("Particles");
+const auto mesh_renderer_registry = PrivateComponentRegistration<MeshRenderer>("MeshRenderer");
+const auto strands_renderer_registry = PrivateComponentRegistration<StrandsRenderer>("StrandsRenderer");
+const auto skinned_mesh_renderer_registry = PrivateComponentRegistration<SkinnedMeshRenderer>("SkinnedMeshRenderer");
+const auto animator_registry = PrivateComponentRegistration<Animator>("Animator");
+const auto point_light_registry = PrivateComponentRegistration<PointLight>("PointLight");
+const auto spot_light_registry = PrivateComponentRegistration<SpotLight>("SpotLight");
+const auto directional_light_registry = PrivateComponentRegistration<DirectionalLight>("DirectionalLight");
+const auto way_points_registry = PrivateComponentRegistration<WayPoints>("WayPoints");
+const auto lod_group_registry = PrivateComponentRegistration<LodGroup>("LodGroup");
+const auto unknown_registry = PrivateComponentRegistration<UnknownPrivateComponent>("UnknownPrivateComponent");
+
+const auto pps_registry = AssetRegistration<PostProcessingStack>("PostProcessingStack", {".evepostprocessingstack"});
+const auto i_asset_registry = AssetRegistration<IAsset>("IAsset", {".eveasset"});
+const auto material_registry = AssetRegistration<Material>("Material", {".evematerial"});
+
+const auto cubemap_registry = AssetRegistration<Cubemap>("Cubemap", {".evecubemap"});
+const auto registry = AssetRegistration<LightProbe>("LightProbe", {".evelightprobe"});
+const auto reflection_probe_registry = AssetRegistration<ReflectionProbe>("ReflectionProbe", {".evereflectionprobe"});
+const auto environmental_map_registry =
+    AssetRegistration<EnvironmentalMap>("EnvironmentalMap", {".eveenvironmentalmap"});
+const auto shader_registry = AssetRegistration<Shader>("Shader", {".eveshader"});
+const auto mesh_registry = AssetRegistration<Mesh>("Mesh", {".evemesh"});
+const auto strands_registry = AssetRegistration<Strands>("Strands", {".evestrands", ".hair"});
+const auto prefab_registry = AssetRegistration<Prefab>(
+    "Prefab", {".eveprefab", ".obj", ".gltf", ".glb", ".blend", ".ply", ".fbx", ".dae", ".x3d"});
+const auto texture_2d_registry =
+    AssetRegistration<Texture2D>("Texture2D", {".evetexture2d", ".png", ".jpg", ".jpeg", ".tga", ".hdr"});
+const auto scene_registry = AssetRegistration<Scene>("Scene", {".evescene"});
+const auto particle_info_list_registry =
+    AssetRegistration<ParticleInfoList>("ParticleInfoList", {".eveparticleinfolist"});
+const auto animation_registry = AssetRegistration<Animation>("Animation", {".eveanimation"});
+const auto skinned_mesh_registry = AssetRegistration<SkinnedMesh>("SkinnedMesh", {".eveskinnedmesh"});
+
+const auto point_cloud_registry = AssetRegistration<PointCloud>("PointCloud", {".evepointcloud"});
 void Application::PreUpdateInternal() {
   auto& application = GetInstance();
   const auto now = std::chrono::system_clock::now();
@@ -298,7 +340,6 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   }
   const auto default_thread_size = std::thread::hardware_concurrency();
   Jobs::Initialize(default_thread_size - 2);
-  InitializeRegistry();
   Entities::Initialize();
   TransformGraph::Initialize();
   Graphics::Initialize();
@@ -335,8 +376,7 @@ void Application::Start() {
 }
 
 void Application::Run() {
-  while (Loop())
-    ;
+  while (Loop());
 }
 
 bool Application::Loop() {
@@ -427,46 +467,6 @@ void Application::Step() {
     Attach(copied_scene);
   }
   application.application_status_ = ApplicationStatus::Step;
-}
-
-void Application::InitializeRegistry() {
-  ClassRegistry::RegisterDataComponent<Ray>("Ray");
-
-  ClassRegistry::RegisterPrivateComponent<Camera>("Camera");
-  ClassRegistry::RegisterPrivateComponent<AnimationPlayer>("AnimationPlayer");
-  ClassRegistry::RegisterPrivateComponent<PlayerController>("PlayerController");
-  ClassRegistry::RegisterPrivateComponent<Particles>("Particles");
-  ClassRegistry::RegisterPrivateComponent<MeshRenderer>("MeshRenderer");
-  ClassRegistry::RegisterPrivateComponent<StrandsRenderer>("StrandsRenderer");
-  ClassRegistry::RegisterPrivateComponent<SkinnedMeshRenderer>("SkinnedMeshRenderer");
-  ClassRegistry::RegisterPrivateComponent<Animator>("Animator");
-  ClassRegistry::RegisterPrivateComponent<PointLight>("PointLight");
-  ClassRegistry::RegisterPrivateComponent<SpotLight>("SpotLight");
-  ClassRegistry::RegisterPrivateComponent<DirectionalLight>("DirectionalLight");
-  ClassRegistry::RegisterPrivateComponent<WayPoints>("WayPoints");
-  ClassRegistry::RegisterPrivateComponent<LodGroup>("LodGroup");
-  ClassRegistry::RegisterPrivateComponent<UnknownPrivateComponent>("UnknownPrivateComponent");
-
-  ClassRegistry::RegisterAsset<PostProcessingStack>("PostProcessingStack", {".evepostprocessingstack"});
-  ClassRegistry::RegisterAsset<IAsset>("IAsset", {".eveasset"});
-  ClassRegistry::RegisterAsset<Material>("Material", {".evematerial"});
-
-  ClassRegistry::RegisterAsset<Cubemap>("Cubemap", {".evecubemap"});
-  ClassRegistry::RegisterAsset<LightProbe>("LightProbe", {".evelightprobe"});
-  ClassRegistry::RegisterAsset<ReflectionProbe>("ReflectionProbe", {".evereflectionprobe"});
-  ClassRegistry::RegisterAsset<EnvironmentalMap>("EnvironmentalMap", {".eveenvironmentalmap"});
-  ClassRegistry::RegisterAsset<Shader>("Shader", {".eveshader"});
-  ClassRegistry::RegisterAsset<Mesh>("Mesh", {".evemesh"});
-  ClassRegistry::RegisterAsset<Strands>("Strands", {".evestrands", ".hair"});
-  ClassRegistry::RegisterAsset<Prefab>(
-      "Prefab", {".eveprefab", ".obj", ".gltf", ".glb", ".blend", ".ply", ".fbx", ".dae", ".x3d"});
-  ClassRegistry::RegisterAsset<Texture2D>("Texture2D", {".evetexture2d", ".png", ".jpg", ".jpeg", ".tga", ".hdr"});
-  ClassRegistry::RegisterAsset<Scene>("Scene", {".evescene"});
-  ClassRegistry::RegisterAsset<ParticleInfoList>("ParticleInfoList", {".eveparticleinfolist"});
-  ClassRegistry::RegisterAsset<Animation>("Animation", {".eveanimation"});
-  ClassRegistry::RegisterAsset<SkinnedMesh>("SkinnedMesh", {".eveskinnedmesh"});
-
-  ClassRegistry::RegisterAsset<PointCloud>("PointCloud", {".evepointcloud"});
 }
 
 ApplicationExecutionStatus Application::GetApplicationExecutionStatus() {

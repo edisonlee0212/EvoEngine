@@ -29,38 +29,39 @@
 #include "TreeStructor.hpp"
 using namespace eco_sys_lab;
 
+PrivateComponentRegistration<Tree> tree_registry("Tree");
+PrivateComponentRegistration<TreeStructor> tree_structor_registry("TreeStructor");
+PrivateComponentRegistration<Soil> soil_registry("Soil");
+PrivateComponentRegistration<Climate> climate_registry("Climate");
+PrivateComponentRegistration<LogGrader> log_grader_registry("LogGrader");
+PrivateComponentRegistration<SpatialPlantDistributionSimulator> spds_registry("SpatialPlantDistributionSimulator");
+
+AssetRegistration<ProceduralNoise2D> procedural_noise2d_registry("ProceduralNoise2D", {".noise2D"});
+AssetRegistration<ProceduralNoise3D> procedural_noise3d_registry("ProceduralNoise3D", {".noise3D"});
+AssetRegistration<BarkDescriptor> bark_descriptor_registry("BarkDescriptor", {".bark"});
+AssetRegistration<ForestDescriptor> forest_d_registry("ForestDescriptor", {".forest"});
+AssetRegistration<TreeDescriptor> tree_d_registry("TreeDescriptor", {".tree"});
+AssetRegistration<ShootDescriptor> shoot_d_registry("ShootDescriptor", {".shoot"});
+AssetRegistration<FruitDescriptor> fruit_d_registry("FruitDescriptor", {".fruit"});
+AssetRegistration<FlowerDescriptor> flower_d_registry("FlowerDescriptor", {".flower"});
+AssetRegistration<FoliageDescriptor> foliage_d_registry("FoliageDescriptor", {".foliage"});
+AssetRegistration<SoilDescriptor> soil_d_registry("SoilDescriptor", {".soil"});
+AssetRegistration<ClimateDescriptor> climate_d_registry("ClimateDescriptor", {".climate"});
+AssetRegistration<RadialBoundingVolume> rbv_registry("RadialBoundingVolume", {".rbv"});
+AssetRegistration<CubeVolume> cube_volume_registry("CubeVolume", {".cubevolume"});
+AssetRegistration<HeightField> height_field_registry("HeightField", {".heightfield"});
+AssetRegistration<SoilLayerDescriptor> soil_layer_d_registry("SoilLayerDescriptor", {".soillayer"});
+PrivateComponentRegistration<TreePointCloudScanner> tree_point_cloud_scanner_registry("TreePointCloudScanner");
+
+AssetRegistration<ForestPatch> forest_patch_registry("ForestPatch", {".forestpatch"});
+
+AssetRegistration<Json> json_registry("Json", {".json"});
+AssetRegistration<JoeScan> joe_scan_registry("JoeScan", {".jscan"});
+PrivateComponentRegistration<JoeScanScanner> joe_scan_scanner_registry("JoeScanScanner");
+
+PrivateComponentRegistration<BillboardCloudsConverter> billboard_clouds_converter_register("BillboardCloudsConverter");
+
 void EcoSysLabLayer::OnCreate() {
-  ClassRegistry::RegisterPrivateComponent<Tree>("Tree");
-  ClassRegistry::RegisterPrivateComponent<TreeStructor>("TreeStructor");
-  ClassRegistry::RegisterPrivateComponent<Soil>("Soil");
-  ClassRegistry::RegisterPrivateComponent<Climate>("Climate");
-  ClassRegistry::RegisterPrivateComponent<LogGrader>("LogGrader");
-  ClassRegistry::RegisterPrivateComponent<SpatialPlantDistributionSimulator>("SpatialPlantDistributionSimulator");
-
-  ClassRegistry::RegisterAsset<ProceduralNoise2D>("ProceduralNoise2D", {".noise2D"});
-  ClassRegistry::RegisterAsset<ProceduralNoise3D>("ProceduralNoise3D", {".noise3D"});
-  ClassRegistry::RegisterAsset<BarkDescriptor>("BarkDescriptor", {".bark"});
-  ClassRegistry::RegisterAsset<ForestDescriptor>("ForestDescriptor", {".forest"});
-  ClassRegistry::RegisterAsset<TreeDescriptor>("TreeDescriptor", {".tree"});
-  ClassRegistry::RegisterAsset<ShootDescriptor>("ShootDescriptor", {".shoot"});
-  ClassRegistry::RegisterAsset<FruitDescriptor>("FruitDescriptor", {".fruit"});
-  ClassRegistry::RegisterAsset<FlowerDescriptor>("FlowerDescriptor", {".flower"});
-  ClassRegistry::RegisterAsset<FoliageDescriptor>("FoliageDescriptor", {".foliage"});
-  ClassRegistry::RegisterAsset<SoilDescriptor>("SoilDescriptor", {".soil"});
-  ClassRegistry::RegisterAsset<ClimateDescriptor>("ClimateDescriptor", {".climate"});
-  ClassRegistry::RegisterAsset<RadialBoundingVolume>("RadialBoundingVolume", {".rbv"});
-  ClassRegistry::RegisterAsset<CubeVolume>("CubeVolume", {".cubevolume"});
-  ClassRegistry::RegisterAsset<HeightField>("HeightField", {".heightfield"});
-  ClassRegistry::RegisterAsset<SoilLayerDescriptor>("SoilLayerDescriptor", {".soillayer"});
-  ClassRegistry::RegisterPrivateComponent<TreePointCloudScanner>("TreePointCloudScanner");
-
-  ClassRegistry::RegisterAsset<ForestPatch>("ForestPatch", {".forestpatch"});
-
-  ClassRegistry::RegisterAsset<Json>("Json", {".json"});
-  ClassRegistry::RegisterAsset<JoeScan>("JoeScan", {".jscan"});
-  ClassRegistry::RegisterPrivateComponent<JoeScanScanner>("JoeScanScanner");
-
-  ClassRegistry::RegisterPrivateComponent<BillboardCloudsConverter>("BillboardCloudsConverter");
   if (m_randomColors.empty()) {
     for (int i = 0; i < 20000; i++) {
       m_randomColors.emplace_back(glm::linearRand(glm::vec3(0.0f), glm::vec3(1.0f)));
@@ -324,8 +325,7 @@ void EcoSysLabLayer::Visualization() {
                       }
                       treeVisualizer.m_needUpdate = true;
                       Transform newInternodeTransform{};
-                      newInternodeTransform.value =
-                          glm::inverse(treeGlobalTransform.value) * internodeGlobalTransform;
+                      newInternodeTransform.value = glm::inverse(treeGlobalTransform.value) * internodeGlobalTransform;
                       auto scaleHolder = glm::vec3(1.0f);
                       newInternodeTransform.Decompose(internode.info.global_position,
                                                       internode.data.desired_global_rotation, scaleHolder);
@@ -382,8 +382,7 @@ void EcoSysLabLayer::Visualization() {
                       }
                       treeVisualizer.m_needUpdate = true;
                       Transform newInternodeTransform{};
-                      newInternodeTransform.value =
-                          glm::inverse(treeGlobalTransform.value) * internodeGlobalTransform;
+                      newInternodeTransform.value = glm::inverse(treeGlobalTransform.value) * internodeGlobalTransform;
                       auto scaleHolder = glm::vec3(1.0f);
                       newInternodeTransform.Decompose(internode.info.global_position,
                                                       internode.data.desired_global_rotation, scaleHolder);
@@ -534,7 +533,7 @@ void EcoSysLabLayer::Visualization() {
               } else if (treeVisualizer.m_selectedInternodeHandle >= 0 &&
                          editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Hold) {
                 if (tree->tree_model.Reduce(tree->shoot_growth_controller_, treeVisualizer.m_selectedInternodeHandle,
-                                             targetAge)) {
+                                            targetAge)) {
                   treeVisualizer.m_needUpdate = true;
                   mayNeedGeometryGeneration = true;
                 }
@@ -1128,7 +1127,7 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* treeEntities,
       auto& [instanceMatrix, instanceColor] = boundingBoxMatrices.emplace_back();
       instanceMatrix.value =
           entityGlobalTransform.value * (glm::translate((branchSkeleton.max + branchSkeleton.min) / 2.0f) *
-                                           glm::scale(branchSkeleton.max - branchSkeleton.min));
+                                         glm::scale(branchSkeleton.max - branchSkeleton.min));
       instanceColor = glm::vec4(m_randomColors[listIndex], 0.05f);
       if (treeEntity != m_selectedTree) {
         branchLastStartIndex += branchList.size();
@@ -1174,10 +1173,10 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* treeEntities,
           float distance = glm::distance(cp1, cp4);
           glm::vec3 cp0, cp2;
           if (flow.GetParentHandle() > 0) {
-            cp0 = cp1 + branchSkeleton.PeekFlow(flow.GetParentHandle()).info.global_end_rotation *
-                            glm::vec3(0, 0, 1) * distance / 3.0f;
-            cp2 = cp1 + branchSkeleton.PeekFlow(flow.GetParentHandle()).info.global_end_rotation *
-                            glm::vec3(0, 0, -1) * distance / 3.0f;
+            cp0 = cp1 + branchSkeleton.PeekFlow(flow.GetParentHandle()).info.global_end_rotation * glm::vec3(0, 0, 1) *
+                            distance / 3.0f;
+            cp2 = cp1 + branchSkeleton.PeekFlow(flow.GetParentHandle()).info.global_end_rotation * glm::vec3(0, 0, -1) *
+                            distance / 3.0f;
           } else {
             cp0 = cp1 + flow.info.global_start_rotation * glm::vec3(0, 0, 1) * distance / 3.0f;
             cp2 = cp1 + flow.info.global_start_rotation * glm::vec3(0, 0, -1) * distance / 3.0f;
@@ -1238,11 +1237,10 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* treeEntities,
             if (bud.type == BudType::Leaf) {
               foliageMatrices[leafStartIndex + leafIndex].instance_matrix.value =
                   entityGlobalTransform.value * bud.reproductive_module.transform;
-              foliageMatrices[leafStartIndex + leafIndex].instance_color =
-                  glm::vec4(glm::mix(glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f),
-                                     glm::vec3(159 / 255.0f, 100 / 255.0f, 66 / 255.0f),
-                                     1.0f - bud.reproductive_module.health),
-                            1.0f);
+              foliageMatrices[leafStartIndex + leafIndex].instance_color = glm::vec4(
+                  glm::mix(glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f),
+                           glm::vec3(159 / 255.0f, 100 / 255.0f, 66 / 255.0f), 1.0f - bud.reproductive_module.health),
+                  1.0f);
 
               leafIndex++;
             } else if (bud.type == BudType::Fruit) {
@@ -1328,23 +1326,23 @@ void EcoSysLabLayer::SoilVisualizationScalar(VoxelSoilModel& soilModel) {
         particleInfos[i].instance_matrix.value = glm::mat4(0.0f);
       } else {
         particleInfos[i].instance_matrix.value = glm::translate(soilModel.GetPositionFromCoordinate(coordinate)) *
-                                                    glm::mat4_cast(glm::quat(glm::vec3(0.0f))) *
-                                                    glm::scale(glm::vec3(soilModel.GetVoxelSize() * m_scalarBoxSize));
+                                                 glm::mat4_cast(glm::quat(glm::vec3(0.0f))) *
+                                                 glm::scale(glm::vec3(soilModel.GetVoxelSize() * m_scalarBoxSize));
       }
     });
     auto visualize_vec3 = [&](const Field& x, const Field& y, const Field& z) {
       Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
         const auto value = glm::vec3(x[i], y[i], z[i]);
-        particleInfos[i].instance_color = {
-            glm::normalize(value), glm::clamp(glm::length(value) * m_scalarMultiplier, m_scalarMinAlpha, 1.0f)};
+        particleInfos[i].instance_color = {glm::normalize(value),
+                                           glm::clamp(glm::length(value) * m_scalarMultiplier, m_scalarMinAlpha, 1.0f)};
       });
     };
 
     auto visualize_float = [&](const Field& v) {
       Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
         const auto value = glm::vec3(v[i]);
-        particleInfos[i].instance_color = {
-            m_scalarBaseColor, glm::clamp(glm::length(value) * m_scalarMultiplier, m_scalarMinAlpha, 1.0f)};
+        particleInfos[i].instance_color = {m_scalarBaseColor,
+                                           glm::clamp(glm::length(value) * m_scalarMultiplier, m_scalarMinAlpha, 1.0f)};
       });
     };
 
