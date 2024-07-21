@@ -28,7 +28,7 @@ class Environment {
   glm::vec3 background_color = glm::vec3(1.0f, 1.0f, 1.0f);
   float background_intensity = 1.0f;
 
-  float environment_gamma = 1.0f;
+  float environment_gamma = 2.2f;
   float ambient_light_intensity = 0.8f;
   EnvironmentType environment_type = EnvironmentType::EnvironmentalMap;
   void Serialize(YAML::Emitter& out) const;

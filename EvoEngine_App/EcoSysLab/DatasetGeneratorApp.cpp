@@ -22,9 +22,9 @@
 #include "Physics2DDemo.hpp"
 using namespace eco_sys_lab;
 void register_classes() {
-  ClassRegistry::RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
-  ClassRegistry::RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");
-  ClassRegistry::RegisterPrivateComponent<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
+  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
+  PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
+  PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
 }
 
 void register_layers(bool enableWindowLayer, bool enableEditorLayer) {

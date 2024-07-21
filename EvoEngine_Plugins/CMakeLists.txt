@@ -32,8 +32,13 @@ if(EVOENGINE_PLUGIN_OPTIX_RAY_TRACER)
   add_subdirectory(OptixRayTracer)
 endif()
 
+option(EVOENGINE_PLUGIN_BILLBOARD_CLOUDS "Build the billboard clouds plugin" ON)
+if(EVOENGINE_PLUGIN_BILLBOARD_CLOUDS)
+  add_subdirectory(BillboardClouds)
+endif()
+
 option(EVOENGINE_PLUGIN_ECOSYSLAB "Build the ecosyslab plugin" ON)
-if(EVOENGINE_PLUGIN_ECOSYSLAB)
+if(EVOENGINE_PLUGIN_ECOSYSLAB AND EVOENGINE_PLUGIN_BILLBOARD_CLOUDS)
   add_subdirectory(EcoSysLab)
 endif()
 

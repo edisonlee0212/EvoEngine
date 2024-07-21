@@ -264,12 +264,12 @@ void Mesh::RecalculateTangent() {
     const auto i1 = triangle.x;
     const auto i2 = triangle.y;
     const auto i3 = triangle.z;
-    auto p1 = vertices_[i1].position;
-    auto p2 = vertices_[i2].position;
-    auto p3 = vertices_[i3].position;
-    auto uv1 = vertices_[i1].tex_coord;
-    auto uv2 = vertices_[i2].tex_coord;
-    auto uv3 = vertices_[i3].tex_coord;
+    const auto& p1 = vertices_[i1].position;
+    const auto& p2 = vertices_[i2].position;
+    const auto& p3 = vertices_[i3].position;
+    const auto& uv1 = vertices_[i1].tex_coord;
+    const auto& uv2 = vertices_[i2].tex_coord;
+    const auto& uv3 = vertices_[i3].tex_coord;
 
     auto e21 = p2 - p1;
     auto d21 = uv2 - uv1;
@@ -284,7 +284,7 @@ void Mesh::RecalculateTangent() {
   }
   for (auto i = 0; i < size; i++) {
     auto tangent = glm::vec3(0.0f);
-    for (auto j : tangent_lists[i]) {
+    for (const auto& j : tangent_lists[i]) {
       tangent += j;
     }
     vertices_[i].tangent = glm::normalize(tangent);

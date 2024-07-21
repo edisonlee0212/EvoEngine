@@ -102,7 +102,7 @@ struct RenderInfoBlock {
   alignas(4) int pcf_sample_amount = 32;
   alignas(4) int blocker_search_amount = 8;
   alignas(4) float seam_fix_ratio = 0.1f;
-  alignas(4) float gamma = 2.2f;
+  alignas(4) float gamma = 1.f;
 
   alignas(4) float strands_subdivision_x_factor = 50.0f;
   alignas(4) float strands_subdivision_y_factor = 50.0f;
@@ -122,7 +122,7 @@ struct RenderInfoBlock {
 
 struct EnvironmentInfoBlock {
   glm::vec4 background_color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-  alignas(4) float environmental_map_gamma = 1.0f;
+  alignas(4) float environmental_map_gamma = 2.2f;
   alignas(4) float environmental_lighting_intensity = 0.8f;
   alignas(4) float background_intensity = 1.0f;
   alignas(4) float environmental_padding2 = 0.0f;

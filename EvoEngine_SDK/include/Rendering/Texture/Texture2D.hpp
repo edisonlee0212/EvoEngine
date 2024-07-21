@@ -1,7 +1,8 @@
 #pragma once
 #include "GraphicsResources.hpp"
 #include "IAsset.hpp"
-
+#include "Jobs.hpp"
+#include "TextureStorage.hpp"
 namespace evo_engine {
 class Texture2DStorage;
 struct TextureStorageHandle;
@@ -69,6 +70,9 @@ class Texture2D : public IAsset {
                   unsigned quality = 100) const;
   void StoreToHdr(const std::filesystem::path& path, int resize_x = -1, int resize_y = -1) const;
 
+  template<typename T>
+  void GetData(std::vector<T>& dst) const;
+
   void GetRgbaChannelData(std::vector<glm::vec4>& dst, int resize_x = -1, int resize_y = -1) const;
   void GetRgbChannelData(std::vector<glm::vec3>& dst, int resize_x = -1, int resize_y = -1) const;
   void GetRgChannelData(std::vector<glm::vec2>& dst, int resize_x = -1, int resize_y = -1) const;
@@ -88,4 +92,19 @@ class Texture2D : public IAsset {
   static void Resize(std::vector<float>& src, const glm::uvec2& src_resolution, std::vector<float>& dst,
                      const glm::uvec2& dst_resolution);
 };
+
+template <typename T>
+void Texture2D::GetData(std::vector<T>& dst) const {
+  const auto& texture_storage = PeekTexture2DStorage();
+  const auto resolution = GetResolution();
+  std::vector<glm::vec4> pixels;
+  pixels.resize(resolution.x * resolution.y);
+  Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
+  image_buffer.CopyFromImage(*texture_storage.image);
+  image_buffer.DownloadVector(pixels, resolution.x * resolution.y);
+  dst.resize(pixels.size());
+  Jobs::RunParallelFor(pixels.size(), [&](unsigned i) {
+    dst[i] = pixels[i];
+  });
+}
 }  // namespace evo_engine

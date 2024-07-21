@@ -338,6 +338,38 @@ bool Material::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (editor_layer->DragAndDropButton<Texture2D>(ao_texture_, "AO Tex")) {
       changed = true;
     }
+
+    static AssetRef rma_texture_ref{};
+    if(EditorLayer::DragAndDropButton<Texture2D>(rma_texture_ref, "Apply RMA Texture")) {
+      const auto rma_texture = rma_texture_ref.Get<Texture2D>();
+      std::vector<glm::vec3> rma_data;
+      rma_texture->GetRgbChannelData(rma_data);
+      const auto rma_resolution = rma_texture->GetResolution();
+      std::vector<glm::vec3> temp_data(rma_data.size());
+      Jobs::RunParallelFor(temp_data.size(), [&](const size_t pixel_index) {
+        temp_data[pixel_index] = glm::vec3(rma_data[pixel_index].x);
+      });
+      const auto roughness_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+      roughness_texture->SetRgbChannelData(temp_data, rma_resolution);
+
+      Jobs::RunParallelFor(temp_data.size(), [&](const size_t pixel_index) {
+        temp_data[pixel_index] = glm::vec3(rma_data[pixel_index].y);
+      });
+      const auto metallic_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+      metallic_texture->SetRgbChannelData(temp_data, rma_resolution);
+
+      Jobs::RunParallelFor(temp_data.size(), [&](const size_t pixel_index) {
+        temp_data[pixel_index] = glm::vec3(rma_data[pixel_index].z);
+      });
+      const auto ao_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+      ao_texture->SetRgbChannelData(temp_data, rma_resolution);
+
+      roughness_texture_ = roughness_texture;
+      metallic_texture_ = metallic_texture;
+      ao_texture_ = ao_texture;
+
+      rma_texture_ref.Clear();
+    }
     ImGui::TreePop();
   }
   if (changed) {

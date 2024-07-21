@@ -1019,17 +1019,18 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
               }
 
               if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
-                IM_ASSERT(payload->DataSize == sizeof(Entity));
+                IM_ASSERT(payload->DataSize == sizeof(Handle));
                 auto prefab = std::dynamic_pointer_cast<Prefab>(CreateTemporaryAsset<Prefab>());
-                auto entity = *static_cast<Entity*>(payload->Data);
-                prefab->FromEntity(entity);
-                // If current folder doesn't contain file with same name
+                auto entity_handle = *static_cast<Handle*>(payload->Data);
                 auto scene = Application::GetActiveScene();
-                auto file_name = scene->GetEntityName(entity);
-                auto file_extension = project_manager.asset_extensions_["Prefab"].at(0);
-                auto file_path =
-                    GenerateNewProjectRelativePath((current_folder_path / file_name).string(), file_extension);
-                prefab->SetPathAndSave(file_path);
+                if (auto entity = scene->GetEntity(entity_handle); scene->IsEntityValid(entity)) {
+                  // If current folder doesn't contain file with same name
+                  auto file_name = scene->GetEntityName(entity);
+                  auto file_extension = project_manager.asset_extensions_["Prefab"].at(0);
+                  auto file_path = GenerateNewProjectRelativePath(
+                      (i.second->GetProjectRelativePath() / file_name).string(), file_extension);
+                  prefab->SetPathAndSave(file_path);
+                }
               }
 
               ImGui::EndDragDropTarget();

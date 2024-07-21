@@ -23,8 +23,8 @@ int main() {
   Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
 
-  ClassRegistry::RegisterPrivateComponent<LogGrader>("LogGrader");
-  ClassRegistry::RegisterAsset<BarkDescriptor>("BarkDescriptor", {".bs"});
+  PrivateComponentRegistration<LogGrader>("LogGrader");
+  AssetRegistration<BarkDescriptor>("BarkDescriptor", {".bs"});
 
   ApplicationInfo applicationConfigs;
   applicationConfigs.application_name = "Log Grader";

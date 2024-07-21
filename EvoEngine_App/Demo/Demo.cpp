@@ -55,7 +55,7 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
 #pragma endregion
 
 int main() {
-  constexpr DemoSetup demo_setup = DemoSetup::Galaxy;
+  constexpr DemoSetup demo_setup = DemoSetup::Rendering;
   Application::PushLayer<WindowLayer>();
   Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
@@ -68,7 +68,7 @@ int main() {
 #endif
   
 #ifdef CPU_RAY_TRACER_PLUGIN
-  ClassRegistry::RegisterPrivateComponent<CpuRayTracerCamera>("CpuRayTracerCamera");
+  PrivateComponentRegistration<CpuRayTracerCamera>("CpuRayTracerCamera");
 #endif
   ApplicationInfo application_info;
   SetupDemoScene(demo_setup, application_info);
@@ -319,7 +319,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
     } break;
     case DemoSetup::Galaxy: {
       application_info.application_name = "Galaxy Demo";
-      ClassRegistry::RegisterSystem<StarClusterSystem>("StarClusterSystem");
+      SystemRegistration<StarClusterSystem>("StarClusterSystem");
       application_info.project_path = resource_folder_path / "Example Projects/Galaxy/Galaxy.eveproj";
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
         const auto main_camera = scene->main_camera.Get<Camera>();
@@ -334,8 +334,8 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
     } break;
     case DemoSetup::Planets: {
       application_info.application_name = "Planets Demo";
-      ClassRegistry::RegisterSystem<PlanetTerrainSystem>("PlanetTerrainSystem");
-      ClassRegistry::RegisterPrivateComponent<PlanetTerrain>("PlanetTerrain");
+      SystemRegistration<PlanetTerrainSystem>("PlanetTerrainSystem");
+      PrivateComponentRegistration<PlanetTerrain>("PlanetTerrain");
 
       application_info.project_path = resource_folder_path / "Example Projects/Planet/Planet.eveproj";
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {

@@ -88,9 +88,9 @@ int main() {
   Application::PushLayer<PhysicsLayer>();
 #endif
   Application::PushLayer<EcoSysLabLayer>();
-  ClassRegistry::RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
-  ClassRegistry::RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");
-  ClassRegistry::RegisterPrivateComponent<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
+  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
+  PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
+  PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
 
   ApplicationInfo application_configs;
   application_configs.application_name = "EcoSysLab";

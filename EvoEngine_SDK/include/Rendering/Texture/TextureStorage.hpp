@@ -1,7 +1,7 @@
 #pragma once
 #include "GraphicsResources.hpp"
+#include "ISingleton.hpp"
 
-#include "Cubemap.hpp"
 namespace evo_engine {
 struct TextureStorageHandle {
   int value = 0;

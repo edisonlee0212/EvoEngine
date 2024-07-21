@@ -14,7 +14,7 @@
 #include "PostProcessingStack.hpp"
 
 #include "MeshColoring.hpp"
-
+#include "TextureBaking.hpp"
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 #include <CUDAModule.hpp>
 #include <RayTracerLayer.hpp>
@@ -67,7 +67,7 @@ int main() {
 #endif
 
   PrivateComponentRegistration<MeshColoring> mesh_coloring_registry("MeshColoring");
-
+  PrivateComponentRegistration<TextureBaking> texture_baking_registry("TextureBaking");
 #ifdef CPU_RAY_TRACER_PLUGIN
   PrivateComponentRegistration<CpuRayTracerCamera> cpu_ray_tracer_camera_registry("CpuRayTracerCamera");
 #endif

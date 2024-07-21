@@ -471,11 +471,33 @@ void CpuRayTracer<MeshRecord, NodeRecord>::Initialize(const std::shared_ptr<Mesh
   node_instances_[0].flattened_bvh_mesh_group.element_indices = {0};
   node_instances_[0].flattened_bvh_mesh_group.nodes.resize(1);
   node_instances_[0].global_transformation = GlobalTransform();
+  node_instances_[0].inverse_global_transformation.value = glm::inverse(node_instances_[0].global_transformation.value);
   auto& node = node_instances_[0].flattened_bvh_mesh_group.nodes[0];
   node.element_start_index = 0;
   node.element_end_index = 1;
   node.next_node_skip = 1;
   node.aabb = flattened_bvh_node_group_.aabb;
+
+
+  Bvh scene_bvh;
+  scene_bvh.element_indices.resize(node_instances_.size());
+  std::vector<Bound> element_aabbs(node_instances_.size());
+  scene_bvh.aabb = {};
+  for (uint32_t node_index = 0; node_index < node_instances_.size(); node_index++) {
+    scene_bvh.element_indices[node_index] = node_index;
+    const auto& node_instance = node_instances_[node_index];
+    auto node_aabb = node_instance.flattened_bvh_mesh_group.aabb;
+    node_aabb.ApplyTransform(node_instance.global_transformation.value);
+    element_aabbs[node_index] = node_aabb;
+    scene_bvh.aabb.min = glm::min(scene_bvh.aabb.min, node_aabb.min);
+    scene_bvh.aabb.max = glm::max(scene_bvh.aabb.max, node_aabb.max);
+  }
+  mesh_records_.resize(mesh_instances_.size());
+  node_records_.resize(node_instances_.size());
+  
+  BinaryDivisionBvh(scene_bvh, 0, element_aabbs);
+  flattened_bvh_node_group_.aabb = scene_bvh.aabb;
+  FlattenBvh(scene_bvh, flattened_bvh_node_group_, 0);
 }
 
 template <typename MeshRecord, typename NodeRecord>
