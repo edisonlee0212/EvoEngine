@@ -32,8 +32,8 @@ bool Mesh::SaveInternal(const std::filesystem::path& path) const {
           auto& vertex_position = vertices_.at(i).position;
           auto& color = vertices_.at(i).color;
           data << "v " + std::to_string(vertex_position.x) + " " + std::to_string(vertex_position.y) + " " +
-                      std::to_string(vertex_position.z) + " " + std::to_string(color.x) + " " + std::to_string(color.y) +
-                      " " + std::to_string(color.z) + "\n";
+                      std::to_string(vertex_position.z) + " " + std::to_string(color.x) + " " +
+                      std::to_string(color.y) + " " + std::to_string(color.z) + "\n";
         }
         for (const auto& vertex : vertices_) {
           data << "vn " + std::to_string(vertex.normal.x) + " " + std::to_string(vertex.normal.y) + " " +
@@ -162,9 +162,9 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   glm::vec3 max_bound = vertices_.at(0).position;
   for (const auto& vertex : vertices_) {
     min_bound = glm::vec3((glm::min)(min_bound.x, vertex.position.x), (glm::min)(min_bound.y, vertex.position.y),
-                         (glm::min)(min_bound.z, vertex.position.z));
+                          (glm::min)(min_bound.z, vertex.position.z));
     max_bound = glm::vec3((glm::max)(max_bound.x, vertex.position.x), (glm::max)(max_bound.y, vertex.position.y),
-                         (glm::max)(max_bound.z, vertex.position.z));
+                          (glm::max)(max_bound.z, vertex.position.z));
   }
   bound_.max = max_bound;
   bound_.min = min_bound;
@@ -234,12 +234,12 @@ void Mesh::RecalculateNormal() {
     normal_lists.emplace_back();
   }
   for (const auto& triangle : triangles_) {
-    const auto i1 = triangle.x;
-    const auto i2 = triangle.y;
-    const auto i3 = triangle.z;
-    auto v1 = vertices_[i1].position;
-    auto v2 = vertices_[i2].position;
-    auto v3 = vertices_[i3].position;
+    const auto& i1 = triangle.x;
+    const auto& i2 = triangle.y;
+    const auto& i3 = triangle.z;
+    const auto& v1 = vertices_[i1].position;
+    const auto& v2 = vertices_[i2].position;
+    const auto& v3 = vertices_[i3].position;
     auto normal = glm::normalize(glm::cross(v1 - v2, v1 - v3));
     normal_lists[i1].push_back(normal);
     normal_lists[i2].push_back(normal);
@@ -247,7 +247,7 @@ void Mesh::RecalculateNormal() {
   }
   for (auto i = 0; i < size; i++) {
     auto normal = glm::vec3(0.0f);
-    for (const auto j : normal_lists[i]) {
+    for (const auto& j : normal_lists[i]) {
       normal += j;
     }
     vertices_[i].normal = glm::normalize(normal);

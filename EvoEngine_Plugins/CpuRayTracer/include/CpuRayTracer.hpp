@@ -149,7 +149,7 @@ class CpuRayTracer {
   struct MeshInstance {
     FlattenedBvh flattened_bvh_triangle_group;
     std::vector<glm::vec3> vertex_position_list;
-
+    std::vector<glm::uvec3> triangles;
     void Initialize(const std::shared_ptr<Mesh>& input_mesh);
 
     void CollectBound(uint32_t start_level, uint32_t end_level, std::vector<Bound>& aabbs) const;
@@ -208,10 +208,6 @@ class CpuRayTracer {
   static void BinaryDivisionBvh(Bvh& parent, uint32_t current_tree_depth, const std::vector<Bound>& aabbs);
 
   static void FlattenBvh(const Bvh& current_bvh, FlattenedBvh& flattened_bvh, uint32_t level);
-
-  static void FlattenMeshBvh(const Bvh& current_bvh, const std::vector<Vertex>& input_vertices,
-                             const std::vector<glm::uvec3>& input_triangles, FlattenedBvh& flattened_bvh,
-                             std::vector<glm::vec3>& vertex_position_list);
 
   static glm::vec3 Barycentric(const glm::vec3& p, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c);
 
@@ -344,15 +340,15 @@ void CpuRayTracer<MeshRecord, NodeRecord>::Trace(
 
   uint32_t node_group_index = 0;
   while (node_group_index < flattened_bvh_node_group_.nodes.size()) {
-    const auto& node_group = flattened_bvh_node_group_.nodes.at(node_group_index);
+    const auto& node_group = flattened_bvh_node_group_.nodes[node_group_index];
     if (!ray_aabb(ray_descriptor.origin, scene_space_inv_ray_direction, node_group.aabb)) {
       node_group_index = node_group.next_node_skip;
       continue;
     }
-    for (size_t test_node_index = node_group.element_start_index; test_node_index < node_group.element_end_index;
+    for (uint32_t test_node_index = node_group.element_start_index; test_node_index < node_group.element_end_index;
          ++test_node_index) {
       uint32_t mesh_group_index = 0;
-      const auto& node_instance = node_instances_.at(flattened_bvh_node_group_.element_indices[test_node_index]);
+      const auto& node_instance = node_instances_[flattened_bvh_node_group_.element_indices[test_node_index]];
       const auto& node_global_transform = node_instance.global_transformation;
       const auto& node_inverse_global_transform = node_instance.inverse_global_transformation;
       const auto node_space_ray_origin = node_inverse_global_transform.TransformPoint(scene_space_ray_origin);
@@ -362,27 +358,30 @@ void CpuRayTracer<MeshRecord, NodeRecord>::Trace(
           1.f / node_space_ray_direction.x, 1.f / node_space_ray_direction.y, 1.f / node_space_ray_direction.z);
 
       while (mesh_group_index < node_instance.flattened_bvh_mesh_group.nodes.size()) {
-        const auto& mesh_group = node_instance.flattened_bvh_mesh_group.nodes.at(mesh_group_index);
+        const auto& mesh_group = node_instance.flattened_bvh_mesh_group.nodes[mesh_group_index];
         if (!ray_aabb(node_space_ray_origin, node_space_inv_ray_direction, mesh_group.aabb)) {
           mesh_group_index = mesh_group.next_node_skip;
           continue;
         }
-        for (size_t test_mesh_index = mesh_group.element_start_index; test_mesh_index < mesh_group.element_end_index;
+        for (uint32_t test_mesh_index = mesh_group.element_start_index; test_mesh_index < mesh_group.element_end_index;
              ++test_mesh_index) {
           uint32_t triangle_group_index = 0;
           const auto& mesh_instance =
-              mesh_instances_.at(node_instance.flattened_bvh_mesh_group.element_indices[test_mesh_index]);
+              mesh_instances_[node_instance.flattened_bvh_mesh_group.element_indices[test_mesh_index]];
           while (triangle_group_index < mesh_instance.flattened_bvh_triangle_group.nodes.size()) {
-            const auto& triangle_group = mesh_instance.flattened_bvh_triangle_group.nodes.at(triangle_group_index);
+            const auto& triangle_group = mesh_instance.flattened_bvh_triangle_group.nodes[triangle_group_index];
             if (!ray_aabb(node_space_ray_origin, node_space_inv_ray_direction, triangle_group.aabb)) {
               triangle_group_index = triangle_group.next_node_skip;
               continue;
             }
-            for (size_t test_triangle_index = triangle_group.element_start_index;
+            for (uint32_t test_triangle_index = triangle_group.element_start_index;
                  test_triangle_index < triangle_group.element_end_index; ++test_triangle_index) {
-              const auto& p0 = mesh_instance.vertex_position_list[test_triangle_index * 3];
-              const auto& p1 = mesh_instance.vertex_position_list[test_triangle_index * 3 + 1];
-              const auto& p2 = mesh_instance.vertex_position_list[test_triangle_index * 3 + 2];
+              const auto& triangle =
+                  mesh_instance
+                      .triangles[mesh_instance.flattened_bvh_triangle_group.element_indices[test_triangle_index]];
+              const auto& p0 = mesh_instance.vertex_position_list[triangle.x];
+              const auto& p1 = mesh_instance.vertex_position_list[triangle.y];
+              const auto& p2 = mesh_instance.vertex_position_list[triangle.z];
               if (p0 == p1 && p1 == p2)
                 continue;
               const auto node_space_triangle_normal = glm::normalize(glm::cross(p1 - p0, p2 - p0));
@@ -478,23 +477,21 @@ void CpuRayTracer<MeshRecord, NodeRecord>::Initialize(const std::shared_ptr<Mesh
   node.next_node_skip = 1;
   node.aabb = flattened_bvh_node_group_.aabb;
 
-
   Bvh scene_bvh;
   scene_bvh.element_indices.resize(node_instances_.size());
   std::vector<Bound> element_aabbs(node_instances_.size());
   scene_bvh.aabb = {};
-  for (uint32_t node_index = 0; node_index < node_instances_.size(); node_index++) {
-    scene_bvh.element_indices[node_index] = node_index;
-    const auto& node_instance = node_instances_[node_index];
-    auto node_aabb = node_instance.flattened_bvh_mesh_group.aabb;
-    node_aabb.ApplyTransform(node_instance.global_transformation.value);
-    element_aabbs[node_index] = node_aabb;
-    scene_bvh.aabb.min = glm::min(scene_bvh.aabb.min, node_aabb.min);
-    scene_bvh.aabb.max = glm::max(scene_bvh.aabb.max, node_aabb.max);
-  }
+  scene_bvh.element_indices[0] = 0;
+  const auto& node_instance = node_instances_[0];
+  auto node_aabb = node_instance.flattened_bvh_mesh_group.aabb;
+  node_aabb.ApplyTransform(node_instance.global_transformation.value);
+  element_aabbs[0] = node_aabb;
+  scene_bvh.aabb.min = glm::min(scene_bvh.aabb.min, node_aabb.min);
+  scene_bvh.aabb.max = glm::max(scene_bvh.aabb.max, node_aabb.max);
+
   mesh_records_.resize(mesh_instances_.size());
   node_records_.resize(node_instances_.size());
-  
+
   BinaryDivisionBvh(scene_bvh, 0, element_aabbs);
   flattened_bvh_node_group_.aabb = scene_bvh.aabb;
   FlattenBvh(scene_bvh, flattened_bvh_node_group_, 0);
@@ -706,18 +703,21 @@ glm::vec3 CpuRayTracer<MeshRecord, NodeRecord>::Barycentric(const glm::vec3& p, 
 }
 template <typename MeshRecord, typename NodeRecord>
 void CpuRayTracer<MeshRecord, NodeRecord>::MeshInstance::Initialize(const std::shared_ptr<Mesh>& input_mesh) {
-  const auto& input_vertices = input_mesh->UnsafeGetVertices();
-  const auto& input_triangles = input_mesh->UnsafeGetTriangles();
   Clear();
+  const auto& input_vertices = input_mesh->UnsafeGetVertices();
+  triangles = input_mesh->UnsafeGetTriangles();
   Bvh mesh_bvh{};
-  const auto input_triangle_size = static_cast<uint32_t>(input_triangles.size());
+  const auto vertices_size = static_cast<uint32_t>(input_vertices.size());
+  const auto triangles_size = static_cast<uint32_t>(triangles.size());
   mesh_bvh.aabb = input_mesh->GetBound();
-
-  mesh_bvh.element_indices.resize(input_triangle_size);
-
-  std::vector<Bound> element_aabbs(input_triangle_size);
-  Jobs::RunParallelFor(input_triangle_size, [&](const size_t index) {
-    const auto& triangle = input_triangles[index];
+  vertex_position_list.resize(vertices_size);
+  Jobs::RunParallelFor(vertices_size, [&](const size_t index) {
+    vertex_position_list[index] = input_vertices[index].position;
+  });
+  mesh_bvh.element_indices.resize(triangles_size);
+  std::vector<Bound> element_aabbs(triangles_size);
+  Jobs::RunParallelFor(triangles_size, [&](const size_t index) {
+    const auto& triangle = triangles[index];
     mesh_bvh.element_indices[index] = static_cast<uint32_t>(index);
 
     auto& element_aabb = element_aabbs[index];
@@ -732,52 +732,7 @@ void CpuRayTracer<MeshRecord, NodeRecord>::MeshInstance::Initialize(const std::s
 
   BinaryDivisionBvh(mesh_bvh, 0, element_aabbs);
   flattened_bvh_triangle_group.aabb = mesh_bvh.aabb;
-  FlattenMeshBvh(mesh_bvh, input_vertices, input_triangles, flattened_bvh_triangle_group, vertex_position_list);
-}
-template <typename MeshRecord, typename NodeRecord>
-void CpuRayTracer<MeshRecord, NodeRecord>::FlattenMeshBvh(const Bvh& current_bvh,
-                                                          const std::vector<Vertex>& input_vertices,
-                                                          const std::vector<glm::uvec3>& input_triangles,
-                                                          FlattenedBvh& flattened_bvh,
-                                                          std::vector<glm::vec3>& vertex_position_list) {
-  if (current_bvh.children.empty() && current_bvh.element_indices.empty()) {
-    // Children node without triangles? Skip it
-    return;
-  }
-  if (!current_bvh.children.empty()) {
-    // If one of the children does not contain any triangles
-    // we can skip this node completely as it is an extra AABB test
-    // for nothing
-    if (current_bvh.children[0].subtree_element_size > 0 && current_bvh.children[1].subtree_element_size == 0) {
-      FlattenMeshBvh(current_bvh.children[0], input_vertices, input_triangles, flattened_bvh, vertex_position_list);
-      return;
-    }
-    if (current_bvh.children[1].subtree_element_size > 0 && current_bvh.children[0].subtree_element_size == 0) {
-      FlattenMeshBvh(current_bvh.children[1], input_vertices, input_triangles, flattened_bvh, vertex_position_list);
-      return;
-    }
-  }
-  auto& node = flattened_bvh.nodes.emplace_back();
-  node.aabb = current_bvh.aabb;
-  node.element_start_index = static_cast<uint32_t>(flattened_bvh.element_indices.size());
-  for (const auto& triangle_index : current_bvh.element_indices) {
-    const auto& triangle = input_triangles[triangle_index];
-    const auto& p0 = input_vertices[triangle.x].position;
-    const auto& p1 = input_vertices[triangle.y].position;
-    const auto& p2 = input_vertices[triangle.z].position;
-    vertex_position_list.emplace_back(p0);
-    vertex_position_list.emplace_back(p1);
-    vertex_position_list.emplace_back(p2);
-  }
-  flattened_bvh.element_indices.insert(flattened_bvh.element_indices.end(), current_bvh.element_indices.begin(),
-                                       current_bvh.element_indices.end());
-  node.element_end_index = static_cast<uint32_t>(flattened_bvh.element_indices.size());
-  const size_t current_node_index = flattened_bvh.nodes.size() - 1;
-  if (!current_bvh.children.empty()) {
-    FlattenMeshBvh(current_bvh.children[0], input_vertices, input_triangles, flattened_bvh, vertex_position_list);
-    FlattenMeshBvh(current_bvh.children[1], input_vertices, input_triangles, flattened_bvh, vertex_position_list);
-  }
-  flattened_bvh.nodes[current_node_index].next_node_skip = static_cast<uint32_t>(flattened_bvh.nodes.size());
+  FlattenBvh(mesh_bvh, flattened_bvh_triangle_group, 0);
 }
 
 template <typename MeshRecord, typename NodeRecord>
