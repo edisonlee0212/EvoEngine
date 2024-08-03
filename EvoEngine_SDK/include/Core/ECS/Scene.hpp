@@ -59,7 +59,7 @@ class Scene final : public IAsset {
   friend class PrivateComponentStorage;
   friend class EditorLayer;
   friend class Input;
-  std::unordered_map<int, KeyActionType> pressed_keys_ = {};
+  std::unordered_map<int, Input::KeyActionType> pressed_keys_ = {};
 
   SceneDataStorage scene_data_storage_;
   std::multimap<float, std::shared_ptr<ISystem>> systems_;
@@ -160,7 +160,7 @@ class Scene final : public IAsset {
   template <typename T>
   std::vector<Entity> GetPrivateComponentOwnersList(const std::shared_ptr<Scene>& scene);
 
-  KeyActionType GetKey(int key);
+  Input::KeyActionType GetKey(int key);
 
   template <typename T = IDataComponent>
   void GetComponentDataArray(const EntityQuery& entity_query, std::vector<T>& container, bool check_enable = true);

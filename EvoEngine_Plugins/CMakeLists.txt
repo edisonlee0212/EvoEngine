@@ -12,18 +12,18 @@ if (WIN32)
 	endif()
 endif()
 
-option(EVOENGINE_PLUGIN_CPU_RAY_TRACER "Build the cpu ray tracer plugin" ON)
-if(EVOENGINE_PLUGIN_CPU_RAY_TRACER)
-  add_subdirectory(CpuRayTracer)
+option(EVOENGINE_PLUGIN_RAY_TRACER "Build the ray tracer plugin" ON)
+if(EVOENGINE_PLUGIN_RAY_TRACER)
+  add_subdirectory(RayTracer)
 endif()
 
 option(EVOENGINE_PLUGIN_MESH_REPAIR "Build the mesh repair plugin" ON)
-if(EVOENGINE_PLUGIN_CPU_RAY_TRACER AND EVOENGINE_PLUGIN_MESH_REPAIR)
+if(EVOENGINE_PLUGIN_RAY_TRACER AND EVOENGINE_PLUGIN_MESH_REPAIR)
   add_subdirectory(MeshRepair)
 endif()
 
 option(EVOENGINE_PLUGIN_TEXTURE_BAKING "Build the texture baking plugin" ON)
-if(EVOENGINE_PLUGIN_CPU_RAY_TRACER AND EVOENGINE_PLUGIN_TEXTURE_BAKING)
+if(EVOENGINE_PLUGIN_RAY_TRACER AND EVOENGINE_PLUGIN_TEXTURE_BAKING)
   add_subdirectory(TextureBaking)
 endif()
 

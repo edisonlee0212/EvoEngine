@@ -59,6 +59,17 @@ bool Serialization::RegisterSystemType(
   return serialization.system_cloners_.insert({type_name, clone_func}).second;
 }
 
+bool Serialization::RegisterAssetType(const std::string &type_name, const size_t &type_index,
+                                      const std::vector<std::string> &extensions,
+                                      const std::function<std::shared_ptr<ISerializable>(size_t &)> &func) {
+  auto &serialization = GetInstance();
+  serialization.asset_extensions_[type_name] = extensions;
+  for (const auto &extension : extensions) {
+    serialization.type_names_[extension] = type_name;
+  }
+  return RegisterSerializableType(type_name, type_index, func);
+}
+
 std::shared_ptr<ISerializable> Serialization::ProduceSerializable(const std::string &type_name, size_t &hash_code) {
   auto &serialization = GetInstance();
   if (const auto it = serialization.serializable_generators_.find(type_name);
@@ -242,6 +253,28 @@ bool Serialization::HasComponentDataType(const std::string &type_name) {
 bool Serialization::HasComponentDataType(const size_t &type_id) {
   const auto &serialization = GetInstance();
   return serialization.data_component_names_.find(type_id) != serialization.data_component_names_.end();
+}
+
+bool Serialization::HasAssetType(const std::string &type_name) {
+  const auto &serialization = GetInstance();
+  return serialization.asset_extensions_.find(type_name) != serialization.asset_extensions_.end();
+}
+
+const std::vector<std::string>& Serialization::PeekAssetExtensions(const std::string &type_name) {
+  const auto &serialization = GetInstance();
+  if (const auto search = serialization.asset_extensions_.find(type_name);
+      search != serialization.asset_extensions_.end()) {
+    return search->second;
+  }
+  throw std::runtime_error("Asset type not registered!");
+}
+
+std::string Serialization::GetAssetTypeName(const std::string &extension) {
+  const auto &serialization = GetInstance();
+  if (const auto search = serialization.type_names_.find(extension); search != serialization.type_names_.end()) {
+    return search->second;
+  }
+  return "Binary";
 }
 
 void Serialization::ClonePrivateComponent(const std::shared_ptr<IPrivateComponent> &target,

@@ -6,7 +6,7 @@
 
 using namespace evo_engine;
 
-void ILayer::OnInputEvent(const InputEvent& input_event) {
+void ILayer::OnInputEvent(const Input::InputEvent& input_event) {
   if (!subsequent_layer_.expired()) {
     subsequent_layer_.lock()->OnInputEvent(input_event);
   }

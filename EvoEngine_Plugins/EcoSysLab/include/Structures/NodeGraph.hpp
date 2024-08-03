@@ -310,7 +310,7 @@ bool NodeGraph<Id, Od, Nd, Ld>::OnInspect(
 
   if (const bool open_popup = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
                               ImNodes::IsEditorHovered() &&
-                              editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == KeyActionType::Press;
+                              editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Press;
       !ImGui::IsAnyItemHovered() && open_popup) {
     ImGui::OpenPopup((title + "_editor_menu").c_str());
   }

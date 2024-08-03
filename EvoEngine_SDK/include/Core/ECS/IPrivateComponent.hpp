@@ -1,7 +1,6 @@
 #pragma once
 #include "AssetRef.hpp"
 #include "Entity.hpp"
-#include "ISerializable.hpp"
 
 namespace evo_engine {
 class EditorLayer;
@@ -53,7 +52,8 @@ class IPrivateComponent : public ISerializable {
   virtual void OnDestroy() {
   }
 
-  virtual void CollectAssetRef(std::vector<AssetRef>& list){};
+  virtual void CollectAssetRef(std::vector<AssetRef>& list) {
+  }
   virtual void Relink(const std::unordered_map<Handle, Handle>& map, const std::shared_ptr<Scene>& scene) {
   }
   virtual void PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) {

@@ -193,7 +193,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
       ImGui::DragInt("Defect Marker X", &defectAngleRange, 1, 3, 30);
     }
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0, 0, 1));
-    if (!editorLayer->SceneCameraWindowFocused() && editorLayer->GetKey(GLFW_KEY_F) == KeyActionType::Press) {
+    if (!editorLayer->SceneCameraWindowFocused() && editorLayer->GetKey(GLFW_KEY_F) == Input::KeyActionType::Press) {
       EVOENGINE_WARNING("Select Scene Window FIRST!");
     }
     ImGui::Text("Press F for marking");
@@ -205,15 +205,15 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
       static std::vector<glm::vec2> mousePositions{};
       if (editorLayer->SceneCameraWindowFocused() && editorLayer->GetLockEntitySelection() &&
           editorLayer->GetSelectedEntity() == GetOwner()) {
-        if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == KeyActionType::Press) {
+        if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Press) {
           mousePositions.clear();
-        } else if (editorLayer->GetKey(GLFW_KEY_F) == KeyActionType::Hold) {
+        } else if (editorLayer->GetKey(GLFW_KEY_F) == Input::KeyActionType::Hold) {
           mousePositions.emplace_back(editorLayer->GetMouseSceneCameraPosition());
-        } else if (editorLayer->GetKey(GLFW_KEY_F) == KeyActionType::Release && !mousePositions.empty()) {
+        } else if (editorLayer->GetKey(GLFW_KEY_F) == Input::KeyActionType::Release && !mousePositions.empty()) {
           const auto scene = GetScene();
           GlobalTransform cameraLtw;
           cameraLtw.value = glm::translate(editorLayer->GetSceneCameraPosition()) *
-                              glm::mat4_cast(editorLayer->GetSceneCameraRotation());
+                            glm::mat4_cast(editorLayer->GetSceneCameraRotation());
           for (const auto& position : mousePositions) {
             const Ray cameraRay = editorLayer->GetSceneCamera()->ScreenPointToRay(cameraLtw, position);
             float height, angle;

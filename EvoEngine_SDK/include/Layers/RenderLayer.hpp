@@ -157,8 +157,8 @@ class RenderLayer final : public ILayer {
   void RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera);
 
   bool TryRegisterRenderer(const std::shared_ptr<Scene>& scene, const Entity& owner,
-                           const std::shared_ptr<MeshRenderer>& mesh_renderer, glm::vec3& min_bound, glm::vec3& max_bound,
-                           bool enable_selection_highlight);
+                           const std::shared_ptr<MeshRenderer>& mesh_renderer, glm::vec3& min_bound,
+                           glm::vec3& max_bound, bool enable_selection_highlight);
   bool TryRegisterRenderer(const std::shared_ptr<Scene>& scene, const Entity& owner,
                            const std::shared_ptr<SkinnedMeshRenderer>& skinned_mesh_renderer, glm::vec3& min_bound,
                            glm::vec3& max_bound, bool enable_selection_highlight);

@@ -5,6 +5,7 @@
 #include "GeometryStorage.hpp"
 #include "Graphics.hpp"
 #include "Jobs.hpp"
+#include "Utilities.hpp"
 using namespace evo_engine;
 
 bool Mesh::SaveInternal(const std::filesystem::path& path) const {

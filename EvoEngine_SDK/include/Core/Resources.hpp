@@ -1,9 +1,9 @@
 #pragma once
 #include "AssetRef.hpp"
-#include "ISingleton.hpp"
 #include "Serialization.hpp"
 namespace evo_engine {
-class Resources : ISingleton<Resources> {
+class Resources {
+  EVOENGINE_SINGLETON_INSTANCE(Resources)
   Handle current_max_handle_ = Handle(1);
   std::unordered_map<std::string, std::unordered_map<Handle, std::shared_ptr<IAsset>>> typed_resources_;
   std::unordered_map<std::string, std::shared_ptr<IAsset>> named_resources_;

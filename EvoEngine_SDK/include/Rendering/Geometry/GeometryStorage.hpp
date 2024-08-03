@@ -67,7 +67,8 @@ struct ParticleInfoListData {
   std::shared_ptr<RangeDescriptor> range_descriptor;
 };
 
-class GeometryStorage : public ISingleton<GeometryStorage> {
+class GeometryStorage final {
+  EVOENGINE_SINGLETON_INSTANCE(GeometryStorage)
   std::vector<VertexDataChunk> vertex_data_chunks_ = {};
   std::vector<Meshlet> meshlets_ = {};
   std::vector<std::shared_ptr<RangeDescriptor>> meshlet_range_descriptor_;

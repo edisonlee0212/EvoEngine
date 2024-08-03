@@ -1,5 +1,6 @@
 #pragma once
 #include "Console.hpp"
+#include "IAsset.hpp"
 #include "IDataComponent.hpp"
 #include "IPrivateComponent.hpp"
 #include "ISerializable.hpp"
@@ -410,7 +411,8 @@ struct convert<glm::u16vec4> {
 #define IMPORT_PARAM(x, y, temp) (x) >> (temp) >> (y) >> (temp)
 namespace evo_engine {
 #pragma region Component Factory
-class Serialization : public ISingleton<Serialization> {
+class Serialization final {
+  EVOENGINE_SINGLETON_INSTANCE(Serialization)
   friend class ISerializable;
   friend class ProjectManager;
   friend class ClassRegistry;
@@ -438,6 +440,9 @@ class Serialization : public ISingleton<Serialization> {
   std::unordered_map<std::string, size_t> serializable_ids_;
   std::unordered_map<size_t, std::string> serializable_names_;
 
+  std::unordered_map<std::string, std::vector<std::string>> asset_extensions_;
+  std::map<std::string, std::string> type_names_;
+
   template <typename T = IDataComponent>
   static bool RegisterDataComponentType(const std::string& name);
   template <typename T = ISerializable>
@@ -446,6 +451,10 @@ class Serialization : public ISingleton<Serialization> {
   static bool RegisterPrivateComponentType(const std::string& name);
   template <typename T = ISystem>
   static bool RegisterSystemType(const std::string& name);
+
+  template <typename T = IAsset>
+  static bool RegisterAssetType(const std::string& name, const std::vector<std::string>& extensions);
+
   static bool RegisterDataComponentType(const std::string& type_name, const size_t& type_index, const size_t& type_size,
                                         const std::function<std::shared_ptr<IDataComponent>(size_t&, size_t&)>& func);
   static bool RegisterSerializableType(const std::string& type_name, const size_t& type_index,
@@ -458,6 +467,9 @@ class Serialization : public ISingleton<Serialization> {
   static bool RegisterSystemType(
       const std::string& type_name, const size_t& type_index,
       const std::function<void(std::shared_ptr<ISystem>, const std::shared_ptr<ISystem>&)>& clone_func);
+  static bool RegisterAssetType(const std::string& type_name, const size_t& type_index,
+                                const std::vector<std::string>& extensions,
+                                const std::function<std::shared_ptr<ISerializable>(size_t&)>& func);
 
  public:
   static std::shared_ptr<IDataComponent> ProduceDataComponent(const std::string& type_name, size_t& hash_code,
@@ -481,6 +493,10 @@ class Serialization : public ISingleton<Serialization> {
 
   static bool HasComponentDataType(const std::string& type_name);
   static bool HasComponentDataType(const size_t& type_id);
+
+  static bool HasAssetType(const std::string& type_name);
+  static const std::vector<std::string>& PeekAssetExtensions(const std::string& type_name);
+  static std::string GetAssetTypeName(const std::string& extension);
 
   static size_t GetSerializableTypeId(const std::string& type_name);
   static size_t GetDataComponentTypeId(const std::string& type_name);
@@ -563,6 +579,15 @@ bool Serialization::RegisterSystemType(const std::string& name) {
                               target->started_ = false;
                               target->PostCloneAction(source);
                             });
+}
+
+template <typename T>
+bool Serialization::RegisterAssetType(const std::string& name, const std::vector<std::string>& extensions) {
+  return RegisterAssetType(name, typeid(T).hash_code(), extensions, [](size_t& hash_code) {
+    hash_code = typeid(T).hash_code();
+    auto ptr = std::static_pointer_cast<ISerializable>(std::make_shared<T>());
+    return ptr;
+  });
 }
 #pragma endregion
 

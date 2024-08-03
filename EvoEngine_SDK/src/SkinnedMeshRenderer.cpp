@@ -1,6 +1,6 @@
 #include "SkinnedMeshRenderer.hpp"
-
 #include "EditorLayer.hpp"
+#include "Resources.hpp"
 using namespace evo_engine;
 void SkinnedMeshRenderer::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, glm::vec4& color) {
   const auto scene = GetScene();
@@ -112,12 +112,12 @@ bool SkinnedMeshRenderer::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
       }
       for (int index = 0; index < debug_rendering_matrices.size(); index++) {
         debug_rendering_matrices[index].instance_matrix.value = debug_rendering_matrices[index].instance_matrix.value *
-                                                              glm::inverse(amt->offset_matrices_[index]) *
-                                                              glm::inverse(glm::scale(self_scale));
+                                                                glm::inverse(amt->offset_matrices_[index]) *
+                                                                glm::inverse(glm::scale(self_scale));
       }
       particle_info_list->SetParticleInfos(debug_rendering_matrices);
       editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_SPHERE"), particle_info_list,
-                                                 ltw.value, debug_render_bones_size);
+                                                  ltw.value, debug_render_bones_size);
     }
 
     if (ImGui::Checkbox("RagDoll", &rag_doll_)) {

@@ -15,8 +15,10 @@ class ISystem : public ISerializable {
   std::weak_ptr<Scene> scene_;
 
  protected:
-  virtual void OnEnable(){}
-  virtual void OnDisable(){}
+  virtual void OnEnable() {
+  }
+  virtual void OnDisable() {
+  }
 
  public:
   [[nodiscard]] std::shared_ptr<Scene> GetScene() const;

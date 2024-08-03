@@ -2,7 +2,8 @@
 #include "ISingleton.hpp"
 #include "JobSystem.hpp"
 namespace evo_engine {
-class Jobs final : ISingleton<Jobs> {
+class Jobs final {
+  EVOENGINE_SINGLETON_INSTANCE(Jobs)
   JobSystem job_system_;
 
  public:

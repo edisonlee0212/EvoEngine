@@ -137,6 +137,7 @@ struct ReconstructionSettings {
 
   float end_node_thickness = 0.004f;
   float thickness_sum_factor = 0.4f;
+  bool apply_root_thickness = false;
   float thickness_accumulation_factor = 0.00005f;
   float override_thickness_root_distance = 0.0f;
 
@@ -153,11 +154,6 @@ struct ReconstructionSettings {
   int node_back_track_limit = 30;
   int branch_back_track_limit = 1;
 
-  /*
-  bool m_candidateSearch = true;
-  int m_candidateSearchLimit = 1;
-  bool m_forceConnectAllBranches = false;
-  */
   bool use_root_distance = true;
   int optimization_timeout = 999;
 
@@ -178,6 +174,8 @@ struct ReconstructionFlowData {};
 struct ReconstructionNodeData {
   glm::vec3 global_start_position = glm::vec3(0.f);
   glm::vec3 global_end_position = glm::vec3(0.0f);
+
+  float imported_thickness = 0.f;
 
   float draft_thickness = 0.0f;
   float allocated_point_thickness = 0.0f;
@@ -200,7 +198,7 @@ class TreeStructor : public IPrivateComponent {
   static void ForEachBranchEnd(const glm::vec3& position, VoxelGrid<std::vector<BranchEndData>>& branchEndsVoxelGrid,
                                float radius, const std::function<void(const BranchEndData& voxel)>& func);
 
-  void CalculateNodeTransforms(ReconstructionSkeleton& skeleton);
+  static void CalculateNodeTransforms(ReconstructionSkeleton& skeleton);
 
   void BuildConnectionBranch(BranchHandle processingBranchHandle, SkeletonNodeHandle& prevNodeHandle);
 

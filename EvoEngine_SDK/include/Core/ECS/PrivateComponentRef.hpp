@@ -1,9 +1,5 @@
 #pragma once
-#include "Entity.hpp"
-#include "IAsset.hpp"
 #include "IPrivateComponent.hpp"
-#include "ISerializable.hpp"
-#include "Serialization.hpp"
 namespace evo_engine {
 class PrivateComponentRef final : public ISerializable {
   friend class Prefab;

@@ -6,9 +6,9 @@
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
 #include "Particles.hpp"
-#include "ProjectManager.hpp"
 #include "RayTracer.hpp"
 #include "RayTracerCamera.hpp"
+#include "Resources.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
@@ -550,7 +550,7 @@ void RayTracerLayer::SceneCameraWindow() {
 #pragma region Scene Camera Controller
         if (mouse_position.x < 0 || mouse_position.y < 0 || mouse_position.x > view_port_size.x ||
             mouse_position.y > view_port_size.y ||
-            editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != KeyActionType::Hold) {
+            editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
           mouse_drag = false;
         }
         static float prev_x = 0;
@@ -567,22 +567,22 @@ void RayTracerLayer::SceneCameraWindow() {
         if (mouse_drag && !editor_layer->lock_camera) {
           glm::vec3 front = scene_camera_rotation * glm::vec3(0, 0, -1);
           const glm::vec3 right = scene_camera_rotation * glm::vec3(1, 0, 0);
-          if (editor_layer->GetKey(GLFW_KEY_W) == KeyActionType::Hold) {
+          if (editor_layer->GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
             scene_camera_position += front * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
           }
-          if (editor_layer->GetKey(GLFW_KEY_S) == KeyActionType::Hold) {
+          if (editor_layer->GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
             scene_camera_position -= front * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
           }
-          if (editor_layer->GetKey(GLFW_KEY_A) == KeyActionType::Hold) {
+          if (editor_layer->GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
             scene_camera_position -= right * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
           }
-          if (editor_layer->GetKey(GLFW_KEY_D) == KeyActionType::Hold) {
+          if (editor_layer->GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
             scene_camera_position += right * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
           }
-          if (editor_layer->GetKey(GLFW_KEY_LEFT_SHIFT) == KeyActionType::Hold) {
+          if (editor_layer->GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
             scene_camera_position.y += editor_layer->velocity * static_cast<float>(Times::DeltaTime());
           }
-          if (editor_layer->GetKey(GLFW_KEY_LEFT_CONTROL) == KeyActionType::Hold) {
+          if (editor_layer->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
             scene_camera_position.y -= editor_layer->velocity * static_cast<float>(Times::DeltaTime());
           }
           if (x_offset != 0.0f || y_offset != 0.0f) {

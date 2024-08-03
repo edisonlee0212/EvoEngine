@@ -19,7 +19,8 @@ inline bool ComponentTypeComparator(const DataComponentType &a, const DataCompon
   return a.type_index < b.type_index;
 }
 
-class Entities final : ISingleton<Entities> {
+class Entities final {
+  EVOENGINE_SINGLETON_INSTANCE(Entities)
   friend class PhysicsSystem;
   friend class EditorLayer;
   friend class PrefabHolder;
@@ -111,12 +112,12 @@ void Entities::SetEntityQueryNoneFilters(const EntityQuery &entity_query, T arg,
 
 template <typename T>
 bool Entities::CheckDataComponentTypes(T arg) {
-  return std::is_standard_layout<T>::value;
+  return std::is_standard_layout_v<T>;
 }
 
 template <typename T, typename... Ts>
 bool Entities::CheckDataComponentTypes(T arg, Ts... args) {
-  return std::is_standard_layout<T>::value && CheckDataComponentTypes(args...);
+  return std::is_standard_layout_v<T> && CheckDataComponentTypes(args...);
 }
 
 template <typename T>

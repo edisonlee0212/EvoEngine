@@ -1,8 +1,8 @@
 #include "ReflectionProbe.hpp"
 #include "EditorLayer.hpp"
 #include "Mesh.hpp"
+#include "Resources.hpp"
 #include "TextureStorage.hpp"
-
 using namespace evo_engine;
 struct EquirectangularToCubemapConstant {
   glm::mat4 projection_view = {};

@@ -1,14 +1,12 @@
 #include "Application.hpp"
 #include "EditorLayer.hpp"
 #include "Graphics.hpp"
-#include "Mesh.hpp"
 #include "PostProcessingStack.hpp"
-#include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
+#include "Resources.hpp"
 #include "Shader.hpp"
 #include "Utilities.hpp"
 #include "WindowLayer.hpp"
-
 using namespace evo_engine;
 
 void Graphics::CreateGraphicsPipelines() const {
@@ -141,7 +139,7 @@ void Graphics::CreateGraphicsPipelines() const {
     standard_deferred_prepass->PreparePipeline();
     RegisterGraphicsPipeline("STANDARD_DEFERRED_PREPASS_MESH", standard_deferred_prepass);
   }
-  
+
   {
     const auto standard_skinned_deferred_prepass = std::make_shared<GraphicsPipeline>();
     standard_skinned_deferred_prepass->vertex_shader = Resources::GetResource<Shader>("STANDARD_SKINNED_VERT");
@@ -289,7 +287,8 @@ void Graphics::CreateGraphicsPipelines() const {
     const auto directional_light_shadow_map_skinned = std::make_shared<GraphicsPipeline>();
     directional_light_shadow_map_skinned->vertex_shader =
         Resources::GetResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_SKINNED_VERT");
-    directional_light_shadow_map_skinned->fragment_shader = Resources::GetResource<Shader>("SHADOW_MAP_PASS_THROUGH_FRAG");
+    directional_light_shadow_map_skinned->fragment_shader =
+        Resources::GetResource<Shader>("SHADOW_MAP_PASS_THROUGH_FRAG");
     directional_light_shadow_map_skinned->geometry_type = GeometryType::SkinnedMesh;
     directional_light_shadow_map_skinned->descriptor_set_layouts.emplace_back(per_frame_layout);
     directional_light_shadow_map_skinned->descriptor_set_layouts.emplace_back(bone_matrices_layout);
@@ -308,7 +307,8 @@ void Graphics::CreateGraphicsPipelines() const {
     const auto directional_light_shadow_map_instanced = std::make_shared<GraphicsPipeline>();
     directional_light_shadow_map_instanced->vertex_shader =
         Resources::GetResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_INSTANCED_VERT");
-    directional_light_shadow_map_instanced->fragment_shader = Resources::GetResource<Shader>("SHADOW_MAP_PASS_THROUGH_FRAG");
+    directional_light_shadow_map_instanced->fragment_shader =
+        Resources::GetResource<Shader>("SHADOW_MAP_PASS_THROUGH_FRAG");
     directional_light_shadow_map_instanced->geometry_type = GeometryType::Mesh;
     directional_light_shadow_map_instanced->descriptor_set_layouts.emplace_back(per_frame_layout);
     directional_light_shadow_map_instanced->descriptor_set_layouts.emplace_back(instanced_data_layout);

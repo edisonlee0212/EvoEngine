@@ -1,14 +1,8 @@
 #pragma once
-#include <Animator.hpp>
-#include <IAsset.hpp>
-#include <IPrivateComponent.hpp>
-#include <ISystem.hpp>
-#include <Material.hpp>
-#include <Mesh.hpp>
-#include <SkinnedMesh.hpp>
-#include <Transform.hpp>
-
-#include "Texture2D.hpp"
+#include "Animator.hpp"
+#include "IAsset.hpp"
+#include "IPrivateComponent.hpp"
+#include "Transform.hpp"
 
 namespace evo_engine {
 
@@ -51,8 +45,8 @@ class Prefab : public IAsset {
   [[nodiscard]] bool LoadInternal(const std::filesystem::path& path) override;
   [[nodiscard]] bool SaveInternal(const std::filesystem::path& path) const override;
   [[nodiscard]] bool LoadModelInternal(const std::filesystem::path& path, bool optimize = false,
-                         unsigned flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace |
-                                          aiProcess_GenSmoothNormals);
+                                       unsigned flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace |
+                                                        aiProcess_GenSmoothNormals);
   [[nodiscard]] bool SaveModelInternal(const std::filesystem::path& path) const;
 
  public:
@@ -71,7 +65,8 @@ class Prefab : public IAsset {
   void OnCreate() override;
   [[nodiscard]] Bound GetBoundingBox() const;
   [[nodiscard]] Transform CalculateAdjustedTransform(bool rescale = true, bool recenter = true) const;
-  [[maybe_unused]] Entity ToEntity(const std::shared_ptr<Scene>& scene, bool rescale = false, bool recenter = false) const;
+  [[maybe_unused]] Entity ToEntity(const std::shared_ptr<Scene>& scene, bool rescale = false,
+                                   bool recenter = false) const;
 
   void LoadModel(const std::filesystem::path& path, bool optimize = false,
                  unsigned flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals);

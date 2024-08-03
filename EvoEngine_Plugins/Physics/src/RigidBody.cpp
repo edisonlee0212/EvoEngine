@@ -2,6 +2,7 @@
 #include "Application.hpp"
 #include "EditorLayer.hpp"
 #include "PhysicsLayer.hpp"
+#include "Resources.hpp"
 #include "Scene.hpp"
 #include "Transform.hpp"
 using namespace evo_engine;

@@ -19,27 +19,27 @@ void PlayerController::LateUpdate() {
   const auto front = rotation * glm::vec3(0, 0, -1);
   const auto right = rotation * glm::vec3(1, 0, 0);
   auto moved = false;
-  if (scene->GetKey(GLFW_KEY_W) == KeyActionType::Hold) {
+  if (scene->GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
     position += front * static_cast<float>(Times::DeltaTime()) * velocity;
     moved = true;
   }
-  if (scene->GetKey(GLFW_KEY_S) == KeyActionType::Hold) {
+  if (scene->GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
     position -= front * static_cast<float>(Times::DeltaTime()) * velocity;
     moved = true;
   }
-  if (scene->GetKey(GLFW_KEY_A) == KeyActionType::Hold) {
+  if (scene->GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
     position -= right * static_cast<float>(Times::DeltaTime()) * velocity;
     moved = true;
   }
-  if (scene->GetKey(GLFW_KEY_D) == KeyActionType::Hold) {
+  if (scene->GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
     position += right * static_cast<float>(Times::DeltaTime()) * velocity;
     moved = true;
   }
-  if (scene->GetKey(GLFW_KEY_LEFT_SHIFT) == KeyActionType::Hold) {
+  if (scene->GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
     position.y += velocity * static_cast<float>(Times::DeltaTime());
     moved = true;
   }
-  if (scene->GetKey(GLFW_KEY_LEFT_CONTROL) == KeyActionType::Hold) {
+  if (scene->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
     position.y -= velocity * static_cast<float>(Times::DeltaTime());
     moved = true;
   }
@@ -60,7 +60,7 @@ void PlayerController::LateUpdate() {
     last_x_ = mouse_position.x;
     last_y_ = mouse_position.y;
   }
-  if (scene->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == KeyActionType::Hold) {
+  if (scene->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Hold) {
     if (x_offset != 0 || y_offset != 0) {
       moved = true;
       scene_camera_yaw_angle_ += x_offset * sensitivity;

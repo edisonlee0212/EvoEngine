@@ -2,11 +2,13 @@
 #include "Application.hpp"
 
 #include "ClassRegistry.hpp"
+#include "EditorLayer.hpp"
 #include "Entities.hpp"
 #include "EntityMetadata.hpp"
 #include "Jobs.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
+#include "Resources.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "UnknownPrivateComponent.hpp"
 using namespace evo_engine;
@@ -149,7 +151,7 @@ const char* environment_types[]{"Environmental Map", "Color"};
 bool Scene::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool modified = false;
   if (this == Application::GetActiveScene().get())
-    if (editor_layer->DragAndDropButton<Camera>(main_camera, "Main Camera", true))
+    if (EditorLayer::DragAndDropButton<Camera>(main_camera, "Main Camera", true))
       modified = true;
   if (ImGui::TreeNodeEx("Environment Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
     static int type = static_cast<int>(environment.environment_type);
@@ -159,7 +161,7 @@ bool Scene::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
     switch (environment.environment_type) {
       case EnvironmentType::EnvironmentalMap: {
-        if (editor_layer->DragAndDropButton<EnvironmentalMap>(environment.environmental_map, "Environmental Map"))
+        if (EditorLayer::DragAndDropButton<EnvironmentalMap>(environment.environmental_map, "Environmental Map"))
           modified = true;
       } break;
       case EnvironmentType::Color: {
@@ -367,8 +369,8 @@ void Scene::Deserialize(const YAML::Node& in) {
 #pragma endregion
   main_camera.Load("main_camera", in, self);
 #pragma region Assets
-  std::vector<std::pair<int, std::shared_ptr<IAsset>>> local_assets;
   if (const auto in_local_assets = in["LocalAssets"]) {
+    std::vector<std::pair<int, std::shared_ptr<IAsset>>> local_assets;
     int index = 0;
     for (const auto& i : in_local_assets) {
       // First, find the asset in asset registry
@@ -382,10 +384,11 @@ void Scene::Deserialize(const YAML::Node& in) {
     for (const auto& i : local_assets) {
       i.second->Deserialize(in_local_assets[i.first]);
     }
-  }
 #ifdef _DEBUG
-  EVOENGINE_LOG(std::string("Scene Deserialization: Loaded " + std::to_string(local_assets.size()) + " assets."))
+    EVOENGINE_LOG(std::string("Scene Deserialization: Loaded " + std::to_string(local_assets.size()) + " assets."))
 #endif
+  }
+
 #pragma endregion
   if (in["environment"])
     environment.Deserialize(in["environment"]);
@@ -709,11 +712,11 @@ void SceneDataStorage::Clone(std::unordered_map<Handle, Handle>& entity_links, c
   entity_private_component_storage.owner_scene = new_scene;
 }
 
-KeyActionType Scene::GetKey(int key) {
+Input::KeyActionType Scene::GetKey(int key) {
   const auto search = pressed_keys_.find(key);
   if (search != pressed_keys_.end())
     return search->second;
-  return KeyActionType::Release;
+  return Input::KeyActionType::Release;
 }
 
 #pragma region Entity Management

@@ -10,6 +10,7 @@
 #include "Prefab.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
+#include "Resources.hpp"
 #include "Scene.hpp"
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
@@ -598,7 +599,7 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::End();
   }
 
-  if (scene && scene_camera_window_focused_ && Input::GetKey(GLFW_KEY_DELETE) == KeyActionType::Press) {
+  if (scene && scene_camera_window_focused_ && Input::GetKey(GLFW_KEY_DELETE) == Input::KeyActionType::Press) {
     if (scene->IsEntityValid(selected_entity_)) {
       scene->DeleteEntity(selected_entity_);
     }
@@ -843,7 +844,7 @@ void EditorLayer::SceneCameraWindow() {
         bool mouse_drag = true;
         if (mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
             mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y ||
-            Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) != KeyActionType::Hold) {
+            Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
           mouse_drag = false;
         }
         static float prev_x = 0;
@@ -861,22 +862,22 @@ void EditorLayer::SceneCameraWindow() {
         if (mouse_drag && !lock_camera) {
           glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
           const glm::vec3 right = sceneCameraRotation * glm::vec3(1, 0, 0);
-          if (Input::GetKey(GLFW_KEY_W) == KeyActionType::Hold) {
+          if (Input::GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
             sceneCameraPosition += front * static_cast<float>(Times::DeltaTime()) * velocity;
           }
-          if (Input::GetKey(GLFW_KEY_S) == KeyActionType::Hold) {
+          if (Input::GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
             sceneCameraPosition -= front * static_cast<float>(Times::DeltaTime()) * velocity;
           }
-          if (Input::GetKey(GLFW_KEY_A) == KeyActionType::Hold) {
+          if (Input::GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
             sceneCameraPosition -= right * static_cast<float>(Times::DeltaTime()) * velocity;
           }
-          if (Input::GetKey(GLFW_KEY_D) == KeyActionType::Hold) {
+          if (Input::GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
             sceneCameraPosition += right * static_cast<float>(Times::DeltaTime()) * velocity;
           }
-          if (Input::GetKey(GLFW_KEY_LEFT_SHIFT) == KeyActionType::Hold) {
+          if (Input::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
             sceneCameraPosition.y += velocity * static_cast<float>(Times::DeltaTime());
           }
-          if (Input::GetKey(GLFW_KEY_LEFT_CONTROL) == KeyActionType::Hold) {
+          if (Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
             sceneCameraPosition.y -= velocity * static_cast<float>(Times::DeltaTime());
           }
           if (x_offset != 0.0f || y_offset != 0.0f) {
@@ -1021,11 +1022,11 @@ void EditorLayer::MainCameraWindow() {
       }
 
       if (main_camera_window_focused_ && !lock_entity_selection_ &&
-          Input::GetKey(GLFW_KEY_ESCAPE) == KeyActionType::Press) {
+          Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
         SetSelectedEntity(Entity());
       }
       if (!Application::IsPlaying() && main_camera_window_focused_ && !lock_entity_selection_ &&
-          Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Press &&
+          Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press &&
           !(mouse_camera_window_position_.x < 0 || mouse_camera_window_position_.y < 0 ||
             mouse_camera_window_position_.x > view_port_size.x || mouse_camera_window_position_.y > view_port_size.y)) {
         if (const auto focused_entity = MouseEntitySelection(main_camera, mouse_camera_window_position_);
@@ -1075,20 +1076,20 @@ void EditorLayer::MainCameraWindow() {
 #pragma endregion
 }
 
-void EditorLayer::OnInputEvent(const InputEvent& input_event) {
+void EditorLayer::OnInputEvent(const Input::InputEvent& input_event) {
   // If main camera is focused, we pass the event to the scene.
   if (main_camera_window_focused_ && Application::IsPlaying()) {
     const auto active_scene = Application::GetActiveScene();
     auto& pressed_keys = active_scene->pressed_keys_;
-    if (input_event.key_action == KeyActionType::Press) {
+    if (input_event.key_action == Input::KeyActionType::Press) {
       if (const auto search = pressed_keys.find(input_event.key); search != active_scene->pressed_keys_.end()) {
         // Dispatch hold if the key is already pressed.
-        search->second = KeyActionType::Hold;
+        search->second = Input::KeyActionType::Hold;
       } else {
         // Dispatch press if the key is previously released.
-        pressed_keys.insert({input_event.key, KeyActionType::Press});
+        pressed_keys.insert({input_event.key, Input::KeyActionType::Press});
       }
-    } else if (input_event.key_action == KeyActionType::Release) {
+    } else if (input_event.key_action == Input::KeyActionType::Release) {
       if (pressed_keys.find(input_event.key) != pressed_keys.end()) {
         // Dispatch hold if the key is already pressed.
         pressed_keys.erase(input_event.key);
@@ -1136,7 +1137,7 @@ glm::vec2 EditorLayer::GetMouseSceneCameraPosition() const {
   return mouse_scene_window_position_;
 }
 
-KeyActionType EditorLayer::GetKey(const int key) {
+Input::KeyActionType EditorLayer::GetKey(const int key) {
   return Input::GetKey(key);
 }
 
@@ -1373,11 +1374,11 @@ void EditorLayer::MouseEntitySelection() {
     }
 #pragma region Gizmos and Entity Selection
     if (scene_camera_window_focused_ && !lock_entity_selection_ &&
-        Input::GetKey(GLFW_KEY_ESCAPE) == KeyActionType::Press) {
+        Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
       SetSelectedEntity(Entity());
     }
     if (scene_camera_window_focused_ && !lock_entity_selection_ && !using_gizmo_ &&
-        Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Press &&
+        Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press &&
         !(mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
           mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y)) {
       if (const auto focused_entity = MouseEntitySelection(sceneCamera, mouse_scene_window_position_);

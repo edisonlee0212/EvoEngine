@@ -1,7 +1,4 @@
 #pragma once
-#include "Application.hpp"
-#include "EditorLayer.hpp"
-#include "ProjectManager.hpp"
 #include "Serialization.hpp"
 namespace evo_engine {
 
@@ -26,7 +23,6 @@ class SystemRegistration {
  public:
   SystemRegistration(const std::string &name);
 };
-
 
 class ClassRegistry {
   template <typename T = IAsset>
@@ -61,7 +57,7 @@ void ClassRegistry::RegisterDataComponent(const std::string &name) {
 }
 template <typename T>
 void ClassRegistry::RegisterAsset(const std::string &name, const std::vector<std::string> &external_extensions) {
-  ProjectManager::RegisterAssetType<T>(name, external_extensions);
+  Serialization::RegisterAssetType<T>(name, external_extensions);
 }
 
 template <typename T>
@@ -71,23 +67,22 @@ void ClassRegistry::RegisterSystem(const std::string &name) {
 }
 
 template <typename T>
-DataComponentRegistration<T>::DataComponentRegistration(const std::string& name) {
+DataComponentRegistration<T>::DataComponentRegistration(const std::string &name) {
   ClassRegistry::RegisterDataComponent<T>(name);
 }
 
 template <typename T>
-AssetRegistration<T>::AssetRegistration(const std::string& name, const std::vector<std::string>& external_extensions) {
+AssetRegistration<T>::AssetRegistration(const std::string &name, const std::vector<std::string> &external_extensions) {
   ClassRegistry::RegisterAsset<T>(name, external_extensions);
 }
 
-
 template <typename T>
-PrivateComponentRegistration<T>::PrivateComponentRegistration(const std::string& name) {
+PrivateComponentRegistration<T>::PrivateComponentRegistration(const std::string &name) {
   ClassRegistry::RegisterPrivateComponent<T>(name);
 }
 
 template <typename T>
-SystemRegistration<T>::SystemRegistration(const std::string& name) {
+SystemRegistration<T>::SystemRegistration(const std::string &name) {
   ClassRegistry::RegisterSystem<T>(name);
 }
 }  // namespace evo_engine

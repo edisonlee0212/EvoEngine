@@ -400,10 +400,10 @@ void Resources::LoadShaders() {
     auto frag_shader = CreateResource<Shader>("EMPTY_FRAG");
     frag_shader->Set(ShaderType::Fragment, frag_shader_code);
 
-    frag_shader_code =
-        std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-        Graphics::GetInstance().shader_basic_ + "\n" +
-        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") / "Shaders/Fragment/ShadowMapPassThrough.frag");
+    frag_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
+                       Graphics::GetInstance().shader_basic_ + "\n" +
+                       FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
+                                                   "Shaders/Fragment/ShadowMapPassThrough.frag");
     frag_shader = CreateResource<Shader>("SHADOW_MAP_PASS_THROUGH_FRAG");
     frag_shader->Set(ShaderType::Fragment, frag_shader_code);
   }
@@ -721,7 +721,8 @@ void Resources::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
             }
           } else {
             FileUtils::SaveFile(
-                "Allocate path & save", asset->GetTypeName(), project_manager.asset_extensions_[asset->GetTypeName()],
+                "Allocate path & save", asset->GetTypeName(),
+                Serialization::PeekAssetExtensions(asset->GetTypeName()),
                 [&](const std::filesystem::path& path) {
                   asset->SetPathAndSave(std::filesystem::relative(path, project_manager.project_path_));
                 },
@@ -729,14 +730,14 @@ void Resources::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           }
           ImGui::SameLine();
           FileUtils::SaveFile(
-              "Export...", asset->GetTypeName(), project_manager.asset_extensions_[asset->GetTypeName()],
+              "Export...", asset->GetTypeName(), Serialization::PeekAssetExtensions(asset->GetTypeName()),
               [&](const std::filesystem::path& path) {
                 asset->Export(path);
               },
               false);
           ImGui::SameLine();
           FileUtils::OpenFile(
-              "Import...", asset->GetTypeName(), project_manager.asset_extensions_[asset->GetTypeName()],
+              "Import...", asset->GetTypeName(), Serialization::PeekAssetExtensions(asset->GetTypeName()),
               [&](const std::filesystem::path& path) {
                 asset->Import(path);
               },

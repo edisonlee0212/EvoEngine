@@ -13,7 +13,7 @@ void TreeStructor::ApplyCurve(const OperatorBranch& branch) {
     auto& node = skeleton.RefNode(branch.chain_node_handles[i]);
     node.data.global_start_position = branch.bezier_curve.GetPoint(static_cast<float>(i) / chainAmount);
     node.data.global_end_position = branch.bezier_curve.GetPoint(static_cast<float>(i + 1) / chainAmount);
-    node.info.thickness = branch.thickness;
+    node.info.thickness = node.data.imported_thickness = branch.thickness;
     node.data.branch_handle = branch.handle;
     node.info.color = glm::vec4(branch.color, 1.0f);
     if(reconstruction_settings.use_foliage) node.info.leaves = branch.foliage;
@@ -1400,138 +1400,13 @@ void TreeStructor::EstablishConnectivityGraph() {
           candidate_branch_connections.emplace_back(pA, otherPB);
         }
       }
-      /*
-              if (connectivity_graph_settings.reverse_connection)
-              {
-                      for (const auto& branchInfo : currentPoint.p3) {
-                              if (predictedBranch.handle == branchInfo.second) continue;
-                              bool skip = false;
-                              for (const auto& i : predictedBranch.p3_to_p3) {
-                                      if (branchInfo.second == i.first) {
-                                              skip = true;
-                                              break;
-                                      }
-                              }
-                              if (skip) continue;
-                              auto& otherBranch = predicted_branches[branchInfo.second];
-                              auto pA = predictedBranch.bezier_curve.p3;
-                              auto pB = predictedBranch.bezier_curve.p0;
-                              auto otherPA = otherBranch.bezier_curve.p0;
-                              auto otherPB = otherBranch.bezier_curve.p3;
-                              const auto dotP = glm::dot(glm::normalize(otherPB - otherPA),
-                                      glm::normalize(pB - pA));
-                              if (dotP >
-         glm::cos(glm::radians(connectivity_graph_settings.indirect_connection_angle_limit))) continue; const auto dotP2
-         = glm::dot(glm::normalize(pB - pA), glm::normalize(otherPA - pA)); if (dotP2 > 3) continue;
-
-                              float distance = distanceL + branchInfo.first;
-                              const auto search = predictedBranch.p3_to_p3.find(branchInfo.second);
-                              if (search == predictedBranch.p3_to_p3.end() || search->second > distance)
-                              {
-                                      predictedBranch.p3_to_p3[branchInfo.second] = distance;
-                                      reversed_candidate_branch_connections.emplace_back(pA, otherPB);
-                              }
-                      }
-              }
-              */
+      
       for (const auto& neighborHandle : currentPoint.neighbor_scatter_points) {
         if (visitedPoints.find(neighborHandle) == visitedPoints.end())
           processingPoints.emplace_back(neighborHandle);
       }
     }
   }
-  /*
-  if (connectivity_graph_settings.reverse_connection)
-  {
-          for (auto& predictedBranch : predicted_branches) {
-                  std::unordered_set<PointHandle> visitedPoints;
-                  std::vector<PointHandle> processingPoints;
-                  float distanceL = FLT_MAX;
-                  for (const auto& i : predictedBranch.points_to_p0)
-                  {
-                          processingPoints.emplace_back(i.second);
-                          auto distance = glm::distance(predictedBranch.bezier_curve.p0,
-  scattered_points[i.second].position); if (distance < distanceL) distanceL = distance;
-                  }
-                  for (const auto& i : processingPoints) {
-                          visitedPoints.emplace(i);
-                  }
-                  while (!processingPoints.empty()) {
-                          auto currentPointHandle = processingPoints.back();
-                          visitedPoints.emplace(currentPointHandle);
-                          processingPoints.pop_back();
-                          auto& currentPoint = scattered_points[currentPointHandle];
-                          for (const auto& neighborHandle : currentPoint.neighbor_scatter_points) {
-                                  if (visitedPoints.find(neighborHandle) != visitedPoints.end()) continue;
-                                  auto& neighbor = scattered_points[neighborHandle];
-                                  //We stop search if the point is junction point.
-                                  for (const auto& branchInfo : neighbor.p3) {
-                                          if (predictedBranch.handle == branchInfo.second) continue;
-                                          bool skip = false;
-                                          for (const auto& i : predictedBranch.p0_to_p3) {
-                                                  if (branchInfo.second == i.first) {
-                                                          skip = true;
-                                                          break;
-                                                  }
-                                          }
-                                          if (skip) continue;
-                                          auto& parentCandidateBranch = predicted_branches[branchInfo.second];
-                                          auto pA = predictedBranch.bezier_curve.p0;
-                                          auto pB = predictedBranch.bezier_curve.p3;
-                                          auto otherPA = parentCandidateBranch.bezier_curve.p0;
-                                          auto otherPB = parentCandidateBranch.bezier_curve.p3;
-                                          const auto dotP = glm::dot(glm::normalize(otherPB - otherPA),
-                                                  glm::normalize(pB - pA));
-                                          if (dotP >
-  glm::cos(glm::radians(connectivity_graph_settings.indirect_connection_angle_limit))) continue; const auto dotP2 =
-  glm::dot(glm::normalize(pB - pA), glm::normalize(otherPA - pA)); if (dotP2 > 0) continue;
-
-                                          float distance = distanceL + branchInfo.first;
-                                          const auto search = predictedBranch.p0_to_p3.find(branchInfo.second);
-                                          if (search == predictedBranch.p0_to_p3.end() || search->second > distance)
-                                          {
-                                                  predictedBranch.p0_to_p3[branchInfo.second] = distance;
-                                                  candidate_branch_connections.emplace_back(pA, otherPB);
-                                          }
-                                  }
-                                  if (connectivity_graph_settings.reverse_connection)
-                                  {
-                                          for (const auto& branchInfo : neighbor.p0) {
-                                                  if (predictedBranch.handle == branchInfo.second) continue;
-                                                  bool skip = false;
-                                                  for (const auto& i : predictedBranch.p0_to_p0) {
-                                                          if (branchInfo.second == i.first) {
-                                                                  skip = true;
-                                                                  break;
-                                                          }
-                                                  }
-                                                  if (skip) continue;
-                                                  auto& parentCandidateBranch = predicted_branches[branchInfo.second];
-                                                  auto pA = predictedBranch.bezier_curve.p0;
-                                                  auto pB = predictedBranch.bezier_curve.p3;
-                                                  auto otherPA = parentCandidateBranch.bezier_curve.p3;
-                                                  auto otherPB = parentCandidateBranch.bezier_curve.p0;
-                                                  const auto dotP = glm::dot(glm::normalize(otherPB - otherPA),
-                                                          glm::normalize(pB - pA));
-                                                  if (dotP >
-  glm::cos(glm::radians(connectivity_graph_settings.indirect_connection_angle_limit))) continue; const auto dotP2 =
-  glm::dot(glm::normalize(pB - pA), glm::normalize(otherPA - pA)); if (dotP2 > 0) continue; float distance = distanceL +
-  branchInfo.first; const auto search = predictedBranch.p0_to_p0.find(branchInfo.second); if (search ==
-  predictedBranch.p0_to_p0.end() || search->second > distance)
-                                                  {
-                                                          predictedBranch.p0_to_p0[branchInfo.second] = distance;
-                                                          reversed_candidate_branch_connections.emplace_back(pA,
-  otherPB);
-                                                  }
-                                          }
-                                  }
-                                  processingPoints.emplace_back(neighborHandle);
-                          }
-                  }
-          }
-  }
-
-  */
 }
 
 void TreeStructor::BuildSkeletons() {
@@ -1901,10 +1776,6 @@ void TreeStructor::BuildSkeletons() {
         i--;
       }
     }
-    for (int i = 0; i < skeletons.size(); i++) {
-      auto& skeleton = skeletons[i];
-      const auto& sortedList = skeleton.PeekSortedNodeList();
-    }
   }
   CalculateSkeletonGraphs();
   SpaceColonization();
@@ -2157,12 +2028,20 @@ void TreeStructor::CalculateSkeletonGraphs() {
         nodeData.draft_thickness = glm::pow(childThicknessCollection, reconstruction_settings.thickness_sum_factor);
       }
     }
-    const auto rootNodeThickness = skeleton.PeekNode(0).data.draft_thickness;
-    if (rootNodeThickness < reconstruction_settings.minimum_root_thickness) {
-      float multiplierFactor = reconstruction_settings.minimum_root_thickness / rootNodeThickness;
+    const auto root_node_thickness = skeleton.PeekNode(0).data.draft_thickness;
+    if(reconstruction_settings.apply_root_thickness) {
+      const float imported_root_thickness = skeleton.PeekNode(0).data.imported_thickness * 2.f;
+      const float multiplier_factor = imported_root_thickness / root_node_thickness;
       for (const auto& handle : sortedNodeList) {
-        auto& nodeData = skeleton.RefNode(handle).data;
-        nodeData.draft_thickness *= multiplierFactor;
+        auto& node_data = skeleton.RefNode(handle).data;
+        node_data.draft_thickness *= multiplier_factor;
+      }
+    }
+    if (root_node_thickness < reconstruction_settings.minimum_root_thickness) {
+      const float multiplier_factor = reconstruction_settings.minimum_root_thickness / root_node_thickness;
+      for (const auto& handle : sortedNodeList) {
+        auto& node_data = skeleton.RefNode(handle).data;
+        node_data.draft_thickness *= multiplier_factor;
       }
     }
     skeleton.CalculateDistance();
@@ -2405,6 +2284,7 @@ void ReconstructionSettings::OnInspect() {
   ImGui::DragFloat("End node thickness", &end_node_thickness, 0.001f, 0.001f, 1.0f);
   ImGui::DragFloat("Thickness sum factor", &thickness_sum_factor, 0.01f, 0.0f, 2.0f);
   ImGui::DragFloat("Thickness accumulation factor", &thickness_accumulation_factor, 0.00001f, 0.0f, 1.0f, "%.5f");
+  ImGui::Checkbox("Use imported root thickness", &apply_root_thickness);
   ImGui::Checkbox("Limit parent thickness", &limit_parent_thickness);
   ImGui::DragFloat("Minimum root thickness", &minimum_root_thickness, 0.001f, 0.0f, 1.0f, "%.3f");
   ImGui::DragInt("Minimum node count", &minimum_node_count, 1, 0, 100);

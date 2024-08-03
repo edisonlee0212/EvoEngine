@@ -1,8 +1,8 @@
 #include "LightProbe.hpp"
 #include "EditorLayer.hpp"
 #include "Mesh.hpp"
+#include "Resources.hpp"
 #include "TextureStorage.hpp"
-
 using namespace evo_engine;
 
 void LightProbe::Initialize(const uint32_t resolution) {

@@ -1,7 +1,6 @@
 #include "AnimationPlayer.hpp"
 #include "Application.hpp"
 #include "ClassRegistry.hpp"
-#include "CpuRayTracerCamera.hpp"
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
 #include "PlanetTerrainSystem.hpp"

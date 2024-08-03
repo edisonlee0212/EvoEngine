@@ -227,7 +227,7 @@ void EcoSysLabLayer::Visualization() {
 #ifdef OPTIX_RAY_TRACER_PLUGIN
       const auto rayTracerLayer = Application::GetLayer<RayTracerLayer>();
 #endif
-      if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == KeyActionType::Release &&
+      if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Release &&
           treeVisualizer.m_checkpointIteration == treeModel.CurrentIteration()) {
         static bool mayNeedGeometryGeneration = false;
         static std::vector<glm::vec2> mousePositions{};
@@ -235,12 +235,12 @@ void EcoSysLabLayer::Visualization() {
         switch (static_cast<OperatorMode>(m_operatorMode)) {
           case OperatorMode::Select: {
             if (m_visualizationCameraWindowFocused) {
-              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Press) {
+              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
                 if (treeVisualizer.RayCastSelection(m_visualizationCamera, m_visualizationCameraMousePosition,
                                                     treeSkeleton, globalTransform)) {
                   treeVisualizer.m_needUpdate = true;
                 }
-              } else if (editorLayer->GetKey(GLFW_KEY_R) == KeyActionType::Press) {
+              } else if (editorLayer->GetKey(GLFW_KEY_R) == Input::KeyActionType::Press) {
                 if (treeVisualizer.m_selectedInternodeHandle > 0) {
                   treeModel.Step();
                   auto& skeleton = treeModel.RefShootSkeleton();
@@ -268,7 +268,7 @@ void EcoSysLabLayer::Visualization() {
                     }
                   }
                 }
-              } else if (editorLayer->GetKey(GLFW_KEY_T) == KeyActionType::Press) {
+              } else if (editorLayer->GetKey(GLFW_KEY_T) == Input::KeyActionType::Press) {
                 if (treeVisualizer.m_selectedInternodeHandle > 0) {
                   treeModel.Step();
                   treeModel.PruneInternode(treeVisualizer.m_selectedInternodeHandle);
@@ -288,7 +288,7 @@ void EcoSysLabLayer::Visualization() {
                     }
                   }
                 }
-              } else if (editorLayer->GetKey(GLFW_KEY_ESCAPE) == KeyActionType::Press) {
+              } else if (editorLayer->GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
                 treeVisualizer.SetSelectedNode(treeSkeleton, -1);
               }
             }
@@ -410,14 +410,14 @@ void EcoSysLabLayer::Visualization() {
 #endif
             }
             if (m_visualizationCameraWindowFocused) {
-              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Press) {
+              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
                 if (treeVisualizer.m_selectedInternodeHandle <= 0) {
                   if (treeVisualizer.RayCastSelection(m_visualizationCamera, m_visualizationCameraMousePosition,
                                                       treeSkeleton, globalTransform)) {
                     treeVisualizer.m_needUpdate = true;
                   }
                 }
-              } else if (editorLayer->GetKey(GLFW_KEY_T) == KeyActionType::Press) {
+              } else if (editorLayer->GetKey(GLFW_KEY_T) == Input::KeyActionType::Press) {
                 if (treeVisualizer.m_selectedInternodeHandle > 0) {
                   treeModel.Step();
                   treeModel.PruneInternode(treeVisualizer.m_selectedInternodeHandle);
@@ -437,14 +437,14 @@ void EcoSysLabLayer::Visualization() {
                     }
                   }
                 }
-              } else if (editorLayer->GetKey(GLFW_KEY_ESCAPE) == KeyActionType::Press) {
+              } else if (editorLayer->GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
                 treeVisualizer.SetSelectedNode(treeSkeleton, -1);
               }
             }
           } break;
           case OperatorMode::Prune: {
             if (m_visualizationCameraWindowFocused) {
-              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Press) {
+              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
                 mousePositions.clear();
                 glm::vec2 mousePosition = m_visualizationCameraMousePosition;
                 const float halfX = m_visualizationCamera->GetSize().x / 2.0f;
@@ -454,7 +454,7 @@ void EcoSysLabLayer::Visualization() {
                     mousePosition.y < 1.0f) {
                   mousePositions.emplace_back(mousePosition);
                 }
-              } else if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Hold) {
+              } else if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
                 glm::vec2 mousePosition = m_visualizationCameraMousePosition;
                 const float halfX = m_visualizationCamera->GetSize().x / 2.0f;
                 const float halfY = m_visualizationCamera->GetSize().y / 2.0f;
@@ -463,7 +463,7 @@ void EcoSysLabLayer::Visualization() {
                     mousePosition.y < 1.0f && (!mousePositions.empty() && mousePosition != mousePositions.back())) {
                   mousePositions.emplace_back(mousePosition);
                 }
-              } else if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Release) {
+              } else if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release) {
                 // Once released, check if empty.
                 if (!mousePositions.empty()) {
                   treeModel.Step();
@@ -488,7 +488,7 @@ void EcoSysLabLayer::Visualization() {
           case OperatorMode::Invigorate: {
             if (m_visualizationCameraWindowFocused) {
               static bool lastFrameInvigorate = false;
-              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Press) {
+              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
                 if (treeVisualizer.RayCastSelection(m_visualizationCamera, m_visualizationCameraMousePosition,
                                                     treeSkeleton, globalTransform)) {
                   if (!tree->enable_history)
@@ -497,7 +497,7 @@ void EcoSysLabLayer::Visualization() {
                   treeVisualizer.m_needUpdate = true;
                 }
               } else if (treeVisualizer.m_selectedInternodeHandle >= 0 &&
-                         editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Hold) {
+                         editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
                 const auto climateCandidate = FindClimate();
                 if (!climateCandidate.expired()) {
                   climateCandidate.lock()->PrepareForGrowth();
@@ -508,7 +508,8 @@ void EcoSysLabLayer::Visualization() {
                   }
                 }
                 lastFrameInvigorate = true;
-              } else if (lastFrameInvigorate && editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Release) {
+              } else if (lastFrameInvigorate &&
+                         editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release) {
                 treeVisualizer.SetSelectedNode(treeSkeleton, -1);
                 lastFrameInvigorate = false;
                 treeVisualizer.m_needUpdate = true;
@@ -519,7 +520,7 @@ void EcoSysLabLayer::Visualization() {
             if (m_visualizationCameraWindowFocused) {
               static bool lastFrameReduce = false;
               static float targetAge = 0.0f;
-              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Press) {
+              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
                 if (treeVisualizer.RayCastSelection(m_visualizationCamera, m_visualizationCameraMousePosition,
                                                     treeSkeleton, globalTransform)) {
                   if (!tree->enable_history)
@@ -531,7 +532,7 @@ void EcoSysLabLayer::Visualization() {
                   }
                 }
               } else if (treeVisualizer.m_selectedInternodeHandle >= 0 &&
-                         editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Hold) {
+                         editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
                 if (tree->tree_model.Reduce(tree->shoot_growth_controller_, treeVisualizer.m_selectedInternodeHandle,
                                             targetAge)) {
                   treeVisualizer.m_needUpdate = true;
@@ -539,7 +540,8 @@ void EcoSysLabLayer::Visualization() {
                 }
                 targetAge -= m_reduceRate;
                 lastFrameReduce = true;
-              } else if (lastFrameReduce && editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Release) {
+              } else if (lastFrameReduce &&
+                         editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release) {
                 treeVisualizer.SetSelectedNode(treeSkeleton, -1);
                 lastFrameReduce = false;
                 treeVisualizer.m_needUpdate = true;
@@ -548,7 +550,7 @@ void EcoSysLabLayer::Visualization() {
           } break;
         }
 
-        if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == KeyActionType::Release && mayNeedGeometryGeneration) {
+        if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release && mayNeedGeometryGeneration) {
           if (m_autoGenerateMeshAfterEditing) {
             tree->GenerateGeometryEntities(m_meshGeneratorSettings, -1);
           }
@@ -925,7 +927,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) 
             if (m_visualizationCameraMousePosition.x < 0 || m_visualizationCameraMousePosition.y < 0 ||
                 m_visualizationCameraMousePosition.x > viewPortSize.x ||
                 m_visualizationCameraMousePosition.y > viewPortSize.y ||
-                editorLayer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != KeyActionType::Hold) {
+                editorLayer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
               mouseDrag = false;
             }
             static float prevX = 0;
@@ -944,22 +946,22 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) 
             if (mouseDrag && !editorLayer->lock_camera) {
               glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
               glm::vec3 right = sceneCameraRotation * glm::vec3(1, 0, 0);
-              if (editorLayer->GetKey(GLFW_KEY_W) == KeyActionType::Hold) {
+              if (editorLayer->GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
                 sceneCameraPosition += front * static_cast<float>(Times::DeltaTime()) * editorLayer->velocity;
               }
-              if (editorLayer->GetKey(GLFW_KEY_S) == KeyActionType::Hold) {
+              if (editorLayer->GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
                 sceneCameraPosition -= front * static_cast<float>(Times::DeltaTime()) * editorLayer->velocity;
               }
-              if (editorLayer->GetKey(GLFW_KEY_A) == KeyActionType::Hold) {
+              if (editorLayer->GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
                 sceneCameraPosition -= right * static_cast<float>(Times::DeltaTime()) * editorLayer->velocity;
               }
-              if (editorLayer->GetKey(GLFW_KEY_D) == KeyActionType::Hold) {
+              if (editorLayer->GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
                 sceneCameraPosition += right * static_cast<float>(Times::DeltaTime()) * editorLayer->velocity;
               }
-              if (editorLayer->GetKey(GLFW_KEY_LEFT_SHIFT) == KeyActionType::Hold) {
+              if (editorLayer->GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
                 sceneCameraPosition.y += editorLayer->velocity * static_cast<float>(Times::DeltaTime());
               }
-              if (editorLayer->GetKey(GLFW_KEY_LEFT_CONTROL) == KeyActionType::Hold) {
+              if (editorLayer->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
                 sceneCameraPosition.y -= editorLayer->velocity * static_cast<float>(Times::DeltaTime());
               }
               if (xOffset != 0.0f || yOffset != 0.0f) {

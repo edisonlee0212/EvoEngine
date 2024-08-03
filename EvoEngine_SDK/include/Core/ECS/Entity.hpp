@@ -1,7 +1,6 @@
 #pragma once
-#include <IDataComponent.hpp>
+#include "IDataComponent.hpp"
 #include "IHandle.hpp"
-#include "ISerializable.hpp"
 namespace evo_engine {
 #pragma region EntityManager
 #pragma region Entity
@@ -37,7 +36,7 @@ struct Entity final {
  private:
   friend class Entities;
   friend class Scene;
-  friend class EntityMetadata;
+  friend struct EntityMetadata;
   friend class Serialization;
   unsigned index_ = 0;
   unsigned version_ = 0;
@@ -137,7 +136,8 @@ constexpr size_t archetype_chunk_size = 16384;
 
 class ComponentDataChunk {
   std::vector<char> chunk_data_ = std::vector<char>(archetype_chunk_size);
-public:
+
+ public:
   template <typename T>
   T GetData(const size_t &offset);
   [[nodiscard]] void *RefData(const size_t &offset);

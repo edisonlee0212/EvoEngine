@@ -18,7 +18,8 @@ struct SwapChainSupportDetails {
   std::vector<VkPresentModeKHR> present_modes;
 };
 
-class Graphics final : public ISingleton<Graphics> {
+class Graphics final {
+  EVOENGINE_SINGLETON_INSTANCE(Graphics)
   friend class Application;
   friend class Resources;
   friend class Lighting;

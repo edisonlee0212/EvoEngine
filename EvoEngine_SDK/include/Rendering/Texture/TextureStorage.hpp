@@ -54,7 +54,8 @@ class CubemapStorage {
   [[nodiscard]] VkSampler GetVkSampler() const;
   [[nodiscard]] std::shared_ptr<Image> GetImage() const;
 };
-class TextureStorage : public ISingleton<TextureStorage> {
+class TextureStorage final {
+  EVOENGINE_SINGLETON_INSTANCE(TextureStorage)
   std::vector<Texture2DStorage> texture_2ds_;
   std::vector<CubemapStorage> cubemaps_;
 

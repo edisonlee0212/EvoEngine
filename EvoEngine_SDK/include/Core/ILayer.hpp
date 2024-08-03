@@ -24,7 +24,7 @@ class ILayer {
   }
   virtual void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
-  virtual void OnInputEvent(const InputEvent& input_event);
+  virtual void OnInputEvent(const Input::InputEvent& input_event);
 
  public:
   [[nodiscard]] std::shared_ptr<Scene> GetScene() const;

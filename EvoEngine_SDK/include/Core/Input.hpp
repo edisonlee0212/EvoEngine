@@ -1,15 +1,19 @@
 #pragma once
-#include <unordered_set>
-
 #include "ISingleton.hpp"
 
 namespace evo_engine {
-enum class KeyActionType { Press, Hold, Release, Unknown };
-struct InputEvent {
-  int key = GLFW_KEY_UNKNOWN;
-  KeyActionType key_action = KeyActionType::Unknown;
-};
-class Input : public ISingleton<Input> {
+
+class Input final {
+  EVOENGINE_SINGLETON_INSTANCE(Input)
+ public:
+  enum class KeyActionType { Press, Hold, Release, Unknown };
+  struct InputEvent {
+    int key = GLFW_KEY_UNKNOWN;
+    KeyActionType key_action = KeyActionType::Unknown;
+  };
+  static glm::vec2 GetMousePosition();
+
+ private:
   friend class Graphics;
   friend class Application;
   friend class EditorLayer;
@@ -22,8 +26,5 @@ class Input : public ISingleton<Input> {
   static void PreUpdate();
 
   static KeyActionType GetKey(int key);
-
- public:
-  static glm::vec2 GetMousePosition();
 };
 }  // namespace evo_engine

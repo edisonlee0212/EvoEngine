@@ -228,7 +228,7 @@ void DilateUnresolvedPixels(const glm::uvec2 resolution, const bool diagonal,
   }
 }
 template <typename T>
-void Dilate(const glm::uvec2 resolution, const uint32_t dilate_distance, const bool diagonal, std::vector<T>& colors,
+void Dilate(const glm::uvec2 resolution, const int32_t dilate_distance, const bool diagonal, std::vector<T>& colors,
             std::vector<uint8_t>& valid_pixels) {
   auto is_valid_pixel = [](const std::vector<uint8_t>& pixels, const int x, const int y, const int w,
                            const int h) -> uint8_t {
@@ -237,7 +237,7 @@ void Dilate(const glm::uvec2 resolution, const uint32_t dilate_distance, const b
     }
     return pixels[x + y * w];
   };
-  for (uint32_t dilate_index = 0; dilate_index != dilate_distance; dilate_index++) {
+  for (int32_t dilate_index = 0; dilate_index != dilate_distance; dilate_index++) {
     std::vector<size_t> updated_pixel_indices;
     int w = static_cast<int>(resolution.x);
     int h = static_cast<int>(resolution.y);
@@ -408,6 +408,8 @@ void BakeNormal(const TextureBaker::Parameters& parameters, const CompressedMapU
         texture_normal = texture_normal * 2.0f - glm::vec3(1.0f);
         const auto mesh_space_normal = glm::normalize(reference_tbn * texture_normal);
         reference_normal = glm::normalize(glm::inverse(target_tbn) * mesh_space_normal);
+      } else {
+        reference_normal = glm::normalize(glm::inverse(target_tbn) * reference_normal);
       }
       target_normals[pixel_index] = reference_normal * 0.5f + glm::vec3(0.5f);
       valid_pixels[pixel_index] = true;

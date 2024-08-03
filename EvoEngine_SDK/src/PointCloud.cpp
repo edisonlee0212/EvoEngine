@@ -2,13 +2,12 @@
 // Created by lllll on 8/22/2021.
 //
 #include "PointCloud.hpp"
-#include "ClassRegistry.hpp"
 #include "EditorLayer.hpp"
 #include "Entity.hpp"
-#include "Graphics.hpp"
 #include "Material.hpp"
 #include "Particles.hpp"
 #include "ProjectManager.hpp"
+#include "Resources.hpp"
 #include "Scene.hpp"
 #include "Tinyply.hpp"
 using namespace evo_engine;

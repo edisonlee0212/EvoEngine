@@ -1,10 +1,10 @@
 #pragma once
-#include "Entities.hpp"
 #include "EntityMetadata.hpp"
-#include "ILayer.hpp"
+#include "ISingleton.hpp"
 #include "Transform.hpp"
 namespace evo_engine {
-class TransformGraph : public ISingleton<TransformGraph> {
+class TransformGraph final {
+  EVOENGINE_SINGLETON_INSTANCE(TransformGraph)
   friend class PhysicsSystem;
   friend class Application;
   EntityQuery transform_query_;

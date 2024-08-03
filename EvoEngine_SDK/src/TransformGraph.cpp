@@ -24,8 +24,8 @@ void TransformGraph::CalculateTransformGraph(const std::shared_ptr<Scene>& scene
     GlobalTransform ltw;
     if (transform_status->global_transform_modified) {
       ltw = scene->GetDataComponent<GlobalTransform>(child.GetIndex());
-      static_cast<Transform*>(scene->GetDataComponentPointer(child.GetIndex(), typeid(Transform).hash_code()))
-          ->value = glm::inverse(parent_global_transform.value) * ltw.value;
+      static_cast<Transform*>(scene->GetDataComponentPointer(child.GetIndex(), typeid(Transform).hash_code()))->value =
+          glm::inverse(parent_global_transform.value) * ltw.value;
       transform_status->global_transform_modified = false;
     } else {
       auto ltp = scene->GetDataComponent<Transform>(child.GetIndex());
@@ -76,11 +76,13 @@ void TransformGraph::CalculateTransformGraphForDescendants(const std::shared_ptr
   const EntityMetadata& entity_info = scene->scene_data_storage_.entity_metadata_list.at(entity_index);
   auto* transform_status = static_cast<TransformUpdateFlag*>(
       scene->GetDataComponentPointer(entity_index, typeid(TransformUpdateFlag).hash_code()));
-  auto* transform = static_cast<Transform*>(scene->GetDataComponentPointer(entity_index, typeid(Transform).hash_code()));
-  auto* global_transform = static_cast<GlobalTransform*>(scene->GetDataComponentPointer(entity_index, typeid(GlobalTransform).hash_code()));
+  auto* transform =
+      static_cast<Transform*>(scene->GetDataComponentPointer(entity_index, typeid(Transform).hash_code()));
+  auto* global_transform =
+      static_cast<GlobalTransform*>(scene->GetDataComponentPointer(entity_index, typeid(GlobalTransform).hash_code()));
 
   if (entity_info.parent.GetIndex() != 0) {
-    //Not root
+    // Not root
     const auto parent_global_transform = scene->GetDataComponent<GlobalTransform>(entity_info.parent);
     GlobalTransform ltw;
     if (transform_status->global_transform_modified) {
@@ -93,7 +95,7 @@ void TransformGraph::CalculateTransformGraphForDescendants(const std::shared_ptr
       global_transform->value = ltw.value;
     }
   } else {
-    //Root
+    // Root
     if (transform_status->global_transform_modified) {
       transform->value = global_transform->value;
       transform_status->global_transform_modified = false;
@@ -101,6 +103,6 @@ void TransformGraph::CalculateTransformGraphForDescendants(const std::shared_ptr
       global_transform->value = transform->value;
     }
   }
-  transform_graph.CalculateTransformGraph(scene, entity_infos,
-                                          scene->GetDataComponent<GlobalTransform>(entity_index), entity);
+  transform_graph.CalculateTransformGraph(scene, entity_infos, scene->GetDataComponent<GlobalTransform>(entity_index),
+                                          entity);
 }

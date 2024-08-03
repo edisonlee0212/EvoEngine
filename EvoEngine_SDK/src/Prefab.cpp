@@ -1,12 +1,11 @@
 #include "Prefab.hpp"
 #include "Application.hpp"
-#include "ClassRegistry.hpp"
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
 #include "ProjectManager.hpp"
+#include "Resources.hpp"
 #include "Serialization.hpp"
 #include "SkinnedMeshRenderer.hpp"
-#include "TextureStorage.hpp"
 #include "TransformGraph.hpp"
 #include "UnknownPrivateComponent.hpp"
 #include "Utilities.hpp"
@@ -16,45 +15,41 @@ void Prefab::OnCreate() {
 }
 
 void CalculateBoundingBox(const std::shared_ptr<Prefab>& walker, Bound& bound) {
-  for(const auto& child : walker->child_prefabs) {
+  for (const auto& child : walker->child_prefabs) {
     CalculateBoundingBox(child, bound);
   }
   GlobalTransform gt{};
-  for(const auto& data_component : walker->data_components) {
-    if(data_component.data_component_type == Typeof<GlobalTransform>()) {
-        gt.value = std::reinterpret_pointer_cast<GlobalTransform>(data_component.data_component)->value;
+  for (const auto& data_component : walker->data_components) {
+    if (data_component.data_component_type == Typeof<GlobalTransform>()) {
+      gt.value = std::reinterpret_pointer_cast<GlobalTransform>(data_component.data_component)->value;
       break;
     }
   }
-  for(const auto& private_component : walker->private_components) {
-    if(const auto mmr = std::dynamic_pointer_cast<MeshRenderer>(private_component.private_component)) {
-      if(const auto mesh = mmr->mesh.Get<Mesh>()) {
+  for (const auto& private_component : walker->private_components) {
+    if (const auto mmr = std::dynamic_pointer_cast<MeshRenderer>(private_component.private_component)) {
+      if (const auto mesh = mmr->mesh.Get<Mesh>()) {
         auto mesh_bound = mesh->GetBound();
         mesh_bound.ApplyTransform(gt.value);
         glm::vec3 center = mesh_bound.Center();
 
         glm::vec3 size = mesh_bound.Size();
-        bound.min =
-            glm::vec3((glm::min)(bound.min.x, center.x - size.x), (glm::min)(bound.min.y, center.y - size.y),
-                      (glm::min)(bound.min.z, center.z - size.z));
-        bound.max =
-            glm::vec3((glm::max)(bound.max.x, center.x + size.x), (glm::max)(bound.max.y, center.y + size.y),
-                      (glm::max)(bound.max.z, center.z + size.z));
+        bound.min = glm::vec3((glm::min)(bound.min.x, center.x - size.x), (glm::min)(bound.min.y, center.y - size.y),
+                              (glm::min)(bound.min.z, center.z - size.z));
+        bound.max = glm::vec3((glm::max)(bound.max.x, center.x + size.x), (glm::max)(bound.max.y, center.y + size.y),
+                              (glm::max)(bound.max.z, center.z + size.z));
       }
     }
-    if(const auto smmr = std::dynamic_pointer_cast<SkinnedMeshRenderer>(private_component.private_component)) {
-      if(const auto skinned_mesh = smmr->skinned_mesh.Get<SkinnedMesh>()) {
+    if (const auto smmr = std::dynamic_pointer_cast<SkinnedMeshRenderer>(private_component.private_component)) {
+      if (const auto skinned_mesh = smmr->skinned_mesh.Get<SkinnedMesh>()) {
         auto mesh_bound = skinned_mesh->GetBound();
         mesh_bound.ApplyTransform(gt.value);
         glm::vec3 center = mesh_bound.Center();
 
         glm::vec3 size = mesh_bound.Size();
-        bound.min =
-            glm::vec3((glm::min)(bound.min.x, center.x - size.x), (glm::min)(bound.min.y, center.y - size.y),
-                      (glm::min)(bound.min.z, center.z - size.z));
-        bound.max =
-            glm::vec3((glm::max)(bound.max.x, center.x + size.x), (glm::max)(bound.max.y, center.y + size.y),
-                      (glm::max)(bound.max.z, center.z + size.z));
+        bound.min = glm::vec3((glm::min)(bound.min.x, center.x - size.x), (glm::min)(bound.min.y, center.y - size.y),
+                              (glm::min)(bound.min.z, center.z - size.z));
+        bound.max = glm::vec3((glm::max)(bound.max.x, center.x + size.x), (glm::max)(bound.max.y, center.y + size.y),
+                              (glm::max)(bound.max.z, center.z + size.z));
       }
     }
   }
@@ -62,53 +57,48 @@ void CalculateBoundingBox(const std::shared_ptr<Prefab>& walker, Bound& bound) {
 
 Bound Prefab::GetBoundingBox() const {
   Bound bound{};
-  for(const auto& child : child_prefabs) {
+  for (const auto& child : child_prefabs) {
     CalculateBoundingBox(child, bound);
   }
 
   GlobalTransform gt{};
-  for(const auto& data_component : data_components) {
-    if(data_component.data_component_type == Typeof<GlobalTransform>()) {
-        gt.value = std::reinterpret_pointer_cast<GlobalTransform>(data_component.data_component)->value;
+  for (const auto& data_component : data_components) {
+    if (data_component.data_component_type == Typeof<GlobalTransform>()) {
+      gt.value = std::reinterpret_pointer_cast<GlobalTransform>(data_component.data_component)->value;
       break;
     }
   }
-  for(const auto& private_component : private_components) {
-    if(const auto mmr = std::dynamic_pointer_cast<MeshRenderer>(private_component.private_component)) {
-      if(const auto mesh = mmr->mesh.Get<Mesh>()) {
+  for (const auto& private_component : private_components) {
+    if (const auto mmr = std::dynamic_pointer_cast<MeshRenderer>(private_component.private_component)) {
+      if (const auto mesh = mmr->mesh.Get<Mesh>()) {
         auto mesh_bound = mesh->GetBound();
         mesh_bound.ApplyTransform(gt.value);
         glm::vec3 center = mesh_bound.Center();
 
         glm::vec3 size = mesh_bound.Size();
-        bound.min =
-            glm::vec3((glm::min)(bound.min.x, center.x - size.x), (glm::min)(bound.min.y, center.y - size.y),
-                      (glm::min)(bound.min.z, center.z - size.z));
-        bound.max =
-            glm::vec3((glm::max)(bound.max.x, center.x + size.x), (glm::max)(bound.max.y, center.y + size.y),
-                      (glm::max)(bound.max.z, center.z + size.z));
+        bound.min = glm::vec3((glm::min)(bound.min.x, center.x - size.x), (glm::min)(bound.min.y, center.y - size.y),
+                              (glm::min)(bound.min.z, center.z - size.z));
+        bound.max = glm::vec3((glm::max)(bound.max.x, center.x + size.x), (glm::max)(bound.max.y, center.y + size.y),
+                              (glm::max)(bound.max.z, center.z + size.z));
       }
     }
-    if(const auto smmr = std::dynamic_pointer_cast<SkinnedMeshRenderer>(private_component.private_component)) {
-      if(const auto skinned_mesh = smmr->skinned_mesh.Get<SkinnedMesh>()) {
+    if (const auto smmr = std::dynamic_pointer_cast<SkinnedMeshRenderer>(private_component.private_component)) {
+      if (const auto skinned_mesh = smmr->skinned_mesh.Get<SkinnedMesh>()) {
         auto mesh_bound = skinned_mesh->GetBound();
         mesh_bound.ApplyTransform(gt.value);
         glm::vec3 center = mesh_bound.Center();
 
         glm::vec3 size = mesh_bound.Size();
-        bound.min =
-            glm::vec3((glm::min)(bound.min.x, center.x - size.x), (glm::min)(bound.min.y, center.y - size.y),
-                      (glm::min)(bound.min.z, center.z - size.z));
-        bound.max =
-            glm::vec3((glm::max)(bound.max.x, center.x + size.x), (glm::max)(bound.max.y, center.y + size.y),
-                      (glm::max)(bound.max.z, center.z + size.z));
+        bound.min = glm::vec3((glm::min)(bound.min.x, center.x - size.x), (glm::min)(bound.min.y, center.y - size.y),
+                              (glm::min)(bound.min.z, center.z - size.z));
+        bound.max = glm::vec3((glm::max)(bound.max.x, center.x + size.x), (glm::max)(bound.max.y, center.y + size.y),
+                              (glm::max)(bound.max.z, center.z + size.z));
       }
     }
   }
 
   return bound;
 }
-
 
 #pragma region Assimp Import
 struct AssimpImportNode {
@@ -1276,7 +1266,7 @@ Entity Prefab::ToEntity(const std::shared_ptr<Scene>& scene, bool rescale, bool 
   return entity;
 }
 Transform Prefab::CalculateAdjustedTransform(const bool rescale, const bool recenter) const {
-  Transform ret_val {};
+  Transform ret_val{};
   if (rescale || recenter) {
     const auto bound = GetBoundingBox();
     auto size = bound.Size();

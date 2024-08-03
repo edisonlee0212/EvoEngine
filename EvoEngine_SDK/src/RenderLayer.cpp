@@ -10,6 +10,7 @@
 #include "Particles.hpp"
 #include "PostProcessingStack.hpp"
 #include "ProjectManager.hpp"
+#include "Resources.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "StrandsRenderer.hpp"
 #include "TextureStorage.hpp"
@@ -153,8 +154,10 @@ void RenderLayer::RenderAllCameras() {
       render_info_block.split_distances[split] = split_end;
     }
     render_info_block.brdflut_texture_index = environmental_brdf_lut_->GetTextureStorageIndex();
-    if(enable_debug_visualization) render_info_block.debug_visualization = 1;
-    else render_info_block.debug_visualization = 0;
+    if (enable_debug_visualization)
+      render_info_block.debug_visualization = 1;
+    else
+      render_info_block.debug_visualization = 0;
   }
 
   {

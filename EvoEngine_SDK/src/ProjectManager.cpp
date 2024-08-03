@@ -82,7 +82,7 @@ void AssetRecord::SetAssetExtension(const std::string& new_extension) {
     EVOENGINE_ERROR("File is binary!")
     return;
   }
-  const auto valid_extensions = ProjectManager::GetExtension(asset_type_name_);
+  const auto& valid_extensions = Serialization::PeekAssetExtensions(asset_type_name_);
   bool found = false;
   for (const auto& i : valid_extensions) {
     if (i == new_extension) {
@@ -279,9 +279,9 @@ void Folder::DeleteChild(const Handle& child_handle) {
   children_.erase(child_handle);
 }
 std::shared_ptr<IAsset> Folder::GetOrCreateAsset(const std::string& file_name, const std::string& extension) {
-  const auto type_name = ProjectManager::GetTypeName(extension);
-  if (type_name.empty()) {
-    EVOENGINE_ERROR("Asset type not exist!")
+  const auto type_name = Serialization::GetAssetTypeName(extension);
+  if (type_name == "Binary") {
+    EVOENGINE_ERROR("Asset type not registered!")
     return {};
   }
   for (const auto& i : asset_records_) {
@@ -420,7 +420,7 @@ void Folder::Refresh(const std::filesystem::path& parent_absolute_path) {
   for (const auto& file_path : file_list) {
     auto filename = file_path.filename().replace_extension("").replace_extension("").string();
     auto extension = file_path.extension().string();
-    auto type_name = ProjectManager::GetTypeName(extension);
+    auto type_name = Serialization::GetAssetTypeName(extension);
     if (!HasAsset(filename, extension)) {
       auto new_asset_record = std::make_shared<AssetRecord>();
       new_asset_record->folder_ = self_.lock();
@@ -476,8 +476,7 @@ void Folder::RegisterAsset(const std::shared_ptr<IAsset>& asset, const std::stri
   record->Save();
 }
 bool Folder::HasAsset(const std::string& file_name, const std::string& extension) const {
-  if (const auto type_name = ProjectManager::GetTypeName(extension); type_name.empty()) {
-    EVOENGINE_ERROR("Asset type not exist!")
+  if (const auto type_name = Serialization::GetAssetTypeName(extension); type_name == "Binary") {
     return false;
   }
   for (const auto& i : asset_records_) {
@@ -621,11 +620,6 @@ std::weak_ptr<Folder> ProjectManager::GetCurrentFocusedFolder() {
   return project_manager.current_focused_folder_;
 }
 
-bool ProjectManager::IsAsset(const std::string& type_name) {
-  auto& project_manager = GetInstance();
-  return project_manager.asset_extensions_.find(type_name) != project_manager.asset_extensions_.end();
-}
-
 std::shared_ptr<IAsset> ProjectManager::GetAsset(const Handle& handle) {
   auto& project_manager = GetInstance();
   if (const auto search = project_manager.asset_registry_.find(handle); search != project_manager.asset_registry_.end())
@@ -638,20 +632,6 @@ std::shared_ptr<IAsset> ProjectManager::GetAsset(const Handle& handle) {
     return Resources::GetResource<IAsset>(handle);
   }
   return {};
-}
-
-std::vector<std::string> ProjectManager::GetExtension(const std::string& type_name) {
-  auto& project_manager = GetInstance();
-  if (const auto search = project_manager.asset_extensions_.find(type_name);
-      search != project_manager.asset_extensions_.end())
-    return search->second;
-  return {};
-}
-std::string ProjectManager::GetTypeName(const std::string& extension) {
-  auto& project_manager = GetInstance();
-  if (const auto search = project_manager.type_names_.find(extension); search != project_manager.type_names_.end())
-    return search->second;
-  return "Binary";
 }
 
 std::shared_ptr<IAsset> ProjectManager::CreateTemporaryAsset(const std::string& type_name) {
@@ -693,8 +673,7 @@ bool ProjectManager::IsValidAssetFileName(const std::filesystem::path& path) {
     stem = "";
     extension = file_name;
   }
-  const auto type_name = GetTypeName(extension);
-  return type_name == "Binary";
+  return Serialization::GetAssetTypeName(extension) == "Binary";
 }
 std::filesystem::path ProjectManager::GenerateNewProjectRelativePath(const std::string& relative_stem,
                                                                      const std::string& postfix) {
@@ -807,7 +786,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
                 asset_search != project_manager.asset_registry_.end() && !asset_search->second.expired()) {
               auto asset = asset_search->second.lock();
               if (asset->IsTemporary()) {
-                auto file_extension = project_manager.asset_extensions_[asset->GetTypeName()].front();
+                auto file_extension = Serialization::PeekAssetExtensions(asset->GetTypeName()).front();
                 auto file_name = "New " + asset->GetTypeName();
                 auto file_path = GenerateNewProjectRelativePath(
                     (current_focused_folder->GetProjectRelativePath() / file_name).string(), file_extension);
@@ -844,7 +823,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
               prefab->FromEntity(entity);
               // If current folder doesn't contain file with same name
               auto file_name = scene->GetEntityName(entity);
-              auto file_extension = project_manager.asset_extensions_["Prefab"].at(0);
+              auto file_extension = Serialization::PeekAssetExtensions("Prefab").front();
               auto file_path =
                   GenerateNewProjectRelativePath((current_folder_path / file_name).string(), file_extension);
               prefab->SetPathAndSave(file_path);
@@ -914,7 +893,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
             GetOrCreateFolder(new_path);
           }
           if (ImGui::BeginMenu("New asset...")) {
-            for (auto& i : project_manager.asset_extensions_) {
+            for (auto& i : Serialization::GetInstance().asset_extensions_) {
               if (ImGui::Button(i.first.c_str())) {
                 std::string new_file_name = "New " + i.first;
                 std::filesystem::path new_path = GenerateNewProjectRelativePath(
@@ -974,43 +953,40 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
                   }
                 }
               }
-
-              for (const auto& extension : project_manager.asset_extensions_) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Asset")) {
-                  IM_ASSERT(payload->DataSize == sizeof(Handle));
-                  Handle payload_n = *static_cast<Handle*>(payload->Data);
-                  if (auto asset_search = project_manager.asset_registry_.find(payload_n);
-                      asset_search != project_manager.asset_registry_.end() && !asset_search->second.expired()) {
-                    if (auto asset = asset_search->second.lock(); asset->IsTemporary()) {
-                      auto file_extension = project_manager.asset_extensions_[asset->GetTypeName()].front();
-                      auto file_name = "New " + asset->GetTypeName();
-                      int index = 0;
+              if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Asset")) {
+                IM_ASSERT(payload->DataSize == sizeof(Handle));
+                Handle payload_n = *static_cast<Handle*>(payload->Data);
+                if (auto asset_search = project_manager.asset_registry_.find(payload_n);
+                    asset_search != project_manager.asset_registry_.end() && !asset_search->second.expired()) {
+                  if (auto asset = asset_search->second.lock(); asset->IsTemporary()) {
+                    auto file_extension = Serialization::PeekAssetExtensions(asset->GetTypeName()).front();
+                    auto file_name = "New " + asset->GetTypeName();
+                    auto file_path = GenerateNewProjectRelativePath(
+                        (i.second->GetProjectRelativePath() / file_name).string(), file_extension);
+                    asset->SetPathAndSave(file_path);
+                  } else {
+                    if (auto asset_record = asset->asset_record_.lock();
+                        asset_record->GetFolder().lock().get() != i.second.get()) {
+                      auto file_extension = asset_record->GetAssetExtension();
+                      auto file_name = asset_record->GetAssetFileName();
                       auto file_path = GenerateNewProjectRelativePath(
                           (i.second->GetProjectRelativePath() / file_name).string(), file_extension);
                       asset->SetPathAndSave(file_path);
-                    } else {
-                      if (auto asset_record = asset->asset_record_.lock();
-                          asset_record->GetFolder().lock().get() != i.second.get()) {
-                        auto file_extension = asset_record->GetAssetExtension();
-                        auto file_name = asset_record->GetAssetFileName();
-                        auto file_path = GenerateNewProjectRelativePath(
-                            (i.second->GetProjectRelativePath() / file_name).string(), file_extension);
-                        asset->SetPathAndSave(file_path);
-                      }
                     }
-                  } else {
-                    if (auto asset_record_search = project_manager.asset_record_registry_.find(payload_n);
-                        asset_record_search != project_manager.asset_record_registry_.end() &&
-                        !asset_record_search->second.expired()) {
-                      auto asset_record = asset_record_search->second.lock();
-                      auto folder = asset_record->GetFolder().lock();
-                      if (folder.get() != i.second.get()) {
-                        folder->MoveAsset(asset_record->GetAssetHandle(), i.second);
-                      }
+                  }
+                } else {
+                  if (auto asset_record_search = project_manager.asset_record_registry_.find(payload_n);
+                      asset_record_search != project_manager.asset_record_registry_.end() &&
+                      !asset_record_search->second.expired()) {
+                    auto asset_record = asset_record_search->second.lock();
+                    auto folder = asset_record->GetFolder().lock();
+                    if (folder.get() != i.second.get()) {
+                      folder->MoveAsset(asset_record->GetAssetHandle(), i.second);
                     }
                   }
                 }
               }
+
               if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Binary")) {
                 IM_ASSERT(payload->DataSize == sizeof(Handle));
                 Handle payload_n = *static_cast<Handle*>(payload->Data);
@@ -1026,7 +1002,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
                 if (auto entity = scene->GetEntity(entity_handle); scene->IsEntityValid(entity)) {
                   // If current folder doesn't contain file with same name
                   auto file_name = scene->GetEntityName(entity);
-                  auto file_extension = project_manager.asset_extensions_["Prefab"].at(0);
+                  auto file_extension = Serialization::PeekAssetExtensions("Prefab").front();
                   auto file_path = GenerateNewProjectRelativePath(
                       (i.second->GetProjectRelativePath() / file_name).string(), file_extension);
                   prefab->SetPathAndSave(file_path);
@@ -1164,7 +1140,7 @@ void ProjectManager::FolderHierarchyHelper(const std::shared_ptr<Folder>& folder
       if (auto asset_search = project_manager.asset_registry_.find(payload_n);
           asset_search != project_manager.asset_registry_.end() && !asset_search->second.expired()) {
         if (auto asset = asset_search->second.lock(); asset->IsTemporary()) {
-          auto file_extension = project_manager.asset_extensions_[asset->GetTypeName()].front();
+          auto file_extension = Serialization::PeekAssetExtensions(asset->GetTypeName()).front();
           auto file_name = "New " + asset->GetTypeName();
           auto file_path =
               GenerateNewProjectRelativePath((folder->GetProjectRelativePath() / file_name).string(), file_extension);

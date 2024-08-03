@@ -2,6 +2,7 @@
 #include "Application.hpp"
 #include "ClassRegistry.hpp"
 #include "PhysicsLayer.hpp"
+#include "EditorLayer.hpp"
 using namespace evo_engine;
 
 const char* rigid_body_shape[]{"Sphere", "Box", "Capsule"};
@@ -11,7 +12,7 @@ bool Collider::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::Combo("Shape", reinterpret_cast<int*>(&shape_type_), rigid_body_shape, IM_ARRAYSIZE(rigid_body_shape))) {
     status_changed = true;
   }
-  editor_layer->DragAndDropButton<PhysicsMaterial>(physics_material_, "Physics Mat");
+  EditorLayer::DragAndDropButton<PhysicsMaterial>(physics_material_, "Physics Mat");
   if (const auto physics_material = physics_material_.Get<PhysicsMaterial>()) {
     if (ImGui::TreeNode("Material")) {
       physics_material->OnGui();

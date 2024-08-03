@@ -1,7 +1,5 @@
 #pragma once
 #include "IAsset.hpp"
-#include "ISingleton.hpp"
-#include "Resources.hpp"
 #include "Serialization.hpp"
 namespace evo_engine {
 class Folder;
@@ -79,7 +77,8 @@ class AssetThumbnail {
   std::shared_ptr<Texture2D> icon_;
 };
 
-class ProjectManager : public ISingleton<ProjectManager> {
+class ProjectManager {
+  EVOENGINE_SINGLETON_INSTANCE(ProjectManager)
   friend class Application;
 
   friend class EditorLayer;
@@ -99,8 +98,6 @@ class ProjectManager : public ISingleton<ProjectManager> {
 
   friend class ClassRegistry;
   std::shared_ptr<Scene> start_scene_;
-  std::unordered_map<std::string, std::vector<std::string>> asset_extensions_;
-  std::map<std::string, std::string> type_names_;
 
   std::unordered_map<Handle, std::weak_ptr<AssetThumbnail>> asset_thumbnails_;
   std::vector<std::shared_ptr<AssetThumbnail>> asset_thumbnail_storage_;
@@ -112,8 +109,6 @@ class ProjectManager : public ISingleton<ProjectManager> {
   friend class IAsset;
   friend class Scene;
   friend class Prefab;
-  template <typename T>
-  static void RegisterAssetType(const std::string& name, const std::vector<std::string>& extensions);
 
   [[nodiscard]] static std::shared_ptr<IAsset> CreateTemporaryAsset(const std::string& type_name);
   [[nodiscard]] static std::shared_ptr<IAsset> CreateTemporaryAsset(const std::string& type_name, const Handle& handle);
@@ -146,11 +141,6 @@ class ProjectManager : public ISingleton<ProjectManager> {
   [[nodiscard]] static bool IsValidAssetFileName(const std::filesystem::path& path);
   template <typename T>
   [[nodiscard]] static std::shared_ptr<T> CreateTemporaryAsset();
-  template <typename T>
-  [[nodiscard]] static std::vector<std::string> GetExtension();
-  [[nodiscard]] static std::vector<std::string> GetExtension(const std::string& type_name);
-  [[nodiscard]] static std::string GetTypeName(const std::string& extension);
-  [[nodiscard]] static bool IsAsset(const std::string& type_name);
   static void ScanProject();
   static void OnDestroy();
   [[nodiscard]] static std::filesystem::path GetPathRelativeToProject(const std::filesystem::path& absolute_path);
@@ -158,21 +148,5 @@ class ProjectManager : public ISingleton<ProjectManager> {
 template <typename T>
 std::shared_ptr<T> ProjectManager::CreateTemporaryAsset() {
   return std::dynamic_pointer_cast<T>(CreateTemporaryAsset(Serialization::GetSerializableTypeName<T>()));
-}
-
-template <typename T>
-void ProjectManager::RegisterAssetType(const std::string& name, const std::vector<std::string>& extensions) {
-  auto& project_manager = GetInstance();
-  auto& resources = Resources::GetInstance();
-  Serialization::RegisterSerializableType<T>(name);
-  resources.typed_resources_[name] = std::unordered_map<Handle, std::shared_ptr<IAsset>>();
-  project_manager.asset_extensions_[name] = extensions;
-  for (const auto& extension : extensions) {
-    project_manager.type_names_[extension] = name;
-  }
-}
-template <typename T>
-std::vector<std::string> ProjectManager::GetExtension() {
-  return GetExtension(Serialization::GetSerializableTypeName<T>());
 }
 }  // namespace evo_engine

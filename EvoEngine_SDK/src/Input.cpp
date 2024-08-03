@@ -19,7 +19,7 @@ void Input::KeyCallBack(GLFWwindow* window, int key, int scan_code, int action, 
   }
 }
 
-void Input::MouseButtonCallBack(GLFWwindow* window, int button, int action, int mods) {
+void Input::MouseButtonCallBack(GLFWwindow* window, const int button, const int action, int mods) {
   auto& input = GetInstance();
   if (action == GLFW_PRESS) {
     input.pressed_keys_[button] = KeyActionType::Press;
@@ -78,7 +78,7 @@ glm::vec2 Input::GetMousePosition() {
   return input.mouse_position_;
 }
 
-KeyActionType Input::GetKey(const int key) {
+Input::KeyActionType Input::GetKey(const int key) {
   const auto& input = GetInstance();
   if (const auto search = input.pressed_keys_.find(key); search != input.pressed_keys_.end())
     return search->second;

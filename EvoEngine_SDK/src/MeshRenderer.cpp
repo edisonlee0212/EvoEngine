@@ -3,6 +3,7 @@
 #include "EditorLayer.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
+#include "Resources.hpp"
 #include "Transform.hpp"
 using namespace evo_engine;
 

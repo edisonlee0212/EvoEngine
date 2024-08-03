@@ -4,8 +4,8 @@
 
 #include "BasicPointCloudScanner.hpp"
 
-#include <ClassRegistry.hpp>
-#include "Graphics.hpp"
+#include "Resources.hpp"
+#include "EditorLayer.hpp"
 #include "Jobs.hpp"
 #include "RayTracerLayer.hpp"
 using namespace evo_engine;

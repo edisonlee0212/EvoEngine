@@ -3,7 +3,7 @@
 #include "ClassRegistry.hpp"
 #include "Jobs.hpp"
 #include "Joint.hpp"
-#include "ProjectManager.hpp"
+#include "Resources.hpp"
 #include "RigidBody.hpp"
 #include "Scene.hpp"
 #include "Times.hpp"

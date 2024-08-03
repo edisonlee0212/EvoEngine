@@ -28,7 +28,8 @@ enum class ApplicationStatus {
 
 enum class ApplicationExecutionStatus { Stop, PreUpdate, Update, LateUpdate };
 
-class Application final : public ISingleton<Application> {
+class Application final {
+  EVOENGINE_SINGLETON_INSTANCE(Application)
   friend class ProjectManager;
   ApplicationInfo application_info_;
   ApplicationStatus application_status_ = ApplicationStatus::Uninitialized;

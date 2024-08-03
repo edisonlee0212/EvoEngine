@@ -1,7 +1,8 @@
 #pragma once
 #include "ISingleton.hpp"
 namespace evo_engine {
-class Console : public ISingleton<Console> {
+class Console final {
+  EVOENGINE_SINGLETON_INSTANCE(Console)
  public:
   /**
    * Push log to the console

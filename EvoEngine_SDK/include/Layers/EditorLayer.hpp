@@ -78,7 +78,7 @@ class EditorLayer : public ILayer {
 
   void SceneCameraWindow();
   void MainCameraWindow();
-  void OnInputEvent(const InputEvent& input_event) override;
+  void OnInputEvent(const Input::InputEvent& input_event) override;
   void ResizeCameras();
   Handle scene_camera_handle_ = 0;
   std::unordered_map<Handle, EditorCamera> editor_cameras_;
@@ -109,7 +109,7 @@ class EditorLayer : public ILayer {
 
   [[nodiscard]] glm::vec2 GetMouseSceneCameraPosition() const;
 
-  [[nodiscard]] static KeyActionType GetKey(int key);
+  [[nodiscard]] static Input::KeyActionType GetKey(int key);
   [[nodiscard]] std::shared_ptr<Camera> GetSceneCamera();
   [[nodiscard]] glm::vec3 GetSceneCameraPosition() const;
   [[nodiscard]] glm::quat GetSceneCameraRotation() const;
@@ -367,7 +367,7 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name, b
 }
 
 template <typename T>
-bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::string& name, bool modifiable) {
+bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::string& name, const bool modifiable) {
   ImGui::Text(name.c_str());
   ImGui::SameLine();
   bool status_changed = false;

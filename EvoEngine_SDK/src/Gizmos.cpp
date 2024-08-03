@@ -1,6 +1,7 @@
 #include "Application.hpp"
 #include "EditorLayer.hpp"
 #include "RenderLayer.hpp"
+#include "Resources.hpp"
 using namespace evo_engine;
 
 void GizmoSettings::ApplySettings(GraphicsPipelineStates& global_pipeline_state) const {

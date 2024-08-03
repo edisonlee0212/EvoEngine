@@ -2,6 +2,7 @@
 #include "ClassRegistry.hpp"
 #include "EditorLayer.hpp"
 #include "Prefab.hpp"
+#include "Resources.hpp"
 #include "Strands.hpp"
 using namespace evo_engine;
 void StrandsRenderer::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, glm::vec4& color) {
