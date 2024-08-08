@@ -78,10 +78,10 @@ class Texture2D : public IAsset {
   void GetRgChannelData(std::vector<glm::vec2>& dst, int resize_x = -1, int resize_y = -1) const;
   void GetRedChannelData(std::vector<float>& dst, int resize_x = -1, int resize_y = -1) const;
 
-  void SetRgbaChannelData(const std::vector<glm::vec4>& src, const glm::uvec2& resolution, bool local_copy = false);
-  void SetRgbChannelData(const std::vector<glm::vec3>& src, const glm::uvec2& resolution, bool local_copy = false);
-  void SetRgChannelData(const std::vector<glm::vec2>& src, const glm::uvec2& resolution, bool local_copy = false);
-  void SetRedChannelData(const std::vector<float>& src, const glm::uvec2& resolution, bool local_copy = false);
+  void SetRgbaChannelData(const std::vector<glm::vec4>& src, const glm::uvec2& resolution, bool local_copy = true);
+  void SetRgbChannelData(const std::vector<glm::vec3>& src, const glm::uvec2& resolution, bool local_copy = true);
+  void SetRgChannelData(const std::vector<glm::vec2>& src, const glm::uvec2& resolution, bool local_copy = true);
+  void SetRedChannelData(const std::vector<float>& src, const glm::uvec2& resolution, bool local_copy = true);
 
   static void Resize(std::vector<glm::vec4>& src, const glm::uvec2& src_resolution, std::vector<glm::vec4>& dst,
                      const glm::uvec2& dst_resolution);

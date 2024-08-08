@@ -1,7 +1,7 @@
 #include "TextureBaker.hpp"
+
 #include "CpuRayTracer.hpp"
 #include "Times.hpp"
-
 using namespace evo_engine;
 
 #define TEXTURE_BAKER_REPORT_TIME 1;
@@ -99,25 +99,21 @@ void CompressedMapUv::Initialize(const std::vector<Vertex>& target_vertices,
   }
 }
 
-struct Tbmr {};
-
-struct Tbnr {};
-
 struct RayCastingResult {
   bool miss = false;
-  CpuRayTracer<Tbmr, Tbnr>::HitInfo hit_info;
+  CpuRayTracer::HitInfo hit_info;
 };
 
 std::vector<RayCastingResult> RayCastingSolver(const TextureBaker::Parameters& parameters,
                                                const CompressedMapUv& compressed_map_uv,
-                                               const CpuRayTracer<Tbmr, Tbnr>& ray_tracer, const float thin_scale,
+                                               const CpuRayTracer& ray_tracer, const float thin_scale,
                                                const float max_ray_casting_distance) {
   auto ray_casting_results = std::vector(compressed_map_uv.indices.size(), RayCastingResult());
   Jobs::RunParallelFor(compressed_map_uv.positions.size(), [&](const size_t i) {
-    CpuRayTracer<Tbmr, Tbnr>::RayDescriptor ray_descriptor{};
+    CpuRayTracer::RayDescriptor ray_descriptor{};
     auto& result = ray_casting_results[i];
-    ray_descriptor.flags = parameters.cull_back_face ? CpuRayTracer<Tbmr, Tbnr>::TraceFlags::CullBackFace
-                                                     : CpuRayTracer<Tbmr, Tbnr>::TraceFlags::None;
+    ray_descriptor.flags = parameters.cull_back_face ? CpuRayTracer::TraceFlags::CullBackFace
+                                                     : CpuRayTracer::TraceFlags::None;
     //  Compare and get closest triangle.
     //  Diagram:
     //
@@ -135,7 +131,7 @@ std::vector<RayCastingResult> RayCastingSolver(const TextureBaker::Parameters& p
     bool hit = false;
     ray_tracer.Trace(
         ray_descriptor,
-        [&](const CpuRayTracer<Tbmr, Tbnr>::HitInfo& hit_info) {
+        [&](const CpuRayTracer::HitInfo& hit_info) {
           result.hit_info = hit_info;
           hit = true;
         },
@@ -147,11 +143,11 @@ std::vector<RayCastingResult> RayCastingSolver(const TextureBaker::Parameters& p
     if (!hit) {
       ray_descriptor.direction = sample_direction;
       ray_descriptor.t_max = max_ray_casting_distance - thin_scale;
-      ray_descriptor.flags = parameters.cull_back_face ? CpuRayTracer<Tbmr, Tbnr>::TraceFlags::CullFrontFace
-                                                       : CpuRayTracer<Tbmr, Tbnr>::TraceFlags::None;
+      ray_descriptor.flags = parameters.cull_back_face ? CpuRayTracer::TraceFlags::CullFrontFace
+                                                       : CpuRayTracer::TraceFlags::None;
       ray_tracer.Trace(
           ray_descriptor,
-          [&](const CpuRayTracer<Tbmr, Tbnr>::HitInfo& hit_info) {
+          [&](const CpuRayTracer::HitInfo& hit_info) {
             result.hit_info = hit_info;
             hit = true;
           },
@@ -476,7 +472,7 @@ void TextureBaker::Execute(const Parameters& parameters, const std::shared_ptr<M
       }
     } break;
   }
-  CpuRayTracer<Tbmr, Tbnr> ray_tracer;
+  CpuRayTracer ray_tracer;
   ray_tracer.Initialize(reference_mesh);
   float diagonal_length = glm::length(target_mesh->GetBound().Size());
   float max_ray_casting_distance = parameters.ray_casting_range * diagonal_length;

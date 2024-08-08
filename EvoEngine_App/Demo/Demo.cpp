@@ -1,6 +1,7 @@
 #include "AnimationPlayer.hpp"
 #include "Application.hpp"
 #include "ClassRegistry.hpp"
+
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
 #include "PlanetTerrainSystem.hpp"
@@ -21,6 +22,9 @@
 #ifdef PHYSICS_PLUGIN
 #include "PhysicsLayer.hpp"
 #include "RigidBody.hpp"
+#ifdef RAY_TRACER_PLUGIN
+#include "CpuRayTracerCamera.hpp"
+#endif
 
 #endif
 using namespace evo_engine;
@@ -66,7 +70,7 @@ int main() {
   Application::PushLayer<PhysicsLayer>();
 #endif
   
-#ifdef CPU_RAY_TRACER_PLUGIN
+#ifdef RAY_TRACER_PLUGIN
   PrivateComponentRegistration<CpuRayTracerCamera>("CpuRayTracerCamera");
 #endif
   ApplicationInfo application_info;

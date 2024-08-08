@@ -39,23 +39,17 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
   const auto owner = GetOwner();
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(owner);
   UpdateCameraInfoBlock(camera_info_block, global_transform);
-
-  struct CpuRayTracerMeshData {};
-
-  struct CpuRayTracerNodeData {
-    Entity entity;
-  };
-
-  CpuRayTracer<CpuRayTracerMeshData, CpuRayTracerNodeData> cpu_ray_tracer;
+  std::vector<Entity> entities;
+  CpuRayTracer cpu_ray_tracer;
   cpu_ray_tracer.Initialize(
       scene,
-      [&](const std::shared_ptr<Mesh>& mesh, CpuRayTracerMeshData& mesh_data) {
+      [&](uint32_t, const std::shared_ptr<Mesh>&) {
 
       },
-      [&](const Entity& entity, CpuRayTracerNodeData& node_data) {
-        node_data.entity = entity;
+      [&](const uint32_t node_index, const Entity& entity) {
+        entities.resize(glm::max(entities.size(), static_cast<size_t>(node_index) + 1));
+        entities[node_index] = entity;
       });
-
   std::vector<glm::vec4> colors(65536);
   for (auto& color : colors) {
     color = glm::vec4(glm::abs(glm::sphericalRand(1.f)), 1.f);
@@ -68,7 +62,7 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
     const float half_y = resolution.y * .5f;
     RandomSampler random_sampler;
     random_sampler.SetSeed(pixel_index);
-    CpuRayTracer<CpuRayTracerMeshData, CpuRayTracerNodeData>::RayDescriptor current_ray_descriptor{};
+    CpuRayTracer::RayDescriptor current_ray_descriptor{};
     float hit_count = 0;
     float temp = 0;
     for (uint32_t sample_index = 0; sample_index < capture_parameters.sample; sample_index++) {
@@ -83,13 +77,13 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
 
       cpu_ray_tracer.Trace(
           current_ray_descriptor,
-          [&](const CpuRayTracer<CpuRayTracerMeshData, CpuRayTracerNodeData>::HitInfo& hit_info) {
+          [&](const CpuRayTracer::HitInfo& hit_info) {
             hit_count += 1;
-            temp += static_cast<float>(cpu_ray_tracer.PeekNodeRecord(hit_info.node_index).entity.GetIndex());
+            temp += static_cast<float>(entities[hit_info.node_index].GetIndex());
           },
           [&]() {
           },
-          [](const CpuRayTracer<CpuRayTracerMeshData, CpuRayTracerNodeData>::HitInfo& hit_info) {
+          [](const CpuRayTracer::HitInfo& hit_info) {
           });
     }
     if (hit_count > 0.f) {
