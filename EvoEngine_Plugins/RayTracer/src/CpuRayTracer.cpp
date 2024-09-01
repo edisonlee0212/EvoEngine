@@ -1,6 +1,5 @@
 #include "CpuRayTracer.hpp"
 
-#include "CpuRayTracer.hpp"
 using namespace evo_engine;
 void CpuRayTracer::Initialize(
     const std::shared_ptr<Scene>& input_scene,
@@ -436,6 +435,7 @@ glm::vec3 CpuRayTracer::Barycentric(const glm::vec3& p, const glm::vec3& a, cons
 }
 
 bool CpuRayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor, HitInfo& hit_info) const {
+  /*
     GpuRayCastingResult ray_casting_result;
   ray_casting_result.hit.w = 0.0f;
   ray_casting_result.normal_distance.w = ray_descriptor.t_max;
@@ -596,7 +596,10 @@ bool CpuRayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor, H
     }
     node_group_index++;
   }
+  
   return ray_casting_result;
+  */
+  return false;
 }
 
 CpuRayTracer::AggregatedScene CpuRayTracer::Aggregate() const {

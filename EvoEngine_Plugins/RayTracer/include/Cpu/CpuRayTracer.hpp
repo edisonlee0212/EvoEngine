@@ -1,8 +1,5 @@
 #pragma once
-#include "Mesh.hpp"
-#include "PImplPtr.hpp"
 namespace evo_engine {
-
 /**
  * @class CpuRayTracer
  * @brief This class provides the cpu ray tracing service.
