@@ -1,0 +1,51 @@
+[submodule "Extern/3rdParty/assimp/assimp"]
+	path = Extern/3rdParty/assimp/assimp
+	url = https://github.com/assimp/assimp.git
+[submodule "Extern/3rdParty/glfw/glfw"]
+	path = Extern/3rdParty/glfw/glfw
+	url = https://github.com/glfw/glfw
+[submodule "Extern/3rdParty/glm/glm"]
+	path = Extern/3rdParty/glm/glm
+	url = https://github.com/g-truc/glm
+[submodule "Extern/3rdParty/imgui/imgui"]
+	path = Extern/3rdParty/imgui/imgui
+	url = https://github.com/ocornut/imgui
+[submodule "Extern/3rdParty/json/json"]
+	path = Extern/3rdParty/json/json
+	url = https://github.com/nlohmann/json
+[submodule "Extern/3rdParty/meshoptimizer/meshoptimizer"]
+	path = Extern/3rdParty/meshoptimizer/meshoptimizer
+	url = https://github.com/zeux/meshoptimizer.git
+[submodule "Extern/3rdParty/pybind11/pybind11"]
+	path = Extern/3rdParty/pybind11/pybind11
+	url = https://github.com/pybind/pybind11.git
+[submodule "Extern/3rdParty/shaderc/shaderc"]
+	path = Extern/3rdParty/shaderc/shaderc
+	url = https://github.com/google/shaderc.git
+[submodule "Extern/3rdParty/stb/stb"]
+	path = Extern/3rdParty/stb/stb
+	url = https://github.com/nothings/stb.git
+[submodule "Extern/3rdParty/volk/volk"]
+	path = Extern/3rdParty/volk/volk
+	url = https://github.com/zeux/volk.git
+[submodule "Extern/3rdParty/VulkanMemoryAllocator/VulkanMemoryAllocator"]
+	path = Extern/3rdParty/VulkanMemoryAllocator/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "Extern/3rdParty/xatlas/xatlas"]
+	path = Extern/3rdParty/xatlas/xatlas
+	url = https://github.com/jpcy/xatlas.git
+[submodule "Extern/3rdParty/yaml-cpp/yaml-cpp"]
+	path = Extern/3rdParty/yaml-cpp/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git
+[submodule "Extern/3rdParty/zlib/zlib"]
+	path = Extern/3rdParty/zlib/zlib
+	url = https://github.com/madler/zlib
+[submodule "Extern/3rdParty/eigen/eigen"]
+	path = Extern/3rdParty/eigen/eigen
+	url = https://gitlab.com/libeigen/eigen.git
+[submodule "Extern/3rdParty/SPIRV-Tools/SPIRV-Tools"]
+	path = Extern/3rdParty/SPIRV-Tools/SPIRV-Tools
+	url = https://github.com/KhronosGroup/SPIRV-Tools.git
+[submodule "Extern/3rdParty/glslang/glslang"]
+	path = Extern/3rdParty/glslang/glslang
+	url = https://github.com/KhronosGroup/glslang

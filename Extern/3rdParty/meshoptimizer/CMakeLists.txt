@@ -1,0 +1,1 @@
+add_subdirectory(meshoptimizer EXCLUDE_FROM_ALL)

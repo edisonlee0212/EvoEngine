@@ -51,7 +51,7 @@ std::string TreeDynamicMetaData::serialize() const {
 }
 
 void TreeDynamicMetaData::deserialize(const std::string &serialized) {
-  data = treeutil::containsOnlyWhiteSpaces(serialized) ? treeio::json{} : json::parse(serialized);
+  data = treeutil::containsOnlyWhiteSpaces(serialized) ? nlohmann::json{} : nlohmann::json::parse(serialized);
 }
 
 TreeMetaData::TreeMetaData() : mDynamicMetaData{std::make_shared<TreeDynamicMetaData>()} {

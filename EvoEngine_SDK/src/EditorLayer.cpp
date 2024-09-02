@@ -923,13 +923,12 @@ void EditorLayer::SceneCameraWindow() {
           using_gizmo_ = true;
         }
       }
-      if (enable_view_gizmos) {
-        if (ImGuizmo::ViewManipulate(glm::value_ptr(camera_view), 1.0f,
-                                     ImVec2(view_manipulate_left, view_manipulate_top), ImVec2(96, 96), 0)) {
-          GlobalTransform gl;
-          gl.value = glm::inverse(camera_view);
-          sceneCameraRotation = gl.GetRotation();
-        }
+      if (false) {
+        ImGuizmo::ViewManipulate(glm::value_ptr(camera_view), 1.0f, ImVec2(view_manipulate_left, view_manipulate_top),
+                                 ImVec2(96, 96), 0);
+        GlobalTransform gl;
+        gl.value = glm::inverse(camera_view);
+        sceneCameraRotation = gl.GetRotation();
       }
     }
 

@@ -1,6 +1,6 @@
 set(ECOSYSLAB_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 set(ECOSYSLAB_INCLUDES
-	${3RD_PARTY_DIR}/pinchot/include
+	${3RDPARTY_DIR}/pinchot/pinchot/include
 	${ECOSYSLAB_DIRECTORY}
 	${ECOSYSLAB_DIRECTORY}/include
 	${ECOSYSLAB_DIRECTORY}/include
@@ -56,7 +56,7 @@ target_precompile_headers(EcoSysLabPlugin
 	)
 
 if (WIN32)
-	set(PINCHOT_LIB ${3RD_PARTY_DIR}/pinchot/lib/windows/x64/pinchot.lib)
+	set(PINCHOT_LIB ${3RDPARTY_DIR}/pinchot/pinchot/lib/windows/x64/pinchot.lib)
 	# Compiler settings for Windows platform
 	set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 endif ()
@@ -71,7 +71,7 @@ set(EVOENGINE_PLUGINS_PCHS ${EVOENGINE_PLUGINS_PCHS} ${ECOSYSLAB_PCH} PARENT_SCO
 set(EVOENGINE_PLUGINS_DEFS ${EVOENGINE_PLUGINS_DEFS} ECOSYSLAB_PLUGIN PARENT_SCOPE)
 
 if (WIN32)
-    set(PINCHOT_DLL ${3RD_PARTY_DIR}/pinchot/lib/windows/x64/pinchot.dll)
+    set(PINCHOT_DLL ${3RDPARTY_DIR}/pinchot/pinchot/lib/windows/x64/pinchot.dll)
 endif ()
 set(EVOENGINE_PLUGINS_DLLS ${EVOENGINE_PLUGINS_DLLS} ${PINCHOT_DLL} PARENT_SCOPE)
 

@@ -31,7 +31,7 @@
 
 // OpenGL and Vulkan
 
-#include <volk/volk.h>
+#include "volk.h"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
@@ -39,26 +39,28 @@
 
 #define GLFW_INCLUDE_VULKAN
 #define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
+#include "GLFW/glfw3.h"
 
 #define IMGUI_DEFINE_MATH_OPERATORS
-#include <ImGuizmo.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+
 //#include <imgui_stdlib.hpp>
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
 #define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
+#include "GLFW/glfw3native.h"
 #define STBI_MSC_SECURE_CRT
 // define something for Windows (32-bit and 64-bit, this part is common)
-#include <imgui_impl_glfw.h>
+#include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
-#include <imgui_impl_win32.h>
+#include <backends/imgui_impl_win32.h>
 #else
 // linux
 #include <imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
 #endif
+
+#include <ImGuizmo.h>
 
 #include <assimp/Exporter.hpp>
 #include <assimp/Importer.hpp>
@@ -66,7 +68,7 @@
 #include <assimp/scene.h>
 
 #include <stb_image.h>
-#include <stb_image_resize.h>
+#include <stb_image_resize2.h>
 #include <stb_image_write.h>
 
 #include <yaml-cpp/yaml.h>

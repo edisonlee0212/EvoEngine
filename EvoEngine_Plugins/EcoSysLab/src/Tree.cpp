@@ -23,7 +23,9 @@
 #include "Strands.hpp"
 #include "StrandsRenderer.hpp"
 #include "TreeSkinnedMeshGenerator.hpp"
-#include "RigidBody.hpp"
+#ifdef PHYSICS_PLUGIN
+#  include "RigidBody.hpp"
+#endif
 using namespace eco_sys_lab;
 void Tree::SerializeTreeGrowthSettings(const TreeGrowthSettings& tree_growth_settings, YAML::Emitter& out) {
   out << YAML::Key << "node_developmental_vigor_filling_rate" << YAML::Value
@@ -109,7 +111,7 @@ bool Tree::ParseBinvox(const std::filesystem::path& file_path, VoxelGrid<TreeOcc
   glm::vec3 min_bound(0, 0, 0);  // Assuming starting from origin
   glm::ivec3 resolution(width, height, depth);
   voxel_grid.Initialize(voxel_size, resolution, min_bound,
-                       {});  // Assuming voxelSize is globally defined or passed as an argument
+                        {});  // Assuming voxelSize is globally defined or passed as an argument
 
   // Read voxel data
   unsigned char value;
@@ -186,8 +188,8 @@ void Tree::ClearSkeletalGraph() const {
   }
 }
 
-void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_settings, SkeletonNodeHandle base_node_handle,
-                                 const std::shared_ptr<Mesh>& point_mesh_sample,
+void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_settings,
+                                 SkeletonNodeHandle base_node_handle, const std::shared_ptr<Mesh>& point_mesh_sample,
                                  const std::shared_ptr<Mesh>& line_mesh_sample) const {
   const auto scene = GetScene();
   const auto self = GetOwner();
@@ -222,7 +224,7 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
   std::vector<ParticleInfo> line_particle_infos;
   std::vector<ParticleInfo> point_particle_infos;
   const int node_size = strand_ready ? strand_model.strand_model_skeleton.PeekSortedNodeList().size()
-                                   : tree_model.PeekShootSkeleton().PeekSortedNodeList().size();
+                                     : tree_model.PeekShootSkeleton().PeekSortedNodeList().size();
   if (strand_ready) {
     line_particle_infos.resize(node_size);
     point_particle_infos.resize(node_size);
@@ -252,8 +254,7 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
         rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
         const glm::mat4 rotation_transform = glm::mat4_cast(rotation);
         line_particle_infos[internode_index].instance_matrix.value =
-            glm::translate(position + (node.info.length / 2.0f) * node.info.GetGlobalDirection()) *
-            rotation_transform *
+            glm::translate(position + (node.info.length / 2.0f) * node.info.GetGlobalDirection()) * rotation_transform *
             glm::scale(glm::vec3(skeletal_graph_settings.fixed_line_thickness * (sub_tree ? 1.25f : 1.0f),
                                  node.info.length,
                                  skeletal_graph_settings.fixed_line_thickness * (sub_tree ? 1.25f : 1.0f)));
@@ -303,8 +304,7 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
         rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
         const glm::mat4 rotation_transform = glm::mat4_cast(rotation);
         line_particle_infos[internode_index].instance_matrix.value =
-            glm::translate(position + (node.info.length / 2.0f) * node.info.GetGlobalDirection()) *
-            rotation_transform *
+            glm::translate(position + (node.info.length / 2.0f) * node.info.GetGlobalDirection()) * rotation_transform *
             glm::scale(glm::vec3(skeletal_graph_settings.fixed_line_thickness * (sub_tree ? 1.25f : 1.0f),
                                  node.info.length,
                                  skeletal_graph_settings.fixed_line_thickness * (sub_tree ? 1.25f : 1.0f)));
@@ -381,21 +381,20 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         }
         if (ImGui::TreeNode("Sagging")) {
           bool bending_changed = false;
-          bending_changed = ImGui::DragFloat("Bending strength", &sd->gravity_bending_strength, 0.01f, 0.0f,
-                                            1.0f, "%.3f") ||
-                           bending_changed;
           bending_changed =
-              ImGui::DragFloat("Bending thickness factor", &sd->gravity_bending_thickness_factor, 0.1f,
-                               0.0f, 10.f, "%.3f") ||
+              ImGui::DragFloat("Bending strength", &sd->gravity_bending_strength, 0.01f, 0.0f, 1.0f, "%.3f") ||
               bending_changed;
-          bending_changed = ImGui::DragFloat("Bending angle factor", &sd->gravity_bending_max, 0.01f, 0.0f,
-                                            1.0f, "%.3f") ||
-                           bending_changed;
+          bending_changed = ImGui::DragFloat("Bending thickness factor", &sd->gravity_bending_thickness_factor, 0.1f,
+                                             0.0f, 10.f, "%.3f") ||
+                            bending_changed;
+          bending_changed =
+              ImGui::DragFloat("Bending angle factor", &sd->gravity_bending_max, 0.01f, 0.0f, 1.0f, "%.3f") ||
+              bending_changed;
           if (bending_changed) {
             shoot_growth_controller_.m_sagging = [=](const SkeletonNode<InternodeGrowthData>& internode) {
-              float strength = internode.data.sagging_force * sd->gravity_bending_strength /
-                               glm::pow(internode.info.thickness / sd->end_node_thickness,
-                                        sd->gravity_bending_thickness_factor);
+              float strength =
+                  internode.data.sagging_force * sd->gravity_bending_strength /
+                  glm::pow(internode.info.thickness / sd->end_node_thickness, sd->gravity_bending_thickness_factor);
               strength = sd->gravity_bending_max * (1.f - glm::exp(-glm::abs(strength)));
               return strength;
             };
@@ -418,8 +417,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
                 if (VoxelGrid<TreeOccupancyGridBasicData> input_grid{}; ParseBinvox(path, input_grid, 1.f)) {
                   occupancy_grid.Initialize(
                       input_grid, glm::vec3(-radius, 0, -radius), glm::vec3(radius, 2.0f * radius, radius),
-                      sd->internode_length,
-                      tree_model.tree_growth_settings.space_colonization_removal_distance_factor,
+                      sd->internode_length, tree_model.tree_growth_settings.space_colonization_removal_distance_factor,
                       tree_model.tree_growth_settings.space_colonization_theta,
                       tree_model.tree_growth_settings.space_colonization_detection_distance_factor, markers_per_voxel);
                 }
@@ -497,8 +495,8 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
             for (const auto& marker : voxel.markers) {
               scalar_matrices.resize(i + 1);
               scalar_matrices[i].instance_matrix.value = glm::translate(marker.position) *
-                                                           glm::mat4_cast(glm::quat(glm::vec3(0.0f))) *
-                                                           glm::scale(glm::vec3(voxel_grid.GetVoxelSize() * 0.2f));
+                                                         glm::mat4_cast(glm::quat(glm::vec3(0.0f))) *
+                                                         glm::scale(glm::vec3(voxel_grid.GetVoxelSize() * 0.2f));
               if (marker.node_handle == -1)
                 scalar_matrices[i].instance_color = glm::vec4(1.0f, 1.0f, 1.0f, 0.75f);
               else {
@@ -513,8 +511,8 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         GizmoSettings gizmo_settings{};
         gizmo_settings.draw_settings.blending = true;
         editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"),
-                                                   space_colonization_grid_particle_info_list, glm::mat4(1.0f), 1.0f,
-                                                   gizmo_settings);
+                                                    space_colonization_grid_particle_info_list, glm::mat4(1.0f), 1.0f,
+                                                    gizmo_settings);
       }
     }
 
@@ -537,17 +535,20 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Strand Model")) {
     if (ImGui::TreeNodeEx("Profile settings", ImGuiTreeNodeFlags_DefaultOpen)) {
       if (ImGui::TreeNode("Physics settings")) {
-        ImGui::DragFloat("Physics damping", &strand_model_parameters.profile_physics_settings.damping, 0.01f, 0.0f, 1.0f);
+        ImGui::DragFloat("Physics damping", &strand_model_parameters.profile_physics_settings.damping, 0.01f, 0.0f,
+                         1.0f);
         ImGui::DragFloat("Physics max speed", &strand_model_parameters.profile_physics_settings.max_speed, 0.01f, 0.0f,
                          100.0f);
-        ImGui::DragFloat("Physics particle softness", &strand_model_parameters.profile_physics_settings.particle_softness,
-                         0.01f, 0.0f, 1.0f);
+        ImGui::DragFloat("Physics particle softness",
+                         &strand_model_parameters.profile_physics_settings.particle_softness, 0.01f, 0.0f, 1.0f);
         ImGui::TreePop();
       }
       ImGui::DragFloat("Center attraction strength", &strand_model_parameters.center_attraction_strength, 100.f, 0.0f,
                        10000.0f);
-      ImGui::DragInt("Max iteration cell factor", &strand_model_parameters.max_simulation_iteration_cell_factor, 1, 0, 500);
-      ImGui::DragInt("Branch Packing Timeout", &strand_model_parameters.branch_profile_packing_max_iteration, 1, 0, 10000);
+      ImGui::DragInt("Max iteration cell factor", &strand_model_parameters.max_simulation_iteration_cell_factor, 1, 0,
+                     500);
+      ImGui::DragInt("Branch Packing Timeout", &strand_model_parameters.branch_profile_packing_max_iteration, 1, 0,
+                     10000);
       ImGui::DragInt("Junction Packing Timeout", &strand_model_parameters.junction_profile_packing_max_iteration, 1, 20,
                      10000);
       ImGui::DragInt("Modified Packing Timeout", &strand_model_parameters.modified_profile_packing_max_iteration, 1, 20,
@@ -570,18 +571,18 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
     ImGui::DragFloat("Cladoptosis Range", &strand_model_parameters.cladoptosis_range, 0.01f, 0.0f, 50.f);
     strand_model_parameters.cladoptosis_distribution.OnInspect("Cladoptosis", plotted_distribution_settings);
-    ImGui::Text(("Strand count: " +
-                 std::to_string(strand_model.strand_model_skeleton.data.strand_group.PeekStrands().size()))
-                    .c_str());
-    ImGui::Text(("Total particle count: " + std::to_string(strand_model.strand_model_skeleton.data.num_of_particles))
-                    .c_str());
+    ImGui::Text(
+        ("Strand count: " + std::to_string(strand_model.strand_model_skeleton.data.strand_group.PeekStrands().size()))
+            .c_str());
+    ImGui::Text(
+        ("Total particle count: " + std::to_string(strand_model.strand_model_skeleton.data.num_of_particles)).c_str());
 
     if (ImGui::TreeNodeEx("Graph Adjustment settings", ImGuiTreeNodeFlags_DefaultOpen)) {
       ImGui::DragFloat("Side factor", &strand_model_parameters.side_push_factor, 0.01f, 0.0f, 2.0f);
       ImGui::DragFloat("Apical Side factor", &strand_model_parameters.apical_side_push_factor, 0.01f, 0.0f, 2.0f);
       ImGui::DragFloat("Rotation factor", &strand_model_parameters.rotation_push_factor, 0.01f, 0.0f, 2.0f);
-      ImGui::DragFloat("Apical Rotation factor", &strand_model_parameters.apical_branch_rotation_push_factor, 0.01f, 0.0f,
-                       2.0f);
+      ImGui::DragFloat("Apical Rotation factor", &strand_model_parameters.apical_branch_rotation_push_factor, 0.01f,
+                       0.0f, 2.0f);
       ImGui::TreePop();
     }
     ImGui::DragInt("Max node count", &strand_model_parameters.node_max_count, 1, -1, 999);
@@ -723,8 +724,8 @@ void Tree::CalculateProfiles() {
   const float profile_calculation_time = Times::Now() - time;
   std::string output;
   output += "\nProfile count: [" + std::to_string(strand_model.strand_model_skeleton.PeekSortedNodeList().size());
-  output += "], Strand count: [" +
-            std::to_string(strand_model.strand_model_skeleton.data.strand_group.PeekStrands().size());
+  output +=
+      "], Strand count: [" + std::to_string(strand_model.strand_model_skeleton.data.strand_group.PeekStrands().size());
   output += "], Particle count: [" + std::to_string(strand_model.strand_model_skeleton.data.num_of_particles);
   output += "]\nCalculate Profile Used time: " + std::to_string(profile_calculation_time) + "\n";
   EVOENGINE_LOG(output);
@@ -939,11 +940,11 @@ std::shared_ptr<ParticleInfoList> Tree::GenerateFoliageParticleInfoList(
   const bool sm =
       strand_model.strand_model_skeleton.RefRawNodes().size() == tree_model.shoot_skeleton_.RefRawNodes().size();
   const auto tree_dim = sm ? strand_model.strand_model_skeleton.max - strand_model.strand_model_skeleton.min
-                                   : tree_model.PeekShootSkeleton().max - tree_model.PeekShootSkeleton().min;
+                           : tree_model.PeekShootSkeleton().max - tree_model.PeekShootSkeleton().min;
 
   for (const auto& internode_handle : node_list) {
     const auto& internode_info = sm ? strand_model.strand_model_skeleton.PeekNode(internode_handle).info
-                                            : tree_model.PeekShootSkeleton().PeekNode(internode_handle).info;
+                                    : tree_model.PeekShootSkeleton().PeekNode(internode_handle).info;
 
     std::vector<glm::mat4> leaf_matrices{};
     fd->GenerateFoliageMatrices(leaf_matrices, internode_info, glm::length(tree_dim));
@@ -1362,7 +1363,7 @@ bool Tree::TryGrow(float delta_time, bool pruning) {
 
   PrepareController(sd, s, c);
   const bool grown = tree_model.Grow(delta_time, scene->GetDataComponent<GlobalTransform>(owner).value,
-                                      c->climate_model, shoot_growth_controller_, pruning);
+                                     c->climate_model, shoot_growth_controller_, pruning);
   if (grown) {
     if (pruning)
       tree_visualizer.ClearSelections();
@@ -1417,7 +1418,7 @@ bool Tree::TryGrowSubTree(const float delta_time, const SkeletonNodeHandle base_
   PrepareController(shoot_descriptor, s, c);
   const bool grown =
       tree_model.Grow(delta_time, base_internode_handle, scene->GetDataComponent<GlobalTransform>(owner).value,
-                       c->climate_model, shoot_growth_controller_, pruning);
+                      c->climate_model, shoot_growth_controller_, pruning);
   if (grown) {
     if (pruning)
       tree_visualizer.ClearSelections();
@@ -1445,8 +1446,7 @@ void Tree::Serialize(YAML::Emitter& out) const {
             node_out << YAML::Key << "profile" << YAML::Value << YAML::BeginMap;
             {
               StrandModelProfileSerializer<CellParticlePhysicsData>::Serialize(
-                  node_out, node_data.profile,
-                  [&](YAML::Emitter&, const CellParticlePhysicsData&) {
+                  node_out, node_data.profile, [&](YAML::Emitter&, const CellParticlePhysicsData&) {
                   });
             }
             node_out << YAML::EndMap;
@@ -1467,19 +1467,22 @@ void Tree::Serialize(YAML::Emitter& out) const {
                         const auto strand_segment_size = skeleton_data.strand_group.PeekStrandSegments().size();
                         auto node_handle = std::vector<SkeletonNodeHandle>(strand_segment_size);
                         auto profile_particle_handles = std::vector<ParticleHandle>(strand_segment_size);
-                        for (int strand_segment_index = 0; strand_segment_index < strand_segment_size; strand_segment_index++) {
-                          const auto& strand_segment = skeleton_data.strand_group.PeekStrandSegment(strand_segment_index);
+                        for (int strand_segment_index = 0; strand_segment_index < strand_segment_size;
+                             strand_segment_index++) {
+                          const auto& strand_segment =
+                              skeleton_data.strand_group.PeekStrandSegment(strand_segment_index);
                           node_handle.at(strand_segment_index) = strand_segment.data.node_handle;
-                          profile_particle_handles.at(strand_segment_index) = strand_segment.data.profile_particle_handle;
+                          profile_particle_handles.at(strand_segment_index) =
+                              strand_segment.data.profile_particle_handle;
                         }
                         if (strand_segment_size != 0) {
                           group_out << YAML::Key << "ss.data.node_handle" << YAML::Value
-                                   << YAML::Binary(reinterpret_cast<const unsigned char*>(node_handle.data()),
-                                                   node_handle.size() * sizeof(SkeletonNodeHandle));
+                                    << YAML::Binary(reinterpret_cast<const unsigned char*>(node_handle.data()),
+                                                    node_handle.size() * sizeof(SkeletonNodeHandle));
                           group_out << YAML::Key << "ss.data.profile_particle_handle" << YAML::Value
-                                   << YAML::Binary(
-                                          reinterpret_cast<const unsigned char*>(profile_particle_handles.data()),
-                                          profile_particle_handles.size() * sizeof(ParticleHandle));
+                                    << YAML::Binary(
+                                           reinterpret_cast<const unsigned char*>(profile_particle_handles.data()),
+                                           profile_particle_handles.size() * sizeof(ParticleHandle));
                         }
                       });
             }
@@ -1502,20 +1505,20 @@ void Tree::Serialize(YAML::Emitter& out) const {
             }
             if (node_size != 0) {
               skeleton_out << YAML::Key << "node.data.offset" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(offset.data()),
-                                          offset.size() * sizeof(glm::vec2));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(offset.data()),
+                                           offset.size() * sizeof(glm::vec2));
               skeleton_out << YAML::Key << "node.data.twist_angle" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(twist_angle.data()),
-                                          twist_angle.size() * sizeof(float));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(twist_angle.data()),
+                                           twist_angle.size() * sizeof(float));
               skeleton_out << YAML::Key << "node.data.split" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(split.data()),
-                                          split.size() * sizeof(int));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(split.data()),
+                                           split.size() * sizeof(int));
               skeleton_out << YAML::Key << "node.data.strand_radius" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_radius.data()),
-                                          strand_radius.size() * sizeof(float));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_radius.data()),
+                                           strand_radius.size() * sizeof(float));
               skeleton_out << YAML::Key << "node.data.strand_count" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_count.data()),
-                                          strand_count.size() * sizeof(float));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_count.data()),
+                                           strand_count.size() * sizeof(float));
             }
           });
     }
@@ -1587,41 +1590,41 @@ void Tree::Serialize(YAML::Emitter& out) const {
             }
             if (node_size != 0) {
               skeleton_out << YAML::Key << "node.data.internode_length" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(internode_length.data()),
-                                          internode_length.size() * sizeof(float));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(internode_length.data()),
+                                           internode_length.size() * sizeof(float));
               skeleton_out << YAML::Key << "node.data.index_of_parent_bud" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(index_of_parent_bud.data()),
-                                          index_of_parent_bud.size() * sizeof(int));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(index_of_parent_bud.data()),
+                                           index_of_parent_bud.size() * sizeof(int));
               skeleton_out << YAML::Key << "node.data.start_age" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(start_age.data()),
-                                          start_age.size() * sizeof(float));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(start_age.data()),
+                                           start_age.size() * sizeof(float));
               skeleton_out << YAML::Key << "node.data.finish_age" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(finish_age.data()),
-                                          finish_age.size() * sizeof(float));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(finish_age.data()),
+                                           finish_age.size() * sizeof(float));
               skeleton_out << YAML::Key << "node.data.desired_local_rotation" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(desired_local_rotation.data()),
-                                          desired_local_rotation.size() * sizeof(glm::quat));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(desired_local_rotation.data()),
+                                           desired_local_rotation.size() * sizeof(glm::quat));
               skeleton_out << YAML::Key << "node.data.desired_global_rotation" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(desired_global_rotation.data()),
-                                          desired_global_rotation.size() * sizeof(glm::quat));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(desired_global_rotation.data()),
+                                           desired_global_rotation.size() * sizeof(glm::quat));
               skeleton_out << YAML::Key << "node.data.desired_global_position" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(desired_global_position.data()),
-                                          desired_global_position.size() * sizeof(glm::vec3));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(desired_global_position.data()),
+                                           desired_global_position.size() * sizeof(glm::vec3));
               skeleton_out << YAML::Key << "node.data.sagging" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(sagging.data()),
-                                          sagging.size() * sizeof(float));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(sagging.data()),
+                                           sagging.size() * sizeof(float));
               skeleton_out << YAML::Key << "node.data.order" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(order.data()),
-                                          order.size() * sizeof(int));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(order.data()),
+                                           order.size() * sizeof(int));
               skeleton_out << YAML::Key << "node.data.extra_mass" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(extra_mass.data()),
-                                          extra_mass.size() * sizeof(float));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(extra_mass.data()),
+                                           extra_mass.size() * sizeof(float));
               skeleton_out << YAML::Key << "node.data.density" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(density.data()),
-                                          density.size() * sizeof(float));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(density.data()),
+                                           density.size() * sizeof(float));
               skeleton_out << YAML::Key << "node.data.strength" << YAML::Value
-                          << YAML::Binary(reinterpret_cast<const unsigned char*>(strength.data()),
-                                          strength.size() * sizeof(float));
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(strength.data()),
+                                           strength.size() * sizeof(float));
             }
           });
     }
@@ -1642,8 +1645,7 @@ void Tree::Deserialize(const YAML::Node& in) {
             if (node_in["profile"]) {
               const auto& in_strand_group = node_in["profile"];
               StrandModelProfileSerializer<CellParticlePhysicsData>::Deserialize(
-                  in_strand_group, node_data.profile,
-                  [&](const YAML::Node&, CellParticlePhysicsData&) {
+                  in_strand_group, node_data.profile, [&](const YAML::Node&, CellParticlePhysicsData&) {
                   });
             }
           },
@@ -1991,8 +1993,8 @@ void Tree::GenerateBillboardClouds(const BillboardCloud::GenerateSettings& folia
   }
 }
 
-void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mesh_generator_settings, const int iteration,
-                                            const bool enable_physics) {
+void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mesh_generator_settings,
+                                            const int iteration, const bool enable_physics) {
   const auto scene = GetScene();
   const auto self = GetOwner();
   const auto children = scene->GetChildren(self);
@@ -2032,7 +2034,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     GlobalTransform global_transform;
 
     global_transform.value = tree_global_transform.value * (glm::translate(flow.info.global_start_position) *
-                                                             glm::mat4_cast(flow.info.global_start_rotation));
+                                                            glm::mat4_cast(flow.info.global_start_rotation));
     scene->SetDataComponent(bound_entities[matrixIndex], global_transform);
 
     bone_indices_lists[matrixIndex] = matrixIndex;
@@ -2235,7 +2237,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     const auto fruit_entity = scene->CreateEntity("Animated Fruit Mesh");
     scene->SetParent(fruit_entity, self);
   }
-
+#ifdef PHYSICS_PLUGIN
   if (enable_physics) {
     const auto descendants = scene->GetDescendants(rag_doll);
     auto root_rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(rag_doll).lock();
@@ -2245,7 +2247,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     root_rigid_body->SetLinearDamping(branch_physics_parameters.linear_damping);
     root_rigid_body->SetAngularDamping(branch_physics_parameters.angular_damping);
     root_rigid_body->SetSolverIterations(branch_physics_parameters.position_solver_iteration,
-                                       branch_physics_parameters.velocity_solver_iteration);
+                                         branch_physics_parameters.velocity_solver_iteration);
     root_rigid_body->SetAngularVelocity(glm::vec3(0.0f));
     root_rigid_body->SetLinearVelocity(glm::vec3(0.0f));
 
@@ -2254,6 +2256,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
       branch_physics_parameters.Link(scene, skeleton, corresponding_entities, parent, child);
     }
   }
+#endif
 }
 
 void Tree::ClearAnimatedGeometryEntities() const {
@@ -2465,9 +2468,11 @@ void Tree::GenerateTreeParts(const TreeMeshGeneratorSettings& mesh_generator_set
       compare_radius = parent_flow.info.end_thickness;
     }
     int tree_part_type = 0;
-    if (has_multiple_children && distance_to_chain_end <= mesh_generator_settings.tree_part_base_distance * compare_radius) {
+    if (has_multiple_children &&
+        distance_to_chain_end <= mesh_generator_settings.tree_part_base_distance * compare_radius) {
       tree_part_type = 1;
-    } else if (!only_child && distance_to_chain_start <= mesh_generator_settings.tree_part_end_distance * compare_radius) {
+    } else if (!only_child &&
+               distance_to_chain_start <= mesh_generator_settings.tree_part_end_distance * compare_radius) {
       tree_part_type = 2;
     }
     int current_tree_part_index = -1;
@@ -2475,9 +2480,12 @@ void Tree::GenerateTreeParts(const TreeMeshGeneratorSettings& mesh_generator_set
     if (tree_part_type == 0) {
       // IShape
       // If root or parent is Y Shape or length exceeds limit, create a new IShape from this node.
-      bool restart_i_shape = parent_internode_handle == -1 || tree_part_infos[parent_internode_handle].tree_part_type != 0;
+      bool restart_i_shape =
+          parent_internode_handle == -1 || tree_part_infos[parent_internode_handle].tree_part_type != 0;
       if (!restart_i_shape) {
-        if (const auto& parent_junction_info = tree_part_infos[parent_internode_handle]; parent_junction_info.distance_to_start / internode_info.thickness > mesh_generator_settings.tree_part_break_ratio)
+        if (const auto& parent_junction_info = tree_part_infos[parent_internode_handle];
+            parent_junction_info.distance_to_start / internode_info.thickness >
+            mesh_generator_settings.tree_part_break_ratio)
           restart_i_shape = true;
       }
       if (restart_i_shape) {
@@ -2619,7 +2627,7 @@ void Tree::GenerateTreeParts(const TreeMeshGeneratorSettings& mesh_generator_set
   }
 }
 
-void Tree::ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, treeio::json& out) {
+void Tree::ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, nlohmann::json& out) {
 }
 
 void Tree::ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, YAML::Emitter& out) {
@@ -2678,7 +2686,8 @@ void Tree::ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_setti
   out << YAML::EndMap;
 }
 
-void Tree::ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, const std::filesystem::path& path) {
+void Tree::ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings,
+                           const std::filesystem::path& path) {
   try {
     auto directory = path;
     directory.remove_filename();
@@ -2822,13 +2831,12 @@ void SkeletalGraphSettings::OnInspect() {
   ImGui::ColorEdit4("Junction point color", &junction_point_color.x);
 }
 
-void Tree::PrepareController(const std::shared_ptr<ShootDescriptor>& shoot_descriptor, const std::shared_ptr<Soil>& soil,
-                             const std::shared_ptr<Climate>& climate) {
+void Tree::PrepareController(const std::shared_ptr<ShootDescriptor>& shoot_descriptor,
+                             const std::shared_ptr<Soil>& soil, const std::shared_ptr<Climate>& climate) {
   shoot_descriptor->PrepareController(shoot_growth_controller_);
 
-  shoot_growth_controller_.m_endToRootPruningFactor = [&](const glm::mat4&, ClimateModel& ,
-                                                         const ShootSkeleton& ,
-                                                         const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller_.m_endToRootPruningFactor = [&](const glm::mat4&, ClimateModel&, const ShootSkeleton&,
+                                                          const SkeletonNode<InternodeGrowthData>& internode) {
     if (shoot_descriptor->trunk_protection && internode.data.order == 0) {
       return 0.f;
     }
@@ -2842,49 +2850,50 @@ void Tree::PrepareController(const std::shared_ptr<ShootDescriptor>& shoot_descr
     }
     if (internode.data.sagging_stress > 1.) {
       pruning_probability += shoot_descriptor->branch_breaking_multiplier *
-                            glm::pow(internode.data.sagging_stress, shoot_descriptor->branch_breaking_multiplier);
+                             glm::pow(internode.data.sagging_stress, shoot_descriptor->branch_breaking_multiplier);
     }
     return pruning_probability;
   };
-  shoot_growth_controller_.m_rootToEndPruningFactor = [&](const glm::mat4& global_transform, ClimateModel& climate_model,
-                                                         const ShootSkeleton& shoot_skeleton,
-                                                         const SkeletonNode<InternodeGrowthData>& internode) {
-    if (shoot_descriptor->trunk_protection && internode.data.order == 0) {
-      return 0.f;
-    }
+  shoot_growth_controller_.m_rootToEndPruningFactor =
+      [&](const glm::mat4& global_transform, ClimateModel& climate_model, const ShootSkeleton& shoot_skeleton,
+          const SkeletonNode<InternodeGrowthData>& internode) {
+        if (shoot_descriptor->trunk_protection && internode.data.order == 0) {
+          return 0.f;
+        }
 
-    if (shoot_descriptor->max_flow_length != 0 && shoot_descriptor->max_flow_length < internode.info.chain_index) {
-      return 999.f;
-    }
-    if (const auto max_distance = shoot_skeleton.PeekNode(0).info.end_distance; max_distance > 5.0f * shoot_growth_controller_.m_internodeLength && internode.data.order > 0 &&
-                                                                               internode.info.root_distance / max_distance < low_branch_pruning) {
-      if (const auto parent_handle = internode.GetParentHandle(); parent_handle != -1) {
-        const auto& parent = shoot_skeleton.PeekNode(parent_handle);
-        if (parent.PeekChildHandles().size() > 1) {
+        if (shoot_descriptor->max_flow_length != 0 && shoot_descriptor->max_flow_length < internode.info.chain_index) {
           return 999.f;
         }
-      }
-    }
-    if (crown_shyness_distance > 0.f && internode.IsEndNode()) {
-      const glm::vec3 end_position = global_transform * glm::vec4(internode.info.GetGlobalEndPosition(), 1.0f);
-      bool prune_by_crown_shyness = false;
-      climate_model.environment_grid.voxel_grid.ForEach(
-          end_position, crown_shyness_distance * 2.0f, [&](const EnvironmentVoxel& data) {
-            if (prune_by_crown_shyness)
-              return;
-            for (const auto& i : data.internode_voxel_registrations) {
-              if (i.tree_skeleton_index == shoot_skeleton.data.index)
-                continue;
-              if (glm::distance(end_position, i.position) < crown_shyness_distance)
-                prune_by_crown_shyness = true;
+        if (const auto max_distance = shoot_skeleton.PeekNode(0).info.end_distance;
+            max_distance > 5.0f * shoot_growth_controller_.m_internodeLength && internode.data.order > 0 &&
+            internode.info.root_distance / max_distance < low_branch_pruning) {
+          if (const auto parent_handle = internode.GetParentHandle(); parent_handle != -1) {
+            const auto& parent = shoot_skeleton.PeekNode(parent_handle);
+            if (parent.PeekChildHandles().size() > 1) {
+              return 999.f;
             }
-          });
-      if (prune_by_crown_shyness)
-        return 999.f;
-    }
-    constexpr float pruningProbability = 0.0f;
-    return pruningProbability;
-  };
+          }
+        }
+        if (crown_shyness_distance > 0.f && internode.IsEndNode()) {
+          const glm::vec3 end_position = global_transform * glm::vec4(internode.info.GetGlobalEndPosition(), 1.0f);
+          bool prune_by_crown_shyness = false;
+          climate_model.environment_grid.voxel_grid.ForEach(
+              end_position, crown_shyness_distance * 2.0f, [&](const EnvironmentVoxel& data) {
+                if (prune_by_crown_shyness)
+                  return;
+                for (const auto& i : data.internode_voxel_registrations) {
+                  if (i.tree_skeleton_index == shoot_skeleton.data.index)
+                    continue;
+                  if (glm::distance(end_position, i.position) < crown_shyness_distance)
+                    prune_by_crown_shyness = true;
+                }
+              });
+          if (prune_by_crown_shyness)
+            return 999.f;
+        }
+        constexpr float pruningProbability = 0.0f;
+        return pruningProbability;
+      };
 }
 
 void Tree::InitializeStrandRenderer() {
@@ -2892,8 +2901,7 @@ void Tree::InitializeStrandRenderer() {
   const auto owner = GetOwner();
 
   ClearStrandRenderer();
-  if (strand_model.strand_model_skeleton.RefRawNodes().size() !=
-      tree_model.PeekShootSkeleton().PeekRawNodes().size()) {
+  if (strand_model.strand_model_skeleton.RefRawNodes().size() != tree_model.PeekShootSkeleton().PeekRawNodes().size()) {
     BuildStrandModel();
   }
   const auto strands_entity = scene->CreateEntity("Branch Strands");
@@ -2929,10 +2937,10 @@ void Tree::InitializeStrandRenderer(const std::shared_ptr<Strands>& strands) con
   material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
 }
 
-void Tree::InitializeStrandModelMeshRenderer(const StrandModelMeshGeneratorSettings& strand_model_mesh_generator_settings) {
+void Tree::InitializeStrandModelMeshRenderer(
+    const StrandModelMeshGeneratorSettings& strand_model_mesh_generator_settings) {
   ClearStrandModelMeshRenderer();
-  if (strand_model.strand_model_skeleton.RefRawNodes().size() !=
-      tree_model.PeekShootSkeleton().PeekRawNodes().size()) {
+  if (strand_model.strand_model_skeleton.RefRawNodes().size() != tree_model.PeekShootSkeleton().PeekRawNodes().size()) {
     BuildStrandModel();
   }
   const float time = Times::Now();

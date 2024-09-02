@@ -367,7 +367,8 @@ void RenderTexture::StoreToPng(const std::string& path, int resize_x, int resize
   if (resize_x > 0 && resize_y > 0 && (resize_x != resolution_x || resize_y != resolution_y)) {
     std::vector<float> res;
     res.resize(resize_x * resize_y * store_channels);
-    stbir_resize_float(dst.data(), resolution_x, resolution_y, 0, res.data(), resize_x, resize_y, 0, store_channels);
+    stbir_resize_float_linear(dst.data(), resolution_x, resolution_y, 0, res.data(), resize_x, resize_y, 0,
+                              static_cast<stbir_pixel_layout>(store_channels));
     pixels.resize(resize_x * resize_y * store_channels);
     for (int i = 0; i < resize_x * resize_y; i++) {
       pixels[i * store_channels] = glm::clamp<int>(int(255.9f * res[i * channels]), 0, 255);
@@ -410,7 +411,8 @@ void RenderTexture::StoreToJpg(const std::string& path, int resize_x, int resize
   if (resize_x > 0 && resize_y > 0 && (resize_x != resolution_x || resize_y != resolution_y)) {
     std::vector<float> res;
     res.resize(resize_x * resize_y * store_channels);
-    stbir_resize_float(dst.data(), resolution_x, resolution_y, 0, res.data(), resize_x, resize_y, 0, store_channels);
+    stbir_resize_float_linear(dst.data(), resolution_x, resolution_y, 0, res.data(), resize_x, resize_y, 0,
+                              static_cast<stbir_pixel_layout>(store_channels));
     pixels.resize(resize_x * resize_y * store_channels);
     for (int i = 0; i < resize_x * resize_y; i++) {
       pixels[i * store_channels] = glm::clamp<int>(int(255.9f * res[i * channels]), 0, 255);
@@ -451,7 +453,8 @@ void RenderTexture::StoreToHdr(const std::string& path, int resize_x, int resize
   if (resize_x > 0 && resize_y > 0 && (resize_x != resolution_x || resize_y != resolution_y)) {
     std::vector<float> pixels;
     pixels.resize(resize_x * resize_y * channels);
-    stbir_resize_float(dst.data(), resolution_x, resolution_y, 0, pixels.data(), resize_x, resize_y, 0, channels);
+    stbir_resize_float_linear(dst.data(), resolution_x, resolution_y, 0, pixels.data(), resize_x, resize_y, 0,
+                              static_cast<stbir_pixel_layout>(channels));
     stbi_write_hdr(path.c_str(), resolution_x, resolution_y, channels, pixels.data());
   } else {
     stbi_write_hdr(path.c_str(), resolution_x, resolution_y, channels, dst.data());

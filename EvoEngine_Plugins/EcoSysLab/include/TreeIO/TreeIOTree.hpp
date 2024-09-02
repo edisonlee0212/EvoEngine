@@ -78,7 +78,7 @@ struct TreeDynamicMetaData {
   void deserialize(const std::string &serialized);
 
   /// Internal data holder.
-  json data{};
+  nlohmann::json data{};
 };  // struct TreeDynamicMetaData
 
 /// @brief Holds meta data containing information regarding the tree
@@ -200,12 +200,12 @@ struct TreeMetaData {
   }
 
   /// @brief Access the dynamic meta-data.
-  const json &dynamicData() const {
+  const nlohmann::json &dynamicData() const {
     return mDynamicMetaData->data;
   }
 
   /// @brief Access the dynamic meta-data.
-  json &dynamicData() {
+  nlohmann::json &dynamicData() {
     return mDynamicMetaData->data;
   }
 
@@ -1571,8 +1571,8 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromTreeStri
 namespace impl {
 
 inline auto getRootJSONObject(const std::string &serialized) {
-  const auto data{treeutil::containsOnlyWhiteSpaces(serialized) ? treeio::json{} : json::parse(serialized)};
-  const auto isArray{data.type() == json::value_t::array};
+  const auto data{treeutil::containsOnlyWhiteSpaces(serialized) ? nlohmann::json{} : nlohmann::json::parse(serialized)};
+  const auto isArray{data.type() == nlohmann::json::value_t::array};
   return isArray ? *data.begin() : data;
 }
 

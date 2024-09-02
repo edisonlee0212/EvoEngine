@@ -10,7 +10,7 @@ bool Json::SaveInternal(const std::filesystem::path& path) const {
 
 bool Json::LoadInternal(const std::filesystem::path& path) {
   std::ifstream ifs(path);
-  m_json = treeio::json::parse(ifs);
+  m_json = nlohmann::json::parse(ifs);
   return true;
 }
 

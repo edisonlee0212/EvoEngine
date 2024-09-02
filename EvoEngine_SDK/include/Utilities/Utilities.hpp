@@ -1,6 +1,8 @@
 #pragma once
-#include <shaderc/shaderc.hpp>
 #include "RandomSampler.hpp"
+#include "Shader.hpp"
+#include "ShaderLang.h"
+
 namespace evo_engine {
 class FileUtils {
  public:
@@ -11,47 +13,17 @@ class FileUtils {
 
   static void OpenFile(const std::string& dialog_title, const std::string& file_type,
                        const std::vector<std::string>& extensions,
-                       const std::function<void(const std::filesystem::path& path)>& func, bool project_dir_check = true);
+                       const std::function<void(const std::filesystem::path& path)>& func,
+                       bool project_dir_check = true);
   static void SaveFile(const std::string& dialog_title, const std::string& file_type,
                        const std::vector<std::string>& extensions,
-                       const std::function<void(const std::filesystem::path& path)>& func, bool project_dir_check = true);
+                       const std::function<void(const std::filesystem::path& path)>& func,
+                       bool project_dir_check = true);
 };
 
 class ShaderUtils {
  public:
-  /**
-   * \brief Preprocess Shader
-   * \param source_name
-   * \param kind
-   * \param source
-   * \return Returns GLSL shader source text after preprocessing.
-   */
-  static std::string PreprocessShader(const std::string& source_name, shaderc_shader_kind kind,
-                                      const std::string& source);
-
-  /**
-   * \brief Compiles a shader to SPIR-V assembly.
-   * \param source_name
-   * \param kind
-   * \param source
-   * \param optimize
-   * \return Returns the assembly text as a string.
-   */
-  static std::string CompileFileToAssembly(const std::string& source_name, shaderc_shader_kind kind,
-                                           const std::string& source, bool optimize = false);
-  /**
-   * \brief Compiles a shader to a SPIR-V binary.
-   * \param source_name
-   * \param kind
-   * \param source
-   * \param optimize
-   * \return Returns the binary as a vector of 32-bit words.
-   */
-  static std::vector<uint32_t> CompileFile(const std::string& source_name, shaderc_shader_kind kind,
-                                           const std::string& source, bool optimize = false);
-
-  static std::vector<uint32_t> Get(const std::string& source_name, shaderc_shader_kind kind, const std::string& source,
-                                   bool optimize = false);
+  static std::vector<uint32_t> CompileGlsl(ShaderType shader_type, const std::string& source, bool optimize = false);
 };
 
 class SphereMeshGenerator {

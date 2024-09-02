@@ -4,28 +4,27 @@
 
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
-#include "PlanetTerrainSystem.hpp"
-#include "StarClusterSystem.hpp"
 #include "PerlinNoiseStage.hpp"
+#include "PlanetTerrainSystem.hpp"
 #include "PlayerController.hpp"
 #include "Prefab.hpp"
 #include "RenderLayer.hpp"
+#include "StarClusterSystem.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
 
 #include "PostProcessingStack.hpp"
-
+#include "Resources.hpp"
 #ifdef OPTIX_RAY_TRACER_PLUGIN
-#include <CUDAModule.hpp>
-#include <RayTracerLayer.hpp>
+#  include <CUDAModule.hpp>
+#  include <RayTracerLayer.hpp>
 #endif
 #ifdef PHYSICS_PLUGIN
-#include "PhysicsLayer.hpp"
-#include "RigidBody.hpp"
-#ifdef RAY_TRACER_PLUGIN
-#include "CpuRayTracerCamera.hpp"
+#  include "PhysicsLayer.hpp"
+#  include "RigidBody.hpp"
 #endif
-
+#ifdef RAY_TRACER_PLUGIN
+#  include "CpuRayTracerCamera.hpp"
 #endif
 using namespace evo_engine;
 using namespace planet;
@@ -69,7 +68,7 @@ int main() {
 #ifdef PHYSICS_PLUGIN
   Application::PushLayer<PhysicsLayer>();
 #endif
-  
+
 #ifdef RAY_TRACER_PLUGIN
   PrivateComponentRegistration<CpuRayTracerCamera>("CpuRayTracerCamera");
 #endif
@@ -464,10 +463,10 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
   }
 #pragma endregion
 }
-
+#ifdef PHYSICS_PLUGIN
 Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name) {
   const auto base_entity = scene->CreateEntity(base_entity_name);
-#pragma region Create 9 spheres in different PBR properties
+#  pragma region Create 9 spheres in different PBR properties
   const int amount = 5;
   constexpr float scale_factor = 0.03f;
   const auto collection = scene->CreateEntity("Spheres");
@@ -502,10 +501,9 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
     }
   }
   scene->SetParent(collection, base_entity);
-#pragma endregion
-#pragma region Create Boundaries
+#  pragma endregion
+#  pragma region Create Boundaries
   {
-#ifdef PHYSICS_PLUGIN
     const auto ground = CreateSolidCube(1.0, glm::vec3(1.0f), glm::vec3(0, -35, 0) * scale_factor, glm::vec3(0),
                                         glm::vec3(30, 1, 60) * scale_factor, "Ground");
 
@@ -522,7 +520,7 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
     scene->SetParent(back_wall, collection);
     scene->SetParent(left_wall, collection);
     scene->SetParent(front_wall, collection);
-#endif
+
     /*
     const auto b1 = CreateDynamicCube(
             1.0, glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(-5, -7.5, 0) * scaleFactor, glm::vec3(0, 0, 45), glm::vec3(0.5)
@@ -566,11 +564,10 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
     joint->SetMotion(MotionAxis::SwingZ, MotionType::Free);
     */
   }
-#pragma endregion
+#  pragma endregion
   return base_entity;
 }
 
-#ifdef PHYSICS_PLUGIN
 Entity CreateSolidCube(const float& mass, const glm::vec3& color, const glm::vec3& position, const glm::vec3& rotation,
                        const glm::vec3& scale, const std::string& name) {
   auto scene = Application::GetActiveScene();
