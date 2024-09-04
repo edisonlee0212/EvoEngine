@@ -321,7 +321,8 @@ void Texture2D::StoreToPng(const std::filesystem::path& path, const std::vector<
   if (resize_x > 0 && resize_y > 0 && (resize_x != src_x || resize_y != src_y)) {
     std::vector<float> res;
     res.resize(resize_x * resize_y * src_channel_size);
-    stbir_resize_float(src_data.data(), src_x, src_y, 0, res.data(), resize_x, resize_y, 0, src_channel_size);
+    stbir_resize_float_linear(src_data.data(), src_x, src_y, 0, res.data(), resize_x, resize_y, 0,
+                              static_cast<stbir_pixel_layout>(src_channel_size));
 
     pixels.resize(resize_x * resize_y * target_channel_size);
     Jobs::RunParallelFor(resize_x * resize_y, [&](unsigned i) {
@@ -418,7 +419,8 @@ void Texture2D::StoreToJpg(const std::filesystem::path& path, const std::vector<
   if (resize_x > 0 && resize_y > 0 && (resize_x != src_x || resize_y != src_y)) {
     std::vector<float> res;
     res.resize(resize_x * resize_y * src_channel_size);
-    stbir_resize_float(src_data.data(), src_x, src_y, 0, res.data(), resize_x, resize_y, 0, src_channel_size);
+    stbir_resize_float_linear(src_data.data(), src_x, src_y, 0, res.data(), resize_x, resize_y, 0,
+                              static_cast<stbir_pixel_layout>(src_channel_size));
 
     pixels.resize(resize_x * resize_y * target_channel_size);
 
@@ -451,7 +453,8 @@ void Texture2D::StoreToTga(const std::filesystem::path& path, const std::vector<
   if (resize_x > 0 && resize_y > 0 && (resize_x != src_x || resize_y != src_y)) {
     std::vector<float> res;
     res.resize(resize_x * resize_y * src_channel_size);
-    stbir_resize_float(src_data.data(), src_x, src_y, 0, res.data(), resize_x, resize_y, 0, src_channel_size);
+    stbir_resize_float_linear(src_data.data(), src_x, src_y, 0, res.data(), resize_x, resize_y, 0,
+                              static_cast<stbir_pixel_layout>(src_channel_size));
 
     pixels.resize(resize_x * resize_y * target_channel_size);
     Jobs::RunParallelFor(resize_x * resize_y, [&](unsigned i) {
@@ -482,7 +485,8 @@ void Texture2D::StoreToHdr(const std::filesystem::path& path, const std::vector<
   if (resize_x > 0 && resize_y > 0 && (resize_x != src_x || resize_y != src_y)) {
     std::vector<float> res;
     res.resize(resize_x * resize_y * src_channel_size);
-    stbir_resize_float(src_data.data(), src_x, src_y, 0, res.data(), resize_x, resize_y, 0, src_channel_size);
+    stbir_resize_float_linear(src_data.data(), src_x, src_y, 0, res.data(), resize_x, resize_y, 0,
+                              static_cast<stbir_pixel_layout>(src_channel_size));
 
     pixels.resize(resize_x * resize_y * target_channel_size);
     Jobs::RunParallelFor(resize_x * resize_y, [&](unsigned i) {
@@ -586,8 +590,9 @@ void Texture2D::GetRgbaChannelData(std::vector<glm::vec4>& dst, const int resize
   image_buffer.DownloadVector(src, resolution.x * resolution.y);
 
   dst.resize(resize_x * resize_y);
-  stbir_resize_float(reinterpret_cast<float*>(src.data()), resolution.x, resolution.y, 0,
-                     reinterpret_cast<float*>(dst.data()), resize_x, resize_y, 0, 4);
+  stbir_resize_float_linear(reinterpret_cast<float*>(src.data()), resolution.x, resolution.y, 0,
+                            reinterpret_cast<float*>(dst.data()), resize_x, resize_y, 0,
+                            static_cast<stbir_pixel_layout>(4));
 }
 
 void Texture2D::GetRgbChannelData(std::vector<glm::vec3>& dst, int resize_x, int resize_y) const {
@@ -692,27 +697,31 @@ void Texture2D::SetRedChannelData(const std::vector<float>& src, const glm::uvec
 void Texture2D::Resize(std::vector<glm::vec4>& src, const glm::uvec2& src_resolution, std::vector<glm::vec4>& dst,
                        const glm::uvec2& dst_resolution) {
   dst.resize(dst_resolution.x * dst_resolution.y);
-  stbir_resize_float(static_cast<float*>(static_cast<void*>(src.data())), src_resolution.x, src_resolution.y, 0,
-                     static_cast<float*>(static_cast<void*>(dst.data())), dst_resolution.x, dst_resolution.y, 0, 4);
+  stbir_resize_float_linear(static_cast<float*>(static_cast<void*>(src.data())), src_resolution.x, src_resolution.y, 0,
+                            static_cast<float*>(static_cast<void*>(dst.data())), dst_resolution.x, dst_resolution.y, 0,
+                            static_cast<stbir_pixel_layout>(4));
 }
 
 void Texture2D::Resize(std::vector<glm::vec3>& src, const glm::uvec2& src_resolution, std::vector<glm::vec3>& dst,
                        const glm::uvec2& dst_resolution) {
   dst.resize(dst_resolution.x * dst_resolution.y);
-  stbir_resize_float(static_cast<float*>(static_cast<void*>(src.data())), src_resolution.x, src_resolution.y, 0,
-                     static_cast<float*>(static_cast<void*>(dst.data())), dst_resolution.x, dst_resolution.y, 0, 3);
+  stbir_resize_float_linear(static_cast<float*>(static_cast<void*>(src.data())), src_resolution.x, src_resolution.y, 0,
+                            static_cast<float*>(static_cast<void*>(dst.data())), dst_resolution.x, dst_resolution.y, 0,
+                            static_cast<stbir_pixel_layout>(3));
 }
 
 void Texture2D::Resize(std::vector<glm::vec2>& src, const glm::uvec2& src_resolution, std::vector<glm::vec2>& dst,
                        const glm::uvec2& dst_resolution) {
   dst.resize(dst_resolution.x * dst_resolution.y);
-  stbir_resize_float(static_cast<float*>(static_cast<void*>(src.data())), src_resolution.x, src_resolution.y, 0,
-                     static_cast<float*>(static_cast<void*>(dst.data())), dst_resolution.x, dst_resolution.y, 0, 2);
+  stbir_resize_float_linear(static_cast<float*>(static_cast<void*>(src.data())), src_resolution.x, src_resolution.y, 0,
+                            static_cast<float*>(static_cast<void*>(dst.data())), dst_resolution.x, dst_resolution.y, 0,
+                            static_cast<stbir_pixel_layout>(2));
 }
 
 void Texture2D::Resize(std::vector<float>& src, const glm::uvec2& src_resolution, std::vector<float>& dst,
                        const glm::uvec2& dst_resolution) {
   dst.resize(dst_resolution.x * dst_resolution.y);
-  stbir_resize_float(static_cast<float*>(static_cast<void*>(src.data())), src_resolution.x, src_resolution.y, 0,
-                     static_cast<float*>(static_cast<void*>(dst.data())), dst_resolution.x, dst_resolution.y, 0, 1);
+  stbir_resize_float_linear(static_cast<float*>(static_cast<void*>(src.data())), src_resolution.x, src_resolution.y, 0,
+                            static_cast<float*>(static_cast<void*>(dst.data())), dst_resolution.x, dst_resolution.y, 0,
+                            static_cast<stbir_pixel_layout>(1));
 }

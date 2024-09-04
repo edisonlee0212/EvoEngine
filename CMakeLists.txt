@@ -33,8 +33,11 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 # ------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------
-set(3RD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3rdParty)
-add_subdirectory(${3RD_PARTY_DIR})
+
+set(3RDPARTY_INCLUDES "")
+set(3RDPARTY_DLLS "")
+set(3RDPARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Extern/3rdParty)
+add_subdirectory(${3RDPARTY_DIR})
 
 # ------------------------------------------------------------------
 # EvoEngine - SDK

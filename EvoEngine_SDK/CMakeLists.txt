@@ -13,7 +13,7 @@ add_library(EvoEngine_SDK
 		)
 
 set(EVOENGINE_SDK_INCLUDES
-		${3RD_PARTY_INCLUDES}
+		${3RDPARTY_INCLUDES}
 		${EVOENGINE_SDK_DIR}/include
 		${EVOENGINE_SDK_DIR}/include/Core
 		${EVOENGINE_SDK_DIR}/include/Core/ECS
@@ -58,9 +58,15 @@ target_link_libraries(EvoEngine_SDK
 		meshoptimizer
 		GPUOpen::VulkanMemoryAllocator
 		csvpp
-		JSON
+		nlohmann_json
 		xatlas
-		Base64
+		base64
+		zlib
+		assimp
+		glfw
+		glslang::glslang 
+		glslang::SPIRV 
+		glslang::glslang-default-resource-limits
 		)
 
 set(EVOENGINE_SDK_INTERNALS_DIR ${CMAKE_CURRENT_BINARY_DIR}/Internals/)
@@ -76,30 +82,6 @@ target_compile_definitions(EvoEngine_SDK
 		)
 
 if (WIN32)
-	if (CMAKE_BUILD_TYPE MATCHES "^[Rr]elease")
-		set(SHADERC_LIB ${SHADERC_DIR}lib/windows/shaderc_combined.lib)
-		set(ASSIMP_LIBS
-				${ASSIMP_DIR}/lib/Release/assimp-vc143-mt.lib
-				${ASSIMP_DIR}/lib/Release/zlibstatic.lib
-				)
-	elseif (CMAKE_BUILD_TYPE MATCHES "^[Rr]elWithDebInfo")
-		set(SHADERC_LIB ${SHADERC_DIR}lib/windows/shaderc_combined.lib)
-		set(ASSIMP_LIBS
-				${ASSIMP_DIR}/lib/RelWithDebInfo/assimp-vc143-mt.lib
-				${ASSIMP_DIR}/lib/RelWithDebInfo/zlibstatic.lib
-				)
-	else()
-		set(SHADERC_LIB ${SHADERC_DIR}lib/windows/shaderc_combined_d.lib)
-		set(ASSIMP_LIBS
-				${ASSIMP_DIR}/lib/Debug/assimp-vc143-mtd.lib
-				${ASSIMP_DIR}/lib/Debug/zlibstaticd.lib
-				)
-	endif ()
-	target_link_libraries(EvoEngine_SDK
-			${GLFW_DIR}glfw3.lib
-			${SHADERC_LIB}
-			${ASSIMP_LIBS}
-			)
 	# Compiler settings for Windows platform
 	set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 	target_compile_definitions(EvoEngine_SDK
@@ -108,30 +90,16 @@ if (WIN32)
 			USE_ASSIMP
 			)
 else()
-	# Linker and compiler settings for Linux platform
-	if (CMAKE_BUILD_TYPE MATCHES "^[Rr]elease")
-		file(GLOB SHADERC_LIBS "3rdParty/shaderc/lib/linux/release/*.a")
-		set(CMAKE_CXX_FLAGS_RELEASE "-O3")
-	elseif (CMAKE_BUILD_TYPE MATCHES "^[Rr]elWithDebInfo")
-		file(GLOB SHADERC_LIBS "3rdParty/shaderc/lib/linux/release/*.a")
-		set(CMAKE_CXX_FLAGS_RELWITHDEBINGO "-O2 -g -NDEBUG")
-	elseif (CMAKE_BUILD_TYPE MATCHES "[Dd]ebug")
-		file(GLOB SHADERC_LIBS "3rdParty/shaderc/lib/linux/debug/*.a")
-		set(CMAKE_CXX_FLAGS_DEBUG "-g")
-	endif ()
 	target_link_libraries(EvoEngine_SDK
 			m
 			${Vulkan_LIBRARIES}
 			stdc++
-			glfw
 			dl
 			Xau
 			X11
 			pthread
 			Xrandr
 			Xi
-			assimp
-			${SHADERC_LIBS}
 			)
 endif ()
 
@@ -160,7 +128,24 @@ set(EVOENGINE_SDK_DEFS NOMINMAX PARENT_SCOPE)
 function(evoengine_sdk_copy_resources dst_target dst_dir)
 	add_custom_command(TARGET ${dst_target} POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_directory
-		${EVOENGINE_SDK_DIR}/Internals
-		${dst_dir})
-	
+		${EVOENGINE_SDK_DIR}/Internals ${dst_dir}
+		VERBATIM)
+	foreach(file_i ${EVOENGINE_SDK_DLLS})
+		add_custom_command(TARGET ${dst_target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy
+			${file_i} ${dst_dir} || (exit 0)
+			VERBATIM)
+	endforeach(file_i)
+	foreach(file_i ${3RDPARTY_DLLS})
+		add_custom_command(TARGET ${dst_target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy
+			${file_i} ${dst_dir} || (exit 0)
+			VERBATIM)
+	endforeach(file_i)
+	foreach(file_i ${3RDPARTY_PDBS})
+		add_custom_command(TARGET ${dst_target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy
+			${file_i} ${dst_dir} || (exit 0)
+			VERBATIM)
+	endforeach(file_i)
 endfunction()

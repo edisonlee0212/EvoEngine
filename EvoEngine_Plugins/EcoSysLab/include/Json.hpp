@@ -1,5 +1,5 @@
 #pragma once
-#include "json.h"
+#include "nlohmann/json.hpp"
 using namespace evo_engine;
 namespace eco_sys_lab {
 class Json : public IAsset {
@@ -8,7 +8,7 @@ class Json : public IAsset {
   bool LoadInternal(const std::filesystem::path& path) override;
 
  public:
-  treeio::json m_json;
+  nlohmann::json m_json;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
 };
 }  // namespace eco_sys_lab

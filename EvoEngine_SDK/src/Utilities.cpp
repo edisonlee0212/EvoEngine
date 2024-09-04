@@ -7,6 +7,8 @@
 #include "EditorLayer.hpp"
 #include "ProjectManager.hpp"
 #include "WindowLayer.hpp"
+#include "glslang_c_interface.h"
+#include "resource_limits_c.h"
 using namespace evo_engine;
 std::string FileUtils::LoadFileAsString(const std::filesystem::path& path) {
   std::ifstream file;
@@ -268,70 +270,10 @@ void FileUtils::SaveFile(const std::string& dialog_title, const std::string& fil
 #endif
 }
 
-std::string ShaderUtils::PreprocessShader(const std::string& source_name, shaderc_shader_kind kind,
-                                          const std::string& source) {
-  shaderc::Compiler compiler;
-  shaderc::CompileOptions options;
-
-  // Like -DMY_DEFINE=1
-  options.AddMacroDefinition("MY_DEFINE", "1");
-
-  shaderc::PreprocessedSourceCompilationResult result =
-      compiler.PreprocessGlsl(source, kind, source_name.c_str(), options);
-
-  if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
-    std::cerr << result.GetErrorMessage();
-    return "";
-  }
-
-  return {result.cbegin(), result.cend()};
-}
-
-std::string ShaderUtils::CompileFileToAssembly(const std::string& source_name, shaderc_shader_kind kind,
-                                               const std::string& source, bool optimize) {
-  shaderc::Compiler compiler;
-  shaderc::CompileOptions options;
-
-  // Like -DMY_DEFINE=1
-  options.AddMacroDefinition("MY_DEFINE", "1");
-  if (optimize)
-    options.SetOptimizationLevel(shaderc_optimization_level_size);
-
-  shaderc::AssemblyCompilationResult result =
-      compiler.CompileGlslToSpvAssembly(source, kind, source_name.c_str(), options);
-
-  if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
-    std::cerr << result.GetErrorMessage();
-    return "";
-  }
-
-  return {result.cbegin(), result.cend()};
-}
-std::vector<uint32_t> ShaderUtils::CompileFile(const std::string& source_name, shaderc_shader_kind kind,
-                                               const std::string& source, bool optimize) {
-  shaderc::Compiler compiler;
-  shaderc::CompileOptions options;
-
-  // Like -DMY_DEFINE=1
-  // options.AddMacroDefinition("MY_DEFINE", "1");
-  if (optimize)
-    options.SetOptimizationLevel(shaderc_optimization_level_size);
-  options.SetTargetSpirv(shaderc_spirv_version_1_4);
-  shaderc::SpvCompilationResult module = compiler.CompileGlslToSpv(source, kind, source_name.c_str(), options);
-
-  if (module.GetCompilationStatus() != shaderc_compilation_status_success) {
-    std::cerr << module.GetErrorMessage();
-    return {};
-  }
-
-  return {module.cbegin(), module.cend()};
-}
-
-std::vector<uint32_t> ShaderUtils::Get(const std::string& source_name, shaderc_shader_kind kind,
-                                       const std::string& source, bool optimize) {
+std::vector<uint32_t> ShaderUtils::CompileGlsl(const ShaderType shader_type, const std::string& source, bool optimize) {
   // 1. Look for compiled resource.
   const auto binary_search_path = std::filesystem::path("./DefaultResources") / "CompiledShaderBinaries" /
-                                (std::to_string(std::hash<std::string>{}(source)) + ".yml");
+                                  (std::to_string(std::hash<std::string>{}(source)) + ".yml");
   std::vector<uint32_t> ret_val;
   if (std::filesystem::exists(binary_search_path)) {
     const std::ifstream stream(binary_search_path.string());
@@ -343,7 +285,72 @@ std::vector<uint32_t> ShaderUtils::Get(const std::string& source_name, shaderc_s
     ret_val.resize(binaries.size() / sizeof(uint32_t));
     std::memcpy(ret_val.data(), binaries.data(), binaries.size());
   } else {
-    ret_val = CompileFile(source_name, kind, source, optimize);
+    glslang_initialize_process();
+    glslang_input_t input;
+
+    input.language = GLSLANG_SOURCE_GLSL;
+
+    switch (shader_type) {
+      case ShaderType::Task:
+        input.stage = GLSLANG_STAGE_TASK;
+        break;
+      case ShaderType::Mesh:
+        input.stage = GLSLANG_STAGE_MESH;
+        break;
+      case ShaderType::Vertex:
+        input.stage = GLSLANG_STAGE_VERTEX;
+        break;
+      case ShaderType::TessellationControl:
+        input.stage = GLSLANG_STAGE_TESSCONTROL;
+        break;
+      case ShaderType::TessellationEvaluation:
+        input.stage = GLSLANG_STAGE_TESSEVALUATION;
+        break;
+      case ShaderType::Geometry:
+        input.stage = GLSLANG_STAGE_GEOMETRY;
+        break;
+      case ShaderType::Fragment:
+        input.stage = GLSLANG_STAGE_FRAGMENT;
+        break;
+      case ShaderType::Compute:
+        input.stage = GLSLANG_STAGE_COMPUTE;
+        break;
+      case ShaderType::Unknown:
+        EVOENGINE_ERROR("Unknown type shader!");
+        return {};
+    }
+
+    input.client = GLSLANG_CLIENT_VULKAN;
+    input.client_version = GLSLANG_TARGET_VULKAN_1_3;
+    input.target_language = GLSLANG_TARGET_SPV;
+    input.target_language_version = GLSLANG_TARGET_SPV_1_4;
+    input.code = source.c_str();
+    input.default_version = 460;
+    input.default_profile = GLSLANG_CORE_PROFILE;
+    input.force_default_version_and_profile = 0;
+    input.forward_compatible = 0;
+    input.messages = GLSLANG_MSG_DEFAULT_BIT;
+    input.resource = glslang_default_resource();  // Load defaults or create resource manually!
+
+    glslang_shader_t* shader = glslang_shader_create(&input);
+    if (!glslang_shader_preprocess(shader, &input)) { /* errors and logs */
+    }
+    if (!glslang_shader_parse(shader, &input)) { /* errors and logs */
+    }
+    glslang_program_t* program = glslang_program_create();
+    glslang_program_add_shader(program, shader);
+    if (!glslang_program_link(program,
+                              GLSLANG_MSG_SPV_RULES_BIT | GLSLANG_MSG_VULKAN_RULES_BIT)) { /* errors and logs */
+    }
+    glslang_program_SPIRV_generate(program, input.stage);
+    if (glslang_program_SPIRV_get_messages(program)) { /* errors and logs */
+      EVOENGINE_ERROR(glslang_program_SPIRV_get_messages(program));
+      return {};
+    }
+    ret_val.resize(glslang_program_SPIRV_get_size(program));
+    std::memcpy(ret_val.data(), glslang_program_SPIRV_get_ptr(program),
+                glslang_program_SPIRV_get_size(program) * sizeof(uint32_t));
+    glslang_finalize_process();
     YAML::Emitter out;
     out << YAML::BeginMap;
     out << YAML::Key << "CompiledBinaries" << YAML::Value

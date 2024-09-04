@@ -3457,7 +3457,7 @@ IGFD_API bool IGFD::KeyExplorerFeature::prFlashableSelectable(
     RenderTextClipped(text_min, text_max, label, NULL, &label_size, style.SelectableTextAlign, &bb);
 
     // Automatically close popups
-    if (pressed && (window->Flags & ImGuiWindowFlags_Popup) && !(flags & ImGuiSelectableFlags_DontClosePopups) && !(g.LastItemData.InFlags & ImGuiItemFlags_SelectableDontClosePopup)) CloseCurrentPopup();
+    if (pressed && (window->Flags & ImGuiWindowFlags_Popup) && !(flags & ImGuiSelectableFlags_DontClosePopups) && (g.LastItemData.InFlags & ImGuiItemFlags_AutoClosePopups)) CloseCurrentPopup();
 
     if (disabled_item && !disabled_global) EndDisabled();
 

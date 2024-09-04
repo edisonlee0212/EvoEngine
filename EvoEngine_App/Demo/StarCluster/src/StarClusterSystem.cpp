@@ -2,7 +2,7 @@
 #include "EditorLayer.hpp"
 #include "ProjectManager.hpp"
 #include "Serialization.hpp"
-
+#include "Resources.hpp"
 #include "ClassRegistry.hpp"
 #include "Graphics.hpp"
 #include "Jobs.hpp"

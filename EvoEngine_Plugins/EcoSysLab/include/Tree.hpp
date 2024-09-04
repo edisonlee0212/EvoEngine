@@ -91,7 +91,8 @@ class Tree : public IPrivateComponent {
                          const std::shared_ptr<Climate>& climate);
   ShootGrowthController shoot_growth_controller_{};
 
-  void GenerateTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, std::vector<TreePartData>& tree_parts);
+  void GenerateTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings,
+                         std::vector<TreePartData>& tree_parts);
 
  public:
   StrandModelParameters strand_model_parameters{};
@@ -183,7 +184,7 @@ class Tree : public IPrivateComponent {
   void FromTreeGraph(const std::shared_ptr<TreeGraph>& tree_graph);
   void FromTreeGraphV2(const std::shared_ptr<TreeGraphV2>& tree_graph_v2);
   void ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, YAML::Emitter& out);
-  void ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, treeio::json& out);
+  void ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, nlohmann::json& out);
 
   void ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, const std::filesystem::path& path);
   [[maybe_unused]] bool ExportIoTree(const std::filesystem::path& path) const;
@@ -231,9 +232,10 @@ void BranchPhysicsParameters::Link(const std::shared_ptr<Scene>& scene,
   joint->SetType(JointType::D6);
   joint->SetMotion(MotionAxis::SwingY, MotionType::Free);
   joint->SetMotion(MotionAxis::SwingZ, MotionType::Free);
-  joint->SetDrive(
-      DriveType::Swing, glm::pow(child_thickness, joint_drive_stiffness_thickness_factor) * joint_drive_stiffness,
-      glm::pow(child_thickness, joint_drive_damping_thickness_factor) * joint_drive_damping, enable_acceleration_for_drive);
+  joint->SetDrive(DriveType::Swing,
+                  glm::pow(child_thickness, joint_drive_stiffness_thickness_factor) * joint_drive_stiffness,
+                  glm::pow(child_thickness, joint_drive_damping_thickness_factor) * joint_drive_damping,
+                  enable_acceleration_for_drive);
 #endif
 }
 

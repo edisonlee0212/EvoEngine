@@ -8,6 +8,8 @@ docs/
 #3rdParty
 3rdParty
 
+!Extern/3rdParty/
+
 # Include Resource folder
 !Resources/
 

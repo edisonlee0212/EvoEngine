@@ -26,7 +26,7 @@
 #include <utility>
 #include <vector>
 
-#include <json.h>
+#include <nlohmann/json.hpp>
 
 #include <glm/glm.hpp>
 #define HAS_GLM

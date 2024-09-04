@@ -11,8 +11,9 @@
 #include <fstream>
 #include <string>
 #include "joescan_pinchot.h"
-#include "json.h"
-using namespace treeio;
+#include "nlohmann/json.hpp"
+using namespace nlohmann;
+
 namespace joescan {
 
 /// Internal function
