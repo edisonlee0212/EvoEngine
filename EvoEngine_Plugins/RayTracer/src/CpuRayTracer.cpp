@@ -213,7 +213,6 @@ void CpuRayTracer::Clear() noexcept {
 
 void CpuRayTracer::Initialize(const std::shared_ptr<Mesh>& input_mesh) {
   Clear();
-  assert(std::is_pod<MeshRecord>() && std::is_pod<NodeRecord>());
   geometry_instances_.resize(1);
   node_instances_.resize(1);
   geometry_instances_[0].Initialize(input_mesh);

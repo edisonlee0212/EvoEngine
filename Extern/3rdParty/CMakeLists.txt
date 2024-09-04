@@ -32,7 +32,7 @@ function(message)
         _message(${ARGN})
     endif()
 endfunction()
-set(3RDPARTY_SURPRESS_ALL_MESSAGES ON)
+set(3RDPARTY_SURPRESS_ALL_MESSAGES OFF)
 
 add_subdirectory(zlib EXCLUDE_FROM_ALL)
 

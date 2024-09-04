@@ -44,8 +44,10 @@ set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES}
 
 set(3RDPARTY_DLLS ${3RDPARTY_DLLS} 
     ${CMAKE_CURRENT_BINARY_DIR}/assimp/bin/assimp-vc143-mt.dll
+    ${CMAKE_CURRENT_BINARY_DIR}/assimp/bin/$<CONFIGURATION>/assimp-vc143-mt.dll
     PARENT_SCOPE)
 
 set(3RDPARTY_PDBS ${3RDPARTY_PDBS} 
     ${CMAKE_CURRENT_BINARY_DIR}/assimp/bin/assimp-vc143-mt.pdb
+    ${CMAKE_CURRENT_BINARY_DIR}/assimp/bin/$<CONFIGURATION>/assimp-vc143-mt.pdb
     PARENT_SCOPE)

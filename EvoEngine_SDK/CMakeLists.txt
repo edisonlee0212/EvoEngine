@@ -128,24 +128,24 @@ set(EVOENGINE_SDK_DEFS NOMINMAX PARENT_SCOPE)
 function(evoengine_sdk_copy_resources dst_target dst_dir)
 	add_custom_command(TARGET ${dst_target} POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_directory
-		${EVOENGINE_SDK_DIR}/Internals
-		${dst_dir})
+		${EVOENGINE_SDK_DIR}/Internals ${dst_dir}
+		VERBATIM)
 	foreach(file_i ${EVOENGINE_SDK_DLLS})
 		add_custom_command(TARGET ${dst_target} POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy
-			${file_i}
-			${dst_dir})
+			${file_i} ${dst_dir} || (exit 0)
+			VERBATIM)
 	endforeach(file_i)
 	foreach(file_i ${3RDPARTY_DLLS})
 		add_custom_command(TARGET ${dst_target} POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy
-			${file_i}
-			${dst_dir})
+			${file_i} ${dst_dir} || (exit 0)
+			VERBATIM)
 	endforeach(file_i)
 	foreach(file_i ${3RDPARTY_PDBS})
 		add_custom_command(TARGET ${dst_target} POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy
-			${file_i}
-			${dst_dir})
+			${file_i} ${dst_dir} || (exit 0)
+			VERBATIM)
 	endforeach(file_i)
 endfunction()

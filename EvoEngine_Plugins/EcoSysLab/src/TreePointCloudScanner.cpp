@@ -161,9 +161,9 @@ void TreePointCloudCircularCaptureSettings::GenerateSamples(std::vector<PointClo
         const float yAngle =
             (y - m_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) / static_cast<float>(m_resolution) * m_fov / 2.0f;
         auto& sample = pointCloudSamples[counter * m_resolution * m_resolution + i];
-        sample.m_direction =
+        sample.direction =
             glm::normalize(glm::rotate(glm::rotate(front, glm::radians(xAngle), left), glm::radians(yAngle), up));
-        sample.m_start = position;
+        sample.start = position;
       });
       counter++;
     }
@@ -201,13 +201,13 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
       const glm::vec3 center = glm::vec3{x, m_backpackHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
       Jobs::RunParallelFor(m_backpackSample, [&](unsigned sampleIndex) {
         auto& sample = pointCloudSamples[m_backpackSample * (i * yStepSize + step) + sampleIndex];
-        sample.m_direction = glm::sphericalRand(1.0f);
+        sample.direction = glm::sphericalRand(1.0f);
         if (glm::linearRand(0.0f, 1.0f) > 0.3f) {
-          sample.m_direction.y = glm::abs(sample.m_direction.y);
+          sample.direction.y = glm::abs(sample.direction.y);
         } else {
-          sample.m_direction.y = -glm::abs(sample.m_direction.y);
+          sample.direction.y = -glm::abs(sample.direction.y);
         }
-        sample.m_start = center;
+        sample.start = center;
       });
     }
   }
@@ -220,13 +220,13 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
       const glm::vec3 center = glm::vec3{x, m_backpackHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
       Jobs::RunParallelFor(m_backpackSample, [&](unsigned sampleIndex) {
         auto& sample = pointCloudSamples[startIndex + m_backpackSample * (i * xStepSize + step) + sampleIndex];
-        sample.m_direction = glm::sphericalRand(1.0f);
+        sample.direction = glm::sphericalRand(1.0f);
         if (glm::linearRand(0.0f, 1.0f) > 0.3f) {
-          sample.m_direction.y = glm::abs(sample.m_direction.y);
+          sample.direction.y = glm::abs(sample.direction.y);
         } else {
-          sample.m_direction.y = -glm::abs(sample.m_direction.y);
+          sample.direction.y = -glm::abs(sample.direction.y);
         }
-        sample.m_start = center;
+        sample.start = center;
       });
     }
   }
@@ -239,9 +239,9 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
       const glm::vec3 center = glm::vec3{x, m_droneHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
       Jobs::RunParallelFor(m_droneSample, [&](unsigned sampleIndex) {
         auto& sample = pointCloudSamples[m_droneSample * (i * yStepSize + step) + sampleIndex];
-        sample.m_direction = glm::sphericalRand(1.0f);
-        sample.m_direction.y = -glm::abs(sample.m_direction.y);
-        sample.m_start = center;
+        sample.direction = glm::sphericalRand(1.0f);
+        sample.direction.y = -glm::abs(sample.direction.y);
+        sample.start = center;
       });
     }
   }
@@ -254,9 +254,9 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
       const glm::vec3 center = glm::vec3{x, m_droneHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
       Jobs::RunParallelFor(m_droneSample, [&](unsigned sampleIndex) {
         auto& sample = pointCloudSamples[startIndex + m_droneSample * (i * xStepSize + step) + sampleIndex];
-        sample.m_direction = glm::sphericalRand(1.0f);
-        sample.m_direction.y = -glm::abs(sample.m_direction.y);
-        sample.m_start = center;
+        sample.direction = glm::sphericalRand(1.0f);
+        sample.direction.y = -glm::abs(sample.direction.y);
+        sample.start = center;
       });
     }
   }
