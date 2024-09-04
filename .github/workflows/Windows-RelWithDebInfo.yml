@@ -1,4 +1,4 @@
-name: CMake on Windows platform
+name: RelWithDebInfo build on Windows
 
 on:
   push:
