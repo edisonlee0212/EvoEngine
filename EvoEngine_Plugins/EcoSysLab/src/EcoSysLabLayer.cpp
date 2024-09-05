@@ -17,15 +17,11 @@
 #include "FoliageDescriptor.hpp"
 #include "ForestDescriptor.hpp"
 #include "FruitDescriptor.hpp"
-#include "JoeScanScanner.hpp"
-#include "Json.hpp"
-#include "LogGrader.hpp"
 #include "RenderLayer.hpp"
 #include "Soil.hpp"
 #include "SpatialPlantDistributionSimulator.hpp"
 #include "StrandsRenderer.hpp"
 #include "Tree.hpp"
-#include "TreePointCloudScanner.hpp"
 #include "TreeStructor.hpp"
 using namespace eco_sys_lab;
 
@@ -33,7 +29,6 @@ PrivateComponentRegistration<Tree> tree_registry("Tree");
 PrivateComponentRegistration<TreeStructor> tree_structor_registry("TreeStructor");
 PrivateComponentRegistration<Soil> soil_registry("Soil");
 PrivateComponentRegistration<Climate> climate_registry("Climate");
-PrivateComponentRegistration<LogGrader> log_grader_registry("LogGrader");
 PrivateComponentRegistration<SpatialPlantDistributionSimulator> spds_registry("SpatialPlantDistributionSimulator");
 
 AssetRegistration<ProceduralNoise2D> procedural_noise2d_registry("ProceduralNoise2D", {".noise2D"});
@@ -51,13 +46,9 @@ AssetRegistration<RadialBoundingVolume> rbv_registry("RadialBoundingVolume", {".
 AssetRegistration<CubeVolume> cube_volume_registry("CubeVolume", {".cubevolume"});
 AssetRegistration<HeightField> height_field_registry("HeightField", {".heightfield"});
 AssetRegistration<SoilLayerDescriptor> soil_layer_d_registry("SoilLayerDescriptor", {".soillayer"});
-PrivateComponentRegistration<TreePointCloudScanner> tree_point_cloud_scanner_registry("TreePointCloudScanner");
 
 AssetRegistration<ForestPatch> forest_patch_registry("ForestPatch", {".forestpatch"});
 
-AssetRegistration<Json> json_registry("Json", {".json"});
-AssetRegistration<JoeScan> joe_scan_registry("JoeScan", {".jscan"});
-PrivateComponentRegistration<JoeScanScanner> joe_scan_scanner_registry("JoeScanScanner");
 
 PrivateComponentRegistration<BillboardCloudsConverter> billboard_clouds_converter_register("BillboardCloudsConverter");
 

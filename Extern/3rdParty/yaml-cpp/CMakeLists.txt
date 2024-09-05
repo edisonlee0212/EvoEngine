@@ -6,3 +6,5 @@ SET(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Enable yaml-cpp tests")
 add_subdirectory(${YAML_CPP_DIR} EXCLUDE_FROM_ALL)
 
 set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/include PARENT_SCOPE)
+
+set_property(TARGET yaml-cpp PROPERTY FOLDER "3rdparty")

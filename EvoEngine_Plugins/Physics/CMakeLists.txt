@@ -75,3 +75,5 @@ endif ()
 set(EVOENGINE_PLUGINS_DLLS ${EVOENGINE_PLUGINS_DLLS} ${PHYSX_DLLS} PARENT_SCOPE)
 
 set(EvoEngine_Plugins ${EvoEngine_Plugins} PhysicsPlugin PARENT_SCOPE)
+
+set_target_properties(PhysicsPlugin PROPERTIES FOLDER "Plugins")

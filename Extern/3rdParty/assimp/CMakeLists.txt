@@ -1,3 +1,6 @@
+
+set (TARGET_NAME assimp)
+
 set(BUILD_SHARED_LIBS ON) # assimp contains polyclipper. Build static lib makes conflicts.
 set(BUILD_TESTING OFF)
 
@@ -19,10 +22,10 @@ set(ASSIMP_INSTALL_PDB OFF CACHE BOOL "" FORCE)
 set(ASSIMP_NO_EXPORT OFF CACHE BOOL "" FORCE)
 set(ASSIMP_RAPIDJSON_NO_MEMBER_ITERATOR ON CACHE BOOL "" FORCE)
 
-add_subdirectory(assimp EXCLUDE_FROM_ALL)
+add_subdirectory(${TARGET_NAME} EXCLUDE_FROM_ALL)
 
 if(CMAKE_C_COMPILER_ID MATCHES Clang)
-  target_compile_options(assimp
+  target_compile_options(${TARGET_NAME}
    PRIVATE
     -Wno-deprecated-copy
     -Wno-unused-function
@@ -35,19 +38,19 @@ if(CMAKE_C_COMPILER_ID MATCHES Clang)
   )
 endif()
 
-set_target_properties(assimp PROPERTIES FOLDER "3rdparty")
+set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "3rdparty")
 
 set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES} 
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/assimp/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/${TARGET_NAME}/include
     PARENT_SCOPE)
 
 set(3RDPARTY_DLLS ${3RDPARTY_DLLS} 
-    ${CMAKE_CURRENT_BINARY_DIR}/assimp/bin/assimp-vc143-mt.dll
-    ${CMAKE_CURRENT_BINARY_DIR}/assimp/bin/$<CONFIGURATION>/assimp-vc143-mt.dll
+    ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc143-mt.dll
+    ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc143-mt.dll
     PARENT_SCOPE)
 
 set(3RDPARTY_PDBS ${3RDPARTY_PDBS} 
-    ${CMAKE_CURRENT_BINARY_DIR}/assimp/bin/assimp-vc143-mt.pdb
-    ${CMAKE_CURRENT_BINARY_DIR}/assimp/bin/$<CONFIGURATION>/assimp-vc143-mt.pdb
+    ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc143-mt.pdb
+    ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc143-mt.pdb
     PARENT_SCOPE)

@@ -1,3 +1,5 @@
-add_subdirectory(json EXCLUDE_FROM_ALL)
+set(TARGET_NAME json)
+
+add_subdirectory(${TARGET_NAME} EXCLUDE_FROM_ALL)
 
 set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/json/include PARENT_SCOPE)

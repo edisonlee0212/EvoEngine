@@ -2,16 +2,20 @@
 // begins and ends there.
 //
 #include <Application.hpp>
-
-#include "Times.hpp"
-
 #include "ClassRegistry.hpp"
 #include "HeightField.hpp"
-#include "LogGrader.hpp"
-#include "ObjectRotator.hpp"
 #include "ProjectManager.hpp"
 #include "Tree.hpp"
 #include "WindowLayer.hpp"
+#ifdef ECOSYSLAB_PLUGIN
+#  include "BarkDescriptor.hpp"
+#endif
+#ifdef LOG_SCANNING_PLUGIN
+#  include "JoeScanScanner.hpp"
+#endif
+#ifdef LOG_GRADING_PLUGIN
+#  include "LogGrader.hpp"
+#endif
 using namespace eco_sys_lab;
 
 void EngineSetup();
@@ -22,10 +26,17 @@ int main() {
   Application::PushLayer<WindowLayer>();
   Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
-
+#ifdef LOG_GRADING_PLUGIN
   PrivateComponentRegistration<LogGrader>("LogGrader");
+#endif
+#ifdef ECOSYSLAB_PLUGIN
   AssetRegistration<BarkDescriptor>("BarkDescriptor", {".bs"});
+#endif
 
+#ifdef LOG_SCANNING_PLUGIN
+  AssetRegistration<JoeScan>("JoeScan", {".jscan"});
+  PrivateComponentRegistration<JoeScanScanner>("JoeScanScanner");
+#endif
   ApplicationInfo applicationConfigs;
   applicationConfigs.application_name = "Log Grader";
   std::filesystem::create_directory(std::filesystem::path(".") / "LogGraderProject");
@@ -60,8 +71,9 @@ int main() {
 
 void EngineSetup() {
   ProjectManager::SetActionAfterSceneLoad([=](const std::shared_ptr<Scene>& scene) {
-#pragma region Engine Setup
-#pragma endregion
+#ifdef LOG_GRADING_PLUGIN
+#  pragma region Engine Setup
+#  pragma endregion
     std::vector<Entity> entities;
     scene->GetAllEntities(entities);
     bool found = false;
@@ -83,15 +95,16 @@ void EngineSetup() {
     }
   });
   ProjectManager::SetActionAfterNewScene([=](const std::shared_ptr<Scene>& scene) {
-#pragma region Engine Setup
-#pragma region Preparations
+#  pragma region Engine Setup
+#  pragma region Preparations
     Times::SetTimeStep(0.016f);
-#pragma endregion
-#pragma endregion
+#  pragma endregion
+#  pragma endregion
     const auto entity = scene->CreateEntity("LogGrader");
     scene->GetOrSetPrivateComponent<LogGrader>(entity);
     const auto editorLayer = Application::GetLayer<EditorLayer>();
     editorLayer->SetSelectedEntity(entity);
     editorLayer->SetLockEntitySelection(true);
+#endif
   });
 }

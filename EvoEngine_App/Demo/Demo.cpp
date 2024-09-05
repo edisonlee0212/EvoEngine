@@ -4,14 +4,19 @@
 
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
-#include "PerlinNoiseStage.hpp"
-#include "PlanetTerrainSystem.hpp"
+
 #include "PlayerController.hpp"
 #include "Prefab.hpp"
 #include "RenderLayer.hpp"
-#include "StarClusterSystem.hpp"
+
 #include "Times.hpp"
 #include "WindowLayer.hpp"
+
+#ifdef UNIVERSE_PLUGIN
+#include "PerlinNoiseStage.hpp"
+#include "PlanetTerrainSystem.hpp"
+#include "StarClusterSystem.hpp"
+#endif
 
 #include "PostProcessingStack.hpp"
 #include "Resources.hpp"
@@ -27,8 +32,8 @@
 #  include "CpuRayTracerCamera.hpp"
 #endif
 using namespace evo_engine;
-using namespace planet;
-using namespace Galaxy;
+using namespace Universe;
+using namespace Universe;
 #pragma region Helpers
 #ifdef PHYSICS_PLUGIN
 Entity CreateDynamicCube(const float& mass, const glm::vec3& color, const glm::vec3& position,
@@ -61,7 +66,12 @@ int main() {
   Application::PushLayer<WindowLayer>();
   Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
+#ifdef UNIVERSE_PLUGIN
+  SystemRegistration<StarClusterSystem>("StarClusterSystem");
+  SystemRegistration<PlanetTerrainSystem>("PlanetTerrainSystem");
+  PrivateComponentRegistration<PlanetTerrain>("PlanetTerrain");
 
+#endif
 #ifdef OPTIX_RAY_TRACER_PLUGIN
   Application::PushLayer<RayTracerLayer>();
 #endif
@@ -320,9 +330,10 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
       });
     } break;
     case DemoSetup::Galaxy: {
-      application_info.application_name = "Galaxy Demo";
-      SystemRegistration<StarClusterSystem>("StarClusterSystem");
-      application_info.project_path = resource_folder_path / "Example Projects/Galaxy/Galaxy.eveproj";
+      application_info.application_name = "Universe Demo";
+      
+      application_info.project_path = resource_folder_path / "Example Projects/Universe/Universe.eveproj";
+#ifdef UNIVERSE_PLUGIN
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
         const auto main_camera = scene->main_camera.Get<Camera>();
         main_camera->Resize({640, 480});
@@ -333,13 +344,12 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
 #pragma endregion
         main_camera->use_clear_color = true;
       });
+#endif
     } break;
     case DemoSetup::Planets: {
       application_info.application_name = "Planets Demo";
-      SystemRegistration<PlanetTerrainSystem>("PlanetTerrainSystem");
-      PrivateComponentRegistration<PlanetTerrain>("PlanetTerrain");
-
       application_info.project_path = resource_folder_path / "Example Projects/Planet/Planet.eveproj";
+#ifdef UNIVERSE_PLUGIN
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
 #pragma region Preparations
         const auto main_camera = scene->main_camera.Get<Camera>();
@@ -356,7 +366,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
             std::dynamic_pointer_cast<Texture2D>(ProjectManager::GetOrCreateAsset("Textures/border.png"));
         surface_material->SetAlbedoTexture(border_texture);
 
-        auto pts = scene->GetOrCreateSystem<planet::PlanetTerrainSystem>(SystemGroup::SimulationSystemGroup);
+        auto pts = scene->GetOrCreateSystem<Universe::PlanetTerrainSystem>(SystemGroup::SimulationSystemGroup);
 
         pts->Enable();
 
@@ -455,6 +465,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
               glm::vec3(20.0f * glm::cos(Times::Now() / 2.0f), 15.0f, 20.0f * glm::sin(Times::Now() / 2.0f)), 0.0f));
           scene->SetDataComponent(ple2, ltw);
 #pragma endregion
+#endif
         });
       });
     } break;

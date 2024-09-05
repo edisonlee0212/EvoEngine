@@ -2,12 +2,10 @@
 #include <glm/gtx/intersect.hpp>
 #include <glm/gtx/io.hpp>
 #include <queue>
-#include "Curve.hpp"
 #include "Delaunator2D.hpp"
 #include "Jobs.hpp"
 #include "MeshGenUtils.hpp"
 #include "Octree.hpp"
-#include "TreeDescriptor.hpp"
 #include "TreeMeshGenerator.hpp"
 
 #include "EcoSysLabLayer.hpp"

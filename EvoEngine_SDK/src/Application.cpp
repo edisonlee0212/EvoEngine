@@ -8,6 +8,7 @@
 #include "Graphics.hpp"
 #include "Input.hpp"
 #include "Jobs.hpp"
+#include "Json.hpp"
 #include "LODGroup.hpp"
 #include "LightProbe.hpp"
 #include "Lights.hpp"
@@ -77,6 +78,9 @@ const auto animation_registry = AssetRegistration<Animation>("Animation", {".eve
 const auto skinned_mesh_registry = AssetRegistration<SkinnedMesh>("SkinnedMesh", {".eveskinnedmesh"});
 
 const auto point_cloud_registry = AssetRegistration<PointCloud>("PointCloud", {".evepointcloud"});
+
+const auto json_registry = AssetRegistration<Json>("Json", {".json"});
+
 void Application::PreUpdateInternal() {
   auto& application = GetInstance();
   const auto now = std::chrono::system_clock::now();

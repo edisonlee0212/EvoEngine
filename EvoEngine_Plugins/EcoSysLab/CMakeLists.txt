@@ -4,18 +4,14 @@ set(ECOSYSLAB_INCLUDES
 	${ECOSYSLAB_DIRECTORY}
 	${ECOSYSLAB_DIRECTORY}/include
 	${ECOSYSLAB_DIRECTORY}/include
-	${ECOSYSLAB_DIRECTORY}/include/JoeScan
 	${ECOSYSLAB_DIRECTORY}/include/MeshFormation
 	${ECOSYSLAB_DIRECTORY}/include/Layers
 	${ECOSYSLAB_DIRECTORY}/include/TreeDescriptor
 	${ECOSYSLAB_DIRECTORY}/include/SpatialCompetition
-	${ECOSYSLAB_DIRECTORY}/include/LogGrading
-	${ECOSYSLAB_DIRECTORY}/include/DataPipeline
 	${ECOSYSLAB_DIRECTORY}/include/BranchShape
 	${ECOSYSLAB_DIRECTORY}/include/Physics
 	${ECOSYSLAB_DIRECTORY}/include/TreeIO
 	${ECOSYSLAB_DIRECTORY}/include/Volumes
-	${ECOSYSLAB_DIRECTORY}/include/SorghumModel
 	${ECOSYSLAB_DIRECTORY}/include/ClimateModel
 	${ECOSYSLAB_DIRECTORY}/include/SoilModel
 	${ECOSYSLAB_DIRECTORY}/include/StrandModel
@@ -55,25 +51,9 @@ target_precompile_headers(EcoSysLabPlugin
 	${ECOSYSLAB_PCH}
 	)
 
-if (WIN32)
-	set(PINCHOT_LIB ${3RDPARTY_DIR}/pinchot/pinchot/lib/windows/x64/pinchot.lib)
-	# Compiler settings for Windows platform
-	set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
-endif ()
-
-target_link_libraries(EcoSysLabPlugin 
-	PRIVATE
-	
-	${PINCHOT_LIB})
-
 set(EVOENGINE_PLUGINS_INCLUDES ${EVOENGINE_PLUGINS_INCLUDES} ${ECOSYSLAB_INCLUDES} PARENT_SCOPE)
 set(EVOENGINE_PLUGINS_PCHS ${EVOENGINE_PLUGINS_PCHS} ${ECOSYSLAB_PCH} PARENT_SCOPE)
 set(EVOENGINE_PLUGINS_DEFS ${EVOENGINE_PLUGINS_DEFS} ECOSYSLAB_PLUGIN PARENT_SCOPE)
-
-if (WIN32)
-    set(PINCHOT_DLL ${3RDPARTY_DIR}/pinchot/pinchot/lib/windows/x64/pinchot.dll)
-endif ()
-set(EVOENGINE_PLUGINS_DLLS ${EVOENGINE_PLUGINS_DLLS} ${PINCHOT_DLL} PARENT_SCOPE)
 
 set(EvoEngine_Plugins ${EvoEngine_Plugins} EcoSysLabPlugin PARENT_SCOPE)
 
@@ -84,3 +64,5 @@ add_custom_command(TARGET EcoSysLabPlugin POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_directory
 	${CMAKE_CURRENT_SOURCE_DIR}/Internals
 	${CMAKE_BINARY_DIR})
+
+set_target_properties(EcoSysLabPlugin PROPERTIES FOLDER "Plugins")

@@ -1,0 +1,58 @@
+set(LOG_SCANNING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+set(LOG_SCANNING_INCLUDES
+	${LOG_SCANNING_DIRECTORY}/include
+	)
+
+file(GLOB LOG_SCANNING_SOURCES ${LOG_SCANNING_DIRECTORY}/src/*.cpp)
+
+add_library(LogScanningPlugin
+	STATIC
+	${LOG_SCANNING_SOURCES}
+	)
+target_compile_definitions(LogScanningPlugin
+	PRIVATE
+	${EVOENGINE_SDK_DEFS}
+	${EVOENGINE_PLUGINS_DEFS}
+	)	
+target_include_directories(LogScanningPlugin
+	PRIVATE
+	${EVOENGINE_SDK_INCLUDES}
+	${EVOENGINE_PLUGINS_INCLUDES}
+	${LOG_SCANNING_INCLUDES}
+	)
+
+set(LOG_SCANNING_PCH ${LOG_SCANNING_DIRECTORY}/include/LogScanning_PCH.hpp)
+set(LOG_SCANNING_PCH ${LOG_SCANNING_PCH} PARENT_SCOPE)
+
+target_precompile_headers(LogScanningPlugin
+	PRIVATE
+	${EVOENGINE_SDK_PCH}
+	${EVOENGINE_PLUGINS_PCHS}
+	${LOG_SCANNING_PCH}
+	)
+
+
+if (WIN32)
+	set(PINCHOT_LIB ${3RDPARTY_DIR}/pinchot/pinchot/lib/windows/x64/pinchot.lib)
+	# Compiler settings for Windows platform
+	set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif ()
+
+target_link_libraries(LogScanningPlugin 
+	PRIVATE
+	${PINCHOT_LIB})
+
+if (WIN32)
+    set(PINCHOT_DLL ${3RDPARTY_DIR}/pinchot/pinchot/lib/windows/x64/pinchot.dll)
+endif ()
+
+set(EVOENGINE_PLUGINS_DLLS ${EVOENGINE_PLUGINS_DLLS} ${PINCHOT_DLL} PARENT_SCOPE)
+
+set(EVOENGINE_PLUGINS_INCLUDES ${EVOENGINE_PLUGINS_INCLUDES} ${LOG_SCANNING_INCLUDES} PARENT_SCOPE)
+set(EVOENGINE_PLUGINS_PCHS ${EVOENGINE_PLUGINS_PCHS} ${LOG_SCANNING_PCH} PARENT_SCOPE)
+set(EVOENGINE_PLUGINS_DEFS ${EVOENGINE_PLUGINS_DEFS} LOG_SCANNING_PLUGIN PARENT_SCOPE)
+
+set(EvoEngine_Plugins ${EvoEngine_Plugins} LogScanningPlugin PARENT_SCOPE)
+
+set_target_properties(LogScanningPlugin PROPERTIES FOLDER "Plugins")

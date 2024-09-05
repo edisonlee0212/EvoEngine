@@ -42,6 +42,31 @@ if(EVOENGINE_PLUGIN_ECOSYSLAB AND EVOENGINE_PLUGIN_BILLBOARD_CLOUDS)
   add_subdirectory(EcoSysLab)
 endif()
 
+option(EVOENGINE_PLUGIN_DIGITAL_AGRICULTURE "Build the digital agriculture plugin" ON)
+if(EVOENGINE_PLUGIN_DIGITAL_AGRICULTURE)
+  add_subdirectory(DigitalAgriculture)
+endif()
+
+option(EVOENGINE_PLUGIN_DATASET_GENERATION "Build the dataset generation plugin" ON)
+if(EVOENGINE_PLUGIN_DATASET_GENERATION)
+  add_subdirectory(DatasetGeneration)
+endif()
+
+option(EVOENGINE_PLUGIN_LOG_GRADING "Build the log grading plugin" ON)
+if(EVOENGINE_PLUGIN_LOG_GRADING)
+  add_subdirectory(LogGrading)
+endif()
+
+option(EVOENGINE_PLUGIN_LOG_SCANNING "Build the log scanning plugin" ON)
+if(EVOENGINE_PLUGIN_LOG_SCANNING)
+  add_subdirectory(LogScanning)
+endif()
+
+option(EVOENGINE_PLUGIN_UNIVERSE "Build the universe plugin" ON)
+if(EVOENGINE_PLUGIN_UNIVERSE)
+  add_subdirectory(Universe)
+endif()
+
 set(EvoEngine_Plugins ${EvoEngine_Plugins} PARENT_SCOPE)
 set(EVOENGINE_PLUGINS_INCLUDES ${EVOENGINE_PLUGINS_INCLUDES} PARENT_SCOPE)
 set(EVOENGINE_PLUGINS_PCHS ${EVOENGINE_PLUGINS_PCHS} PARENT_SCOPE)

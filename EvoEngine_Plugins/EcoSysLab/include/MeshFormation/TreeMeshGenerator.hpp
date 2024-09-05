@@ -1,5 +1,4 @@
 #pragma once
-
 #include "Curve.hpp"
 #include "Jobs.hpp"
 #include "Octree.hpp"
