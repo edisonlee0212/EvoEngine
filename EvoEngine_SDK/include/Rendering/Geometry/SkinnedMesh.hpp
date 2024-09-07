@@ -33,7 +33,7 @@ class SkinnedMesh : public IAsset, public IGeometry {
   Bound bound_;
   friend class SkinnedMeshRenderer;
   friend class Particles;
-  friend class Graphics;
+  friend class Platform;
   friend class RenderLayer;
   SkinnedVertexAttributes skinned_vertex_attributes_ = {};
   std::vector<SkinnedVertex> skinned_vertices_;

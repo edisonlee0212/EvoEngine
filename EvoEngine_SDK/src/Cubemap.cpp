@@ -2,7 +2,7 @@
 
 #include "Application.hpp"
 #include "Console.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "TextureStorage.hpp"
@@ -49,7 +49,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
   depth_image_info.extent.depth = 1;
   depth_image_info.mipLevels = 1;
   depth_image_info.arrayLayers = 1;
-  depth_image_info.format = Graphics::Constants::shadow_map;
+  depth_image_info.format = Platform::Constants::shadow_map;
   depth_image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
   depth_image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   depth_image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -57,15 +57,15 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
   depth_image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   const auto depth_image = std::make_shared<Image>(depth_image_info);
-  Graphics::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
-    depth_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    depth_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   });
 
   VkImageViewCreateInfo depth_view_info{};
   depth_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   depth_view_info.image = depth_image->GetVkImage();
   depth_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  depth_view_info.format = Graphics::Constants::shadow_map;
+  depth_view_info.format = Platform::Constants::shadow_map;
   depth_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
   depth_view_info.subresourceRange.baseMipLevel = 0;
   depth_view_info.subresourceRange.levelCount = 1;
@@ -75,7 +75,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
 #pragma endregion
 
   const std::unique_ptr<DescriptorSet> temp_set =
-      std::make_unique<DescriptorSet>(Graphics::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
+      std::make_unique<DescriptorSet>(Platform::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
   VkDescriptorImageInfo descriptor_image_info{};
   descriptor_image_info.imageView = target_texture->GetVkImageView();
   descriptor_image_info.imageLayout = target_texture->GetLayout();
@@ -92,9 +92,9 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
 
-  const auto equirectangular_to_cubemap = Graphics::GetGraphicsPipeline("EQUIRECTANGULAR_TO_CUBEMAP");
-  Graphics::ImmediateSubmit([&](VkCommandBuffer command_buffer) {
-    storage.image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  const auto equirectangular_to_cubemap = Platform::GetGraphicsPipeline("EQUIRECTANGULAR_TO_CUBEMAP");
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 #pragma region Viewport and scissor
     VkRect2D render_area;
     render_area.offset = {0, 0};
@@ -152,21 +152,21 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
         i.blendEnable = VK_FALSE;
       }
-      vkCmdBeginRendering(command_buffer, &render_info);
-      equirectangular_to_cubemap->Bind(command_buffer);
-      equirectangular_to_cubemap->BindDescriptorSet(command_buffer, 0, temp_set->GetVkDescriptorSet());
+      vkCmdBeginRendering(vk_command_buffer, &render_info);
+      equirectangular_to_cubemap->Bind(vk_command_buffer);
+      equirectangular_to_cubemap->BindDescriptorSet(vk_command_buffer, 0, temp_set->GetVkDescriptorSet());
       const auto mesh = Resources::GetResource<Mesh>("PRIMITIVE_RENDERING_CUBE");
-      GeometryStorage::BindVertices(command_buffer);
+      GeometryStorage::BindVertices(vk_command_buffer);
       EquirectangularToCubemapConstant constant{};
       constant.projection_view = capture_projection * capture_views[i];
-      equirectangular_to_cubemap->PushConstant(command_buffer, 0, constant);
-      mesh->DrawIndexed(command_buffer, equirectangular_to_cubemap->states, 1);
-      vkCmdEndRendering(command_buffer);
+      equirectangular_to_cubemap->PushConstant(vk_command_buffer, 0, constant);
+      mesh->DrawIndexed(vk_command_buffer, equirectangular_to_cubemap->states, 1);
+      vkCmdEndRendering(vk_command_buffer);
 #pragma endregion
 
-      Graphics::EverythingBarrier(command_buffer);
+      Platform::EverythingBarrier(vk_command_buffer);
     }
-    storage.image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
 }
 bool Cubemap::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {

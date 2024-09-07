@@ -1,7 +1,7 @@
-#include "CpuRayTracer.hpp"
+#include "RayTracer.hpp"
 
 using namespace evo_engine;
-void CpuRayTracer::Initialize(
+void RayTracer::Initialize(
     const std::shared_ptr<Scene>& input_scene,
     const std::function<void(uint32_t mesh_index, const std::shared_ptr<Mesh>& mesh)>& mesh_binding,
     const std::function<void(uint32_t node_index, const Entity& entity)>& node_binding) {
@@ -66,7 +66,29 @@ void CpuRayTracer::Initialize(
   FlattenBvh(scene_bvh, flattened_bvh_node_group_, 0);
 }
 
-void CpuRayTracer::Trace(const RayDescriptor& ray_descriptor,
+bool RayAabb(const glm::vec3& r_o, const glm::vec3& r_inv_d, const Bound& aabb) {
+  const auto tx1 = (aabb.min.x - r_o.x) * r_inv_d.x;
+  const auto tx2 = (aabb.max.x - r_o.x) * r_inv_d.x;
+
+  float t_min = std::min(tx1, tx2);
+  float t_max = std::max(tx1, tx2);
+
+  const auto ty1 = (aabb.min.y - r_o.y) * r_inv_d.y;
+  const auto ty2 = (aabb.max.y - r_o.y) * r_inv_d.y;
+
+  t_min = std::max(t_min, std::min(ty1, ty2));
+  t_max = std::min(t_max, std::max(ty1, ty2));
+
+  const auto tz1 = (aabb.min.z - r_o.z) * r_inv_d.z;
+  const auto tz2 = (aabb.max.z - r_o.z) * r_inv_d.z;
+
+  t_min = std::max(t_min, std::min(tz1, tz2));
+  t_max = std::min(t_max, std::max(tz1, tz2));
+
+  return t_max >= t_min;
+}
+
+void RayTracer::Trace(const RayDescriptor& ray_descriptor,
                          const std::function<void(const HitInfo& hit_info)>& closest_hit_func,
                          const std::function<void()>& miss_func,
                          const std::function<void(const HitInfo& hit_info)>& any_hit_func) const {
@@ -78,27 +100,7 @@ void CpuRayTracer::Trace(const RayDescriptor& ray_descriptor,
   const bool cull_back_face = flags & static_cast<unsigned>(TraceFlags::CullBackFace);
   const bool cull_front_face = flags & static_cast<unsigned>(TraceFlags::CullFrontFace);
   float test_distance = ray_descriptor.t_max;
-  auto ray_aabb = [](const glm::vec3& r_o, const glm::vec3& r_inv_d, const Bound& aabb) {
-    const auto tx1 = (aabb.min.x - r_o.x) * r_inv_d.x;
-    const auto tx2 = (aabb.max.x - r_o.x) * r_inv_d.x;
-
-    float t_min = std::min(tx1, tx2);
-    float t_max = std::max(tx1, tx2);
-
-    const auto ty1 = (aabb.min.y - r_o.y) * r_inv_d.y;
-    const auto ty2 = (aabb.max.y - r_o.y) * r_inv_d.y;
-
-    t_min = std::max(t_min, std::min(ty1, ty2));
-    t_max = std::min(t_max, std::max(ty1, ty2));
-
-    const auto tz1 = (aabb.min.z - r_o.z) * r_inv_d.z;
-    const auto tz2 = (aabb.max.z - r_o.z) * r_inv_d.z;
-
-    t_min = std::max(t_min, std::min(tz1, tz2));
-    t_max = std::min(t_max, std::max(tz1, tz2));
-
-    return t_max >= t_min;
-  };
+  
 
   const auto scene_space_ray_direction = glm::normalize(ray_descriptor.direction);
   const auto& scene_space_ray_origin = ray_descriptor.origin;
@@ -108,7 +110,7 @@ void CpuRayTracer::Trace(const RayDescriptor& ray_descriptor,
   uint32_t node_group_index = 0;
   while (node_group_index < flattened_bvh_node_group_.nodes.size()) {
     const auto& node_group = flattened_bvh_node_group_.nodes[node_group_index];
-    if (!ray_aabb(scene_space_ray_origin, scene_space_inv_ray_direction, node_group.aabb)) {
+    if (!RayAabb(scene_space_ray_origin, scene_space_inv_ray_direction, node_group.aabb)) {
       node_group_index = node_group.alternate_node_index;
       continue;
     }
@@ -127,7 +129,7 @@ void CpuRayTracer::Trace(const RayDescriptor& ray_descriptor,
 
       while (mesh_group_index < node_instance.flattened_bvh_mesh_group.nodes.size()) {
         const auto& mesh_group = node_instance.flattened_bvh_mesh_group.nodes[mesh_group_index];
-        if (!ray_aabb(node_space_ray_origin, node_space_inv_ray_direction, mesh_group.aabb)) {
+        if (!RayAabb(node_space_ray_origin, node_space_inv_ray_direction, mesh_group.aabb)) {
           mesh_group_index = mesh_group.alternate_node_index;
           continue;
         }
@@ -138,13 +140,14 @@ void CpuRayTracer::Trace(const RayDescriptor& ray_descriptor,
           const auto& mesh_instance = geometry_instances_[mesh_index];
           while (triangle_group_index < mesh_instance.flattened_bvh_triangle_group.nodes.size()) {
             const auto& triangle_group = mesh_instance.flattened_bvh_triangle_group.nodes[triangle_group_index];
-            if (!ray_aabb(node_space_ray_origin, node_space_inv_ray_direction, triangle_group.aabb)) {
+            if (!RayAabb(node_space_ray_origin, node_space_inv_ray_direction, triangle_group.aabb)) {
               triangle_group_index = triangle_group.alternate_node_index;
               continue;
             }
             for (uint32_t test_triangle_index = triangle_group.begin_next_level_element_index;
                  test_triangle_index < triangle_group.end_next_level_element_index; ++test_triangle_index) {
-              const auto& triangle_index = mesh_instance.flattened_bvh_triangle_group.element_indices[test_triangle_index];
+              const auto& triangle_index =
+                  mesh_instance.flattened_bvh_triangle_group.element_indices[test_triangle_index];
               const auto& triangle = mesh_instance.triangles[triangle_index];
               const auto& p0 = mesh_instance.vertex_positions[triangle.x];
               const auto& p1 = mesh_instance.vertex_positions[triangle.y];
@@ -156,11 +159,11 @@ void CpuRayTracer::Trace(const RayDescriptor& ray_descriptor,
               if ((cull_back_face && normal_test > 0.f) || (cull_front_face && normal_test < 0.f) || normal_test == 0.f)
                 continue;
 
-              const auto node_space_hit_distance = (glm::dot(p0, node_space_triangle_normal) -
-                                                    glm::dot(node_space_ray_origin, node_space_triangle_normal)) /
-                                                   normal_test;
               // node_space_hit_distance > 0 instead of node_space_hit_distance >= 0 to avoid self-intersection
-              if (node_space_hit_distance > 0) {
+              if (const auto node_space_hit_distance = (glm::dot(p0, node_space_triangle_normal) -
+                                                        glm::dot(node_space_ray_origin, node_space_triangle_normal)) /
+                                                       normal_test;
+                  node_space_hit_distance > 0) {
                 const auto node_space_hit = node_space_ray_origin + node_space_ray_direction * node_space_hit_distance;
                 const auto scene_space_hit = node_global_transform.TransformPoint(node_space_hit);
                 if (const auto scene_hit_distance = glm::distance(scene_space_ray_origin, scene_space_hit);
@@ -204,14 +207,14 @@ void CpuRayTracer::Trace(const RayDescriptor& ray_descriptor,
   }
 }
 
-void CpuRayTracer::Clear() noexcept {
+void RayTracer::Clear() noexcept {
   flattened_bvh_node_group_.nodes.clear();
   flattened_bvh_node_group_.element_indices.clear();
   geometry_instances_.clear();
   node_instances_.clear();
 }
 
-void CpuRayTracer::Initialize(const std::shared_ptr<Mesh>& input_mesh) {
+void RayTracer::Initialize(const std::shared_ptr<Mesh>& input_mesh) {
   Clear();
   geometry_instances_.resize(1);
   node_instances_.resize(1);
@@ -244,23 +247,23 @@ void CpuRayTracer::Initialize(const std::shared_ptr<Mesh>& input_mesh) {
   FlattenBvh(scene_bvh, flattened_bvh_node_group_, 0);
 }
 
-void CpuRayTracer::BucketBound::AddPoint(const glm::vec3& p) {
+void RayTracer::BucketBound::AddPoint(const glm::vec3& p) {
   min_v = glm::min(min_v, p);
   max_v = glm::max(max_v, p);
 }
 
-void CpuRayTracer::BucketBound::Combine(const BucketBound& other) {
+void RayTracer::BucketBound::Combine(const BucketBound& other) {
   min_v = glm::min(min_v, other.min_v);
   max_v = glm::max(max_v, other.max_v);
 }
 
-float CpuRayTracer::BucketBound::ComputeCost(const int triangle_count) const {
+float RayTracer::BucketBound::ComputeCost(const int triangle_count) const {
   const auto size = max_v - min_v;
   const float surface_area = 2.0f * (size.x * size.y + size.x * size.z + size.x * size.y);
   return static_cast<float>(triangle_count) * surface_area;
 }
 
-CpuRayTracer::BucketSplit CpuRayTracer::SelectSplitFromBuckets(const uint32_t buckets[16],
+RayTracer::BucketSplit RayTracer::SelectSplitFromBuckets(const uint32_t buckets[16],
                                                                const BucketBound buckets_aabb[16],
                                                                const size_t triangle_count) {
   // Pass to compute AABB on the right side of the split
@@ -294,7 +297,7 @@ CpuRayTracer::BucketSplit CpuRayTracer::SelectSplitFromBuckets(const uint32_t bu
   return BucketSplit{static_cast<size_t>(best_split_idx), best_cost};
 }
 
-CpuRayTracer::SplitResult CpuRayTracer::FindBestSplit(const Bvh& parent, const std::vector<Bound>& aabbs) {
+RayTracer::SplitResult RayTracer::FindBestSplit(const Bvh& parent, const std::vector<Bound>& aabbs) {
   SplitResult ret;
 
   BucketBound centroids_aabb;
@@ -351,7 +354,7 @@ CpuRayTracer::SplitResult CpuRayTracer::FindBestSplit(const Bvh& parent, const s
   return ret;
 }
 
-void CpuRayTracer::BinaryDivisionBvh(Bvh& parent, const uint32_t current_tree_depth, const std::vector<Bound>& aabbs) {
+void RayTracer::BinaryDivisionBvh(Bvh& parent, const uint32_t current_tree_depth, const std::vector<Bound>& aabbs) {
   if (parent.element_indices.size() == 1) {
     parent.subtree_element_size = static_cast<uint32_t>(1);
     return;
@@ -386,7 +389,7 @@ void CpuRayTracer::BinaryDivisionBvh(Bvh& parent, const uint32_t current_tree_de
   parent.subtree_element_size = parent.children[0].subtree_element_size + parent.children[1].subtree_element_size;
 }
 
-void CpuRayTracer::FlattenBvh(const Bvh& current_bvh, FlattenedBvh& flattened_bvh, const uint32_t level) {
+void RayTracer::FlattenBvh(const Bvh& current_bvh, FlattenedBvh& flattened_bvh, const uint32_t level) {
   if (current_bvh.children.empty() && current_bvh.element_indices.empty()) {
     // Children scene without triangles? Skip it
     return;
@@ -418,7 +421,7 @@ void CpuRayTracer::FlattenBvh(const Bvh& current_bvh, FlattenedBvh& flattened_bv
   flattened_bvh.nodes[current_scene_index].alternate_node_index = static_cast<uint32_t>(flattened_bvh.nodes.size());
 }
 
-glm::vec3 CpuRayTracer::Barycentric(const glm::vec3& p, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c) {
+glm::vec3 RayTracer::Barycentric(const glm::vec3& p, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c) {
   const auto v0 = b - a;
   const auto v1 = c - a;
   const auto v2 = p - a;
@@ -433,69 +436,50 @@ glm::vec3 CpuRayTracer::Barycentric(const glm::vec3& p, const glm::vec3& a, cons
   return {1.0f - y - z, y, z};
 }
 
-bool CpuRayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor, HitInfo& hit_info) const {
-  /*
-    GpuRayCastingResult ray_casting_result;
-  ray_casting_result.hit.w = 0.0f;
-  ray_casting_result.normal_distance.w = ray_descriptor.t_max;
+void RayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
+                                          const std::function<void(const HitInfo& hit_info)>& closest_hit_func,
+                                          const std::function<void()>& miss_func,
+                                          const std::function<void(const HitInfo& hit_info)>& any_hit_func) const {
+  HitInfo closest_hit_info{};
+  closest_hit_info.distance = FLT_MAX;
+  bool has_hit = false;
   const auto flags = static_cast<unsigned>(ray_descriptor.flags);
-  const bool cull_back_face = flags & static_cast<unsigned>(CpuRayTracingService::TraceFlags::CullBackFace);
-  const bool cull_front_face = flags & static_cast<unsigned>(CpuRayTracingService::TraceFlags::CullFrontFace);
-  auto ray_aabb = [](const CGVecF3& r_o, const CGVecF3& r_inv_d, const CGAABBF& aabb) {
-    const auto tx1 = (aabb.min.x - r_o.x) * r_inv_d.x;
-    const auto tx2 = (aabb.max.x - r_o.x) * r_inv_d.x;
-
-    float t_min = std::min(tx1, tx2);
-    float t_max = std::max(tx1, tx2);
-
-    const auto ty1 = (aabb.min.y - r_o.y) * r_inv_d.y;
-    const auto ty2 = (aabb.max.y - r_o.y) * r_inv_d.y;
-
-    t_min = std::max(t_min, std::min(ty1, ty2));
-    t_max = std::min(t_max, std::max(ty1, ty2));
-
-    const auto tz1 = (aabb.min.z - r_o.z) * r_inv_d.z;
-    const auto tz2 = (aabb.max.z - r_o.z) * r_inv_d.z;
-
-    t_min = std::max(t_min, std::min(tz1, tz2));
-    t_max = std::min(t_max, std::max(tz1, tz2));
-
-    return t_max >= t_min;
-  };
-
-  auto scene_space_ray_direction = ray_descriptor.direction;
-  scene_space_ray_direction.normalise();
+  const bool enforce_any_hit = flags & static_cast<unsigned>(TraceFlags::EnforceAnyHit);
+  const bool cull_back_face = flags & static_cast<unsigned>(TraceFlags::CullBackFace);
+  const bool cull_front_face = flags & static_cast<unsigned>(TraceFlags::CullFrontFace);
+  float test_distance = ray_descriptor.t_max;
+  auto scene_space_ray_direction = glm::normalize(ray_descriptor.direction);
   const auto& scene_space_ray_origin = ray_descriptor.origin;
-  const auto scene_space_inv_ray_direction =
-      CGVecF3(1.f / scene_space_ray_direction.x, 1.f / scene_space_ray_direction.y, 1.f / scene_space_ray_direction.z);
+  const auto scene_space_inv_ray_direction = glm::vec3(
+      1.f / scene_space_ray_direction.x, 1.f / scene_space_ray_direction.y, 1.f / scene_space_ray_direction.z);
 
   uint32_t node_group_index = 0;
   std::unordered_set<uint32_t> node_group_index_test;
-  while (node_group_index < aggregated_scene.scene_level_bvh_nodes.size()) {
+  while (node_group_index < scene_level_bvh_nodes.size()) {
     if (node_group_index_test.find(node_group_index) == node_group_index_test.end()) {
       node_group_index_test.emplace(node_group_index);
     } else {
       throw std::runtime_error("Duplicate node!");
     }
-    const auto& node_group = aggregated_scene.scene_level_bvh_nodes[node_group_index];
-    if (!ray_aabb(scene_space_ray_origin, scene_space_inv_ray_direction, node_group.aabb)) {
+    const auto& node_group = scene_level_bvh_nodes[node_group_index];
+    if (!RayAabb(scene_space_ray_origin, scene_space_inv_ray_direction, node_group.aabb)) {
       node_group_index = node_group.alternate_node_index;
       continue;
     }
     for (uint32_t test_node_element_index = node_group.begin_next_level_element_index;
          test_node_element_index < node_group.end_next_level_element_index; ++test_node_element_index) {
       uint32_t mesh_group_index = 0;
-      const auto node_index = aggregated_scene.node_indices[test_node_element_index];
-      const auto& node_global_transform = aggregated_scene.node_transforms[node_index];
-      const auto& node_inverse_global_transform = aggregated_scene.node_inverse_transforms[node_index];
+      const auto node_index = node_indices[test_node_element_index];
+      const auto& node_global_transform = node_transforms[node_index];
+      const auto& node_inverse_global_transform = node_inverse_transforms[node_index];
       const auto node_space_ray_origin = node_inverse_global_transform.TransformPoint(scene_space_ray_origin);
-      auto node_space_ray_direction = node_inverse_global_transform.TransformVector(scene_space_ray_direction);
-      node_space_ray_direction.normalise();
-      const auto node_space_inv_ray_direction =
-          CGVecF3(1.f / node_space_ray_direction.x, 1.f / node_space_ray_direction.y, 1.f / node_space_ray_direction.z);
-      const auto node_level_bvh_node_offset = aggregated_scene.node_level_bvh_node_offsets[node_index];
-      const auto node_level_bvh_node_size = aggregated_scene.node_level_bvh_node_sizes[node_index];
-      const auto mesh_indices_offset = aggregated_scene.mesh_indices_offsets[node_index];
+      auto node_space_ray_direction =
+          glm::normalize(node_inverse_global_transform.TransformVector(scene_space_ray_direction));
+      const auto node_space_inv_ray_direction = glm::vec3(
+          1.f / node_space_ray_direction.x, 1.f / node_space_ray_direction.y, 1.f / node_space_ray_direction.z);
+      const auto node_level_bvh_node_offset = node_level_bvh_node_offsets[node_index];
+      const auto node_level_bvh_node_size = node_level_bvh_node_sizes[node_index];
+      const auto mesh_indices_offset = mesh_indices_offsets[node_index];
       std::unordered_set<uint32_t> mesh_group_index_test;
       while (mesh_group_index < node_level_bvh_node_size) {
         if (mesh_group_index_test.find(mesh_group_index) == mesh_group_index_test.end()) {
@@ -503,8 +487,8 @@ bool CpuRayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor, H
         } else {
           throw std::runtime_error("Duplicate mesh!");
         }
-        const auto &mesh_group = aggregated_scene.node_level_bvh_nodes[mesh_group_index + node_level_bvh_node_offset];
-        if (!ray_aabb(node_space_ray_origin, node_space_inv_ray_direction, mesh_group.aabb)) {
+        const auto& mesh_group = node_level_bvh_nodes[mesh_group_index + node_level_bvh_node_offset];
+        if (!RayAabb(node_space_ray_origin, node_space_inv_ray_direction, mesh_group.aabb)) {
           mesh_group_index = mesh_group.alternate_node_index;
           continue;
         }
@@ -512,10 +496,10 @@ bool CpuRayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor, H
              test_mesh_element_index < mesh_group.end_next_level_element_index + mesh_indices_offset;
              ++test_mesh_element_index) {
           uint32_t triangle_group_index = 0;
-          const auto mesh_index = aggregated_scene.mesh_indices[test_mesh_element_index];
-          const auto mesh_level_bvh_node_offset = aggregated_scene.mesh_level_bvh_node_offsets[mesh_index];
-          const auto mesh_level_bvh_node_size = aggregated_scene.mesh_level_bvh_node_sizes[mesh_index];
-          const auto triangle_indices_offset = aggregated_scene.triangle_indices_offsets[mesh_index];
+          const auto mesh_index = mesh_indices[test_mesh_element_index];
+          const auto mesh_level_bvh_node_offset = mesh_level_bvh_node_offsets[mesh_index];
+          const auto mesh_level_bvh_node_size = mesh_level_bvh_node_sizes[mesh_index];
+          const auto triangle_indices_offset = triangle_indices_offsets[mesh_index];
           std::unordered_set<uint32_t> triangle_group_index_test;
           while (triangle_group_index < mesh_level_bvh_node_size) {
             if (triangle_group_index_test.find(triangle_group_index) == triangle_group_index_test.end()) {
@@ -523,66 +507,55 @@ bool CpuRayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor, H
             } else {
               throw std::runtime_error("Duplicate triangle!");
             }
-            const auto& triangle_group =
-                aggregated_scene.mesh_level_bvh_nodes[triangle_group_index + mesh_level_bvh_node_offset];
-            if (!ray_aabb(node_space_ray_origin, node_space_inv_ray_direction, triangle_group.aabb)) {
+            const auto& triangle_group = mesh_level_bvh_nodes[triangle_group_index + mesh_level_bvh_node_offset];
+            if (!RayAabb(node_space_ray_origin, node_space_inv_ray_direction, triangle_group.aabb)) {
               triangle_group_index = triangle_group.alternate_node_index;
               continue;
             }
             for (uint32_t test_triangle_index = triangle_group.begin_next_level_element_index + triangle_indices_offset;
                  test_triangle_index < triangle_group.end_next_level_element_index + triangle_indices_offset;
                  ++test_triangle_index) {
-              const auto triangle_index = aggregated_scene.triangle_indices[test_triangle_index];
-              const auto& triangle = aggregated_scene.triangles[triangle_index];
-              const auto& p0 = aggregated_scene.vertex_positions[triangle.x];
-              const auto& p1 = aggregated_scene.vertex_positions[triangle.y];
-              const auto& p2 = aggregated_scene.vertex_positions[triangle.z];
+              const auto triangle_index = triangle_indices[test_triangle_index];
+              const auto& triangle = triangles[triangle_index];
+              const auto& p0 = vertex_positions[triangle.x];
+              const auto& p1 = vertex_positions[triangle.y];
+              const auto& p2 = vertex_positions[triangle.z];
               if (p0 == p1 && p1 == p2)
                 continue;
-              auto node_space_triangle_normal = (p1 - p0).crossProduct(p2 - p0);
-              node_space_triangle_normal.normalise();
-              const auto normal_test = node_space_ray_direction.dotProduct(node_space_triangle_normal);
+              auto node_space_triangle_normal = glm::normalize(glm::cross(p1 - p0, p2 - p0));
+              const auto normal_test = glm::dot(node_space_ray_direction, node_space_triangle_normal);
               if ((cull_back_face && normal_test > 0.f) || (cull_front_face && normal_test < 0.f) || normal_test == 0.f)
                 continue;
 
               // node_space_hit_distance > 0 instead of node_space_hit_distance >= 0 to avoid self-intersection
-              if (const auto node_space_hit_distance = (p0.dotProduct(node_space_triangle_normal) -
-                                                        node_space_ray_origin.dotProduct(node_space_triangle_normal)) /
-                                                       normal_test;
+              if (const auto node_space_hit_distance =
+                      glm::dot(p0, node_space_triangle_normal) -
+                      glm::dot(node_space_ray_origin, node_space_triangle_normal) / normal_test;
                   node_space_hit_distance > 0) {
                 const auto node_space_hit = node_space_ray_origin + node_space_ray_direction * node_space_hit_distance;
                 const auto scene_space_hit = node_global_transform.TransformPoint(node_space_hit);
-                if (const auto scene_hit_distance = (scene_space_ray_origin - scene_space_hit).length();
-                    scene_hit_distance >= ray_descriptor.t_min &&
-                    scene_hit_distance <= ray_casting_result.normal_distance.w) {
-                  auto calculate_barycentric = [](const CGVecF3& p, const CGVecF3& a, const CGVecF3& b,
-                                                  const CGVecF3& c) {
-                    const auto v0 = b - a;
-                    const auto v1 = c - a;
-                    const auto v2 = p - a;
-                    const auto d00 = v0.dotProduct(v0);
-                    const auto d01 = v0.dotProduct(v1);
-                    const auto d11 = v1.dotProduct(v1);
-                    const auto d20 = v2.dotProduct(v0);
-                    const auto d21 = v2.dotProduct(v1);
-                    const auto denominator = d00 * d11 - d01 * d01;
-                    const auto y = (d11 * d20 - d01 * d21) / denominator;
-                    const auto z = (d00 * d21 - d01 * d20) / denominator;
-                    return CGVecF3{1.0f - y - z, y, z};
-                  };
-                  if (const auto barycentric = calculate_barycentric(node_space_hit, p0, p1, p2);
+                if (const auto scene_hit_distance = glm::distance(scene_space_ray_origin, scene_space_hit);
+                    scene_hit_distance >= ray_descriptor.t_min && scene_hit_distance <= test_distance) {
+                  if (const auto barycentric = Barycentric(node_space_hit, p0, p1, p2);
                       barycentric.x >= 0.f && barycentric.x <= 1.f && barycentric.y >= 0.f && barycentric.y <= 1.f &&
                       barycentric.z >= 0.f && barycentric.z <= 1.f) {
-                    ray_casting_result.hit = CGVecF4(scene_space_hit.x, scene_space_hit.y, scene_space_hit.z, 1.0);
-                    const auto scene_space_normal = node_global_transform.TransformVector(node_space_triangle_normal);
-                    ray_casting_result.normal_distance =
-                        CGVecF4(scene_space_normal.x, scene_space_normal.y, scene_space_normal.z, scene_hit_distance);
-                    ray_casting_result.barycentric_back_face =
-                        CGVecF4(barycentric.x, barycentric.y, barycentric.z, normal_test > 0.f);
-                    UintBitsToFloat(node_index, ray_casting_result.node_mesh_triangle_indices.x);
-                    UintBitsToFloat(mesh_index, ray_casting_result.node_mesh_triangle_indices.y);
-                    UintBitsToFloat(aggregated_scene.local_triangle_indices[test_triangle_index],
-                                    ray_casting_result.node_mesh_triangle_indices.z);
+                    HitInfo any_hit_info;
+                    any_hit_info.hit = scene_space_hit;
+                    any_hit_info.normal = node_global_transform.TransformVector(node_space_triangle_normal);
+                    any_hit_info.distance = scene_hit_distance;
+                    any_hit_info.barycentric = barycentric;
+                    any_hit_info.back_face = normal_test > 0.f;
+                    any_hit_info.triangle_index = local_triangle_indices[test_triangle_index];
+                    any_hit_info.mesh_index = mesh_index;
+                    any_hit_info.node_index = node_index;
+                    any_hit_func(any_hit_info);
+                    if (!enforce_any_hit) {
+                      test_distance = scene_hit_distance;
+                    }
+                    if (any_hit_info.distance < closest_hit_info.distance) {
+                      has_hit = true;
+                      closest_hit_info = any_hit_info;
+                    }
                   }
                 }
               }
@@ -595,13 +568,14 @@ bool CpuRayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor, H
     }
     node_group_index++;
   }
-  
-  return ray_casting_result;
-  */
-  return false;
+  if (has_hit) {
+    closest_hit_func(closest_hit_info);
+  } else {
+    miss_func();
+  }
 }
 
-CpuRayTracer::AggregatedScene CpuRayTracer::Aggregate() const {
+RayTracer::AggregatedScene RayTracer::Aggregate() const {
   AggregatedScene aggregated_scene;
   aggregated_scene.scene_level_bvh_nodes = flattened_bvh_node_group_.nodes;
   aggregated_scene.node_indices = flattened_bvh_node_group_.element_indices;
@@ -672,7 +646,7 @@ CpuRayTracer::AggregatedScene CpuRayTracer::Aggregate() const {
   return aggregated_scene;
 }
 
-void CpuRayTracer::GeometryInstance::Initialize(const std::shared_ptr<Mesh>& input_mesh) {
+void RayTracer::GeometryInstance::Initialize(const std::shared_ptr<Mesh>& input_mesh) {
   Clear();
   const auto& input_vertices = input_mesh->UnsafeGetVertices();
   triangles = input_mesh->UnsafeGetTriangles();
@@ -705,7 +679,7 @@ void CpuRayTracer::GeometryInstance::Initialize(const std::shared_ptr<Mesh>& inp
   FlattenBvh(mesh_bvh, flattened_bvh_triangle_group, 0);
 }
 
-void CpuRayTracer::GeometryInstance::Clear() noexcept {
+void RayTracer::GeometryInstance::Clear() noexcept {
   flattened_bvh_triangle_group.nodes.clear();
   flattened_bvh_triangle_group.element_indices.clear();
   aabb = {};
@@ -713,7 +687,7 @@ void CpuRayTracer::GeometryInstance::Clear() noexcept {
   vertex_positions.clear();
 }
 
-void CpuRayTracer::NodeInstance::Initialize(const std::shared_ptr<Scene>& input_scene, const Entity& input_entity,
+void RayTracer::NodeInstance::Initialize(const std::shared_ptr<Scene>& input_scene, const Entity& input_entity,
                                             const std::vector<GeometryInstance>& mesh_instances,
                                             const std::map<Handle, uint32_t>& mesh_instances_map) {
   const auto mesh_renderer = input_scene->GetOrSetPrivateComponent<MeshRenderer>(input_entity).lock();
@@ -735,7 +709,7 @@ void CpuRayTracer::NodeInstance::Initialize(const std::shared_ptr<Scene>& input_
   FlattenBvh(node_bvh, flattened_bvh_mesh_group, 0);
 }
 
-void CpuRayTracer::NodeInstance::Clear() noexcept {
+void RayTracer::NodeInstance::Clear() noexcept {
   aabb = {};
   transformation = {};
   inverse_transformation = {};

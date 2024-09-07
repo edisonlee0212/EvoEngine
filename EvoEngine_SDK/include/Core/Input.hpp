@@ -14,7 +14,7 @@ class Input final {
   static glm::vec2 GetMousePosition();
 
  private:
-  friend class Graphics;
+  friend class Platform;
   friend class Application;
   friend class EditorLayer;
   std::unordered_map<int, KeyActionType> pressed_keys_ = {};

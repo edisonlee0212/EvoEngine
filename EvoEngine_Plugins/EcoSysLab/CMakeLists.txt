@@ -54,15 +54,8 @@ target_precompile_headers(EcoSysLabPlugin
 set(EVOENGINE_PLUGINS_INCLUDES ${EVOENGINE_PLUGINS_INCLUDES} ${ECOSYSLAB_INCLUDES} PARENT_SCOPE)
 set(EVOENGINE_PLUGINS_PCHS ${EVOENGINE_PLUGINS_PCHS} ${ECOSYSLAB_PCH} PARENT_SCOPE)
 set(EVOENGINE_PLUGINS_DEFS ${EVOENGINE_PLUGINS_DEFS} ECOSYSLAB_PLUGIN PARENT_SCOPE)
+set(EVOENGINE_PLUGINS_RESOURCES ${EVOENGINE_PLUGINS_RESOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/Internals PARENT_SCOPE)
 
 set(EvoEngine_Plugins ${EvoEngine_Plugins} EcoSysLabPlugin PARENT_SCOPE)
-
-# ------------------------------------------------------------------
-# Copy Internal resources
-# ------------------------------------------------------------------
-add_custom_command(TARGET EcoSysLabPlugin POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_directory
-	${CMAKE_CURRENT_SOURCE_DIR}/Internals
-	${CMAKE_BINARY_DIR})
 
 set_target_properties(EcoSysLabPlugin PROPERTIES FOLDER "Plugins")

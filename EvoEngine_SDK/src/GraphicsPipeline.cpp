@@ -2,17 +2,18 @@
 
 #include "Application.hpp"
 #include "Console.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Shader.hpp"
 #include "Utilities.hpp"
 
 using namespace evo_engine;
 
-void GraphicsPipeline::PreparePipeline() {
+void GraphicsPipeline::Initialize() {
   const auto render_layer = Application::GetLayer<RenderLayer>();
 
   std::vector<VkDescriptorSetLayout> set_layouts = {};
+  set_layouts.reserve(descriptor_set_layouts.size());
   for (const auto& i : descriptor_set_layouts) {
     set_layouts.push_back(i->GetVkDescriptorSetLayout());
   }
@@ -32,64 +33,64 @@ void GraphicsPipeline::PreparePipeline() {
   input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
   input_assembly.primitiveRestartEnable = VK_FALSE;
 
-  if (vertex_shader && vertex_shader->shader_type_ == ShaderType::Vertex && vertex_shader->Compiled()) {
+  if (vertex_shader && vertex_shader->GetShaderType() == ShaderType::Vertex && vertex_shader->Compiled()) {
     VkPipelineShaderStageCreateInfo vert_shader_stage_info{};
     vert_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     vert_shader_stage_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
-    vert_shader_stage_info.module = vertex_shader->shader_module_->GetVkShaderModule();
+    vert_shader_stage_info.module = vertex_shader->GetShaderModule()->GetVkShaderModule();
     vert_shader_stage_info.pName = "main";
     shader_stages.emplace_back(vert_shader_stage_info);
   }
-  if (tessellation_control_shader && tessellation_control_shader->shader_type_ == ShaderType::TessellationControl &&
+  if (tessellation_control_shader && tessellation_control_shader->GetShaderType() == ShaderType::TessellationControl &&
       tessellation_control_shader->Compiled()) {
     VkPipelineShaderStageCreateInfo tess_control_shader_stage_info{};
     tess_control_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     tess_control_shader_stage_info.stage = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
-    tess_control_shader_stage_info.module = tessellation_control_shader->shader_module_->GetVkShaderModule();
+    tess_control_shader_stage_info.module = tessellation_control_shader->GetShaderModule()->GetVkShaderModule();
     tess_control_shader_stage_info.pName = "main";
     shader_stages.emplace_back(tess_control_shader_stage_info);
     input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
   }
   if (tessellation_evaluation_shader &&
-      tessellation_evaluation_shader->shader_type_ == ShaderType::TessellationEvaluation &&
+      tessellation_evaluation_shader->GetShaderType() == ShaderType::TessellationEvaluation &&
       tessellation_evaluation_shader->Compiled()) {
     VkPipelineShaderStageCreateInfo tess_evaluation_shader_stage_info{};
     tess_evaluation_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     tess_evaluation_shader_stage_info.stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
-    tess_evaluation_shader_stage_info.module = tessellation_evaluation_shader->shader_module_->GetVkShaderModule();
+    tess_evaluation_shader_stage_info.module = tessellation_evaluation_shader->GetShaderModule()->GetVkShaderModule();
     tess_evaluation_shader_stage_info.pName = "main";
     shader_stages.emplace_back(tess_evaluation_shader_stage_info);
     input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
   }
-  if (geometry_shader && geometry_shader->shader_type_ == ShaderType::Geometry && geometry_shader->Compiled()) {
+  if (geometry_shader && geometry_shader->GetShaderType() == ShaderType::Geometry && geometry_shader->Compiled()) {
     VkPipelineShaderStageCreateInfo geometry_shader_stage_info{};
     geometry_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     geometry_shader_stage_info.stage = VK_SHADER_STAGE_GEOMETRY_BIT;
-    geometry_shader_stage_info.module = geometry_shader->shader_module_->GetVkShaderModule();
+    geometry_shader_stage_info.module = geometry_shader->GetShaderModule()->GetVkShaderModule();
     geometry_shader_stage_info.pName = "main";
     shader_stages.emplace_back(geometry_shader_stage_info);
   }
-  if (task_shader && task_shader->shader_type_ == ShaderType::Task && task_shader->Compiled()) {
+  if (task_shader && task_shader->GetShaderType() == ShaderType::Task && task_shader->Compiled()) {
     VkPipelineShaderStageCreateInfo task_shader_stage_info{};
     task_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     task_shader_stage_info.stage = VK_SHADER_STAGE_TASK_BIT_EXT;
-    task_shader_stage_info.module = task_shader->shader_module_->GetVkShaderModule();
+    task_shader_stage_info.module = task_shader->GetShaderModule()->GetVkShaderModule();
     task_shader_stage_info.pName = "main";
     shader_stages.emplace_back(task_shader_stage_info);
   }
-  if (mesh_shader && mesh_shader->shader_type_ == ShaderType::Mesh && mesh_shader->Compiled()) {
+  if (mesh_shader && mesh_shader->GetShaderType() == ShaderType::Mesh && mesh_shader->Compiled()) {
     VkPipelineShaderStageCreateInfo mesh_shader_stage_info{};
     mesh_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     mesh_shader_stage_info.stage = VK_SHADER_STAGE_MESH_BIT_EXT;
-    mesh_shader_stage_info.module = mesh_shader->shader_module_->GetVkShaderModule();
+    mesh_shader_stage_info.module = mesh_shader->GetShaderModule()->GetVkShaderModule();
     mesh_shader_stage_info.pName = "main";
     shader_stages.emplace_back(mesh_shader_stage_info);
   }
-  if (fragment_shader && fragment_shader->shader_type_ == ShaderType::Fragment && fragment_shader->Compiled()) {
+  if (fragment_shader && fragment_shader->GetShaderType() == ShaderType::Fragment && fragment_shader->Compiled()) {
     VkPipelineShaderStageCreateInfo fragment_shader_stage_info{};
     fragment_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     fragment_shader_stage_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    fragment_shader_stage_info.module = fragment_shader->shader_module_->GetVkShaderModule();
+    fragment_shader_stage_info.module = fragment_shader->GetShaderModule()->GetVkShaderModule();
     fragment_shader_stage_info.pName = "main";
     shader_stages.emplace_back(fragment_shader_stage_info);
   }
@@ -151,31 +152,31 @@ void GraphicsPipeline::PreparePipeline() {
   depth_stencil.depthBoundsTestEnable = VK_FALSE;
   depth_stencil.stencilTestEnable = VK_FALSE;
   std::vector dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT,
-                               VK_DYNAMIC_STATE_SCISSOR,
+                                VK_DYNAMIC_STATE_SCISSOR,
 
-                               VK_DYNAMIC_STATE_DEPTH_CLAMP_ENABLE_EXT,
-                               VK_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE,
-                               VK_DYNAMIC_STATE_POLYGON_MODE_EXT,
-                               VK_DYNAMIC_STATE_CULL_MODE,
-                               VK_DYNAMIC_STATE_FRONT_FACE,
-                               VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE,
-                               VK_DYNAMIC_STATE_DEPTH_BIAS,
-                               VK_DYNAMIC_STATE_LINE_WIDTH,
+                                VK_DYNAMIC_STATE_DEPTH_CLAMP_ENABLE_EXT,
+                                VK_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE,
+                                VK_DYNAMIC_STATE_POLYGON_MODE_EXT,
+                                VK_DYNAMIC_STATE_CULL_MODE,
+                                VK_DYNAMIC_STATE_FRONT_FACE,
+                                VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE,
+                                VK_DYNAMIC_STATE_DEPTH_BIAS,
+                                VK_DYNAMIC_STATE_LINE_WIDTH,
 
-                               VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE,
-                               VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE,
-                               VK_DYNAMIC_STATE_DEPTH_COMPARE_OP,
-                               VK_DYNAMIC_STATE_DEPTH_BOUNDS_TEST_ENABLE,
-                               VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE,
-                               VK_DYNAMIC_STATE_STENCIL_OP,
-                               VK_DYNAMIC_STATE_DEPTH_BOUNDS,
+                                VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE,
+                                VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE,
+                                VK_DYNAMIC_STATE_DEPTH_COMPARE_OP,
+                                VK_DYNAMIC_STATE_DEPTH_BOUNDS_TEST_ENABLE,
+                                VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE,
+                                VK_DYNAMIC_STATE_STENCIL_OP,
+                                VK_DYNAMIC_STATE_DEPTH_BOUNDS,
 
-                               VK_DYNAMIC_STATE_LOGIC_OP_ENABLE_EXT,
-                               VK_DYNAMIC_STATE_LOGIC_OP_EXT,
-                               VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT,
-                               VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT,
-                               VK_DYNAMIC_STATE_COLOR_WRITE_MASK_EXT,
-                               VK_DYNAMIC_STATE_BLEND_CONSTANTS};
+                                VK_DYNAMIC_STATE_LOGIC_OP_ENABLE_EXT,
+                                VK_DYNAMIC_STATE_LOGIC_OP_EXT,
+                                VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT,
+                                VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT,
+                                VK_DYNAMIC_STATE_COLOR_WRITE_MASK_EXT,
+                                VK_DYNAMIC_STATE_BLEND_CONSTANTS};
   VkPipelineDynamicStateCreateInfo dynamic_state{};
   dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
   dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
@@ -207,23 +208,23 @@ void GraphicsPipeline::PreparePipeline() {
   pipeline_info.layout = pipeline_layout_->GetVkPipelineLayout();
   pipeline_info.pNext = &rendering_create_info;
   pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
-  Graphics::CheckVk(vkCreateGraphicsPipelines(Graphics::GetVkDevice(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
+  Platform::CheckVk(vkCreateGraphicsPipelines(Platform::GetVkDevice(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
                                               &vk_graphics_pipeline_));
   states.ResetAllStates(1);
 }
 
-bool GraphicsPipeline::PipelineReady() const {
+bool GraphicsPipeline::Initialized() const {
   return vk_graphics_pipeline_ != VK_NULL_HANDLE;
 }
 
-void GraphicsPipeline::Bind(const VkCommandBuffer command_buffer) {
-  vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_graphics_pipeline_);
-  states.ApplyAllStates(command_buffer, true);
+void GraphicsPipeline::Bind(const VkCommandBuffer vk_command_buffer) {
+  vkCmdBindPipeline(vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_graphics_pipeline_);
+  states.ApplyAllStates(vk_command_buffer, true);
 }
 
-void GraphicsPipeline::BindDescriptorSet(const VkCommandBuffer command_buffer, const uint32_t first_set,
+void GraphicsPipeline::BindDescriptorSet(const VkCommandBuffer vk_command_buffer, const uint32_t first_set,
                                          const VkDescriptorSet descriptor_set) const {
-  vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_->GetVkPipelineLayout(),
+  vkCmdBindDescriptorSets(vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_->GetVkPipelineLayout(),
                           first_set, 1, &descriptor_set, 0, nullptr);
 }
 
@@ -327,5 +328,12 @@ void PipelineDynamicState::Apply(const VkPipelineDynamicStateCreateInfo& vk_pipe
   flags = vk_pipeline_dynamic_state_create_info.flags;
   IGraphicsResource::ApplyVector(dynamic_states, vk_pipeline_dynamic_state_create_info.dynamicStateCount,
                                  vk_pipeline_dynamic_state_create_info.pDynamicStates);
+}
+
+GraphicsPipeline::~GraphicsPipeline() {
+  if (vk_graphics_pipeline_ != VK_NULL_HANDLE) {
+    vkDestroyPipeline(Platform::GetVkDevice(), vk_graphics_pipeline_, nullptr);
+    vk_graphics_pipeline_ = nullptr;
+  }
 }
 #pragma endregion

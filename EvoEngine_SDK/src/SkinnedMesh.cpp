@@ -23,7 +23,7 @@ void SkinnedVertexAttributes::Deserialize(const YAML::Node& in) {
 }
 
 const std::shared_ptr<DescriptorSet>& BoneMatrices::GetDescriptorSet() const {
-  const auto current_frame_index = Graphics::GetCurrentFrameIndex();
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
   return descriptor_set_[current_frame_index];
 }
 
@@ -35,11 +35,11 @@ BoneMatrices::BoneMatrices() {
   bone_matrices_crate_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   VmaAllocationCreateInfo allocation_create_info{};
   allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  const auto max_frames_in_flight = Graphics::GetMaxFramesInFlight();
+  const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
   for (int i = 0; i < max_frames_in_flight; i++) {
     bone_matrices_buffer_.emplace_back(std::make_unique<Buffer>(bone_matrices_crate_info, allocation_create_info));
     descriptor_set_.emplace_back(
-        std::make_shared<DescriptorSet>(Graphics::GetDescriptorSetLayout("BONE_MATRICES_LAYOUT")));
+        std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("BONE_MATRICES_LAYOUT")));
   }
 }
 
@@ -49,7 +49,7 @@ size_t& BoneMatrices::GetVersion() {
 
 void BoneMatrices::UploadData() {
   version_++;
-  const auto current_frame_index = Graphics::GetCurrentFrameIndex();
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
   if (!value.empty())
     bone_matrices_buffer_[current_frame_index]->UploadVector(value);
   VkDescriptorBufferInfo buffer_info;

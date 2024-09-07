@@ -1,6 +1,8 @@
 #pragma once
 #include "shaderc/shaderc.h"
 namespace evo_engine {
+class CommandBuffer;
+
 class IGraphicsResource {
  protected:
   IGraphicsResource() = default;
@@ -73,10 +75,11 @@ class Image final : public IGraphicsResource {
   Image(VkImageCreateInfo image_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info);
   bool HasStencilComponent() const;
   ~Image() override;
-  void TransitImageLayout(VkCommandBuffer command_buffer, VkImageLayout new_layout);
-  void CopyFromBuffer(VkCommandBuffer command_buffer, const VkBuffer& src_buffer, VkDeviceSize src_offset = 0) const;
+  void TransitImageLayout(VkCommandBuffer vk_command_buffer, VkImageLayout new_layout);
+  void CopyFromBuffer(VkCommandBuffer vk_command_buffer, const VkBuffer& src_buffer,
+                      VkDeviceSize src_offset = 0) const;
 
-  void GenerateMipmaps(VkCommandBuffer command_buffer);
+  void GenerateMipmaps(VkCommandBuffer vk_command_buffer);
 
   [[nodiscard]] VkImage GetVkImage() const;
   [[nodiscard]] VkFormat GetFormat() const;
@@ -102,7 +105,7 @@ class ImageView final : public IGraphicsResource {
   VkComponentMapping components_;
   VkImageSubresourceRange subresource_range_;
   friend class Swapchain;
-  friend class Graphics;
+  friend class Platform;
 
  public:
   explicit ImageView(const VkImageViewCreateInfo& image_view_create_info);
@@ -328,16 +331,15 @@ class ShaderExt final : public IGraphicsResource {
 };
 
 enum class CommandBufferStatus { Ready, Recording, Recorded, Invalid };
-class CommandBuffer {
-  friend class Graphics;
+class CommandBuffer final : public IGraphicsResource {
+  friend class Platform;
   CommandBufferStatus status_ = CommandBufferStatus::Invalid;
   VkCommandBuffer vk_command_buffer_ = VK_NULL_HANDLE;
 
  public:
   CommandBufferStatus GetStatus() const;
-  void Allocate(const VkQueueFlagBits& queue_type = VK_QUEUE_GRAPHICS_BIT,
-                const VkCommandBufferLevel& buffer_level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-  void Free();
+  CommandBuffer(const VkCommandBufferLevel& buffer_level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+  ~CommandBuffer() override;
   [[nodiscard]] const VkCommandBuffer& GetVkCommandBuffer() const;
   /**
    * Begins the recording state for this command buffer.
@@ -349,20 +351,33 @@ class CommandBuffer {
    * Ends the recording state for this command buffer.
    */
   void End();
-  /**
-   * Submits the command buffer to the queue and will hold the current thread idle until it has finished.
-   */
-  void SubmitIdle();
 
-  /**
-   * Submits the command buffer.
-   * @param wait_semaphore A optional semaphore that will waited upon before the command buffer is executed.
-   * @param signal_semaphore A optional that is signaled once the command buffer has been executed.
-   * @param fence A optional fence that is signaled once the command buffer has completed.
-   */
-  void Submit(const VkSemaphore& wait_semaphore = VK_NULL_HANDLE, const VkSemaphore& signal_semaphore = VK_NULL_HANDLE,
-              VkFence fence = VK_NULL_HANDLE) const;
+  void Record(const std::function<void(VkCommandBuffer vk_command_buffer)>& commands);
 
   void Reset();
 };
+
+class CommandQueue final : public IGraphicsResource {
+  friend class Platform;
+  VkQueue vk_queue_ = VK_NULL_HANDLE;
+
+public:
+  void Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers,
+             const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
+              const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores, const std::shared_ptr<Fence>& fence) const;
+
+  void Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers,
+              const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
+              const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores) const;
+
+  void ImmediateSubmit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers,
+                       const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
+                       const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores) const;
+
+  void Present(const std::vector<std::shared_ptr<Semaphore>>& wait_semaphores,
+               const std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>>& targets) const;
+
+  void WaitIdle() const;
+};
+
 }  // namespace evo_engine

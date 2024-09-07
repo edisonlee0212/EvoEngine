@@ -2,7 +2,7 @@
 
 #include <Material.hpp>
 
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "PointCloud.hpp"
 #include "Tree.hpp"
 

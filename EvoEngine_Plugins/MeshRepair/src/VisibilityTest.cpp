@@ -1,5 +1,5 @@
 #include "VisibilityTest.hpp"
-#include "CpuRayTracer.hpp"
+#include "RayTracer.hpp"
 #include "Times.hpp"
 
 using namespace evo_engine;
@@ -46,7 +46,7 @@ void VisibilityTest::Execute(const std::shared_ptr<Mesh>& mesh,
                                        std::vector<Visibility>& visibility_results) {
   const auto& input_triangles = mesh->UnsafeGetTriangles();
   const auto& input_vertices = mesh->UnsafeGetVertices();
-  CpuRayTracer cpu_ray_tracer;
+  RayTracer cpu_ray_tracer;
 
   cpu_ray_tracer.Initialize(mesh);
   visibility_results.resize(input_triangles.size());
@@ -55,10 +55,10 @@ void VisibilityTest::Execute(const std::shared_ptr<Mesh>& mesh,
     // for(uint32_t triangle_index = 0; triangle_index < input_triangles.size(); triangle_index++){
     const auto& sample = input_samples.at(triangle_index);
     RandomSampler random_sampler;
-    CpuRayTracer::RayDescriptor current_ray_descriptor{};
+    RayTracer::RayDescriptor current_ray_descriptor{};
     if (visibility_test_params.cull_back_faces)
       current_ray_descriptor.flags =
-          CpuRayTracer::TraceFlags::CullBackFace;
+          RayTracer::TraceFlags::CullBackFace;
     random_sampler.SetSeed(triangle_index);
     glm::vec3 current_ray_direction;
     bool visible = false;
@@ -115,14 +115,14 @@ void VisibilityTest::Execute(const std::shared_ptr<Mesh>& mesh,
         current_ray_descriptor.t_max = FLT_MAX;
         cpu_ray_tracer.Trace(
             current_ray_descriptor,
-            [&](const CpuRayTracer::HitInfo& hit_info) {
+            [&](const RayTracer::HitInfo& hit_info) {
               barycentric = hit_info.barycentric;
               source_triangle = input_triangles[hit_info.triangle_index];
             },
             [&]() {
               visible = true;
             },
-            [](const CpuRayTracer::HitInfo& hit_info) {
+            [](const RayTracer::HitInfo& hit_info) {
             });
         if (visible) {
           break;
@@ -166,7 +166,7 @@ void VisibilityTest::Execute(const std::shared_ptr<Scene>& scene, const Entity& 
 
   struct VisibilityTestingMeshData {};
   struct VisibilityTestingNodeData {};
-  CpuRayTracer cpu_ray_tracer;
+  RayTracer cpu_ray_tracer;
 
   cpu_ray_tracer.Initialize(
       scene,
@@ -179,10 +179,10 @@ void VisibilityTest::Execute(const std::shared_ptr<Scene>& scene, const Entity& 
   Jobs::RunParallelFor(input_triangles.size(), [&](const size_t triangle_index) {
     const auto& sample = input_samples.at(triangle_index);
     RandomSampler random_sampler;
-    CpuRayTracer::RayDescriptor current_ray_descriptor{};
+    RayTracer::RayDescriptor current_ray_descriptor{};
     if (visibility_test_params.cull_back_faces)
       current_ray_descriptor.flags =
-          CpuRayTracer::TraceFlags::CullBackFace;
+          RayTracer::TraceFlags::CullBackFace;
     random_sampler.SetSeed(triangle_index);
     glm::vec3 current_ray_direction;
     bool visible = false;
@@ -241,14 +241,14 @@ void VisibilityTest::Execute(const std::shared_ptr<Scene>& scene, const Entity& 
         current_ray_descriptor.t_max = FLT_MAX;
         cpu_ray_tracer.Trace(
             current_ray_descriptor,
-            [&](const CpuRayTracer::HitInfo& hit_info) {
+            [&](const RayTracer::HitInfo& hit_info) {
               current_ray_origin = hit_info.hit;
               current_triangle_normal = glm::normalize(hit_info.normal);
             },
             [&]() {
               visible = true;
             },
-            [](const CpuRayTracer::HitInfo& hit_info) {
+            [](const RayTracer::HitInfo& hit_info) {
             });
         if (visible) {
           break;

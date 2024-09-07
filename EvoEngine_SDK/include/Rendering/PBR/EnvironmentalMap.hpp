@@ -6,7 +6,7 @@
 
 namespace evo_engine {
 class EnvironmentalMap final : public IAsset {
-  friend class Graphics;
+  friend class Platform;
   friend class Camera;
   friend class Environment;
   friend class RenderLayer;

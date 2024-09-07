@@ -2,7 +2,7 @@
 #include "ILayer.hpp"
 namespace evo_engine {
 class WindowLayer final : public ILayer {
-  friend class Graphics;
+  friend class Platform;
   friend class RenderLayer;
 #pragma region Presenters
   std::vector<GLFWmonitor*> monitors_;

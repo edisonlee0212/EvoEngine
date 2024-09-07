@@ -15,7 +15,6 @@ enum class ShaderType {
   Unknown
 };
 class Shader final : public IAsset {
-  friend class GraphicsPipeline;
   std::unique_ptr<ShaderModule> shader_module_ = {};
   std::string code_ = {};
   ShaderType shader_type_ = ShaderType::Unknown;
@@ -24,5 +23,6 @@ class Shader final : public IAsset {
   [[nodiscard]] bool Compiled() const;
   void Set(ShaderType shader_type, const std::string& shader_code);
   [[nodiscard]] const std::unique_ptr<ShaderModule>& GetShaderModule() const;
+  [[nodiscard]] ShaderType GetShaderType() const;
 };
 }  // namespace evo_engine

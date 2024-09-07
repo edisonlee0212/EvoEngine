@@ -1,14 +1,15 @@
 #pragma once
 #include "GraphicsPipeline.hpp"
+#include "ComputePipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "ISingleton.hpp"
 
 namespace evo_engine {
 struct QueueFamilyIndices {
-  std::optional<uint32_t> graphics_family;
+  std::optional<uint32_t> graphics_and_compute_family;
   std::optional<uint32_t> present_family;
   [[nodiscard]] bool IsComplete() const {
-    return graphics_family.has_value() && present_family.has_value();
+    return graphics_and_compute_family.has_value() && present_family.has_value();
   }
 };
 
@@ -18,8 +19,8 @@ struct SwapChainSupportDetails {
   std::vector<VkPresentModeKHR> present_modes;
 };
 
-class Graphics final {
-  EVOENGINE_SINGLETON_INSTANCE(Graphics)
+class Platform final {
+  EVOENGINE_SINGLETON_INSTANCE(Platform)
   friend class Application;
   friend class Resources;
   friend class Lighting;
@@ -53,10 +54,12 @@ class Graphics final {
 
   QueueFamilyIndices queue_family_indices_ = {};
 
-  VkQueue vk_graphics_queue_ = VK_NULL_HANDLE;
-  VkQueue vk_present_queue_ = VK_NULL_HANDLE;
+  std::unique_ptr<CommandQueue> immediate_submit_queue_ {};
 
-  std::unique_ptr<Swapchain> swapchain_ = {};
+  std::unique_ptr<CommandQueue> main_queue_{};
+  std::unique_ptr<CommandQueue> present_queue_{};
+
+  std::shared_ptr<Swapchain> swapchain_ = {};
 
   VkSurfaceFormatKHR vk_surface_format_ = {};
 
@@ -67,12 +70,10 @@ class Graphics final {
 
   int max_frame_in_flight_ = 2;
 
-  int used_command_buffer_size_ = 0;
-  std::vector<std::vector<CommandBuffer>> command_buffer_pool_ = {};
-
-  std::vector<std::unique_ptr<Semaphore>> image_available_semaphores_ = {};
-  std::vector<std::unique_ptr<Semaphore>> render_finished_semaphores_ = {};
-  std::vector<std::unique_ptr<Fence>> in_flight_fences_ = {};
+  
+  std::vector<std::shared_ptr<Semaphore>> image_available_semaphores_ = {};
+  std::vector<std::shared_ptr<Semaphore>> render_finished_semaphores_ = {};
+  std::vector<std::shared_ptr<Fence>> in_flight_fences_ = {};
 
   uint32_t current_frame_index_ = 0;
 
@@ -128,16 +129,28 @@ class Graphics final {
   static uint32_t FindMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties);
 
   std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>> graphics_pipelines_;
+  std::unordered_map<std::string, std::shared_ptr<ComputePipeline>> compute_pipelines_;
+
+  std::shared_ptr<GraphicsPipeline> bound_graphics_pipeline;
+  std::shared_ptr<ComputePipeline> bound_compute_pipeline;
+
   std::unordered_map<std::string, std::shared_ptr<DescriptorSetLayout>> descriptor_set_layouts_;
   void CreateGraphicsPipelines() const;
   static void PrepareDescriptorSetLayouts();
-
+  int used_command_buffer_size_ = 0;
+  std::vector<std::vector<std::shared_ptr<CommandBuffer>>> command_buffer_pool_ = {};
+  std::shared_ptr<CommandBuffer> immediate_submit_command_buffer;
  public:
+  static void RecordCommandsMainQueue(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
+
+
   double cpu_wait_time = 0.0f;
   static void WaitForDeviceIdle();
 
   static void RegisterGraphicsPipeline(const std::string& name,
                                        const std::shared_ptr<GraphicsPipeline>& graphics_pipeline);
+  static void RegisterComputePipeline(const std::string& name,
+                                       const std::shared_ptr<ComputePipeline>& compute_pipeline);
   [[nodiscard]] static const std::shared_ptr<GraphicsPipeline>& GetGraphicsPipeline(const std::string& name);
   static void RegisterDescriptorSetLayout(const std::string& name,
                                           const std::shared_ptr<DescriptorSetLayout>& descriptor_set_layout);
@@ -183,9 +196,9 @@ class Graphics final {
     constexpr static uint32_t meshlet_max_triangles_size = 40;
   };
 
-  static void EverythingBarrier(VkCommandBuffer command_buffer);
+  static void EverythingBarrier(VkCommandBuffer vk_command_buffer);
 
-  static void TransitImageLayout(VkCommandBuffer command_buffer, VkImage target_image, VkFormat image_format,
+  static void TransitImageLayout(VkCommandBuffer vk_command_buffer, VkImage target_image, VkFormat image_format,
                                  uint32_t layer_count, VkImageLayout old_layout, VkImageLayout new_layout,
                                  uint32_t mip_levels = 1);
 
@@ -194,8 +207,7 @@ class Graphics final {
 
   static size_t GetMaxBoneAmount();
   static size_t GetMaxShadowCascadeAmount();
-  static void AppendCommands(const std::function<void(VkCommandBuffer command_buffer)>& action);
-  static void ImmediateSubmit(const std::function<void(VkCommandBuffer command_buffer)>& action);
+  static void ImmediateSubmit(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
   static QueueFamilyIndices GetQueueFamilyIndices();
   static int GetMaxFramesInFlight();
   static void NotifyRecreateSwapChain();
@@ -205,10 +217,11 @@ class Graphics final {
   static uint32_t GetCurrentFrameIndex();
   static uint32_t GetNextImageIndex();
   static VkCommandPool GetVkCommandPool();
-  static VkQueue GetGraphicsVkQueue();
-  static VkQueue GetPresentVkQueue();
+  static const std::unique_ptr<CommandQueue>& GetMainQueue();
+  static const std::unique_ptr<CommandQueue>& GetImmediateSubmitQueue();
+  static const std::unique_ptr<CommandQueue>& GetPresentQueue();
   static VmaAllocator GetVmaAllocator();
-  static const std::unique_ptr<Swapchain>& GetSwapchain();
+  static const std::shared_ptr<Swapchain>& GetSwapchain();
   static const std::unique_ptr<DescriptorPool>& GetDescriptorPool();
   static unsigned GetSwapchainVersion();
   static VkSurfaceFormatKHR GetVkSurfaceFormat();

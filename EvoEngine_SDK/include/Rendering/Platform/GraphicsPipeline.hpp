@@ -96,8 +96,8 @@ struct PipelineDynamicState {
 };
 #pragma endregion
 
-class GraphicsPipeline {
-  friend class Graphics;
+class GraphicsPipeline final : public IGraphicsResource {
+  friend class Platform;
   friend class RenderLayer;
   friend class GraphicsPipelineStates;
 
@@ -106,6 +106,7 @@ class GraphicsPipeline {
   VkPipeline vk_graphics_pipeline_ = VK_NULL_HANDLE;
 
  public:
+  ~GraphicsPipeline() override;
   GraphicsPipelineStates states{};
 
   std::vector<std::shared_ptr<DescriptorSetLayout>> descriptor_set_layouts;
@@ -129,17 +130,18 @@ class GraphicsPipeline {
 
   std::vector<VkPushConstantRange> push_constant_ranges;
 
-  void PreparePipeline();
-  [[nodiscard]] bool PipelineReady() const;
-  void Bind(VkCommandBuffer command_buffer);
-  void BindDescriptorSet(VkCommandBuffer command_buffer, uint32_t first_set, VkDescriptorSet descriptor_set) const;
+  void Initialize();
+
+  [[nodiscard]] bool Initialized() const;
+  void Bind(VkCommandBuffer vk_command_buffer);
+  void BindDescriptorSet(VkCommandBuffer vk_command_buffer, uint32_t first_set, VkDescriptorSet descriptor_set) const;
   template <typename T>
-  void PushConstant(VkCommandBuffer command_buffer, size_t range_index, const T& data);
+  void PushConstant(VkCommandBuffer vk_command_buffer, size_t range_index, const T& data);
 };
 
 template <typename T>
-void GraphicsPipeline::PushConstant(const VkCommandBuffer command_buffer, const size_t range_index, const T& data) {
-  vkCmdPushConstants(command_buffer, pipeline_layout_->GetVkPipelineLayout(),
+void GraphicsPipeline::PushConstant(const VkCommandBuffer vk_command_buffer, const size_t range_index, const T& data) {
+  vkCmdPushConstants(vk_command_buffer, pipeline_layout_->GetVkPipelineLayout(),
                      push_constant_ranges[range_index].stageFlags, push_constant_ranges[range_index].offset,
                      push_constant_ranges[range_index].size, &data);
 }

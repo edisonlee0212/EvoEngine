@@ -3,7 +3,7 @@
 #include "Application.hpp"
 #include "Camera.hpp"
 #include "GeometryStorage.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "Mesh.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
@@ -26,12 +26,12 @@ void PostProcessingStack::OnCreate() {
   render_texture1_ = std::make_unique<RenderTexture>(render_texture_create_info);
   render_texture2_ = std::make_unique<RenderTexture>(render_texture_create_info);
 
-  ssr_reflect_descriptor_set_ = std::make_shared<DescriptorSet>(Graphics::GetDescriptorSetLayout("SSR_REFLECT_LAYOUT"));
+  ssr_reflect_descriptor_set_ = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("SSR_REFLECT_LAYOUT"));
   ssr_blur_horizontal_descriptor_set_ =
-      std::make_shared<DescriptorSet>(Graphics::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
+      std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
   ssr_blur_vertical_descriptor_set_ =
-      std::make_shared<DescriptorSet>(Graphics::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
-  ssr_combine_descriptor_set_ = std::make_shared<DescriptorSet>(Graphics::GetDescriptorSetLayout("SSR_COMBINE_LAYOUT"));
+      std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
+  ssr_combine_descriptor_set_ = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("SSR_COMBINE_LAYOUT"));
 }
 
 bool PostProcessingStack::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -55,7 +55,7 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
   render_texture0_->Resize({size.x, size.y, 1});
   render_texture1_->Resize({size.x, size.y, 1});
   render_texture2_->Resize({size.x, size.y, 1});
-  const auto current_frame_index = Graphics::GetCurrentFrameIndex();
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
   if (ssao) {
   }
   if (ssr) {
@@ -100,7 +100,7 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
       ssr_combine_descriptor_set_->UpdateImageDescriptorBinding(1, image_info);
     }
 
-    Graphics::AppendCommands([&](VkCommandBuffer command_buffer) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
       VkRect2D render_area;
       render_area.offset = {0, 0};
@@ -123,7 +123,7 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
       render_info.renderArea = render_area;
       render_info.layerCount = 1;
 #pragma endregion
-      GeometryStorage::BindVertices(command_buffer);
+      GeometryStorage::BindVertices(vk_command_buffer);
       {
         SsrPushConstant push_constant{};
         push_constant.num_binary_search_steps = ssr_settings.num_binary_search_steps;
@@ -139,14 +139,14 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
         render_info2.pDepthAttachment = VK_NULL_HANDLE;
 
         // Input texture
-        target_camera->TransitGBufferImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        target_camera->render_texture_->GetDepthImage()->TransitImageLayout(command_buffer,
+        target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        target_camera->render_texture_->GetDepthImage()->TransitImageLayout(vk_command_buffer,
                                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        target_camera->render_texture_->GetColorImage()->TransitImageLayout(command_buffer,
+        target_camera->render_texture_->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         // Attachments
-        render_texture0_->GetColorImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-        render_texture1_->GetColorImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+        render_texture0_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+        render_texture1_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
         render_texture0_->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                                                      VK_ATTACHMENT_STORE_OP_STORE);
         render_texture1_->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_DONT_CARE,
@@ -155,8 +155,8 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
         render_info2.pColorAttachments = color_attachment_infos.data();
 
         {
-          const auto& ssr_reflect_pipeline = Graphics::GetGraphicsPipeline("SSR_REFLECT");
-          vkCmdBeginRendering(command_buffer, &render_info2);
+          const auto& ssr_reflect_pipeline = Platform::GetGraphicsPipeline("SSR_REFLECT");
+          vkCmdBeginRendering(vk_command_buffer, &render_info2);
           ssr_reflect_pipeline->states.depth_test = false;
           ssr_reflect_pipeline->states.color_blend_attachment_states.clear();
           ssr_reflect_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -165,29 +165,29 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
                                VK_COLOR_COMPONENT_A_BIT;
             i.blendEnable = VK_FALSE;
           }
-          ssr_reflect_pipeline->Bind(command_buffer);
+          ssr_reflect_pipeline->Bind(vk_command_buffer);
           ssr_reflect_pipeline->BindDescriptorSet(
-              command_buffer, 0, render_layer->per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          ssr_reflect_pipeline->BindDescriptorSet(command_buffer, 1, ssr_reflect_descriptor_set_->GetVkDescriptorSet());
+              vk_command_buffer, 0, render_layer->per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+          ssr_reflect_pipeline->BindDescriptorSet(vk_command_buffer, 1, ssr_reflect_descriptor_set_->GetVkDescriptorSet());
           ssr_reflect_pipeline->states.view_port = viewport;
           ssr_reflect_pipeline->states.scissor = scissor;
 
-          ssr_reflect_pipeline->PushConstant(command_buffer, 0, push_constant);
-          mesh->DrawIndexed(command_buffer, ssr_reflect_pipeline->states, 1);
-          vkCmdEndRendering(command_buffer);
+          ssr_reflect_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          mesh->DrawIndexed(vk_command_buffer, ssr_reflect_pipeline->states, 1);
+          vkCmdEndRendering(vk_command_buffer);
         }
         // Input texture
-        render_texture1_->GetColorImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        render_texture1_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         // Attachments
         color_attachment_infos.clear();
-        render_texture2_->GetColorImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+        render_texture2_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
         render_texture2_->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_CLEAR,
                                                      VK_ATTACHMENT_STORE_OP_STORE);
         render_info2.colorAttachmentCount = color_attachment_infos.size();
         render_info2.pColorAttachments = color_attachment_infos.data();
         {
-          const auto& ssr_blur_pipeline = Graphics::GetGraphicsPipeline("SSR_BLUR");
-          vkCmdBeginRendering(command_buffer, &render_info2);
+          const auto& ssr_blur_pipeline = Platform::GetGraphicsPipeline("SSR_BLUR");
+          vkCmdBeginRendering(vk_command_buffer, &render_info2);
           ssr_blur_pipeline->states.depth_test = false;
           ssr_blur_pipeline->states.color_blend_attachment_states.clear();
           ssr_blur_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -196,28 +196,28 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
                                VK_COLOR_COMPONENT_A_BIT;
             i.blendEnable = VK_FALSE;
           }
-          ssr_blur_pipeline->Bind(command_buffer);
-          ssr_blur_pipeline->BindDescriptorSet(command_buffer, 0,
+          ssr_blur_pipeline->Bind(vk_command_buffer);
+          ssr_blur_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                                ssr_blur_horizontal_descriptor_set_->GetVkDescriptorSet());
           ssr_blur_pipeline->states.view_port = viewport;
           ssr_blur_pipeline->states.scissor = scissor;
           push_constant.horizontal = true;
-          ssr_blur_pipeline->PushConstant(command_buffer, 0, push_constant);
-          mesh->DrawIndexed(command_buffer, ssr_blur_pipeline->states, 1);
-          vkCmdEndRendering(command_buffer);
+          ssr_blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          mesh->DrawIndexed(vk_command_buffer, ssr_blur_pipeline->states, 1);
+          vkCmdEndRendering(vk_command_buffer);
         }
         // Input texture
-        render_texture2_->GetColorImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        render_texture2_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         // Attachments
         color_attachment_infos.clear();
-        render_texture1_->GetColorImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+        render_texture1_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
         render_texture1_->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_CLEAR,
                                                      VK_ATTACHMENT_STORE_OP_STORE);
         render_info2.colorAttachmentCount = color_attachment_infos.size();
         render_info2.pColorAttachments = color_attachment_infos.data();
         {
-          const auto& ssr_blur_pipeline = Graphics::GetGraphicsPipeline("SSR_BLUR");
-          vkCmdBeginRendering(command_buffer, &render_info2);
+          const auto& ssr_blur_pipeline = Platform::GetGraphicsPipeline("SSR_BLUR");
+          vkCmdBeginRendering(vk_command_buffer, &render_info2);
           ssr_blur_pipeline->states.depth_test = false;
           ssr_blur_pipeline->states.color_blend_attachment_states.clear();
           ssr_blur_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -226,30 +226,30 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
                                VK_COLOR_COMPONENT_A_BIT;
             i.blendEnable = VK_FALSE;
           }
-          ssr_blur_pipeline->Bind(command_buffer);
-          ssr_blur_pipeline->BindDescriptorSet(command_buffer, 0,
+          ssr_blur_pipeline->Bind(vk_command_buffer);
+          ssr_blur_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                                ssr_blur_vertical_descriptor_set_->GetVkDescriptorSet());
           ssr_blur_pipeline->states.view_port = viewport;
           ssr_blur_pipeline->states.scissor = scissor;
           push_constant.horizontal = false;
-          ssr_blur_pipeline->PushConstant(command_buffer, 0, push_constant);
-          mesh->DrawIndexed(command_buffer, ssr_blur_pipeline->states, 1);
-          vkCmdEndRendering(command_buffer);
+          ssr_blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          mesh->DrawIndexed(vk_command_buffer, ssr_blur_pipeline->states, 1);
+          vkCmdEndRendering(vk_command_buffer);
         }
         // Input texture
-        render_texture0_->GetColorImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        render_texture1_->GetColorImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        render_texture0_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        render_texture1_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         // Attachments
         color_attachment_infos.clear();
-        target_camera->render_texture_->GetColorImage()->TransitImageLayout(command_buffer,
+        target_camera->render_texture_->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                             VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
         target_camera->render_texture_->AppendColorAttachmentInfos(
             color_attachment_infos, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE);
         render_info2.colorAttachmentCount = color_attachment_infos.size();
         render_info2.pColorAttachments = color_attachment_infos.data();
         {
-          const auto& ssr_combine_pipeline = Graphics::GetGraphicsPipeline("SSR_COMBINE");
-          vkCmdBeginRendering(command_buffer, &render_info2);
+          const auto& ssr_combine_pipeline = Platform::GetGraphicsPipeline("SSR_COMBINE");
+          vkCmdBeginRendering(vk_command_buffer, &render_info2);
           ssr_combine_pipeline->states.depth_test = false;
           ssr_combine_pipeline->states.color_blend_attachment_states.clear();
           ssr_combine_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -258,13 +258,13 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
                                VK_COLOR_COMPONENT_A_BIT;
             i.blendEnable = VK_FALSE;
           }
-          ssr_combine_pipeline->Bind(command_buffer);
-          ssr_combine_pipeline->BindDescriptorSet(command_buffer, 0, ssr_combine_descriptor_set_->GetVkDescriptorSet());
+          ssr_combine_pipeline->Bind(vk_command_buffer);
+          ssr_combine_pipeline->BindDescriptorSet(vk_command_buffer, 0, ssr_combine_descriptor_set_->GetVkDescriptorSet());
           ssr_combine_pipeline->states.view_port = viewport;
           ssr_combine_pipeline->states.scissor = scissor;
-          ssr_combine_pipeline->PushConstant(command_buffer, 0, push_constant);
-          mesh->DrawIndexed(command_buffer, ssr_combine_pipeline->states, 1);
-          vkCmdEndRendering(command_buffer);
+          ssr_combine_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          mesh->DrawIndexed(vk_command_buffer, ssr_combine_pipeline->states, 1);
+          vkCmdEndRendering(vk_command_buffer);
         }
       }
     });

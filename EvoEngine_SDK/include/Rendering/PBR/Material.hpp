@@ -1,6 +1,6 @@
 #pragma once
 #include "AssetRef.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "IAsset.hpp"
 #include "MaterialProperties.hpp"
 #include "Texture2D.hpp"

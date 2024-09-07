@@ -15,10 +15,10 @@ void ReflectionProbe::Initialize(uint32_t resolution) {
 
   cubemap_->Initialize(resolution, mip_levels);
 
-  Graphics::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
-    cubemap_->RefStorage().image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    cubemap_->RefStorage().image->GenerateMipmaps(command_buffer);
-    cubemap_->RefStorage().image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    cubemap_->RefStorage().image->GenerateMipmaps(vk_command_buffer);
+    cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
 
   for (int i = 0; i < 6; i++) {
@@ -28,7 +28,7 @@ void ReflectionProbe::Initialize(uint32_t resolution) {
       view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
       view_info.image = cubemap_->RefStorage().image->GetVkImage();
       view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-      view_info.format = Graphics::Constants::texture_2d;
+      view_info.format = Platform::Constants::texture_2d;
       view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
       view_info.subresourceRange.baseMipLevel = mip;
       view_info.subresourceRange.levelCount = 1;
@@ -61,7 +61,7 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
   depth_image_info.extent.depth = 1;
   depth_image_info.mipLevels = 1;
   depth_image_info.arrayLayers = 1;
-  depth_image_info.format = Graphics::Constants::shadow_map;
+  depth_image_info.format = Platform::Constants::shadow_map;
   depth_image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
   depth_image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   depth_image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -69,15 +69,15 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
   depth_image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   const auto depth_image = std::make_shared<Image>(depth_image_info);
-  Graphics::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
-    depth_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    depth_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   });
 
   VkImageViewCreateInfo depth_view_info{};
   depth_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   depth_view_info.image = depth_image->GetVkImage();
   depth_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  depth_view_info.format = Graphics::Constants::shadow_map;
+  depth_view_info.format = Platform::Constants::shadow_map;
   depth_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
   depth_view_info.subresourceRange.baseMipLevel = 0;
   depth_view_info.subresourceRange.levelCount = 1;
@@ -87,7 +87,7 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
 #pragma endregion
 
   const std::unique_ptr<DescriptorSet> temp_set =
-      std::make_unique<DescriptorSet>(Graphics::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
+      std::make_unique<DescriptorSet>(Platform::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
   VkDescriptorImageInfo descriptor_image_info;
   descriptor_image_info.imageView = target_cubemap->GetImageView()->GetVkImageView();
   descriptor_image_info.imageLayout = target_cubemap->GetImage()->GetLayout();
@@ -105,9 +105,9 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
   const auto max_mip_levels = cubemap_->RefStorage().image->GetMipLevels();
 
-  const auto prefilter_construct = Graphics::GetGraphicsPipeline("PREFILTER_CONSTRUCT");
-  Graphics::ImmediateSubmit([&](VkCommandBuffer command_buffer) {
-    cubemap_->RefStorage().image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  const auto prefilter_construct = Platform::GetGraphicsPipeline("PREFILTER_CONSTRUCT");
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
     for (uint32_t mip = 0; mip < max_mip_levels; ++mip) {
       unsigned int mip_width = cubemap_->RefStorage().image->GetExtent().width * std::pow(0.5, mip);
@@ -132,7 +132,7 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
       prefilter_construct->states.view_port = viewport;
       prefilter_construct->states.scissor = scissor;
 #pragma endregion
-      GeometryStorage::BindVertices(command_buffer);
+      GeometryStorage::BindVertices(vk_command_buffer);
       for (int i = 0; i < 6; i++) {
 #pragma region Lighting pass
         VkRenderingAttachmentInfo attachment{};
@@ -170,22 +170,22 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
               VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
           i.blendEnable = VK_FALSE;
         }
-        vkCmdBeginRendering(command_buffer, &render_info);
-        prefilter_construct->Bind(command_buffer);
-        prefilter_construct->BindDescriptorSet(command_buffer, 0, temp_set->GetVkDescriptorSet());
+        vkCmdBeginRendering(vk_command_buffer, &render_info);
+        prefilter_construct->Bind(vk_command_buffer);
+        prefilter_construct->BindDescriptorSet(vk_command_buffer, 0, temp_set->GetVkDescriptorSet());
         const auto mesh = Resources::GetResource<Mesh>("PRIMITIVE_RENDERING_CUBE");
         EquirectangularToCubemapConstant constant{};
         constant.projection_view = capture_projection * capture_views[i];
         constant.m_preset = roughness;
-        prefilter_construct->PushConstant(command_buffer, 0, constant);
-        mesh->DrawIndexed(command_buffer, prefilter_construct->states, 1);
-        vkCmdEndRendering(command_buffer);
+        prefilter_construct->PushConstant(vk_command_buffer, 0, constant);
+        mesh->DrawIndexed(vk_command_buffer, prefilter_construct->states, 1);
+        vkCmdEndRendering(vk_command_buffer);
 #pragma endregion
 
-        Graphics::EverythingBarrier(command_buffer);
+        Platform::EverythingBarrier(vk_command_buffer);
       }
     }
-    cubemap_->RefStorage().image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
 }
 

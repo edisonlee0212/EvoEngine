@@ -2,7 +2,7 @@
 #include "Application.hpp"
 #include "Cubemap.hpp"
 #include "EnvironmentalMap.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "ILayer.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
@@ -109,7 +109,7 @@ void EditorLayer::OnCreate() {
   entity_index_read_buffer_create_info.usage = VMA_MEMORY_USAGE_AUTO;
   entity_index_read_buffer_create_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
   entity_index_read_buffer_ = std::make_unique<Buffer>(entity_index_read_buffer, entity_index_read_buffer_create_info);
-  vmaMapMemory(Graphics::GetVmaAllocator(), entity_index_read_buffer_->GetVmaAllocation(),
+  vmaMapMemory(Platform::GetVmaAllocator(), entity_index_read_buffer_->GetVmaAllocation(),
                static_cast<void**>(static_cast<void*>(&mapped_entity_index_data_)));
 
   const auto scene_camera = Serialization::ProduceSerializable<Camera>();
@@ -631,20 +631,20 @@ void EditorLayer::LateUpdate() {
     }
   }
 
-  Graphics::AppendCommands([&](const VkCommandBuffer command_buffer) {
-    Graphics::EverythingBarrier(command_buffer);
-    Graphics::TransitImageLayout(command_buffer, Graphics::GetSwapchain()->GetVkImage(),
-                                 Graphics::GetSwapchain()->GetImageFormat(), 1, VK_IMAGE_LAYOUT_UNDEFINED,
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    Platform::EverythingBarrier(vk_command_buffer);
+    Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
+                                 Platform::GetSwapchain()->GetImageFormat(), 1, VK_IMAGE_LAYOUT_UNDEFINED,
                                  VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR);
 
     constexpr VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
     VkRect2D render_area;
     render_area.offset = {0, 0};
-    render_area.extent = Graphics::GetSwapchain()->GetImageExtent();
+    render_area.extent = Platform::GetSwapchain()->GetImageExtent();
 
     VkRenderingAttachmentInfo color_attachment_info{};
     color_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    color_attachment_info.imageView = Graphics::GetSwapchain()->GetVkImageView();
+    color_attachment_info.imageView = Platform::GetSwapchain()->GetVkImageView();
     color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
     color_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     color_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -657,13 +657,13 @@ void EditorLayer::LateUpdate() {
     render_info.colorAttachmentCount = 1;
     render_info.pColorAttachments = &color_attachment_info;
 
-    vkCmdBeginRendering(command_buffer, &render_info);
+    vkCmdBeginRendering(vk_command_buffer, &render_info);
     ImGui::Render();
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffer);
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), vk_command_buffer);
 
-    vkCmdEndRendering(command_buffer);
-    Graphics::TransitImageLayout(command_buffer, Graphics::GetSwapchain()->GetVkImage(),
-                                 Graphics::GetSwapchain()->GetImageFormat(), 1, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR,
+    vkCmdEndRendering(vk_command_buffer);
+    Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
+                                 Platform::GetSwapchain()->GetImageFormat(), 1, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR,
                                  VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
   });
 }
@@ -757,7 +757,7 @@ void EditorLayer::InspectComponentData(const Entity entity, IDataComponent* data
 void EditorLayer::SceneCameraWindow() {
   const auto scene = GetScene();
   auto window_layer = Application::GetLayer<WindowLayer>();
-  const auto& graphics = Graphics::GetInstance();
+  const auto& graphics = Platform::GetInstance();
   auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
 #pragma region Scene Window
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
@@ -794,7 +794,7 @@ void EditorLayer::SceneCameraWindow() {
           ImGui::Text("Info & Settings");
           ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
           std::string draw_call_info = {};
-          const auto current_frame_index = Graphics::GetCurrentFrameIndex();
+          const auto current_frame_index = Platform::GetCurrentFrameIndex();
           if (graphics.triangles[current_frame_index] < 999)
             draw_call_info += std::to_string(graphics.triangles[current_frame_index]);
           else if (graphics.triangles[current_frame_index] < 999999)
@@ -955,7 +955,7 @@ void EditorLayer::SceneCameraWindow() {
 void EditorLayer::MainCameraWindow() {
   if (const auto render_layer = Application::GetLayer<RenderLayer>(); !render_layer)
     return;
-  const auto& graphics = Graphics::GetInstance();
+  const auto& graphics = Platform::GetInstance();
   const auto scene = GetScene();
 #pragma region Window
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
@@ -999,7 +999,7 @@ void EditorLayer::MainCameraWindow() {
           }
           ImGui::PopItemWidth();
           std::string draw_call_info = {};
-          const auto current_frame_index = Graphics::GetCurrentFrameIndex();
+          const auto current_frame_index = Platform::GetCurrentFrameIndex();
           if (graphics.triangles[current_frame_index] < 999)
             draw_call_info += std::to_string(graphics.triangles[current_frame_index]);
           else if (graphics.triangles[current_frame_index] < 999999)

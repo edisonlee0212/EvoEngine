@@ -1,7 +1,7 @@
 #include "Lights.hpp"
 
 #include "Application.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Serialization.hpp"
 using namespace evo_engine;
@@ -204,7 +204,7 @@ void Lighting::AllocateAtlas(uint32_t size, uint32_t max_resolution, std::vector
 }
 
 Lighting::Lighting() {
-  lighting_descriptor_set = std::make_shared<DescriptorSet>(Graphics::GetDescriptorSetLayout("LIGHTING_LAYOUT"));
+  lighting_descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("LIGHTING_LAYOUT"));
 }
 
 void Lighting::Initialize() {
@@ -216,12 +216,12 @@ void Lighting::Initialize() {
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent.width = Graphics::Settings::directional_light_shadow_map_resolution;
-    image_info.extent.height = Graphics::Settings::directional_light_shadow_map_resolution;
+    image_info.extent.width = Platform::Settings::directional_light_shadow_map_resolution;
+    image_info.extent.height = Platform::Settings::directional_light_shadow_map_resolution;
     image_info.extent.depth = 1;
     image_info.mipLevels = 1;
     image_info.arrayLayers = 4;
-    image_info.format = Graphics::Constants::shadow_map;
+    image_info.format = Platform::Constants::shadow_map;
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -234,7 +234,7 @@ void Lighting::Initialize() {
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_info.image = directional_light_shadow_map_->GetVkImage();
     view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-    view_info.format = Graphics::Constants::shadow_map;
+    view_info.format = Platform::Constants::shadow_map;
     view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
     view_info.subresourceRange.baseMipLevel = 0;
     view_info.subresourceRange.levelCount = 1;
@@ -256,7 +256,7 @@ void Lighting::Initialize() {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Graphics::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy = Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
@@ -275,12 +275,12 @@ void Lighting::Initialize() {
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent.width = Graphics::Settings::point_light_shadow_map_resolution;
-    image_info.extent.height = Graphics::Settings::point_light_shadow_map_resolution;
+    image_info.extent.width = Platform::Settings::point_light_shadow_map_resolution;
+    image_info.extent.height = Platform::Settings::point_light_shadow_map_resolution;
     image_info.extent.depth = 1;
     image_info.mipLevels = 1;
     image_info.arrayLayers = 6;
-    image_info.format = Graphics::Constants::shadow_map;
+    image_info.format = Platform::Constants::shadow_map;
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -293,7 +293,7 @@ void Lighting::Initialize() {
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_info.image = point_light_shadow_map_->GetVkImage();
     view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-    view_info.format = Graphics::Constants::shadow_map;
+    view_info.format = Platform::Constants::shadow_map;
     view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
     view_info.subresourceRange.baseMipLevel = 0;
     view_info.subresourceRange.levelCount = 1;
@@ -316,7 +316,7 @@ void Lighting::Initialize() {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Graphics::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy = Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
@@ -334,12 +334,12 @@ void Lighting::Initialize() {
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent.width = Graphics::Settings::spot_light_shadow_map_resolution;
-    image_info.extent.height = Graphics::Settings::spot_light_shadow_map_resolution;
+    image_info.extent.width = Platform::Settings::spot_light_shadow_map_resolution;
+    image_info.extent.height = Platform::Settings::spot_light_shadow_map_resolution;
     image_info.extent.depth = 1;
     image_info.mipLevels = 1;
     image_info.arrayLayers = 1;
-    image_info.format = Graphics::Constants::shadow_map;
+    image_info.format = Platform::Constants::shadow_map;
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -352,7 +352,7 @@ void Lighting::Initialize() {
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_info.image = spot_light_shadow_map_->GetVkImage();
     view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = Graphics::Constants::shadow_map;
+    view_info.format = Platform::Constants::shadow_map;
     view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
     view_info.subresourceRange.baseMipLevel = 0;
     view_info.subresourceRange.levelCount = 1;
@@ -369,7 +369,7 @@ void Lighting::Initialize() {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Graphics::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy = Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;

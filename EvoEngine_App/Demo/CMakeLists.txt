@@ -25,5 +25,8 @@ if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 			)
 		file(COPY imgui.ini DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 		evoengine_copy_resources(DemoApp ${CMAKE_CURRENT_BINARY_DIR})
+
+		
+
 	endif ()
 endif ()

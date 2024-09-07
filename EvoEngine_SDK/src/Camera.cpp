@@ -35,7 +35,7 @@ void Camera::UpdateGBuffer() {
     image_info.extent = render_texture_->GetExtent();
     image_info.mipLevels = 1;
     image_info.arrayLayers = 1;
-    image_info.format = Graphics::Constants::g_buffer_color;
+    image_info.format = Platform::Constants::g_buffer_color;
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
@@ -49,7 +49,7 @@ void Camera::UpdateGBuffer() {
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_info.image = g_buffer_normal_->GetVkImage();
     view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = Graphics::Constants::g_buffer_color;
+    view_info.format = Platform::Constants::g_buffer_color;
     view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     view_info.subresourceRange.baseMipLevel = 0;
     view_info.subresourceRange.levelCount = 1;
@@ -66,7 +66,7 @@ void Camera::UpdateGBuffer() {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Graphics::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy = Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
@@ -82,7 +82,7 @@ void Camera::UpdateGBuffer() {
     image_info.extent = render_texture_->GetExtent();
     image_info.mipLevels = 1;
     image_info.arrayLayers = 1;
-    image_info.format = Graphics::Constants::g_buffer_color;
+    image_info.format = Platform::Constants::g_buffer_color;
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
@@ -96,7 +96,7 @@ void Camera::UpdateGBuffer() {
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_info.image = g_buffer_material_->GetVkImage();
     view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = Graphics::Constants::g_buffer_material;
+    view_info.format = Platform::Constants::g_buffer_material;
     view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     view_info.subresourceRange.baseMipLevel = 0;
     view_info.subresourceRange.levelCount = 1;
@@ -113,7 +113,7 @@ void Camera::UpdateGBuffer() {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Graphics::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy = Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
@@ -122,8 +122,8 @@ void Camera::UpdateGBuffer() {
 
     g_buffer_material_sampler_ = std::make_unique<Sampler>(sampler_info);
   }
-  Graphics::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
-    TransitGBufferImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
 
   EditorLayer::UpdateTextureId(g_buffer_normal_im_texture_id_, g_buffer_normal_sampler_->GetVkSampler(),
@@ -146,9 +146,9 @@ void Camera::UpdateGBuffer() {
   }
 }
 
-void Camera::TransitGBufferImageLayout(VkCommandBuffer command_buffer, VkImageLayout target_layout) const {
-  g_buffer_normal_->TransitImageLayout(command_buffer, target_layout);
-  g_buffer_material_->TransitImageLayout(command_buffer, target_layout);
+void Camera::TransitGBufferImageLayout(const VkCommandBuffer vk_command_buffer, VkImageLayout target_layout) const {
+  g_buffer_normal_->TransitImageLayout(vk_command_buffer, target_layout);
+  g_buffer_material_->TransitImageLayout(vk_command_buffer, target_layout);
 }
 
 void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const GlobalTransform& global_transform) {
@@ -250,7 +250,7 @@ void Camera::OnCreate() {
   render_texture_create_info.extent.depth = 1;
   render_texture_ = std::make_unique<RenderTexture>(render_texture_create_info);
 
-  g_buffer_descriptor_set_ = std::make_shared<DescriptorSet>(Graphics::GetDescriptorSetLayout("CAMERA_GBUFFER_LAYOUT"));
+  g_buffer_descriptor_set_ = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("CAMERA_GBUFFER_LAYOUT"));
   UpdateGBuffer();
 }
 

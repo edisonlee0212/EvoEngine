@@ -85,7 +85,6 @@ foreach(target ${all_targets})
   endif()
 endforeach()
 
-
 set(3RDPARTY_INCLUDES 
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${3RDPARTY_INCLUDES}

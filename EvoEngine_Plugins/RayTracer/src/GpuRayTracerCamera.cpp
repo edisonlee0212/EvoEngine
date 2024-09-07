@@ -1,16 +1,16 @@
-#include "CpuRayTracerCamera.hpp"
+#include "GpuRayTracerCamera.hpp"
 
 #include "ClassRegistry.hpp"
 #include "RayTracer.hpp"
 using namespace evo_engine;
 
-float CpuRayTracerCamera::GetSizeRatio() const {
+float GpuRayTracerCamera::GetSizeRatio() const {
   if (resolution.x == 0 || resolution.y == 0)
     return 0;
   return static_cast<float>(resolution.x) / static_cast<float>(resolution.y);
 }
 
-void CpuRayTracerCamera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block,
+void GpuRayTracerCamera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block,
                                                const GlobalTransform& global_transform) const {
   const auto rotation = global_transform.GetRotation();
   const auto position = global_transform.GetPosition();
@@ -27,10 +27,18 @@ void CpuRayTracerCamera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_bloc
       glm::vec4(near_distance, far_distance, glm::tan(glm::radians(fov * 0.5f)), glm::tan(glm::radians(fov * 0.25f)));
 }
 
-void CpuRayTracerCamera::OnCreate() {
+std::shared_ptr<Shader> trace_shader;
+
+void GpuRayTracerCamera::OnCreate() {
+  if (!trace_shader) {
+    trace_shader = ProjectManager::CreateTemporaryAsset<Shader>();
+    const auto shader_code = FileUtils::LoadFileAsString(std::filesystem::path("./RayTracerResources") /
+                                                    "Shaders/Compute/Trace.comp");
+    trace_shader->Set(ShaderType::Compute, shader_code);
+  }
 }
 
-void CpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
+void GpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
                                  const std::shared_ptr<Texture2D>& target_texture) const {
   std::vector<glm::vec4> pixels{resolution.x * resolution.y};
   CameraInfoBlock camera_info_block;
@@ -97,7 +105,7 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
   target_texture->SetRgbaChannelData(pixels, resolution, true);
 }
 
-bool CpuRayTracerCamera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool GpuRayTracerCamera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (!texture_ref.Get<Texture2D>()) {
     auto new_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();

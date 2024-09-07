@@ -1,10 +1,10 @@
 #pragma once
 namespace evo_engine {
 /**
- * @class CpuRayTracer
+ * @class RayTracer
  * @brief This class provides the cpu ray tracing service.
  */
-class CpuRayTracer final {
+class RayTracer final {
  public:
   enum class TraceFlags {
     // No special flag set.
@@ -234,7 +234,18 @@ class CpuRayTracer final {
      */
     std::vector<glm::vec3> vertex_positions;
 
-    [[nodiscard]] bool Trace(const RayDescriptor& ray_descriptor, HitInfo& hit_info) const;
+    /**
+     * @brief Trace a ray within the scene. Function is thread-safe.
+     * @param ray_descriptor Configuration for the ray.
+     * @param closest_hit_func Action to take for closest hit point.
+     * @param miss_func Action to take for escaping ray.
+     * @param any_hit_func Action to take for any hit point(s) along the ray shooting path. You should never assume this
+     * will cover all possible intersections unless EnforceAnyHit flag is set to on.
+     */
+    void Trace(const RayDescriptor& ray_descriptor,
+               const std::function<void(const HitInfo& hit_info)>& closest_hit_func,
+               const std::function<void()>& miss_func,
+               const std::function<void(const HitInfo& hit_info)>& any_hit_func) const;
   };
 
   /**

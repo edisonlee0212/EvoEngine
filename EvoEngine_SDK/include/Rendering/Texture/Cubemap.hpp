@@ -1,5 +1,5 @@
 #pragma once
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "GraphicsResources.hpp"
 #include "IAsset.hpp"
 #include "Texture2D.hpp"

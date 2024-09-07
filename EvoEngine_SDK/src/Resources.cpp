@@ -14,29 +14,29 @@ void Resources::LoadShaders() {
 #pragma region Shader Includes
   std::string add;
   uint32_t mesh_work_group_invocations =
-      Graphics::GetInstance().mesh_shader_properties_ext_.maxPreferredMeshWorkGroupInvocations;
+      Platform::GetInstance().mesh_shader_properties_ext_.maxPreferredMeshWorkGroupInvocations;
   uint32_t task_work_group_invocations =
-      Graphics::GetInstance().mesh_shader_properties_ext_.maxPreferredTaskWorkGroupInvocations;
+      Platform::GetInstance().mesh_shader_properties_ext_.maxPreferredTaskWorkGroupInvocations;
 
-  uint32_t mesh_subgroup_size = Graphics::GetInstance().vk_physical_device_vulkan11_properties_.subgroupSize;
-  uint32_t mesh_subgroup_count = (std::min(std::max(Graphics::Constants::meshlet_max_vertices_size,
-                                                    Graphics::Constants::meshlet_max_triangles_size),
+  uint32_t mesh_subgroup_size = Platform::GetInstance().vk_physical_device_vulkan11_properties_.subgroupSize;
+  uint32_t mesh_subgroup_count = (std::min(std::max(Platform::Constants::meshlet_max_vertices_size,
+                                                    Platform::Constants::meshlet_max_triangles_size),
                                            mesh_work_group_invocations) +
                                   mesh_subgroup_size - 1) /
                                  mesh_subgroup_size;
 
-  uint32_t task_subgroup_size = Graphics::GetInstance().vk_physical_device_vulkan11_properties_.subgroupSize;
+  uint32_t task_subgroup_size = Platform::GetInstance().vk_physical_device_vulkan11_properties_.subgroupSize;
   uint32_t task_subgroup_count = (task_work_group_invocations + task_subgroup_size - 1) / task_subgroup_size;
 
   task_subgroup_size = glm::max(task_subgroup_size, 1u);
   mesh_subgroup_size = glm::max(mesh_subgroup_size, 1u);
   task_subgroup_count = glm::max(task_subgroup_count, 1u);
   mesh_subgroup_count = glm::max(mesh_subgroup_count, 1u);
-  add += "\n#define MAX_DIRECTIONAL_LIGHT_SIZE " + std::to_string(Graphics::Settings::max_directional_light_size) +
-         "\n#define MAX_KERNEL_AMOUNT " + std::to_string(Graphics::Constants::max_kernel_amount) +
-         "\n#define MESHLET_MAX_VERTICES_SIZE " + std::to_string(Graphics::Constants::meshlet_max_vertices_size) +
-         "\n#define MESHLET_MAX_TRIANGLES_SIZE " + std::to_string(Graphics::Constants::meshlet_max_triangles_size) +
-         "\n#define MESHLET_MAX_INDICES_SIZE " + std::to_string(Graphics::Constants::meshlet_max_triangles_size * 3)
+  add += "\n#define MAX_DIRECTIONAL_LIGHT_SIZE " + std::to_string(Platform::Settings::max_directional_light_size) +
+         "\n#define MAX_KERNEL_AMOUNT " + std::to_string(Platform::Constants::max_kernel_amount) +
+         "\n#define MESHLET_MAX_VERTICES_SIZE " + std::to_string(Platform::Constants::meshlet_max_vertices_size) +
+         "\n#define MESHLET_MAX_TRIANGLES_SIZE " + std::to_string(Platform::Constants::meshlet_max_triangles_size) +
+         "\n#define MESHLET_MAX_INDICES_SIZE " + std::to_string(Platform::Constants::meshlet_max_triangles_size * 3)
 
          + "\n#define EXT_TASK_SUBGROUP_SIZE " + std::to_string(task_subgroup_size) +
          "\n#define EXT_MESH_SUBGROUP_SIZE " + std::to_string(mesh_subgroup_size) +
@@ -47,17 +47,17 @@ void Resources::LoadShaders() {
 
          + "\n";
 
-  Graphics::GetInstance().shader_basic_ =
+  Platform::GetInstance().shader_basic_ =
       add + FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") / "Shaders/Include/Basic.glsl");
-  Graphics::GetInstance().shader_basic_constants_ =
+  Platform::GetInstance().shader_basic_constants_ =
       add +
       FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") / "Shaders/Include/BasicConstants.glsl");
-  Graphics::GetInstance().shader_gizmos_constants_ =
+  Platform::GetInstance().shader_gizmos_constants_ =
       add +
       FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") / "Shaders/Include/GizmosConstants.glsl");
-  Graphics::GetInstance().shader_lighting_ =
+  Platform::GetInstance().shader_lighting_ =
       FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") / "Shaders/Include/Lighting.glsl");
-  Graphics::GetInstance().shader_ssr_constants_ =
+  Platform::GetInstance().shader_ssr_constants_ =
       add +
       FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") / "Shaders/Include/SSRConstants.glsl");
 
@@ -65,78 +65,78 @@ void Resources::LoadShaders() {
 
 #pragma region Standard Shader
   {
-    auto vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Vertex/Standard/Standard.vert");
 
     auto standard_vert = CreateResource<Shader>("STANDARD_VERT");
     standard_vert->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Standard/StandardSkinned.vert");
 
     standard_vert = CreateResource<Shader>("STANDARD_SKINNED_VERT");
     standard_vert->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Standard/StandardInstanced.vert");
 
     standard_vert = CreateResource<Shader>("STANDARD_INSTANCED_VERT");
     standard_vert->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Standard/StandardStrands.vert");
 
     standard_vert = CreateResource<Shader>("STANDARD_STRANDS_VERT");
     standard_vert->Set(ShaderType::Vertex, vert_shader_code);
 
-    auto tesc_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto tesc_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/TessellationControl/Standard/StandardStrands.tesc");
 
     auto standard_tesc = CreateResource<Shader>("STANDARD_STRANDS_TESC");
     standard_tesc->Set(ShaderType::TessellationControl, tesc_shader_code);
 
-    auto tese_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto tese_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/TessellationEvaluation/Standard/StandardStrands.tese");
 
     auto standard_tese = CreateResource<Shader>("STANDARD_STRANDS_TESE");
     standard_tese->Set(ShaderType::TessellationEvaluation, tese_shader_code);
 
-    auto geom_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto geom_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Geometry/Standard/StandardStrands.geom");
 
     auto standard_geom = CreateResource<Shader>("STANDARD_STRANDS_GEOM");
     standard_geom->Set(ShaderType::Geometry, geom_shader_code);
 
-    auto task_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto task_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Task/Standard/Standard.task");
     auto standard_task = CreateResource<Shader>("STANDARD_TASK");
     standard_task->Set(ShaderType::Task, task_shader_code);
 
-    auto mesh_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto mesh_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Mesh/Standard/Standard.mesh");
     auto standard_mesh = CreateResource<Shader>("STANDARD_MESH");
     standard_mesh->Set(ShaderType::Mesh, mesh_shader_code);
 
-    mesh_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    mesh_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Mesh/Standard/StandardMeshletColored.mesh");
     standard_mesh = CreateResource<Shader>("STANDARD_MESHLET_COLORED_MESH");
@@ -158,24 +158,24 @@ void Resources::LoadShaders() {
 
 #pragma region GBuffer
   {
-    auto frag_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ +
-                            Graphics::GetInstance().shader_basic_ + "\n" + "\n" +
-                            Graphics::GetInstance().shader_lighting_ + "\n" +
+    auto frag_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ +
+                            Platform::GetInstance().shader_basic_ + "\n" + "\n" +
+                            Platform::GetInstance().shader_lighting_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Fragment/Standard/StandardDeferredLighting.frag");
     auto frag_shader = CreateResource<Shader>("STANDARD_DEFERRED_LIGHTING_FRAG");
     frag_shader->Set(ShaderType::Fragment, frag_shader_code);
 
     frag_shader_code =
-        std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ +
-        Graphics::GetInstance().shader_basic_ + "\n" + "\n" + Graphics::GetInstance().shader_lighting_ + "\n" +
+        std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ +
+        Platform::GetInstance().shader_basic_ + "\n" + "\n" + Platform::GetInstance().shader_lighting_ + "\n" +
         FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                     "Shaders/Fragment/Standard/StandardDeferredLightingSceneCamera.frag");
     frag_shader = CreateResource<Shader>("STANDARD_DEFERRED_LIGHTING_SCENE_CAMERA_FRAG");
     frag_shader->Set(ShaderType::Fragment, frag_shader_code);
 
-    frag_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    frag_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Fragment/Standard/StandardDeferred.frag");
     frag_shader = CreateResource<Shader>("STANDARD_DEFERRED_FRAG");
@@ -185,20 +185,20 @@ void Resources::LoadShaders() {
 
 #pragma region PostProcessing
   {
-    auto frag_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_ssr_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto frag_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_ssr_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Fragment/PostProcessing/SSRReflect.frag");
     auto frag_shader = CreateResource<Shader>("SSR_REFLECT_FRAG");
     frag_shader->Set(ShaderType::Fragment, frag_shader_code);
 
-    frag_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_ssr_constants_ + "\n" +
+    frag_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_ssr_constants_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Fragment/PostProcessing/SSRBlur.frag");
     frag_shader = CreateResource<Shader>("SSR_BLUR_FRAG");
     frag_shader->Set(ShaderType::Fragment, frag_shader_code);
 
-    frag_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_ssr_constants_ + "\n" +
+    frag_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_ssr_constants_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Fragment/PostProcessing/SSRCombine.frag");
     frag_shader = CreateResource<Shader>("SSR_COMBINE_FRAG");
@@ -207,104 +207,104 @@ void Resources::LoadShaders() {
 #pragma endregion
 #pragma region Shadow Maps
   {
-    auto vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Vertex/Lighting/DirectionalLightShadowMap.vert");
 
     auto vert_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Lighting/DirectionalLightShadowMapSkinned.vert");
 
     vert_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_SKINNED_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Lighting/DirectionalLightShadowMapInstanced.vert");
 
     vert_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_INSTANCED_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Lighting/DirectionalLightShadowMapStrands.vert");
 
     vert_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_STRANDS_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Lighting/PointLightShadowMap.vert");
 
     vert_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Lighting/PointLightShadowMapSkinned.vert");
 
     vert_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_SKINNED_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Lighting/PointLightShadowMapInstanced.vert");
 
     vert_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_INSTANCED_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Lighting/PointLightShadowMapStrands.vert");
 
     vert_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_STRANDS_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Lighting/SpotLightShadowMap.vert");
 
     vert_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Lighting/SpotLightShadowMapSkinned.vert");
 
     vert_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_SKINNED_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Lighting/SpotLightShadowMapInstanced.vert");
 
     vert_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_INSTANCED_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Lighting/SpotLightShadowMapStrands.vert");
 
     vert_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_STRANDS_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    auto tesc_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto tesc_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/TessellationControl/Lighting/ShadowMapStrands.tesc");
 
@@ -312,8 +312,8 @@ void Resources::LoadShaders() {
     tesc_shader->Set(ShaderType::TessellationControl, tesc_shader_code);
 
     auto tese_shader_code =
-        std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-        Graphics::GetInstance().shader_basic_ + "\n" +
+        std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+        Platform::GetInstance().shader_basic_ + "\n" +
         FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                     "Shaders/TessellationEvaluation/Lighting/ShadowMapStrands.tese");
 
@@ -321,72 +321,72 @@ void Resources::LoadShaders() {
     tese_shader->Set(ShaderType::TessellationEvaluation, tese_shader_code);
 
     auto geom_shader_code =
-        std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-        Graphics::GetInstance().shader_basic_ + "\n" +
+        std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+        Platform::GetInstance().shader_basic_ + "\n" +
         FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                     "Shaders/Geometry/Lighting/DirectionalLightShadowMapStrands.geom");
 
     auto geom_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_STRANDS_GEOM");
     geom_shader->Set(ShaderType::Geometry, geom_shader_code);
 
-    geom_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    geom_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Geometry/Lighting/PointLightShadowMapStrands.geom");
 
     geom_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_STRANDS_GEOM");
     geom_shader->Set(ShaderType::Geometry, geom_shader_code);
 
-    geom_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    geom_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Geometry/Lighting/SpotLightShadowMapStrands.geom");
 
     geom_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_STRANDS_GEOM");
     geom_shader->Set(ShaderType::Geometry, geom_shader_code);
 
-    auto task_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto task_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Task/Lighting/DirectionalLightShadowMap.task");
 
     auto task_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_TASK");
     task_shader->Set(ShaderType::Task, task_shader_code);
 
-    task_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    task_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Task/Lighting/PointLightShadowMap.task");
 
     task_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_TASK");
     task_shader->Set(ShaderType::Task, task_shader_code);
 
-    task_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    task_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Task/Lighting/SpotLightShadowMap.task");
 
     task_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_TASK");
     task_shader->Set(ShaderType::Task, task_shader_code);
 
-    auto mesh_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto mesh_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Mesh/Lighting/DirectionalLightShadowMap.mesh");
 
     auto mesh_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_MESH");
     mesh_shader->Set(ShaderType::Mesh, mesh_shader_code);
 
-    mesh_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    mesh_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Mesh/Lighting/PointLightShadowMap.mesh");
 
     mesh_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_MESH");
     mesh_shader->Set(ShaderType::Mesh, mesh_shader_code);
 
-    mesh_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    mesh_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Mesh/Lighting/SpotLightShadowMap.mesh");
 
@@ -394,14 +394,14 @@ void Resources::LoadShaders() {
     mesh_shader->Set(ShaderType::Mesh, mesh_shader_code);
 
     auto frag_shader_code =
-        std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-        Graphics::GetInstance().shader_basic_ + "\n" +
+        std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+        Platform::GetInstance().shader_basic_ + "\n" +
         FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") / "Shaders/Fragment/Empty.frag");
     auto frag_shader = CreateResource<Shader>("EMPTY_FRAG");
     frag_shader->Set(ShaderType::Fragment, frag_shader_code);
 
-    frag_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_basic_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    frag_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_basic_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Fragment/ShadowMapPassThrough.frag");
     frag_shader = CreateResource<Shader>("SHADOW_MAP_PASS_THROUGH_FRAG");
@@ -446,105 +446,105 @@ void Resources::LoadShaders() {
 #pragma region Gizmos
   {
     auto vert_shader_code =
-        std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-        Graphics::GetInstance().shader_basic_ + "\n" +
+        std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+        Platform::GetInstance().shader_basic_ + "\n" +
         FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") / "Shaders/Vertex/Gizmos/Gizmos.vert");
     auto vert_shader = CreateResource<Shader>("GIZMOS_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Gizmos/GizmosStrands.vert");
     vert_shader = CreateResource<Shader>("GIZMOS_STRANDS_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Gizmos/GizmosInstancedColored.vert");
     vert_shader = CreateResource<Shader>("GIZMOS_INSTANCED_COLORED_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Gizmos/GizmosNormalColored.vert");
     vert_shader = CreateResource<Shader>("GIZMOS_NORMAL_COLORED_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Gizmos/GizmosStrandsNormalColored.vert");
     vert_shader = CreateResource<Shader>("GIZMOS_STRANDS_NORMAL_COLORED_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Gizmos/GizmosVertexColored.vert");
     vert_shader = CreateResource<Shader>("GIZMOS_VERTEX_COLORED_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    std::string tesc_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ +
-                                   "\n" + Graphics::GetInstance().shader_basic_ + "\n" +
+    std::string tesc_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ +
+                                   "\n" + Platform::GetInstance().shader_basic_ + "\n" +
                                    FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                                "Shaders/TessellationControl/Gizmos/GizmosStrands.tesc");
     auto tesc_shader = CreateResource<Shader>("GIZMOS_STRANDS_TESC");
     tesc_shader->Set(ShaderType::TessellationControl, tesc_shader_code);
 
-    tesc_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    tesc_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/TessellationControl/Gizmos/GizmosStrandsColored.tesc");
     tesc_shader = CreateResource<Shader>("GIZMOS_STRANDS_COLORED_TESC");
     tesc_shader->Set(ShaderType::TessellationControl, tesc_shader_code);
 
-    auto tese_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto tese_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/TessellationEvaluation/Gizmos/GizmosStrands.tese");
     auto tese_shader = CreateResource<Shader>("GIZMOS_STRANDS_TESE");
     tese_shader->Set(ShaderType::TessellationEvaluation, tese_shader_code);
 
-    tese_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    tese_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/TessellationEvaluation/Gizmos/GizmosStrandsColored.tese");
     tese_shader = CreateResource<Shader>("GIZMOS_STRANDS_COLORED_TESE");
     tese_shader->Set(ShaderType::TessellationEvaluation, tese_shader_code);
 
-    auto geom_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto geom_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Geometry/Gizmos/GizmosStrands.geom");
     auto geom_shader = CreateResource<Shader>("GIZMOS_STRANDS_GEOM");
     geom_shader->Set(ShaderType::Geometry, geom_shader_code);
 
-    geom_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    geom_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Geometry/Gizmos/GizmosStrandsColored.geom");
     geom_shader = CreateResource<Shader>("GIZMOS_STRANDS_COLORED_GEOM");
     geom_shader->Set(ShaderType::Geometry, geom_shader_code);
 
-    vert_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    vert_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Vertex/Gizmos/GizmosStrandsVertexColored.vert");
     vert_shader = CreateResource<Shader>("GIZMOS_STRANDS_VERTEX_COLORED_VERT");
     vert_shader->Set(ShaderType::Vertex, vert_shader_code);
 
-    auto frag_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                            Graphics::GetInstance().shader_basic_ + "\n" +
+    auto frag_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                            Platform::GetInstance().shader_basic_ + "\n" +
                             FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Fragment/Gizmos/Gizmos.frag");
     auto frag_shader = CreateResource<Shader>("GIZMOS_FRAG");
 
     frag_shader->Set(ShaderType::Fragment, frag_shader_code);
-    frag_shader_code = std::string("#version 460\n") + Graphics::GetInstance().shader_gizmos_constants_ + "\n" +
-                       Graphics::GetInstance().shader_basic_ + "\n" +
+    frag_shader_code = std::string("#version 460\n") + Platform::GetInstance().shader_gizmos_constants_ + "\n" +
+                       Platform::GetInstance().shader_basic_ + "\n" +
                        FileUtils::LoadFileAsString(std::filesystem::path("./DefaultResources") /
                                                    "Shaders/Fragment/Gizmos/GizmosColored.frag");
     frag_shader = CreateResource<Shader>("GIZMOS_COLORED_FRAG");

@@ -24,7 +24,7 @@ struct CameraInfoBlock {
 };
 
 class Camera final : public IPrivateComponent {
-  friend class Graphics;
+  friend class Platform;
   friend class RenderLayer;
   friend class EditorLayer;
   friend struct CameraInfoBlock;
@@ -56,7 +56,7 @@ class Camera final : public IPrivateComponent {
   void UpdateGBuffer();
 
  public:
-  void TransitGBufferImageLayout(VkCommandBuffer command_buffer, VkImageLayout target_layout) const;
+  void TransitGBufferImageLayout(VkCommandBuffer vk_command_buffer, VkImageLayout target_layout) const;
 
   void UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const GlobalTransform& global_transform);
   void AppendGBufferColorAttachmentInfos(std::vector<VkRenderingAttachmentInfo>& attachment_infos,

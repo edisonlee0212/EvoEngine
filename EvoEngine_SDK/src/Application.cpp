@@ -5,7 +5,7 @@
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "Input.hpp"
 #include "Jobs.hpp"
 #include "Json.hpp"
@@ -96,7 +96,7 @@ void Application::PreUpdateInternal() {
 
   application.application_execution_status_ = ApplicationExecutionStatus::PreUpdate;
   Input::PreUpdate();
-  Graphics::PreUpdate();
+  Platform::PreUpdate();
 
   if (application.application_status_ == ApplicationStatus::NoProject)
     return;
@@ -239,19 +239,19 @@ void Application::LateUpdateInternal() {
       }
     }
 
-    Graphics::AppendCommands([&](const VkCommandBuffer command_buffer) {
-      Graphics::EverythingBarrier(command_buffer);
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+      Platform::EverythingBarrier(vk_command_buffer);
       constexpr VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
       VkRect2D render_area;
       render_area.offset = {0, 0};
-      render_area.extent = Graphics::GetSwapchain()->GetImageExtent();
-      Graphics::TransitImageLayout(command_buffer, Graphics::GetSwapchain()->GetVkImage(),
-                                   Graphics::GetSwapchain()->GetImageFormat(), 1, VK_IMAGE_LAYOUT_UNDEFINED,
+      render_area.extent = Platform::GetSwapchain()->GetImageExtent();
+      Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
+                                   Platform::GetSwapchain()->GetImageFormat(), 1, VK_IMAGE_LAYOUT_UNDEFINED,
                                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
       VkRenderingAttachmentInfo color_attachment_info{};
       color_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-      color_attachment_info.imageView = Graphics::GetSwapchain()->GetVkImageView();
+      color_attachment_info.imageView = Platform::GetSwapchain()->GetVkImageView();
       color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
       color_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       color_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -264,14 +264,14 @@ void Application::LateUpdateInternal() {
       render_info.colorAttachmentCount = 1;
       render_info.pColorAttachments = &color_attachment_info;
 
-      vkCmdBeginRendering(command_buffer, &render_info);
+      vkCmdBeginRendering(vk_command_buffer, &render_info);
 
       ImGui::Render();
-      ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffer);
+      ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), vk_command_buffer);
 
-      vkCmdEndRendering(command_buffer);
-      Graphics::TransitImageLayout(command_buffer, Graphics::GetSwapchain()->GetVkImage(),
-                                   Graphics::GetSwapchain()->GetImageFormat(), 1,
+      vkCmdEndRendering(vk_command_buffer);
+      Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
+                                   Platform::GetSwapchain()->GetImageFormat(), 1,
                                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     });
 
@@ -299,7 +299,7 @@ void Application::LateUpdateInternal() {
     if (application.application_status_ == ApplicationStatus::Step)
       application.application_status_ = ApplicationStatus::Pause;
   }
-  Graphics::LateUpdate();
+  Platform::LateUpdate();
 }
 
 const ApplicationInfo& Application::GetApplicationInfo() {
@@ -346,9 +346,9 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   Jobs::Initialize(default_thread_size - 2);
   Entities::Initialize();
   TransformGraph::Initialize();
-  Graphics::Initialize();
+  Platform::Initialize();
   Resources::Initialize();
-  Graphics::PostResourceLoadingInitialization();
+  Platform::PostResourceLoadingInitialization();
   Resources::InitializeEnvironmentalMap();
 
   for (const auto& layer : application.layers_) {

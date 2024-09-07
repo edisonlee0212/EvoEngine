@@ -19,3 +19,7 @@ void Shader::Set(const ShaderType shader_type, const std::string& shader_code) {
 const std::unique_ptr<ShaderModule>& Shader::GetShaderModule() const {
   return shader_module_;
 }
+
+ShaderType Shader::GetShaderType() const {
+  return shader_type_;
+}

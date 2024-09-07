@@ -1,4 +1,5 @@
 #pragma once
+#include "GraphicsResources.hpp"
 #include "Transform.hpp"
 #include "Vertex.hpp"
 namespace evo_engine {

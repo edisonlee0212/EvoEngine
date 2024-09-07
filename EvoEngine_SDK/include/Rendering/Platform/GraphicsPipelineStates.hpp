@@ -1,7 +1,9 @@
 #pragma once
+#include "GraphicsResources.hpp"
+
 namespace evo_engine {
 class GraphicsPipelineStates {
-  friend class Graphics;
+  friend class Platform;
   VkViewport view_port_applied_ = {};
   VkRect2D scissor_applied_ = {};
 
@@ -59,6 +61,6 @@ class GraphicsPipelineStates {
   VkLogicOp logic_op = VK_LOGIC_OP_COPY;
   std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachment_states = {};
   float blend_constants[4] = {0, 0, 0, 0};
-  void ApplyAllStates(VkCommandBuffer command_buffer, bool force_set = false);
+  void ApplyAllStates(VkCommandBuffer vk_command_buffer, bool force_set = false);
 };
 }  // namespace evo_engine

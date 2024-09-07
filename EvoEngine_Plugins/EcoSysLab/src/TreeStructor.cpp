@@ -2,7 +2,7 @@
 #include <unordered_set>
 #include "EcoSysLabLayer.hpp"
 #include "FoliageDescriptor.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "rapidcsv.h"
 using namespace eco_sys_lab;
 

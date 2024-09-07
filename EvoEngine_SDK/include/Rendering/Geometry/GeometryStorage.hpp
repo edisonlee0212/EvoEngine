@@ -1,36 +1,36 @@
 #pragma once
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "GraphicsResources.hpp"
 #include "ISingleton.hpp"
 #include "Vertex.hpp"
 
 namespace evo_engine {
 struct VertexDataChunk {
-  Vertex vertex_data[Graphics::Constants::meshlet_max_vertices_size] = {};
+  Vertex vertex_data[Platform::Constants::meshlet_max_vertices_size] = {};
 };
 
 struct Meshlet {
-  glm::u8vec3 triangles[Graphics::Constants::meshlet_max_triangles_size] = {};  // up to 126 triangles
+  glm::u8vec3 triangles[Platform::Constants::meshlet_max_triangles_size] = {};  // up to 126 triangles
   uint32_t vertices_size = 0;
   uint32_t triangle_size = 0;
   uint32_t vertex_chunk_index = 0;
 };
 
 struct SkinnedVertexDataChunk {
-  SkinnedVertex skinned_vertex_data[Graphics::Constants::meshlet_max_vertices_size] = {};
+  SkinnedVertex skinned_vertex_data[Platform::Constants::meshlet_max_vertices_size] = {};
 };
 struct SkinnedMeshlet {
-  glm::u8vec3 skinned_triangles[Graphics::Constants::meshlet_max_triangles_size] = {};  // up to 126 triangles
+  glm::u8vec3 skinned_triangles[Platform::Constants::meshlet_max_triangles_size] = {};  // up to 126 triangles
   uint32_t skinned_vertices_size = 0;
   uint32_t skinned_triangle_size = 0;
   uint32_t skinned_vertex_chunk_index = 0;
 };
 
 struct StrandPointDataChunk {
-  StrandPoint strand_point_data[Graphics::Constants::meshlet_max_vertices_size] = {};
+  StrandPoint strand_point_data[Platform::Constants::meshlet_max_vertices_size] = {};
 };
 struct StrandMeshlet {
-  glm::u8vec4 segments[Graphics::Constants::meshlet_max_triangles_size] = {};  // up to 126 triangles
+  glm::u8vec4 segments[Platform::Constants::meshlet_max_triangles_size] = {};  // up to 126 triangles
   uint32_t strand_points_size = 0;
   uint32_t segment_size = 0;
   uint32_t strand_point_chunk_index = 0;
@@ -105,7 +105,7 @@ class GeometryStorage final {
   void UploadData();
   friend class RenderLayer;
   friend class Resources;
-  friend class Graphics;
+  friend class Platform;
   static void DeviceSync();
   static void Initialize();
 
@@ -121,9 +121,9 @@ class GeometryStorage final {
   static const std::unique_ptr<Buffer>& GetStrandPointBuffer();
   static const std::unique_ptr<Buffer>& GetStrandMeshletBuffer();
 
-  static void BindVertices(VkCommandBuffer command_buffer);
-  static void BindSkinnedVertices(VkCommandBuffer command_buffer);
-  static void BindStrandPoints(VkCommandBuffer command_buffer);
+  static void BindVertices(VkCommandBuffer vk_command_buffer);
+  static void BindSkinnedVertices(VkCommandBuffer vk_command_buffer);
+  static void BindStrandPoints(VkCommandBuffer vk_command_buffer);
 
   [[nodiscard]] static const Vertex& PeekVertex(size_t vertex_index);
   [[nodiscard]] static const SkinnedVertex& PeekSkinnedVertex(size_t skinned_vertex_index);

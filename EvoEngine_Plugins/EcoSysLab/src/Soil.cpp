@@ -5,7 +5,7 @@
 
 #include "EcoSysLabLayer.hpp"
 #include "EditorLayer.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "HeightField.hpp"
 using namespace eco_sys_lab;
 

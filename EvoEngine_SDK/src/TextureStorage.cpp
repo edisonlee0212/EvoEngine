@@ -15,7 +15,7 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
   image_info.extent.depth = 1;
   image_info.mipLevels = mip_levels;
   image_info.arrayLayers = 6;
-  image_info.format = Graphics::Constants::texture_2d;
+  image_info.format = Platform::Constants::texture_2d;
   image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
   image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
@@ -29,7 +29,7 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
   view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   view_info.image = image->GetVkImage();
   view_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-  view_info.format = Graphics::Constants::texture_2d;
+  view_info.format = Platform::Constants::texture_2d;
   view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   view_info.subresourceRange.baseMipLevel = 0;
   view_info.subresourceRange.levelCount = mip_levels;
@@ -46,7 +46,7 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
   sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   sampler_info.anisotropyEnable = VK_TRUE;
-  sampler_info.maxAnisotropy = Graphics::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+  sampler_info.maxAnisotropy = Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
   sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
   sampler_info.unnormalizedCoordinates = VK_FALSE;
   sampler_info.compareEnable = VK_FALSE;
@@ -58,8 +58,8 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
   }
   sampler = std::make_shared<Sampler>(sampler_info);
 
-  Graphics::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
-    image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
 
   for (int i = 0; i < 6; i++) {
@@ -67,7 +67,7 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
     face_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     face_view_info.image = image->GetVkImage();
     face_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    face_view_info.format = Graphics::Constants::texture_2d;
+    face_view_info.format = Platform::Constants::texture_2d;
     face_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     face_view_info.subresourceRange.baseMipLevel = 0;
     face_view_info.subresourceRange.levelCount = 1;
@@ -150,7 +150,7 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
   image_info.extent.depth = 1;
   image_info.mipLevels = mip_levels;
   image_info.arrayLayers = 1;
-  image_info.format = Graphics::Constants::texture_2d;
+  image_info.format = Platform::Constants::texture_2d;
   image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
   image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   image_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
@@ -163,7 +163,7 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
   view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   view_info.image = image->GetVkImage();
   view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  view_info.format = Graphics::Constants::texture_2d;
+  view_info.format = Platform::Constants::texture_2d;
   view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   view_info.subresourceRange.baseMipLevel = 0;
   view_info.subresourceRange.levelCount = image_info.mipLevels;
@@ -180,7 +180,7 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
   sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   sampler_info.anisotropyEnable = VK_TRUE;
-  sampler_info.maxAnisotropy = Graphics::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+  sampler_info.maxAnisotropy = Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
   sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
   sampler_info.unnormalizedCoordinates = VK_FALSE;
   sampler_info.compareEnable = VK_FALSE;
@@ -212,15 +212,15 @@ void Texture2DStorage::UploadData(const std::vector<glm::vec4>& data, const glm:
 
   const Buffer staging_buffer{staging_buffer_create_info, staging_buffer_vma_allocation_create_info};
   void* device_data = nullptr;
-  vmaMapMemory(Graphics::GetVmaAllocator(), staging_buffer.GetVmaAllocation(), &device_data);
+  vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.GetVmaAllocation(), &device_data);
   memcpy(device_data, data.data(), image_size);
-  vmaUnmapMemory(Graphics::GetVmaAllocator(), staging_buffer.GetVmaAllocation());
+  vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.GetVmaAllocation());
 
-  Graphics::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
-    image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    image->CopyFromBuffer(command_buffer, staging_buffer.GetVkBuffer());
-    image->GenerateMipmaps(command_buffer);
-    image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    image->CopyFromBuffer(vk_command_buffer, staging_buffer.GetVkBuffer());
+    image->GenerateMipmaps(vk_command_buffer);
+    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
 
   EditorLayer::UpdateTextureId(im_texture_id, sampler->GetVkSampler(), image_view->GetVkImageView(),
@@ -260,7 +260,7 @@ void Texture2DStorage::UploadDataImmediately() {
 
 void TextureStorage::DeviceSync() {
   auto& storage = GetInstance();
-  const auto current_frame_index = Graphics::GetCurrentFrameIndex();
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
   const auto render_layer = Application::GetLayer<RenderLayer>();
 

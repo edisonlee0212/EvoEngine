@@ -60,7 +60,7 @@ class TextureStorage final {
   std::vector<CubemapStorage> cubemaps_;
 
   friend class RenderLayer;
-  friend class Graphics;
+  friend class Platform;
   friend class Resources;
   static void DeviceSync();
 

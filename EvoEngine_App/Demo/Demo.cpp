@@ -13,9 +13,9 @@
 #include "WindowLayer.hpp"
 
 #ifdef UNIVERSE_PLUGIN
-#include "PerlinNoiseStage.hpp"
-#include "PlanetTerrainSystem.hpp"
-#include "StarClusterSystem.hpp"
+#  include "PerlinNoiseStage.hpp"
+#  include "PlanetTerrainSystem.hpp"
+#  include "StarClusterSystem.hpp"
 #endif
 
 #include "PostProcessingStack.hpp"
@@ -30,9 +30,9 @@
 #endif
 #ifdef RAY_TRACER_PLUGIN
 #  include "CpuRayTracerCamera.hpp"
+#  include "GpuRayTracerCamera.hpp"
 #endif
 using namespace evo_engine;
-using namespace Universe;
 using namespace Universe;
 #pragma region Helpers
 #ifdef PHYSICS_PLUGIN
@@ -81,6 +81,7 @@ int main() {
 
 #ifdef RAY_TRACER_PLUGIN
   PrivateComponentRegistration<CpuRayTracerCamera>("CpuRayTracerCamera");
+  PrivateComponentRegistration<GpuRayTracerCamera>("GpuRayTracerCamera");
 #endif
   ApplicationInfo application_info;
   SetupDemoScene(demo_setup, application_info);
@@ -331,7 +332,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
     } break;
     case DemoSetup::Galaxy: {
       application_info.application_name = "Universe Demo";
-      
+
       application_info.project_path = resource_folder_path / "Example Projects/Universe/Universe.eveproj";
 #ifdef UNIVERSE_PLUGIN
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
@@ -339,9 +340,9 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         main_camera->Resize({640, 480});
         const auto main_camera_entity = main_camera->GetOwner();
         scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
-#pragma region Star System
+#  pragma region Star System
         auto star_cluster_system = scene->GetOrCreateSystem<StarClusterSystem>(SystemGroup::SimulationSystemGroup);
-#pragma endregion
+#  pragma endregion
         main_camera->use_clear_color = true;
       });
 #endif
@@ -351,7 +352,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
       application_info.project_path = resource_folder_path / "Example Projects/Planet/Planet.eveproj";
 #ifdef UNIVERSE_PLUGIN
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
-#pragma region Preparations
+#  pragma region Preparations
         const auto main_camera = scene->main_camera.Get<Camera>();
         main_camera->Resize({640, 480});
         const auto main_camera_entity = main_camera->GetOwner();
@@ -411,9 +412,9 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         planet_terrain3->surface_material = surface_material;
         planet_terrain3->SetPlanetInfo(pi);
         scene->SetDataComponent(planet3, planet_transform);
-#pragma endregion
+#  pragma endregion
 
-#pragma region Lights
+#  pragma region Lights
         const auto shared_mat = ProjectManager::CreateTemporaryAsset<Material>();
         Transform ltw;
 
@@ -449,12 +450,12 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         plmmc2->mesh = Resources::GetResource<Mesh>("PRIMITIVE_SPHERE");
         plmmc2->material.Set<Material>(shared_mat);
 
-#pragma endregion
+#  pragma endregion
         Application::RegisterLateUpdateFunction([=]() {
           auto scene = Application::GetActiveScene();
           Transform ltw;
           ltw.SetScale(glm::vec3(0.5f));
-#pragma region LightsPosition
+#  pragma region LightsPosition
           ltw.SetPosition(glm::vec4(
               glm::vec3(0.0f, 20.0f * glm::sin(Times::Now() / 2.0f), -20.0f * glm::cos(Times::Now() / 2.0f)), 0.0f));
           scene->SetDataComponent(dle, ltw);
@@ -464,7 +465,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
           ltw.SetPosition(glm::vec4(
               glm::vec3(20.0f * glm::cos(Times::Now() / 2.0f), 15.0f, 20.0f * glm::sin(Times::Now() / 2.0f)), 0.0f));
           scene->SetDataComponent(ple2, ltw);
-#pragma endregion
+#  pragma endregion
 #endif
         });
       });

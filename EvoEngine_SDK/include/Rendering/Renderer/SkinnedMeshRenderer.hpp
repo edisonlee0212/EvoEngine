@@ -10,7 +10,7 @@ class SkinnedMeshRenderer : public IPrivateComponent {
   friend class Prefab;
   friend class RenderLayer;
   void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, glm::vec4& color);
-  friend class Graphics;
+  friend class Platform;
   bool rag_doll_ = false;
   std::vector<glm::mat4> rag_doll_transform_chain_;
   std::vector<EntityRef> bound_entities_;

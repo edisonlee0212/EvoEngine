@@ -1,7 +1,7 @@
 #pragma once
 #include "Bound.hpp"
 #include "GeometryStorage.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "GraphicsResources.hpp"
 #include "IAsset.hpp"
 #include "IGeometry.hpp"

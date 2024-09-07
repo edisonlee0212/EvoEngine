@@ -1,6 +1,6 @@
 #include "WindowLayer.hpp"
 #include "Application.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "ProjectManager.hpp"
 
 using namespace evo_engine;
@@ -9,7 +9,7 @@ void WindowLayer::FramebufferSizeCallback(GLFWwindow* window, int width, int hei
   if (const auto window_layer = Application::GetLayer<WindowLayer>(); window_layer->window_ == window) {
     window_layer->window_size_ = {width, height};
   }
-  if (const auto& graphics_layer = Application::GetLayer<Graphics>()) {
+  if (const auto& graphics_layer = Application::GetLayer<Platform>()) {
     graphics_layer->NotifyRecreateSwapChain();
   }
 }

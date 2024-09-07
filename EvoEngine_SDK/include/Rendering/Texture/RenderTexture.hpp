@@ -10,7 +10,7 @@ struct RenderTextureCreateInfo {
 };
 
 class RenderTexture {
-  friend class Graphics;
+  friend class Platform;
   friend class RenderLayer;
   friend class Camera;
   std::shared_ptr<Image> color_image_ = {};
@@ -31,7 +31,7 @@ class RenderTexture {
   std::shared_ptr<DescriptorSet> descriptor_set_;
 
  public:
-  void Clear(VkCommandBuffer command_buffer) const;
+  void Clear(VkCommandBuffer vk_command_buffer ) const;
   explicit RenderTexture(const RenderTextureCreateInfo& render_texture_create_info);
   void Resize(VkExtent3D extent);
   void AppendColorAttachmentInfos(std::vector<VkRenderingAttachmentInfo>& attachment_infos, VkAttachmentLoadOp load_op,
@@ -47,8 +47,9 @@ class RenderTexture {
   [[nodiscard]] const std::shared_ptr<Image>& GetDepthImage();
   [[nodiscard]] const std::shared_ptr<ImageView>& GetColorImageView();
   [[nodiscard]] const std::shared_ptr<ImageView>& GetDepthImageView();
-  void BeginRendering(VkCommandBuffer command_buffer, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op) const;
-  void EndRendering(VkCommandBuffer command_buffer) const;
+  void BeginRendering(VkCommandBuffer vk_command_buffer , VkAttachmentLoadOp load_op,
+                      VkAttachmentStoreOp store_op) const;
+  void EndRendering(VkCommandBuffer vk_command_buffer ) const;
   [[nodiscard]] ImTextureID GetColorImTextureId() const;
   void ApplyGraphicsPipelineStates(GraphicsPipelineStates& global_pipeline_state) const;
   [[maybe_unused]] bool Save(const std::filesystem::path& path) const;

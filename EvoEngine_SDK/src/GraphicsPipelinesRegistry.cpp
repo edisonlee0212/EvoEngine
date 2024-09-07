@@ -1,6 +1,6 @@
 #include "Application.hpp"
 #include "EditorLayer.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
@@ -9,7 +9,7 @@
 #include "WindowLayer.hpp"
 using namespace evo_engine;
 
-void Graphics::CreateGraphicsPipelines() const {
+void Platform::CreateGraphicsPipelines() const {
   auto per_frame_layout = GetDescriptorSetLayout("PER_FRAME_LAYOUT");
   auto camera_g_buffer_layout = GetDescriptorSetLayout("CAMERA_GBUFFER_LAYOUT");
   auto lighting_layout = GetDescriptorSetLayout("LIGHTING_LAYOUT");
@@ -30,7 +30,7 @@ void Graphics::CreateGraphicsPipelines() const {
 
     render_texture_pass_through->color_attachment_formats = {1, swapchain_->GetImageFormat()};
 
-    render_texture_pass_through->PreparePipeline();
+    render_texture_pass_through->Initialize();
     RegisterGraphicsPipeline("RENDER_TEXTURE_PRESENT", render_texture_pass_through);
   }
 
@@ -52,7 +52,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    ssr_reflect->PreparePipeline();
+    ssr_reflect->Initialize();
     RegisterGraphicsPipeline("SSR_REFLECT", ssr_reflect);
   }
 
@@ -73,7 +73,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    ssr_blur->PreparePipeline();
+    ssr_blur->Initialize();
     RegisterGraphicsPipeline("SSR_BLUR", ssr_blur);
   }
 
@@ -93,7 +93,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.size = sizeof(SsrPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    ssr_combine->PreparePipeline();
+    ssr_combine->Initialize();
 
     RegisterGraphicsPipeline("SSR_COMBINE", ssr_combine);
   }
@@ -115,7 +115,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    standard_deferred_prepass->PreparePipeline();
+    standard_deferred_prepass->Initialize();
     RegisterGraphicsPipeline("STANDARD_DEFERRED_PREPASS", standard_deferred_prepass);
   }
   if (Constants::enable_mesh_shader) {
@@ -136,7 +136,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    standard_deferred_prepass->PreparePipeline();
+    standard_deferred_prepass->Initialize();
     RegisterGraphicsPipeline("STANDARD_DEFERRED_PREPASS_MESH", standard_deferred_prepass);
   }
 
@@ -156,7 +156,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    standard_skinned_deferred_prepass->PreparePipeline();
+    standard_skinned_deferred_prepass->Initialize();
     RegisterGraphicsPipeline("STANDARD_SKINNED_DEFERRED_PREPASS", standard_skinned_deferred_prepass);
   }
   {
@@ -175,7 +175,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    standard_instanced_deferred_prepass->PreparePipeline();
+    standard_instanced_deferred_prepass->Initialize();
     RegisterGraphicsPipeline("STANDARD_INSTANCED_DEFERRED_PREPASS", standard_instanced_deferred_prepass);
   }
   {
@@ -201,7 +201,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    standard_strands_deferred_prepass->PreparePipeline();
+    standard_strands_deferred_prepass->Initialize();
     RegisterGraphicsPipeline("STANDARD_STRANDS_DEFERRED_PREPASS", standard_strands_deferred_prepass);
   }
   {
@@ -223,7 +223,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    standard_deferred_lighting->PreparePipeline();
+    standard_deferred_lighting->Initialize();
     RegisterGraphicsPipeline("STANDARD_DEFERRED_LIGHTING", standard_deferred_lighting);
   }
   {
@@ -245,7 +245,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    standard_deferred_lighting_scene_camera->PreparePipeline();
+    standard_deferred_lighting_scene_camera->Initialize();
     RegisterGraphicsPipeline("STANDARD_DEFERRED_LIGHTING_SCENE_CAMERA", standard_deferred_lighting_scene_camera);
   }
   {
@@ -262,7 +262,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    directional_light_shadow_map->PreparePipeline();
+    directional_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP", directional_light_shadow_map);
   }
   if (Constants::enable_mesh_shader) {
@@ -280,7 +280,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    directional_light_shadow_map->PreparePipeline();
+    directional_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_MESH", directional_light_shadow_map);
   }
   {
@@ -300,7 +300,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    directional_light_shadow_map_skinned->PreparePipeline();
+    directional_light_shadow_map_skinned->Initialize();
     RegisterGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_SKINNED", directional_light_shadow_map_skinned);
   }
   {
@@ -320,7 +320,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    directional_light_shadow_map_instanced->PreparePipeline();
+    directional_light_shadow_map_instanced->Initialize();
     RegisterGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_INSTANCED", directional_light_shadow_map_instanced);
   }
   {
@@ -347,7 +347,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    directional_light_shadow_map_strand->PreparePipeline();
+    directional_light_shadow_map_strand->Initialize();
     RegisterGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_STRANDS", directional_light_shadow_map_strand);
   }
   {
@@ -364,7 +364,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    point_light_shadow_map->PreparePipeline();
+    point_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("POINT_LIGHT_SHADOW_MAP", point_light_shadow_map);
   }
   if (Constants::enable_mesh_shader) {
@@ -384,7 +384,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    point_light_shadow_map->PreparePipeline();
+    point_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("POINT_LIGHT_SHADOW_MAP_MESH", point_light_shadow_map);
   }
   {
@@ -403,7 +403,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    point_light_shadow_map_skinned->PreparePipeline();
+    point_light_shadow_map_skinned->Initialize();
     RegisterGraphicsPipeline("POINT_LIGHT_SHADOW_MAP_SKINNED", point_light_shadow_map_skinned);
   }
   {
@@ -422,7 +422,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    point_light_shadow_map_instanced->PreparePipeline();
+    point_light_shadow_map_instanced->Initialize();
     RegisterGraphicsPipeline("POINT_LIGHT_SHADOW_MAP_INSTANCED", point_light_shadow_map_instanced);
   }
   {
@@ -449,7 +449,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    point_light_shadow_map_strand->PreparePipeline();
+    point_light_shadow_map_strand->Initialize();
     RegisterGraphicsPipeline("POINT_LIGHT_SHADOW_MAP_STRANDS", point_light_shadow_map_strand);
   }
   {
@@ -466,7 +466,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    spot_light_shadow_map->PreparePipeline();
+    spot_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("SPOT_LIGHT_SHADOW_MAP", spot_light_shadow_map);
   }
   if (Constants::enable_mesh_shader) {
@@ -486,7 +486,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    spot_light_shadow_map->PreparePipeline();
+    spot_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("SPOT_LIGHT_SHADOW_MAP_MESH", spot_light_shadow_map);
   }
   {
@@ -504,7 +504,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    spot_light_shadow_map->PreparePipeline();
+    spot_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("SPOT_LIGHT_SHADOW_MAP_SKINNED", spot_light_shadow_map);
   }
   {
@@ -522,7 +522,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    spot_light_shadow_map->PreparePipeline();
+    spot_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("SPOT_LIGHT_SHADOW_MAP_INSTANCED", spot_light_shadow_map);
   }
   {
@@ -548,7 +548,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    spot_light_shadow_map_strand->PreparePipeline();
+    spot_light_shadow_map_strand->Initialize();
     RegisterGraphicsPipeline("SPOT_LIGHT_SHADOW_MAP_STRANDS", spot_light_shadow_map_strand);
   }
   {
@@ -561,7 +561,7 @@ void Graphics::CreateGraphicsPipelines() const {
     brdf_lut->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     brdf_lut->color_attachment_formats = {1, VK_FORMAT_R16G16_SFLOAT};
 
-    brdf_lut->PreparePipeline();
+    brdf_lut->Initialize();
     RegisterGraphicsPipeline("ENVIRONMENTAL_MAP_BRDF", brdf_lut);
   }
   {
@@ -582,7 +582,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    equirectangular_to_cubemap->PreparePipeline();
+    equirectangular_to_cubemap->Initialize();
     RegisterGraphicsPipeline("EQUIRECTANGULAR_TO_CUBEMAP", equirectangular_to_cubemap);
   }
   {
@@ -602,7 +602,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    irradiance_construct->PreparePipeline();
+    irradiance_construct->Initialize();
     RegisterGraphicsPipeline("IRRADIANCE_CONSTRUCT", irradiance_construct);
   }
   {
@@ -622,7 +622,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    prefilter_construct->PreparePipeline();
+    prefilter_construct->Initialize();
     RegisterGraphicsPipeline("PREFILTER_CONSTRUCT", prefilter_construct);
   }
   {
@@ -642,7 +642,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    gizmos->PreparePipeline();
+    gizmos->Initialize();
     RegisterGraphicsPipeline("GIZMOS", gizmos);
   }
   {
@@ -667,7 +667,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    gizmos_strands->PreparePipeline();
+    gizmos_strands->Initialize();
     RegisterGraphicsPipeline("GIZMOS_STRANDS", gizmos_strands);
   }
   {
@@ -689,7 +689,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    gizmos_normal_colored->PreparePipeline();
+    gizmos_normal_colored->Initialize();
     RegisterGraphicsPipeline("GIZMOS_NORMAL_COLORED", gizmos_normal_colored);
   }
   {
@@ -716,7 +716,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    gizmos_strands_normal_colored->PreparePipeline();
+    gizmos_strands_normal_colored->Initialize();
     RegisterGraphicsPipeline("GIZMOS_STRANDS_NORMAL_COLORED", gizmos_strands_normal_colored);
   }
   {
@@ -736,7 +736,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    gizmos_vertex_colored->PreparePipeline();
+    gizmos_vertex_colored->Initialize();
     RegisterGraphicsPipeline("GIZMOS_VERTEX_COLORED", gizmos_vertex_colored);
   }
   {
@@ -765,7 +765,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    gizmos_strands_vertex_colored->PreparePipeline();
+    gizmos_strands_vertex_colored->Initialize();
     RegisterGraphicsPipeline("GIZMOS_STRANDS_VERTEX_COLORED", gizmos_strands_vertex_colored);
   }
   {
@@ -786,7 +786,7 @@ void Graphics::CreateGraphicsPipelines() const {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    gizmos_instanced_colored->PreparePipeline();
+    gizmos_instanced_colored->Initialize();
     RegisterGraphicsPipeline("GIZMOS_INSTANCED_COLORED", gizmos_instanced_colored);
   }
 }

@@ -4,7 +4,7 @@
 #include "ClassRegistry.hpp"
 #include "Console.hpp"
 #include "EditorLayer.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "Jobs.hpp"
 #include "TextureStorage.hpp"
 

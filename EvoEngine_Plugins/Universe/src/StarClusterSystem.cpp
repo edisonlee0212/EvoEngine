@@ -4,7 +4,7 @@
 #include "Serialization.hpp"
 #include "Resources.hpp"
 #include "ClassRegistry.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "Jobs.hpp"
 #include "Particles.hpp"
 #include "Times.hpp"

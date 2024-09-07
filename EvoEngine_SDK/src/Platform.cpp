@@ -1,4 +1,4 @@
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "Application.hpp"
 #include "Console.hpp"
 #include "EditorLayer.hpp"
@@ -12,6 +12,9 @@
 #include "WindowLayer.hpp"
 #include "vk_mem_alloc.h"
 using namespace evo_engine;
+
+//#define GRAPHICS_VALIDATION
+
 VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
                        const VkDebugUtilsMessageTypeFlagsEXT message_type,
                        const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data, void* p_user_data) {
@@ -53,7 +56,7 @@ VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_seve
   return VK_FALSE;
 }
 
-uint32_t Graphics::FindMemoryType(const uint32_t type_filter, const VkMemoryPropertyFlags properties) {
+uint32_t Platform::FindMemoryType(const uint32_t type_filter, const VkMemoryPropertyFlags properties) {
   const auto& graphics = GetInstance();
   VkPhysicalDeviceMemoryProperties mem_properties;
   vkGetPhysicalDeviceMemoryProperties(graphics.vk_physical_device_, &mem_properties);
@@ -104,12 +107,24 @@ void SelectStageFlagsAccessMask(const VkImageLayout image_layout, VkAccessFlags&
   }
 }
 
-void Graphics::WaitForDeviceIdle() {
+void Platform::RecordCommandsMainQueue(const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
+  auto& graphics = GetInstance();
+  const unsigned vk_command_buffer_index = graphics.used_command_buffer_size_;
+  const auto current_frame_index = graphics.current_frame_index_;
+  if (vk_command_buffer_index >= graphics.command_buffer_pool_[current_frame_index].size()) {
+    graphics.command_buffer_pool_[current_frame_index].emplace_back(std::make_shared<CommandBuffer>());
+  }
+  const auto& vk_command_buffer = graphics.command_buffer_pool_[current_frame_index][vk_command_buffer_index];
+  vk_command_buffer->Record(action);
+  graphics.used_command_buffer_size_++;
+}
+
+void Platform::WaitForDeviceIdle() {
   const auto& graphics = GetInstance();
   vkDeviceWaitIdle(graphics.vk_device_);
 }
 
-void Graphics::RegisterGraphicsPipeline(const std::string& name,
+void Platform::RegisterGraphicsPipeline(const std::string& name,
                                         const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) {
   auto& graphics = GetInstance();
   if (graphics.graphics_pipelines_.find(name) != graphics.graphics_pipelines_.end()) {
@@ -119,17 +134,27 @@ void Graphics::RegisterGraphicsPipeline(const std::string& name,
   graphics.graphics_pipelines_[name] = graphics_pipeline;
 }
 
-const std::shared_ptr<GraphicsPipeline>& Graphics::GetGraphicsPipeline(const std::string& name) {
+void Platform::RegisterComputePipeline(const std::string& name,
+                                       const std::shared_ptr<ComputePipeline>& compute_pipeline) {
+  auto& graphics = GetInstance();
+  if (graphics.compute_pipelines_.find(name) != graphics.compute_pipelines_.end()) {
+    EVOENGINE_ERROR("ComputePipeline with same name exists!");
+    return;
+  }
+  graphics.compute_pipelines_[name] = compute_pipeline;
+}
+
+const std::shared_ptr<GraphicsPipeline>& Platform::GetGraphicsPipeline(const std::string& name) {
   const auto& graphics = GetInstance();
   return graphics.graphics_pipelines_.at(name);
 }
 
-const std::shared_ptr<DescriptorSetLayout>& Graphics::GetDescriptorSetLayout(const std::string& name) {
+const std::shared_ptr<DescriptorSetLayout>& Platform::GetDescriptorSetLayout(const std::string& name) {
   const auto& graphics = GetInstance();
   return graphics.descriptor_set_layouts_.at(name);
 }
 
-void Graphics::RegisterDescriptorSetLayout(const std::string& name,
+void Platform::RegisterDescriptorSetLayout(const std::string& name,
                                            const std::shared_ptr<DescriptorSetLayout>& descriptor_set_layout) {
   auto& graphics = GetInstance();
   if (graphics.descriptor_set_layouts_.find(name) != graphics.descriptor_set_layouts_.end()) {
@@ -139,7 +164,7 @@ void Graphics::RegisterDescriptorSetLayout(const std::string& name,
   graphics.descriptor_set_layouts_[name] = descriptor_set_layout;
 }
 
-void Graphics::TransitImageLayout(const VkCommandBuffer command_buffer, const VkImage target_image,
+void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkImage target_image,
                                   const VkFormat image_format, const uint32_t layer_count,
                                   const VkImageLayout old_layout, const VkImageLayout new_layout,
                                   const uint32_t mip_levels) {
@@ -174,130 +199,123 @@ void Graphics::TransitImageLayout(const VkCommandBuffer command_buffer, const Vk
   SelectStageFlagsAccessMask(old_layout, barrier.srcAccessMask, source_stage);
   SelectStageFlagsAccessMask(new_layout, barrier.dstAccessMask, destination_stage);
 
-  vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+  vkCmdPipelineBarrier(vk_command_buffer, source_stage, destination_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
-size_t Graphics::GetMaxBoneAmount() {
+size_t Platform::GetMaxBoneAmount() {
   const auto& graphics = GetInstance();
   return graphics.max_bone_amount_;
 }
 
-size_t Graphics::GetMaxShadowCascadeAmount() {
+size_t Platform::GetMaxShadowCascadeAmount() {
   const auto& graphics = GetInstance();
   return graphics.max_shadow_cascade_amount_;
 }
 
-void Graphics::ImmediateSubmit(const std::function<void(VkCommandBuffer command_buffer)>& action) {
+void Platform::ImmediateSubmit(const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
   const auto& graphics = GetInstance();
-  VkCommandBufferAllocateInfo alloc_info{};
-  alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  alloc_info.commandPool = graphics.command_pool_->GetVkCommandPool();
-  alloc_info.commandBufferCount = 1;
-
-  VkCommandBuffer command_buffer;
-  vkAllocateCommandBuffers(graphics.vk_device_, &alloc_info, &command_buffer);
-
-  VkCommandBufferBeginInfo begin_info{};
-  begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-  vkBeginCommandBuffer(command_buffer, &begin_info);
-  action(command_buffer);
-  vkEndCommandBuffer(command_buffer);
+  graphics.immediate_submit_command_buffer->Record(action);
 
   VkSubmitInfo submit_info{};
   submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
   submit_info.commandBufferCount = 1;
-  submit_info.pCommandBuffers = &command_buffer;
+  submit_info.pCommandBuffers = &graphics.immediate_submit_command_buffer->GetVkCommandBuffer();
 
-  vkQueueSubmit(graphics.vk_graphics_queue_, 1, &submit_info, VK_NULL_HANDLE);
-  vkQueueWaitIdle(graphics.vk_graphics_queue_);
+  if (vkQueueSubmit(graphics.immediate_submit_queue_->vk_queue_, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to submit command buffer to graphics queue!");
+  }
 
-  vkFreeCommandBuffers(graphics.vk_device_, graphics.command_pool_->GetVkCommandPool(), 1, &command_buffer);
+  vkQueueWaitIdle(graphics.immediate_submit_queue_->vk_queue_);
+
+  graphics.immediate_submit_command_buffer->Reset();
 }
 
-QueueFamilyIndices Graphics::GetQueueFamilyIndices() {
+QueueFamilyIndices Platform::GetQueueFamilyIndices() {
   const auto& graphics = GetInstance();
   return graphics.queue_family_indices_;
 }
 
-int Graphics::GetMaxFramesInFlight() {
+int Platform::GetMaxFramesInFlight() {
   const auto& graphics = GetInstance();
   return graphics.max_frame_in_flight_;
 }
 
-void Graphics::NotifyRecreateSwapChain() {
+void Platform::NotifyRecreateSwapChain() {
   auto& graphics = GetInstance();
   graphics.recreate_swap_chain_ = true;
 }
 
-VkInstance Graphics::GetVkInstance() {
+VkInstance Platform::GetVkInstance() {
   const auto& graphics = GetInstance();
   return graphics.vk_instance_;
 }
 
-VkPhysicalDevice Graphics::GetVkPhysicalDevice() {
+VkPhysicalDevice Platform::GetVkPhysicalDevice() {
   const auto& graphics = GetInstance();
   return graphics.vk_physical_device_;
 }
 
-VkDevice Graphics::GetVkDevice() {
+VkDevice Platform::GetVkDevice() {
   const auto& graphics = GetInstance();
   return graphics.vk_device_;
 }
 
-uint32_t Graphics::GetCurrentFrameIndex() {
+uint32_t Platform::GetCurrentFrameIndex() {
   const auto& graphics = GetInstance();
   return graphics.current_frame_index_;
 }
 
-uint32_t Graphics::GetNextImageIndex() {
+uint32_t Platform::GetNextImageIndex() {
   const auto& graphics = GetInstance();
   return graphics.next_image_index_;
 }
 
-VkCommandPool Graphics::GetVkCommandPool() {
+VkCommandPool Platform::GetVkCommandPool() {
   const auto& graphics = GetInstance();
   return graphics.command_pool_->GetVkCommandPool();
 }
 
-VkQueue Graphics::GetGraphicsVkQueue() {
+const std::unique_ptr<CommandQueue>& Platform::GetMainQueue() {
   const auto& graphics = GetInstance();
-  return graphics.vk_graphics_queue_;
+  return graphics.main_queue_;
 }
 
-VkQueue Graphics::GetPresentVkQueue() {
+const std::unique_ptr<CommandQueue>& Platform::GetImmediateSubmitQueue() {
   const auto& graphics = GetInstance();
-  return graphics.vk_present_queue_;
+  return graphics.immediate_submit_queue_;
 }
 
-VmaAllocator Graphics::GetVmaAllocator() {
+const std::unique_ptr<CommandQueue>& Platform::GetPresentQueue() {
+  const auto& graphics = GetInstance();
+  return graphics.present_queue_;
+}
+
+VmaAllocator Platform::GetVmaAllocator() {
   const auto& graphics = GetInstance();
   return graphics.vma_allocator_;
 }
 
-const std::unique_ptr<Swapchain>& Graphics::GetSwapchain() {
+const std::shared_ptr<Swapchain>& Platform::GetSwapchain() {
   const auto& graphics = GetInstance();
   return graphics.swapchain_;
 }
 
-const std::unique_ptr<DescriptorPool>& Graphics::GetDescriptorPool() {
+const std::unique_ptr<DescriptorPool>& Platform::GetDescriptorPool() {
   const auto& graphics = GetInstance();
   return graphics.descriptor_pool_;
 }
 
-unsigned Graphics::GetSwapchainVersion() {
+unsigned Platform::GetSwapchainVersion() {
   const auto& graphics = GetInstance();
   return graphics.swapchain_version_;
 }
 
-VkSurfaceFormatKHR Graphics::GetVkSurfaceFormat() {
+VkSurfaceFormatKHR Platform::GetVkSurfaceFormat() {
   const auto& graphics = GetInstance();
   return graphics.vk_surface_format_;
 }
 
-const VkPhysicalDeviceProperties& Graphics::GetVkPhysicalDeviceProperties() {
+const VkPhysicalDeviceProperties& Platform::GetVkPhysicalDeviceProperties() {
   const auto& graphics = GetInstance();
   return graphics.vk_physical_device_properties_;
 }
@@ -350,7 +368,7 @@ bool CheckDeviceExtensionSupport(const VkPhysicalDevice physical_device,
   for (const auto& extension : available_extensions) {
     required_extensions.erase(extension.extensionName);
   }
-#ifndef NDEBUG
+#ifdef GRAPHICS_VALIDATION
   for (const auto& extension : required_extensions) {
     EVOENGINE_ERROR("Extension " + extension + " is not supported by this device!");
   }
@@ -358,7 +376,7 @@ bool CheckDeviceExtensionSupport(const VkPhysicalDevice physical_device,
   return required_extensions.empty();
 }
 
-QueueFamilyIndices Graphics::FindQueueFamilies(const VkPhysicalDevice physical_device) const {
+QueueFamilyIndices Platform::FindQueueFamilies(const VkPhysicalDevice physical_device) const {
   const auto window_layer = Application::GetLayer<WindowLayer>();
   QueueFamilyIndices indices;
 
@@ -370,8 +388,8 @@ QueueFamilyIndices Graphics::FindQueueFamilies(const VkPhysicalDevice physical_d
 
   int i = 0;
   for (const auto& queue_family : queue_families) {
-    if (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-      indices.graphics_family = i;
+    if ((queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) && (queue_family.queueFlags & VK_QUEUE_COMPUTE_BIT)) {
+      indices.graphics_and_compute_family = i;
     }
     VkBool32 present_support = false;
     if (window_layer) {
@@ -389,7 +407,7 @@ QueueFamilyIndices Graphics::FindQueueFamilies(const VkPhysicalDevice physical_d
   return indices;
 }
 
-SwapChainSupportDetails Graphics::QuerySwapChainSupport(const VkPhysicalDevice physical_device) const {
+SwapChainSupportDetails Platform::QuerySwapChainSupport(const VkPhysicalDevice physical_device) const {
   SwapChainSupportDetails details;
 
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, vk_surface_, &details.capabilities);
@@ -414,7 +432,7 @@ SwapChainSupportDetails Graphics::QuerySwapChainSupport(const VkPhysicalDevice p
   return details;
 }
 
-bool Graphics::IsDeviceSuitable(VkPhysicalDevice physical_device,
+bool Platform::IsDeviceSuitable(VkPhysicalDevice physical_device,
                                 const std::vector<std::string>& required_device_extensions) const {
   if (!CheckDeviceExtensionSupport(physical_device, required_device_extensions))
     return false;
@@ -430,7 +448,7 @@ bool Graphics::IsDeviceSuitable(VkPhysicalDevice physical_device,
   return true;
 }
 
-void Graphics::CreateInstance() {
+void Platform::CreateInstance() {
   auto application_info = Application::GetApplicationInfo();
   const auto window_layer = Application::GetLayer<WindowLayer>();
   const auto editor_layer = Application::GetLayer<EditorLayer>();
@@ -497,7 +515,7 @@ void Graphics::CreateInstance() {
       required_extensions.emplace_back(glfw_extensions[i]);
     }
   }
-#ifndef NDEBUG
+#ifdef GRAPHICS_VALIDATION
   required_extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 #endif
   instance_create_info.enabledExtensionCount = static_cast<uint32_t>(required_extensions.size());
@@ -509,7 +527,7 @@ void Graphics::CreateInstance() {
   vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
   vk_layers_.resize(layer_count);
   vkEnumerateInstanceLayerProperties(&layer_count, vk_layers_.data());
-#ifndef NDEBUG
+#ifdef GRAPHICS_VALIDATION
   if (!CheckLayerSupport("VK_LAYER_KHRONOS_validation")) {
     throw std::runtime_error("Validation layers requested, but not available!");
   }
@@ -532,7 +550,7 @@ void Graphics::CreateInstance() {
 #pragma endregion
 }
 
-void Graphics::CreateSurface() {
+void Platform::CreateSurface() {
   const auto window_layer = Application::GetLayer<WindowLayer>();
 #pragma region Surface
   if (window_layer) {
@@ -543,9 +561,9 @@ void Graphics::CreateSurface() {
 #pragma endregion
 }
 
-void Graphics::CreateDebugMessenger() {
+void Platform::CreateDebugMessenger() {
 #pragma region Debug Messenger
-#ifndef NDEBUG
+#ifdef GRAPHICS_VALIDATION
   VkDebugUtilsMessengerCreateInfoEXT debug_utils_messenger_create_info{};
   PopulateDebugMessengerCreateInfo(debug_utils_messenger_create_info);
   if (CreateDebugUtilsMessengerExt(vk_instance_, &debug_utils_messenger_create_info, nullptr, &vk_debug_messenger_) !=
@@ -579,7 +597,7 @@ int RateDeviceSuitability(const VkPhysicalDevice physical_device) {
 
   return score;
 }
-void Graphics::SelectPhysicalDevice() {
+void Platform::SelectPhysicalDevice() {
   if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
     required_device_extensions_.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
   }
@@ -662,7 +680,7 @@ void Graphics::SelectPhysicalDevice() {
   }
 }
 
-void Graphics::CreateLogicalDevice() {
+void Platform::CreateLogicalDevice() {
   std::vector<const char*> c_required_device_extensions;
   c_required_device_extensions.reserve(required_device_extensions_.size());
   for (const auto& i : required_device_extensions_)
@@ -767,18 +785,33 @@ void Graphics::CreateLogicalDevice() {
 #pragma region Queues requirement
   queue_family_indices_ = FindQueueFamilies(vk_physical_device_);
   std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-  std::set<uint32_t> unique_queue_families;
-  if (queue_family_indices_.graphics_family.has_value())
-    unique_queue_families.emplace(queue_family_indices_.graphics_family.value());
-  if (queue_family_indices_.present_family.has_value())
-    unique_queue_families.emplace(queue_family_indices_.present_family.value());
-  float queue_priority = 1.0f;
-  for (uint32_t queue_family : unique_queue_families) {
+  std::map<uint32_t, std::pair<uint32_t, std::vector<float>>> unique_queue_families;
+  if (queue_family_indices_.graphics_and_compute_family.has_value()) {
+    if (unique_queue_families.find(queue_family_indices_.graphics_and_compute_family.value()) == unique_queue_families.end()) {
+      unique_queue_families[queue_family_indices_.graphics_and_compute_family.value()] =
+          std::make_pair(0, std::vector<float>());
+    }
+    unique_queue_families[queue_family_indices_.graphics_and_compute_family.value()].first += 2;
+    unique_queue_families[queue_family_indices_.graphics_and_compute_family.value()].second.emplace_back(1.f);
+    unique_queue_families[queue_family_indices_.graphics_and_compute_family.value()].second.emplace_back(0.f);
+
+  }
+  if (queue_family_indices_.present_family.has_value()) {
+    if (unique_queue_families.find(queue_family_indices_.present_family.value()) ==
+        unique_queue_families.end()) {
+      unique_queue_families[queue_family_indices_.present_family.value()] =
+          std::make_pair(0, std::vector<float>());
+    }
+    unique_queue_families[queue_family_indices_.present_family.value()].first += 1;
+    unique_queue_families[queue_family_indices_.present_family.value()].second.emplace_back(0.f);
+  }
+
+  for (auto& queue_family : unique_queue_families) {
     VkDeviceQueueCreateInfo queue_create_info{};
     queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info.queueFamilyIndex = queue_family;
-    queue_create_info.queueCount = 1;
-    queue_create_info.pQueuePriorities = &queue_priority;
+    queue_create_info.queueFamilyIndex = queue_family.first;
+    queue_create_info.queueCount = queue_family.second.first;
+    queue_create_info.pQueuePriorities = queue_family.second.second.data();
     queue_create_infos.push_back(queue_create_info);
   }
   device_create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
@@ -796,15 +829,26 @@ void Graphics::CreateLogicalDevice() {
   if (vkCreateDevice(vk_physical_device_, &device_create_info, nullptr, &vk_device_) != VK_SUCCESS) {
     throw std::runtime_error("Failed to create logical device!");
   }
-  if (queue_family_indices_.graphics_family.has_value())
-    vkGetDeviceQueue(vk_device_, queue_family_indices_.graphics_family.value(), 0, &vk_graphics_queue_);
-  if (queue_family_indices_.present_family.has_value())
-    vkGetDeviceQueue(vk_device_, queue_family_indices_.present_family.value(), 0, &vk_present_queue_);
-
+  if (queue_family_indices_.graphics_and_compute_family.has_value()) {
+    main_queue_ = std::make_unique<CommandQueue>();
+    immediate_submit_queue_ = std::make_unique<CommandQueue>();
+    vkGetDeviceQueue(vk_device_, queue_family_indices_.graphics_and_compute_family.value(), 0,
+                     &immediate_submit_queue_->vk_queue_);
+    vkGetDeviceQueue(vk_device_, queue_family_indices_.graphics_and_compute_family.value(), 1,
+                     &main_queue_->vk_queue_);
+  }
+  if (queue_family_indices_.present_family.has_value()) {
+    present_queue_ = std::make_unique<CommandQueue>();
+    if (queue_family_indices_.graphics_and_compute_family.value() != queue_family_indices_.present_family.value()) {
+      vkGetDeviceQueue(vk_device_, queue_family_indices_.present_family.value(), 0, &present_queue_->vk_queue_);
+    }else {
+      vkGetDeviceQueue(vk_device_, queue_family_indices_.present_family.value(), 2, &present_queue_->vk_queue_);
+    }
+  }
 #pragma endregion
 }
 
-void Graphics::EverythingBarrier(VkCommandBuffer command_buffer) {
+void Platform::EverythingBarrier(const VkCommandBuffer vk_command_buffer) {
   VkMemoryBarrier2 memory_barrier{};
   memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
   memory_barrier.srcStageMask = memory_barrier.dstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
@@ -814,10 +858,10 @@ void Graphics::EverythingBarrier(VkCommandBuffer command_buffer) {
   dependency_info.memoryBarrierCount = 1;
   dependency_info.pMemoryBarriers = &memory_barrier;
 
-  vkCmdPipelineBarrier2(command_buffer, &dependency_info);
+  vkCmdPipelineBarrier2(vk_command_buffer, &dependency_info);
 }
 
-void Graphics::SetupVmaAllocator() {
+void Platform::SetupVmaAllocator() {
 #pragma region VMA
   VmaVulkanFunctions vulkan_functions{};
   vulkan_functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
@@ -847,7 +891,7 @@ void Graphics::SetupVmaAllocator() {
 #pragma endregion
 }
 
-std::string Graphics::StringifyResultVk(const VkResult& result) {
+std::string Platform::StringifyResultVk(const VkResult& result) {
   switch (result) {
     case VK_SUCCESS:
       return "Success";
@@ -902,7 +946,7 @@ std::string Graphics::StringifyResultVk(const VkResult& result) {
   }
 }
 
-void Graphics::CheckVk(const VkResult& result) {
+void Platform::CheckVk(const VkResult& result) {
   if (result >= 0) {
     return;
   }
@@ -910,22 +954,7 @@ void Graphics::CheckVk(const VkResult& result) {
   throw std::runtime_error("Vulkan error: " + failure);
 }
 
-void Graphics::AppendCommands(const std::function<void(VkCommandBuffer command_buffer)>& action) {
-  auto& graphics = GetInstance();
-  const unsigned command_buffer_index = graphics.used_command_buffer_size_;
-  if (command_buffer_index >= graphics.command_buffer_pool_[graphics.current_frame_index_].size()) {
-    graphics.command_buffer_pool_[graphics.current_frame_index_].emplace_back();
-    graphics.command_buffer_pool_[graphics.current_frame_index_].back().Allocate();
-  }
-  auto& command_buffer = graphics.command_buffer_pool_[graphics.current_frame_index_][command_buffer_index];
-  command_buffer.Begin();
-  GraphicsPipelineStates graphics_global_state{};
-  action(command_buffer.GetVkCommandBuffer());
-  command_buffer.End();
-  graphics.used_command_buffer_size_++;
-}
-
-void Graphics::CreateSwapChain() {
+void Platform::CreateSwapChain() {
   auto application_info = Application::GetApplicationInfo();
   auto window_layer = Application::GetLayer<WindowLayer>();
   SwapChainSupportDetails swap_chain_support_details = QuerySwapChainSupport(vk_physical_device_);
@@ -996,10 +1025,10 @@ void Graphics::CreateSwapChain() {
    */
   swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-  uint32_t queue_family_indices[] = {queue_family_indices_.graphics_family.value(),
+  uint32_t queue_family_indices[] = {queue_family_indices_.graphics_and_compute_family.value(),
                                      queue_family_indices_.present_family.value()};
 
-  if (queue_family_indices_.graphics_family != queue_family_indices_.present_family) {
+  if (queue_family_indices_.graphics_and_compute_family != queue_family_indices_.present_family) {
     swapchain_create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
     swapchain_create_info.queueFamilyIndexCount = 2;
     swapchain_create_info.pQueueFamilyIndices = queue_family_indices;
@@ -1021,7 +1050,7 @@ void Graphics::CreateSwapChain() {
   if (extent.width == 0) {
     EVOENGINE_ERROR("WRONG")
   }
-  swapchain_ = std::make_unique<Swapchain>(swapchain_create_info);
+  swapchain_ = std::make_shared<Swapchain>(swapchain_create_info);
 
   VkSemaphoreCreateInfo semaphore_create_info{};
   semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -1033,7 +1062,7 @@ void Graphics::CreateSwapChain() {
   swapchain_version_++;
 }
 
-void Graphics::CreateSwapChainSyncObjects() {
+void Platform::CreateSwapChainSyncObjects() {
   VkSemaphoreCreateInfo semaphore_create_info{};
   semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
   VkFenceCreateInfo fence_create_info{};
@@ -1047,12 +1076,12 @@ void Graphics::CreateSwapChainSyncObjects() {
   }
 }
 
-void Graphics::RecreateSwapChain() {
+void Platform::RecreateSwapChain() {
   vkDeviceWaitIdle(vk_device_);
   CreateSwapChain();
 }
 
-void Graphics::OnDestroy() {
+void Platform::OnDestroy() {
   const auto& window_layer = Application::GetLayer<WindowLayer>();
   if (const auto& editor_layer = Application::GetLayer<EditorLayer>(); window_layer && editor_layer) {
     ImGui_ImplVulkan_Shutdown();
@@ -1084,7 +1113,7 @@ void Graphics::OnDestroy() {
 #pragma endregion
 }
 
-void Graphics::SwapChainSwapImage() {
+void Platform::SwapChainSwapImage() {
   if (const auto& window_layer = Application::GetLayer<WindowLayer>();
       window_layer->window_size_.x == 0 || window_layer->window_size_.y == 0)
     return;
@@ -1111,55 +1140,35 @@ void Graphics::SwapChainSwapImage() {
   vkResetFences(vk_device_, 1, in_flight_fences);
 }
 
-void Graphics::SubmitPresent() {
+void Platform::SubmitPresent() {
   if (const auto& window_layer = Application::GetLayer<WindowLayer>();
       window_layer->window_size_.x == 0 || window_layer->window_size_.y == 0)
     return;
-  VkSubmitInfo submit_info{};
-  submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-  const VkSemaphore wait_semaphores[] = {image_available_semaphores_[current_frame_index_]->GetVkSemaphore()};
-  constexpr VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-  submit_info.waitSemaphoreCount = 1;
-  submit_info.pWaitSemaphores = wait_semaphores;
-  submit_info.pWaitDstStageMask = wait_stages;
-
-  std::vector<VkCommandBuffer> command_buffers;
+  std::vector<std::shared_ptr<CommandBuffer>> command_buffers;
 
   command_buffers.reserve(used_command_buffer_size_);
   for (int i = 0; i < used_command_buffer_size_; i++) {
-    command_buffers.emplace_back(command_buffer_pool_[current_frame_index_][i].GetVkCommandBuffer());
+    command_buffers.emplace_back(command_buffer_pool_[current_frame_index_][i]);
   }
 
-  submit_info.commandBufferCount = command_buffers.size();
-  submit_info.pCommandBuffers = command_buffers.data();
+  std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>> wait_semaphores;
+  std::vector<std::shared_ptr<Semaphore>> signal_semaphores;
 
-  const VkSemaphore signal_semaphores[] = {render_finished_semaphores_[current_frame_index_]->GetVkSemaphore()};
-  submit_info.signalSemaphoreCount = 1;
-  submit_info.pSignalSemaphores = signal_semaphores;
-  if (vkQueueSubmit(vk_graphics_queue_, 1, &submit_info, in_flight_fences_[current_frame_index_]->GetVkFence()) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("failed to submit draw command buffer!");
-  }
+  wait_semaphores.emplace_back(image_available_semaphores_[current_frame_index_],
+                               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+  signal_semaphores.emplace_back(render_finished_semaphores_[current_frame_index_]);
 
-  VkPresentInfoKHR present_info{};
-  present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+  main_queue_->Submit(command_buffers, wait_semaphores, signal_semaphores, in_flight_fences_[current_frame_index_]);
 
-  present_info.waitSemaphoreCount = 1;
-  present_info.pWaitSemaphores = signal_semaphores;
-
-  const VkSwapchainKHR swap_chains[] = {swapchain_->GetVkSwapchain()};
-  present_info.swapchainCount = 1;
-  present_info.pSwapchains = swap_chains;
-
-  present_info.pImageIndices = &next_image_index_;
-
-  vkQueuePresentKHR(vk_present_queue_, &present_info);
+  std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>> targets;
+  targets.emplace_back(swapchain_, next_image_index_);
+  present_queue_->Present(signal_semaphores, targets);
 
   current_frame_index_ = (current_frame_index_ + 1) % max_frame_in_flight_;
 }
 
-void Graphics::WaitForCommandsComplete() const {
+void Platform::WaitForCommandsComplete() const {
   vkDeviceWaitIdle(vk_device_);
   GeometryStorage::DeviceSync();
   TextureStorage::DeviceSync();
@@ -1168,43 +1177,27 @@ void Graphics::WaitForCommandsComplete() const {
   vkResetFences(vk_device_, 1, in_flight_fences);
 }
 
-void Graphics::Submit() {
-  VkSubmitInfo submit_info{};
-  submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-  submit_info.waitSemaphoreCount = 0;
-  submit_info.pWaitSemaphores = nullptr;
-  submit_info.pWaitDstStageMask = nullptr;
-
-  std::vector<VkCommandBuffer> command_buffers;
-
+void Platform::Submit() {
+  std::vector<std::shared_ptr<CommandBuffer>> command_buffers;
   command_buffers.reserve(used_command_buffer_size_);
   for (int i = 0; i < used_command_buffer_size_; i++) {
-    command_buffers.emplace_back(command_buffer_pool_[current_frame_index_][i].GetVkCommandBuffer());
+    command_buffers.emplace_back(command_buffer_pool_[current_frame_index_][i]);
   }
-
-  submit_info.commandBufferCount = command_buffers.size();
-  submit_info.pCommandBuffers = command_buffers.data();
-
-  submit_info.signalSemaphoreCount = 0;
-  submit_info.pSignalSemaphores = nullptr;
-  if (vkQueueSubmit(vk_graphics_queue_, 1, &submit_info, in_flight_fences_[current_frame_index_]->GetVkFence()) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("failed to submit draw command buffer!");
-  }
+  main_queue_->Submit(command_buffers, {}, {}, in_flight_fences_[current_frame_index_]);
   current_frame_index_ = (current_frame_index_ + 1) % max_frame_in_flight_;
 }
 
-void Graphics::ResetCommandBuffers() {
+void Platform::ResetCommandBuffers() {
   used_command_buffer_size_ = 0;
-  for (auto& command_buffer : command_buffer_pool_[current_frame_index_]) {
-    if (command_buffer.status_ == CommandBufferStatus::Recorded)
-      command_buffer.Reset();
+  for (const auto& command_buffer : command_buffer_pool_[current_frame_index_]) {
+    if (command_buffer->status_ == CommandBufferStatus::Recorded)
+      command_buffer->Reset();
   }
 }
 
 #pragma endregion
 
-void Graphics::Initialize() {
+void Platform::Initialize() {
   auto& graphics = GetInstance();
 #pragma region volk
   if (volkInitialize() != VK_SUCCESS) {
@@ -1231,12 +1224,12 @@ void Graphics::Initialize() {
       }
     }
   }
-  if (graphics.queue_family_indices_.graphics_family.has_value()) {
+  if (graphics.queue_family_indices_.graphics_and_compute_family.has_value()) {
 #pragma region Command pool
     VkCommandPoolCreateInfo pool_info{};
     pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    pool_info.queueFamilyIndex = graphics.queue_family_indices_.graphics_family.value();
+    pool_info.queueFamilyIndex = graphics.queue_family_indices_.graphics_and_compute_family.value();
     graphics.command_pool_ = std::make_unique<CommandPool>(pool_info);
 #pragma endregion
     graphics.used_command_buffer_size_ = 0;
@@ -1292,8 +1285,8 @@ void Graphics::Initialize() {
     init_info.Instance = graphics.vk_instance_;
     init_info.PhysicalDevice = graphics.vk_physical_device_;
     init_info.Device = graphics.vk_device_;
-    init_info.QueueFamily = graphics.queue_family_indices_.graphics_family.value();
-    init_info.Queue = graphics.vk_graphics_queue_;
+    init_info.QueueFamily = graphics.queue_family_indices_.graphics_and_compute_family.value();
+    init_info.Queue = graphics.main_queue_->vk_queue_;
     init_info.PipelineCache = VK_NULL_HANDLE;
     init_info.DescriptorPool = graphics.descriptor_pool_->GetVkDescriptorPool();
     init_info.MinImageCount = graphics.swapchain_->GetAllImageViews().size();
@@ -1308,9 +1301,12 @@ void Graphics::Initialize() {
     // init_info.ColorAttachmentFormat = graphics.swapchain_->GetImageFormat();
 
     ImGui_ImplVulkan_LoadFunctions([](const char* function_name, void*) {
-      return vkGetInstanceProcAddr(Graphics::GetVkInstance(), function_name);
+      return vkGetInstanceProcAddr(GetVkInstance(), function_name);
     });
     ImGui_ImplVulkan_Init(&init_info);
+
+
+    graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
   }
 
   GeometryStorage::Initialize();
@@ -1321,18 +1317,18 @@ void Graphics::Initialize() {
   graphics.strands_segments.resize(graphics.max_frame_in_flight_);
 }
 
-void Graphics::PostResourceLoadingInitialization() {
+void Platform::PostResourceLoadingInitialization() {
   const auto& graphics = GetInstance();
   graphics.PrepareDescriptorSetLayouts();
   graphics.CreateGraphicsPipelines();
 }
 
-void Graphics::Destroy() {
+void Platform::Destroy() {
   auto& graphics = GetInstance();
   graphics.OnDestroy();
 }
 
-void Graphics::PreUpdate() {
+void Platform::PreUpdate() {
   auto& graphics = GetInstance();
   const auto window_layer = Application::GetLayer<WindowLayer>();
   const auto render_layer = Application::GetLayer<RenderLayer>();
@@ -1361,7 +1357,7 @@ void Graphics::PreUpdate() {
   }
 }
 
-void Graphics::LateUpdate() {
+void Platform::LateUpdate() {
   auto& graphics = GetInstance();
   if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
     if (Application::GetLayer<RenderLayer>() && !Application::GetLayer<EditorLayer>()) {
@@ -1369,10 +1365,11 @@ void Graphics::LateUpdate() {
         if (const auto main_camera = scene->main_camera.Get<Camera>();
             main_camera->IsEnabled() && main_camera->rendered_) {
           const auto& render_texture_present = graphics.graphics_pipelines_["RENDER_TEXTURE_PRESENT"];
-          AppendCommands([&](const VkCommandBuffer command_buffer) {
-            EverythingBarrier(command_buffer);
-            TransitImageLayout(command_buffer, graphics.swapchain_->GetVkImage(), graphics.swapchain_->GetImageFormat(),
-                               1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR);
+          RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
+            EverythingBarrier(vk_command_buffer);
+            TransitImageLayout(vk_command_buffer, graphics.swapchain_->GetVkImage(),
+                               graphics.swapchain_->GetImageFormat(), 1, VK_IMAGE_LAYOUT_UNDEFINED,
+                               VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR);
 
             constexpr VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
             VkRect2D render_area;
@@ -1417,18 +1414,19 @@ void Graphics::LateUpdate() {
             }
             render_texture_present->states.depth_test = VK_FALSE;
             render_texture_present->states.depth_write = VK_FALSE;
-            vkCmdBeginRendering(command_buffer, &render_info);
+            vkCmdBeginRendering(vk_command_buffer, &render_info);
             // From main camera to swap chain.
-            render_texture_present->Bind(command_buffer);
+            render_texture_present->Bind(vk_command_buffer);
             render_texture_present->BindDescriptorSet(
-                command_buffer, 0, main_camera->GetRenderTexture()->descriptor_set_->GetVkDescriptorSet());
+                vk_command_buffer, 0, main_camera->GetRenderTexture()->descriptor_set_->GetVkDescriptorSet());
 
             const auto mesh = Resources::GetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
-            GeometryStorage::BindVertices(command_buffer);
-            mesh->DrawIndexed(command_buffer, render_texture_present->states, 1);
-            vkCmdEndRendering(command_buffer);
-            TransitImageLayout(command_buffer, graphics.swapchain_->GetVkImage(), graphics.swapchain_->GetImageFormat(),
-                               1, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+            GeometryStorage::BindVertices(vk_command_buffer);
+            mesh->DrawIndexed(vk_command_buffer, render_texture_present->states, 1);
+            vkCmdEndRendering(vk_command_buffer);
+            TransitImageLayout(vk_command_buffer, graphics.swapchain_->GetVkImage(),
+                               graphics.swapchain_->GetImageFormat(), 1, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR,
+                               VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
           });
         }
       }
@@ -1439,7 +1437,7 @@ void Graphics::LateUpdate() {
   }
 }
 
-bool Graphics::CheckExtensionSupport(const std::string& extension_name) {
+bool Platform::CheckExtensionSupport(const std::string& extension_name) {
   const auto& graphics = GetInstance();
 
   for (const auto& layer_properties : graphics.vk_layers_) {
@@ -1450,7 +1448,7 @@ bool Graphics::CheckExtensionSupport(const std::string& extension_name) {
   return false;
 }
 
-bool Graphics::CheckLayerSupport(const std::string& layer_name) {
+bool Platform::CheckLayerSupport(const std::string& layer_name) {
   const auto& graphics = GetInstance();
   for (const auto& layer_properties : graphics.vk_layers_) {
     if (strcmp(layer_name.c_str(), layer_properties.layerName) == 0) {

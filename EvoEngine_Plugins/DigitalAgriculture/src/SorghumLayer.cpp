@@ -5,7 +5,7 @@
 #endif
 #include <SorghumLayer.hpp>
 #include "ClassRegistry.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "SkyIlluminance.hpp"
 #include "SorghumStateGenerator.hpp"
 #include "Times.hpp"

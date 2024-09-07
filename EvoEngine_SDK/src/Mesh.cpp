@@ -3,7 +3,7 @@
 #include "ClassRegistry.hpp"
 #include "Console.hpp"
 #include "GeometryStorage.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "Jobs.hpp"
 #include "Utilities.hpp"
 using namespace evo_engine;
@@ -126,7 +126,7 @@ Mesh::~Mesh() {
   meshlet_range_.reset();
 }
 
-void Mesh::DrawIndexed(const VkCommandBuffer vk_command_buffer, GraphicsPipelineStates& global_pipeline_state,
+void Mesh::DrawIndexed(VkCommandBuffer vk_command_buffer, GraphicsPipelineStates& global_pipeline_state,
                        const int instances_count) const {
   if (instances_count == 0)
     return;

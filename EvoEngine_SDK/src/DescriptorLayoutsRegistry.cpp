@@ -1,8 +1,8 @@
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "Utilities.hpp"
 using namespace evo_engine;
 
-void Graphics::PrepareDescriptorSetLayouts() {
+void Platform::PrepareDescriptorSetLayouts() {
   const auto render_texture_present = std::make_shared<DescriptorSetLayout>();
   render_texture_present->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                               VK_SHADER_STAGE_FRAGMENT_BIT, 0);
