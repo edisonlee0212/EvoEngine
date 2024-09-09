@@ -161,9 +161,9 @@ class RayTracer final {
     std::shared_ptr<Buffer> scene_triangles_buffer;
     std::shared_ptr<Buffer> scene_vertex_positions_buffer;
 
-    
+    std::shared_ptr<Buffer> scene_info_buffer;
 
-  private:
+   private:
     friend class RayTracer;
     //=========================================================================================
     //| CGScene level                                                                         |
@@ -273,7 +273,6 @@ class RayTracer final {
      * @brief Vertex positions of entire scene.
      */
     std::vector<glm::vec3> vertex_positions_;
-
   };
 
   /**
@@ -282,6 +281,7 @@ class RayTracer final {
    * @return Aggregated scene data.
    */
   [[nodiscard]] AggregatedScene Aggregate() const;
+
  private:
   struct FlattenedBvh {
     std::vector<BvhNode> nodes;

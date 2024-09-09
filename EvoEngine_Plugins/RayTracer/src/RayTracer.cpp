@@ -493,7 +493,8 @@ void RayTracer::AggregatedScene::InitializeBuffers() {
   scene_triangles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   scene_vertex_positions_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
-  
+  scene_info_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
   #pragma region Upload functions
   auto upload_bvh_nodes = [&](const std::shared_ptr<Buffer> &buffer,
                               const std::vector<BvhNode>& bvh_nodes) {
@@ -643,6 +644,8 @@ void RayTracer::AggregatedScene::InitializeBuffers() {
   upload_indices(local_triangle_indices_buffer, local_triangle_indices_);
   upload_triangles(scene_triangles_buffer, triangles_);
   upload_vec3(scene_vertex_positions_buffer, vertex_positions_);
+
+  scene_info_buffer->Upload(glm::vec4(UintBitsToFloat(static_cast<uint32_t>(scene_level_bvh_nodes_.size())), 0, 0, 0));
 }
 
 void RayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
@@ -818,16 +821,21 @@ void RayTracer::AggregatedScene::TraceGpu(const std::vector<RayDescriptor>& rays
                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
     ray_tracer_descriptor_set_layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
+
     ray_tracer_descriptor_set_layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+
     ray_tracer_descriptor_set_layout->Initialize();
   }
 
   if (!trace_shader) {
+    Shader::RegisterShaderIncludePath(std::filesystem::path("./RayTracerResources/Shaders/Include"));
+
     trace_shader = ProjectManager::CreateTemporaryAsset<Shader>();
-    const auto shader_code =
-        FileUtils::LoadFileAsString(std::filesystem::path("./RayTracerResources") / "Shaders/Compute/Trace.comp");
-    trace_shader->Set(ShaderType::Compute, shader_code);
+    trace_shader->Set(ShaderType::Compute,
+                      std::filesystem::path("./RayTracerResources") / "Shaders/Compute/Trace.comp");
   }
 
   if (!trace_pipeline) {
@@ -896,14 +904,15 @@ void RayTracer::AggregatedScene::TraceGpu(const std::vector<RayDescriptor>& rays
   ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(9, scene_triangles_buffer);
   ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(10, scene_vertex_positions_buffer);
 
-  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(11, rays_buffer);
-  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(12, ray_casting_results_buffer);
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(11, scene_info_buffer);
+
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(12, rays_buffer);
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(13, ray_casting_results_buffer);
 
   const glm::vec4 ray_cast_config =
       glm::vec4(static_cast<unsigned>(flags) | static_cast<unsigned>(TraceFlags::CullBackFace) ? 0.f : 1.f,
                 static_cast<unsigned>(flags) | static_cast<unsigned>(TraceFlags::CullFrontFace) ? 0.f : 1.f,
-                UintBitsToFloat(static_cast<uint32_t>(scene_level_bvh_nodes_.size())),
-                UintBitsToFloat(static_cast<uint32_t>(rays.size())));
+                UintBitsToFloat(static_cast<uint32_t>(rays.size())), 0.f);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     trace_pipeline->Bind(vk_command_buffer);
     trace_pipeline->BindDescriptorSet(vk_command_buffer, 0, ray_tracer_descriptor_set->GetVkDescriptorSet());

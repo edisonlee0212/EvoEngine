@@ -21,7 +21,7 @@ void main()
 {
     // get input for SSAO algorithm
     float ndcDepth = texture(gDepth, fs_in.TexCoord).r;
-    vec3 viewPos = EE_DEPTH_TO_VIEW_POS(fs_in.TexCoord, ndcDepth);
+    vec3 viewPos = EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, fs_in.TexCoord, ndcDepth);
     vec3 normal = texture(gNormal, fs_in.TexCoord).rgb;
     originalColor = texture(color, fs_in.TexCoord).rgb;
     if(normal == vec3(0.0)) return;
@@ -48,7 +48,7 @@ void main()
         offset.xyz = offset.xyz * 0.5 + 0.5; // transform to range 0.0 - 1.0
         validAmount = validAmount + 1;
         // get sample depth
-        float sampleDepth = EE_DEPTH_TO_VIEW_POS(offset.xy, texture(gDepth, offset.xy).r).z;
+        float sampleDepth = EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, offset.xy, texture(gDepth, offset.xy).r).z;
         // range check & accumulate
         float rangeCheck = smoothstep(0.0, 1.0, radius / abs(viewPos.z - sampleDepth));
         occlusion += (sampleDepth >= samplePos.z + bias ? 1.0 : 0.0) * rangeCheck;           

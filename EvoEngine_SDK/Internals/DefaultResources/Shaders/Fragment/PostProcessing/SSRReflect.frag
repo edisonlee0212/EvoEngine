@@ -103,7 +103,7 @@ void main()
 	vec3 viewNormal = normalize((EE_CAMERAS[EE_CAMERA_INDEX].view * vec4(texture(inNormal, tex_coord).rgb, 0.0)).xyz);
 
 	float ndcDepth = texture(inDepth, tex_coord).x;
-	vec3 viewPos = EE_DEPTH_TO_VIEW_POS(tex_coord, ndcDepth);
+	vec3 viewPos = EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, tex_coord, ndcDepth);
 
 	vec3 texturePixelPosition;
 	texturePixelPosition.xy = tex_coord;

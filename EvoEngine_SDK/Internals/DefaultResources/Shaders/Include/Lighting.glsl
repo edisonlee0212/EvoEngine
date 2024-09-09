@@ -64,10 +64,6 @@ vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fr
 float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3 normal, float cameraFragDistance);
 float EE_FUNC_POINT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance);
 float EE_FUNC_SPOT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance);
-float EE_LINEARIZE_DEPTH(float ndcDepth);
-vec3 EE_DEPTH_TO_CLIP_POS(vec2 tex_coords, float ndcDepth);
-vec3 EE_DEPTH_TO_WORLD_POS(vec2 tex_coords, float ndcDepth);
-vec3 EE_DEPTH_TO_VIEW_POS(vec2 tex_coords, float ndcDepth);
 
 vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0)
 {
@@ -92,7 +88,7 @@ vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDi
 
 vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular, float dist, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic, float roughness, vec3 F0) {
 	vec3 result = vec3(0.0, 0.0, 0.0);
-	vec3 fragToCamera = fragPos - EE_CAMERA_POSITION();
+	vec3 fragToCamera = fragPos - EE_CAMERA_POSITION(EE_CAMERA_INDEX);
 	float cameraFragDistance = length(fragToCamera);
 	// phase 1: directional lighting
 	for (int i = 0; i < EE_RENDER_INFO.directional_light_size; i++) {

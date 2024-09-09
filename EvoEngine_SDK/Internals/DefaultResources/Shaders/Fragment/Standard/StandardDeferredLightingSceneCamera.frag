@@ -18,12 +18,12 @@ layout (location = 0) out vec4 FragColor;
 void main()
 {
 	float ndcDepth = 	texture(inDepth, fs_in.TexCoord).x;
-	vec3 fragPos = EE_DEPTH_TO_WORLD_POS(fs_in.TexCoord, ndcDepth);
+	vec3 fragPos = EE_DEPTH_TO_WORLD_POS(EE_CAMERA_INDEX, fs_in.TexCoord, ndcDepth);
 	int infoIndex = int(round(texture(inMaterial, fs_in.TexCoord).z));
 	bool instanceSelected = infoIndex == 1;
 
 	if(ndcDepth == 1.0) {
-		vec3 cameraPosition = EE_CAMERA_POSITION();
+		vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
 		Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
 		vec3 envColor = EE_SKY_COLOR(fragPos - cameraPosition);
 		if(!instanceSelected){
@@ -45,7 +45,7 @@ void main()
 		return;
 	}
 
-	float depth = EE_LINEARIZE_DEPTH(ndcDepth);
+	float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
 
 	vec3 normal = 		texture(inNormal, fs_in.TexCoord).xyz;
 	
@@ -76,7 +76,7 @@ void main()
 	}else if(EE_RENDER_INFO.debug_visualization == 2){
 		albedo = vec4(EE_UNIFORM_KERNEL[instanceIndex % MAX_KERNEL_AMOUNT].xyz, 1.0);
 	}
-	vec3 cameraPosition = EE_CAMERA_POSITION();
+	vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
 	vec3 viewDir = normalize(cameraPosition - fragPos);
 	bool receiveShadow = true;
 	vec3 F0 = vec3(0.04); 

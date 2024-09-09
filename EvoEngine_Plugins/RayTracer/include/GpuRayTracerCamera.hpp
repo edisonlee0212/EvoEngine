@@ -15,6 +15,7 @@ class GpuRayTracerCamera : public IPrivateComponent {
   float fov = 120;
   void OnCreate() override;
   AssetRef texture_ref;
+  void OnDestroy() override;
   void Capture(const CaptureParameters& capture_parameters, const std::shared_ptr<Texture2D>& target_texture) const;
   glm::uvec2 resolution = {64, 64};
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;

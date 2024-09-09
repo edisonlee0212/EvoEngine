@@ -32,7 +32,7 @@ struct GizmosPushConstant {
   glm::mat4 model;
   glm::vec4 color;
   float size;
-  uint32_t camera_index;
+  int32_t camera_index;
 };
 
 struct EditorCamera {

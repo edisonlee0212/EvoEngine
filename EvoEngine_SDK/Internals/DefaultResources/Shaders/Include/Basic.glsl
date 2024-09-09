@@ -39,146 +39,27 @@ layout(set = EE_PER_FRAME_SET, binding = 0) uniform EE_RENDERING_SETTINGS_BLOCK
 	RenderInfo EE_RENDER_INFO;
 };
 
-struct Environment {
-	vec4 background_color;
-	float gamma;
-	float light_intensity;
-	float padding1;
-	float padding2;
+#define EE_ENVIRONMENTAL_BLOCK_BINDING 1
+#include "Environment.glsl"
+
+#define EE_CAMERA_BLOCK_BINDING 2
+#include "Cameras.glsl"
+
+#define EE_MATERIAL_BLOCK_BINDING 3
+#include "Materials.glsl"
+
+#define EE_INSTANCE_BLOCK_BINDING 4
+#include "Instances.glsl"
+
+layout(set = EE_PER_FRAME_SET, binding = 5) uniform EE_KERNEL_BLOCK {
+  vec4 EE_UNIFORM_KERNEL[MAX_KERNEL_AMOUNT];
+  vec4 EE_GAUSS_KERNEL[MAX_KERNEL_AMOUNT];
 };
 
-layout(set = EE_PER_FRAME_SET, binding = 1) uniform EE_ENVIRONMENTAL_BLOCK
-{
-	Environment EE_ENVIRONMENT;
-};
-
-struct Camera {
-	mat4 projection;
-	mat4 view;
-	mat4 projection_view;
-	mat4 inverse_projection;
-	mat4 inverse_view;
-	mat4 inverse_projection_view;
-	vec4 clear_color;
-	vec4 reserved1;
-	vec4 reserved_2;
-	int skybox_tex_index;
-	int irradiance_map_index;
-	int prefiltered_map_index;
-	int use_clear_color;
-};
-
-//Camera
-layout(set = EE_PER_FRAME_SET, binding = 2) readonly buffer EE_CAMERA_BLOCK
-{
-	Camera EE_CAMERAS[];
-};
-
-struct MaterialProperties {
-	int albedo_map_index;
-	int normal_map_index;
-	int metallic_map_index;
-	int roughness_map_index;
-
-	int ao_texture_index;
-	bool cast_shadow;
-	bool receive_shadow;
-	bool enable_shadow;
-
-	vec4 albedo;
-	vec4 sss_c;
-	vec4 sss_r;
-
-	float metallic;
-	float roughness;
-	float ambient_occulusion;
-	float emission;
-};
-
-layout(set = EE_PER_FRAME_SET, binding = 3) readonly buffer EE_MATERIAL_BLOCK
-{
-	MaterialProperties EE_MATERIAL_PROPERTIES[];
-};
-
-struct Instance {
-	mat4 model;
-	uint material_index;
-	uint info_index;
-	uint meshlet_offset;
-	uint meshlet_size;
-};
-
-layout(set = EE_PER_FRAME_SET, binding = 4) readonly buffer EE_INSTANCE_BLOCK
-{
-	Instance EE_INSTANCES[];
-};
-
-//Lights
-struct DirectionalLight {
-	vec3 direction;
-	vec4 diffuse;
-	vec3 specular;
-	mat4 light_space_matrix[4];
-	vec4 light_frustum_width;
-	vec4 light_frustum_distance;
-	vec4 reserved_parameters;
-	int viewport_x_offset;
-	int viewport_y_offset;
-	int viewport_x_size;
-	int viewport_y_size;
-};
-
-struct PointLight {
-	vec3 position;
-	vec4 constant_linear_quadratic_far;
-	vec4 diffuse;
-	vec3 specular;
-	mat4 light_space_matrix[6];
-	vec4 reserved_parameters;
-	int viewport_x_offset;
-	int viewport_y_offset;
-	int viewport_x_size;
-	int viewport_y_size;
-};
-
-struct SpotLight {
-	vec3 position;
-	float padding0;
-
-	vec3 direction;
-	float padding1;
-
-	mat4 light_space_matrix;
-	vec4 cutoff_outer_inner_size_bias;
-	vec4 constant_linear_quadratic_far;
-	vec4 diffuse;
-	vec3 specular;
-	float padding3;
-	int viewport_x_offset;
-	int viewport_y_offset;
-	int viewport_x_size;
-	int viewport_y_size;
-};
-layout(set = EE_PER_FRAME_SET, binding = 5) uniform EE_KERNEL_BLOCK
-{
-	vec4 EE_UNIFORM_KERNEL[MAX_KERNEL_AMOUNT];
-	vec4 EE_GAUSS_KERNEL[MAX_KERNEL_AMOUNT];
-};
-
-layout(set = EE_PER_FRAME_SET, binding = 6) readonly buffer EE_DIRECTIONAL_LIGHT_BLOCK
-{
-	DirectionalLight EE_DIRECTIONAL_LIGHTS[];
-};
-
-layout(set = EE_PER_FRAME_SET, binding = 7) readonly buffer EE_POINT_LIGHT_BLOCK
-{
-	PointLight EE_POINT_LIGHTS[];
-};
-
-layout(set = EE_PER_FRAME_SET, binding = 8) readonly buffer EE_SPOT_LIGHT_BLOCK
-{
-	SpotLight EE_SPOT_LIGHTS[];
-};
+#define EE_DIRECTIONAL_LIGHT_BLOCK_BINDING 6
+#define EE_POINT_LIGHT_BLOCK_BINDING 7
+#define EE_SPOT_LIGHT_BLOCK_BINDING 8
+#include "Lights.glsl"
 
 struct Vertex {
 	vec3 position;
@@ -193,7 +74,6 @@ struct Vertex {
 struct VertexDataChunk {
 	Vertex vertices[MESHLET_MAX_VERTICES_SIZE];
 };
-
 
 layout(set = EE_PER_FRAME_SET, binding = 9) readonly buffer EE_VERTICES_BLOCK
 {
@@ -212,8 +92,9 @@ layout(set = EE_PER_FRAME_SET, binding = 10) readonly buffer EE_MESHLETS_BLOCK
 	Meshlet EE_MESHLETS[];
 };
 
-layout(set = EE_PER_FRAME_SET, binding = 13) uniform sampler2D[] EE_TEXTURE_2DS;
-layout(set = EE_PER_FRAME_SET, binding = 14) uniform samplerCube[] EE_CUBEMAPS;
+#define EE_TEXTURE_2DS_BINDING 13
+#define EE_CUBEMAPS_BINDING 14
+#include "Textures.glsl"
 
 struct InstancedData {
 	mat4 instance_matrix;
@@ -230,106 +111,10 @@ layout(set = EE_PER_PASS_SET, binding = 18) readonly buffer EE_INSTANCED_DATA_BL
 	InstancedData EE_INSTANCED_DATA[];
 };
 
-vec3 EE_DEPTH_TO_CLIP_POS(vec2 tex_coords, float ndcDepth);
-vec3 EE_DEPTH_TO_WORLD_POS(vec2 tex_coords, float ndcDepth);
-vec3 EE_DEPTH_TO_VIEW_POS(vec2 tex_coords, float ndcDepth);
-
-vec3 EE_CAMERA_LEFT() {
-	return EE_CAMERAS[EE_CAMERA_INDEX].view[0].xyz;
-}
-
-vec3 EE_CAMERA_RIGHT() {
-	return -EE_CAMERAS[EE_CAMERA_INDEX].view[0].xyz;
-}
-
-vec3 EE_CAMERA_UP() {
-	return EE_CAMERAS[EE_CAMERA_INDEX].view[1].xyz;
-}
-
-vec3 EE_CAMERA_DOWN() {
-	return -EE_CAMERAS[EE_CAMERA_INDEX].view[1].xyz;
-}
-
-vec3 EE_CAMERA_BACK() {
-	return EE_CAMERAS[EE_CAMERA_INDEX].view[2].xyz;
-}
-
-vec3 EE_CAMERA_FRONT() {
-	return -EE_CAMERAS[EE_CAMERA_INDEX].view[2].xyz;
-}
-
-vec3 EE_CAMERA_POSITION() {
-	return EE_CAMERAS[EE_CAMERA_INDEX].inverse_view[3].xyz;
-}
-
-float EE_CAMERA_NEAR() {
-	return EE_CAMERAS[EE_CAMERA_INDEX].reserved1.x;
-}
-
-float EE_CAMERA_FAR() {
-	return EE_CAMERAS[EE_CAMERA_INDEX].reserved1.y;
-}
-
-float EE_CAMERA_TAN_FOV() {
-	return EE_CAMERAS[EE_CAMERA_INDEX].reserved1.z;
-}
-
-float EE_CAMERA_TAN_HALF_FOV() {
-	return EE_CAMERAS[EE_CAMERA_INDEX].reserved1.w;
-}
-
-float EE_CAMERA_RESOLUTION_X() {
-	return EE_CAMERAS[EE_CAMERA_INDEX].reserved_2.x;
-}
-
-float EE_CAMERA_RESOLUTION_Y() {
-	return EE_CAMERAS[EE_CAMERA_INDEX].reserved_2.y;
-}
-
-float EE_CAMERA_RESOLUTION_RATIO() {
-	return EE_CAMERAS[EE_CAMERA_INDEX].reserved_2.z;
-}
-
-float EE_LINEARIZE_DEPTH(float ndcDepth)
-{
-	float near = EE_CAMERA_NEAR();
-	float far = EE_CAMERA_FAR();
-	return near * far / (far - ndcDepth * (far - near));
-}
-
-vec3 EE_DEPTH_TO_WORLD_POS(vec2 tex_coords, float ndcDepth) {
-	vec4 clipPos = vec4(EE_DEPTH_TO_CLIP_POS(tex_coords, ndcDepth), 1.0);
-	vec4 worldPos = EE_CAMERAS[EE_CAMERA_INDEX].inverse_projection_view * clipPos;
-	worldPos = worldPos / worldPos.w;
-	return worldPos.xyz;
-}
-
-vec3 EE_DEPTH_TO_VIEW_POS(vec2 tex_coords, float ndcDepth) {
-	vec4 clipPos = vec4(EE_DEPTH_TO_CLIP_POS(tex_coords, ndcDepth), 1.0);
-	vec4 viewPos = EE_CAMERAS[EE_CAMERA_INDEX].inverse_projection * clipPos;
-	viewPos = viewPos / viewPos.w;
-	return viewPos.xyz;
-}
-
-vec3 EE_DEPTH_TO_CLIP_POS(vec2 tex_coords, float ndcDepth) {
-	vec4 clipPos = vec4(tex_coords * 2 - vec2(1), ndcDepth, 1.0);
-	return clipPos.xyz;
-}
-
-
-float EE_PIXEL_DISTANCE(in vec3 worldPosA, in vec3 worldPosB) {
-	vec4 coordA = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(worldPosA, 1.0);
-	vec4 coordB = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(worldPosB, 1.0);
-	vec2 screenSize = vec2(EE_CAMERA_RESOLUTION_X(), EE_CAMERA_RESOLUTION_Y());
-	coordA = coordA / coordA.w;
-	coordB = coordB / coordB.w;
-	return distance(coordA.xy * screenSize / 2.0, coordB.xy * screenSize / 2.0);
-}
-
 int EE_STRANDS_SEGMENT_SUBDIVISION(in vec3 worldPosA, in vec3 worldPosB) {
 	vec4 coordA = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(worldPosA, 1.0);
 	vec4 coordB = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(worldPosB, 1.0);
-	vec2 screenSize = vec2(EE_CAMERA_RESOLUTION_X(), EE_CAMERA_RESOLUTION_Y());
+        vec2 screenSize = vec2(EE_CAMERA_RESOLUTION_X(EE_CAMERA_INDEX), EE_CAMERA_RESOLUTION_Y(EE_CAMERA_INDEX));
 	coordA = coordA / coordA.w;
 	coordB = coordB / coordB.w;
 	if (coordA.z < -1.0 && coordB.z < -1.0) return 0;
@@ -395,7 +180,7 @@ int EE_STRANDS_RING_SUBDIVISION(in mat4 model, in vec3 worldPos, in vec3 modelPo
 {
 	vec3 modelPosB = thickness * vec3(0, 1, 0) + modelPos;
 	vec3 endPointWorldPos = (model * vec4(modelPosB, 1.0)).xyz;
-	vec3 redirectedWorldPosB = worldPos + EE_CAMERA_UP() * distance(worldPos, endPointWorldPos);
-	float subdivision = EE_PIXEL_DISTANCE(worldPos, redirectedWorldPosB);
+	vec3 redirectedWorldPosB = worldPos + EE_CAMERA_UP(EE_CAMERA_INDEX) * distance(worldPos, endPointWorldPos);
+	float subdivision = EE_PIXEL_DISTANCE(EE_CAMERA_INDEX, worldPos, redirectedWorldPosB);
 	return max(3, min(int(subdivision), EE_RENDER_INFO.strand_subdivision_max_y));
 }

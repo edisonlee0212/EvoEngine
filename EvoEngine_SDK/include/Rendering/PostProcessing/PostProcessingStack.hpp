@@ -20,7 +20,7 @@ struct SsaoPushConstant {};
 struct BloomPushConstant {};
 
 struct SsrPushConstant {
-  uint32_t camera_index = 0;
+  int32_t camera_index = 0;
   int num_binary_search_steps = 8;
   float step = 0.5f;
   float min_ray_step = 0.1f;

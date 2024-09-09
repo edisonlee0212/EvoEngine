@@ -34,6 +34,10 @@ void GpuRayTracerCamera::OnCreate() {
   
 }
 
+void GpuRayTracerCamera::OnDestroy() {
+  texture_ref.Clear();
+}
+
 void GpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
                                  const std::shared_ptr<Texture2D>& target_texture) const {
   std::vector<glm::vec4> pixels{resolution.x * resolution.y};
@@ -106,7 +110,7 @@ void GpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
 bool GpuRayTracerCamera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (!texture_ref.Get<Texture2D>()) {
-    auto new_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    const auto new_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
     new_texture->SetRgbaChannelData({glm::vec4(1.f)}, {1, 1});
     texture_ref = new_texture;
   }
