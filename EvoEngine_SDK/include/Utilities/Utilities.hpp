@@ -1,8 +1,5 @@
 #pragma once
 #include "RandomSampler.hpp"
-#include "Shader.hpp"
-#include "ShaderLang.h"
-
 namespace evo_engine {
 class FileUtils {
  public:
@@ -19,11 +16,6 @@ class FileUtils {
                        const std::vector<std::string>& extensions,
                        const std::function<void(const std::filesystem::path& path)>& func,
                        bool project_dir_check = true);
-};
-
-class ShaderUtils {
- public:
-  static std::vector<uint32_t> CompileGlsl(ShaderType shader_type, const std::string& source, bool optimize = false);
 };
 
 class SphereMeshGenerator {

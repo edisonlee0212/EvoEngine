@@ -1,3 +1,7 @@
+#extension GL_ARB_shading_language_include : enable
+
+#include "SSRConstants.glsl"
+
 precision highp float;
 
 layout (location = 0) out vec4 FragColor;

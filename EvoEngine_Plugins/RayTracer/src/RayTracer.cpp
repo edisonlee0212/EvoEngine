@@ -1,5 +1,7 @@
 #include "RayTracer.hpp"
 
+#include "Shader.hpp"
+
 using namespace evo_engine;
 void RayTracer::Initialize(
     const std::shared_ptr<Scene>& input_scene,

@@ -9,9 +9,7 @@ add_subdirectory(${TARGET_NAME} EXCLUDE_FROM_ALL)
 
 set(3RDPARTY_INCLUDES 
 	${3RDPARTY_INCLUDES}
-	${CMAKE_CURRENT_SOURCE_DIR}/glslang/glslang/HLSL
-	${CMAKE_CURRENT_SOURCE_DIR}/glslang/glslang/Include
-	${CMAKE_CURRENT_SOURCE_DIR}/glslang/glslang/MachineIndependent
+	${CMAKE_CURRENT_SOURCE_DIR}/glslang/SPIRV
 	${CMAKE_CURRENT_SOURCE_DIR}/glslang/glslang/Public
 	PARENT_SCOPE)
 

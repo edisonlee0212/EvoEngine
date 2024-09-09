@@ -1,3 +1,8 @@
+#extension GL_ARB_shading_language_include : enable
+
+#include "GizmosConstants.glsl"
+#include "Basic.glsl"
+
 layout(lines, invocations = 1) in;
 layout(triangle_strip, max_vertices = 128) out;
 

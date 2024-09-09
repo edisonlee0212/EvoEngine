@@ -1,4 +1,8 @@
 #extension GL_ARB_shader_draw_parameters : enable
+#extension GL_ARB_shading_language_include : enable
+
+#include "BasicConstants.glsl"
+#include "Basic.glsl"
 
 layout (location = 0) in VS_OUT {
 	vec3 FragPos;

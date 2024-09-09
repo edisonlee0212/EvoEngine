@@ -1,6 +1,10 @@
 #extension GL_EXT_mesh_shader : enable
 #extension GL_ARB_shader_draw_parameters : enable
 #extension GL_EXT_control_flow_attributes : require
+#extension GL_ARB_shading_language_include : enable
+
+#include "BasicConstants.glsl"
+#include "Basic.glsl"
 
 const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * EXT_MESH_SUBGROUP_SIZE;
 

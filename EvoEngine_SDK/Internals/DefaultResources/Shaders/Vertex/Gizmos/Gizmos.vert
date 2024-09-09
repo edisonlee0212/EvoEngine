@@ -1,3 +1,7 @@
+#extension GL_ARB_shading_language_include : enable
+
+#include "GizmosConstants.glsl"
+#include "Basic.glsl"
 #define EE_PER_FRAME_SET 0
 #define EE_PER_PASS_SET 1
 #define EE_PER_GROUP_SET 2

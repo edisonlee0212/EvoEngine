@@ -1,3 +1,7 @@
+#extension GL_ARB_shading_language_include : enable
+
+#include "BasicConstants.glsl"
+#include "Basic.glsl"
 
 layout (location = 0) in VS_OUT {
 	vec2 TexCoord;

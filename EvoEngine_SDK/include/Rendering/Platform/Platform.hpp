@@ -81,11 +81,6 @@ class Platform final {
 
 #pragma endregion
 #pragma region Shader related
-  std::string shader_basic_;
-  std::string shader_ssr_constants_;
-  std::string shader_basic_constants_;
-  std::string shader_gizmos_constants_;
-  std::string shader_lighting_;
   std::string shader_skybox_;
   size_t max_bone_amount_ = 65536;
   size_t max_shadow_cascade_amount_ = 4;

@@ -1,3 +1,8 @@
+#extension GL_ARB_shading_language_include : enable
+
+#include "GizmosConstants.glsl"
+#include "Basic.glsl"
+
 layout(vertices = 4) out;
 
 layout (location = 0) in VS_OUT {

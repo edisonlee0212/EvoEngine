@@ -1,3 +1,8 @@
+#extension GL_ARB_shading_language_include : enable
+
+#include "BasicConstants.glsl"
+#include "Basic.glsl"
+
 layout (location = 0) in vec3 inPosition;
 layout (location = 1) in vec3 inNormal;
 layout (location = 2) in vec3 inTangent;
