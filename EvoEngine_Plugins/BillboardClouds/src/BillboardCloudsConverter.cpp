@@ -3,7 +3,7 @@
 #include <PointCloud.hpp>
 
 #include "Prefab.hpp"
-using namespace eco_sys_lab;
+using namespace billboard_clouds_plugin;
 
 bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;

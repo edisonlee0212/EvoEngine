@@ -1,6 +1,6 @@
 #pragma once
 
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 typedef int SkeletonNodeHandle;
 typedef int SkeletonFlowHandle;
 
@@ -1082,4 +1082,4 @@ const std::vector<SkeletonNode<NodeData>>& Skeleton<SkeletonData, FlowData, Node
 
 #pragma endregion
 #pragma endregion
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

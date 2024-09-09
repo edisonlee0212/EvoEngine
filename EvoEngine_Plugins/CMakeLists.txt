@@ -13,11 +13,6 @@ set(EVOENGINE_PLUGINS_RESOURCES "")
 #	endif()
 #endif()
 
-option(EVOENGINE_PLUGIN_RAY_TRACER "Build the ray tracer plugin" ON)
-if(EVOENGINE_PLUGIN_RAY_TRACER)
-  add_subdirectory(RayTracer)
-endif()
-
 option(EVOENGINE_PLUGIN_MESH_REPAIR "Build the mesh repair plugin" ON)
 if(EVOENGINE_PLUGIN_RAY_TRACER AND EVOENGINE_PLUGIN_MESH_REPAIR)
   add_subdirectory(MeshRepair)
@@ -66,6 +61,11 @@ endif()
 option(EVOENGINE_PLUGIN_UNIVERSE "Build the universe plugin" ON)
 if(EVOENGINE_PLUGIN_UNIVERSE)
   add_subdirectory(Universe)
+endif()
+
+option(EVOENGINE_PLUGIN_GPR "Build the GPR plugin" ON)
+if(EVOENGINE_PLUGIN_GPR)
+  add_subdirectory(Gpr)
 endif()
 
 set(EvoEngine_Plugins ${EvoEngine_Plugins} PARENT_SCOPE)

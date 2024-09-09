@@ -6,7 +6,7 @@
 #include <fstream>
 #include <glm/gtx/string_cast.hpp>
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 using namespace std;
 using namespace glm;
 
@@ -165,7 +165,7 @@ void VoxelSoilModel::Initialize(const SoilParameters& p, const SoilSurface& soil
   Reset();
 }
 
-void eco_sys_lab::VoxelSoilModel::BuildFromLayers() {
+void eco_sys_lab_plugin::VoxelSoilModel::BuildFromLayers() {
   auto rain_field = Field(m_w.size());
   rain_field = 0.f;
   // Height axis is Y:
@@ -266,7 +266,7 @@ void VoxelSoilModel::Convolution3(const Field& input, Field& output, const vecto
   }
 }
 
-void eco_sys_lab::VoxelSoilModel::Boundary_Wrap_Axis(const Field& input, Field& output,
+void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_Axis(const Field& input, Field& output,
                                                      const std::vector<int>& indices_1D,
                                                      const std::vector<float>& weights, int lim_a, int lim_b, int lim_f,
                                                      std::function<int(int, int, int)> WrapIndex) const {
@@ -293,7 +293,7 @@ void eco_sys_lab::VoxelSoilModel::Boundary_Wrap_Axis(const Field& input, Field& 
   }
 }
 
-void eco_sys_lab::VoxelSoilModel::Boundary_Wrap_X(const Field& input, Field& output, const std::vector<int>& indices_1D,
+void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_X(const Field& input, Field& output, const std::vector<int>& indices_1D,
                                                   const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
     return Index(f, a, b);
@@ -302,7 +302,7 @@ void eco_sys_lab::VoxelSoilModel::Boundary_Wrap_X(const Field& input, Field& out
   Boundary_Wrap_Axis(input, output, indices_1D, weights, m_resolution.y, m_resolution.z, m_resolution.x, WrapIndex);
 }
 
-void eco_sys_lab::VoxelSoilModel::Boundary_Wrap_Y(const Field& input, Field& output, const std::vector<int>& indices_1D,
+void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_Y(const Field& input, Field& output, const std::vector<int>& indices_1D,
                                                   const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
     return Index(a, f, b);
@@ -311,7 +311,7 @@ void eco_sys_lab::VoxelSoilModel::Boundary_Wrap_Y(const Field& input, Field& out
   Boundary_Wrap_Axis(input, output, indices_1D, weights, m_resolution.x, m_resolution.z, m_resolution.y, WrapIndex);
 }
 
-void eco_sys_lab::VoxelSoilModel::Boundary_Wrap_Z(const Field& input, Field& output, const std::vector<int>& indices_1D,
+void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_Z(const Field& input, Field& output, const std::vector<int>& indices_1D,
                                                   const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
     return Index(a, b, f);
@@ -320,7 +320,7 @@ void eco_sys_lab::VoxelSoilModel::Boundary_Wrap_Z(const Field& input, Field& out
   Boundary_Wrap_Axis(input, output, indices_1D, weights, m_resolution.x, m_resolution.y, m_resolution.z, WrapIndex);
 }
 
-void eco_sys_lab::VoxelSoilModel::Boundary_Barrier_Axis(const Field& input, Field& output,
+void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Barrier_Axis(const Field& input, Field& output,
                                                         const std::vector<int>& indices_1D,
                                                         const std::vector<float>& weights, int lim_a, int lim_b,
                                                         int lim_f, std::function<int(int, int, int)> WrapIndex) const {
@@ -358,7 +358,7 @@ void eco_sys_lab::VoxelSoilModel::Boundary_Barrier_Axis(const Field& input, Fiel
   }
 }
 
-void eco_sys_lab::VoxelSoilModel::Boundary_Barrier_X(const Field& input, Field& output,
+void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Barrier_X(const Field& input, Field& output,
                                                      const std::vector<int>& indices_1D,
                                                      const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
@@ -368,7 +368,7 @@ void eco_sys_lab::VoxelSoilModel::Boundary_Barrier_X(const Field& input, Field& 
   Boundary_Barrier_Axis(input, output, indices_1D, weights, m_resolution.y, m_resolution.z, m_resolution.x, WrapIndex);
 }
 
-void eco_sys_lab::VoxelSoilModel::Boundary_Barrier_Y(const Field& input, Field& output,
+void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Barrier_Y(const Field& input, Field& output,
                                                      const std::vector<int>& indices_1D,
                                                      const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
@@ -378,7 +378,7 @@ void eco_sys_lab::VoxelSoilModel::Boundary_Barrier_Y(const Field& input, Field& 
   Boundary_Barrier_Axis(input, output, indices_1D, weights, m_resolution.x, m_resolution.z, m_resolution.y, WrapIndex);
 }
 
-void eco_sys_lab::VoxelSoilModel::Boundary_Barrier_Z(const Field& input, Field& output,
+void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Barrier_Z(const Field& input, Field& output,
                                                      const std::vector<int>& indices_1D,
                                                      const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
@@ -388,11 +388,11 @@ void eco_sys_lab::VoxelSoilModel::Boundary_Barrier_Z(const Field& input, Field& 
   Boundary_Barrier_Axis(input, output, indices_1D, weights, m_resolution.x, m_resolution.y, m_resolution.z, WrapIndex);
 }
 
-void eco_sys_lab::VoxelSoilModel::AddWaterSource(Source&& source) {
+void eco_sys_lab_plugin::VoxelSoilModel::AddWaterSource(Source&& source) {
   m_water_sources.emplace_back(source);
 }
 
-void eco_sys_lab::VoxelSoilModel::AddNutrientSource(Source&& source) {
+void eco_sys_lab_plugin::VoxelSoilModel::AddNutrientSource(Source&& source) {
   m_nutrient_sources.emplace_back(source);
 }
 
@@ -673,7 +673,7 @@ void VoxelSoilModel::Step() {
   m_version++;
 }
 
-void eco_sys_lab::VoxelSoilModel::Irrigation() {
+void eco_sys_lab_plugin::VoxelSoilModel::Irrigation() {
   // ChangeWater(vec3(0, 2, 0), m_irrigationAmount, 0.5);
 
   for (auto& s : m_water_sources)
@@ -728,7 +728,7 @@ float VoxelSoilModel::GetNutrientDensity(const vec3& position) const {
   return GetField(m_n, position, 0.0f);
 }
 
-void eco_sys_lab::VoxelSoilModel::Run(float t_in_hrs) {
+void eco_sys_lab_plugin::VoxelSoilModel::Run(float t_in_hrs) {
   m_time_since_start_requested += t_in_hrs;
   while (m_time_since_start_requested - m_time_since_start_in_hrs >= m_dt) {
     Irrigation();
@@ -740,11 +740,11 @@ float VoxelSoilModel::GetDensity(const vec3& position) const {
   return GetField(m_d, position, 1000.0f);
 }
 
-float eco_sys_lab::VoxelSoilModel::GetCapacity(const glm::vec3& position) const {
+float eco_sys_lab_plugin::VoxelSoilModel::GetCapacity(const glm::vec3& position) const {
   return GetField(m_c, position, 1.0f);
 }
 
-void eco_sys_lab::VoxelSoilModel::SetVoxel(const glm::ivec3& coordinate, const SoilPhysicalMaterial& material) {
+void eco_sys_lab_plugin::VoxelSoilModel::SetVoxel(const glm::ivec3& coordinate, const SoilPhysicalMaterial& material) {
   auto idx = Index(coordinate.x, coordinate.y, coordinate.z);
   auto position = GetPositionFromCoordinate({coordinate.x, coordinate.y, coordinate.z});
   m_material_id[idx] = material.m_id;
@@ -756,7 +756,7 @@ void eco_sys_lab::VoxelSoilModel::SetVoxel(const glm::ivec3& coordinate, const S
   m_w[idx] = material.m_w(position);
 }
 
-float eco_sys_lab::VoxelSoilModel::GetField(const Field& field, const glm::vec3& position, float default_value) const {
+float eco_sys_lab_plugin::VoxelSoilModel::GetField(const Field& field, const glm::vec3& position, float default_value) const {
   if (!PositionInsideVolume(position))
     return default_value;
   return field[Index(GetCoordinateFromPosition(position))];
@@ -831,7 +831,7 @@ float VoxelSoilModel::IntegrateFieldValue(const Field& field, const vec3& center
   return result * m_voxel_volume_in_cm3;
 }
 
-void eco_sys_lab::VoxelSoilModel::SetField(Field& field, const vec3& bb_min, const vec3& bb_max, float value) {
+void eco_sys_lab_plugin::VoxelSoilModel::SetField(Field& field, const vec3& bb_min, const vec3& bb_max, float value) {
   auto idx_min = GetCoordinateFromPosition(bb_min);
   auto idx_max = GetCoordinateFromPosition(bb_max);
   idx_min = glm::clamp(idx_min, ivec3(0, 0, 0), m_resolution);
@@ -846,7 +846,7 @@ void eco_sys_lab::VoxelSoilModel::SetField(Field& field, const vec3& bb_min, con
   }
 }
 
-void eco_sys_lab::VoxelSoilModel::BlurField(Field& field) {
+void eco_sys_lab_plugin::VoxelSoilModel::BlurField(Field& field) {
   // this will ignore corners and introduce artifacts
   /*
   Convolution3(field, tmp, m_blur_3x3_idx, m_blur_3x3_weights);
@@ -906,11 +906,11 @@ void VoxelSoilModel::ChangeNutrient(const vec3& center, float amount_in_AU, floa
   ChangeField(m_n, center, amount_in_cm3, width);
 }
 
-void eco_sys_lab::VoxelSoilModel::ChangeCapacity(const glm::vec3& center, float amount, float width) {
+void eco_sys_lab_plugin::VoxelSoilModel::ChangeCapacity(const glm::vec3& center, float amount, float width) {
   ChangeField(m_c, center, amount, width);
 }
 
-int eco_sys_lab::VoxelSoilModel::Index(const ivec3& resolution, int x, int y, int z) {
+int eco_sys_lab_plugin::VoxelSoilModel::Index(const ivec3& resolution, int x, int y, int z) {
   return x + y * resolution.x + z * resolution.x * resolution.y;
 }
 
@@ -918,7 +918,7 @@ int VoxelSoilModel::Index(const int x, const int y, const int z) const {
   return Index(m_resolution, x, y, z);
 }
 
-int eco_sys_lab::VoxelSoilModel::Index(const ivec3& resolution, const ivec3& c) {
+int eco_sys_lab_plugin::VoxelSoilModel::Index(const ivec3& resolution, const ivec3& c) {
   return Index(resolution, c.x, c.y, c.z);
 }
 
@@ -945,7 +945,7 @@ vec3 VoxelSoilModel::GetPositionFromCoordinate(const ivec3& coordinate) const {
   return GetPositionFromCoordinate(coordinate, m_dx, m_dx, m_dx);
 }
 
-vec3 eco_sys_lab::VoxelSoilModel::GetPositionFromCoordinate(const glm::ivec3& coordinate, float dx, float dy,
+vec3 eco_sys_lab_plugin::VoxelSoilModel::GetPositionFromCoordinate(const glm::ivec3& coordinate, float dx, float dy,
                                                             float dz) const {
   return {m_boundingBoxMin.x + (dx / 2.0) + coordinate.x * dx, m_boundingBoxMin.y + (dy / 2.0) + coordinate.y * dy,
           m_boundingBoxMin.z + (dz / 2.0) + coordinate.z * dz};
@@ -963,14 +963,14 @@ vec3 VoxelSoilModel::GetBoundingBoxMin() const {
   return m_boundingBoxMin;
 }
 
-vec3 eco_sys_lab::VoxelSoilModel::GetBoundingBoxMax() const {
+vec3 eco_sys_lab_plugin::VoxelSoilModel::GetBoundingBoxMax() const {
   return m_boundingBoxMin + vec3(m_resolution) * m_dx;
 }
-vec3 eco_sys_lab::VoxelSoilModel::GetBoundingBoxCenter() const {
+vec3 eco_sys_lab_plugin::VoxelSoilModel::GetBoundingBoxCenter() const {
   return m_boundingBoxMin + vec3(m_resolution) * m_dx * 0.5f;
 }
 
-bool eco_sys_lab::VoxelSoilModel::PositionInsideVolume(const glm::vec3& p) const {
+bool eco_sys_lab_plugin::VoxelSoilModel::PositionInsideVolume(const glm::vec3& p) const {
   auto min = GetBoundingBoxMin();
   auto max = GetBoundingBoxMax();
   if (p.x < min.x || p.y < min.y || p.z < min.z)
@@ -980,7 +980,7 @@ bool eco_sys_lab::VoxelSoilModel::PositionInsideVolume(const glm::vec3& p) const
   return true;
 }
 
-bool eco_sys_lab::VoxelSoilModel::CoordinateInsideVolume(const glm::ivec3& coordinate) const {
+bool eco_sys_lab_plugin::VoxelSoilModel::CoordinateInsideVolume(const glm::ivec3& coordinate) const {
   if (coordinate.x < 0 || coordinate.y < 0 || coordinate.z < 0)
     return false;
   if (coordinate.x >= m_resolution.x || coordinate.y >= m_resolution.y || coordinate.z >= m_resolution.z)
@@ -988,7 +988,7 @@ bool eco_sys_lab::VoxelSoilModel::CoordinateInsideVolume(const glm::ivec3& coord
   return true;
 }
 
-void eco_sys_lab::VoxelSoilModel::Source::Apply(Field& target) {
+void eco_sys_lab_plugin::VoxelSoilModel::Source::Apply(Field& target) {
   for (auto i = 0u; i < idx.size(); ++i)
     target[idx[i]] += amounts[i];
 }
@@ -1090,7 +1090,7 @@ void VoxelSoilModel::GetSoilTextureSlideX(bool backFacing, float x, const glm::v
   }
 }
 
-void eco_sys_lab::VoxelSoilModel::GetSoilTextureColorForPosition(const glm::vec3& position, int texture_idx,
+void eco_sys_lab_plugin::VoxelSoilModel::GetSoilTextureColorForPosition(const glm::vec3& position, int texture_idx,
                                                                  float blur_width, glm::vec4& albedo, glm::vec3& normal,
                                                                  float& roughness, float& metallic, float waterFactor,
                                                                  float nutrientFactor) {
@@ -1183,7 +1183,7 @@ void eco_sys_lab::VoxelSoilModel::GetSoilTextureColorForPosition(const glm::vec3
 
 /////////////////////////////////////////
 
-void eco_sys_lab::VoxelSoilModel::UpdateStats() {
+void eco_sys_lab_plugin::VoxelSoilModel::UpdateStats() {
   // count total water:
   m_w_sum_in_g = 0.f;
   m_n_sum = 0.f;
@@ -1201,7 +1201,7 @@ void eco_sys_lab::VoxelSoilModel::UpdateStats() {
   m_max_speed_grav = max_p * max_l * max_grav;
 }
 
-void eco_sys_lab::VoxelSoilModel::Test_InitializeEmpty(glm::uvec3 resolution) {
+void eco_sys_lab_plugin::VoxelSoilModel::Test_InitializeEmpty(glm::uvec3 resolution) {
   SoilParameters p;
   p.m_boundary_x = Boundary::wrap;
   p.m_boundary_y = Boundary::wrap;
@@ -1240,7 +1240,7 @@ void eco_sys_lab::VoxelSoilModel::Test_InitializeEmpty(glm::uvec3 resolution) {
   m_water_sources.clear();  // clear rain source
 }
 
-void eco_sys_lab::VoxelSoilModel::Test_WaterDensity() {
+void eco_sys_lab_plugin::VoxelSoilModel::Test_WaterDensity() {
   auto water_density_test = [this]() {
     cout << "\nWater Density test:" << endl;
 
@@ -1342,7 +1342,7 @@ void eco_sys_lab::VoxelSoilModel::Test_WaterDensity() {
   nutrient_fetch_test();
 }
 
-void eco_sys_lab::VoxelSoilModel::Test_PermeabilitySpeed() {
+void eco_sys_lab_plugin::VoxelSoilModel::Test_PermeabilitySpeed() {
   auto perm_setup = [this](uvec3 resolution = {50, 100, 50}, float water_width = 0.2f) {
     Test_InitializeEmpty(resolution);
     m_boundary_x = Boundary::absorb;
@@ -1463,7 +1463,7 @@ void eco_sys_lab::VoxelSoilModel::Test_PermeabilitySpeed() {
   perform_measurement("Water_Speed_10_capacity_low_diffusion_low.csv", 600);
 }
 
-void eco_sys_lab::VoxelSoilModel::Test_NutrientTransport(float p, float c,
+void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport(float p, float c,
                                                          const std::shared_ptr<SoilMaterialTexture>& texture) {
   auto setup = [this, texture](float permeability, float capacity) {
     SoilParameters p;  // standard values as defined when this function was first added are fine.
@@ -1543,14 +1543,14 @@ void eco_sys_lab::VoxelSoilModel::Test_NutrientTransport(float p, float c,
   // m_nutrient_sources.push_back(*m_water_sources.begin());
 }
 
-void eco_sys_lab::VoxelSoilModel::Test_NutrientTransport_Sand(const std::shared_ptr<SoilMaterialTexture>& texture) {
+void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport_Sand(const std::shared_ptr<SoilMaterialTexture>& texture) {
   Test_NutrientTransport(0.5, 100, texture);
 }
 
-void eco_sys_lab::VoxelSoilModel::Test_NutrientTransport_Loam(const std::shared_ptr<SoilMaterialTexture>& texture) {
+void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport_Loam(const std::shared_ptr<SoilMaterialTexture>& texture) {
   Test_NutrientTransport(0.1, 75, texture);
 }
 
-void eco_sys_lab::VoxelSoilModel::Test_NutrientTransport_Silt(const std::shared_ptr<SoilMaterialTexture>& texture) {
+void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport_Silt(const std::shared_ptr<SoilMaterialTexture>& texture) {
   Test_NutrientTransport(0.033, 50, texture);
 }

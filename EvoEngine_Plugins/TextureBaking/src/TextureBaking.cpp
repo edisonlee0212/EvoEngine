@@ -2,7 +2,9 @@
 
 #include "TextureBaker.hpp"
 
+
 using namespace evo_engine;
+using namespace texture_baking_plugin;
 
 bool TextureBaking::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;

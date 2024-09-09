@@ -2,7 +2,7 @@
 #include "ProfileConstraints.hpp"
 #include "StrandModelProfile.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct ParticlePhysicsDemoData {
   glm::vec4 m_color = glm::vec4(1.0f);
 };
@@ -19,4 +19,4 @@ class ParticlePhysics2DDemo : public IPrivateComponent {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void FixedUpdate() override;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

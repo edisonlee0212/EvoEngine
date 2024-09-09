@@ -1,6 +1,6 @@
 #include "CubeVolume.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 void CubeVolume::ApplyMeshBounds(const std::shared_ptr<Mesh>& mesh) {
   if (!mesh)

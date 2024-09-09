@@ -1,7 +1,7 @@
 #include "BillboardCloud.hpp"
 #include "Prefab.hpp"
 #include "xatlas.h"
-using namespace evo_engine;
+using namespace billboard_clouds_plugin;
 #pragma region Projection
 
 std::vector<BillboardCloud::ClusterTriangle> BillboardCloud::CollectTriangles() const {

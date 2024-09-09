@@ -1,6 +1,6 @@
 #pragma once
 
-namespace evo_engine {
+namespace dataset_generation_plugin {
 struct PointCloudSample;
 struct HitInfo;
 

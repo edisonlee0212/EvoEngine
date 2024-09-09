@@ -2,7 +2,7 @@
 #include "ClassRegistry.hpp"
 #include "RenderLayer.hpp"
 #include "Scene.hpp"
-using namespace Universe;
+using namespace universe_plugin;
 
 void PlanetTerrainSystem::Update() {
   const auto scene = GetScene();

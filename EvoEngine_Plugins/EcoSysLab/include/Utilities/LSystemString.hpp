@@ -2,7 +2,7 @@
 
 #include "Skeleton.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 enum class LSystemCommandType {
   Unknown,
   /**
@@ -65,4 +65,4 @@ class LSystemString : public IAsset {
 
   std::vector<LSystemCommand> m_commands;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

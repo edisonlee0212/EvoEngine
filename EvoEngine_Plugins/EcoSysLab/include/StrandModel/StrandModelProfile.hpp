@@ -4,7 +4,7 @@
 #include "ParticleGrid2D.hpp"
 #include "Times.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct ParticlePhysicsSettings {
   float particle_softness = 0.1f;
   float damping = 0.02f;
@@ -544,4 +544,4 @@ void StrandModelProfile<T>::OnInspect(const std::function<void(glm::vec2 positio
   draw_func(origin, zoom_factor, draw_list);
   draw_list->PopClipRect();
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

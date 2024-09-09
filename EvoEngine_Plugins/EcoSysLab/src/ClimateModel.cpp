@@ -2,7 +2,7 @@
 
 #include "Tree.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 float ClimateModel::GetTemperature(const glm::vec3& position) const {
   int month = static_cast<int>(time * 365) / 30 % 12;

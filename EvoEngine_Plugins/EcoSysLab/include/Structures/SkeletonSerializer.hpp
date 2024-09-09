@@ -2,7 +2,7 @@
 
 #include "Skeleton.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 template <typename SkeletonData, typename FlowData, typename NodeData>
 class SkeletonSerializer {
  public:
@@ -456,4 +456,4 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Deserialize(
   if (in["data"])
     skeleton_func(in["data"], skeleton.data);
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

@@ -8,7 +8,7 @@
 #include <Vertex.hpp>
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct TestingCell {
   glm::vec3 m_position;
 };
@@ -38,4 +38,4 @@ class MarchingCubes {
                                float cellSize, const std::vector<TestingCell>& testingCells,
                                std::vector<Vertex>& vertices, std::vector<unsigned>& indices, bool removeDuplicate);
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

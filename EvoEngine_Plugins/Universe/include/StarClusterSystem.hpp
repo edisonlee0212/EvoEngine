@@ -2,7 +2,7 @@
 #include <Application.hpp>
 #include "Scene.hpp"
 using namespace evo_engine;
-namespace Universe {
+namespace universe_plugin {
 /// <summary>
 /// The calculated precise position of the star.
 /// </summary>
@@ -272,4 +272,4 @@ class StarClusterSystem : public ISystem {
   void FixedUpdate() override;
   void OnEnable() override;
 };
-}  // namespace Universe
+}  // namespace universe_plugin

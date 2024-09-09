@@ -3,7 +3,7 @@
 
 #include <Jobs.hpp>
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 bool IVolume::InVolume(const GlobalTransform& global_transform, const glm::vec3& position) {
   return false;

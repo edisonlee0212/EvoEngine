@@ -4,7 +4,7 @@
 
 #include "StrandModelProfile.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct StrandModelStrandGroupData {};
 
 struct StrandModelStrandData {};
@@ -22,4 +22,4 @@ typedef StrandGroup<StrandModelStrandGroupData, StrandModelStrandData, StrandMod
     StrandModelStrandGroup;
 
 struct CellParticlePhysicsData {};
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

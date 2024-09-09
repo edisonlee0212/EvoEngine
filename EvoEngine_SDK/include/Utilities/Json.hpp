@@ -11,4 +11,4 @@ class Json : public IAsset {
   nlohmann::json m_json;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

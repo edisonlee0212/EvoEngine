@@ -12,8 +12,8 @@
 #include "SorghumLayer.hpp"
 #include "SorghumStateGenerator.hpp"
 #include "TransformGraph.hpp"
-using namespace digital_agriculture;
-using namespace eco_sys_lab;
+using namespace digital_agriculture_plugin;
+using namespace eco_sys_lab_plugin;
 void SorghumFieldPatch::GenerateField(std::vector<glm::mat4>& matricesList) const {
   std::shared_ptr<Soil> soil;
   const auto soilCandidate = EcoSysLabLayer::FindSoil();

@@ -4,7 +4,7 @@
 
 #include "TreeModel.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 void ReproductiveModule::Reset() {
   maturity = 0.0f;
   health = 1.0f;

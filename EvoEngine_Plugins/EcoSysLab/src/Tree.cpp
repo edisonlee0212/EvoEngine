@@ -26,7 +26,7 @@
 #ifdef PHYSICS_PLUGIN
 #  include "RigidBody.hpp"
 #endif
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 void Tree::SerializeTreeGrowthSettings(const TreeGrowthSettings& tree_growth_settings, YAML::Emitter& out) {
   out << YAML::Key << "node_developmental_vigor_filling_rate" << YAML::Value
       << tree_growth_settings.node_developmental_vigor_filling_rate;

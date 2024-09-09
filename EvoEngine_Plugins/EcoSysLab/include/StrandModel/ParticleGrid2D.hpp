@@ -2,7 +2,7 @@
 #include "CellGrid.hpp"
 #include "ProfileConstraints.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 typedef int ParticleHandle;
 class ParticleCell {
   template <typename PD>
@@ -45,4 +45,4 @@ class ParticleGrid2D {
   void Clear();
 };
 
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

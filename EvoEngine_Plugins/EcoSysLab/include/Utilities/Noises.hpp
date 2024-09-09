@@ -5,7 +5,7 @@
 
 using namespace evo_engine;
 
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 enum class NoiseType {
   Constant,
   Linear,
@@ -50,4 +50,4 @@ class Noise3D {
 
   [[nodiscard]] float GetValue(const glm::vec3& position) const;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

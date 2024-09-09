@@ -1,7 +1,7 @@
 #pragma once
 #include "SorghumSpline.hpp"
 using namespace evo_engine;
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 struct SorghumMeshGeneratorSettings {
   bool m_enablePanicle = true;
   bool m_enableStem = true;
@@ -59,4 +59,4 @@ class SorghumState : public IAsset {
   void Deserialize(const YAML::Node& in) override;
 };
 
-}  // namespace digital_agriculture
+}  // namespace digital_agriculture_plugin

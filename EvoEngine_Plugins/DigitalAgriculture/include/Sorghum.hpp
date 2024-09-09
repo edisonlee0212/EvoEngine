@@ -1,7 +1,7 @@
 #pragma once
 #include "SorghumState.hpp"
 using namespace evo_engine;
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 class Sorghum : public IPrivateComponent {
  public:
   AssetRef m_sorghumDescriptor;
@@ -15,4 +15,4 @@ class Sorghum : public IPrivateComponent {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

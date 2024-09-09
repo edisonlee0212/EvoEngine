@@ -1,7 +1,7 @@
 #include "Physics2DDemo.hpp"
 
 #include <Times.hpp>
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 bool Physics2DDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;

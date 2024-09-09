@@ -2,7 +2,7 @@
 
 #include <any>
 using namespace evo_engine;
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 void StrandModel::ResetAllProfiles(const StrandModelParameters& strand_model_parameters) {
   strand_model_skeleton.data.strand_group = {};

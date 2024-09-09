@@ -1,7 +1,7 @@
 #include "JoeScanScanner.hpp"
 #include "Json.hpp"
 #include "Scene.hpp"
-using namespace eco_sys_lab;
+using namespace log_scanning_plugin;
 
 void JoeScan::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "m_profiles" << YAML::Value << YAML::BeginSeq;

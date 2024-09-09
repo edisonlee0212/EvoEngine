@@ -1,3 +1,3 @@
 #include "SorghumDescriptor.hpp"
 
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;

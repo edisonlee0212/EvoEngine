@@ -1,0 +1,77 @@
+#extension GL_ARB_shading_language_include : enable
+
+#define SCENE_LEVEL_BVH_BLOCK_BINDING 0
+#define NODE_INDICES_BLOCK_BINDING 1
+#define NODE_INFO_LIST_BLOCK_BINDING 2
+#define NODE_LEVEL_BVH_NODES_BLOCK_BINDING 3
+#define MESH_INDICES_BLOCK_BINDING 4
+#define MESH_INFO_LIST_BLOCK_BINDING 5
+#define MESH_LEVEL_BVH_NODES_BLOCK_BINDING 6
+#define TRIANGLE_INDICES_BLOCK_BINDING 7
+#define LOCAL_TRIANGLE_INDICES_BLOCK_BINDING 8
+#define SCENE_TRIANGLES_BLOCK_BINDING 9
+#define SCENE_VERTEX_POSITIONS_BLOCK_BINDING 10
+#define SCENE_INFO_BLOCK_BINDING 11
+#include "Trace.glsl"
+
+#define EE_ENVIRONMENTAL_BLOCK_BINDING 12
+#include "Environment.glsl"
+
+#define EE_MATERIAL_BLOCK_BINDING 13
+#include "Materials.glsl"
+
+#define EE_INSTANCE_BLOCK_BINDING 14
+#include "Instances.glsl"
+
+#define EE_DIRECTIONAL_LIGHT_BLOCK_BINDING 15
+#define EE_POINT_LIGHT_BLOCK_BINDING 16
+#define EE_SPOT_LIGHT_BLOCK_BINDING 17
+#include "Lights.glsl"
+
+#define EE_TEXTURE_2DS_BINDING 18
+#define EE_CUBEMAPS_BINDING 19
+#include "Textures.glsl"
+
+#include "Random.glsl"
+
+layout(push_constant) uniform RAY_CASTING_CONSTANTS{
+	vec4 resolution_xy_sample_bounce;
+	mat4 inverse_projection_view;
+};
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#define FLT_MAX 3.402823466e+38
+
+void main() {
+	uint pixel_index = gl_GlobalInvocationID.x;
+	uint seed = pixel_index;
+	uint resolution_x = floatBitsToUint(resolution_xy_sample_bounce.x);
+	uint resolution_y = floatBitsToUint(resolution_xy_sample_bounce.y);
+	uint sample_count = floatBitsToUint(resolution_xy_sample_bounce.z);
+	uint bounce_count = floatBitsToUint(resolution_xy_sample_bounce.w);
+
+	float x_coordinate = float(pixel_index % resolution_x);
+	float y_coordinate = float(pixel_index % resolution_y);
+
+	float half_x = float(resolution_x) * .5;
+    float half_y = float(resolution_y) * .5;
+
+	for(uint sample_index = 0; sample_index < sample_count; sample_index += 1){
+		vec2 screen = vec2((x_coordinate + EE_RANDOM(seed) - half_x) / half_x,
+			(y_coordinate + EE_RANDOM(seed) - half_y) / half_y);
+		vec4 start = inverse_projection_view * vec4(screen.x, screen.y, 0.0, 1.0);
+		vec4 end = inverse_projection_view * vec4(screen.x, screen.y, 1.0, 1.0);
+		start /= start.w;
+		end /= end.w;
+		RayDescriptor ray_descriptor;
+		ray_descriptor.origin = start.xyz;
+		ray_descriptor.direction = normalize(end.xyz - start.xyz);
+		ray_descriptor.t_min = 0.;
+		ray_Dexcriptor.t_max = FLT_MAX;
+		HitInfo hit_info = Trace(ray_descriptor, true, false, hit);
+		if (hit) {
+			
+		}
+	}
+}

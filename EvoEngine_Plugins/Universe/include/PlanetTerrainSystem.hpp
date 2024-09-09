@@ -5,7 +5,7 @@
 #include "Material.hpp"
 #include "PlanetTerrain.hpp"
 using namespace evo_engine;
-namespace Universe {
+namespace universe_plugin {
 class PlanetTerrainSystem : public ISystem {
   friend class PlanetTerrain;
 
@@ -17,4 +17,4 @@ class PlanetTerrainSystem : public ISystem {
   static void RenderChunk(const std::shared_ptr<TerrainChunk> &chunk, const std::shared_ptr<Material> &material,
                           glm::mat4 &matrix, bool receive_shadow);
 };
-}  // namespace Universe
+}  // namespace universe_plugin

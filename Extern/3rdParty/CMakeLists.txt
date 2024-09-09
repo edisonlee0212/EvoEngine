@@ -53,6 +53,8 @@ add_subdirectory(volk EXCLUDE_FROM_ALL)
 add_subdirectory(VulkanMemoryAllocator EXCLUDE_FROM_ALL)
 add_subdirectory(xatlas EXCLUDE_FROM_ALL)
 add_subdirectory(yaml-cpp EXCLUDE_FROM_ALL)
+add_subdirectory(gpr EXCLUDE_FROM_ALL)
+
 
 unset(3RDPARTY_SURPRESS_ALL_MESSAGES)
 

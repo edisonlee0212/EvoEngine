@@ -2,7 +2,7 @@
 
 #include "IVolume.hpp"
 #include "SorghumLayer.hpp"
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 
 bool SorghumMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Sorghum mesh generator settings")) {
@@ -43,7 +43,7 @@ void SorghumPanicleState::GenerateGeometry(const glm::vec3& stem_tip, std::vecto
   SphereMeshGenerator::Icosahedron(icosahedron_vertices, icosahedron_triangles);
   int offset = 0;
   Vertex archetype = {};
-  eco_sys_lab::SphericalVolume volume;
+  eco_sys_lab_plugin::SphericalVolume volume;
   volume.m_radius = m_panicleSize;
   for (int seed_index = 0; seed_index < m_seedAmount; seed_index++) {
     glm::vec3 position_offset = volume.GetRandomPoint();
@@ -81,7 +81,7 @@ void SorghumPanicleState::GenerateGeometry(const glm::vec3& stem_tip, std::vecto
   }
   std::vector<ParticleInfo> infos;
   infos.resize(m_seedAmount);
-  eco_sys_lab::SphericalVolume volume;
+  eco_sys_lab_plugin::SphericalVolume volume;
   volume.m_radius = m_panicleSize;
 
   for (int seed_index = 0; seed_index < m_seedAmount; seed_index++) {

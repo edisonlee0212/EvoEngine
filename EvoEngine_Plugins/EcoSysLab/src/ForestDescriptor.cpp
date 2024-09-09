@@ -9,7 +9,7 @@
 #include "EditorLayer.hpp"
 #include "Platform.hpp"
 #include "Tree.hpp"
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setSimulationSettings) {
   const auto scene = Application::GetActiveScene();

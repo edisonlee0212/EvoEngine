@@ -3,7 +3,7 @@
 #include "SorghumStateGenerator.hpp"
 #include "TransformGraph.hpp"
 
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 
 void SorghumCoordinates::Apply(const std::shared_ptr<SorghumField>& sorghumField) {
   sorghumField->m_matrices.clear();

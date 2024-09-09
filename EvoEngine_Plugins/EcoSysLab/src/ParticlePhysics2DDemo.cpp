@@ -3,7 +3,7 @@
 #include <Times.hpp>
 
 #include "TreeVisualizer.hpp"
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 bool ParticlePhysics2DDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;

@@ -2,7 +2,7 @@
 #include "Tree.hpp"
 #include "TreeDescriptor.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 void SpatialPlantDistributionSimulator::OnInspectSpatialPlantDistributionFunction(
     const SpatialPlantDistribution& spatialPlantDistribution, const std::function<void(glm::vec2 position)>& func,

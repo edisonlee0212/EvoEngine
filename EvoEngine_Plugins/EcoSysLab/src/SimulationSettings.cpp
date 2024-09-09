@@ -1,6 +1,6 @@
 #include "SimulationSettings.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 void SimulationSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;

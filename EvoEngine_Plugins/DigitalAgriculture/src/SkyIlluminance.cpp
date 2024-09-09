@@ -7,7 +7,7 @@
 #  include "RayTracerLayer.hpp"
 #endif
 
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 SkyIlluminanceSnapshot SkyIlluminanceSnapshotLerp(const SkyIlluminanceSnapshot& l, const SkyIlluminanceSnapshot& r,
                                                   float a) {
   if (a < 0.0f)

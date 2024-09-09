@@ -3,8 +3,8 @@
 #include "Tree.hpp"
 
 using namespace evo_engine;
-using namespace eco_sys_lab;
-namespace dataset_generation {
+using namespace eco_sys_lab_plugin;
+namespace dataset_generation_plugin {
 struct TreePointCloudPointSettings {
   float m_variance = 0.015f;
   float m_ballRandRadius = 0.005f;
@@ -78,4 +78,4 @@ class TreePointCloudScanner : public IPrivateComponent {
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

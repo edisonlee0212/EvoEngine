@@ -8,7 +8,7 @@
 #include "Jobs.hpp"
 #include "Particles.hpp"
 #include "Times.hpp"
-using namespace Universe;
+using namespace universe_plugin;
 
 void StarClusterPattern::OnInspect() {
   static bool auto_apply = true;

@@ -10,7 +10,7 @@
 #include "Times.hpp"
 #include "Utilities.hpp"
 #include "rapidcsv.h"
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 
 void SorghumGrowthStages::Apply(const std::shared_ptr<SorghumState>& targetState, float time) const {
   if (m_sorghumGrowthStages.empty())

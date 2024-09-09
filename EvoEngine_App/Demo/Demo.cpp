@@ -16,6 +16,7 @@
 #  include "PerlinNoiseStage.hpp"
 #  include "PlanetTerrainSystem.hpp"
 #  include "StarClusterSystem.hpp"
+using namespace universe_plugin;
 #endif
 
 #include "PostProcessingStack.hpp"
@@ -28,12 +29,12 @@
 #  include "PhysicsLayer.hpp"
 #  include "RigidBody.hpp"
 #endif
-#ifdef RAY_TRACER_PLUGIN
-#  include "CpuRayTracerCamera.hpp"
-#  include "GpuRayTracerCamera.hpp"
+#ifdef TEXTURE_BAKING_PLUGIN
+#  include "TextureBaking.hpp"
+using namespace texture_baking_plugin;
 #endif
 using namespace evo_engine;
-using namespace Universe;
+
 #pragma region Helpers
 #ifdef PHYSICS_PLUGIN
 Entity CreateDynamicCube(const float& mass, const glm::vec3& color, const glm::vec3& position,
@@ -70,7 +71,9 @@ int main() {
   SystemRegistration<StarClusterSystem>("StarClusterSystem");
   SystemRegistration<PlanetTerrainSystem>("PlanetTerrainSystem");
   PrivateComponentRegistration<PlanetTerrain>("PlanetTerrain");
-
+#  ifdef TEXTURE_BAKING_PLUGIN
+  PrivateComponentRegistration<TextureBaking>("TextureBaking");
+#  endif
 #endif
 #ifdef OPTIX_RAY_TRACER_PLUGIN
   Application::PushLayer<RayTracerLayer>();
@@ -79,10 +82,6 @@ int main() {
   Application::PushLayer<PhysicsLayer>();
 #endif
 
-#ifdef RAY_TRACER_PLUGIN
-  PrivateComponentRegistration<CpuRayTracerCamera>("CpuRayTracerCamera");
-  PrivateComponentRegistration<GpuRayTracerCamera>("GpuRayTracerCamera");
-#endif
   ApplicationInfo application_info;
   SetupDemoScene(demo_setup, application_info);
 
@@ -367,7 +366,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
             std::dynamic_pointer_cast<Texture2D>(ProjectManager::GetOrCreateAsset("Textures/border.png"));
         surface_material->SetAlbedoTexture(border_texture);
 
-        auto pts = scene->GetOrCreateSystem<Universe::PlanetTerrainSystem>(SystemGroup::SimulationSystemGroup);
+        auto pts = scene->GetOrCreateSystem<universe_plugin::PlanetTerrainSystem>(SystemGroup::SimulationSystemGroup);
 
         pts->Enable();
 

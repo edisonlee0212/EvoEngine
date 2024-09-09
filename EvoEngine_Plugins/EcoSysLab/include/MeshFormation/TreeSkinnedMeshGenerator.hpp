@@ -4,7 +4,7 @@
 #include "Vertex.hpp"
 using namespace evo_engine;
 
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 
 template <typename SkeletonData, typename FlowData, typename NodeData>
 class CylindricalSkinnedMeshGenerator {
@@ -583,4 +583,4 @@ void CylindricalSkinnedMeshGenerator<SkeletonData, FlowData, NodeData>::Generate
     vertex_last_ring_start_vertex_index[internode_handle] = skinned_vertices.size() - step;
   }
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

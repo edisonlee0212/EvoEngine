@@ -7,7 +7,7 @@
 #include "EcoSysLabLayer.hpp"
 #include "ProfileConstraints.hpp"
 #include "Utilities.hpp"
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 bool TreeVisualizer::ScreenCurveSelection(const std::function<void(SkeletonNodeHandle)>& handler,
                                           std::vector<glm::vec2>& mousePositions, ShootSkeleton& skeleton,

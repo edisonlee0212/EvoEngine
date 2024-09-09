@@ -6,7 +6,7 @@
 #include "Vertex.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 enum class StrandModelMeshGeneratorType { RecursiveSlicing, MarchingCube };
 
 struct StrandModelMeshGeneratorSettings {
@@ -81,4 +81,4 @@ class StrandModelMeshGenerator {
                        std::vector<std::pair<unsigned int, unsigned int>>& indices,
                        const StrandModelMeshGeneratorSettings& settings);
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

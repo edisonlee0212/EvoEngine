@@ -5,7 +5,7 @@
 #include "TreeModel.hpp"
 #include "Vertex.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct RingSegment {
   float start_a, end_a;
   glm::vec3 start_position, end_position;
@@ -1025,4 +1025,4 @@ void VoxelMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
   }
   octree.TriangulateField(vertices, indices, settings.remove_duplicate);
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

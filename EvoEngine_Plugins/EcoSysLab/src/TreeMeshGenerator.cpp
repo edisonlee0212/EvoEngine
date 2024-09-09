@@ -6,7 +6,7 @@
 #include "EditorLayer.hpp"
 #include "Tree.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 RingSegment::RingSegment(const float start_a, const float end_a, glm::vec3 start_position, glm::vec3 end_position,
                          glm::vec3 start_axis, glm::vec3 end_axis, float start_radius, float end_radius,

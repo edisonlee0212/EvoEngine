@@ -3,7 +3,7 @@
 #include "Json.hpp"
 #include "jsSetupConfigParser.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace log_scanning_plugin {
 
 struct JoeScanProfile {
   float m_encoderValue = 0.f;
@@ -53,4 +53,4 @@ class JoeScanScanner : public IPrivateComponent {
   void OnDestroy() override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

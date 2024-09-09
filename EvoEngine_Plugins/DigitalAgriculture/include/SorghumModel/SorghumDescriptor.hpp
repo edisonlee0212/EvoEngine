@@ -2,7 +2,7 @@
 
 using namespace evo_engine;
 
-namespace digital_agriculture
+namespace digital_agriculture_plugin
 {
 	class SorghumDescriptor : public IAsset
 	{

@@ -3,7 +3,7 @@
 #include "SorghumLayer.hpp"
 #include "SorghumStateGenerator.hpp"
 
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 
 void Sorghum::ClearGeometryEntities() {
   const auto scene = GetScene();

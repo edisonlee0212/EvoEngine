@@ -6,7 +6,7 @@
 #include "Strands.hpp"
 #include "Tree.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct Fruit {
   GlobalTransform m_globalTransform;
   float m_maturity = 0.0f;
@@ -173,4 +173,4 @@ class EcoSysLabLayer : public ILayer {
   const std::vector<glm::vec3>& RandomColors();
 };
 
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

@@ -6,7 +6,7 @@
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include "CompressedBTF.hpp"
 #endif
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 bool DoubleCBTF::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 #ifdef OPTIX_RAY_TRACER_PLUGIN

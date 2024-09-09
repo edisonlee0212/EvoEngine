@@ -2,7 +2,7 @@
 
 #include "SkeletonSerializer.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 bool ValueTypeSelection(ProceduralNoiseValueType& target, const std::string& tag) {
   if (unsigned value_type = static_cast<unsigned>(target);
       ImGui::Combo("Value Type" + tag, {"Constant", "Linear", "Sine", "Tangent", "Simplex", "Perlin"}, value_type)) {

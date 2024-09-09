@@ -4,7 +4,7 @@
 #include "FoliageDescriptor.hpp"
 #include "Platform.hpp"
 #include "rapidcsv.h"
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 void TreeStructor::ApplyCurve(const OperatorBranch& branch) {
   auto& skeleton = skeletons[branch.skeleton_index];

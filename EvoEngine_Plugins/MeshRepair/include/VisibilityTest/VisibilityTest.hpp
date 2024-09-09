@@ -1,6 +1,6 @@
 #pragma once
-
-namespace evo_engine {
+using namespace evo_engine;
+namespace mesh_repair_plugin {
 class VisibilityTest {
  public:
   struct VisibilityTestParams {

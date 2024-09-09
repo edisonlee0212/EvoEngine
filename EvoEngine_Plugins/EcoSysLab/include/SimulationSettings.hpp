@@ -6,7 +6,7 @@
 #include "Tree.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class SimulationSettings {
  public:
   float delta_time = 0.0822f;
@@ -30,4 +30,4 @@ class SimulationSettings {
   void Deserialize(const YAML::Node& in);
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

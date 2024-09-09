@@ -7,7 +7,7 @@
 #include "TreeModel.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct RadialBoundingVolumeSlice {
   float m_maxDistance;
 };
@@ -57,4 +57,4 @@ class RadialBoundingVolume : public IVolume {
 
   void Augmentation(float value);
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

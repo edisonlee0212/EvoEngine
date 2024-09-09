@@ -8,7 +8,7 @@
 #include "Sorghum.hpp"
 #include "SorghumSpline.hpp"
 
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 
 void TipMenu(const std::string& content) {
   if (ImGui::IsItemHovered()) {

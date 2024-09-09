@@ -12,7 +12,7 @@
 
 #define DEBUG_OUTPUT false
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 typedef std::vector<std::pair<StrandHandle, glm::vec3>> Slice;
 typedef std::vector<StrandHandle> PipeCluster;

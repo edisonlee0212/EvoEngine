@@ -3,7 +3,7 @@
 #include "Plot2D.hpp"
 #include "SorghumGrowthStage.hpp"
 using namespace evo_engine;
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 class SorghumState;
 
 class SorghumGrowthStagePair {
@@ -42,4 +42,4 @@ class SorghumGrowthStages : public IAsset {
 
   [[nodiscard]] Entity CreateEntity(float time = 0.0f) const;
 };
-}  // namespace digital_agriculture
+}  // namespace digital_agriculture_plugin

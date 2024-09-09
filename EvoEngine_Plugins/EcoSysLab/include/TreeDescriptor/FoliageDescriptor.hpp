@@ -3,7 +3,7 @@
 
 using namespace evo_engine;
 
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 
 
 class FoliageDescriptor : public IAsset {
@@ -30,4 +30,4 @@ class FoliageDescriptor : public IAsset {
                                const float treeSize) const;
 };
 
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

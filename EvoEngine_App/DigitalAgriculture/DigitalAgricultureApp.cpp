@@ -13,7 +13,7 @@
 #include "ProjectManager.hpp"
 #include "SorghumLayer.hpp"
 #include "WindowLayer.hpp"
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 
 void EngineSetup();
 
@@ -66,7 +66,7 @@ int main() {
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
   Application::PushLayer<SorghumLayer>();
 #endif
-  PrivateComponentRegistration<eco_sys_lab::ObjectRotator>("ObjectRotator");
+  PrivateComponentRegistration<eco_sys_lab_plugin::ObjectRotator>("ObjectRotator");
   ApplicationInfo applicationConfigs;
   applicationConfigs.application_name = "DigitalAgriculture";
   applicationConfigs.project_path = std::filesystem::absolute(resourceFolderPath / "DigitalAgricultureProject" / "test.eveproj");

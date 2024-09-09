@@ -1,6 +1,6 @@
 #include "ShootDescriptor.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_controller) const {
   shoot_growth_controller.m_baseInternodeCount = base_internode_count;

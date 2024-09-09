@@ -2,7 +2,7 @@
 
 #include "StrandModelProfile.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 template <typename ParticleData>
 class StrandModelProfileSerializer {
  public:
@@ -263,4 +263,4 @@ void StrandModelProfileSerializer<ParticleData>::Deserialize(
     }
   }
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

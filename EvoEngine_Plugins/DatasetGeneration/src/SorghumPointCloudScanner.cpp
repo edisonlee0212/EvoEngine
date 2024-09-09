@@ -9,8 +9,8 @@
 #include "Tinyply.hpp"
 #include "TreePointCloudScanner.hpp"
 using namespace tinyply;
-using namespace digital_agriculture;
-using namespace dataset_generation;
+using namespace digital_agriculture_plugin;
+using namespace dataset_generation_plugin;
 bool SorghumPointCloudPointSettings::OnInspect() {
   return false;
 }

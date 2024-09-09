@@ -1,6 +1,6 @@
 #include "SpatialPlantDistribution.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 float SpatialPlant::Overlap(const SpatialPlant& other_plant) const {
   const auto& r0 = m_radius;

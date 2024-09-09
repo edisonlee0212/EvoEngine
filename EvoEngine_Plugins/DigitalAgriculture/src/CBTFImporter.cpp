@@ -7,7 +7,7 @@
 #  include "CompressedBTF.hpp"
 #endif
 
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 
 bool CBTFImporter::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Text("Current output folder: %s", m_currentExportFolder.string().c_str());
@@ -56,7 +56,7 @@ bool CBTFImporter::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
   return false;
 }
-void digital_agriculture::CBTFImporter::Update() {
+void digital_agriculture_plugin::CBTFImporter::Update() {
   if (!m_processing)
     return;
   if (m_importFolders.empty()) {

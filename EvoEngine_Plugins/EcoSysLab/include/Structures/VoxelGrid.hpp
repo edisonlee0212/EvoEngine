@@ -1,7 +1,7 @@
 #pragma once
 #include "Jobs.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 /* Coordinate system
 
 The voxel position is its center.
@@ -264,4 +264,4 @@ template <typename VoxelData>
 glm::vec3 VoxelGrid<VoxelData>::GetPosition(const int index) const {
   return GetPosition(GetCoordinate(index));
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

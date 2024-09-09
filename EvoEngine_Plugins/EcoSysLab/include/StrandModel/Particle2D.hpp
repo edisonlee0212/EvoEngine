@@ -3,7 +3,7 @@
 #include "Skeleton.hpp"
 #include "StrandGroup.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 
 struct UpdateSettings {
   float dt;
@@ -182,4 +182,4 @@ template <typename T>
 void Particle2D<T>::SetPolarPosition(const glm::vec2& position) {
   SetPosition(glm::vec2(glm::cos(position.y) * position.x, glm::sin(position.y) * position.x));
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

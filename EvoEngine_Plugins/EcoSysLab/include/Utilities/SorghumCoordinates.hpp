@@ -1,7 +1,7 @@
 #pragma once
 #include "SorghumField.hpp"
 using namespace evo_engine;
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 class SorghumCoordinates : public IAsset {
   friend class SorghumLayer;
 

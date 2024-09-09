@@ -4,7 +4,8 @@
 #include "BarkDescriptor.hpp"
 #include "LogWood.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+using namespace eco_sys_lab_plugin;
+namespace log_grading_plugin {
 struct LogWoodMeshGenerationSettings {
   float m_ySubdivision = 0.02f;
 };
@@ -60,4 +61,4 @@ class LogGrader : public IPrivateComponent {
   void InitializeMeshRenderer(const LogWoodMeshGenerationSettings& meshGeneratorSettings) const;
   void ClearMeshRenderer() const;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

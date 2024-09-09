@@ -9,7 +9,7 @@
 
 using namespace evo_engine;
 
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 
 using Field = std::valarray<float>;
 
@@ -260,4 +260,4 @@ class SoilParameters {
   glm::vec3 m_gravityForce = glm::vec3(0, -1.0, 0);
   float m_nutrientForce = 0.5;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

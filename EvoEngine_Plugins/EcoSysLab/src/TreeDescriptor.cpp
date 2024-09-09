@@ -22,7 +22,7 @@
 #include "FoliageDescriptor.hpp"
 #include "FruitDescriptor.hpp"
 #include "ShootDescriptor.hpp"
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 void TreeDescriptor::OnCreate() {
 }

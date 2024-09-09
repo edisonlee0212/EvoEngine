@@ -2,7 +2,7 @@
 #include "TreeGrowthData.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct ShootGrowthController {
   bool m_branchPush = false;
   bool m_useLevelForApicalControl = false;
@@ -142,4 +142,4 @@ struct ShootGrowthController {
   std::function<float(const SkeletonNode<InternodeGrowthData>& internode)> m_fruitFallProbability;
 #pragma endregion
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

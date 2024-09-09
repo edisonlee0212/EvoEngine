@@ -1,7 +1,7 @@
 #pragma once
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class ObjectRotator : public IPrivateComponent {
  public:
   float rotate_speed;
@@ -15,4 +15,4 @@ class ObjectRotator : public IPrivateComponent {
 
   void Deserialize(const YAML::Node& in) override;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

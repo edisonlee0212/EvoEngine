@@ -20,9 +20,9 @@
 #include "DatasetGenerator.hpp"
 #include "ParticlePhysics2DDemo.hpp"
 #include "Physics2DDemo.hpp"
-using namespace eco_sys_lab;
-using namespace digital_agriculture;
-using namespace dataset_generation;
+using namespace eco_sys_lab_plugin;
+using namespace digital_agriculture_plugin;
+using namespace dataset_generation_plugin;
 void register_classes() {
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
   PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");

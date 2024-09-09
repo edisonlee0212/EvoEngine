@@ -5,7 +5,7 @@
 #include "Prefab.hpp"
 #include "Times.hpp"
 #include "VisibilityTest.hpp"
-using namespace evo_engine;
+using namespace mesh_repair_plugin;
 
 
 bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {

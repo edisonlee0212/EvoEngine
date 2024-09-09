@@ -2,7 +2,7 @@
 
 #include "TreeVisualizer.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 void ParticleCell::RegisterParticle(ParticleHandle handle) {
   atom_handles_[atom_count_] = handle;

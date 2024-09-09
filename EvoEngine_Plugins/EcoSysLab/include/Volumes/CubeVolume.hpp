@@ -2,7 +2,7 @@
 #include "IVolume.hpp"
 #include "Mesh.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class CubeVolume : public IVolume {
  public:
   void ApplyMeshBounds(const std::shared_ptr<Mesh>& mesh);
@@ -14,4 +14,4 @@ class CubeVolume : public IVolume {
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

@@ -1,6 +1,6 @@
 #include "BillboardCloud.hpp"
 #include "Dense"
-using namespace evo_engine;
+using namespace billboard_clouds_plugin;
 
 class Discretization {
  public:

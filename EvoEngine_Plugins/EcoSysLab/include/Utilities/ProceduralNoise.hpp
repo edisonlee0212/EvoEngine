@@ -6,7 +6,7 @@
 #include "Skeleton.hpp"
 using namespace evo_engine;
 
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 enum class ProceduralNoiseOperatorType {
   None,
   Reset,
@@ -164,4 +164,4 @@ void ProceduralNoiseStage<T>::Calculate(const T& samplePoint, float& value) cons
   }
 }
 
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

@@ -1,7 +1,7 @@
 #pragma once
 
 using namespace evo_engine;
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 
 class CBTFGroup : public IAsset {
  public:
@@ -12,4 +12,4 @@ class CBTFGroup : public IAsset {
   void Deserialize(const YAML::Node &in) override;
   AssetRef GetRandom() const;
 };
-}  // namespace digital_agriculture
+}  // namespace digital_agriculture_plugin

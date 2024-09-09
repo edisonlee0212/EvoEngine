@@ -1,6 +1,6 @@
 #include "FoliageDescriptor.hpp"
 #include "TreeModel.hpp"
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 void FoliageDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "leaf_size" << YAML::Value << leaf_size;

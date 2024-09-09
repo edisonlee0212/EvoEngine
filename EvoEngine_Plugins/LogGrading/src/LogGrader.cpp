@@ -1,6 +1,6 @@
 #include "LogGrader.hpp"
 
-using namespace eco_sys_lab;
+using namespace log_grading_plugin;
 
 bool ProceduralLogParameters::OnInspect() {
   bool changed = false;

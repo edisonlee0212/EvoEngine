@@ -2,7 +2,7 @@
 #include "Physics2D.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct Physics2DDemoData {
   glm::vec4 color = glm::vec4(1.0f);
 };
@@ -18,4 +18,4 @@ class Physics2DDemo : public IPrivateComponent {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void FixedUpdate() override;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

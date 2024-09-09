@@ -19,7 +19,7 @@
 #  include "DoubleCBTF.hpp"
 #  include "PARSensorGroup.hpp"
 #endif
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 using namespace evo_engine;
 
 AssetRegistration<SorghumState> sorghum_state_registry("SorghumState", {".ss"});

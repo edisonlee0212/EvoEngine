@@ -172,12 +172,7 @@ class RenderLayer final : public ILayer {
   void ClearAllCameras();
   void RenderAllCameras();
 
-  
-
  public:
-
-  
-
   bool wire_frame = false;
 
   bool count_shadow_rendering_draw_calls = false;

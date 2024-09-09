@@ -1,6 +1,6 @@
 #pragma once
 using namespace evo_engine;
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 class SorghumFieldPatch {
  public:
   glm::vec2 m_gridDistance = glm::vec2(1.0f);
@@ -24,4 +24,4 @@ class SorghumField : public IAsset {
   void Deserialize(const YAML::Node& in) override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
-}  // namespace digital_agriculture
+}  // namespace digital_agriculture_plugin

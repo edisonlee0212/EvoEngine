@@ -1,6 +1,6 @@
 #pragma once
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class TreeDescriptor : public IAsset {
  public:
   AssetRef shoot_descriptor;
@@ -21,4 +21,4 @@ class TreeDescriptor : public IAsset {
   void Deserialize(const YAML::Node& in) override;
 };
 
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

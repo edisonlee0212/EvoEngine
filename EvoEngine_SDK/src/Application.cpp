@@ -2,9 +2,11 @@
 
 #include "AnimationPlayer.hpp"
 #include "ClassRegistry.hpp"
+#include "CpuRayTracerCamera.hpp"
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
+#include "GpuRayTracerCamera.hpp"
 #include "Platform.hpp"
 #include "Input.hpp"
 #include "Jobs.hpp"
@@ -80,6 +82,9 @@ const auto skinned_mesh_registry = AssetRegistration<SkinnedMesh>("SkinnedMesh",
 const auto point_cloud_registry = AssetRegistration<PointCloud>("PointCloud", {".evepointcloud"});
 
 const auto json_registry = AssetRegistration<Json>("Json", {".json"});
+
+const auto cpu_ray_tracer_camera_registry = PrivateComponentRegistration<CpuRayTracerCamera>("CpuRayTracerCamera");
+const auto gpu_ray_tracer_camera_registry = PrivateComponentRegistration<GpuRayTracerCamera>("GpuRayTracerCamera");
 
 void Application::PreUpdateInternal() {
   auto& application = GetInstance();

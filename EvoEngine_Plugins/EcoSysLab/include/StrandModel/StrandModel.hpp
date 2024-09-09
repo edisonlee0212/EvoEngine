@@ -2,7 +2,7 @@
 #include "TreeGrowthData.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class StrandModel {
  public:
   StrandModelSkeleton strand_model_skeleton;
@@ -23,4 +23,4 @@ class StrandModel {
   [[nodiscard]] glm::vec3 InterpolateStrandSegmentAxis(StrandSegmentHandle strand_segment_handle, float a) const;
   [[nodiscard]] float InterpolateStrandSegmentRadius(StrandSegmentHandle strand_segment_handle, float a) const;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

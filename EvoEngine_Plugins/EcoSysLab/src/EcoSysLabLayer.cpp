@@ -23,7 +23,7 @@
 #include "StrandsRenderer.hpp"
 #include "Tree.hpp"
 #include "TreeStructor.hpp"
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 PrivateComponentRegistration<Tree> tree_registry("Tree");
 PrivateComponentRegistration<TreeStructor> tree_structor_registry("TreeStructor");

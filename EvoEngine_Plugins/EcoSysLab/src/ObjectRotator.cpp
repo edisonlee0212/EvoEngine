@@ -6,7 +6,7 @@
 #include "Scene.hpp"
 #include "Times.hpp"
 #include "Transform.hpp"
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 void ObjectRotator::FixedUpdate() {
   auto scene = GetScene();
   auto transform = scene->GetDataComponent<Transform>(GetOwner());

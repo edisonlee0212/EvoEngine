@@ -1,7 +1,7 @@
 #include "TreeOccupancyGrid.hpp"
 
 #include "RadialBoundingVolume.hpp"
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 void TreeOccupancyGrid::ResetMarkers() {
   Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](unsigned i) {

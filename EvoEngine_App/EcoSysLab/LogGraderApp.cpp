@@ -9,14 +9,17 @@
 #include "WindowLayer.hpp"
 #ifdef ECOSYSLAB_PLUGIN
 #  include "BarkDescriptor.hpp"
+using namespace eco_sys_lab_plugin;
 #endif
 #ifdef LOG_SCANNING_PLUGIN
 #  include "JoeScanScanner.hpp"
+using namespace log_scanning_plugin;
 #endif
 #ifdef LOG_GRADING_PLUGIN
 #  include "LogGrader.hpp"
+using namespace log_grading_plugin;
 #endif
-using namespace eco_sys_lab;
+
 
 void EngineSetup();
 

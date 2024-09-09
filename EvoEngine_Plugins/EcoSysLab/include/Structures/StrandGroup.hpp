@@ -3,7 +3,7 @@
 #include "Vertex.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 
 typedef int StrandHandle;
 typedef int StrandSegmentHandle;
@@ -580,4 +580,4 @@ Strand<StrandData>::Strand(const StrandHandle handle) {
   data = {};
   info = {};
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

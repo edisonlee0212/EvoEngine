@@ -1,7 +1,7 @@
 #pragma once
 #include "RigidBody2D.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 typedef int RigidBodyHandle;
 template <typename T>
 class Physics2D {
@@ -167,4 +167,4 @@ void Physics2D<T>::OnInspect(const std::function<void(glm::vec2 position)>& func
   draw_func(origin, zoom_factor, draw_list);
   draw_list->PopClipRect();
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

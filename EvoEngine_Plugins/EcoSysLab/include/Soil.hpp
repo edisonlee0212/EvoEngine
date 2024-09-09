@@ -3,7 +3,7 @@
 #include "HeightField.hpp"
 #include "VoxelSoilModel.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 enum class SoilMaterialType { Clay, SiltyClay, Loam, Sand, LoamySand, Air };
 
 class SoilLayerDescriptor : public IAsset {
@@ -107,4 +107,4 @@ class Soil : public IPrivateComponent {
   float source_amount_ = 50.f;
   float source_width_ = 1.0f;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

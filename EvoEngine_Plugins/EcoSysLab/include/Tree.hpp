@@ -18,8 +18,8 @@
 #  include "RigidBody.hpp"
 #endif
 using namespace evo_engine;
-namespace eco_sys_lab {
-
+using namespace billboard_clouds_plugin;
+namespace eco_sys_lab_plugin {
 struct BranchPhysicsParameters {
 #pragma region Physics
   float density = 1.0f;
@@ -253,4 +253,4 @@ void Tree::FromSkeleton(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData
   tree_model.Initialize(src_skeleton);
   // TODO: Set up buds here.
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

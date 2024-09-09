@@ -3,7 +3,7 @@
 
 using namespace evo_engine;
 
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 class CBTFImporter : public IPrivateComponent {
  public:
   bool m_processing = false;
@@ -12,4 +12,4 @@ class CBTFImporter : public IPrivateComponent {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Update() override;
 };
-}  // namespace digital_agriculture
+}  // namespace digital_agriculture_plugin

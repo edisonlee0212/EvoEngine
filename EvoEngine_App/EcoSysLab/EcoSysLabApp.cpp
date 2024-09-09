@@ -27,7 +27,11 @@
 #include "TreePointCloudScanner.hpp"
 #include "TreeStructor.hpp"
 #include "WindowLayer.hpp"
-using namespace eco_sys_lab;
+#ifdef TEXTURE_BAKING_PLUGIN
+#include "TextureBaking.hpp"
+using namespace texture_baking_plugin;
+#endif
+using namespace eco_sys_lab_plugin;
 
 void EngineSetup();
 
@@ -84,10 +88,13 @@ int main() {
   Application::PushLayer<RayTracerLayer>();
 #endif
 
-#ifdef BUILD_WITH_PHYSICS
+#ifdef PHYSICS_PLUGIN
   Application::PushLayer<PhysicsLayer>();
 #endif
   Application::PushLayer<EcoSysLabLayer>();
+#ifdef TEXTURE_BAKING_PLUGIN
+  PrivateComponentRegistration<TextureBaking>("TextureBaking");
+#endif
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
   PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
   PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");

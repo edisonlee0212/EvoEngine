@@ -1,6 +1,7 @@
 #pragma once
+using namespace evo_engine;
 
-namespace evo_engine {
+namespace texture_baking_plugin {
 class TextureBaker {
  public:
   enum class RayCastingDirectionMode { Default, AggressiveSmoothing };

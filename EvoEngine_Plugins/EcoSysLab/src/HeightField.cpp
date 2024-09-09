@@ -2,7 +2,7 @@
 
 #include "glm/gtc/noise.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 float HeightField::GetValue(const glm::vec2& position) const {
   float retVal = 0.0f;

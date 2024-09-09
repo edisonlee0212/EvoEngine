@@ -21,6 +21,7 @@ set(EVOENGINE_SDK_INCLUDES
 		${EVOENGINE_SDK_DIR}/include/Layers
 		${EVOENGINE_SDK_DIR}/include/Assets
 		${EVOENGINE_SDK_DIR}/include/Physics
+		${EVOENGINE_SDK_DIR}/include/RayTracing
 		${EVOENGINE_SDK_DIR}/include/Rendering
 		${EVOENGINE_SDK_DIR}/include/Rendering/PBR
 		${EVOENGINE_SDK_DIR}/include/Rendering/Animation

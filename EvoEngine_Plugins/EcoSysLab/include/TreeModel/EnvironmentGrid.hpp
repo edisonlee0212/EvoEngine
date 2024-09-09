@@ -3,7 +3,7 @@
 #include "VoxelGrid.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class SimulationSettings;
 struct InternodeVoxelRegistration {
   glm::vec3 position = glm::vec3(0.0f);
@@ -31,4 +31,4 @@ class EnvironmentGrid {
   void AddBiomass(const glm::vec3& position, float value);
   void AddNode(const InternodeVoxelRegistration& registration);
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

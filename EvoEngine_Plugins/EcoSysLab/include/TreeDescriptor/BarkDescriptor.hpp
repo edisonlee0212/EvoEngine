@@ -1,7 +1,7 @@
 #pragma once
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class BarkDescriptor : public IAsset {
  public:
   float bark_x_frequency = 3.0f;
@@ -18,4 +18,4 @@ class BarkDescriptor : public IAsset {
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

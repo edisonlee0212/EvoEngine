@@ -39,4 +39,4 @@ class BezierSpline {
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

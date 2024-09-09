@@ -7,7 +7,7 @@
 #include "SorghumField.hpp"
 #include "SorghumState.hpp"
 using namespace evo_engine;
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 class SorghumLayer : public ILayer {
   static void ObjExportHelper(glm::vec3 position, std::shared_ptr<Mesh> mesh, std::ofstream& of, unsigned& start_index);
 
@@ -58,4 +58,4 @@ class SorghumLayer : public ILayer {
   void ExportAllSorghumsModel(const std::string& filename);
 };
 
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

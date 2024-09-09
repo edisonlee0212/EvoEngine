@@ -1,7 +1,7 @@
 #pragma once
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 template <typename T>
 class RigidBody2D {
   template <typename PD>
@@ -118,4 +118,4 @@ template <typename T>
 void RigidBody2D<T>::SetRadius(const float radius) {
   thickness_ = radius;
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

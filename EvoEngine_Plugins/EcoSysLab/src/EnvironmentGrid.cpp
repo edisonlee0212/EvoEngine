@@ -1,6 +1,6 @@
 #include "EnvironmentGrid.hpp"
 #include "SimulationSettings.hpp"
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 float EnvironmentGrid::Sample(const glm::vec3& position, glm::vec3& light_direction) const {
   const auto coordinate = voxel_grid.GetCoordinate(position);

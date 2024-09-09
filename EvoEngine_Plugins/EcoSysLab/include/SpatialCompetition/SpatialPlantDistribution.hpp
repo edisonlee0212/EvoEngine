@@ -1,7 +1,7 @@
 #pragma once
 #include "CellGrid.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 typedef int SpatialPlantParameterHandle;
 typedef int SpatialPlantHandle;
 struct SpatialPlantParameter {
@@ -103,4 +103,4 @@ class SpatialPlantDistribution {
                               const glm::vec2& position);
   void RecyclePlant(SpatialPlantHandle plantHandle, bool removeFromGrid = true);
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

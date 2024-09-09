@@ -2,7 +2,7 @@
 #include "Application.hpp"
 #include "Mesh.hpp"
 using namespace evo_engine;
-namespace Universe
+namespace universe_plugin
 {
 enum class ChunkDirection
 {

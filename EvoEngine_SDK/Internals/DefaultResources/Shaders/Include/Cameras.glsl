@@ -7,7 +7,7 @@ struct Camera {
   mat4 inverse_view;
   mat4 inverse_projection_view;
   vec4 clear_color;
-  vec4 reserved1;
+  vec4 reserved_1;
   vec4 reserved_2;
   int skybox_tex_index;
   int irradiance_map_index;
@@ -53,19 +53,19 @@ vec3 EE_CAMERA_POSITION(int camera_index) {
 }
 
 float EE_CAMERA_NEAR(int camera_index) {
-  return EE_CAMERAS[camera_index].reserved1.x;
+  return EE_CAMERAS[camera_index].reserved_1.x;
 }
 
 float EE_CAMERA_FAR(int camera_index) {
-  return EE_CAMERAS[camera_index].reserved1.y;
+  return EE_CAMERAS[camera_index].reserved_1.y;
 }
 
 float EE_CAMERA_TAN_FOV(int camera_index) {
-  return EE_CAMERAS[camera_index].reserved1.z;
+  return EE_CAMERAS[camera_index].reserved_1.z;
 }
 
 float EE_CAMERA_TAN_HALF_FOV(int camera_index) {
-  return EE_CAMERAS[camera_index].reserved1.w;
+  return EE_CAMERAS[camera_index].reserved_1.w;
 }
 
 float EE_CAMERA_RESOLUTION_X(int camera_index) {

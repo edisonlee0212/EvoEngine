@@ -1,6 +1,6 @@
 #include "LSystemString.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 bool LSystemString::LoadInternal(const std::filesystem::path& path) {
   if (path.extension().string() == ".lstring") {

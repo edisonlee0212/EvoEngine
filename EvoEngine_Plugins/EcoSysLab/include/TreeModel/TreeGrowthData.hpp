@@ -6,7 +6,7 @@
 #include "StrandModelParameters.hpp"
 #include "TreeOccupancyGrid.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 #pragma region Utilities
 enum class BudType { Apical, Lateral, Leaf, Fruit };
 
@@ -150,4 +150,4 @@ struct StrandModelSkeletonData {
 };
 
 typedef Skeleton<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData> StrandModelSkeleton;
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

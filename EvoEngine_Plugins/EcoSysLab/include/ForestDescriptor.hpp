@@ -2,7 +2,7 @@
 #include "SimulationSettings.hpp"
 #include "Tree.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 
 class ForestPatch : public IAsset {
  public:
@@ -63,4 +63,4 @@ class ForestDescriptor : public IAsset {
 
   void InstantiatePatch(bool setParent);
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

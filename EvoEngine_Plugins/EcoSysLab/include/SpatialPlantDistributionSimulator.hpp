@@ -2,7 +2,7 @@
 #include "SpatialPlantDistribution.hpp"
 #include "TreeModel.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class SpatialPlantDistributionSimulator : public IPrivateComponent {
  public:
   TreeGrowthSettings m_treeGrowthSettings;
@@ -18,4 +18,4 @@ class SpatialPlantDistributionSimulator : public IPrivateComponent {
   void OnCreate() override;
 };
 
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

@@ -3,7 +3,7 @@
 #include "PlanetTerrainSystem.hpp"
 #include "TerrainChunk.hpp"
 
-glm::dvec3 Universe::TerrainChunk::ChunkCenterPosition(const glm::dvec3 &planet_position, const double radius,
+glm::dvec3 universe_plugin::TerrainChunk::ChunkCenterPosition(const glm::dvec3 &planet_position, const double radius,
                                                      const glm::quat rotation) const {
   const int actual_detail_level = (int)glm::pow(2, detail_level);
   glm::dvec2 percent = glm::dvec2(0.5, 0.5) / (double)actual_detail_level;
@@ -32,7 +32,7 @@ glm::dvec3 Universe::TerrainChunk::ChunkCenterPosition(const glm::dvec3 &planet_
   return ret;
 }
 
-Universe::TerrainChunk::TerrainChunk(const std::shared_ptr<PlanetTerrain> &planet_terrain,
+universe_plugin::TerrainChunk::TerrainChunk(const std::shared_ptr<PlanetTerrain> &planet_terrain,
                                    const std::shared_ptr<TerrainChunk> &parent, unsigned detail_level,
                                    glm::ivec2 chunk_coordinate, ChunkDirection direction, glm::dvec3 local_up) {
   this->planet_terrain_ = planet_terrain;
@@ -45,7 +45,7 @@ Universe::TerrainChunk::TerrainChunk(const std::shared_ptr<PlanetTerrain> &plane
   this->local_up = glm::normalize(this->local_up);
 }
 
-void Universe::TerrainChunk::Expand(std::mutex &mutex) {
+void universe_plugin::TerrainChunk::Expand(std::mutex &mutex) {
   if (!active)
     return;
   if (!c0) {
@@ -88,7 +88,7 @@ void Universe::TerrainChunk::Expand(std::mutex &mutex) {
   children_active = true;
 }
 
-void Universe::TerrainChunk::GenerateTerrain(std::mutex &mutex, std::shared_ptr<TerrainChunk> &target_chunk) const {
+void universe_plugin::TerrainChunk::GenerateTerrain(std::mutex &mutex, std::shared_ptr<TerrainChunk> &target_chunk) const {
   if (target_chunk->mesh) {
     Console::Error("Mesh Exist!");
   }
@@ -127,7 +127,7 @@ void Universe::TerrainChunk::GenerateTerrain(std::mutex &mutex, std::shared_ptr<
   target_chunk->mesh = std::move(mesh);
 }
 
-void Universe::TerrainChunk::Collapse() {
+void universe_plugin::TerrainChunk::Collapse() {
   if (!c0 || !c1 || !c2 || !c3)
     return;
   if (!c0->active || !c1->active || !c2->active || !c3->active)

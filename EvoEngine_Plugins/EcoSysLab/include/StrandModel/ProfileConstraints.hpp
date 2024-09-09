@@ -1,7 +1,7 @@
 #pragma once
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class ProfileBoundary {
  public:
   std::vector<glm::vec2> points{};
@@ -27,4 +27,4 @@ class ProfileConstraints {
   [[nodiscard]] bool Valid(size_t boundary_index) const;
   [[nodiscard]] glm::vec2 GetTarget(const glm::vec2& position) const;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

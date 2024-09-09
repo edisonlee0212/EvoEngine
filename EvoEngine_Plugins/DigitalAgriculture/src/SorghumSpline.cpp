@@ -1,7 +1,7 @@
 #include "SorghumSpline.hpp"
 #include "SorghumLayer.hpp"
 
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 
 SorghumSplineSegment::SorghumSplineSegment(const glm::vec3& position, const glm::vec3& up, const glm::vec3& front,
                                            const float radius, const float theta, const float left_height_offset,

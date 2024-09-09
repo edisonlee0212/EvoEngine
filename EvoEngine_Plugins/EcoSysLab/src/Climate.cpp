@@ -4,7 +4,7 @@
 #include "EditorLayer.hpp"
 #include "Tree.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 bool ClimateDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
   bool changed = false;

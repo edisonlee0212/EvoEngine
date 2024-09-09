@@ -2,7 +2,7 @@
 #include "EnvironmentGrid.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct ClimateParameters {};
 class ClimateModel {
  public:
@@ -14,4 +14,4 @@ class ClimateModel {
 
   void Initialize(const ClimateParameters& climate_parameters);
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

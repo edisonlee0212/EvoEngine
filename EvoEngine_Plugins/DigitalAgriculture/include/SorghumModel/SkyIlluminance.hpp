@@ -1,7 +1,7 @@
 #pragma once
 
 using namespace evo_engine;
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 struct SkyIlluminanceSnapshot {
   float m_ghi = 1000;
   float m_azimuth = 0;
@@ -20,4 +20,4 @@ class SkyIlluminance : public IAsset {
   void Serialize(YAML::Emitter &out) const override;
   void Deserialize(const YAML::Node &in) override;
 };
-}  // namespace digital_agriculture
+}  // namespace digital_agriculture_plugin

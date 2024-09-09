@@ -2,7 +2,7 @@
 #include "RayTracer.hpp"
 #include "Times.hpp"
 
-using namespace evo_engine;
+using namespace mesh_repair_plugin;
 
 void VisibilityTest::GenerateSamples(const std::shared_ptr<Mesh>& mesh,
                                         const VisibilityTestParams& visibility_test_params,

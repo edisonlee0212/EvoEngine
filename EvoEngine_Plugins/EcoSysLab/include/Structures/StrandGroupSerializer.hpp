@@ -2,7 +2,7 @@
 
 #include "StrandGroup.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 class StrandGroupSerializer {
  public:
@@ -375,4 +375,4 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Dese
   if (in["data"])
     group_func(in["data"], strand_group.data);
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

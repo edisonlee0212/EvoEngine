@@ -8,8 +8,8 @@
 using namespace tinyply;
 #include "EcoSysLabLayer.hpp"
 #include "Soil.hpp"
-using namespace eco_sys_lab;
-using namespace dataset_generation;
+using namespace eco_sys_lab_plugin;
+using namespace dataset_generation_plugin;
 #pragma region Settings
 void TreePointCloudPointSettings::OnInspect() {
   ImGui::DragFloat("Point variance", &m_variance, 0.01f);

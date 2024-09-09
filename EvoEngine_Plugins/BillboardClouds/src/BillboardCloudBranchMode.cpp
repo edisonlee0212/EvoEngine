@@ -1,5 +1,5 @@
 #include "BillboardCloud.hpp"
-using namespace evo_engine;
+using namespace billboard_clouds_plugin;
 
 typedef int VIndex;
 typedef int TIndex;

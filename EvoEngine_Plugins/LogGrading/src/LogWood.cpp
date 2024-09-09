@@ -1,6 +1,6 @@
 #include "LogWood.hpp"
 
-using namespace eco_sys_lab;
+using namespace log_grading_plugin;
 
 float LogWoodIntersection::GetCenterDistance(const float angle) const {
   assert(m_boundary.size() == 360);

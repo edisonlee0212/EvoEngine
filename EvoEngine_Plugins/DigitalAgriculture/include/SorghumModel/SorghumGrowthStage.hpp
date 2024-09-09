@@ -3,7 +3,7 @@
 
 #include "Curve.hpp"
 using namespace evo_engine;
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 #pragma region States
 enum class StateMode { Default, CubicBezier };
 
@@ -72,4 +72,4 @@ class SorghumGrowthStage {
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
 };
-}  // namespace digital_agriculture
+}  // namespace digital_agriculture_plugin

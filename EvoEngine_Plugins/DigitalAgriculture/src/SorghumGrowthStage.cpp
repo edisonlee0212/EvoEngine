@@ -11,7 +11,7 @@
 #include "Times.hpp"
 #include "Utilities.hpp"
 #include "rapidcsv.h"
-using namespace digital_agriculture;
+using namespace digital_agriculture_plugin;
 static const char* StateModes[]{"Default", "Cubic-Bezier"};
 
 bool SorghumGrowthStages::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {

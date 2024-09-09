@@ -7,7 +7,7 @@
 #include "StrandModel.hpp"
 #include "TreeModel.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 enum class ShootVisualizerMode {
   Default,
   Order,
@@ -92,4 +92,4 @@ class TreeVisualizer {
 
   void Clear();
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

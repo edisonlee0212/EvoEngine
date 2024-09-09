@@ -3,7 +3,7 @@
 #include "Skeleton.hpp"
 #include "VoxelGrid.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class RadialBoundingVolume;
 
 struct OccupancyGridSettings {};
@@ -52,4 +52,4 @@ class TreeOccupancyGrid {
 
   void InsertObstacle(const GlobalTransform& global_transform, const std::shared_ptr<CubeVolume>& cube_volume);
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

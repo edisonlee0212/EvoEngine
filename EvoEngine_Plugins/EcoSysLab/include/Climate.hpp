@@ -2,7 +2,7 @@
 
 #include "ClimateModel.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class ClimateDescriptor : public IAsset {
  public:
   ClimateParameters climate_parameters;
@@ -33,4 +33,4 @@ class Climate : public IPrivateComponent {
 
   void PrepareForGrowth();
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

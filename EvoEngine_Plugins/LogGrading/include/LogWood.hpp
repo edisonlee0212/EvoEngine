@@ -1,6 +1,6 @@
 #pragma once
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace log_grading_plugin {
 struct LogWoodIntersectionBoundaryPoint {
   float m_centerDistance = 0.0f;
   float m_defectStatus = 0.0f;
@@ -86,4 +86,4 @@ class LogWood {
   void CalculateGradingData(std::vector<LogGrading>& logGrading) const;
   void ColorBasedOnGrading(const LogGrading& logGradingData);
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

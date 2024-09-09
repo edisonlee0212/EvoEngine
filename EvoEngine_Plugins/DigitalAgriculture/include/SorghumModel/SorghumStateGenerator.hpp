@@ -4,7 +4,7 @@
 #include "SorghumGrowthStages.hpp"
 #include "SorghumState.hpp"
 using namespace evo_engine;
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 
 class SorghumStateGenerator : public IAsset {
  public:
@@ -50,4 +50,4 @@ class SorghumStateGenerator : public IAsset {
   [[nodiscard]] Entity CreateEntity(unsigned int seed = 0) const;
   void Apply(const std::shared_ptr<SorghumState>& target_state, unsigned int seed = 0) const;
 };
-}  // namespace digital_agriculture
+}  // namespace digital_agriculture_plugin

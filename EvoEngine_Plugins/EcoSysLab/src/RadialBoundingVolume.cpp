@@ -6,7 +6,7 @@
 #include "PointCloud.hpp"
 #include "Tree.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 using namespace evo_engine;
 
 glm::vec3 RadialBoundingVolume::GetRandomPoint() {

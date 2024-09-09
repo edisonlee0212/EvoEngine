@@ -7,7 +7,7 @@
 #include "Noises.hpp"
 using namespace evo_engine;
 
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class HeightField : public IAsset {
  public:
   Noise2D noises_2d;
@@ -20,4 +20,4 @@ class HeightField : public IAsset {
   void GenerateMesh(const glm::vec2& start, const glm::uvec2& resolution, float unitSize, std::vector<Vertex>& vertices,
                     std::vector<glm::uvec3>& triangles, float xDepth = 1.0f, float zDepth = 1.0f) const;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

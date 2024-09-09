@@ -1,7 +1,7 @@
 #pragma once
 #include "Jobs.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 /* Coordinate system
 
 The cell position is its center.
@@ -160,4 +160,4 @@ void CellGrid<CellData>::ForEach(const glm::vec2& position, const float radius,
     }
   }
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

@@ -7,9 +7,9 @@
 #include "TreeMeshGenerator.hpp"
 #include "TreePointCloudScanner.hpp"
 using namespace evo_engine;
-using namespace eco_sys_lab;
-using namespace digital_agriculture;
-namespace dataset_generation {
+using namespace eco_sys_lab_plugin;
+using namespace digital_agriculture_plugin;
+namespace dataset_generation_plugin {
 class DatasetGenerator {
  public:
   static void GenerateTreeTrunkMesh(const std::string& treeParametersPath, float deltaTime, int maxIterations,
@@ -58,4 +58,4 @@ class DatasetGenerator {
                                                 const std::string& pointCloudOutputPath);
 };
 
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

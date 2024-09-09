@@ -3,7 +3,7 @@
 #include <Transform.hpp>
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class IVolume : public IAsset {
  public:
   virtual glm::vec3 GetRandomPoint() {
@@ -25,4 +25,4 @@ class SphericalVolume : public IVolume {
   bool InVolume(const GlobalTransform& global_transform, const glm::vec3& position) override;
   bool InVolume(const glm::vec3& position) override;
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

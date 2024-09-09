@@ -2,7 +2,7 @@
 #include <Curve.hpp>
 #include "SorghumGrowthStages.hpp"
 using namespace evo_engine;
-namespace digital_agriculture {
+namespace digital_agriculture_plugin {
 class SorghumSplineSegment {
  public:
   glm::vec3 m_position;
@@ -28,4 +28,4 @@ class SorghumSpline {
 
   void Subdivide(float subdivisionDistance, std::vector<SorghumSplineSegment>& subdivided_segments) const;
 };
-}  // namespace digital_agriculture
+}  // namespace digital_agriculture_plugin

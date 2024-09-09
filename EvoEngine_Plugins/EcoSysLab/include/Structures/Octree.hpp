@@ -3,7 +3,7 @@
 #include "MarchingCubes.hpp"
 #include "glm/gtx/quaternion.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 typedef int OctreeNodeHandle;
 typedef int OctreeOctreeNodeDataHandle;
 class OctreeNode {
@@ -301,4 +301,4 @@ void Octree<OctreeNodeData>::TriangulateField(std::vector<Vertex>& vertices, std
       0.5f, minimum_node_radius_, testing_cells, vertices, indices, remove_duplicate);
 }
 
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

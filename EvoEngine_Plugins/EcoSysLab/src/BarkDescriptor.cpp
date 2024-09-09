@@ -1,6 +1,6 @@
 #include "BarkDescriptor.hpp"
 
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 bool BarkDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
   bool changed = false;

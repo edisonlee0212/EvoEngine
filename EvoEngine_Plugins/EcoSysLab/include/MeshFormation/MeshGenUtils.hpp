@@ -1,6 +1,6 @@
 #pragma once
 
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 template <typename VertexProperty>
 class AdjacencyList {
  public:
@@ -187,4 +187,4 @@ class Grid2D {
     handleCells(g, maxDistanceSqr, m_gridCells.back().back(), m_gridCells.back().back());
   }
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

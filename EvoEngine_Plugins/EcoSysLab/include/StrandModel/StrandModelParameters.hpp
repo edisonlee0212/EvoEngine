@@ -4,7 +4,7 @@
 #include "StrandModelData.hpp"
 #include "StrandModelProfile.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct StrandModelParameters {
   float center_attraction_strength = 40000;
 
@@ -38,4 +38,4 @@ struct StrandModelParameters {
 
   ParticlePhysicsSettings profile_physics_settings{};
 };
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

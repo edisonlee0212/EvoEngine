@@ -5,9 +5,9 @@
 #include "Soil.hpp"
 #include "Sorghum.hpp"
 #include "SorghumLayer.hpp"
-using namespace eco_sys_lab;
-using namespace dataset_generation;
-using namespace digital_agriculture;
+using namespace eco_sys_lab_plugin;
+using namespace dataset_generation_plugin;
+using namespace digital_agriculture_plugin;
 void DatasetGenerator::GenerateTreeTrunkMesh(const std::string& treeParametersPath, float deltaTime, int maxIterations,
                                              int maxTreeNodeCount,
                                              const TreeMeshGeneratorSettings& meshGeneratorSettings,

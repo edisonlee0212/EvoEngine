@@ -7,7 +7,7 @@
 #include "EditorLayer.hpp"
 #include "Platform.hpp"
 #include "HeightField.hpp"
-using namespace eco_sys_lab;
+using namespace eco_sys_lab_plugin;
 
 bool OnInspectSoilParameters(SoilParameters& soil_parameters) {
   bool changed = false;

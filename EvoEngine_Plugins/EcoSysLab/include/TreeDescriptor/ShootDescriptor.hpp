@@ -3,7 +3,7 @@
 #include "ProceduralNoise.hpp"
 #include "TreeModel.hpp"
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 class ShootDescriptor : public IAsset {
  public:
   /**
@@ -155,4 +155,4 @@ class ShootDescriptor : public IAsset {
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
 
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin

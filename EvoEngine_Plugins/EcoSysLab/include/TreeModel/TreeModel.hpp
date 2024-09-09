@@ -5,7 +5,7 @@
 #include "TreeGrowthController.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab {
+namespace eco_sys_lab_plugin {
 struct TreeGrowthSettings {
   float node_developmental_vigor_filling_rate = 1.0f;
   bool use_space_colonization = false;
@@ -170,4 +170,4 @@ void TreeModel::Initialize(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeD
   current_seed_value_ = m_seed;
   initialized_ = true;
 }
-}  // namespace eco_sys_lab
+}  // namespace eco_sys_lab_plugin
