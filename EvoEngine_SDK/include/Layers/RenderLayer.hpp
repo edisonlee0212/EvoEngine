@@ -241,16 +241,16 @@ class RenderLayer final : public ILayer {
   friend class TextureStorage;
   std::vector<std::shared_ptr<DescriptorSet>> per_frame_descriptor_sets_ = {};
 
-  std::vector<std::unique_ptr<Buffer>> render_info_descriptor_buffers_ = {};
-  std::vector<std::unique_ptr<Buffer>> environment_info_descriptor_buffers_ = {};
-  std::vector<std::unique_ptr<Buffer>> camera_info_descriptor_buffers_ = {};
-  std::vector<std::unique_ptr<Buffer>> material_info_descriptor_buffers_ = {};
-  std::vector<std::unique_ptr<Buffer>> instance_info_descriptor_buffers_ = {};
+  std::vector<std::shared_ptr<Buffer>> render_info_descriptor_buffers_ = {};
+  std::vector<std::shared_ptr<Buffer>> environment_info_descriptor_buffers_ = {};
+  std::vector<std::shared_ptr<Buffer>> camera_info_descriptor_buffers_ = {};
+  std::vector<std::shared_ptr<Buffer>> material_info_descriptor_buffers_ = {};
+  std::vector<std::shared_ptr<Buffer>> instance_info_descriptor_buffers_ = {};
 
-  std::vector<std::unique_ptr<Buffer>> kernel_descriptor_buffers_ = {};
-  std::vector<std::unique_ptr<Buffer>> directional_light_info_descriptor_buffers_ = {};
-  std::vector<std::unique_ptr<Buffer>> point_light_info_descriptor_buffers_ = {};
-  std::vector<std::unique_ptr<Buffer>> spot_light_info_descriptor_buffers_ = {};
+  std::vector<std::shared_ptr<Buffer>> kernel_descriptor_buffers_ = {};
+  std::vector<std::shared_ptr<Buffer>> directional_light_info_descriptor_buffers_ = {};
+  std::vector<std::shared_ptr<Buffer>> point_light_info_descriptor_buffers_ = {};
+  std::vector<std::shared_ptr<Buffer>> spot_light_info_descriptor_buffers_ = {};
 
   void CreateStandardDescriptorBuffers();
   void CreatePerFrameDescriptorSets();
@@ -264,11 +264,11 @@ class RenderLayer final : public ILayer {
   std::vector<MaterialInfoBlock> material_info_blocks_{};
   std::vector<InstanceInfoBlock> instance_info_blocks_{};
 
-  std::vector<std::unique_ptr<Buffer>> mesh_draw_indexed_indirect_commands_buffers_ = {};
+  std::vector<std::shared_ptr<Buffer>> mesh_draw_indexed_indirect_commands_buffers_ = {};
   std::vector<VkDrawIndexedIndirectCommand> mesh_draw_indexed_indirect_commands_{};
   uint32_t total_mesh_triangles_ = 0;
 
-  std::vector<std::unique_ptr<Buffer>> mesh_draw_mesh_tasks_indirect_commands_buffers_ = {};
+  std::vector<std::shared_ptr<Buffer>> mesh_draw_mesh_tasks_indirect_commands_buffers_ = {};
   std::vector<VkDrawMeshTasksIndirectCommandEXT> mesh_draw_mesh_tasks_indirect_commands_{};
 
   std::vector<DirectionalLightInfo> directional_light_info_blocks_;

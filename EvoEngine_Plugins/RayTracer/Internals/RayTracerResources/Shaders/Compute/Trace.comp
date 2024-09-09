@@ -1,4 +1,4 @@
-#extension GL_EXT_gpu_shader4 : enable
+#version 460
 
 layout(std140, binding = 0) readonly buffer SCENE_LEVEL_BVH_BLOCK{
 	vec4 scene_level_bvh_nodes[];
@@ -49,11 +49,9 @@ layout(std140, binding = 12) writeonly buffer RAY_CASTING_RESULTS_BLOCK{
 };
 
 layout(push_constant) uniform RAY_CASTING_CONSTANTS{
-	vec4 ray_casting_sizes;
-	vec4 ray_casting_config;
+	vec4 ray_cast_config;
 };
 
-layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 struct RayDescriptor{
 	vec3 origin;
@@ -67,7 +65,7 @@ struct HitInfo{
 	vec3 barycentric;
 	bool back_face;
 	vec3 normal;
-	float distance;
+	float hit_dist;
 	uint triangle_index;
 	uint mesh_index;
 	uint node_index;
@@ -78,9 +76,14 @@ HitInfo Trace(in RayDescriptor ray_descriptor, in float cull_back_face, in float
 
 void Execute(uint current_ray_index);
 
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
 void main() {
+
 	uint current_ray_index = gl_GlobalInvocationID.x;
 	Execute(current_ray_index);
+	
 }
 
 
@@ -149,13 +152,13 @@ vec3 Barycentric(vec3 p, vec3 a, vec3 b, vec3 c) {
 
 HitInfo Trace(in RayDescriptor ray_descriptor, in float cull_back_face, in float cull_front_face, out bool has_hit) {
 	HitInfo hit_info;
-	hit_info.distance = ray_descriptor.t_max;
+	hit_info.hit_dist = ray_descriptor.t_max;
 	has_hit = false;
 	vec3 scene_space_ray_direction = normalize(ray_descriptor.direction);
 	vec3 scene_space_ray_origin = ray_descriptor.origin;
 	vec3 scene_space_inv_ray_direction = vec3(1.0 / scene_space_ray_direction.x, 1.0 / scene_space_ray_direction.y, 1.0 / scene_space_ray_direction.z);
 	uint node_group_index = 0;
-	while (node_group_index < floatBitsToUint(ray_casting_sizes.x)) {
+	while (node_group_index < floatBitsToUint(ray_cast_config.z)) {
 		BvhNode node_group;
 		GetBvhNode(scene_level_bvh_nodes[node_group_index * 3], scene_level_bvh_nodes[node_group_index * 3 + 1], scene_level_bvh_nodes[node_group_index * 3 + 2], node_group);
 		if (!RayAabb(scene_space_ray_origin, scene_space_inv_ray_direction, node_group.aabb_min, node_group.aabb_max)) {
@@ -248,13 +251,13 @@ HitInfo Trace(in RayDescriptor ray_descriptor, in float cull_back_face, in float
 								vec3 node_space_hit = node_space_ray_origin + node_space_ray_direction * node_space_hit_distance;
 								vec3 scene_space_hit = TransformPosition(node_global_transform, node_space_hit);
 								float scene_hit_distance = distance(scene_space_ray_origin, scene_space_hit);
-								if (scene_hit_distance >= ray_descriptor.t_min && scene_hit_distance <= hit_info.distance) {
+								if (scene_hit_distance >= ray_descriptor.t_min && scene_hit_distance <= hit_info.hit_dist) {
 									vec3 barycentric = Barycentric(node_space_hit, p0, p1, p2);
 									if (barycentric.x >= 0.0 && barycentric.x <= 1.0 && barycentric.y >= 0.0 && barycentric.y <= 1.0 &&
 										barycentric.z >= 0.0 && barycentric.z <= 1.0) {
 										hit_info.hit = scene_space_hit;
 										hit_info.normal = TransformDirection(node_global_transform, node_space_triangle_normal);
-										hit_info.distance = scene_hit_distance;
+										hit_info.hit_dist = scene_hit_distance;
 										hit_info.barycentric = barycentric;
 										hit_info.back_face = normal_test > 0.0 ? true : false;
 										//=============DO NOT TOUCH UNLESS YOU UNDERSTAND WHY==========================
@@ -282,40 +285,22 @@ HitInfo Trace(in RayDescriptor ray_descriptor, in float cull_back_face, in float
 }
 
 void Execute(uint current_ray_index) {
-	float thin_scale = ray_casting_config.y;
-	float max_ray_cast_distance = ray_casting_config.z;
-	uint rays_count = floatBitsToUint(ray_casting_sizes.y);
-	uint texture_width = floatBitsToUint(ray_casting_sizes.z);
+	uint rays_count = floatBitsToUint(ray_cast_config.w);
 	if (current_ray_index < rays_count) {
 		vec3 sample_origin = rays[current_ray_index * 2].xyz;
 		vec3 sample_direction = rays[current_ray_index * 2 + 1].xyz;
 		RayDescriptor ray_descriptor;
-		ray_descriptor.origin = sample_origin + sample_direction * thin_scale;
-		ray_descriptor.direction = -sample_direction;
-		ray_descriptor.t_min = 0.0;
-		ray_descriptor.t_max = thin_scale + max_ray_cast_distance;
+		ray_descriptor.origin = sample_origin;
+		ray_descriptor.direction = sample_direction;
+		ray_descriptor.t_min = rays[current_ray_index * 2].w;
+		ray_descriptor.t_max = rays[current_ray_index * 2 + 1].w;
 		bool hit = false;
-		HitInfo hit_info = Trace(ray_descriptor, ray_casting_config.x, 0.0, hit);
-		if (!hit) {
-			ray_descriptor.direction = sample_direction;
-			ray_descriptor.t_max = max_ray_cast_distance - thin_scale;
-			hit_info = Trace(ray_descriptor, 0.0, ray_casting_config.x, hit);
-		}
-		if (!hit) {
-			ray_descriptor.direction = -sample_direction;
-			ray_descriptor.t_max = thin_scale + max_ray_cast_distance;
-			hit_info = Trace(ray_descriptor, 0.0, 0.0, hit);
-		}
-		if (!hit) {
-			ray_descriptor.direction = sample_direction;
-			ray_descriptor.t_max = max_ray_cast_distance - thin_scale;
-			hit_info = Trace(ray_descriptor, 0.0, 0.0, hit);
-		}
+		HitInfo hit_info = Trace(ray_descriptor, ray_cast_config.x, ray_cast_config.y, hit);
 		if (hit) {
-			imageStore(ray_casting_results, uint2(current_ray_index * 4 % texture_width, current_ray_index * 4 / texture_width), vec4(hit_info.hit, 1));
-			imageStore(ray_casting_results, uint2((current_ray_index * 4 + 1) % texture_width, (current_ray_index * 4 + 1) / texture_width), vec4(hit_info.barycentric, hit_info.back_face ? 1.0 : 0.0));
-			imageStore(ray_casting_results, uint2((current_ray_index * 4 + 2) % texture_width, (current_ray_index * 4 + 2) / texture_width), vec4(hit_info.normal, hit_info.distance));
-			imageStore(ray_casting_results, uint2((current_ray_index * 4 + 3) % texture_width, (current_ray_index * 4 + 3) / texture_width), vec4(uintBitsToFloat(hit_info.node_index), uintBitsToFloat(hit_info.mesh_index), uintBitsToFloat(hit_info.triangle_index), 0.0));
+			ray_casting_results[current_ray_index * 4] = vec4(hit_info.hit, 1);
+			ray_casting_results[current_ray_index * 4 + 1] = vec4(hit_info.barycentric, hit_info.back_face ? 1.0 : 0.0);
+			ray_casting_results[current_ray_index * 4 + 2] = vec4(hit_info.normal, hit_info.hit_dist);
+			ray_casting_results[current_ray_index * 4 + 3] = vec4(uintBitsToFloat(hit_info.node_index), uintBitsToFloat(hit_info.mesh_index), uintBitsToFloat(hit_info.triangle_index), 0.0);
 		}
 	}
 }

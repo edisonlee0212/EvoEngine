@@ -13,7 +13,7 @@
 #include "vk_mem_alloc.h"
 using namespace evo_engine;
 
-//#define GRAPHICS_VALIDATION
+#define GRAPHICS_VALIDATION
 
 VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
                        const VkDebugUtilsMessageTypeFlagsEXT message_type,
@@ -1319,7 +1319,7 @@ void Platform::Initialize() {
 
 void Platform::PostResourceLoadingInitialization() {
   const auto& graphics = GetInstance();
-  graphics.PrepareDescriptorSetLayouts();
+  PrepareDescriptorSetLayouts();
   graphics.CreateGraphicsPipelines();
 }
 

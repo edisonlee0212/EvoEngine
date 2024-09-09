@@ -75,9 +75,9 @@ class GeometryStorage final {
   std::vector<glm::uvec3> triangles_;
   std::vector<std::shared_ptr<RangeDescriptor>> triangle_range_descriptor_;
 
-  std::unique_ptr<Buffer> vertex_buffer_ = {};
-  std::unique_ptr<Buffer> meshlet_buffer_ = {};
-  std::unique_ptr<Buffer> triangle_buffer_ = {};
+  std::shared_ptr<Buffer> vertex_buffer_ = {};
+  std::shared_ptr<Buffer> meshlet_buffer_ = {};
+  std::shared_ptr<Buffer> triangle_buffer_ = {};
   bool require_mesh_data_device_update_ = {};
 
   std::vector<SkinnedVertexDataChunk> skinned_vertex_data_chunks_ = {};
@@ -86,9 +86,9 @@ class GeometryStorage final {
   std::vector<glm::uvec3> skinned_triangles_;
   std::vector<std::shared_ptr<RangeDescriptor>> skinned_triangle_range_descriptor_;
 
-  std::unique_ptr<Buffer> skinned_vertex_buffer_ = {};
-  std::unique_ptr<Buffer> skinned_meshlet_buffer_ = {};
-  std::unique_ptr<Buffer> skinned_triangle_buffer_ = {};
+  std::shared_ptr<Buffer> skinned_vertex_buffer_ = {};
+  std::shared_ptr<Buffer> skinned_meshlet_buffer_ = {};
+  std::shared_ptr<Buffer> skinned_triangle_buffer_ = {};
   bool require_skinned_mesh_data_device_update_ = {};
 
   std::vector<StrandPointDataChunk> strand_point_data_chunks_ = {};
@@ -97,9 +97,9 @@ class GeometryStorage final {
   std::vector<glm::uvec4> segments_;
   std::vector<std::shared_ptr<RangeDescriptor>> segment_range_descriptor_;
 
-  std::unique_ptr<Buffer> strand_point_buffer_ = {};
-  std::unique_ptr<Buffer> strand_meshlet_buffer_ = {};
-  std::unique_ptr<Buffer> segment_buffer_ = {};
+  std::shared_ptr<Buffer> strand_point_buffer_ = {};
+  std::shared_ptr<Buffer> strand_meshlet_buffer_ = {};
+  std::shared_ptr<Buffer> segment_buffer_ = {};
   bool require_strand_mesh_data_device_update_ = {};
 
   void UploadData();
@@ -112,14 +112,14 @@ class GeometryStorage final {
   std::vector<ParticleInfoListData> particle_info_list_data_list_;
 
  public:
-  static const std::unique_ptr<Buffer>& GetVertexBuffer();
-  static const std::unique_ptr<Buffer>& GetMeshletBuffer();
+  static const std::shared_ptr<Buffer>& GetVertexBuffer();
+  static const std::shared_ptr<Buffer>& GetMeshletBuffer();
 
-  static const std::unique_ptr<Buffer>& GetSkinnedVertexBuffer();
-  static const std::unique_ptr<Buffer>& GetSkinnedMeshletBuffer();
+  static const std::shared_ptr<Buffer>& GetSkinnedVertexBuffer();
+  static const std::shared_ptr<Buffer>& GetSkinnedMeshletBuffer();
 
-  static const std::unique_ptr<Buffer>& GetStrandPointBuffer();
-  static const std::unique_ptr<Buffer>& GetStrandMeshletBuffer();
+  static const std::shared_ptr<Buffer>& GetStrandPointBuffer();
+  static const std::shared_ptr<Buffer>& GetStrandMeshletBuffer();
 
   static void BindVertices(VkCommandBuffer vk_command_buffer);
   static void BindSkinnedVertices(VkCommandBuffer vk_command_buffer);

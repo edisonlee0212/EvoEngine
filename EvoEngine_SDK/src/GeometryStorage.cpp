@@ -77,72 +77,72 @@ void GeometryStorage::Initialize() {
 
   storage_buffer_create_info.usage =
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-  storage.vertex_buffer_ = std::make_unique<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
+  storage.vertex_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
   storage_buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-  storage.meshlet_buffer_ = std::make_unique<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
+  storage.meshlet_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage_buffer_create_info.usage =
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-  storage.triangle_buffer_ = std::make_unique<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
+  storage.triangle_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage.require_mesh_data_device_update_ = false;
 
   storage_buffer_create_info.usage =
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
   storage.skinned_vertex_buffer_ =
-      std::make_unique<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
+      std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
   storage_buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   storage.skinned_meshlet_buffer_ =
-      std::make_unique<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
+      std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage_buffer_create_info.usage =
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
   storage.skinned_triangle_buffer_ =
-      std::make_unique<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
+      std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage.require_skinned_mesh_data_device_update_ = false;
 
   storage_buffer_create_info.usage =
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
   storage.strand_point_buffer_ =
-      std::make_unique<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
+      std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
   storage_buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   storage.strand_meshlet_buffer_ =
-      std::make_unique<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
+      std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage_buffer_create_info.usage =
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-  storage.segment_buffer_ = std::make_unique<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
+  storage.segment_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage.require_strand_mesh_data_device_update_ = false;
 }
 
-const std::unique_ptr<Buffer>& GeometryStorage::GetVertexBuffer() {
+const std::shared_ptr<Buffer>& GeometryStorage::GetVertexBuffer() {
   const auto& storage = GetInstance();
   return storage.vertex_buffer_;
 }
 
-const std::unique_ptr<Buffer>& GeometryStorage::GetMeshletBuffer() {
+const std::shared_ptr<Buffer>& GeometryStorage::GetMeshletBuffer() {
   const auto& storage = GetInstance();
   return storage.meshlet_buffer_;
 }
 
-const std::unique_ptr<Buffer>& GeometryStorage::GetSkinnedVertexBuffer() {
+const std::shared_ptr<Buffer>& GeometryStorage::GetSkinnedVertexBuffer() {
   const auto& storage = GetInstance();
   return storage.skinned_vertex_buffer_;
 }
 
-const std::unique_ptr<Buffer>& GeometryStorage::GetSkinnedMeshletBuffer() {
+const std::shared_ptr<Buffer>& GeometryStorage::GetSkinnedMeshletBuffer() {
   const auto& storage = GetInstance();
   return storage.skinned_meshlet_buffer_;
 }
 
-const std::unique_ptr<Buffer>& GeometryStorage::GetStrandPointBuffer() {
+const std::shared_ptr<Buffer>& GeometryStorage::GetStrandPointBuffer() {
   const auto& storage = GetInstance();
   return storage.strand_point_buffer_;
 }
 
-const std::unique_ptr<Buffer>& GeometryStorage::GetStrandMeshletBuffer() {
+const std::shared_ptr<Buffer>& GeometryStorage::GetStrandMeshletBuffer() {
   const auto& storage = GetInstance();
   return storage.strand_meshlet_buffer_;
 }

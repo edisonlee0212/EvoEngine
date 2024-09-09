@@ -27,15 +27,11 @@ void GpuRayTracerCamera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_bloc
       glm::vec4(near_distance, far_distance, glm::tan(glm::radians(fov * 0.5f)), glm::tan(glm::radians(fov * 0.25f)));
 }
 
-std::shared_ptr<Shader> trace_shader;
+
+
 
 void GpuRayTracerCamera::OnCreate() {
-  if (!trace_shader) {
-    trace_shader = ProjectManager::CreateTemporaryAsset<Shader>();
-    const auto shader_code = FileUtils::LoadFileAsString(std::filesystem::path("./RayTracerResources") /
-                                                    "Shaders/Compute/Trace.comp");
-    trace_shader->Set(ShaderType::Compute, shader_code);
-  }
+  
 }
 
 void GpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
@@ -61,7 +57,7 @@ void GpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
   for (auto& color : colors) {
     color = glm::vec4(glm::abs(glm::sphericalRand(1.f)), 1.f);
   }
-
+  std::vector<RayTracer::RayDescriptor> ray_descriptors(resolution.x * resolution.y * capture_parameters.sample);
   Jobs::RunParallelFor(resolution.x * resolution.y, [&](const size_t pixel_index) {
     const float x_coordinate = pixel_index % resolution.y;
     const float y_coordinate = pixel_index / resolution.y;
@@ -69,9 +65,7 @@ void GpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
     const float half_y = resolution.y * .5f;
     RandomSampler random_sampler;
     random_sampler.SetSeed(pixel_index);
-    RayTracer::RayDescriptor current_ray_descriptor{};
-    float hit_count = 0;
-    float temp = 0;
+    
     for (uint32_t sample_index = 0; sample_index < capture_parameters.sample; sample_index++) {
       const auto screen = glm::vec2((x_coordinate + random_sampler.Get1D() - half_x) / half_x,
                                     (y_coordinate + random_sampler.Get1D() - half_y) / half_y);
@@ -79,28 +73,32 @@ void GpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
       auto end = camera_info_block.inverse_projection_view * glm::vec4(screen.x, screen.y, 1.0f, 1.0f);
       start /= start.w;
       end /= end.w;
+      auto& current_ray_descriptor = ray_descriptors[pixel_index * capture_parameters.sample + sample_index];
+
       current_ray_descriptor.origin = start;
       current_ray_descriptor.direction = glm::normalize(end - start);
-
-      cpu_ray_tracer.Trace(
-          current_ray_descriptor,
-          [&](const RayTracer::HitInfo& hit_info) {
-            hit_count += 1;
-            temp += static_cast<float>(entities[hit_info.node_index].GetIndex());
-          },
-          [&]() {
-          },
-          [](const RayTracer::HitInfo& hit_info) {
-          });
+    }
+  });
+  auto aggregate_scene = cpu_ray_tracer.Aggregate();
+  std::vector<RayTracer::HitInfo> hit_infos;
+  aggregate_scene.TraceGpu(ray_descriptors, hit_infos, RayTracer::TraceFlags::None);
+  Jobs::RunParallelFor(resolution.x * resolution.y, [&](const size_t pixel_index) {
+    float hit_count = 0;
+    float temp = 0;
+    for (uint32_t sample_index = 0; sample_index < capture_parameters.sample; sample_index++) {
+      const auto& current_hit_info = hit_infos[pixel_index * capture_parameters.sample + sample_index];
+      if (current_hit_info.has_hit) {
+        hit_count += 1;
+        temp += static_cast<float>(entities[current_hit_info.node_index].GetIndex());
+      }
     }
     if (hit_count > 0.f) {
-      size_t entity_index = temp / hit_count;
+      const size_t entity_index = temp / hit_count;
       pixels[pixel_index] = colors[entity_index];
-      // pixels[pixel_index] = glm::vec4(1);
     } else {
       pixels[pixel_index] = glm::vec4(0, 0, 0, 1);
     }
-  });
+  }); 
 
   target_texture->SetRgbaChannelData(pixels, resolution, true);
 }

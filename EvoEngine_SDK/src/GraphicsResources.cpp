@@ -756,6 +756,15 @@ void DescriptorSet::UpdateBufferDescriptorBinding(const uint32_t binding_index,
   vkUpdateDescriptorSets(Platform::GetVkDevice(), 1, &write_info, 0, nullptr);
 }
 
+void DescriptorSet::UpdateBufferDescriptorBinding(const uint32_t binding_index, const std::shared_ptr<Buffer>& buffer,
+                                                  const uint32_t array_element) const {
+  VkDescriptorBufferInfo buffer_info;
+  buffer_info.offset = 0;
+  buffer_info.range = VK_WHOLE_SIZE;
+  buffer_info.buffer = buffer->GetVkBuffer();
+  UpdateBufferDescriptorBinding(binding_index, buffer_info, array_element);
+}
+
 const VkDescriptorSetLayout& DescriptorSetLayout::GetVkDescriptorSetLayout() const {
   return vk_descriptor_set_layout_;
 }

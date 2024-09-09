@@ -93,6 +93,7 @@ void RayTracer::Trace(const RayDescriptor& ray_descriptor,
                          const std::function<void()>& miss_func,
                          const std::function<void(const HitInfo& hit_info)>& any_hit_func) const {
   HitInfo closest_hit_info{};
+  closest_hit_info.has_hit = true;
   closest_hit_info.distance = FLT_MAX;
   bool has_hit = false;
   const auto flags = static_cast<unsigned>(ray_descriptor.flags);
@@ -172,6 +173,7 @@ void RayTracer::Trace(const RayDescriptor& ray_descriptor,
                       barycentric.x >= 0.f && barycentric.x <= 1.f && barycentric.y >= 0.f && barycentric.y <= 1.f &&
                       barycentric.z >= 0.f && barycentric.z <= 1.f) {
                     HitInfo any_hit_info;
+                    any_hit_info.has_hit = true;
                     any_hit_info.hit = scene_space_hit;
                     any_hit_info.normal = node_global_transform.TransformVector(node_space_triangle_normal);
                     any_hit_info.distance = scene_hit_distance;
@@ -436,11 +438,217 @@ glm::vec3 RayTracer::Barycentric(const glm::vec3& p, const glm::vec3& a, const g
   return {1.0f - y - z, y, z};
 }
 
+
+
+float UintBitsToFloat(const uint32_t src) {
+  union FloatAndUInt {
+    float f;
+    uint32_t i;
+  };
+
+  FloatAndUInt f_and_ui;
+  f_and_ui.i = src;
+  return f_and_ui.f;
+}
+
+uint32_t FloatBitsToUint(const float src) {
+  union FloatAndUInt {
+    float f;
+    uint32_t i;
+  };
+
+  FloatAndUInt f_and_ui;
+  f_and_ui.f = src;
+
+  return f_and_ui.i;
+}
+
+constexpr uint32_t DivUp(uint32_t a, uint32_t b) {
+  return (a + b - 1) / b;
+}
+
+void RayTracer::AggregatedScene::InitializeBuffers() {
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  buffer_create_info.size = 1;
+  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
+  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+  scene_level_bvh_nodes_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
+  node_indices_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  node_info_list_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  node_level_bvh_nodes_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
+  mesh_indices_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  mesh_info_list_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  mesh_level_bvh_nodes_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
+  triangle_indices_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  local_triangle_indices_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  scene_triangles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  scene_vertex_positions_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
+  
+  #pragma region Upload functions
+  auto upload_bvh_nodes = [&](const std::shared_ptr<Buffer> &buffer,
+                              const std::vector<BvhNode>& bvh_nodes) {
+    struct GpuBvhNode {
+      glm::vec4 aabb_min{};
+      glm::vec4 aabb_max{};
+      glm::vec4 indices{};
+      GpuBvhNode() = default;
+
+      explicit GpuBvhNode(const BvhNode& bvh_node) {
+        aabb_min = glm::vec4(bvh_node.aabb.min.x, bvh_node.aabb.min.y, bvh_node.aabb.min.z, 0.f);
+        aabb_max = glm::vec4(bvh_node.aabb.max.x, bvh_node.aabb.max.y, bvh_node.aabb.max.z, 0.f);
+        indices[0] = UintBitsToFloat(bvh_node.alternate_node_index);
+        indices[1] = UintBitsToFloat(bvh_node.begin_next_level_element_index);
+        indices[2] = UintBitsToFloat(bvh_node.end_next_level_element_index);
+      }
+    };
+    std::vector<GpuBvhNode> gpu_bvh_nodes;
+    gpu_bvh_nodes.resize(bvh_nodes.size());
+    Jobs::RunParallelFor(bvh_nodes.size(), [&](const auto i) {
+        gpu_bvh_nodes[i] = GpuBvhNode(bvh_nodes[i]);
+    });
+    buffer->UploadVector(gpu_bvh_nodes);
+  };
+
+  auto upload_node_info_list = [&](const std::shared_ptr<Buffer> &buffer,
+                                   const std::vector<GlobalTransform>& transforms,
+                                   const std::vector<GlobalTransform>& inverse_transforms,
+                                   const std::vector<uint32_t>& node_level_bvh_node_offsets,
+                                   const std::vector<uint32_t>& node_level_bvh_node_sizes,
+                                   const std::vector<uint32_t>& mesh_indices_offsets,
+                                   const std::vector<uint32_t>& mesh_indices_sizes) {
+    struct GpuNodeInfo {
+      glm::mat4 transform{};
+      glm::mat4 inverse_transform{};
+      glm::vec4 offsets{};
+      GpuNodeInfo() = default;
+
+      explicit GpuNodeInfo(const glm::mat4& src_transform, const glm::mat4& src_inverse_transform,
+                           const uint32_t node_level_bvh_node_offset, const uint32_t node_level_bvh_node_size,
+                           const uint32_t mesh_indices_offset, const uint32_t mesh_indices_size) {
+        transform = src_transform;
+        inverse_transform = src_inverse_transform;
+        offsets[0] = UintBitsToFloat(node_level_bvh_node_offset);
+        offsets[1] = UintBitsToFloat(node_level_bvh_node_size);
+        offsets[2] = UintBitsToFloat(mesh_indices_offset);
+        offsets[3] = UintBitsToFloat(mesh_indices_size);
+      }
+    };
+
+    auto node_infos = std::vector(transforms.size(), GpuNodeInfo());
+    Jobs::RunParallelFor(transforms.size(), [&](const auto i) {
+      node_infos[i] = GpuNodeInfo(transforms[i].value, inverse_transforms[i].value, node_level_bvh_node_offsets[i],
+                                    node_level_bvh_node_sizes[i], mesh_indices_offsets[i], mesh_indices_sizes[i]);
+    });
+    buffer->UploadVector(node_infos);
+  };
+
+  auto upload_mesh_info_list =
+      [&](const std::shared_ptr<Buffer> &buffer, const std::vector<uint32_t>& mesh_level_offsets,
+          const std::vector<uint32_t>& mesh_level_sizes, const std::vector<uint32_t>& triangle_indices_offsets,
+          const std::vector<uint32_t>& triangle_indices_sizes) {
+        struct GpuMeshInfo {
+          glm::vec4 offsets{};
+          GpuMeshInfo() = default;
+
+          explicit GpuMeshInfo(const uint32_t mesh_level_bvh_node_offset, const uint32_t mesh_level_bvh_node_size,
+                               const uint32_t triangle_indices_offset, const uint32_t triangle_indices_size) {
+            offsets[0] = UintBitsToFloat(mesh_level_bvh_node_offset);
+            offsets[1] = UintBitsToFloat(mesh_level_bvh_node_size);
+            offsets[2] = UintBitsToFloat(triangle_indices_offset);
+            offsets[3] = UintBitsToFloat(triangle_indices_size);
+          }
+        };
+
+        auto mesh_infos = std::vector(mesh_level_offsets.size(), GpuMeshInfo());
+        Jobs::RunParallelFor(mesh_level_offsets.size(),
+                          [&](const auto i) {
+                              mesh_infos[i] = GpuMeshInfo(mesh_level_offsets[i], mesh_level_sizes[i],
+                                                          triangle_indices_offsets[i], triangle_indices_sizes[i]);
+                            
+                          });
+        buffer->UploadVector(mesh_infos);
+      };
+
+  auto upload_indices = [&](const std::shared_ptr<Buffer> &buffer, const std::vector<uint32_t>& src) {
+    const auto src_length = src.size();
+    const auto dst_length = DivUp(static_cast<uint32_t>(src_length), 4);
+    std::vector<glm::vec4> gpu_indices;
+    gpu_indices.resize(dst_length);
+    Jobs::RunParallelFor(dst_length, [&](const auto i) {
+        if (i * 4 < src_length) {
+          gpu_indices[i].x = UintBitsToFloat(src[i * 4]);
+        }
+        if (i * 4 + 1 < src_length) {
+          gpu_indices[i].y = UintBitsToFloat(src[i * 4 + 1]);
+        }
+        if (i * 4 + 2 < src_length) {
+          gpu_indices[i].z = UintBitsToFloat(src[i * 4 + 2]);
+        }
+        if (i * 4 + 3 < src_length) {
+          gpu_indices[i].w = UintBitsToFloat(src[i * 4 + 3]);
+        }
+      
+    });
+    buffer->UploadVector(gpu_indices);
+  };
+
+  auto upload_triangles = [&](const std::shared_ptr<Buffer> &buffer, const std::vector<glm::uvec3>& src) {
+    std::vector<glm::vec4> gpu_triangles;
+    gpu_triangles.resize(src.size());
+    Jobs::RunParallelFor(src.size(), [&](const auto i) {
+        gpu_triangles[i].x = UintBitsToFloat(src[i].x);
+        gpu_triangles[i].y = UintBitsToFloat(src[i].y);
+        gpu_triangles[i].z = UintBitsToFloat(src[i].z);
+        gpu_triangles[i].w = 0.f;
+    });
+    buffer->UploadVector(gpu_triangles);
+  };
+
+  auto upload_vec3 = [&](const std::shared_ptr<Buffer> &buffer, const std::vector<glm::vec3>& src) {
+    std::vector<glm::vec4> gpu_vertices;
+    gpu_vertices.resize(src.size());
+    Jobs::RunParallelFor(src.size(), [&](const auto i) {
+        gpu_vertices[i] = glm::vec4(src[i].x, src[i].y, src[i].z, 0.f);
+      
+    });
+    buffer->UploadVector(gpu_vertices);
+  };
+
+  
+#pragma endregion
+  upload_bvh_nodes(scene_level_bvh_nodes_buffer, scene_level_bvh_nodes_);
+  upload_indices(node_indices_buffer, node_indices_);
+  
+  upload_node_info_list(node_info_list_buffer, node_transforms_,
+                        node_inverse_transforms_, node_level_bvh_node_offsets_,
+                        node_level_bvh_node_sizes_, mesh_indices_offsets_,
+                        mesh_indices_sizes_);
+  upload_bvh_nodes(node_level_bvh_nodes_buffer, node_level_bvh_nodes_);
+  upload_indices(mesh_indices_buffer, mesh_indices_);
+  upload_mesh_info_list(mesh_info_list_buffer, mesh_level_bvh_node_offsets_, mesh_level_bvh_node_sizes_,
+                        triangle_indices_offsets_,
+                        triangle_indices_sizes_);
+  upload_bvh_nodes(mesh_level_bvh_nodes_buffer, mesh_level_bvh_nodes_);
+  upload_indices(triangle_indices_buffer, triangle_indices_);
+  upload_indices(local_triangle_indices_buffer, local_triangle_indices_);
+  upload_triangles(scene_triangles_buffer, triangles_);
+  upload_vec3(scene_vertex_positions_buffer, vertex_positions_);
+}
+
 void RayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
-                                          const std::function<void(const HitInfo& hit_info)>& closest_hit_func,
-                                          const std::function<void()>& miss_func,
-                                          const std::function<void(const HitInfo& hit_info)>& any_hit_func) const {
+                                       const std::function<void(const HitInfo& hit_info)>& closest_hit_func,
+                                       const std::function<void()>& miss_func,
+                                       const std::function<void(const HitInfo& hit_info)>& any_hit_func) const {
   HitInfo closest_hit_info{};
+  closest_hit_info.has_hit = true;
   closest_hit_info.distance = FLT_MAX;
   bool has_hit = false;
   const auto flags = static_cast<unsigned>(ray_descriptor.flags);
@@ -455,13 +663,13 @@ void RayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
 
   uint32_t node_group_index = 0;
   std::unordered_set<uint32_t> node_group_index_test;
-  while (node_group_index < scene_level_bvh_nodes.size()) {
+  while (node_group_index < scene_level_bvh_nodes_.size()) {
     if (node_group_index_test.find(node_group_index) == node_group_index_test.end()) {
       node_group_index_test.emplace(node_group_index);
     } else {
       throw std::runtime_error("Duplicate node!");
     }
-    const auto& node_group = scene_level_bvh_nodes[node_group_index];
+    const auto& node_group = scene_level_bvh_nodes_[node_group_index];
     if (!RayAabb(scene_space_ray_origin, scene_space_inv_ray_direction, node_group.aabb)) {
       node_group_index = node_group.alternate_node_index;
       continue;
@@ -469,17 +677,17 @@ void RayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
     for (uint32_t test_node_element_index = node_group.begin_next_level_element_index;
          test_node_element_index < node_group.end_next_level_element_index; ++test_node_element_index) {
       uint32_t mesh_group_index = 0;
-      const auto node_index = node_indices[test_node_element_index];
-      const auto& node_global_transform = node_transforms[node_index];
-      const auto& node_inverse_global_transform = node_inverse_transforms[node_index];
+      const auto node_index = node_indices_[test_node_element_index];
+      const auto& node_global_transform = node_transforms_[node_index];
+      const auto& node_inverse_global_transform = node_inverse_transforms_[node_index];
       const auto node_space_ray_origin = node_inverse_global_transform.TransformPoint(scene_space_ray_origin);
       auto node_space_ray_direction =
           glm::normalize(node_inverse_global_transform.TransformVector(scene_space_ray_direction));
       const auto node_space_inv_ray_direction = glm::vec3(
           1.f / node_space_ray_direction.x, 1.f / node_space_ray_direction.y, 1.f / node_space_ray_direction.z);
-      const auto node_level_bvh_node_offset = node_level_bvh_node_offsets[node_index];
-      const auto node_level_bvh_node_size = node_level_bvh_node_sizes[node_index];
-      const auto mesh_indices_offset = mesh_indices_offsets[node_index];
+      const auto node_level_bvh_node_offset = node_level_bvh_node_offsets_[node_index];
+      const auto node_level_bvh_node_size = node_level_bvh_node_sizes_[node_index];
+      const auto mesh_indices_offset = mesh_indices_offsets_[node_index];
       std::unordered_set<uint32_t> mesh_group_index_test;
       while (mesh_group_index < node_level_bvh_node_size) {
         if (mesh_group_index_test.find(mesh_group_index) == mesh_group_index_test.end()) {
@@ -487,7 +695,7 @@ void RayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
         } else {
           throw std::runtime_error("Duplicate mesh!");
         }
-        const auto& mesh_group = node_level_bvh_nodes[mesh_group_index + node_level_bvh_node_offset];
+        const auto& mesh_group = node_level_bvh_nodes_[mesh_group_index + node_level_bvh_node_offset];
         if (!RayAabb(node_space_ray_origin, node_space_inv_ray_direction, mesh_group.aabb)) {
           mesh_group_index = mesh_group.alternate_node_index;
           continue;
@@ -496,10 +704,10 @@ void RayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
              test_mesh_element_index < mesh_group.end_next_level_element_index + mesh_indices_offset;
              ++test_mesh_element_index) {
           uint32_t triangle_group_index = 0;
-          const auto mesh_index = mesh_indices[test_mesh_element_index];
-          const auto mesh_level_bvh_node_offset = mesh_level_bvh_node_offsets[mesh_index];
-          const auto mesh_level_bvh_node_size = mesh_level_bvh_node_sizes[mesh_index];
-          const auto triangle_indices_offset = triangle_indices_offsets[mesh_index];
+          const auto mesh_index = mesh_indices_[test_mesh_element_index];
+          const auto mesh_level_bvh_node_offset = mesh_level_bvh_node_offsets_[mesh_index];
+          const auto mesh_level_bvh_node_size = mesh_level_bvh_node_sizes_[mesh_index];
+          const auto triangle_indices_offset = triangle_indices_offsets_[mesh_index];
           std::unordered_set<uint32_t> triangle_group_index_test;
           while (triangle_group_index < mesh_level_bvh_node_size) {
             if (triangle_group_index_test.find(triangle_group_index) == triangle_group_index_test.end()) {
@@ -507,7 +715,7 @@ void RayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
             } else {
               throw std::runtime_error("Duplicate triangle!");
             }
-            const auto& triangle_group = mesh_level_bvh_nodes[triangle_group_index + mesh_level_bvh_node_offset];
+            const auto& triangle_group = mesh_level_bvh_nodes_[triangle_group_index + mesh_level_bvh_node_offset];
             if (!RayAabb(node_space_ray_origin, node_space_inv_ray_direction, triangle_group.aabb)) {
               triangle_group_index = triangle_group.alternate_node_index;
               continue;
@@ -515,11 +723,11 @@ void RayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
             for (uint32_t test_triangle_index = triangle_group.begin_next_level_element_index + triangle_indices_offset;
                  test_triangle_index < triangle_group.end_next_level_element_index + triangle_indices_offset;
                  ++test_triangle_index) {
-              const auto triangle_index = triangle_indices[test_triangle_index];
-              const auto& triangle = triangles[triangle_index];
-              const auto& p0 = vertex_positions[triangle.x];
-              const auto& p1 = vertex_positions[triangle.y];
-              const auto& p2 = vertex_positions[triangle.z];
+              const auto triangle_index = triangle_indices_[test_triangle_index];
+              const auto& triangle = triangles_[triangle_index];
+              const auto& p0 = vertex_positions_[triangle.x];
+              const auto& p1 = vertex_positions_[triangle.y];
+              const auto& p2 = vertex_positions_[triangle.z];
               if (p0 == p1 && p1 == p2)
                 continue;
               auto node_space_triangle_normal = glm::normalize(glm::cross(p1 - p0, p2 - p0));
@@ -539,13 +747,14 @@ void RayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
                   if (const auto barycentric = Barycentric(node_space_hit, p0, p1, p2);
                       barycentric.x >= 0.f && barycentric.x <= 1.f && barycentric.y >= 0.f && barycentric.y <= 1.f &&
                       barycentric.z >= 0.f && barycentric.z <= 1.f) {
-                    HitInfo any_hit_info;
+                    HitInfo any_hit_info{};
+                    any_hit_info.has_hit = true;
                     any_hit_info.hit = scene_space_hit;
                     any_hit_info.normal = node_global_transform.TransformVector(node_space_triangle_normal);
                     any_hit_info.distance = scene_hit_distance;
                     any_hit_info.barycentric = barycentric;
                     any_hit_info.back_face = normal_test > 0.f;
-                    any_hit_info.triangle_index = local_triangle_indices[test_triangle_index];
+                    any_hit_info.triangle_index = local_triangle_indices_[test_triangle_index];
                     any_hit_info.mesh_index = mesh_index;
                     any_hit_info.node_index = node_index;
                     any_hit_func(any_hit_info);
@@ -575,71 +784,219 @@ void RayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
   }
 }
 
+std::shared_ptr<DescriptorSetLayout> ray_tracer_descriptor_set_layout;
+std::shared_ptr<Shader> trace_shader{};
+std::shared_ptr<ComputePipeline> trace_pipeline{};
+
+void RayTracer::AggregatedScene::TraceGpu(const std::vector<RayDescriptor>& rays, std::vector<HitInfo>& hit_infos,
+                                          const TraceFlags flags) {
+  if (!ray_tracer_descriptor_set_layout) {
+    ray_tracer_descriptor_set_layout = std::make_shared<DescriptorSetLayout>();
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracer_descriptor_set_layout->Initialize();
+  }
+
+  if (!trace_shader) {
+    trace_shader = ProjectManager::CreateTemporaryAsset<Shader>();
+    const auto shader_code =
+        FileUtils::LoadFileAsString(std::filesystem::path("./RayTracerResources") / "Shaders/Compute/Trace.comp");
+    trace_shader->Set(ShaderType::Compute, shader_code);
+  }
+
+  if (!trace_pipeline) {
+    trace_pipeline = std::make_shared<ComputePipeline>();
+    trace_pipeline->descriptor_set_layouts.emplace_back(ray_tracer_descriptor_set_layout);
+    auto& push_constant_range = trace_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(glm::vec4);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    trace_pipeline->compute_shader = trace_shader;
+    trace_pipeline->Initialize();
+  }
+  InitializeBuffers();
+  
+  auto upload_rays = [&](const std::shared_ptr<Buffer>& buffer, const std::vector<RayDescriptor>& ray_descriptors) {
+    std::vector<glm::vec4> gpu_vertices(ray_descriptors.size() * 2);
+    Jobs::RunParallelFor(ray_descriptors.size(), [&](const auto i) {
+      gpu_vertices[i * 2] = glm::vec4(ray_descriptors[i].origin.x, ray_descriptors[i].origin.y,
+                                      ray_descriptors[i].origin.z, ray_descriptors[i].t_min);
+      gpu_vertices[i * 2 + 1] = glm::vec4(ray_descriptors[i].direction.x, ray_descriptors[i].direction.y,
+                                          ray_descriptors[i].direction.z, ray_descriptors[i].t_max);
+    });
+    buffer->UploadVector(gpu_vertices);
+  };
+
+  
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  buffer_create_info.size = 1;
+  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
+  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  const auto rays_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  
+  const auto ray_casting_results_buffer = std::make_shared<Buffer>(
+      buffer_create_info, buffer_vma_allocation_create_info);
+
+  struct GpuRayCastingResult {
+    glm::vec4 hit{};
+    glm::vec4 barycentric_back_face{};
+    glm::vec4 normal_distance{};
+    glm::vec4 node_mesh_triangle_indices{};
+    GpuRayCastingResult() = default;
+  };
+
+  ray_casting_results_buffer->Resize(sizeof(GpuRayCastingResult) * rays.size());
+  upload_rays(rays_buffer, rays);
+
+  const auto ray_tracer_descriptor_set = std::make_shared<DescriptorSet>(ray_tracer_descriptor_set_layout);
+
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(0, scene_level_bvh_nodes_buffer);
+
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(1, node_indices_buffer);
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(2, node_info_list_buffer);
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(3, node_level_bvh_nodes_buffer);
+
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(4, mesh_indices_buffer);
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(5, mesh_info_list_buffer);
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(6, mesh_level_bvh_nodes_buffer);
+
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(7, triangle_indices_buffer);
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(8, local_triangle_indices_buffer);
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(9, scene_triangles_buffer);
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(10, scene_vertex_positions_buffer);
+
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(11, rays_buffer);
+  ray_tracer_descriptor_set->UpdateBufferDescriptorBinding(12, ray_casting_results_buffer);
+
+  const glm::vec4 ray_cast_config =
+      glm::vec4(static_cast<unsigned>(flags) | static_cast<unsigned>(TraceFlags::CullBackFace) ? 0.f : 1.f,
+                static_cast<unsigned>(flags) | static_cast<unsigned>(TraceFlags::CullFrontFace) ? 0.f : 1.f,
+                UintBitsToFloat(static_cast<uint32_t>(scene_level_bvh_nodes_.size())),
+                UintBitsToFloat(static_cast<uint32_t>(rays.size())));
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    trace_pipeline->Bind(vk_command_buffer);
+    trace_pipeline->BindDescriptorSet(vk_command_buffer, 0, ray_tracer_descriptor_set->GetVkDescriptorSet());
+    trace_pipeline->PushConstant(vk_command_buffer, 0, ray_cast_config);
+    vkCmdDispatch(vk_command_buffer, DivUp(static_cast<uint32_t>(rays.size()), 256), 1, 1);
+  });
+
+  std::vector<GpuRayCastingResult> gpu_ray_casting_results(rays.size());
+  ray_casting_results_buffer->DownloadVector(gpu_ray_casting_results, rays.size());
+
+  hit_infos.resize(rays.size());
+  Jobs::RunParallelFor(rays.size(), [&](const auto i) {
+    auto& hit_info = hit_infos[i];
+    auto& gpu_ray_casting_result = gpu_ray_casting_results[i];
+    if (gpu_ray_casting_result.hit.w == 0.f) {
+      hit_info = {};
+      return;
+    }
+    hit_info.has_hit = true;
+    hit_info.hit = glm::vec3(gpu_ray_casting_result.hit);
+    hit_info.barycentric = glm::vec3(gpu_ray_casting_result.barycentric_back_face);
+    hit_info.back_face = gpu_ray_casting_result.barycentric_back_face.w != 0.f;
+    hit_info.normal = glm::vec3(gpu_ray_casting_result.normal_distance);
+    hit_info.distance = gpu_ray_casting_result.normal_distance.w;
+    hit_info.node_index = FloatBitsToUint(gpu_ray_casting_result.node_mesh_triangle_indices.x);
+    hit_info.mesh_index = FloatBitsToUint(gpu_ray_casting_result.node_mesh_triangle_indices.y);
+    hit_info.triangle_index = FloatBitsToUint(gpu_ray_casting_result.node_mesh_triangle_indices.z);
+  });
+}
+
 RayTracer::AggregatedScene RayTracer::Aggregate() const {
   AggregatedScene aggregated_scene;
-  aggregated_scene.scene_level_bvh_nodes = flattened_bvh_node_group_.nodes;
-  aggregated_scene.node_indices = flattened_bvh_node_group_.element_indices;
+  aggregated_scene.scene_level_bvh_nodes_ = flattened_bvh_node_group_.nodes;
+  aggregated_scene.node_indices_ = flattened_bvh_node_group_.element_indices;
 
-  aggregated_scene.node_transforms.resize(node_instances_.size());
-  aggregated_scene.node_inverse_transforms.resize(node_instances_.size());
-  aggregated_scene.node_level_bvh_node_offsets.resize(node_instances_.size());
-  aggregated_scene.node_level_bvh_node_sizes.resize(node_instances_.size());
-  aggregated_scene.mesh_indices_offsets.resize(node_instances_.size());
-  aggregated_scene.mesh_indices_sizes.resize(node_instances_.size());
+  aggregated_scene.node_transforms_.resize(node_instances_.size());
+  aggregated_scene.node_inverse_transforms_.resize(node_instances_.size());
+  aggregated_scene.node_level_bvh_node_offsets_.resize(node_instances_.size());
+  aggregated_scene.node_level_bvh_node_sizes_.resize(node_instances_.size());
+  aggregated_scene.mesh_indices_offsets_.resize(node_instances_.size());
+  aggregated_scene.mesh_indices_sizes_.resize(node_instances_.size());
   for (uint32_t node_index = 0; node_index < node_instances_.size(); node_index++) {
     const auto& node_instance = node_instances_[node_index];
-    aggregated_scene.node_transforms[node_index] = node_instance.transformation;
-    aggregated_scene.node_inverse_transforms[node_index] = node_instance.inverse_transformation;
-    aggregated_scene.node_level_bvh_node_offsets[node_index] =
-        static_cast<uint32_t>(aggregated_scene.node_level_bvh_nodes.size());
-    aggregated_scene.node_level_bvh_node_sizes[node_index] =
+    aggregated_scene.node_transforms_[node_index] = node_instance.transformation;
+    aggregated_scene.node_inverse_transforms_[node_index] = node_instance.inverse_transformation;
+    aggregated_scene.node_level_bvh_node_offsets_[node_index] =
+        static_cast<uint32_t>(aggregated_scene.node_level_bvh_nodes_.size());
+    aggregated_scene.node_level_bvh_node_sizes_[node_index] =
         static_cast<uint32_t>(node_instance.flattened_bvh_mesh_group.nodes.size());
-    aggregated_scene.mesh_indices_offsets[node_index] = static_cast<uint32_t>(aggregated_scene.mesh_indices.size());
-    aggregated_scene.mesh_indices_sizes[node_index] =
+    aggregated_scene.mesh_indices_offsets_[node_index] = static_cast<uint32_t>(aggregated_scene.mesh_indices_.size());
+    aggregated_scene.mesh_indices_sizes_[node_index] =
         static_cast<uint32_t>(node_instance.flattened_bvh_mesh_group.element_indices.size());
-    aggregated_scene.node_level_bvh_nodes.insert(aggregated_scene.node_level_bvh_nodes.end(),
+    aggregated_scene.node_level_bvh_nodes_.insert(aggregated_scene.node_level_bvh_nodes_.end(),
                                                  node_instance.flattened_bvh_mesh_group.nodes.begin(),
                                                  node_instance.flattened_bvh_mesh_group.nodes.end());
-    aggregated_scene.mesh_indices.insert(aggregated_scene.mesh_indices.end(),
+    aggregated_scene.mesh_indices_.insert(aggregated_scene.mesh_indices_.end(),
                                          node_instance.flattened_bvh_mesh_group.element_indices.begin(),
                                          node_instance.flattened_bvh_mesh_group.element_indices.end());
   }
-  aggregated_scene.mesh_level_bvh_node_offsets.resize(geometry_instances_.size());
-  aggregated_scene.mesh_level_bvh_node_sizes.resize(geometry_instances_.size());
-  aggregated_scene.triangle_indices_offsets.resize(geometry_instances_.size());
-  aggregated_scene.triangle_indices_sizes.resize(geometry_instances_.size());
+  aggregated_scene.mesh_level_bvh_node_offsets_.resize(geometry_instances_.size());
+  aggregated_scene.mesh_level_bvh_node_sizes_.resize(geometry_instances_.size());
+  aggregated_scene.triangle_indices_offsets_.resize(geometry_instances_.size());
+  aggregated_scene.triangle_indices_sizes_.resize(geometry_instances_.size());
   for (uint32_t mesh_index = 0; mesh_index < geometry_instances_.size(); mesh_index++) {
     const auto& mesh_instance = geometry_instances_[mesh_index];
-    aggregated_scene.mesh_level_bvh_node_offsets[mesh_index] =
-        static_cast<uint32_t>(aggregated_scene.mesh_level_bvh_nodes.size());
-    aggregated_scene.mesh_level_bvh_node_sizes[mesh_index] =
+    aggregated_scene.mesh_level_bvh_node_offsets_[mesh_index] =
+        static_cast<uint32_t>(aggregated_scene.mesh_level_bvh_nodes_.size());
+    aggregated_scene.mesh_level_bvh_node_sizes_[mesh_index] =
         static_cast<uint32_t>(mesh_instance.flattened_bvh_triangle_group.nodes.size());
-    aggregated_scene.triangle_indices_offsets[mesh_index] =
-        static_cast<uint32_t>(aggregated_scene.triangle_indices.size());
-    aggregated_scene.triangle_indices_sizes[mesh_index] =
+    aggregated_scene.triangle_indices_offsets_[mesh_index] =
+        static_cast<uint32_t>(aggregated_scene.triangle_indices_.size());
+    aggregated_scene.triangle_indices_sizes_[mesh_index] =
         static_cast<uint32_t>(mesh_instance.flattened_bvh_triangle_group.element_indices.size());
-    aggregated_scene.mesh_level_bvh_nodes.insert(aggregated_scene.mesh_level_bvh_nodes.end(),
+    aggregated_scene.mesh_level_bvh_nodes_.insert(aggregated_scene.mesh_level_bvh_nodes_.end(),
                                                  mesh_instance.flattened_bvh_triangle_group.nodes.begin(),
                                                  mesh_instance.flattened_bvh_triangle_group.nodes.end());
     const auto& vertex_positions = mesh_instance.vertex_positions;
     const auto& triangles = mesh_instance.triangles;
-    const auto vertex_offset = static_cast<uint32_t>(aggregated_scene.vertex_positions.size());
-    const auto triangle_offset = static_cast<uint32_t>(aggregated_scene.triangles.size());
-    aggregated_scene.vertex_positions.insert(aggregated_scene.vertex_positions.end(), vertex_positions.begin(),
+    const auto vertex_offset = static_cast<uint32_t>(aggregated_scene.vertex_positions_.size());
+    const auto triangle_offset = static_cast<uint32_t>(aggregated_scene.triangles_.size());
+    aggregated_scene.vertex_positions_.insert(aggregated_scene.vertex_positions_.end(), vertex_positions.begin(),
                                              vertex_positions.end());
-    aggregated_scene.triangles.resize(triangle_offset + triangles.size());
+    aggregated_scene.triangles_.resize(triangle_offset + triangles.size());
     for (uint32_t i = 0; i < triangles.size(); i++) {
-      aggregated_scene.triangles[triangle_offset + i] = triangles[i] + vertex_offset;
+      aggregated_scene.triangles_[triangle_offset + i] = triangles[i] + vertex_offset;
     }
     const auto& local_triangle_indices = mesh_instance.flattened_bvh_triangle_group.element_indices;
-    const uint32_t global_triangle_indices_offset = static_cast<uint32_t>(aggregated_scene.triangle_indices.size());
-    aggregated_scene.triangle_indices.resize(global_triangle_indices_offset + local_triangle_indices.size());
+    const uint32_t global_triangle_indices_offset = static_cast<uint32_t>(aggregated_scene.triangle_indices_.size());
+    aggregated_scene.triangle_indices_.resize(global_triangle_indices_offset + local_triangle_indices.size());
     for (uint32_t i = 0; i < local_triangle_indices.size(); i++) {
-      aggregated_scene.triangle_indices[global_triangle_indices_offset + i] =
+      aggregated_scene.triangle_indices_[global_triangle_indices_offset + i] =
           local_triangle_indices[i] + triangle_offset;
     }
 
-    aggregated_scene.local_triangle_indices.insert(aggregated_scene.local_triangle_indices.end(),
+    aggregated_scene.local_triangle_indices_.insert(aggregated_scene.local_triangle_indices_.end(),
                                                    mesh_instance.flattened_bvh_triangle_group.element_indices.begin(),
                                                    mesh_instance.flattened_bvh_triangle_group.element_indices.end());
   }

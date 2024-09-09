@@ -188,33 +188,29 @@ void RenderLayer::RenderAllCameras() {
   mesh_draw_mesh_tasks_indirect_commands_buffers_[current_frame_index]->UploadVector(
       mesh_draw_mesh_tasks_indirect_commands_);
 
-  VkDescriptorBufferInfo buffer_info;
-  buffer_info.offset = 0;
-  buffer_info.range = VK_WHOLE_SIZE;
+  
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      0, render_info_descriptor_buffers_[current_frame_index]);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      1, environment_info_descriptor_buffers_[current_frame_index]);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      2, camera_info_descriptor_buffers_[current_frame_index]);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      3, material_info_descriptor_buffers_[current_frame_index]);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      4, instance_info_descriptor_buffers_[current_frame_index]);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      5, kernel_descriptor_buffers_[current_frame_index]);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      6, directional_light_info_descriptor_buffers_[current_frame_index]);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      7, point_light_info_descriptor_buffers_[current_frame_index]);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      8, spot_light_info_descriptor_buffers_[current_frame_index]);
 
-  buffer_info.buffer = render_info_descriptor_buffers_[current_frame_index]->GetVkBuffer();
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, buffer_info);
-  buffer_info.buffer = environment_info_descriptor_buffers_[current_frame_index]->GetVkBuffer();
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1, buffer_info);
-  buffer_info.buffer = camera_info_descriptor_buffers_[current_frame_index]->GetVkBuffer();
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(2, buffer_info);
-  buffer_info.buffer = material_info_descriptor_buffers_[current_frame_index]->GetVkBuffer();
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(3, buffer_info);
-  buffer_info.buffer = instance_info_descriptor_buffers_[current_frame_index]->GetVkBuffer();
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(4, buffer_info);
-  buffer_info.buffer = kernel_descriptor_buffers_[current_frame_index]->GetVkBuffer();
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(5, buffer_info);
-  buffer_info.buffer = directional_light_info_descriptor_buffers_[current_frame_index]->GetVkBuffer();
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(6, buffer_info);
-  buffer_info.buffer = point_light_info_descriptor_buffers_[current_frame_index]->GetVkBuffer();
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(7, buffer_info);
-  buffer_info.buffer = spot_light_info_descriptor_buffers_[current_frame_index]->GetVkBuffer();
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(8, buffer_info);
-
-  buffer_info.buffer = GeometryStorage::GetVertexBuffer()->GetVkBuffer();
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(9, buffer_info);
-  buffer_info.buffer = GeometryStorage::GetMeshletBuffer()->GetVkBuffer();
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(10, buffer_info);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(9, GeometryStorage::GetVertexBuffer());
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(10,
+                                                                                 GeometryStorage::GetMeshletBuffer());
 
   PreparePointAndSpotLightShadowMap();
 
@@ -1538,44 +1534,44 @@ void RenderLayer::CreateStandardDescriptorBuffers() {
     buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     buffer_create_info.size = sizeof(RenderInfoBlock);
     render_info_descriptor_buffers_.emplace_back(
-        std::make_unique<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
     buffer_create_info.size = sizeof(EnvironmentInfoBlock);
     environment_info_descriptor_buffers_.emplace_back(
-        std::make_unique<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
     buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     buffer_create_info.size = sizeof(CameraInfoBlock) * Platform::Constants::initial_camera_size;
     camera_info_descriptor_buffers_.emplace_back(
-        std::make_unique<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
     buffer_create_info.size = sizeof(MaterialInfoBlock) * Platform::Constants::initial_material_size;
     material_info_descriptor_buffers_.emplace_back(
-        std::make_unique<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
     buffer_create_info.size = sizeof(InstanceInfoBlock) * Platform::Constants::initial_instance_size;
     instance_info_descriptor_buffers_.emplace_back(
-        std::make_unique<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
 
     buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     buffer_create_info.size = sizeof(glm::vec4) * Platform::Constants::max_kernel_amount * 2;
     kernel_descriptor_buffers_.emplace_back(
-        std::make_unique<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
     buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     buffer_create_info.size = sizeof(DirectionalLightInfo) * Platform::Settings::max_directional_light_size *
                               Platform::Constants::initial_camera_size;
     directional_light_info_descriptor_buffers_.emplace_back(
-        std::make_unique<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
     buffer_create_info.size = sizeof(PointLightInfo) * Platform::Settings::max_point_light_size;
     point_light_info_descriptor_buffers_.emplace_back(
-        std::make_unique<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
     buffer_create_info.size = sizeof(SpotLightInfo) * Platform::Settings::max_spot_light_size;
     spot_light_info_descriptor_buffers_.emplace_back(
-        std::make_unique<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
 
     buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
     buffer_create_info.size = sizeof(VkDrawMeshTasksIndirectCommandEXT) * Platform::Constants::initial_render_task_size;
     mesh_draw_mesh_tasks_indirect_commands_buffers_.emplace_back(
-        std::make_unique<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
     buffer_create_info.size = sizeof(VkDrawIndexedIndirectCommand) * Platform::Constants::initial_render_task_size;
     mesh_draw_indexed_indirect_commands_buffers_.emplace_back(
-        std::make_unique<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
   }
 #pragma endregion
 }

@@ -333,24 +333,49 @@ std::vector<uint32_t> ShaderUtils::CompileGlsl(const ShaderType shader_type, con
     input.resource = glslang_default_resource();  // Load defaults or create resource manually!
 
     glslang_shader_t* shader = glslang_shader_create(&input);
-    if (!glslang_shader_preprocess(shader, &input)) { /* errors and logs */
+    if (!glslang_shader_preprocess(shader, &input)) {
+      EVOENGINE_ERROR("GLSL preprocessing failed.");
+      EVOENGINE_ERROR(std::string(glslang_shader_get_info_log(shader)));
+      EVOENGINE_ERROR(std::string(glslang_shader_get_info_debug_log(shader)));
+      glslang_shader_delete(shader);
+      glslang_finalize_process();
+      return {};
     }
     if (!glslang_shader_parse(shader, &input)) { /* errors and logs */
+      EVOENGINE_ERROR("GLSL parsing failed.");
+      EVOENGINE_ERROR(std::string(glslang_shader_get_info_log(shader)));
+      EVOENGINE_ERROR(std::string(glslang_shader_get_info_debug_log(shader)));
+      //EVOENGINE_ERROR(std::string(glslang_shader_get_preprocessed_code(shader)));
+      glslang_shader_delete(shader);
+      glslang_finalize_process();
+      return {};
     }
     glslang_program_t* program = glslang_program_create();
     glslang_program_add_shader(program, shader);
-    if (!glslang_program_link(program,
-                              GLSLANG_MSG_SPV_RULES_BIT | GLSLANG_MSG_VULKAN_RULES_BIT)) { /* errors and logs */
-    }
-    glslang_program_SPIRV_generate(program, input.stage);
-    if (glslang_program_SPIRV_get_messages(program)) { /* errors and logs */
-      EVOENGINE_ERROR(glslang_program_SPIRV_get_messages(program));
+    if (!glslang_program_link(program, GLSLANG_MSG_SPV_RULES_BIT | GLSLANG_MSG_VULKAN_RULES_BIT)) {
+      EVOENGINE_ERROR("GLSL linking failed.");
+      EVOENGINE_ERROR(std::string(glslang_program_get_info_log(program)));
+      EVOENGINE_ERROR(std::string(glslang_program_get_info_debug_log(program)));
+      glslang_program_delete(program);
+      glslang_shader_delete(shader);
+      glslang_shader_delete(shader);
+      glslang_finalize_process();
       return {};
     }
+    glslang_program_SPIRV_generate(program, input.stage);
+
     ret_val.resize(glslang_program_SPIRV_get_size(program));
     std::memcpy(ret_val.data(), glslang_program_SPIRV_get_ptr(program),
                 glslang_program_SPIRV_get_size(program) * sizeof(uint32_t));
+
+    if (glslang_program_SPIRV_get_messages(program)) { /* errors and logs */
+      EVOENGINE_ERROR(glslang_program_SPIRV_get_messages(program));
+    }
+    glslang_program_delete(program);
+    glslang_shader_delete(shader);
+
     glslang_finalize_process();
+
     YAML::Emitter out;
     out << YAML::BeginMap;
     out << YAML::Key << "CompiledBinaries" << YAML::Value

@@ -19,15 +19,15 @@ class ComputePipeline final : public IGraphicsResource{
   void Initialize();
   [[nodiscard]] bool Initialized() const;
 
-  void Bind(const CommandBuffer& command_buffer) const;
-  void BindDescriptorSet(const CommandBuffer& command_buffer, uint32_t first_set, VkDescriptorSet descriptor_set) const;
+  void Bind(VkCommandBuffer vk_command_buffer) const;
+  void BindDescriptorSet(VkCommandBuffer vk_command_buffer, uint32_t first_set, VkDescriptorSet descriptor_set) const;
   template <typename T>
-  void PushConstant(const CommandBuffer& command_buffer, size_t range_index, const T& data);
+  void PushConstant(VkCommandBuffer vk_command_buffer, size_t range_index, const T& data);
 };
 
 template <typename T>
-void ComputePipeline::PushConstant(const CommandBuffer& command_buffer, const size_t range_index, const T& data) {
-  vkCmdPushConstants(command_buffer.GetVkCommandBuffer(), pipeline_layout_->GetVkPipelineLayout(),
+void ComputePipeline::PushConstant(const VkCommandBuffer vk_command_buffer, const size_t range_index, const T& data) {
+  vkCmdPushConstants(vk_command_buffer, pipeline_layout_->GetVkPipelineLayout(),
                      push_constant_ranges[range_index].stageFlags, push_constant_ranges[range_index].offset,
                      push_constant_ranges[range_index].size, &data);
 }

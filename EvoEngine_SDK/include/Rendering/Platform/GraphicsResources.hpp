@@ -301,6 +301,9 @@ class DescriptorSet final : public IGraphicsResource {
                                     uint32_t array_element = 0) const;
   void UpdateBufferDescriptorBinding(uint32_t binding_index, const VkDescriptorBufferInfo& buffer_info,
                                      uint32_t array_element = 0) const;
+
+  void UpdateBufferDescriptorBinding(uint32_t binding_index, const std::shared_ptr<Buffer>& buffer,
+                                     uint32_t array_element = 0) const;
 };
 
 class DescriptorPool final : public IGraphicsResource {

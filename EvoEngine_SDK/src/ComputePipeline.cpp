@@ -25,9 +25,9 @@ void ComputePipeline::Initialize() {
 
   pipeline_layout_ = std::make_unique<PipelineLayout>(pipeline_layout_info);
 
-  VkPipelineShaderStageCreateInfo shader_stage_create_info;
+  VkPipelineShaderStageCreateInfo shader_stage_create_info{};
   shader_stage_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  shader_stage_create_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
+  shader_stage_create_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
   shader_stage_create_info.module = compute_shader->GetShaderModule()->GetVkShaderModule();
   shader_stage_create_info.pName = "main";
   shader_stage_create_info.flags = 0;
@@ -45,12 +45,12 @@ bool ComputePipeline::Initialized() const {
   return vk_compute_pipeline_ != VK_NULL_HANDLE;
 }
 
-void ComputePipeline::Bind(const CommandBuffer& command_buffer) const {
-  vkCmdBindPipeline(command_buffer.GetVkCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, vk_compute_pipeline_);
+void ComputePipeline::Bind(VkCommandBuffer vk_command_buffer) const {
+  vkCmdBindPipeline(vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, vk_compute_pipeline_);
 }
 
-void ComputePipeline::BindDescriptorSet(const CommandBuffer& command_buffer, const uint32_t first_set,
+void ComputePipeline::BindDescriptorSet(VkCommandBuffer vk_command_buffer, const uint32_t first_set,
                                         const VkDescriptorSet descriptor_set) const {
-  vkCmdBindDescriptorSets(command_buffer.GetVkCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_->GetVkPipelineLayout(),
+  vkCmdBindDescriptorSets(vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_->GetVkPipelineLayout(),
                           first_set, 1, &descriptor_set, 0, nullptr);
 }
