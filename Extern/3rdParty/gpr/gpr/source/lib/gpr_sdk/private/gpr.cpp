@@ -68,7 +68,9 @@
 #endif
 
 #if GPR_JPEG_AVAILABLE
+#  define TJE_IMPLEMENTATION
 #include "jpeg.h"
+
 #endif
 
 extern bool gDNGShowTimers;

@@ -47,7 +47,6 @@
       *nextTokPtr = ptr; \
       return XML_TOK_INVALID; \
     } \
-    __attribute((fallthrough)); \
   case BT_NMSTRT: \
   case BT_HEX: \
   case BT_DIGIT: \
@@ -76,7 +75,6 @@
       *nextTokPtr = ptr; \
       return XML_TOK_INVALID; \
     } \
-    __attribute((fallthrough)); \
   case BT_NMSTRT: \
   case BT_HEX: \
     ptr += MINBPC(enc); \

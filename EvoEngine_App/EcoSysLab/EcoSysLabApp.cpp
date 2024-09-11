@@ -9,29 +9,23 @@
 #endif
 
 #include "Times.hpp"
-
+#ifdef ECOSYSLAB_PLUGIN
+#  include "EcoSysLabLayer.hpp"
+#  include "ObjectRotator.hpp"
+#  include "ParticlePhysics2DDemo.hpp"
+#  include "Physics2DDemo.hpp"
+using namespace eco_sys_lab_plugin;
+#endif
 #include "ClassRegistry.hpp"
-#include "Climate.hpp"
-#include "EcoSysLabLayer.hpp"
-#include "ForestDescriptor.hpp"
-#include "HeightField.hpp"
-#include "ObjectRotator.hpp"
-#include "ParticlePhysics2DDemo.hpp"
-#include "Physics2DDemo.hpp"
+
 #include "ProjectManager.hpp"
-#include "RadialBoundingVolume.hpp"
-#include "Soil.hpp"
-#include "SorghumLayer.hpp"
-#include "Tree.hpp"
-#include "TreeModel.hpp"
-#include "TreePointCloudScanner.hpp"
-#include "TreeStructor.hpp"
+
 #include "WindowLayer.hpp"
 #ifdef TEXTURE_BAKING_PLUGIN
-#include "TextureBaking.hpp"
+#  include "TextureBaking.hpp"
 using namespace texture_baking_plugin;
 #endif
-using namespace eco_sys_lab_plugin;
+
 
 void EngineSetup();
 
@@ -91,24 +85,26 @@ int main() {
 #ifdef PHYSICS_PLUGIN
   Application::PushLayer<PhysicsLayer>();
 #endif
+#ifdef ECOSYSLAB_PLUGIN
   Application::PushLayer<EcoSysLabLayer>();
+  PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
+  PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
+  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
+#endif
 #ifdef TEXTURE_BAKING_PLUGIN
   PrivateComponentRegistration<TextureBaking>("TextureBaking");
 #endif
-  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
-  PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
-  PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
 
   ApplicationInfo application_configs;
   application_configs.application_name = "EcoSysLab";
-  application_configs.project_path = std::filesystem::absolute(resourceFolderPath / "EcoSysLabProject" / "test.eveproj");
+  application_configs.project_path =
+      std::filesystem::absolute(resourceFolderPath / "EcoSysLabProject" / "test.eveproj");
   Application::Initialize(application_configs);
 
 #ifdef OPTIX_RAY_TRACER_PLUGIN
-
   auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
 #endif
-#ifdef BUILD_WITH_PHYSICS
+#ifdef PHYSICS_PLUGIN
   Application::GetActiveScene()->GetOrCreateSystem<PhysicsSystem>(1);
 #endif
   // adjust default camera speed

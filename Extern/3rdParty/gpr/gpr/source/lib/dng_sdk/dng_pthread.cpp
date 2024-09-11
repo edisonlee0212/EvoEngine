@@ -313,8 +313,8 @@ int dng_pthread_create(dng_pthread_t *thread, const pthread_attr_t *attrs, void 
 	{
 		uintptr_t result;
 		unsigned threadID;
-		std::auto_ptr<trampoline_args> args(new (std::nothrow) trampoline_args);
-		std::auto_ptr<void *> resultHolder(new (std::nothrow) (void *));
+                std::unique_ptr<trampoline_args> args(new (std::nothrow) trampoline_args);
+                std::unique_ptr<void *> resultHolder(new (std::nothrow)(void *));
 
 		if (args.get() == NULL || resultHolder.get () == NULL)
 			return -1; // ENOMEM

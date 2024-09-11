@@ -33,8 +33,21 @@ using namespace universe_plugin;
 #  include "TextureBaking.hpp"
 using namespace texture_baking_plugin;
 #endif
-using namespace evo_engine;
 
+#ifdef ECOSYSLAB_PLUGIN
+#  include "EcoSysLabLayer.hpp"
+#  include "ObjectRotator.hpp"
+#  include "ParticlePhysics2DDemo.hpp"
+#  include "Physics2DDemo.hpp"
+using namespace eco_sys_lab_plugin;
+#endif
+
+#ifdef GPR_PLUGIN
+#  include "Gpr.hpp"
+using namespace gpr_plugin;
+#endif
+
+using namespace evo_engine;
 #pragma region Helpers
 #ifdef PHYSICS_PLUGIN
 Entity CreateDynamicCube(const float& mass, const glm::vec3& color, const glm::vec3& position,
@@ -81,7 +94,15 @@ int main() {
 #ifdef PHYSICS_PLUGIN
   Application::PushLayer<PhysicsLayer>();
 #endif
-
+#ifdef ECOSYSLAB_PLUGIN
+  Application::PushLayer<EcoSysLabLayer>();
+  PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
+  PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
+  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
+#endif
+#ifdef GPR_PLUGIN
+  AssetRegistration<Gpr>("Gpr", {".evegpr", ".gpr", ".GPR"});
+#endif
   ApplicationInfo application_info;
   SetupDemoScene(demo_setup, application_info);
 
