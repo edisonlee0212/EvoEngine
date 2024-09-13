@@ -46,8 +46,8 @@ extern "C" __global__ void __miss__PCS_SS() {
 extern "C" __global__ void __raygen__PCS() {
   unsigned ix = optixGetLaunchIndex().x;
   auto &samples = pointCloudScanningLaunchParams.m_samples[ix];
-  auto start = samples.m_start;
-  auto direction = samples.m_direction;
+  auto start = samples.start;
+  auto direction = samples.direction;
   float3 rayOrigin = make_float3(start.x, start.y, start.z);
   float3 rayDirection = make_float3(direction.x, direction.y, direction.z);
 

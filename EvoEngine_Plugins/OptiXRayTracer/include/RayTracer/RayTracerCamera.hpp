@@ -5,13 +5,13 @@
 #include <RenderTexture.hpp>
 
 
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "CUDAModule.hpp"
 
 namespace evo_engine {
     class RayTracerCamera : public IPrivateComponent {
         friend class RayTracerLayer;
-        friend class RayTracer;
+        friend class OptiXRayTracer;
         CameraProperties camera_properties_;
         bool rendered_ = false;
         bool main_camera_ = false;

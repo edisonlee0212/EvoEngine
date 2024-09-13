@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <CUDAModule.hpp>
 #include <Optix7.hpp>
-#include <RayTracer.hpp>
+#include <OptiXRayTracer.hpp>
 #include <cuda_gl_interop.h>
 #include <cuda.h>
 #include <sstream>
@@ -15,11 +15,11 @@
 #include "Texture2D.hpp"
 #include "Cubemap.hpp"
 #include "RenderTexture.hpp"
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "VulkanInterlop.hpp"
 using namespace evo_engine;
 
-std::unique_ptr<RayTracer>& CudaModule::GetRayTracer() {
+std::unique_ptr<OptiXRayTracer>& CudaModule::GetRayTracer() {
 	return GetInstance().m_rayTracer;
 }
 
@@ -33,7 +33,7 @@ void CudaModule::Init() {
 	// Choose which GPU to run on, change this on a multi-GPU system.
 	CUDA_CHECK(SetDevice(0));
 	OPTIX_CHECK(optixInitWithHandle(&cudaModule.m_optixHandle));
-	cudaModule.m_rayTracer = std::make_unique<RayTracer>();
+	cudaModule.m_rayTracer = std::make_unique<OptiXRayTracer>();
 	cudaModule.m_initialized = true;
 }
 
@@ -93,7 +93,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo
 		image->GetVkImageMemHandle(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR);
 #endif
 	VkMemoryRequirements vkMemoryRequirements = {};
-	vkGetImageMemoryRequirements(evo_engine::Graphics::GetVkDevice(), image->GetVkImage(), &vkMemoryRequirements);
+        vkGetImageMemoryRequirements(evo_engine::Platform::GetVkDevice(), image->GetVkImage(), &vkMemoryRequirements);
 	size_t totalImageMemSize = vkMemoryRequirements.size;
 	cudaExtMemHandleDesc.size = totalImageMemSize;
 
@@ -158,7 +158,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo
 	texDescr.addressMode[1] = cudaAddressModeWrap;
 	texDescr.addressMode[2] = cudaAddressModeWrap;
 
-	texDescr.maxAnisotropy = evo_engine::Graphics::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+	texDescr.maxAnisotropy = evo_engine::Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
 
 	texDescr.minMipmapLevelClamp = 0;
 	texDescr.maxMipmapLevelClamp = static_cast<float>(image->GetMipLevels() - 1);
@@ -191,7 +191,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_e
 		image->GetVkImageMemHandle(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR);
 #endif
 	VkMemoryRequirements vkMemoryRequirements = {};
-	vkGetImageMemoryRequirements(evo_engine::Graphics::GetVkDevice(), image->GetVkImage(), &vkMemoryRequirements);
+        vkGetImageMemoryRequirements(evo_engine::Platform::GetVkDevice(), image->GetVkImage(), &vkMemoryRequirements);
 	size_t totalImageMemSize = vkMemoryRequirements.size;
 	cudaExtMemHandleDesc.size = totalImageMemSize;
 
@@ -256,7 +256,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_e
 	texDescr.addressMode[1] = cudaAddressModeWrap;
 	texDescr.addressMode[2] = cudaAddressModeWrap;
 
-	texDescr.maxAnisotropy = evo_engine::Graphics::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+	texDescr.maxAnisotropy = evo_engine::Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
 
 	texDescr.minMipmapLevelClamp = 0;
 	texDescr.maxMipmapLevelClamp = static_cast<float>(image->GetMipLevels() - 1);
@@ -290,7 +290,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(
 		image->GetVkImageMemHandle(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR);
 #endif
 	VkMemoryRequirements vkMemoryRequirements = {};
-	vkGetImageMemoryRequirements(evo_engine::Graphics::GetVkDevice(), image->GetVkImage(), &vkMemoryRequirements);
+        vkGetImageMemoryRequirements(evo_engine::Platform::GetVkDevice(), image->GetVkImage(), &vkMemoryRequirements);
 	size_t totalImageMemSize = vkMemoryRequirements.size;
 	cudaExtMemHandleDesc.size = totalImageMemSize;
 
@@ -355,7 +355,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(
 	texDescr.addressMode[1] = cudaAddressModeWrap;
 	texDescr.addressMode[2] = cudaAddressModeWrap;
 
-	texDescr.maxAnisotropy = evo_engine::Graphics::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+	texDescr.maxAnisotropy = evo_engine::Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
 
 	texDescr.minMipmapLevelClamp = 0;
 	texDescr.maxMipmapLevelClamp = static_cast<float>(image->GetMipLevels() - 1);

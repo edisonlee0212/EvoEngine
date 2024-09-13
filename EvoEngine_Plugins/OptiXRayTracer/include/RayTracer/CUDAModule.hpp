@@ -1,7 +1,7 @@
 #pragma once
 
 
-#include "RayTracer.hpp"
+#include "OptiXRayTracer.hpp"
 #include "memory"
 
 #include "VulkanInterlop.hpp"
@@ -33,12 +33,12 @@ namespace evo_engine {
 #pragma endregion
         void *m_optixHandle = nullptr;
         bool m_initialized = false;
-        std::unique_ptr<RayTracer> m_rayTracer;
+        std::unique_ptr<OptiXRayTracer> m_rayTracer;
 
         friend class RayTracerLayer;
 
     public:
-        static std::unique_ptr<RayTracer> &GetRayTracer();
+        static std::unique_ptr<OptiXRayTracer> &GetRayTracer();
 
         static CudaModule &GetInstance();
 

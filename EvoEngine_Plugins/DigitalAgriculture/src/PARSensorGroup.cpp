@@ -3,12 +3,12 @@
 //
 #include <Jobs.hpp>
 #ifdef OPTIX_RAY_TRACER_PLUGIN
-#  include "Graphics.hpp"
+#  include "Platform.hpp"
 #  include "PARSensorGroup.hpp"
 #  include "RayTracerLayer.hpp"
 
-using namespace digital_agriculture;
-void digital_agriculture::PARSensorGroup::CalculateIllumination(const RayProperties& ray_properties, int seed,
+using namespace digital_agriculture_plugin;
+void digital_agriculture_plugin::PARSensorGroup::CalculateIllumination(const RayProperties& ray_properties, int seed,
                                                         float push_normal_distance) {
   if (m_samplers.empty())
     return;

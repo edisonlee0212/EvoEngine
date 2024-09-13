@@ -15,9 +15,13 @@
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
-#include <TreePointCloudScanner.hpp>
 
+#ifdef DATASET_GENERATION_PLUGIN
+#include <TreePointCloudScanner.hpp>
+#include <SorghumPointCloudScanner.hpp>
 #include "DatasetGenerator.hpp"
+#endif
+
 #include "ParticlePhysics2DDemo.hpp"
 #include "Physics2DDemo.hpp"
 using namespace eco_sys_lab_plugin;
@@ -27,6 +31,8 @@ void register_classes() {
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
   PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
   PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
+  PrivateComponentRegistration<TreePointCloudScanner>("TreePointCloudScanner");
+  PrivateComponentRegistration<SorghumPointCloudScanner>("SorghumPointCloudScanner");
 }
 
 void register_layers(bool enableWindowLayer, bool enableEditorLayer) {
@@ -121,15 +127,19 @@ void forest_patch_point_cloud() {
 
 void forest_patch_point_cloud_joined(const std::string& folderName, const bool exportJunction, const int count,
                                      const int gridSideCount) {
-  std::filesystem::path resourceFolderPath("../../../Resources");
-  if (!std::filesystem::exists(resourceFolderPath)) {
-    resourceFolderPath = "../../Resources";
+  std::filesystem::path resource_folder_path("../../../../../Resources");
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../../Resources";
   }
-  if (!std::filesystem::exists(resourceFolderPath)) {
-    resourceFolderPath = "../Resources";
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../Resources";
   }
-  resourceFolderPath = std::filesystem::absolute(resourceFolderPath);
-
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../Resources";
+  }
   TreeMeshGeneratorSettings tmgs{};
   tmgs.branch_y_subdivision = 0.05f;
   tmgs.trunk_y_subdivision = 0.05f;
@@ -162,7 +172,7 @@ void forest_patch_point_cloud_joined(const std::string& folderName, const bool e
   treePointCloudGridCaptureSettings->m_droneSample = 256;
 
   std::filesystem::path target_descriptor_folder_path =
-      std::filesystem::absolute(resourceFolderPath / "EcoSysLabProject" / folderName);
+      std::filesystem::absolute(resource_folder_path / "EcoSysLabProject" / folderName);
 
   for (int index = 0; index < count; index++) {
     for (const auto& i : std::filesystem::recursive_directory_iterator(target_descriptor_folder_path)) {
@@ -321,8 +331,6 @@ void tree_growth_mesh() {
 }
 
 void apple_tree_growth() {
-  // std::filesystem::path project_folder_path =
-  // "C:\\Users\\62469\\Work\\TreeEngine\\EcoSysLab\\Resources\\EcoSysLabProject";
   std::filesystem::path resourceFolderPath("../../../Resources");
   if (!std::filesystem::exists(resourceFolderPath)) {
     resourceFolderPath = "../../Resources";
@@ -364,20 +372,26 @@ void apple_tree_growth() {
 int main() {
   // apple_tree_growth();
   // sorghum_field_point_cloud();
-  std::filesystem::path resourceFolderPath("../../../Resources");
-  if (!std::filesystem::exists(resourceFolderPath)) {
-    resourceFolderPath = "../../Resources";
+  std::filesystem::path resource_folder_path("../../../../../Resources");
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../../Resources";
   }
-  if (!std::filesystem::exists(resourceFolderPath)) {
-    resourceFolderPath = "../Resources";
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../Resources";
   }
-  resourceFolderPath = std::filesystem::absolute(resourceFolderPath);
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../Resources";
+  }
+  resource_folder_path = std::filesystem::absolute(resource_folder_path);
 
-  std::filesystem::path project_path = resourceFolderPath / "EcoSysLabProject" / "test.eveproj";
+  const std::filesystem::path project_path = resource_folder_path / "EcoSysLabProject" / "test.eveproj";
   start_project_windowless(project_path);
 
-  bool exportJunction = true;
-  forest_patch_point_cloud_joined("TreeStructor", exportJunction, 5, 8);
+  constexpr bool export_junction = true;
+  forest_patch_point_cloud_joined("TreeStructor", export_junction, 5, 8);
   // forest_patch_point_cloud_joined("Coniferous", exportJunction, 1, 8);
   // forest_patch_point_cloud_joined("Broadleaf", exportJunction, 1, 8);
 }

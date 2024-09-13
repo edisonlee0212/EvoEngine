@@ -6,7 +6,7 @@
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
 #include "Particles.hpp"
-#include "RayTracer.hpp"
+#include "OptiXRayTracer.hpp"
 #include "RayTracerCamera.hpp"
 #include "Resources.hpp"
 #include "SkinnedMeshRenderer.hpp"

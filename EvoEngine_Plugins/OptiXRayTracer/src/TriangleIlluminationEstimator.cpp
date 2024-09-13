@@ -1,6 +1,6 @@
 
 #include <TriangleIlluminationEstimator.hpp>
-#include "Graphics.hpp"
+#include "Platform.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
 #include "RayTracerLayer.hpp"

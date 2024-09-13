@@ -225,8 +225,8 @@ namespace evo_engine {
 
 	struct PointCloudSample {
 		// Input
-		glm::vec3 m_direction = glm::vec3(0.0f);
-		glm::vec3 m_start = glm::vec3(0.0f);
+		glm::vec3 direction = glm::vec3(0.0f);
+		glm::vec3 start = glm::vec3(0.0f);
 
 		// Output
 		uint64_t m_handle = 0;
@@ -360,7 +360,7 @@ namespace evo_engine {
 	};
 
 
-	class RayTracer {
+	class OptiXRayTracer {
 	public:
 		bool m_sceneModified = false;
 		std::unordered_map<uint64_t, RayTracedMaterial> m_materials;
@@ -385,7 +385,7 @@ namespace evo_engine {
 			const EnvironmentProperties& environmentProperties,
 			CudaBuffer& samples);
 
-		RayTracer();
+		OptiXRayTracer();
 
 		/*! build an acceleration structure for the given triangle mesh */
 		void BuildIAS();

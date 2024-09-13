@@ -93,8 +93,8 @@ void BasicPointCloudScanner::Scan() {
     const int row_index = (int)i % row;
     const auto position = center + left * (float)(column_start + column_index) * distance.x +
                           up * (float)(row_start + row_index) * distance.y;
-    pc_samples[i].m_start = position;
-    pc_samples[i].m_direction = glm::normalize(actual_vector);
+    pc_samples[i].start = position;
+    pc_samples[i].direction = glm::normalize(actual_vector);
   });
 
   CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);

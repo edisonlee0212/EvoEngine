@@ -1,7 +1,7 @@
 #include "SorghumPointCloudScanner.hpp"
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include <CUDAModule.hpp>
-#  include <RayTracer.hpp>
+#  include <OptiXRayTracer.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
 #include "EcoSysLabLayer.hpp"
@@ -211,7 +211,7 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
     if (m_sorghumPointCloudPointSettings.m_ballRandRadius > 0.0f) {
       ball_rand = glm::ballRand(m_sorghumPointCloudPointSettings.m_ballRandRadius);
     }
-    const auto distance = glm::distance(sample.m_hitInfo.position, sample.m_start);
+    const auto distance = glm::distance(sample.m_hitInfo.position, sample.start);
 
     points.emplace_back(sample.m_hitInfo.position +
                         distance * glm::vec3(glm::gaussRand(0.0f, m_sorghumPointCloudPointSettings.m_variance),

@@ -1304,11 +1304,8 @@ void Platform::Initialize() {
       return vkGetInstanceProcAddr(GetVkInstance(), function_name);
     });
     ImGui_ImplVulkan_Init(&init_info);
-
-
-    graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
   }
-
+  graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
   GeometryStorage::Initialize();
   TextureStorage::Initialize();
 

@@ -1,7 +1,7 @@
 #include "TreePointCloudScanner.hpp"
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include <CUDAModule.hpp>
-#  include <RayTracer.hpp>
+#  include <OptiXRayTracer.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
 #include "Tinyply.hpp"
@@ -376,7 +376,7 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& meshGenerat
     if (m_pointSettings.m_ballRandRadius > 0.0f) {
       ballRand = glm::ballRand(m_pointSettings.m_ballRandRadius);
     }
-    const auto distance = glm::distance(sample.m_hitInfo.position, sample.m_start);
+    const auto distance = glm::distance(sample.m_hitInfo.position, sample.start);
     points.emplace_back(sample.m_hitInfo.position +
                         distance * glm::vec3(glm::gaussRand(0.0f, m_pointSettings.m_variance),
                                              glm::gaussRand(0.0f, m_pointSettings.m_variance),

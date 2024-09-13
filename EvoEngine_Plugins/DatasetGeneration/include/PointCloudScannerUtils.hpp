@@ -1,7 +1,9 @@
 #pragma once
-
+#ifdef OPTIX_RAY_TRACER_PLUGIN
+#include "OptiXRayTracer.hpp"
+#endif
+using namespace evo_engine;
 namespace dataset_generation_plugin {
-struct PointCloudSample;
 struct HitInfo;
 
 #ifndef OPTIX_RAY_TRACER_PLUGIN
