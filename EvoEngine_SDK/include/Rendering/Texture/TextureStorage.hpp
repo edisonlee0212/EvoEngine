@@ -62,9 +62,15 @@ class TextureStorage final {
   friend class RenderLayer;
   friend class Platform;
   friend class Resources;
-  static void DeviceSync();
+  
 
  public:
+  static void DeviceSync();
+  static void BindTexture2DToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set, uint32_t binding);
+  static void BindCubemapToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set, uint32_t binding);
+
+
+
   static const Texture2DStorage& PeekTexture2DStorage(const std::shared_ptr<TextureStorageHandle>& handle);
   static Texture2DStorage& RefTexture2DStorage(const std::shared_ptr<TextureStorageHandle>& handle);
 

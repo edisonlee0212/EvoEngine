@@ -83,9 +83,9 @@ bool JoeScan::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
       const auto newEntity = scene->CreateEntity("Scan");
       const auto particles = scene->GetOrSetPrivateComponent<Particles>(newEntity).lock();
       const auto material = ProjectManager::CreateTemporaryAsset<Material>();
-      particles->m_material = material;
-      particles->m_mesh = Resources::GetResource<Mesh>("PRIMITIVE_CUBE");
-      particles->m_particleInfoList = joeScanList;
+      particles->material = material;
+      particles->mesh = Resources::GetResource<Mesh>("PRIMITIVE_CUBE");
+      particles->particle_info_list = joeScanList;
       */
     }
   }

@@ -1,5 +1,6 @@
 #pragma once
 #include "Mesh.hpp"
+#include "RenderInstances.hpp"
 #include "Scene.hpp"
 namespace evo_engine {
 /**
@@ -71,9 +72,13 @@ class RayTracer final {
      */
     uint32_t mesh_index = 0;
     /**
-     * @brief Index of the intersected node.
+     * @brief Index of the intersected node. Can be used to locate entity.
      */
     uint32_t node_index = 0;
+    /**
+     * @brief Index of the intersected instance. Can be used to locate material.
+     */
+    uint32_t instance_index = 0;
   };
 
   /**
@@ -84,14 +89,13 @@ class RayTracer final {
 
   /**
    * @brief Initialize ray tracer for entire scene.
-   * @param input_scene The scene for initialization.
+   * @param render_instances The render instances for initialization.
    * @param mesh_binding Action to set up mesh record for each mesh.
    * @param node_binding Action to set up node record for each node.
    */
-  void Initialize(const std::shared_ptr<Scene>& input_scene,
+  void Initialize(const std::shared_ptr<RenderInstances>& render_instances,
                   const std::function<void(uint32_t mesh_index, const std::shared_ptr<Mesh>& mesh)>& mesh_binding,
                   const std::function<void(uint32_t node_index, const Entity& entity)>& node_binding);
-
   /**
    * @brief Trace a ray within the scene. Function is thread-safe.
    * @param ray_descriptor Configuration for the ray.
@@ -147,134 +151,30 @@ class RayTracer final {
     //| GPU Related                                                                           |
     //=========================================================================================
     void InitializeBuffers();
+    struct AggregateSceneInfo {
+      uint32_t scene_level_bvh_nodes_size = 0;    // 0_x
+      uint32_t scene_level_bvh_nodes_offset = 0;  // 0_y
+      uint32_t node_indices_offset = 0;           // 0_z
+      uint32_t node_infos_offset = 0;             // 0_w
+      uint32_t node_level_bvh_nodes_offset = 0;   // 1_x
+      uint32_t mesh_indices_offset = 0;           // 1_y
 
-    std::shared_ptr<Buffer> scene_level_bvh_nodes_buffer;
+      uint32_t mesh_mappings_offset = 0;         // 1_z
+      uint32_t mesh_level_bvh_nodes_offset = 0;  // 1_w
 
-    std::shared_ptr<Buffer> node_indices_buffer;
-    std::shared_ptr<Buffer> node_info_list_buffer;
-    std::shared_ptr<Buffer> node_level_bvh_nodes_buffer;
+      uint32_t triangle_indices_offset = 0;        // 2_x
+      uint32_t triangles_offset = 0;               // 2_y
+      uint32_t vertices_offset = 0;        // 2_z
+      uint32_t local_triangle_indices_offset = 0;  // 2_w
+    };
 
-    std::shared_ptr<Buffer> mesh_indices_buffer;
-    std::shared_ptr<Buffer> mesh_info_list_buffer;
-    std::shared_ptr<Buffer> mesh_level_bvh_nodes_buffer;
+    AggregateSceneInfo aggregate_scene_info{};
+    std::vector<glm::vec4> scene_graph_data{};
+    std::vector<glm::vec4> scene_geometry_data{};
 
-    std::shared_ptr<Buffer> triangle_indices_buffer;
-    std::shared_ptr<Buffer> local_triangle_indices_buffer;
-    std::shared_ptr<Buffer> scene_triangles_buffer;
-    std::shared_ptr<Buffer> scene_vertex_positions_buffer;
-
-    std::shared_ptr<Buffer> scene_info_buffer;
-
-   private:
-    friend class RayTracer;
-    //=========================================================================================
-    //| CGScene level                                                                         |
-    //=========================================================================================
-    /**
-     * @brief BVH nodes that helps locate the range of indices of node(CGNode) in [node_indices].
-     */
-    std::vector<BvhNode> scene_level_bvh_nodes_;
-
-    /**
-     * @brief Indices of node(CGNode), used for locating elements in [transforms], [inverse_transforms],
-     * [node_level_bvh_node_offsets], and [mesh_indices_offsets].
-     */
-    std::vector<uint32_t> node_indices_;
-
-    //=========================================================================================
-    //| CGNode level                                                                          |
-    //=========================================================================================
-    /**
-     * @brief Node(CGNode)'s transformation matrix.
-     */
-    std::vector<GlobalTransform> node_transforms_;
-
-    /**
-     * @brief Node(CGNode)'s inverse transformation matrix.
-     */
-    std::vector<GlobalTransform> node_inverse_transforms_;
-
-    /**
-     * @brief Offsets that help locating sublist of BVH nodes for current node(CGNode) in [node_level_bvh_nodes].
-     */
-    std::vector<uint32_t> node_level_bvh_node_offsets_;
-
-    /**
-     * @brief Sizes that help locating sublist of BVH nodes for current node(CGNode) in [node_level_bvh_nodes].
-     */
-    std::vector<uint32_t> node_level_bvh_node_sizes_;
-
-    /**
-     * @brief Offsets that help locating sublist of mesh indices for current node(CGNode) in [mesh_indices].
-     */
-    std::vector<uint32_t> mesh_indices_offsets_;
-
-    /**
-     * @brief Sizes that help locating sublist of mesh indices for current node(CGNode) in [mesh_indices].
-     */
-    std::vector<uint32_t> mesh_indices_sizes_;
-
-    //=========================================================================================
-
-    /**
-     * @brief BVH nodes that helps locate the range of indices of mesh(CGMesh) in [mesh_indices].
-     */
-    std::vector<BvhNode> node_level_bvh_nodes_;
-
-    /**
-     * @brief Indices of mesh(CGMesh), used for locating elements in [mesh_level_bvh_node_offsets] and
-     * [triangle_indices_offsets].
-     */
-    std::vector<uint32_t> mesh_indices_;
-
-    //=========================================================================================
-    //| CGMesh level                                                                          |
-    //=========================================================================================
-    /**
-     * @brief Offsets that helps locate the range of indices of triangle(CGVecU3) in [mesh_level_bvh_nodes].
-     */
-    std::vector<uint32_t> mesh_level_bvh_node_offsets_;
-    /**
-     * @brief Sizes that helps locate the range of indices of triangle(CGVecU3) in [mesh_level_bvh_nodes].
-     */
-    std::vector<uint32_t> mesh_level_bvh_node_sizes_;
-    /**
-     * @brief Offsets that help locating sublist of mesh indices for current node(CGNode) in [triangle_indices].
-     */
-    std::vector<uint32_t> triangle_indices_offsets_;
-    /**
-     * @brief Sizes that help locating sublist of mesh indices for current node(CGNode) in [triangle_indices].
-     */
-    std::vector<uint32_t> triangle_indices_sizes_;
-
-    //=========================================================================================
-
-    /**
-     * @brief BVH nodes that helps locate the range of indices of triangle(CGVecU3) in [triangle_indices].
-     */
-    std::vector<BvhNode> mesh_level_bvh_nodes_;
-
-    /**
-     * @brief Indices of triangle(CGVecU3)
-     */
-    std::vector<uint32_t> triangle_indices_;
-
-    /**
-     * @brief The indices of triangle within corresponding mesh. Needed by constructing intersection info.
-     */
-    std::vector<uint32_t> local_triangle_indices_;
-
-    //=========================================================================================
-    //| Primitive level                                                                       |
-    //=========================================================================================
-    /**
-     * @brief Triangles of entire scene.
-     */
-    std::vector<glm::uvec3> triangles_;
-    /**
-     * @brief Vertex positions of entire scene.
-     */
-    std::vector<glm::vec3> vertex_positions_;
+    std::shared_ptr<Buffer> aggregate_scene_graph_buffer{};
+    std::shared_ptr<Buffer> aggregate_scene_geometry_buffer{};
+    std::shared_ptr<Buffer> aggregate_scene_info_buffer{};
   };
 
   /**
@@ -283,29 +183,30 @@ class RayTracer final {
    * @return Aggregated scene data.
    */
   [[nodiscard]] AggregatedScene Aggregate() const;
-
+  [[nodiscard]] Entity GetEntity(uint32_t node_index) const;
  private:
   struct FlattenedBvh {
-    std::vector<BvhNode> nodes;
-    std::vector<uint32_t> element_indices;
+    std::vector<BvhNode> nodes{};
+    std::vector<uint32_t> element_indices{};
   };
 
   struct GeometryInstance {
-    Bound aabb;
-    FlattenedBvh flattened_bvh_triangle_group;
-    std::vector<glm::vec3> vertex_positions;
-    std::vector<glm::uvec3> triangles;
+    Bound aabb{};
+    FlattenedBvh flattened_bvh_triangle_group{};
+    std::vector<Vertex> vertices{};
+    std::vector<glm::uvec3> triangles{};
     void Initialize(const std::shared_ptr<Mesh>& input_mesh);
     void Clear() noexcept;
   };
 
   struct NodeInstance {
-    Bound aabb;
+    Bound aabb{};
+    uint32_t instance_index = 0;
+    Entity entity{};
     GlobalTransform transformation{};
     GlobalTransform inverse_transformation{};
     FlattenedBvh flattened_bvh_mesh_group;
-
-    void Initialize(const std::shared_ptr<Scene>& input_scene, const Entity& input_entity,
+    void Initialize(const std::shared_ptr<RenderInstances>& render_instances, const RenderInstance& render_instance,
                     const std::vector<GeometryInstance>& mesh_instances,
                     const std::map<Handle, uint32_t>& mesh_instances_map);
     void Clear() noexcept;
@@ -313,13 +214,13 @@ class RayTracer final {
 
   enum class Axis { X, Y, Z };
   struct SplitResult {
-    Axis axis;
-    float split;
+    Axis axis{};
+    float split{};
   };
 
   struct BucketSplit {
-    size_t split_idx;
-    float cost;
+    size_t split_idx{};
+    float cost{};
   };
 
   struct BucketBound {
@@ -339,8 +240,8 @@ class RayTracer final {
   struct Bvh {
     Bound aabb{};
     uint32_t subtree_element_size = 0;
-    std::vector<Bvh> children;
-    std::vector<uint32_t> element_indices;
+    std::vector<Bvh> children{};
+    std::vector<uint32_t> element_indices{};
   };
 
   static SplitResult FindBestSplit(const Bvh& parent, const std::vector<Bound>& aabbs);

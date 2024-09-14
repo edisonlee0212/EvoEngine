@@ -3,8 +3,9 @@
 #include "ClassRegistry.hpp"
 #include "RayTracer.hpp"
 
-#include "ProjectManager.hpp"
 #include "EditorLayer.hpp"
+#include "ProjectManager.hpp"
+#include "RenderLayer.hpp"
 using namespace evo_engine;
 
 float CpuRayTracerCamera::GetSizeRatio() const {
@@ -33,30 +34,33 @@ void CpuRayTracerCamera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_bloc
 void CpuRayTracerCamera::OnCreate() {
 }
 
-void CpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
+void CpuRayTracerCamera::Capture(const CaptureParameters& parameters,
                                  const std::shared_ptr<Texture2D>& target_texture) const {
+  std::shared_ptr<RenderInstances> render_instances;
+
+  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+    render_instances = render_layer->render_instances;
+  } else {
+    render_instances = std::make_shared<RenderInstances>(1);
+  }
   std::vector<glm::vec4> pixels{resolution.x * resolution.y};
   CameraInfoBlock camera_info_block;
   const auto scene = GetScene();
   const auto owner = GetOwner();
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(owner);
   UpdateCameraInfoBlock(camera_info_block, global_transform);
-  std::vector<Entity> entities;
   RayTracer cpu_ray_tracer;
   cpu_ray_tracer.Initialize(
-      scene,
+      render_instances,
       [&](uint32_t, const std::shared_ptr<Mesh>&) {
-
       },
       [&](const uint32_t node_index, const Entity& entity) {
-        entities.resize(glm::max(entities.size(), static_cast<size_t>(node_index) + 1));
-        entities[node_index] = entity;
       });
   std::vector<glm::vec4> colors(65536);
   for (auto& color : colors) {
     color = glm::vec4(glm::abs(glm::sphericalRand(1.f)), 1.f);
   }
-
+  const auto aggregated_scene = cpu_ray_tracer.Aggregate();
   Jobs::RunParallelFor(resolution.x * resolution.y, [&](const size_t pixel_index) {
     const float x_coordinate = pixel_index % resolution.y;
     const float y_coordinate = pixel_index / resolution.y;
@@ -67,7 +71,7 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
     RayTracer::RayDescriptor current_ray_descriptor{};
     float hit_count = 0;
     float temp = 0;
-    for (uint32_t sample_index = 0; sample_index < capture_parameters.sample; sample_index++) {
+    for (uint32_t sample_index = 0; sample_index < parameters.sample; sample_index++) {
       const auto screen = glm::vec2((x_coordinate + random_sampler.Get1D() - half_x) / half_x,
                                     (y_coordinate + random_sampler.Get1D() - half_y) / half_y);
       auto start = camera_info_block.inverse_projection_view * glm::vec4(screen.x, screen.y, 0.0f, 1.0f);
@@ -77,11 +81,11 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& capture_parameters,
       current_ray_descriptor.origin = start;
       current_ray_descriptor.direction = glm::normalize(end - start);
 
-      cpu_ray_tracer.Trace(
+      aggregated_scene.Trace(
           current_ray_descriptor,
           [&](const RayTracer::HitInfo& hit_info) {
             hit_count += 1;
-            temp += static_cast<float>(entities[hit_info.node_index].GetIndex());
+            temp += static_cast<float>(cpu_ray_tracer.GetEntity(hit_info.node_index).GetIndex());
           },
           [&]() {
           },

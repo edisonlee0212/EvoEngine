@@ -62,7 +62,6 @@ int main() {
   editorLayer->enable_gizmos = false;
   editorLayer->GetSceneCamera()->clear_color = glm::vec3(1.f);
   const auto renderLayer = Application::GetLayer<RenderLayer>();
-  renderLayer->enable_particles = false;
 
   ProjectManager::GetInstance().show_project_window = false;
 #pragma region Engine Loop

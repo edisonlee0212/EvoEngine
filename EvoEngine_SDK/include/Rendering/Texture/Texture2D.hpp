@@ -20,7 +20,6 @@ class Texture2D : public IAsset {
 
   void SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution, bool local_copy);
   std::vector<glm::vec4> local_data_;
-  glm::uvec2 local_resolution_;
 
  protected:
   bool SaveInternal(const std::filesystem::path& path) const override;
@@ -46,7 +45,7 @@ class Texture2D : public IAsset {
                          int src_channel_size, int target_channel_size, int resize_x = -1, int resize_y = -1);
 
   void ApplyOpacityMap(const std::shared_ptr<Texture2D>& target);
-
+  void SetResolution(const glm::uvec2& resolution, bool preserve_data = true);
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
   bool hdr = false;
@@ -70,7 +69,7 @@ class Texture2D : public IAsset {
                   unsigned quality = 100) const;
   void StoreToHdr(const std::filesystem::path& path, int resize_x = -1, int resize_y = -1) const;
 
-  template<typename T>
+  template <typename T>
   void GetData(std::vector<T>& dst) const;
 
   void GetRgbaChannelData(std::vector<glm::vec4>& dst, int resize_x = -1, int resize_y = -1) const;
@@ -83,13 +82,13 @@ class Texture2D : public IAsset {
   void SetRgChannelData(const std::vector<glm::vec2>& src, const glm::uvec2& resolution, bool local_copy = true);
   void SetRedChannelData(const std::vector<float>& src, const glm::uvec2& resolution, bool local_copy = true);
 
-  static void Resize(std::vector<glm::vec4>& src, const glm::uvec2& src_resolution, std::vector<glm::vec4>& dst,
+  static void Resize(const std::vector<glm::vec4>& src, const glm::uvec2& src_resolution, std::vector<glm::vec4>& dst,
                      const glm::uvec2& dst_resolution);
-  static void Resize(std::vector<glm::vec3>& src, const glm::uvec2& src_resolution, std::vector<glm::vec3>& dst,
+  static void Resize(const std::vector<glm::vec3>& src, const glm::uvec2& src_resolution, std::vector<glm::vec3>& dst,
                      const glm::uvec2& dst_resolution);
-  static void Resize(std::vector<glm::vec2>& src, const glm::uvec2& src_resolution, std::vector<glm::vec2>& dst,
+  static void Resize(const std::vector<glm::vec2>& src, const glm::uvec2& src_resolution, std::vector<glm::vec2>& dst,
                      const glm::uvec2& dst_resolution);
-  static void Resize(std::vector<float>& src, const glm::uvec2& src_resolution, std::vector<float>& dst,
+  static void Resize(const std::vector<float>& src, const glm::uvec2& src_resolution, std::vector<float>& dst,
                      const glm::uvec2& dst_resolution);
 };
 

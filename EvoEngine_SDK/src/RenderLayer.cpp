@@ -2,12 +2,12 @@
 #include "Application.hpp"
 #include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
-#include "Platform.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Jobs.hpp"
 #include "LODGroup.hpp"
 #include "MeshRenderer.hpp"
 #include "Particles.hpp"
+#include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
@@ -17,34 +17,10 @@
 #include "Utilities.hpp"
 using namespace evo_engine;
 
-void RenderInstanceCollection::Dispatch(const std::function<void(const RenderInstance&)>& command_action) const {
-  for (const auto& render_command : render_commands) {
-    command_action(render_command);
-  }
-}
-
-void SkinnedRenderInstanceCollection::Dispatch(
-    const std::function<void(const SkinnedRenderInstance&)>& command_action) const {
-  for (const auto& render_command : render_commands) {
-    command_action(render_command);
-  }
-}
-
-void StrandsRenderInstanceCollection::Dispatch(
-    const std::function<void(const StrandsRenderInstance&)>& command_action) const {
-  for (const auto& render_command : render_commands) {
-    command_action(render_command);
-  }
-}
-
-void InstancedRenderInstanceCollection::Dispatch(
-    const std::function<void(const InstancedRenderInstance&)>& command_action) const {
-  for (const auto& render_command : render_commands) {
-    command_action(render_command);
-  }
-}
-
 void RenderLayer::OnCreate() {
+  const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
+
+  render_instances = std::make_shared<RenderInstances>(max_frame_in_flight);
   CreateStandardDescriptorBuffers();
   CreatePerFrameDescriptorSets();
 
@@ -70,8 +46,6 @@ void RenderLayer::OnDestroy() {
   render_info_descriptor_buffers_.clear();
   environment_info_descriptor_buffers_.clear();
   camera_info_descriptor_buffers_.clear();
-  material_info_descriptor_buffers_.clear();
-  instance_info_descriptor_buffers_.clear();
 }
 
 void RenderLayer::ClearAllCameras() {
@@ -97,7 +71,7 @@ void RenderLayer::RenderAllCameras() {
   Bound world_bound{};
   total_mesh_triangles_ = 0;
 
-  glm::vec3 lod_center = glm::vec3(0.f);
+  auto lod_center = glm::vec3(0.f);
   float lod_max_distance = FLT_MAX;
   bool lod_set = false;
   if (const auto main_camera = scene->main_camera.Get<Camera>()) {
@@ -117,16 +91,16 @@ void RenderLayer::RenderAllCameras() {
     }
   }
 
-  CalculateLodFactor(lod_center, lod_max_distance);
+  RenderInstances::CalculateLodFactor(scene, lod_center, lod_max_distance);
 
   if (CollectRenderInstances(world_bound)) {
-    world_bound.min - glm::vec3(0.1f);
-    world_bound.max + glm::vec3(0.1f);
+    world_bound.min -= glm::vec3(0.1f);
+    world_bound.max += glm::vec3(0.1f);
     scene->SetBound(world_bound);
   } else {
     world_bound.min = world_bound.max = glm::vec3(0.0f);
-    world_bound.min - glm::vec3(1.f);
-    world_bound.max + glm::vec3(1.f);
+    world_bound.min -= glm::vec3(1.f);
+    world_bound.max += glm::vec3(1.f);
     scene->SetBound(world_bound);
   }
 
@@ -173,7 +147,7 @@ void RenderLayer::RenderAllCameras() {
     environment_info_block.environmental_lighting_intensity = scene->environment.ambient_light_intensity;
     environment_info_block.background_intensity = scene->environment.background_intensity;
   }
-
+  render_instances->Upload(current_frame_index);
   render_info_descriptor_buffers_[current_frame_index]->Upload(render_info_block);
   environment_info_descriptor_buffers_[current_frame_index]->Upload(environment_info_block);
   directional_light_info_descriptor_buffers_[current_frame_index]->UploadVector(directional_light_info_blocks_);
@@ -181,14 +155,11 @@ void RenderLayer::RenderAllCameras() {
   spot_light_info_descriptor_buffers_[current_frame_index]->UploadVector(spot_light_info_blocks_);
 
   camera_info_descriptor_buffers_[current_frame_index]->UploadVector(camera_info_blocks_);
-  material_info_descriptor_buffers_[current_frame_index]->UploadVector(material_info_blocks_);
-  instance_info_descriptor_buffers_[current_frame_index]->UploadVector(instance_info_blocks_);
 
   mesh_draw_indexed_indirect_commands_buffers_[current_frame_index]->UploadVector(mesh_draw_indexed_indirect_commands_);
   mesh_draw_mesh_tasks_indirect_commands_buffers_[current_frame_index]->UploadVector(
       mesh_draw_mesh_tasks_indirect_commands_);
 
-  
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
       0, render_info_descriptor_buffers_[current_frame_index]);
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
@@ -196,9 +167,9 @@ void RenderLayer::RenderAllCameras() {
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
       2, camera_info_descriptor_buffers_[current_frame_index]);
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      3, material_info_descriptor_buffers_[current_frame_index]);
+      3, render_instances->material_info_descriptor_buffers[current_frame_index]);
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      4, instance_info_descriptor_buffers_[current_frame_index]);
+      4, render_instances->instance_info_descriptor_buffers[current_frame_index]);
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
       5, kernel_descriptor_buffers_[current_frame_index]);
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
@@ -211,7 +182,8 @@ void RenderLayer::RenderAllCameras() {
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(9, GeometryStorage::GetVertexBuffer());
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(10,
                                                                                  GeometryStorage::GetMeshletBuffer());
-
+  TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 13);
+  TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 14);
   PreparePointAndSpotLightShadowMap();
 
   for (const auto& [cameraGlobalTransform, camera] : cameras) {
@@ -220,16 +192,6 @@ void RenderLayer::RenderAllCameras() {
       RenderToCamera(cameraGlobalTransform, camera);
     }
   }
-
-  deferred_render_instances_.render_commands.clear();
-  deferred_skinned_render_instances_.render_commands.clear();
-  deferred_instanced_render_instances_.render_commands.clear();
-  deferred_strands_render_instances_.render_commands.clear();
-  transparent_render_instances_.render_commands.clear();
-  transparent_skinned_render_instances_.render_commands.clear();
-  transparent_instanced_render_instances_.render_commands.clear();
-  transparent_strands_render_instances_.render_commands.clear();
-
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
     // Gizmos rendering
     for (const auto& i : editor_layer->gizmo_mesh_tasks_) {
@@ -346,13 +308,6 @@ void RenderLayer::RenderAllCameras() {
     }
   }
 
-  material_indices_.clear();
-  instance_indices_.clear();
-  instance_handles_.clear();
-
-  material_info_blocks_.clear();
-  instance_info_blocks_.clear();
-
   directional_light_info_blocks_.clear();
   point_light_info_blocks_.clear();
   spot_light_info_blocks_.clear();
@@ -374,10 +329,6 @@ void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
   if (enable_render_menu) {
     ImGui::Begin("Render Settings");
-    ImGui::Checkbox("Enable MeshRenderer", &enable_mesh_renderer);
-    ImGui::Checkbox("Enable SkinnedMeshRenderer", &enable_skinned_mesh_renderer);
-    ImGui::Checkbox("Enable Particles", &enable_particles);
-    ImGui::Checkbox("Enable StrandsRenderer", &enable_strands_renderer);
 
     ImGui::Checkbox("Count dc for shadows", &count_shadow_rendering_draw_calls);
     ImGui::Checkbox("Wireframe", &wire_frame);
@@ -430,59 +381,12 @@ uint32_t RenderLayer::GetCameraIndex(const Handle& handle) {
   return search->second;
 }
 
-uint32_t RenderLayer::GetMaterialIndex(const Handle& handle) {
-  const auto search = material_indices_.find(handle);
-  if (search == material_indices_.end()) {
-    throw std::runtime_error("Unable to find material!");
-  }
-  return search->second;
-}
-
-uint32_t RenderLayer::GetInstanceIndex(const Handle& handle) {
-  const auto search = instance_indices_.find(handle);
-  if (search == instance_indices_.end()) {
-    throw std::runtime_error("Unable to find instance!");
-  }
-  return search->second;
-}
-
-Handle RenderLayer::GetInstanceHandle(uint32_t index) {
-  const auto search = instance_handles_.find(index);
-  if (search == instance_handles_.end()) {
-    return 0;
-  }
-  return search->second;
-}
-
 uint32_t RenderLayer::RegisterCameraIndex(const Handle& handle, const CameraInfoBlock& camera_info_block) {
   const auto search = camera_indices_.find(handle);
   if (search == camera_indices_.end()) {
     const uint32_t index = camera_info_blocks_.size();
     camera_indices_[handle] = index;
     camera_info_blocks_.emplace_back(camera_info_block);
-    return index;
-  }
-  return search->second;
-}
-
-uint32_t RenderLayer::RegisterMaterialIndex(const Handle& handle, const MaterialInfoBlock& material_info_block) {
-  const auto search = material_indices_.find(handle);
-  if (search == material_indices_.end()) {
-    const uint32_t index = material_info_blocks_.size();
-    material_indices_[handle] = index;
-    material_info_blocks_.emplace_back(material_info_block);
-    return index;
-  }
-  return search->second;
-}
-
-uint32_t RenderLayer::RegisterInstanceIndex(const Handle& handle, const InstanceInfoBlock& instance_info_block) {
-  const auto search = instance_indices_.find(handle);
-  if (search == instance_indices_.end()) {
-    const uint32_t index = instance_info_blocks_.size();
-    instance_indices_[handle] = index;
-    instance_handles_[index] = handle;
-    instance_info_blocks_.emplace_back(instance_info_block);
     return index;
   }
   return search->second;
@@ -960,7 +864,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                 vk_command_buffer, mesh_draw_indexed_indirect_commands_buffers_[current_frame_index]->GetVkBuffer(), 0,
                 mesh_draw_indexed_indirect_commands_.size(), sizeof(VkDrawIndexedIndirectCommand));
           } else {
-            deferred_render_instances_.Dispatch([&](const RenderInstance& render_command) {
+            render_instances->deferred_render_instances.Dispatch([&](const RenderInstance& render_command) {
               if (!render_command.cast_shadow)
                 return;
               RenderInstancePushConstant push_constant;
@@ -972,17 +876,17 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                 if (count_draw_calls)
                   graphics.draw_call[current_frame_index]++;
                 if (count_draw_calls)
-                  graphics.triangles[current_frame_index] += render_command.m_mesh->triangles_.size();
+                  graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
 
                 const uint32_t count =
                     (render_command.meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
                 vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
               } else {
-                const auto mesh = render_command.m_mesh;
+                const auto mesh = render_command.mesh;
                 if (count_draw_calls)
                   graphics.draw_call[current_frame_index]++;
                 if (count_draw_calls)
-                  graphics.triangles[current_frame_index] += render_command.m_mesh->triangles_.size();
+                  graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
                 mesh->DrawIndexed(vk_command_buffer, point_light_shadow_pipeline->states, 1);
               }
             });
@@ -1017,25 +921,27 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           scissor.extent.height = viewport.height;
           point_light_shadow_instanced_pipeline->states.view_port = viewport;
           point_light_shadow_instanced_pipeline->states.scissor = scissor;
-          deferred_instanced_render_instances_.Dispatch([&](const InstancedRenderInstance& render_command) {
-            if (!render_command.cast_shadow)
-              return;
-            point_light_shadow_instanced_pipeline->BindDescriptorSet(
-                vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = i;
-            push_constant.light_split_index = face;
-            push_constant.instance_index = render_command.instance_index;
-            point_light_shadow_instanced_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-            const auto mesh = render_command.mesh;
-            if (count_draw_calls)
-              graphics.draw_call[current_frame_index]++;
-            if (count_draw_calls)
-              graphics.triangles[current_frame_index] +=
-                  render_command.mesh->triangles_.size() * render_command.particle_infos->PeekParticleInfoList().size();
-            mesh->DrawIndexed(vk_command_buffer, point_light_shadow_instanced_pipeline->states,
-                              render_command.particle_infos->PeekParticleInfoList().size());
-          });
+          render_instances->deferred_instanced_render_instances.Dispatch(
+              [&](const InstancedRenderInstance& render_command) {
+                if (!render_command.cast_shadow)
+                  return;
+                point_light_shadow_instanced_pipeline->BindDescriptorSet(
+                    vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
+                RenderInstancePushConstant push_constant;
+                push_constant.camera_index = i;
+                push_constant.light_split_index = face;
+                push_constant.instance_index = render_command.instance_index;
+                point_light_shadow_instanced_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+                const auto mesh = render_command.mesh;
+                if (count_draw_calls)
+                  graphics.draw_call[current_frame_index]++;
+                if (count_draw_calls)
+                  graphics.triangles[current_frame_index] +=
+                      render_command.mesh->triangles_.size() *
+                      render_command.particle_infos->PeekParticleInfoList().size();
+                mesh->DrawIndexed(vk_command_buffer, point_light_shadow_instanced_pipeline->states,
+                                  render_command.particle_infos->PeekParticleInfoList().size());
+              });
         }
         vkCmdEndRendering(vk_command_buffer);
       }
@@ -1067,23 +973,24 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           scissor.extent.height = viewport.height;
           point_light_shadow_skinned_pipeline->states.view_port = viewport;
           point_light_shadow_skinned_pipeline->states.scissor = scissor;
-          deferred_skinned_render_instances_.Dispatch([&](const SkinnedRenderInstance& render_command) {
-            if (!render_command.cast_shadow)
-              return;
-            point_light_shadow_skinned_pipeline->BindDescriptorSet(
-                vk_command_buffer, 1, render_command.bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = i;
-            push_constant.light_split_index = face;
-            push_constant.instance_index = render_command.instance_index;
-            point_light_shadow_skinned_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-            const auto skinned_mesh = render_command.skinned_mesh;
-            if (count_draw_calls)
-              graphics.draw_call[current_frame_index]++;
-            if (count_draw_calls)
-              graphics.triangles[current_frame_index] += render_command.skinned_mesh->skinned_triangles_.size();
-            skinned_mesh->DrawIndexed(vk_command_buffer, point_light_shadow_skinned_pipeline->states, 1);
-          });
+          render_instances->deferred_skinned_render_instances.Dispatch(
+              [&](const SkinnedRenderInstance& render_command) {
+                if (!render_command.cast_shadow)
+                  return;
+                point_light_shadow_skinned_pipeline->BindDescriptorSet(
+                    vk_command_buffer, 1, render_command.bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
+                RenderInstancePushConstant push_constant;
+                push_constant.camera_index = i;
+                push_constant.light_split_index = face;
+                push_constant.instance_index = render_command.instance_index;
+                point_light_shadow_skinned_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+                const auto skinned_mesh = render_command.skinned_mesh;
+                if (count_draw_calls)
+                  graphics.draw_call[current_frame_index]++;
+                if (count_draw_calls)
+                  graphics.triangles[current_frame_index] += render_command.skinned_mesh->skinned_triangles_.size();
+                skinned_mesh->DrawIndexed(vk_command_buffer, point_light_shadow_skinned_pipeline->states, 1);
+              });
         }
         vkCmdEndRendering(vk_command_buffer);
       }
@@ -1115,21 +1022,22 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           scissor.extent.height = viewport.height;
           point_light_shadow_strands_pipeline->states.view_port = viewport;
           point_light_shadow_strands_pipeline->states.scissor = scissor;
-          deferred_strands_render_instances_.Dispatch([&](const StrandsRenderInstance& render_command) {
-            if (!render_command.cast_shadow)
-              return;
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = i;
-            push_constant.light_split_index = face;
-            push_constant.instance_index = render_command.instance_index;
-            point_light_shadow_strands_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-            const auto strands = render_command.m_strands;
-            if (count_draw_calls)
-              graphics.draw_call[current_frame_index]++;
-            if (count_draw_calls)
-              graphics.strands_segments[current_frame_index] += render_command.m_strands->segments_.size();
-            strands->DrawIndexed(vk_command_buffer, point_light_shadow_strands_pipeline->states, 1);
-          });
+          render_instances->deferred_strands_render_instances.Dispatch(
+              [&](const StrandsRenderInstance& render_command) {
+                if (!render_command.cast_shadow)
+                  return;
+                RenderInstancePushConstant push_constant;
+                push_constant.camera_index = i;
+                push_constant.light_split_index = face;
+                push_constant.instance_index = render_command.instance_index;
+                point_light_shadow_strands_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+                const auto strands = render_command.m_strands;
+                if (count_draw_calls)
+                  graphics.draw_call[current_frame_index]++;
+                if (count_draw_calls)
+                  graphics.strands_segments[current_frame_index] += render_command.m_strands->segments_.size();
+                strands->DrawIndexed(vk_command_buffer, point_light_shadow_strands_pipeline->states, 1);
+              });
         }
         vkCmdEndRendering(vk_command_buffer);
       }
@@ -1196,7 +1104,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                                    mesh_draw_indexed_indirect_commands_buffers_[current_frame_index]->GetVkBuffer(), 0,
                                    mesh_draw_indexed_indirect_commands_.size(), sizeof(VkDrawIndexedIndirectCommand));
         } else {
-          deferred_render_instances_.Dispatch([&](const RenderInstance& render_command) {
+          render_instances->deferred_render_instances.Dispatch([&](const RenderInstance& render_command) {
             if (!render_command.cast_shadow)
               return;
             RenderInstancePushConstant push_constant;
@@ -1208,16 +1116,16 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
               if (count_draw_calls)
                 graphics.draw_call[current_frame_index]++;
               if (count_draw_calls)
-                graphics.triangles[current_frame_index] += render_command.m_mesh->triangles_.size();
+                graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
               const uint32_t count =
                   (render_command.meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
               vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
             } else {
-              const auto mesh = render_command.m_mesh;
+              const auto mesh = render_command.mesh;
               if (count_draw_calls)
                 graphics.draw_call[current_frame_index]++;
               if (count_draw_calls)
-                graphics.triangles[current_frame_index] += render_command.m_mesh->triangles_.size();
+                graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
               mesh->DrawIndexed(vk_command_buffer, spot_light_shadow_pipeline->states, 1);
             }
           });
@@ -1250,25 +1158,26 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         viewport.height = spot_light_info_block.viewport.w;
         spot_light_shadow_instanced_pipeline->states.view_port = viewport;
 
-        deferred_instanced_render_instances_.Dispatch([&](const InstancedRenderInstance& render_command) {
-          if (!render_command.cast_shadow)
-            return;
-          spot_light_shadow_instanced_pipeline->BindDescriptorSet(
-              vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
-          RenderInstancePushConstant push_constant;
-          push_constant.camera_index = i;
-          push_constant.light_split_index = 0;
-          push_constant.instance_index = render_command.instance_index;
-          spot_light_shadow_instanced_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-          const auto mesh = render_command.mesh;
-          if (count_draw_calls)
-            graphics.draw_call[current_frame_index]++;
-          if (count_draw_calls)
-            graphics.triangles[current_frame_index] +=
-                render_command.mesh->triangles_.size() * render_command.particle_infos->PeekParticleInfoList().size();
-          mesh->DrawIndexed(vk_command_buffer, spot_light_shadow_instanced_pipeline->states,
-                            render_command.particle_infos->PeekParticleInfoList().size());
-        });
+        render_instances->deferred_instanced_render_instances.Dispatch(
+            [&](const InstancedRenderInstance& render_command) {
+              if (!render_command.cast_shadow)
+                return;
+              spot_light_shadow_instanced_pipeline->BindDescriptorSet(
+                  vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
+              RenderInstancePushConstant push_constant;
+              push_constant.camera_index = i;
+              push_constant.light_split_index = 0;
+              push_constant.instance_index = render_command.instance_index;
+              spot_light_shadow_instanced_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+              const auto mesh = render_command.mesh;
+              if (count_draw_calls)
+                graphics.draw_call[current_frame_index]++;
+              if (count_draw_calls)
+                graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size() *
+                                                           render_command.particle_infos->PeekParticleInfoList().size();
+              mesh->DrawIndexed(vk_command_buffer, spot_light_shadow_instanced_pipeline->states,
+                                render_command.particle_infos->PeekParticleInfoList().size());
+            });
       }
       vkCmdEndRendering(vk_command_buffer);
     }
@@ -1298,7 +1207,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         viewport.height = spot_light_info_block.viewport.w;
         spot_light_shadow_skinned_pipeline->states.view_port = viewport;
 
-        deferred_skinned_render_instances_.Dispatch([&](const SkinnedRenderInstance& render_command) {
+        render_instances->deferred_skinned_render_instances.Dispatch([&](const SkinnedRenderInstance& render_command) {
           if (!render_command.cast_shadow)
             return;
           spot_light_shadow_skinned_pipeline->BindDescriptorSet(
@@ -1344,7 +1253,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         viewport.height = spot_light_info_block.viewport.w;
         spot_light_shadow_strands_pipeline->states.view_port = viewport;
 
-        deferred_strands_render_instances_.Dispatch([&](const StrandsRenderInstance& render_command) {
+        render_instances->deferred_strands_render_instances.Dispatch([&](const StrandsRenderInstance& render_command) {
           if (!render_command.cast_shadow)
             return;
           RenderInstancePushConstant push_constant;
@@ -1367,140 +1276,16 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
   });
 }
 
-void RenderLayer::CalculateLodFactor(const glm::vec3& center, const float max_distance) const {
-  const auto scene = GetScene();
-  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<LodGroup>()) {
-    for (auto owner : *owners) {
-      if (const auto lod_group = scene->GetOrSetPrivateComponent<LodGroup>(owner).lock();
-          !lod_group->override_lod_factor) {
-        auto gt = scene->GetDataComponent<GlobalTransform>(owner);
-        const auto distance = glm::distance(gt.GetPosition(), center);
-        const auto distance_factor = glm::clamp(distance / max_distance, 0.f, 1.f);
-        lod_group->lod_factor = glm::clamp(distance_factor * distance_factor, 0.f, 1.f);
-      }
-    }
-  }
-}
-
 bool RenderLayer::CollectRenderInstances(Bound& world_bound) {
   need_fade_ = false;
   const auto scene = GetScene();
   const auto editor_layer = Application::GetLayer<EditorLayer>();
-  const bool enable_selection_high_light = editor_layer && scene->IsEntityValid(editor_layer->selected_entity_);
-  auto& min_bound = world_bound.min;
-  auto& max_bound = world_bound.max;
-  min_bound = glm::vec3(FLT_MAX);
-  max_bound = glm::vec3(-FLT_MAX);
-
-  bool has_render_instance = false;
-  std::unordered_set<Handle> lod_group_renderers{};
-  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<LodGroup>()) {
-    for (auto owner : *owners) {
-      const auto lod_group = scene->GetOrSetPrivateComponent<LodGroup>(owner).lock();
-      for (auto it = lod_group->lods.begin(); it != lod_group->lods.end(); ++it) {
-        auto& lod = *it;
-        bool render_current_level = true;
-        if (lod_group->lod_factor > it->lod_offset) {
-          render_current_level = false;
-        }
-        if (render_current_level && it != lod_group->lods.begin() && lod_group->lod_factor < (it - 1)->lod_offset) {
-          render_current_level = false;
-        }
-        for (auto& renderer : lod.renderers) {
-          if (const auto mesh_renderer = renderer.Get<MeshRenderer>()) {
-            lod_group_renderers.insert(mesh_renderer->GetHandle());
-            if (render_current_level && scene->IsEntityEnabled(owner) &&
-                scene->IsEntityEnabled(mesh_renderer->GetOwner()) && mesh_renderer->IsEnabled()) {
-              if (TryRegisterRenderer(scene, owner, mesh_renderer, min_bound, max_bound, enable_selection_high_light)) {
-                has_render_instance = true;
-              }
-            }
-          } else if (const auto skinned_mesh_renderer = renderer.Get<SkinnedMeshRenderer>()) {
-            lod_group_renderers.insert(skinned_mesh_renderer->GetHandle());
-            if (render_current_level && scene->IsEntityEnabled(owner) &&
-                scene->IsEntityEnabled(skinned_mesh_renderer->GetOwner()) && skinned_mesh_renderer->IsEnabled()) {
-              if (TryRegisterRenderer(scene, owner, skinned_mesh_renderer, min_bound, max_bound,
-                                      enable_selection_high_light)) {
-                has_render_instance = true;
-              }
-            }
-          } else if (const auto particles = renderer.Get<Particles>()) {
-            lod_group_renderers.insert(particles->GetHandle());
-            if (render_current_level && scene->IsEntityEnabled(owner) &&
-                scene->IsEntityEnabled(particles->GetOwner()) && particles->IsEnabled()) {
-              if (TryRegisterRenderer(scene, owner, particles, min_bound, max_bound, enable_selection_high_light)) {
-                has_render_instance = true;
-              }
-            }
-          } else if (const auto strands_renderer = renderer.Get<StrandsRenderer>()) {
-            lod_group_renderers.insert(strands_renderer->GetHandle());
-            if (render_current_level && scene->IsEntityEnabled(owner) &&
-                scene->IsEntityEnabled(strands_renderer->GetOwner()) && strands_renderer->IsEnabled()) {
-              if (TryRegisterRenderer(scene, owner, strands_renderer, min_bound, max_bound,
-                                      enable_selection_high_light)) {
-                has_render_instance = true;
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  if (enable_mesh_renderer) {
-    if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<MeshRenderer>()) {
-      for (auto owner : *owners) {
-        if (!scene->IsEntityEnabled(owner))
-          continue;
-        auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(owner).lock();
-        if (lod_group_renderers.find(mesh_renderer->GetHandle()) != lod_group_renderers.end())
-          continue;
-        if (TryRegisterRenderer(scene, owner, mesh_renderer, min_bound, max_bound, enable_selection_high_light)) {
-          has_render_instance = true;
-        }
-      }
-    }
-  }
-  if (enable_skinned_mesh_renderer) {
-    if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<SkinnedMeshRenderer>()) {
-      for (auto owner : *owners) {
-        if (!scene->IsEntityEnabled(owner))
-          continue;
-        auto skinned_mesh_renderer = scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(owner).lock();
-        if (lod_group_renderers.find(skinned_mesh_renderer->GetHandle()) != lod_group_renderers.end())
-          continue;
-        if (TryRegisterRenderer(scene, owner, skinned_mesh_renderer, min_bound, max_bound,
-                                enable_selection_high_light)) {
-          has_render_instance = true;
-        }
-      }
-    }
-  }
-  if (enable_particles) {
-    if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Particles>()) {
-      for (auto owner : *owners) {
-        if (!scene->IsEntityEnabled(owner))
-          continue;
-        auto particles = scene->GetOrSetPrivateComponent<Particles>(owner).lock();
-        if (lod_group_renderers.find(particles->GetHandle()) != lod_group_renderers.end())
-          continue;
-        if (TryRegisterRenderer(scene, owner, particles, min_bound, max_bound, enable_selection_high_light)) {
-          has_render_instance = true;
-        }
-      }
-    }
-  }
-  if (enable_strands_renderer) {
-    if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<StrandsRenderer>()) {
-      for (auto owner : *owners) {
-        if (!scene->IsEntityEnabled(owner))
-          continue;
-        auto strands_renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(owner).lock();
-        if (lod_group_renderers.find(strands_renderer->GetHandle()) != lod_group_renderers.end())
-          continue;
-        if (TryRegisterRenderer(scene, owner, strands_renderer, min_bound, max_bound, enable_selection_high_light)) {
-          has_render_instance = true;
-        }
+  const bool enable_selection_high_light = editor_layer && scene->IsEntityValid(editor_layer->GetSelectedEntity());
+  const bool has_render_instance = render_instances->UpdateRenderInstances(scene, world_bound);
+  if (has_render_instance && enable_selection_high_light) {
+    for (const auto& i : render_instances->instance_info_blocks_) {
+      if (i.entity_selected) {
+        need_fade_ = true;
       }
     }
   }
@@ -1512,8 +1297,6 @@ void RenderLayer::CreateStandardDescriptorBuffers() {
   render_info_descriptor_buffers_.clear();
   environment_info_descriptor_buffers_.clear();
   camera_info_descriptor_buffers_.clear();
-  material_info_descriptor_buffers_.clear();
-  instance_info_descriptor_buffers_.clear();
 
   kernel_descriptor_buffers_.clear();
   directional_light_info_descriptor_buffers_.clear();
@@ -1542,13 +1325,6 @@ void RenderLayer::CreateStandardDescriptorBuffers() {
     buffer_create_info.size = sizeof(CameraInfoBlock) * Platform::Constants::initial_camera_size;
     camera_info_descriptor_buffers_.emplace_back(
         std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-    buffer_create_info.size = sizeof(MaterialInfoBlock) * Platform::Constants::initial_material_size;
-    material_info_descriptor_buffers_.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-    buffer_create_info.size = sizeof(InstanceInfoBlock) * Platform::Constants::initial_instance_size;
-    instance_info_descriptor_buffers_.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-
     buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     buffer_create_info.size = sizeof(glm::vec4) * Platform::Constants::max_kernel_amount * 2;
     kernel_descriptor_buffers_.emplace_back(
@@ -1792,7 +1568,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 vk_command_buffer, mesh_draw_indexed_indirect_commands_buffers_[current_frame_index]->GetVkBuffer(), 0,
                 mesh_draw_indexed_indirect_commands_.size(), sizeof(VkDrawIndexedIndirectCommand));
           } else {
-            deferred_render_instances_.Dispatch([&](const RenderInstance& render_command) {
+            render_instances->deferred_render_instances.Dispatch([&](const RenderInstance& render_command) {
               if (!render_command.cast_shadow)
                 return;
               RenderInstancePushConstant push_constant;
@@ -1804,18 +1580,18 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 if (count_draw_calls)
                   graphics.draw_call[current_frame_index]++;
                 if (count_draw_calls)
-                  graphics.triangles[current_frame_index] += render_command.m_mesh->triangles_.size();
+                  graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
 
                 const uint32_t count =
                     (render_command.meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
                 vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
               } else {
-                const auto mesh = render_command.m_mesh;
+                const auto mesh = render_command.mesh;
                 GeometryStorage::BindVertices(vk_command_buffer);
                 if (count_draw_calls)
                   graphics.draw_call[current_frame_index]++;
                 if (count_draw_calls)
-                  graphics.triangles[current_frame_index] += render_command.m_mesh->triangles_.size();
+                  graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
                 mesh->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline->states, 1);
               }
             });
@@ -1857,25 +1633,27 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           directional_light_shadow_pipeline_instanced->states.view_port = viewport;
           directional_light_shadow_pipeline_instanced->states.ApplyAllStates(vk_command_buffer);
 
-          deferred_instanced_render_instances_.Dispatch([&](const InstancedRenderInstance& render_command) {
-            if (!render_command.cast_shadow)
-              return;
-            directional_light_shadow_pipeline_instanced->BindDescriptorSet(
-                vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
-            push_constant.light_split_index = split;
-            push_constant.instance_index = render_command.instance_index;
-            directional_light_shadow_pipeline_instanced->PushConstant(vk_command_buffer, 0, push_constant);
-            const auto mesh = render_command.mesh;
-            if (count_draw_calls)
-              graphics.draw_call[current_frame_index]++;
-            if (count_draw_calls)
-              graphics.triangles[current_frame_index] +=
-                  render_command.mesh->triangles_.size() * render_command.particle_infos->PeekParticleInfoList().size();
-            mesh->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_instanced->states,
-                              render_command.particle_infos->PeekParticleInfoList().size());
-          });
+          render_instances->deferred_instanced_render_instances.Dispatch(
+              [&](const InstancedRenderInstance& render_command) {
+                if (!render_command.cast_shadow)
+                  return;
+                directional_light_shadow_pipeline_instanced->BindDescriptorSet(
+                    vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
+                RenderInstancePushConstant push_constant;
+                push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+                push_constant.light_split_index = split;
+                push_constant.instance_index = render_command.instance_index;
+                directional_light_shadow_pipeline_instanced->PushConstant(vk_command_buffer, 0, push_constant);
+                const auto mesh = render_command.mesh;
+                if (count_draw_calls)
+                  graphics.draw_call[current_frame_index]++;
+                if (count_draw_calls)
+                  graphics.triangles[current_frame_index] +=
+                      render_command.mesh->triangles_.size() *
+                      render_command.particle_infos->PeekParticleInfoList().size();
+                mesh->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_instanced->states,
+                                  render_command.particle_infos->PeekParticleInfoList().size());
+              });
         }
         vkCmdEndRendering(vk_command_buffer);
       }
@@ -1913,23 +1691,24 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           directional_light_shadow_pipeline_skinned->states.view_port = viewport;
           directional_light_shadow_pipeline_skinned->states.ApplyAllStates(vk_command_buffer);
 
-          deferred_skinned_render_instances_.Dispatch([&](const SkinnedRenderInstance& render_command) {
-            if (!render_command.cast_shadow)
-              return;
-            directional_light_shadow_pipeline_skinned->BindDescriptorSet(
-                vk_command_buffer, 1, render_command.bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
-            push_constant.light_split_index = split;
-            push_constant.instance_index = render_command.instance_index;
-            directional_light_shadow_pipeline_skinned->PushConstant(vk_command_buffer, 0, push_constant);
-            const auto skinned_mesh = render_command.skinned_mesh;
-            if (count_draw_calls)
-              graphics.draw_call[current_frame_index]++;
-            if (count_draw_calls)
-              graphics.triangles[current_frame_index] += render_command.skinned_mesh->skinned_triangles_.size();
-            skinned_mesh->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_skinned->states, 1);
-          });
+          render_instances->deferred_skinned_render_instances.Dispatch(
+              [&](const SkinnedRenderInstance& render_command) {
+                if (!render_command.cast_shadow)
+                  return;
+                directional_light_shadow_pipeline_skinned->BindDescriptorSet(
+                    vk_command_buffer, 1, render_command.bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
+                RenderInstancePushConstant push_constant;
+                push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+                push_constant.light_split_index = split;
+                push_constant.instance_index = render_command.instance_index;
+                directional_light_shadow_pipeline_skinned->PushConstant(vk_command_buffer, 0, push_constant);
+                const auto skinned_mesh = render_command.skinned_mesh;
+                if (count_draw_calls)
+                  graphics.draw_call[current_frame_index]++;
+                if (count_draw_calls)
+                  graphics.triangles[current_frame_index] += render_command.skinned_mesh->skinned_triangles_.size();
+                skinned_mesh->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_skinned->states, 1);
+              });
         }
         vkCmdEndRendering(vk_command_buffer);
       }
@@ -1967,21 +1746,22 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           directional_light_shadow_pipeline_strands->states.view_port = viewport;
           directional_light_shadow_pipeline_strands->states.ApplyAllStates(vk_command_buffer);
 
-          deferred_strands_render_instances_.Dispatch([&](const StrandsRenderInstance& render_command) {
-            if (!render_command.cast_shadow)
-              return;
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
-            push_constant.light_split_index = split;
-            push_constant.instance_index = render_command.instance_index;
-            directional_light_shadow_pipeline_strands->PushConstant(vk_command_buffer, 0, push_constant);
-            const auto strands = render_command.m_strands;
-            if (count_draw_calls)
-              graphics.draw_call[current_frame_index]++;
-            if (count_draw_calls)
-              graphics.strands_segments[current_frame_index] += render_command.m_strands->segments_.size();
-            strands->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_strands->states, 1);
-          });
+          render_instances->deferred_strands_render_instances.Dispatch(
+              [&](const StrandsRenderInstance& render_command) {
+                if (!render_command.cast_shadow)
+                  return;
+                RenderInstancePushConstant push_constant;
+                push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+                push_constant.light_split_index = split;
+                push_constant.instance_index = render_command.instance_index;
+                directional_light_shadow_pipeline_strands->PushConstant(vk_command_buffer, 0, push_constant);
+                const auto strands = render_command.m_strands;
+                if (count_draw_calls)
+                  graphics.draw_call[current_frame_index]++;
+                if (count_draw_calls)
+                  graphics.strands_segments[current_frame_index] += render_command.m_strands->segments_.size();
+                strands->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_strands->states, 1);
+              });
         }
         vkCmdEndRendering(vk_command_buffer);
       }
@@ -2051,7 +1831,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
       deferred_prepass_pipeline->BindDescriptorSet(
           vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
       if (enable_indirect_rendering && !use_mesh_shader) {
-        if (!deferred_render_instances_.render_commands.empty()) {
+        if (!render_instances->deferred_render_instances.render_commands.empty()) {
           RenderInstancePushConstant push_constant;
           push_constant.camera_index = camera_index;
           push_constant.instance_index = 0;
@@ -2064,7 +1844,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                                    mesh_draw_indexed_indirect_commands_.size(), sizeof(VkDrawIndexedIndirectCommand));
         }
       } else {
-        deferred_render_instances_.Dispatch([&](const RenderInstance& render_command) {
+        render_instances->deferred_render_instances.Dispatch([&](const RenderInstance& render_command) {
           RenderInstancePushConstant push_constant;
           push_constant.camera_index = camera_index;
           push_constant.instance_index = render_command.instance_index;
@@ -2076,15 +1856,15 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           deferred_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
           if (use_mesh_shader) {
             graphics.draw_call[current_frame_index]++;
-            graphics.triangles[current_frame_index] += render_command.m_mesh->triangles_.size();
+            graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
 
             const uint32_t count =
                 (render_command.meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
             vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
           } else {
-            const auto mesh = render_command.m_mesh;
+            const auto mesh = render_command.mesh;
             graphics.draw_call[current_frame_index]++;
-            graphics.triangles[current_frame_index] += render_command.m_mesh->triangles_.size();
+            graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
             mesh->DrawIndexed(vk_command_buffer, deferred_prepass_pipeline->states, 1);
           }
         });
@@ -2111,25 +1891,26 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
       deferred_instanced_prepass_pipeline->Bind(vk_command_buffer);
       deferred_instanced_prepass_pipeline->BindDescriptorSet(
           vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
-      deferred_instanced_render_instances_.Dispatch([&](const InstancedRenderInstance& render_command) {
-        deferred_instanced_prepass_pipeline->BindDescriptorSet(
-            vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
-        RenderInstancePushConstant push_constant;
-        push_constant.camera_index = camera_index;
-        push_constant.instance_index = render_command.instance_index;
-        deferred_instanced_prepass_pipeline->states.polygon_mode =
-            wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
-        deferred_instanced_prepass_pipeline->states.cull_mode = render_command.cull_mode;
-        deferred_instanced_prepass_pipeline->states.line_width = render_command.line_width;
-        deferred_instanced_prepass_pipeline->states.ApplyAllStates(vk_command_buffer);
-        deferred_instanced_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        const auto mesh = render_command.mesh;
-        graphics.draw_call[current_frame_index]++;
-        graphics.triangles[current_frame_index] +=
-            render_command.mesh->triangles_.size() * render_command.particle_infos->PeekParticleInfoList().size();
-        mesh->DrawIndexed(vk_command_buffer, deferred_instanced_prepass_pipeline->states,
-                          render_command.particle_infos->PeekParticleInfoList().size());
-      });
+      render_instances->deferred_instanced_render_instances.Dispatch(
+          [&](const InstancedRenderInstance& render_command) {
+            deferred_instanced_prepass_pipeline->BindDescriptorSet(
+                vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
+            RenderInstancePushConstant push_constant;
+            push_constant.camera_index = camera_index;
+            push_constant.instance_index = render_command.instance_index;
+            deferred_instanced_prepass_pipeline->states.polygon_mode =
+                wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
+            deferred_instanced_prepass_pipeline->states.cull_mode = render_command.cull_mode;
+            deferred_instanced_prepass_pipeline->states.line_width = render_command.line_width;
+            deferred_instanced_prepass_pipeline->states.ApplyAllStates(vk_command_buffer);
+            deferred_instanced_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+            const auto mesh = render_command.mesh;
+            graphics.draw_call[current_frame_index]++;
+            graphics.triangles[current_frame_index] +=
+                render_command.mesh->triangles_.size() * render_command.particle_infos->PeekParticleInfoList().size();
+            mesh->DrawIndexed(vk_command_buffer, deferred_instanced_prepass_pipeline->states,
+                              render_command.particle_infos->PeekParticleInfoList().size());
+          });
 
       vkCmdEndRendering(vk_command_buffer);
     }
@@ -2154,7 +1935,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
       deferred_skinned_prepass_pipeline->BindDescriptorSet(
           vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
 
-      deferred_skinned_render_instances_.Dispatch([&](const SkinnedRenderInstance& render_command) {
+      render_instances->deferred_skinned_render_instances.Dispatch([&](const SkinnedRenderInstance& render_command) {
         deferred_skinned_prepass_pipeline->BindDescriptorSet(
             vk_command_buffer, 1, render_command.bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
         RenderInstancePushConstant push_constant;
@@ -2195,7 +1976,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
       deferred_strands_prepass_pipeline->Bind(vk_command_buffer);
       deferred_strands_prepass_pipeline->BindDescriptorSet(
           vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
-      deferred_strands_render_instances_.Dispatch([&](const StrandsRenderInstance& render_command) {
+      render_instances->deferred_strands_render_instances.Dispatch([&](const StrandsRenderInstance& render_command) {
         RenderInstancePushConstant push_constant;
         push_constant.camera_index = camera_index;
         push_constant.instance_index = render_command.instance_index;
@@ -2275,204 +2056,12 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
   camera->require_rendering_ = false;
 }
 
-bool RenderLayer::TryRegisterRenderer(const std::shared_ptr<Scene>& scene, const Entity& owner,
-                                      const std::shared_ptr<MeshRenderer>& mesh_renderer, glm::vec3& min_bound,
-                                      glm::vec3& max_bound, const bool enable_selection_highlight) {
-  auto material = mesh_renderer->material.Get<Material>();
-  auto mesh = mesh_renderer->mesh.Get<Mesh>();
-  if (!mesh_renderer->IsEnabled() || !material || !mesh || !mesh->meshlet_range_ || !mesh->triangle_range_)
-    return false;
-  if (mesh->UnsafeGetVertices().empty() || mesh->UnsafeGetTriangles().empty())
-    return false;
-
-  auto gt = scene->GetDataComponent<GlobalTransform>(owner);
-  auto ltw = gt.value;
-  auto mesh_bound = mesh->GetBound();
-  mesh_bound.ApplyTransform(ltw);
-  glm::vec3 center = mesh_bound.Center();
-
-  glm::vec3 size = mesh_bound.Size();
-  min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
-                        (glm::min)(min_bound.z, center.z - size.z));
-  max_bound = glm::vec3((glm::max)(max_bound.x, center.x + size.x), (glm::max)(max_bound.y, center.y + size.y),
-                        (glm::max)(max_bound.z, center.z + size.z));
-
-  MaterialInfoBlock material_info_block;
-  material->UpdateMaterialInfoBlock(material_info_block);
-  auto material_index = RegisterMaterialIndex(material->GetHandle(), material_info_block);
-  InstanceInfoBlock instance_info_block;
-  instance_info_block.model = gt;
-  instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = enable_selection_highlight && scene->IsEntityAncestorSelected(owner) ? 1 : 0;
-
-  instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
-  instance_info_block.meshlet_size = mesh->meshlet_range_->range;
-
-  auto entity_handle = scene->GetEntityHandle(owner);
-  auto instance_index = RegisterInstanceIndex(entity_handle, instance_info_block);
-  RenderInstance render_instance;
-  render_instance.command_type = RenderCommandType::FromRenderer;
-  render_instance.m_owner = owner;
-  render_instance.m_mesh = mesh;
-  render_instance.cast_shadow = mesh_renderer->cast_shadow;
-  render_instance.meshlet_size = mesh->meshlet_range_->range;
-  render_instance.instance_index = instance_index;
-
-  render_instance.line_width = material->draw_settings.line_width;
-  render_instance.cull_mode = material->draw_settings.cull_mode;
-  render_instance.polygon_mode = material->draw_settings.polygon_mode;
-  if (instance_info_block.entity_selected == 1)
-    need_fade_ = true;
-  if (material->draw_settings.blending) {
-    transparent_render_instances_.render_commands.push_back(render_instance);
-  } else {
-    deferred_render_instances_.render_commands.push_back(render_instance);
-  }
-
-  auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands_.emplace_back();
-  new_mesh_task.groupCountX = 1;
-  new_mesh_task.groupCountY = 1;
-  new_mesh_task.groupCountZ = 1;
-
-  auto& new_draw_task = mesh_draw_indexed_indirect_commands_.emplace_back();
-  new_draw_task.instanceCount = 1;
-  new_draw_task.firstIndex = mesh->triangle_range_->offset * 3;
-  new_draw_task.indexCount = static_cast<uint32_t>(mesh->triangles_.size() * 3);
-  new_draw_task.vertexOffset = 0;
-  new_draw_task.firstInstance = 0;
-
-  total_mesh_triangles_ += mesh->triangles_.size();
-  return true;
-}
-
-bool RenderLayer::TryRegisterRenderer(const std::shared_ptr<Scene>& scene, const Entity& owner,
-                                      const std::shared_ptr<SkinnedMeshRenderer>& skinned_mesh_renderer,
-                                      glm::vec3& min_bound, glm::vec3& max_bound, bool enable_selection_highlight) {
-  auto material = skinned_mesh_renderer->material.Get<Material>();
-  auto skinned_mesh = skinned_mesh_renderer->skinned_mesh.Get<SkinnedMesh>();
-  if (!skinned_mesh_renderer->IsEnabled() || !material || !skinned_mesh || !skinned_mesh->skinned_meshlet_range_ ||
-      !skinned_mesh->skinned_triangle_range_)
-    return false;
-  if (skinned_mesh->skinned_vertices_.empty() || skinned_mesh->skinned_triangles_.empty())
-    return false;
-  GlobalTransform gt;
-  if (auto animator = skinned_mesh_renderer->animator.Get<Animator>(); !animator) {
-    return false;
-  }
-  if (!skinned_mesh_renderer->rag_doll_) {
-    gt = scene->GetDataComponent<GlobalTransform>(owner);
-  }
-  auto ltw = gt.value;
-  auto mesh_bound = skinned_mesh->GetBound();
-  mesh_bound.ApplyTransform(ltw);
-  glm::vec3 center = mesh_bound.Center();
-
-  glm::vec3 size = mesh_bound.Size();
-  min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
-                        (glm::min)(min_bound.z, center.z - size.z));
-  max_bound = glm::vec3((glm::max)(max_bound.x, center.x + size.x), (glm::max)(max_bound.y, center.y + size.y),
-                        (glm::max)(max_bound.z, center.z + size.z));
-
-  MaterialInfoBlock material_info_block;
-  material->UpdateMaterialInfoBlock(material_info_block);
-  auto material_index = RegisterMaterialIndex(material->GetHandle(), material_info_block);
-  InstanceInfoBlock instance_info_block;
-  instance_info_block.model = gt;
-  instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = enable_selection_highlight && scene->IsEntityAncestorSelected(owner) ? 1 : 0;
-  instance_info_block.meshlet_size = skinned_mesh->skinned_meshlet_range_->range;
-  auto entity_handle = scene->GetEntityHandle(owner);
-  auto instance_index = RegisterInstanceIndex(entity_handle, instance_info_block);
-
-  SkinnedRenderInstance render_instance;
-  render_instance.command_type = RenderCommandType::FromRenderer;
-  render_instance.m_owner = owner;
-  render_instance.skinned_mesh = skinned_mesh;
-  render_instance.cast_shadow = skinned_mesh_renderer->cast_shadow;
-  render_instance.bone_matrices = skinned_mesh_renderer->bone_matrices;
-  render_instance.skinned_meshlet_size = skinned_mesh->skinned_meshlet_range_->range;
-  render_instance.instance_index = instance_index;
-
-  render_instance.line_width = material->draw_settings.line_width;
-  render_instance.cull_mode = material->draw_settings.cull_mode;
-  render_instance.polygon_mode = material->draw_settings.polygon_mode;
-  if (instance_info_block.entity_selected == 1)
-    need_fade_ = true;
-
-  if (material->draw_settings.blending) {
-    transparent_skinned_render_instances_.render_commands.push_back(render_instance);
-  } else {
-    deferred_skinned_render_instances_.render_commands.push_back(render_instance);
-  }
-  return true;
-}
-
-bool RenderLayer::TryRegisterRenderer(const std::shared_ptr<Scene>& scene, const Entity& owner,
-                                      const std::shared_ptr<Particles>& particles, glm::vec3& min_bound,
-                                      glm::vec3& max_bound, bool enable_selection_high_light) {
-  auto material = particles->material.Get<Material>();
-  auto mesh = particles->mesh.Get<Mesh>();
-  auto particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
-  if (!particles->IsEnabled() || !material || !mesh || !mesh->meshlet_range_ || !mesh->triangle_range_ ||
-      !particle_info_list)
-    return false;
-  if (particle_info_list->PeekParticleInfoList().empty())
-    return false;
-  auto gt = scene->GetDataComponent<GlobalTransform>(owner);
-  auto ltw = gt.value;
-  auto mesh_bound = mesh->GetBound();
-  mesh_bound.ApplyTransform(ltw);
-  glm::vec3 center = mesh_bound.Center();
-
-  glm::vec3 size = mesh_bound.Size();
-  min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
-                        (glm::min)(min_bound.z, center.z - size.z));
-
-  max_bound = glm::vec3((glm::max)(max_bound.x, center.x + size.x), (glm::max)(max_bound.y, center.y + size.y),
-                        (glm::max)(max_bound.z, center.z + size.z));
-
-  MaterialInfoBlock material_info_block;
-  material->UpdateMaterialInfoBlock(material_info_block);
-  auto material_index = RegisterMaterialIndex(material->GetHandle(), material_info_block);
-  InstanceInfoBlock instance_info_block;
-  instance_info_block.model = gt;
-  instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = enable_selection_high_light && scene->IsEntityAncestorSelected(owner) ? 1 : 0;
-  instance_info_block.meshlet_size = mesh->meshlet_range_->range;
-  auto entity_handle = scene->GetEntityHandle(owner);
-  auto instance_index = RegisterInstanceIndex(entity_handle, instance_info_block);
-
-  InstancedRenderInstance render_instance;
-  render_instance.command_type = RenderCommandType::FromRenderer;
-  render_instance.owner = owner;
-  render_instance.mesh = mesh;
-  render_instance.cast_shadow = particles->cast_shadow;
-  render_instance.particle_infos = particle_info_list;
-  render_instance.meshlet_size = mesh->meshlet_range_->range;
-
-  render_instance.instance_index = instance_index;
-
-  render_instance.line_width = material->draw_settings.line_width;
-  render_instance.cull_mode = material->draw_settings.cull_mode;
-  render_instance.polygon_mode = material->draw_settings.polygon_mode;
-
-  if (instance_info_block.entity_selected == 1)
-    need_fade_ = true;
-
-  if (material->draw_settings.blending) {
-    transparent_instanced_render_instances_.render_commands.push_back(render_instance);
-  } else {
-    deferred_instanced_render_instances_.render_commands.push_back(render_instance);
-  }
-  return true;
-}
-
 void RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
                            glm::mat4 model, bool cast_shadow) {
   auto scene = Application::GetActiveScene();
   MaterialInfoBlock material_info_block;
   material->UpdateMaterialInfoBlock(material_info_block);
-  auto material_index = RegisterMaterialIndex(material->GetHandle(), material_info_block);
+  auto material_index = render_instances->RegisterMaterialIndex(material->GetHandle(), material_info_block);
   InstanceInfoBlock instance_info_block;
   instance_info_block.model.value = model;
   instance_info_block.material_index = material_index;
@@ -2481,20 +2070,20 @@ void RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_
   instance_info_block.meshlet_size = mesh->meshlet_range_->range;
 
   auto entity_handle = Handle();
-  auto instance_index = RegisterInstanceIndex(entity_handle, instance_info_block);
+  auto instance_index = render_instances->RegisterInstanceIndex(entity_handle, instance_info_block);
   RenderInstance render_instance;
   render_instance.command_type = RenderCommandType::FromApi;
-  render_instance.m_owner = Entity();
-  render_instance.m_mesh = mesh;
+  render_instance.owner = Entity();
+  render_instance.mesh = mesh;
   render_instance.cast_shadow = cast_shadow;
   render_instance.meshlet_size = mesh->meshlet_range_->range;
   render_instance.instance_index = instance_index;
   if (instance_info_block.entity_selected == 1)
     need_fade_ = true;
   if (material->draw_settings.blending) {
-    transparent_render_instances_.render_commands.push_back(render_instance);
+    render_instances->transparent_render_instances.render_commands.push_back(render_instance);
   } else {
-    deferred_render_instances_.render_commands.push_back(render_instance);
+    render_instances->deferred_render_instances.render_commands.push_back(render_instance);
   }
 
   auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands_.emplace_back();
@@ -2514,59 +2103,4 @@ void RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_
 
 const std::shared_ptr<DescriptorSet>& RenderLayer::GetPerFrameDescriptorSet() const {
   return per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()];
-}
-
-bool RenderLayer::TryRegisterRenderer(const std::shared_ptr<Scene>& scene, const Entity& owner,
-                                      const std::shared_ptr<StrandsRenderer>& strands_renderer, glm::vec3& min_bound,
-                                      glm::vec3& max_bound, bool enable_selection_high_light) {
-  auto material = strands_renderer->material.Get<Material>();
-  auto strands = strands_renderer->strands.Get<Strands>();
-  if (!strands_renderer->IsEnabled() || !material || !strands || !strands->strand_meshlet_range_ ||
-      !strands->segment_range_)
-    return false;
-  auto gt = scene->GetDataComponent<GlobalTransform>(owner);
-  auto ltw = gt.value;
-  auto mesh_bound = strands->bound_;
-  mesh_bound.ApplyTransform(ltw);
-  glm::vec3 center = mesh_bound.Center();
-
-  glm::vec3 size = mesh_bound.Size();
-  min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
-                        (glm::min)(min_bound.z, center.z - size.z));
-  max_bound = glm::vec3((glm::max)(max_bound.x, center.x + size.x), (glm::max)(max_bound.y, center.y + size.y),
-                        (glm::max)(max_bound.z, center.z + size.z));
-
-  MaterialInfoBlock material_info_block;
-  material->UpdateMaterialInfoBlock(material_info_block);
-  auto material_index = RegisterMaterialIndex(material->GetHandle(), material_info_block);
-  InstanceInfoBlock instance_info_block;
-  instance_info_block.model = gt;
-  instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = enable_selection_high_light && scene->IsEntityAncestorSelected(owner) ? 1 : 0;
-  instance_info_block.meshlet_size = strands->strand_meshlet_range_->range;
-  auto entity_handle = scene->GetEntityHandle(owner);
-  auto instance_index = RegisterInstanceIndex(entity_handle, instance_info_block);
-
-  StrandsRenderInstance render_instance;
-  render_instance.command_type = RenderCommandType::FromRenderer;
-  render_instance.m_owner = owner;
-  render_instance.m_strands = strands;
-  render_instance.cast_shadow = strands_renderer->cast_shadow;
-  render_instance.strand_meshlet_size = strands->strand_meshlet_range_->range;
-
-  render_instance.instance_index = instance_index;
-
-  render_instance.line_width = material->draw_settings.line_width;
-  render_instance.cull_mode = material->draw_settings.cull_mode;
-  render_instance.polygon_mode = material->draw_settings.polygon_mode;
-
-  if (instance_info_block.entity_selected == 1)
-    need_fade_ = true;
-
-  if (material->draw_settings.blending) {
-    transparent_strands_render_instances_.render_commands.push_back(render_instance);
-  } else {
-    deferred_strands_render_instances_.render_commands.push_back(render_instance);
-  }
-  return true;
 }

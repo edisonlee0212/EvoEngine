@@ -35,6 +35,8 @@ class SkinnedMesh : public IAsset, public IGeometry {
   friend class Particles;
   friend class Platform;
   friend class RenderLayer;
+  friend class RenderInstances;
+
   SkinnedVertexAttributes skinned_vertex_attributes_ = {};
   std::vector<SkinnedVertex> skinned_vertices_;
   std::vector<glm::uvec3> skinned_triangles_;

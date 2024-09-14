@@ -13,7 +13,7 @@
 #include "vk_mem_alloc.h"
 using namespace evo_engine;
 
-//#define GRAPHICS_VALIDATION
+#define GRAPHICS_VALIDATION
 
 VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
                        const VkDebugUtilsMessageTypeFlagsEXT message_type,
@@ -846,6 +846,10 @@ void Platform::CreateLogicalDevice() {
     }
   }
 #pragma endregion
+}
+
+auto Platform::DivUp(const uint32_t a, uint32_t b) -> uint32_t {
+  return (a + b - 1) / b;
 }
 
 void Platform::EverythingBarrier(const VkCommandBuffer vk_command_buffer) {

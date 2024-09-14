@@ -11,6 +11,7 @@ class SkinnedMeshRenderer : public IPrivateComponent {
   friend class RenderLayer;
   void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, glm::vec4& color);
   friend class Platform;
+  friend class RenderInstances;
   bool rag_doll_ = false;
   std::vector<glm::mat4> rag_doll_transform_chain_;
   std::vector<EntityRef> bound_entities_;

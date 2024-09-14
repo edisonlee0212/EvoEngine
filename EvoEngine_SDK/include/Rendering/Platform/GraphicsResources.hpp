@@ -68,7 +68,6 @@ class Image final : public IGraphicsResource {
   VkImageLayout initial_layout_;
 
   VkImageLayout layout_;
-
  public:
   [[nodiscard]] uint32_t GetMipLevels() const;
   explicit Image(VkImageCreateInfo image_create_info);

@@ -158,7 +158,7 @@ Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_en
     scene->SetDataComponent(collection, physics_demo_transform);
 #pragma endregion
   }
-
+  
 #pragma region Create ground
   auto ground = scene->CreateEntity("Ground");
   std::shared_ptr<MeshRenderer> ground_mesh_renderer;

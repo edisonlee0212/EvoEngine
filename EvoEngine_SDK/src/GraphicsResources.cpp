@@ -506,6 +506,7 @@ void Buffer::DownloadData(const size_t size, void* dst) {
   }
 }
 
+
 void Buffer::Allocate(VkBufferCreateInfo buffer_create_info,
                       const VmaAllocationCreateInfo& vma_allocation_create_info) {
   VkExternalMemoryBufferCreateInfo vk_external_mem_buffer_create_info;

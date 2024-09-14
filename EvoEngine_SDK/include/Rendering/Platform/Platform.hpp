@@ -190,7 +190,7 @@ class Platform final {
     constexpr static uint32_t meshlet_max_vertices_size = 64;
     constexpr static uint32_t meshlet_max_triangles_size = 40;
   };
-
+  static uint32_t DivUp(uint32_t a, uint32_t b);
   static void EverythingBarrier(VkCommandBuffer vk_command_buffer);
 
   static void TransitImageLayout(VkCommandBuffer vk_command_buffer, VkImage target_image, VkFormat image_format,

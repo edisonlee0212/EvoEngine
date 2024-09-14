@@ -38,15 +38,15 @@ struct Entity final {
   friend class Scene;
   friend struct EntityMetadata;
   friend class Serialization;
-  unsigned index_ = 0;
-  unsigned version_ = 0;
+  uint32_t index_ = 0;
+  uint32_t version_ = 0;
 
  public:
-  [[nodiscard]] unsigned GetIndex() const;
-  [[nodiscard]] unsigned GetVersion() const;
+  [[nodiscard]] uint32_t GetIndex() const;
+  [[nodiscard]] uint32_t GetVersion() const;
   bool operator==(const Entity &other) const;
   bool operator!=(const Entity &other) const;
-  size_t operator()(Entity const &key) const;
+  uint32_t operator()(Entity const &key) const;
 };
 #pragma region Storage
 

@@ -28,14 +28,14 @@ bool Entity::operator!=(const Entity &other) const {
   return (other.index_ != index_) || (other.version_ != version_);
 }
 
-size_t Entity::operator()(Entity const &key) const {
+uint32_t Entity::operator()(Entity const &key) const {
   return index_;
 }
 
-unsigned Entity::GetIndex() const {
+uint32_t Entity::GetIndex() const {
   return index_;
 }
-unsigned Entity::GetVersion() const {
+uint32_t Entity::GetVersion() const {
   return version_;
 }
 

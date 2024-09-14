@@ -1,5 +1,6 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_ARB_shading_language_include : enable
 
 #define EE_PER_FRAME_SET 0
 #define EE_PER_PASS_SET 1
@@ -61,15 +62,7 @@ layout(set = EE_PER_FRAME_SET, binding = 5) uniform EE_KERNEL_BLOCK {
 #define EE_SPOT_LIGHT_BLOCK_BINDING 8
 #include "Lights.glsl"
 
-struct Vertex {
-	vec3 position;
-	vec3 normal;
-	vec3 tangent;
-	
-	vec4 color;
-	vec2 tex_coord;
-	vec2 vertex_info;
-};
+#include "Vertex.glsl"
 
 struct VertexDataChunk {
 	Vertex vertices[MESHLET_MAX_VERTICES_SIZE];
@@ -114,7 +107,7 @@ layout(set = EE_PER_PASS_SET, binding = 18) readonly buffer EE_INSTANCED_DATA_BL
 int EE_STRANDS_SEGMENT_SUBDIVISION(in vec3 worldPosA, in vec3 worldPosB) {
 	vec4 coordA = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(worldPosA, 1.0);
 	vec4 coordB = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(worldPosB, 1.0);
-        vec2 screenSize = vec2(EE_CAMERA_RESOLUTION_X(EE_CAMERA_INDEX), EE_CAMERA_RESOLUTION_Y(EE_CAMERA_INDEX));
+		vec2 screenSize = vec2(EE_CAMERA_RESOLUTION_X(EE_CAMERA_INDEX), EE_CAMERA_RESOLUTION_Y(EE_CAMERA_INDEX));
 	coordA = coordA / coordA.w;
 	coordB = coordB / coordB.w;
 	if (coordA.z < -1.0 && coordB.z < -1.0) return 0;

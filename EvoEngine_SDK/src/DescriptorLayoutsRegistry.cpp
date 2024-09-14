@@ -26,6 +26,8 @@ void Platform::PrepareDescriptorSetLayouts() {
 
   per_frame_layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
+
+
   per_frame_layout->PushDescriptorBinding(13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
                                         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
                                         Settings::max_texture_2d_resource_size);
