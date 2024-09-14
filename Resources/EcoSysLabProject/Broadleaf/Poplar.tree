@@ -1,15 +1,15 @@
-m_shootDescriptor:
-  m_assetHandle: 11991470579765032552
-  m_assetTypeName: ShootDescriptor
-m_foliageDescriptor:
-  m_assetHandle: 4871609010664517622
-  m_assetTypeName: FoliageDescriptor
-m_barkDescriptor:
-  m_assetHandle: 1239942714668978732
-  m_assetTypeName: BarkDescriptor
-m_fruitDescriptor:
-  m_assetHandle: 0
-  m_assetTypeName: ""
-m_flowerDescriptor:
-  m_assetHandle: 0
-  m_assetTypeName: ""
+shoot_descriptor:
+  asset_handle_: 239553883051585680
+  asset_type_name_: ShootDescriptor
+foliage_descriptor:
+  asset_handle_: 3320246835829420888
+  asset_type_name_: FoliageDescriptor
+bark_descriptor:
+  asset_handle_: 11193568167930073202
+  asset_type_name_: BarkDescriptor
+fruit_descriptor:
+  asset_handle_: 0
+  asset_type_name_: ""
+flower_descriptor:
+  asset_handle_: 0
+  asset_type_name_: ""

@@ -392,6 +392,6 @@ int main() {
 
   constexpr bool export_junction = true;
   forest_patch_point_cloud_joined("TreeStructor", export_junction, 5, 8);
-  // forest_patch_point_cloud_joined("Coniferous", exportJunction, 1, 8);
-  // forest_patch_point_cloud_joined("Broadleaf", exportJunction, 1, 8);
+  forest_patch_point_cloud_joined("Coniferous", export_junction, 5, 8);
+  forest_patch_point_cloud_joined("Broadleaf", export_junction, 5, 8);
 }
