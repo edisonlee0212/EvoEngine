@@ -50,9 +50,9 @@ void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_p
           new_particle.strand_segment_handle = new_strand_segment_handle;
           new_particle.base = false;
 
-          auto& new_segment = strand_group.RefStrandSegment(new_strand_segment_handle);
-          new_segment.data.node_handle = *it;
-          new_segment.data.profile_particle_handle = new_particle_handle;
+          auto& new_segment_data = strand_group.RefStrandSegmentData(new_strand_segment_handle);
+          new_segment_data.node_handle = *it;
+          new_segment_data.profile_particle_handle = new_particle_handle;
         }
         constexpr auto position = glm::vec3(0.0f);
         const auto new_strand_segment_handle = strand_group.Extend(strand_handle);
@@ -63,9 +63,9 @@ void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_p
         new_particle.base = true;
         new_particle.SetPosition(position);
         new_particle.SetInitialPosition(position);
-        auto& new_segment = strand_group.RefStrandSegment(new_strand_segment_handle);
-        new_segment.data.node_handle = internode_handle;
-        new_segment.data.profile_particle_handle = new_particle_handle;
+        auto& new_segment_data = strand_group.RefStrandSegmentData(new_strand_segment_handle);
+        new_segment_data.node_handle = internode_handle;
+        new_segment_data.profile_particle_handle = new_particle_handle;
       }
     } else {
       if (true || profile.RefParticles().empty()) {
@@ -79,9 +79,9 @@ void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_p
             new_particle.strand_handle = strand_handle;
             new_particle.strand_segment_handle = new_strand_segment_handle;
             new_particle.base = false;
-            auto& new_segment = strand_group.RefStrandSegment(new_strand_segment_handle);
-            new_segment.data.node_handle = *it;
-            new_segment.data.profile_particle_handle = new_particle_handle;
+            auto& new_segment_data = strand_group.RefStrandSegmentData(new_strand_segment_handle);
+            new_segment_data.node_handle = *it;
+            new_segment_data.profile_particle_handle = new_particle_handle;
           }
           const auto position =
               strand_model_parameters.end_node_strands == 1
@@ -95,9 +95,9 @@ void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_p
           new_particle.base = true;
           new_particle.SetPosition(position);
           new_particle.SetInitialPosition(position);
-          auto& new_segment = strand_group.RefStrandSegment(new_strand_segment_handle);
-          new_segment.data.node_handle = internode_handle;
-          new_segment.data.profile_particle_handle = new_particle_handle;
+          auto& new_segment_data = strand_group.RefStrandSegmentData(new_strand_segment_handle);
+          new_segment_data.node_handle = internode_handle;
+          new_segment_data.profile_particle_handle = new_particle_handle;
         }
       } else {
         for (ParticleHandle particle_handle = 0; particle_handle < profile.RefParticles().size(); particle_handle++) {
@@ -110,9 +110,9 @@ void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_p
             new_particle.strand_handle = strand_handle;
             new_particle.strand_segment_handle = new_strand_segment_handle;
             new_particle.base = false;
-            auto& new_segment = strand_group.RefStrandSegment(new_strand_segment_handle);
-            new_segment.data.node_handle = *it;
-            new_segment.data.profile_particle_handle = new_particle_handle;
+            auto& new_segment_data = strand_group.RefStrandSegmentData(new_strand_segment_handle);
+            new_segment_data.node_handle = *it;
+            new_segment_data.profile_particle_handle = new_particle_handle;
           }
           const auto new_strand_segment_handle = strand_group.Extend(strand_handle);
           auto& particle_2d = profile.RefParticle(particle_handle);
@@ -120,9 +120,9 @@ void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_p
           particle_2d.strand_segment_handle = new_strand_segment_handle;
           particle_2d.base = true;
           particle_2d.SetPosition(particle_2d.GetInitialPosition());
-          auto& new_segment = strand_group.RefStrandSegment(new_strand_segment_handle);
-          new_segment.data.node_handle = internode_handle;
-          new_segment.data.profile_particle_handle = particle_handle;
+          auto& new_segment_data = strand_group.RefStrandSegmentData(new_strand_segment_handle);
+          new_segment_data.node_handle = internode_handle;
+          new_segment_data.profile_particle_handle = particle_handle;
         }
       }
     }
@@ -270,14 +270,14 @@ void StrandModel::MergeTask(float max_root_distance, SkeletonNodeHandle node_han
   internode_data.center_direction_radius = 0.0f;
   if (!internode_data.profile_constraints.boundaries.empty()) {
     internode_data.packing_iteration = glm::min(strand_model_parameters.modified_profile_packing_max_iteration,
-                                                 static_cast<int>(internode_data.profile.RefParticles().size()) *
-                                                     strand_model_parameters.max_simulation_iteration_cell_factor);
+                                                static_cast<int>(internode_data.profile.RefParticles().size()) *
+                                                    strand_model_parameters.max_simulation_iteration_cell_factor);
   }
   if (child_handles.empty()) {
     if (internode_data.profile_constraints.boundaries.empty())
       internode.data.packing_iteration = glm::min(strand_model_parameters.junction_profile_packing_max_iteration,
-                                                   static_cast<int>(internode_data.profile.RefParticles().size()) *
-                                                       strand_model_parameters.max_simulation_iteration_cell_factor);
+                                                  static_cast<int>(internode_data.profile.RefParticles().size()) *
+                                                      strand_model_parameters.max_simulation_iteration_cell_factor);
     int particle_index = 0;
     for (const auto& particle : internode_data.profile.RefParticles()) {
       const auto node_particle_handle = internode_data.particle_map.at(particle.strand_handle);
@@ -327,14 +327,14 @@ void StrandModel::MergeTask(float max_root_distance, SkeletonNodeHandle node_han
     }
     if (internode_data.profile_constraints.boundaries.empty())
       internode.data.packing_iteration = glm::min(strand_model_parameters.branch_profile_packing_max_iteration,
-                                                   static_cast<int>(internode_data.profile.RefParticles().size()) *
-                                                       strand_model_parameters.max_simulation_iteration_cell_factor);
+                                                  static_cast<int>(internode_data.profile.RefParticles().size()) *
+                                                      strand_model_parameters.max_simulation_iteration_cell_factor);
     return;
   }
   if (internode_data.profile_constraints.boundaries.empty())
     internode.data.packing_iteration = glm::min(strand_model_parameters.junction_profile_packing_max_iteration,
-                                                 static_cast<int>(internode_data.profile.RefParticles().size()) *
-                                                     strand_model_parameters.max_simulation_iteration_cell_factor);
+                                                static_cast<int>(internode_data.profile.RefParticles().size()) *
+                                                    strand_model_parameters.max_simulation_iteration_cell_factor);
 
   main_child_node.data.twist_angle = junction_twist_angle;
   for (const auto& main_child_particle : main_child_physics_2d.PeekParticles()) {
@@ -488,56 +488,55 @@ void StrandModel::ApplyProfile(const StrandModelParameters& strand_model_paramet
   const auto current_left = node.info.regulated_global_rotation * glm::vec3(1, 0, 0);
   const auto& parameters = strand_model_parameters;
   const bool wound = node.IsEndNode();
-  for (const auto& [strandHandle, particleHandle] : node.data.particle_map) {
-    const auto& particle = node.data.profile.PeekParticle(particleHandle);
-    auto& new_strand_segment =
-        strand_model_skeleton.data.strand_group.RefStrandSegment(particle.strand_segment_handle);
-    new_strand_segment.info.thickness = node.data.strand_radius;
-    new_strand_segment.info.global_position =
-        node.info.GetGlobalEndPosition() + node.data.strand_radius * particle.GetInitialPosition().x * current_left +
-        node.data.strand_radius * particle.GetInitialPosition().y * current_up;
-    if (glm::any(glm::isnan(new_strand_segment.info.global_position))) {
+  for (const auto& [strand_handle, particle_handle] : node.data.particle_map) {
+    const auto& particle = node.data.profile.PeekParticle(particle_handle);
+    auto& strand_segment = strand_model_skeleton.data.strand_group.RefStrandSegment(particle.strand_segment_handle);
+    strand_segment.end_thickness = node.data.strand_radius;
+
+    glm::vec3 start_position;
+    const auto prev_segment_handle = strand_segment.GetPrevHandle();
+    if (prev_segment_handle == -1) {
+      start_position =
+          node.info.global_position + (node.data.strand_radius * particle.GetInitialPosition().x * current_left +
+                                       node.data.strand_radius * particle.GetInitialPosition().y * current_up);
+      auto& strand = strand_model_skeleton.data.strand_group.RefStrand(strand_segment.GetStrandHandle());
+      strand.start_position = start_position;
+      strand.start_thickness = node.data.strand_radius;
+      strand.start_color = particle.IsBoundary() ? parameters.boundary_point_color : parameters.content_point_color;
+    } else {
+      start_position = strand_model_skeleton.data.strand_group.RefStrandSegment(prev_segment_handle).end_position;
+    }
+    strand_segment.end_position =
+        node.info.GetGlobalEndPosition() + (node.data.strand_radius * particle.GetInitialPosition().x * current_left +
+                                            node.data.strand_radius * particle.GetInitialPosition().y * current_up);
+
+    const auto direction = glm::normalize(strand_segment.end_position - start_position);
+    strand_segment.rotation = glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x));
+
+    if (glm::any(glm::isnan(strand_segment.end_position))) {
       EVOENGINE_ERROR("Nan!");
     }
+
     if (wound) {
-      new_strand_segment.info.global_position +=
+      strand_segment.end_position +=
           current_front *
           glm::max(0.0f, strand_model_parameters.cladoptosis_distribution.GetValue(glm::max(
                              0.0f, (strand_model_parameters.cladoptosis_range - particle.GetDistanceToBoundary()) /
-                                       strand_model_parameters.cladoptosis_range)));
+                                       strand_model_parameters.cladoptosis_range))) *
+          .5f;
     }
-    new_strand_segment.info.color =
-        particle.IsBoundary() ? parameters.boundary_point_color : parameters.content_point_color;
-    new_strand_segment.info.is_boundary = particle.IsBoundary();
+    strand_segment.end_color = particle.IsBoundary() ? parameters.boundary_point_color : parameters.content_point_color;
+    strand_model_skeleton.data.strand_group.RefStrandSegmentData(particle.strand_segment_handle).is_boundary =
+        particle.IsBoundary();
   }
 }
 
 void StrandModel::ApplyProfiles(const StrandModelParameters& strand_model_parameters) {
-  auto& strand_group = strand_model_skeleton.data.strand_group;
   const auto& sorted_internode_list = strand_model_skeleton.PeekSortedNodeList();
   for (const auto& node_handle : sorted_internode_list) {
-    const auto& node = strand_model_skeleton.RefNode(node_handle);
-    if (node.GetParentHandle() == -1) {
-      const auto parent_global_rotation = node.info.regulated_global_rotation;
-
-      const auto current_up = parent_global_rotation * glm::vec3(0, 1, 0);
-      const auto current_left = parent_global_rotation * glm::vec3(1, 0, 0);
-      const auto base_radius = strand_model_parameters.strand_radius_distribution.GetValue(0.0f);
-      for (const auto& [strandHandle, particleHandle] : node.data.particle_map) {
-        const auto& particle = node.data.profile.PeekParticle(particleHandle);
-        auto& strand = strand_group.RefStrand(strandHandle);
-        strand.info.base_info.thickness = base_radius;
-        strand.info.base_info.global_position =
-            strand.info.base_info.thickness * particle.GetPosition().x * current_left +
-            strand.info.base_info.thickness * particle.GetPosition().y * current_up;
-        strand.info.base_info.is_boundary = particle.IsBoundary();
-        strand.info.base_info.color = particle.IsBoundary() ? strand_model_parameters.boundary_point_color
-                                                            : strand_model_parameters.content_point_color;
-      }
-    }
-
     ApplyProfile(strand_model_parameters, node_handle);
   }
+  strand_model_skeleton.data.strand_group.RegulateRotations();
 }
 
 void StrandModel::CalculateStrandProfileAdjustedTransforms(const StrandModelParameters& strand_model_parameters) {
@@ -661,8 +660,8 @@ void StrandModel::CalculateStrandProfileAdjustedTransforms(const StrandModelPara
   }
 }
 
-evo_engine::StrandPoint operator/(const evo_engine::StrandPoint& lhs, const float& rhs) {
-  evo_engine::StrandPoint ret_val;
+StrandPoint operator/(const StrandPoint& lhs, const float& rhs) {
+  StrandPoint ret_val;
   ret_val.thickness = lhs.thickness / rhs;
   ret_val.position = lhs.position / rhs;
   ret_val.color = lhs.color / rhs;
@@ -670,8 +669,8 @@ evo_engine::StrandPoint operator/(const evo_engine::StrandPoint& lhs, const floa
   return ret_val;
 }
 
-evo_engine::StrandPoint operator*(const evo_engine::StrandPoint& lhs, const float& rhs) {
-  evo_engine::StrandPoint ret_val;
+StrandPoint operator*(const StrandPoint& lhs, const float& rhs) {
+  StrandPoint ret_val;
   ret_val.thickness = lhs.thickness * rhs;
   ret_val.position = lhs.position * rhs;
   ret_val.color = lhs.color * rhs;
@@ -679,8 +678,8 @@ evo_engine::StrandPoint operator*(const evo_engine::StrandPoint& lhs, const floa
   return ret_val;
 }
 
-evo_engine::StrandPoint operator+(const evo_engine::StrandPoint& lhs, const evo_engine::StrandPoint& rhs) {
-  evo_engine::StrandPoint ret_val;
+StrandPoint operator+(const StrandPoint& lhs, const StrandPoint& rhs) {
+  StrandPoint ret_val;
   ret_val.thickness = lhs.thickness + rhs.thickness;
   ret_val.position = lhs.position + rhs.position;
   ret_val.color = lhs.color + rhs.color;
@@ -688,8 +687,8 @@ evo_engine::StrandPoint operator+(const evo_engine::StrandPoint& lhs, const evo_
   return ret_val;
 }
 
-evo_engine::StrandPoint operator-(const evo_engine::StrandPoint& lhs, const evo_engine::StrandPoint& rhs) {
-  evo_engine::StrandPoint ret_val;
+StrandPoint operator-(const StrandPoint& lhs, const StrandPoint& rhs) {
+  StrandPoint ret_val;
   ret_val.thickness = lhs.thickness - rhs.thickness;
   ret_val.position = lhs.position - rhs.position;
   ret_val.color = lhs.color - rhs.color;
@@ -706,30 +705,29 @@ glm::vec3 StrandModel::InterpolateStrandSegmentPosition(const StrandSegmentHandl
   assert(strand_group.PeekStrandSegments().size() > strand_segment_handle);
   const auto& strand_segment = strand_group.PeekStrandSegment(strand_segment_handle);
   const auto& strand = strand_group.PeekStrand(strand_segment.GetStrandHandle());
-  auto& base_info = strand.info.base_info;
 
   const auto& strand_segment_handles = strand.PeekStrandSegmentHandles();
 
   glm::vec3 p[4];
 
-  p[2] = strand_segment.info.global_position;
+  p[2] = strand_segment.end_position;
   if (strand_segment_handle == strand_segment_handles.front()) {
-    p[1] = base_info.global_position;
+    p[1] = strand.start_position;
     p[0] = p[1] * 2.0f - p[2];
-  } else if (strand_segment_handle == strand_segment_handles.at(1)) {
-    p[0] = base_info.global_position;
-    p[1] = strand_group.PeekStrandSegment(strand_segment_handles.front()).info.global_position;
+  } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
+    const auto& prev_segment = strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
+    p[0] = strand.start_position;
+    p[1] = prev_segment.end_position;
   } else {
     const auto& prev_segment = strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
-    p[1] = prev_segment.info.global_position;
-    const auto& prev_prev_segment = strand_group.PeekStrandSegment(prev_segment.GetPrevHandle());
-    p[0] = prev_prev_segment.info.global_position;
+    p[0] = strand_group.PeekStrandSegment(prev_segment.GetPrevHandle()).end_position;
+    p[1] = prev_segment.end_position;
   }
   if (strand_segment_handle == strand_segment_handles.back()) {
     p[3] = p[2] * 2.0f - p[1];
   } else {
     const auto& next_segment = strand_group.PeekStrandSegment(strand_segment.GetNextHandle());
-    p[3] = next_segment.info.global_position;
+    p[3] = next_segment.end_position;
   }
   glm::vec3 position, tangent;
   Strands::CubicInterpolation(p[0], p[1], p[2], p[3], position, tangent, a);
@@ -746,30 +744,29 @@ glm::vec3 StrandModel::InterpolateStrandSegmentAxis(StrandSegmentHandle strand_s
   assert(strand_group.PeekStrandSegments().size() > strand_segment_handle);
   const auto& strand_segment = strand_group.PeekStrandSegment(strand_segment_handle);
   const auto& strand = strand_group.PeekStrand(strand_segment.GetStrandHandle());
-  auto& base_info = strand.info.base_info;
 
   const auto& strand_segment_handles = strand.PeekStrandSegmentHandles();
 
   glm::vec3 p[4];
 
-  p[2] = strand_segment.info.global_position;
+  p[2] = strand_segment.end_position;
   if (strand_segment_handle == strand_segment_handles.front()) {
-    p[1] = base_info.global_position;
+    p[1] = strand.start_position;
     p[0] = p[1] * 2.0f - p[2];
-  } else if (strand_segment_handle == strand_segment_handles.at(1)) {
-    p[0] = base_info.global_position;
-    p[1] = strand_group.PeekStrandSegment(strand_segment_handles.front()).info.global_position;
+  } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
+    const auto& prev_segment = strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
+    p[0] = strand.start_position;
+    p[1] = prev_segment.end_position;
   } else {
     const auto& prev_segment = strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
-    p[1] = prev_segment.info.global_position;
-    const auto& prev_prev_segment = strand_group.PeekStrandSegment(prev_segment.GetPrevHandle());
-    p[0] = prev_prev_segment.info.global_position;
+    p[0] = strand_group.PeekStrandSegment(prev_segment.GetPrevHandle()).end_position;
+    p[1] = prev_segment.end_position;
   }
   if (strand_segment_handle == strand_segment_handles.back()) {
     p[3] = p[2] * 2.0f - p[1];
   } else {
     const auto& next_segment = strand_group.PeekStrandSegment(strand_segment.GetNextHandle());
-    p[3] = next_segment.info.global_position;
+    p[3] = next_segment.end_position;
   }
   glm::vec3 position, tangent;
   Strands::CubicInterpolation(p[0], p[1], p[2], p[3], position, tangent, a);
@@ -783,30 +780,29 @@ float StrandModel::InterpolateStrandSegmentRadius(StrandSegmentHandle strand_seg
   assert(strand_group.PeekStrandSegments().size() > strand_segment_handle);
   const auto& strand_segment = strand_group.PeekStrandSegment(strand_segment_handle);
   const auto& strand = strand_group.PeekStrand(strand_segment.GetStrandHandle());
-  auto& base_info = strand.info.base_info;
 
   const auto& strand_segment_handles = strand.PeekStrandSegmentHandles();
 
   float p[4];
 
-  p[2] = strand_segment.info.thickness;
+  p[2] = strand_segment.end_thickness;
   if (strand_segment_handle == strand_segment_handles.front()) {
-    p[1] = base_info.thickness;
+    p[1] = strand.start_thickness;
     p[0] = p[1] * 2.0f - p[2];
-  } else if (strand_segment_handle == strand_segment_handles.at(1)) {
-    p[0] = base_info.thickness;
-    p[1] = strand_group.PeekStrandSegment(strand_segment_handles.front()).info.thickness;
+  } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
+    const auto& prev_segment = strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
+    p[0] = strand.start_thickness;
+    p[1] = prev_segment.end_thickness;
   } else {
     const auto& prev_segment = strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
-    p[1] = prev_segment.info.thickness;
-    const auto& prev_prev_segment = strand_group.PeekStrandSegment(prev_segment.GetPrevHandle());
-    p[0] = prev_prev_segment.info.thickness;
+    p[0] = strand_group.PeekStrandSegment(prev_segment.GetPrevHandle()).end_thickness;
+    p[1] = prev_segment.end_thickness;
   }
   if (strand_segment_handle == strand_segment_handles.back()) {
     p[3] = p[2] * 2.0f - p[1];
   } else {
     const auto& next_segment = strand_group.PeekStrandSegment(strand_segment.GetNextHandle());
-    p[3] = next_segment.info.thickness;
+    p[3] = next_segment.end_thickness;
   }
   float radius, tangent;
   Strands::CubicInterpolation(p[0], p[1], p[2], p[3], radius, tangent, a);

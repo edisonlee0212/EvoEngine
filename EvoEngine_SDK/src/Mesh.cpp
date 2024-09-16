@@ -3,8 +3,8 @@
 #include "ClassRegistry.hpp"
 #include "Console.hpp"
 #include "GeometryStorage.hpp"
-#include "Platform.hpp"
 #include "Jobs.hpp"
+#include "Platform.hpp"
 #include "Utilities.hpp"
 using namespace evo_engine;
 
@@ -405,11 +405,10 @@ void ParticleInfoList::ApplyRays(const std::vector<Ray>& rays, const glm::vec4& 
   particle_infos.resize(rays.size());
   Jobs::RunParallelFor(rays.size(), [&](unsigned i) {
     auto& ray = rays[i];
-    glm::quat rotation = glm::quatLookAt(ray.direction, {ray.direction.y, ray.direction.z, ray.direction.x});
-    rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
-    const glm::mat4 rotation_mat = glm::mat4_cast(rotation);
+    const auto rotation = glm::quatLookAt(ray.direction, {ray.direction.y, ray.direction.z, ray.direction.x});
+    const auto rotation_mat = glm::mat4_cast(rotation);
     const auto model = glm::translate((ray.start + ray.direction * ray.length / 2.0f)) * rotation_mat *
-                       glm::scale(glm::vec3(ray_width, ray.length, ray_width));
+                       glm::scale(glm::vec3(ray_width, ray_width, ray.length));
     particle_infos[i].instance_matrix.value = model;
     particle_infos[i].instance_color = color;
   });
@@ -422,11 +421,10 @@ void ParticleInfoList::ApplyRays(const std::vector<Ray>& rays, const std::vector
   particle_infos.resize(rays.size());
   Jobs::RunParallelFor(rays.size(), [&](unsigned i) {
     auto& ray = rays[i];
-    glm::quat rotation = glm::quatLookAt(ray.direction, {ray.direction.y, ray.direction.z, ray.direction.x});
-    rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
-    const glm::mat4 rotation_mat = glm::mat4_cast(rotation);
-    const auto model = glm::translate((ray.start + ray.direction * ray.length / 2.0f)) * rotation_mat *
-                       glm::scale(glm::vec3(ray_width, ray.length, ray_width));
+    const auto rotation = glm::quatLookAt(ray.direction, {ray.direction.y, ray.direction.z, ray.direction.x});
+    const auto rotation_mat = glm::mat4_cast(rotation);
+    const auto model = glm::translate(ray.start + ray.direction * ray.length / 2.0f) * rotation_mat *
+                       glm::scale(glm::vec3(ray_width, ray_width, ray.length));
     particle_infos[i].instance_matrix.value = model;
     particle_infos[i].instance_color = colors[i];
   });
@@ -441,11 +439,10 @@ void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, co
     const auto& start = starts[i];
     const auto& end = ends[i];
     const auto direction = glm::normalize(end - start);
-    glm::quat rotation = glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x));
-    rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
+    const auto rotation = glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x));
     const glm::mat4 rotation_mat = glm::mat4_cast(rotation);
     const auto model = glm::translate((start + end) / 2.0f) * rotation_mat *
-                       glm::scale(glm::vec3(ray_width, glm::distance(end, start), ray_width));
+                       glm::scale(glm::vec3(ray_width, ray_width, glm::distance(end, start)));
     particle_infos[i].instance_matrix.value = model;
     particle_infos[i].instance_color = color;
   });
@@ -460,11 +457,10 @@ void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, co
     const auto& start = starts[i];
     const auto& end = ends[i];
     const auto direction = glm::normalize(end - start);
-    glm::quat rotation = glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x));
-    rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
-    const glm::mat4 rotation_mat = glm::mat4_cast(rotation);
+    const auto rotation = glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x));
+    const auto rotation_mat = glm::mat4_cast(rotation);
     const auto model = glm::translate((start + end) / 2.0f) * rotation_mat *
-                       glm::scale(glm::vec3(ray_width, glm::distance(end, start), ray_width));
+                       glm::scale(glm::vec3(ray_width, ray_width, glm::distance(end, start)));
     particle_infos[i].instance_matrix.value = model;
     particle_infos[i].instance_color = colors[i];
   });
@@ -481,11 +477,10 @@ void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, co
     const auto& end = ends[i];
     const auto& width = ray_widths[i];
     const auto direction = glm::normalize(end - start);
-    glm::quat rotation = glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x));
-    rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
-    const glm::mat4 rotation_mat = glm::mat4_cast(rotation);
+    const auto rotation = glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x));
+    const auto rotation_mat = glm::mat4_cast(rotation);
     const auto model = glm::translate((start + end) / 2.0f) * rotation_mat *
-                       glm::scale(glm::vec3(width, glm::distance(end, start), width));
+                       glm::scale(glm::vec3(width, width, glm::distance(end, start)));
     particle_infos[i].instance_matrix.value = model;
     particle_infos[i].instance_color = colors[i];
   });

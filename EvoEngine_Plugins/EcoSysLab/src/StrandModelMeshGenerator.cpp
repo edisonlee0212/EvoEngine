@@ -106,7 +106,7 @@ void StrandModelMeshGenerator::Generate(const StrandModel& strand_model, std::ve
 auto RoundInDir(float val, const int dir) -> int {
   if (dir > 0) {
     return static_cast<int>(std::ceilf(val));
-  } 
+  }
   return static_cast<int>(std::floorf(val));
 }
 
@@ -219,12 +219,12 @@ auto GetSegPos(const StrandModel& strand_model, const StrandSegmentHandle seg_ha
 
 SkeletonNodeHandle GetNodeHandle(const StrandModelStrandGroup& pipe_group, const StrandHandle& pipe_handle, float t) {
   const size_t lookup_index = glm::round(t) < pipe_group.PeekStrand(pipe_handle).PeekStrandSegmentHandles().size()
-                                ? glm::round(t)
-                                : (pipe_group.PeekStrand(pipe_handle).PeekStrandSegmentHandles().size() - 1);
-  auto& pipe_segment_handle = pipe_group.PeekStrand(pipe_handle).PeekStrandSegmentHandles()[lookup_index];
-  auto& pipe_segment = pipe_group.PeekStrandSegment(pipe_segment_handle);
+                                  ? glm::round(t)
+                                  : (pipe_group.PeekStrand(pipe_handle).PeekStrandSegmentHandles().size() - 1);
+  auto& strand_segment_handle = pipe_group.PeekStrand(pipe_handle).PeekStrandSegmentHandles()[lookup_index];
+  auto& strand_segment_data = pipe_group.PeekStrandSegmentData(strand_segment_handle);
 
-  return pipe_segment.data.node_handle;
+  return strand_segment_data.node_handle;
 }
 
 bool IsValidPipeParam(const StrandModel& strand_model, const StrandHandle& pipe_handle, float t) {
@@ -234,13 +234,13 @@ bool IsValidPipeParam(const StrandModel& strand_model, const StrandHandle& pipe_
 
 glm::vec3 GetPipeDir(const StrandModel& strand_model, const StrandHandle& pipe_handle, float t) {
   const auto& pipe = strand_model.strand_model_skeleton.data.strand_group.PeekStrand(pipe_handle);
-  auto seg_handle = pipe.PeekStrandSegmentHandles()[t];
+  const auto seg_handle = pipe.PeekStrandSegmentHandles()[t];
   return GetSegDir(strand_model, seg_handle, fmod(t, 1.0));
 }
 
 glm::vec3 GetPipePos(const StrandModel& strand_model, const StrandHandle& pipe_handle, float t) {
   const auto& pipe = strand_model.strand_model_skeleton.data.strand_group.PeekStrand(pipe_handle);
-  auto seg_handle = pipe.PeekStrandSegmentHandles()[t];
+  const auto seg_handle = pipe.PeekStrandSegmentHandles()[t];
   return GetSegPos(strand_model, seg_handle, fmod(t, 1.0));
 }
 
@@ -253,16 +253,16 @@ const Particle2D<CellParticlePhysicsData>& GetEndParticle(const StrandModel& str
   const auto& skeleton = strand_model.strand_model_skeleton;
   const auto& pipe = skeleton.data.strand_group.PeekStrand(pipe_handle);
   StrandSegmentHandle seg_handle = pipe.PeekStrandSegmentHandles()[index];
-  auto& pipe_segment = skeleton.data.strand_group.PeekStrandSegment(seg_handle);
+  auto& pipe_segment_data = skeleton.data.strand_group.PeekStrandSegmentData(seg_handle);
 
-  const auto& node = skeleton.PeekNode(pipe_segment.data.node_handle);
+  const auto& node = skeleton.PeekNode(pipe_segment_data.node_handle);
   const auto& start_profile = node.data.profile;
   // To access the user's defined constraints (attractors, etc.)
   const auto& profile_constraints = node.data.profile_constraints;
 
   // To access the position of the start of the pipe segment within a profile:
   const auto parent_handle = node.GetParentHandle();
-  const auto& end_particle = start_profile.PeekParticle(pipe_segment.data.profile_particle_handle);
+  const auto& end_particle = start_profile.PeekParticle(pipe_segment_data.profile_particle_handle);
 
   return end_particle;
 }
@@ -276,14 +276,14 @@ const Particle2D<CellParticlePhysicsData>& GetStartParticle(const StrandModel& s
   const auto& skeleton = strand_model.strand_model_skeleton;
   const auto& pipe = skeleton.data.strand_group.PeekStrand(pipe_handle);
   const auto seg_handle = pipe.PeekStrandSegmentHandles()[index];
-  auto& pipe_segment = skeleton.data.strand_group.PeekStrandSegment(seg_handle);
+  auto& strand_segment_data = skeleton.data.strand_group.PeekStrandSegmentData(seg_handle);
 
-  const auto& node = skeleton.PeekNode(pipe_segment.data.node_handle);
+  const auto& node = skeleton.PeekNode(strand_segment_data.node_handle);
   const auto& start_profile = node.data.profile;
   // To access the user's defined constraints (attractors, etc.)
   const auto& profile_constraints = node.data.profile_constraints;
   // To access the position of the start of the pipe segment within a profile:
-  const auto& start_particle = start_profile.PeekParticle(pipe_segment.data.profile_particle_handle);
+  const auto& start_particle = start_profile.PeekParticle(strand_segment_data.profile_particle_handle);
   return start_particle;
 }
 
@@ -427,23 +427,21 @@ void ObtainProfiles(const StrandModelStrandGroup& pipes, std::vector<StrandSegme
 
   std::vector<std::vector<StrandSegmentHandle>> profiles;
 
-  for (auto& seg_handle : seg_group) {
+  for (const auto& seg_handle : seg_group) {
     if (seg_handle == -1) {
       continue;
     }
 
     auto& seg = pipes.PeekStrandSegment(seg_handle);
-    StrandHandle pipe_handle = seg.GetStrandHandle();
+    auto& segment_data = pipes.PeekStrandSegmentData(seg_handle);
 
-    if (seg.info.is_boundary && !visited[pipe_handle]) {
+    if (segment_data.is_boundary && !visited[seg.GetStrandHandle()]) {
       // traverse boundary
       std::vector<StrandSegmentHandle> profile;
       auto handle = seg_handle;
       do {
         profile.push_back(handle);
-        auto& seg = pipes.PeekStrandSegment(handle);
-        StrandHandle pipe_handle = seg.GetStrandHandle();
-        visited[pipe_handle] = true;
+        visited[pipes.PeekStrandSegment(handle).GetStrandHandle()] = true;
 
         // get next
         // seg.info.
@@ -510,8 +508,8 @@ size_t GetNextOnBoundary(Graph& g, size_t cur, size_t prev, float& prev_angle) {
   return next;
 }
 
-Slice ProfileToSlice(const StrandModel& strand_model, const std::vector<size_t>& profile, const PipeCluster& pipe_cluster,
-                     const float t) {
+Slice ProfileToSlice(const StrandModel& strand_model, const std::vector<size_t>& profile,
+                     const PipeCluster& pipe_cluster, const float t) {
   Slice slice;
   for (unsigned long long i : profile) {
     StrandHandle pipe_handle = pipe_cluster[i];
@@ -545,8 +543,9 @@ std::vector<size_t> ComputeComponent(Graph& strand_graph, glm::vec3 min, glm::ve
   return CollectComponent(strand_graph, index);
 }
 
-std::pair<Graph, std::vector<size_t>> ComputeCluster(const StrandModel& strand_model, const PipeCluster& pipes_in_previous,
-                                                     size_t index, std::vector<bool>& visited, float t, float max_dist,
+std::pair<Graph, std::vector<size_t>> ComputeCluster(const StrandModel& strand_model,
+                                                     const PipeCluster& pipes_in_previous, size_t index,
+                                                     std::vector<bool>& visited, float t, float max_dist,
                                                      size_t min_strand_count) {
   if (!IsValidPipeParam(strand_model, pipes_in_previous[index], t)) {
     return std::make_pair<>(Graph(), std::vector<size_t>());
@@ -582,8 +581,8 @@ std::pair<Graph, std::vector<size_t>> ComputeCluster(const StrandModel& strand_m
   }
 
   glm::mat3x3 basis_trans = {{basis[0][0], basis[1][0], basis[2][0]},
-                            {basis[0][1], basis[1][1], basis[2][1]},
-                            {basis[0][2], basis[1][2], basis[2][2]}};
+                             {basis[0][1], basis[1][1], basis[2][1]},
+                             {basis[0][2], basis[1][2], basis[2][2]}};
 
   // TODO: could we do this more efficiently? E.g. the Intel Embree library provides efficent ray casts and allows for
   // ray bundling Also, this is an experimental extension to glm and might not be stable
@@ -746,7 +745,6 @@ std::pair<std::vector<Graph>, std::vector<std::vector<size_t>>> ComputeClusters(
                                                                                 const PipeCluster& pipes_in_previous,
                                                                                 float t, const float max_dist,
                                                                                 size_t min_strand_count) {
-
   std::vector visited(pipes_in_previous.size(), false);
   std::vector<std::vector<size_t>> clusters;
   std::vector<Graph> graphs;
@@ -759,7 +757,9 @@ std::pair<std::vector<Graph>, std::vector<std::vector<size_t>>> ComputeClusters(
       continue;
     }
 
-    if (auto graph_and_cluster = ComputeCluster(strand_model, pipes_in_previous, i, visited, t, max_dist, min_strand_count); graph_and_cluster.second.size() >= min_strand_count) {
+    if (auto graph_and_cluster =
+            ComputeCluster(strand_model, pipes_in_previous, i, visited, t, max_dist, min_strand_count);
+        graph_and_cluster.second.size() >= min_strand_count) {
       graphs.push_back(graph_and_cluster.first);
       clusters.push_back(graph_and_cluster.second);
     } else if (graph_and_cluster.second.size() != 0) {
@@ -802,8 +802,8 @@ std::vector<std::pair<Slice, PipeCluster>> ComputeSlices(const StrandModel& stra
     // if not visited, determine connected component around this
     // std::cout << "computing slice containing pipe no. " << i << " with handle " << pipesInPrevious[i] << " at t = "
     // << t << std::endl;
-    auto slice =
-        ComputeSlice(strand_model, pipes_in_previous, graphs_and_clusters.first[i], graphs_and_clusters.second[i], t, max_dist);
+    auto slice = ComputeSlice(strand_model, pipes_in_previous, graphs_and_clusters.first[i],
+                              graphs_and_clusters.second[i], t, max_dist);
     slices.push_back(slice);
   }
 
@@ -811,7 +811,7 @@ std::vector<std::pair<Slice, PipeCluster>> ComputeSlices(const StrandModel& stra
 }
 
 void ForEachSegment(const StrandModelStrandGroup& pipes, const std::vector<StrandSegmentHandle>& seg_group,
-                    std::function<void(const StrandSegment<StrandModelStrandSegmentData>&)> func) {
+                    std::function<void(const StrandSegment&)> func) {
   for (auto& seg_handle : seg_group) {
     auto& seg = pipes.PeekStrandSegment(seg_handle);
     func(seg);
@@ -900,8 +900,8 @@ void Connect(std::vector<std::pair<StrandHandle, glm::vec3>>& slice0, size_t i0,
 
       indices.emplace_back(std::make_pair<>(offset1.first + (i1 + k1) % slice1.size(), tex_index0));
       indices.emplace_back(std::make_pair<>(offset1.first + (i1 + k1 + 1) % slice1.size(),
-                                         tex_index1  // use end texture coordinate
-                                         ));
+                                            tex_index1  // use end texture coordinate
+                                            ));
 
       indices.emplace_back(std::make_pair<>(offset0.first + (i0 + k0) % slice0.size(), tex_index2));
 
@@ -952,18 +952,19 @@ void CyclicOrderUntangle(std::vector<size_t>& permutation) {
   }
 }
 
-bool ConnectSlices(const StrandModelStrandGroup& pipes, Slice& bottom_slice, std::pair<unsigned, unsigned> bottom_offset,
-                   std::vector<Slice>& top_slices, const std::vector<std::pair<unsigned, unsigned>>& top_offsets,
-                   std::vector<Vertex>& vertices, std::vector<glm::vec2>& tex_coords,
-                   std::vector<std::pair<unsigned, unsigned>>& indices, bool branch_connections,
-                   const StrandModelMeshGeneratorSettings& settings) {
+bool ConnectSlices(const StrandModelStrandGroup& pipes, Slice& bottom_slice,
+                   std::pair<unsigned, unsigned> bottom_offset, std::vector<Slice>& top_slices,
+                   const std::vector<std::pair<unsigned, unsigned>>& top_offsets, std::vector<Vertex>& vertices,
+                   std::vector<glm::vec2>& tex_coords, std::vector<std::pair<unsigned, unsigned>>& indices,
+                   bool branch_connections, const StrandModelMeshGeneratorSettings& settings) {
   // we want to track whether we actually produced any geometry
   const size_t size_before = indices.size();
 
   // compute (incomplete) permutation that turns 0 into 1
 
   // map of pipe handle index to top slice and index in top slice
-  std::vector<std::pair<size_t, size_t>> top_pipe_handle_index_map(pipes.PeekStrands().size(), std::make_pair<>(-1, -1));
+  std::vector<std::pair<size_t, size_t>> top_pipe_handle_index_map(pipes.PeekStrands().size(),
+                                                                   std::make_pair<>(-1, -1));
 
   // map of pipe handle index to index in bottom slice
   std::vector<size_t> bottom_pipe_handle_index_map(pipes.PeekStrands().size(), -1);
@@ -1058,7 +1059,7 @@ bool ConnectSlices(const StrandModelStrandGroup& pipes, Slice& bottom_slice, std
       size_t prev_index = -1;
 
       for (size_t j = (bottom_permutation[i].second == 0 ? top_slices[bottom_permutation[i].first].size() - 1
-                                                        : bottom_permutation[i].second - 1);
+                                                         : bottom_permutation[i].second - 1);
            prev_index == -1; j = (j == 0 ? top_slices[bottom_permutation[i].first].size() - 1 : j - 1)) {
         if (top_permutations[bottom_permutation[i].first][j] != -1) {
           prev_index = j;
@@ -1069,7 +1070,8 @@ bool ConnectSlices(const StrandModelStrandGroup& pipes, Slice& bottom_slice, std
 
       size_t next_mid =
           MidIndex(bottom_permutation[prev_i].second, next_index, top_slices[bottom_permutation[prev_i].first].size());
-      size_t prev_mid = MidIndex(prev_index, bottom_permutation[i].second, top_slices[bottom_permutation[i].first].size());
+      size_t prev_mid =
+          MidIndex(prev_index, bottom_permutation[i].second, top_slices[bottom_permutation[i].first].size());
 
       // TODO: we could do a very simple test if we selected the correct indices
       if (branch_connections) {
@@ -1085,9 +1087,9 @@ bool ConnectSlices(const StrandModelStrandGroup& pipes, Slice& bottom_slice, std
         // TODO: Think about texture coordinates
         indices.emplace_back(std::make_pair<>(bottom_offset.first + bottom_mid, bottom_offset.second + bottom_mid));
         indices.emplace_back(std::make_pair<>(top_offsets[bottom_permutation[prev_i].first].first + next_mid,
-                                           top_offsets[bottom_permutation[prev_i].first].second + next_mid));
+                                              top_offsets[bottom_permutation[prev_i].first].second + next_mid));
         indices.emplace_back(std::make_pair<>(top_offsets[bottom_permutation[i].first].first + prev_mid,
-                                           top_offsets[bottom_permutation[i].first].second + prev_mid));
+                                              top_offsets[bottom_permutation[i].first].second + prev_mid));
 
         // TODO: connecting with the same top slice looks better
 
@@ -1097,7 +1099,8 @@ bool ConnectSlices(const StrandModelStrandGroup& pipes, Slice& bottom_slice, std
 
         if (DEBUG_OUTPUT)
           std::cout << "Connected bottom indices " << bottom_mid << " to " << i << " with " << prev_mid << " to "
-                    << bottom_permutation[i].second << " of top profile no. " << bottom_permutation[i].first << std::endl;
+                    << bottom_permutation[i].second << " of top profile no. " << bottom_permutation[i].first
+                    << std::endl;
       }
     }
 
@@ -1137,7 +1140,8 @@ bool ConnectSlices(const StrandModelStrandGroup& pipes, Slice& bottom_slice, std
           size_t steps =
               (top_indices[j] + top_slices[branch_index].size() - top_indices[j - 1]) % top_slices[branch_index].size();
 
-          if (top_indices[j] >= top_slices[branch_index].size() || top_indices[j - 1] >= top_slices[branch_index].size()) {
+          if (top_indices[j] >= top_slices[branch_index].size() ||
+              top_indices[j - 1] >= top_slices[branch_index].size()) {
             std::cerr << "Error: Looks like an incorrect index ended up in the index list. Ignoring this pair."
                       << std::endl;
           } else if (steps > (top_slices[branch_index].size() + 1) / 2) {
@@ -1214,10 +1218,10 @@ struct SlicingData {
 };
 
 std::vector<SlicingData> Slicing(const StrandModel& strand_model, std::pair<Slice, PipeCluster>& prev_slice,
-                               std::pair<unsigned, unsigned> prev_offset, float t, float step_size, float max_dist,
-                               std::vector<Vertex>& vertices, std::vector<glm::vec2>& tex_coords,
-                               std::vector<std::pair<unsigned, unsigned>>& indices,
-                               const StrandModelMeshGeneratorSettings& settings, float accumulated_angle = 0.0f) {
+                                 std::pair<unsigned, unsigned> prev_offset, float t, float step_size, float max_dist,
+                                 std::vector<Vertex>& vertices, std::vector<glm::vec2>& tex_coords,
+                                 std::vector<std::pair<unsigned, unsigned>>& indices,
+                                 const StrandModelMeshGeneratorSettings& settings, float accumulated_angle = 0.0f) {
   const auto& skeleton = strand_model.strand_model_skeleton;
   const auto& pipe_group = skeleton.data.strand_group;
 
@@ -1230,8 +1234,8 @@ std::vector<SlicingData> Slicing(const StrandModel& strand_model, std::pair<Slic
     return {};
   }
 
-  auto slices_and_clusters =
-      ComputeSlices(strand_model, prev_slice.second, t, step_size, max_dist, settings.min_cell_count_for_major_branches);
+  auto slices_and_clusters = ComputeSlices(strand_model, prev_slice.second, t, step_size, max_dist,
+                                           settings.min_cell_count_for_major_branches);
   std::vector<Slice> top_slices;
 
   bool all_empty = true;
@@ -1272,7 +1276,7 @@ std::vector<SlicingData> Slicing(const StrandModel& strand_model, std::pair<Slic
       glm::vec2 tex_coord;
       tex_coord.y = t * settings.v_multiplier;
       tex_coord.x = (GetPipePolar(strand_model, el.first, t) / (2 * glm::pi<float>()) + accumulated_angle / 360.0f) *
-                   settings.u_multiplier;
+                    settings.u_multiplier;
 
       // add twisting to uv-Coordinates
       auto node_handle = GetNodeHandle(pipe_group, el.first, glm::floor(t + 1));
@@ -1359,7 +1363,7 @@ void SliceIteratively(const StrandModel& strand_model, std::vector<SlicingData>&
 
     std::vector<SlicingData> slices =
         Slicing(strand_model, cur.slice, std::make_pair<>(cur.offset_vert, cur.offset_tex), cur.t, step_size, max_dist,
-              vertices, tex_coords, indices, settings, cur.accumulated_angle);
+                vertices, tex_coords, indices, settings, cur.accumulated_angle);
 
     for (SlicingData& s : slices) {
       queue.push(s);
@@ -1388,7 +1392,7 @@ void StrandModelMeshGenerator::RecursiveSlicing(const StrandModel& strand_model,
   const auto& skeleton = strand_model.strand_model_skeleton;
   const auto& pipe_group = skeleton.data.strand_group;
 
-  if (pipe_group.PeekStrands().size() == 0) {
+  if (pipe_group.PeekStrands().empty()) {
     return;
   }
 
@@ -1399,9 +1403,9 @@ void StrandModelMeshGenerator::RecursiveSlicing(const StrandModel& strand_model,
   if (DEBUG_OUTPUT)
     std::cout << "determining max thickness" << std::endl;
   float max_thickness = 0.0f;
-  ForEachSegment(pipe_group, seg_group0, [&](const StrandSegment<StrandModelStrandSegmentData>& seg) {
-    if (seg.info.thickness > max_thickness) {
-      max_thickness = seg.info.thickness;
+  ForEachSegment(pipe_group, seg_group0, [&](const StrandSegment& seg) {
+    if (seg.end_thickness > max_thickness) {
+      max_thickness = seg.end_thickness;
     }
   });
 
@@ -1412,8 +1416,8 @@ void StrandModelMeshGenerator::RecursiveSlicing(const StrandModel& strand_model,
   // prepare initial pipe cluster:
   PipeCluster pipe_cluster;
 
-  for (size_t i = 0; i < pipe_group.PeekStrands().size(); i++) {
-    pipe_cluster.push_back(pipe_group.PeekStrands()[i].GetHandle());
+  for (StrandHandle strand_handle = 0; strand_handle < pipe_group.PeekStrands().size(); strand_handle++) {
+    pipe_cluster.push_back(strand_handle);
   }
 
   float step_size = 1.0f / settings.steps_per_segment;
@@ -1476,19 +1480,22 @@ void StrandModelMeshGenerator::MarchingCube(const StrandModel& strand_model, std
                                             std::vector<unsigned>& indices,
                                             const StrandModelMeshGeneratorSettings& settings) {
   const auto& skeleton = strand_model.strand_model_skeleton;
-  const auto& pipe_group = skeleton.data.strand_group;
+  const auto& strand_group = skeleton.data.strand_group;
   // first compute extreme points
   auto min = glm::vec3(std::numeric_limits<float>::infinity());
   auto max = glm::vec3(-std::numeric_limits<float>::infinity());
   bool need_triangulation = false;
-  for (const auto& pipe_segment : pipe_group.PeekStrandSegments()) {
-    const auto& node = skeleton.PeekNode(pipe_segment.data.node_handle);
+  for (uint32_t strand_segment_index = 0; strand_segment_index < strand_group.PeekStrandSegments().size();
+       strand_segment_index++) {
+    const auto& strand_segment = strand_group.PeekStrandSegment(strand_segment_index);
+    const auto& strand_segment_data = strand_group.PeekStrandSegmentData(strand_segment_index);
+    const auto& node = skeleton.PeekNode(strand_segment_data.node_handle);
     const auto& profile = node.data.profile;
     if (profile.PeekParticles().size() < settings.min_cell_count_for_major_branches)
       continue;
     need_triangulation = true;
-    min = glm::min(pipe_segment.info.global_position, min);
-    max = glm::max(pipe_segment.info.global_position, max);
+    min = glm::min(strand_segment.end_position, min);
+    max = glm::max(strand_segment.end_position, max);
   }
   if (need_triangulation) {
     min -= glm::vec3(0.1f);
@@ -1512,23 +1519,27 @@ void StrandModelMeshGenerator::MarchingCube(const StrandModel& strand_model, std
     }
     float subdivision_length = settings.marching_cube_radius * 0.5f;
 
-    for (const auto& pipe_segment : pipe_group.PeekStrandSegments()) {
-      const auto& node = skeleton.PeekNode(pipe_segment.data.node_handle);
+    for (StrandSegmentHandle strand_segment_handle = 0; strand_segment_handle < strand_group.PeekStrandSegments().size();
+         strand_segment_handle++) {
+      const auto& strand_segment = strand_group.PeekStrandSegment(strand_segment_handle);
+      const auto& strand_segment_data = strand_group.PeekStrandSegmentData(strand_segment_handle);
+      const auto& node = skeleton.PeekNode(strand_segment_data.node_handle);
       const auto& profile = node.data.profile;
       if (profile.PeekParticles().size() < settings.min_cell_count_for_major_branches)
         continue;
 
       // Get interpolated position on pipe segment. Example to get middle point here:
-      const auto start_position = strand_model.InterpolateStrandSegmentPosition(pipe_segment.GetHandle(), 0.0f);
-      const auto end_position = strand_model.InterpolateStrandSegmentPosition(pipe_segment.GetHandle(), 1.0f);
+      const auto start_position = strand_model.InterpolateStrandSegmentPosition(strand_segment_handle, 0.0f);
+      const auto end_position = strand_model.InterpolateStrandSegmentPosition(strand_segment_handle, 1.0f);
       const auto distance = glm::distance(start_position, end_position);
       const auto step_size = glm::max(1, static_cast<int>(distance / subdivision_length));
 
-      const auto polar_x = profile.PeekParticle(pipe_segment.data.profile_particle_handle).GetInitialPolarPosition().y /
-                          glm::radians(360.0f);
+      const auto polar_x =
+          profile.PeekParticle(strand_segment_data.profile_particle_handle).GetInitialPolarPosition().y /
+          glm::radians(360.0f);
       for (int step = 0; step < step_size; step++) {
         const auto a = static_cast<float>(step) / step_size;
-        const auto position = strand_model.InterpolateStrandSegmentPosition(pipe_segment.GetHandle(), a);
+        const auto position = strand_model.InterpolateStrandSegmentPosition(strand_segment_handle, a);
 
         octree.Occupy(position, [&](OctreeNode&) {
         });
@@ -1546,7 +1557,8 @@ void StrandModelMeshGenerator::CylindricalMeshing(const StrandModel& strand_mode
   std::unordered_set<SkeletonNodeHandle> node_handles;
   for (const auto& node_handle : sorted_internode_list) {
     const auto& internode = skeleton.PeekNode(node_handle);
-    if (const int particle_size = internode.data.profile.PeekParticles().size(); particle_size > settings.max_cell_count_for_minor_branches)
+    if (const int particle_size = internode.data.profile.PeekParticles().size();
+        particle_size > settings.max_cell_count_for_minor_branches)
       continue;
     node_handles.insert(node_handle);
   }
@@ -1813,7 +1825,8 @@ void StrandModelMeshGenerator::CalculateUv(const StrandModel& strand_model, std:
         if (glm::dot(node_end - node_start, closest_point - node_start) <= 0.f ||
             glm::dot(node_start - node_end, closest_point - node_end) <= 0.f)
           continue;
-        if (const auto current_distance = glm::distance(closest_point, vertex.position) / node.info.thickness; current_distance < min_distance) {
+        if (const auto current_distance = glm::distance(closest_point, vertex.position) / node.info.thickness;
+            current_distance < min_distance) {
           min_distance = current_distance;
           closest_node_handle = node_handle;
         }
@@ -1823,7 +1836,7 @@ void StrandModelMeshGenerator::CalculateUv(const StrandModel& strand_model, std:
         const float end_point_root_distance = closest_node.info.root_distance;
         const float start_point_root_distance = closest_node.info.root_distance - closest_node.info.length;
         const auto closest_point = glm::closestPointOnLine(vertex.position, closest_node.info.global_position,
-                                                          closest_node.info.GetGlobalEndPosition());
+                                                           closest_node.info.GetGlobalEndPosition());
         const float distance_to_start = glm::distance(closest_point, closest_node.info.global_position);
         const float a = closest_node.info.length == 0 ? 1.f : distance_to_start / closest_node.info.length;
         const float root_distance = glm::mix(start_point_root_distance, end_point_root_distance, a);
@@ -1845,15 +1858,17 @@ void StrandModelMeshGenerator::CalculateUv(const StrandModel& strand_model, std:
     const auto& strand_group = strand_model.strand_model_skeleton.data.strand_group;
     auto min = glm::vec3(FLT_MAX);
     auto max = glm::vec3(FLT_MIN);
-    for (const auto& segment : strand_group.PeekStrandSegments()) {
-      if (segment.IsRecycled())
-        continue;
-      const auto& node = strand_model.strand_model_skeleton.PeekNode(segment.data.node_handle);
+    for (StrandSegmentHandle strand_segment_handle = 0; strand_segment_handle < strand_group.PeekStrandSegments().size();
+         strand_segment_handle++) {
+      const auto& strand_segment = strand_group.PeekStrandSegment(strand_segment_handle);
+      const auto& strand_segment_data = strand_group.PeekStrandSegmentData(strand_segment_handle);
+
+      const auto& node = strand_model.strand_model_skeleton.PeekNode(strand_segment_data.node_handle);
       const auto& profile = node.data.profile;
       if (profile.PeekParticles().size() < settings.min_cell_count_for_major_branches)
         continue;
-      const auto segment_start = strand_group.GetStrandSegmentStart(segment.GetHandle());
-      const auto segment_end = segment.info.global_position;
+      const auto segment_start = strand_group.GetStrandSegmentStart(strand_segment_handle);
+      const auto segment_end = strand_segment.end_position;
       min = glm::min(segment_start, min);
       min = glm::min(segment_start, min);
       max = glm::max(segment_end, max);
@@ -1864,17 +1879,18 @@ void StrandModelMeshGenerator::CalculateUv(const StrandModel& strand_model, std:
     VoxelGrid<std::vector<StrandSegmentHandle>> boundary_segments;
     boundary_segments.Initialize(0.01f, min, max, {});
 
-    for (const auto& segment : strand_group.PeekStrandSegments()) {
-      if (segment.IsRecycled())
-        continue;
-      const auto& node = strand_model.strand_model_skeleton.PeekNode(segment.data.node_handle);
+    for (StrandSegmentHandle strand_segment_handle = 0; strand_segment_handle < strand_group.PeekStrandSegments().size();
+         strand_segment_handle++) {
+      const auto& strand_segment = strand_group.PeekStrandSegment(strand_segment_handle);
+      const auto& strand_segment_data = strand_group.PeekStrandSegmentData(strand_segment_handle);
+      const auto& node = strand_model.strand_model_skeleton.PeekNode(strand_segment_data.node_handle);
       const auto& profile = node.data.profile;
       if (profile.PeekParticles().size() < settings.min_cell_count_for_major_branches)
         continue;
 
-      const auto segment_start = strand_group.GetStrandSegmentStart(segment.GetHandle());
-      const auto segment_end = segment.info.global_position;
-      boundary_segments.Ref((segment_start + segment_end) * 0.5f).emplace_back(segment.GetHandle());
+      const auto segment_start = strand_group.GetStrandSegmentStart(strand_segment_handle);
+      const auto segment_end = strand_segment.end_position;
+      boundary_segments.Ref((segment_start + segment_end) * 0.5f).emplace_back(strand_segment_handle);
     }
 
     Jobs::RunParallelFor(vertices.size(), [&](unsigned vertex_index) {
@@ -1885,28 +1901,29 @@ void StrandModelMeshGenerator::CalculateUv(const StrandModel& strand_model, std:
         for (const auto& segment_handle : segment_handles) {
           const auto& segment = strand_group.PeekStrandSegment(segment_handle);
           const auto segment_start = strand_group.GetStrandSegmentStart(segment_handle);
-          const auto segment_end = segment.info.global_position;
+          const auto segment_end = segment.end_position;
           const auto closest_point = glm::closestPointOnLine(vertex.position, segment_start, segment_end);
           if (glm::dot(segment_end - segment_start, closest_point - segment_start) <= 0.f ||
               glm::dot(segment_start - segment_end, closest_point - segment_end) <= 0.f)
             continue;
-          if (const auto current_distance = glm::distance(segment_end, vertex.position); current_distance < min_distance) {
+          if (const auto current_distance = glm::distance(segment_end, vertex.position);
+              current_distance < min_distance) {
             min_distance = current_distance;
-            closest_segment_handle = segment.GetHandle();
+            closest_segment_handle = segment_handle;
           }
         }
       });
       SkeletonNodeHandle closest_node_handle = -1;
       if (closest_segment_handle != -1) {
-        const auto segment = strand_group.PeekStrandSegment(closest_segment_handle);
-        closest_node_handle = segment.data.node_handle;
+        const auto segment_data = strand_group.PeekStrandSegmentData(closest_segment_handle);
+        closest_node_handle = segment_data.node_handle;
       }
       if (closest_node_handle != -1) {
         const auto closest_node = strand_model.strand_model_skeleton.PeekNode(closest_node_handle);
         const float end_point_root_distance = closest_node.info.root_distance;
         const float start_point_root_distance = closest_node.info.root_distance - closest_node.info.length;
         const auto closest_point = glm::closestPointOnLine(vertex.position, closest_node.info.global_position,
-                                                          closest_node.info.GetGlobalEndPosition());
+                                                           closest_node.info.GetGlobalEndPosition());
         const float distance_to_start = glm::distance(closest_point, closest_node.info.global_position);
         const float a = closest_node.info.length == 0 ? 1.f : distance_to_start / closest_node.info.length;
         const float root_distance = glm::mix(start_point_root_distance, end_point_root_distance, a);

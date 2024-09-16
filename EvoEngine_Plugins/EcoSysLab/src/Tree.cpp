@@ -23,7 +23,7 @@
 #include "Strands.hpp"
 #include "StrandsRenderer.hpp"
 #include "TreeSkinnedMeshGenerator.hpp"
-#ifdef PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_PLUGIN
 #  include "RigidBody.hpp"
 #endif
 using namespace eco_sys_lab_plugin;
@@ -614,6 +614,13 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::Button("Clear StrandRenderer")) {
     ClearStrandRenderer();
   }
+  if (ImGui::Button("Build Strand Particles")) {
+    InitializeStrandParticles();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Clear Strand Particles")) {
+    ClearStrandParticles();
+  }
   if (ImGui::Button("Build Strand Mesh")) {
     InitializeStrandModelMeshRenderer(strand_model_mesh_generator_settings);
   }
@@ -759,6 +766,14 @@ std::shared_ptr<Strands> Tree::GenerateStrands() const {
   strand_point_attributes.color = true;
   strands_asset->SetStrands(strand_point_attributes, strands_list, points);
   return strands_asset;
+}
+
+std::shared_ptr<ParticleInfoList> Tree::GenerateStrandParticles() const {
+  const auto particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  std::vector<ParticleInfo> particle_infos;
+  strand_model.strand_model_skeleton.data.strand_group.BuildParticles(particle_infos);
+  particle_info_list->SetParticleInfos(particle_infos);
+  return particle_info_list;
 }
 
 void Tree::GenerateTrunkMeshes(const std::shared_ptr<Mesh>& trunk_mesh,
@@ -1466,19 +1481,27 @@ void Tree::Serialize(YAML::Emitter& out) const {
                       [&](YAML::Emitter& group_out, const StrandModelStrandGroupData&) {
                         const auto strand_segment_size = skeleton_data.strand_group.PeekStrandSegments().size();
                         auto node_handle = std::vector<SkeletonNodeHandle>(strand_segment_size);
+                        auto is_boundary = std::vector<uint8_t>(strand_segment_size);
                         auto profile_particle_handles = std::vector<ParticleHandle>(strand_segment_size);
                         for (int strand_segment_index = 0; strand_segment_index < strand_segment_size;
                              strand_segment_index++) {
-                          const auto& strand_segment =
-                              skeleton_data.strand_group.PeekStrandSegment(strand_segment_index);
-                          node_handle.at(strand_segment_index) = strand_segment.data.node_handle;
-                          profile_particle_handles.at(strand_segment_index) =
-                              strand_segment.data.profile_particle_handle;
+                          const auto& strand_segment_data =
+                              skeleton_data.strand_group.PeekStrandSegmentData(strand_segment_index);
+                          node_handle[strand_segment_index] = strand_segment_data.node_handle;
+                          is_boundary[strand_segment_index] = strand_segment_data.is_boundary;
+                          profile_particle_handles[strand_segment_index] =
+                              strand_segment_data.profile_particle_handle;
                         }
                         if (strand_segment_size != 0) {
                           group_out << YAML::Key << "ss.data.node_handle" << YAML::Value
                                     << YAML::Binary(reinterpret_cast<const unsigned char*>(node_handle.data()),
                                                     node_handle.size() * sizeof(SkeletonNodeHandle));
+
+                          group_out << YAML::Key << "ss.data.is_boundary" << YAML::Value
+                                    << YAML::Binary(is_boundary.data(),
+                                                    is_boundary.size() * sizeof(uint8_t));
+
+
                           group_out << YAML::Key << "ss.data.profile_particle_handle" << YAML::Value
                                     << YAML::Binary(
                                            reinterpret_cast<const unsigned char*>(profile_particle_handles.data()),
@@ -1668,19 +1691,28 @@ void Tree::Deserialize(const YAML::Node& in) {
                           list.resize(data.size() / sizeof(SkeletonNodeHandle));
                           std::memcpy(list.data(), data.data(), data.size());
                           for (size_t i = 0; i < list.size(); i++) {
-                            auto& strand_segment = skeleton_data.strand_group.RefStrandSegment(i);
-                            strand_segment.data.node_handle = list[i];
+                            auto& strand_segment = skeleton_data.strand_group.RefStrandSegmentData(i);
+                            strand_segment.node_handle = list[i];
                           }
                         }
-
+                        if (group_in["ss.data.is_boundary"]) {
+                          auto list = std::vector<uint8_t>();
+                          const auto data = group_in["ss.data.is_boundary"].as<YAML::Binary>();
+                          list.resize(data.size() / sizeof(uint8_t));
+                          std::memcpy(list.data(), data.data(), data.size());
+                          for (size_t i = 0; i < list.size(); i++) {
+                            auto& strand_segment = skeleton_data.strand_group.RefStrandSegmentData(i);
+                            strand_segment.is_boundary = list[i] != 0;
+                          }
+                        }
                         if (group_in["ss.data.profile_particle_handle"]) {
                           auto list = std::vector<ParticleHandle>();
                           const auto data = group_in["ss.data.profile_particle_handle"].as<YAML::Binary>();
                           list.resize(data.size() / sizeof(ParticleHandle));
                           std::memcpy(list.data(), data.data(), data.size());
                           for (size_t i = 0; i < list.size(); i++) {
-                            auto& strand_segment = skeleton_data.strand_group.RefStrandSegment(i);
-                            strand_segment.data.profile_particle_handle = list[i];
+                            auto& strand_segment = skeleton_data.strand_group.RefStrandSegmentData(i);
+                            strand_segment.profile_particle_handle = list[i];
                           }
                         }
                       });
@@ -2237,7 +2269,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     const auto fruit_entity = scene->CreateEntity("Animated Fruit Mesh");
     scene->SetParent(fruit_entity, self);
   }
-#ifdef PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_PLUGIN
   if (enable_physics) {
     const auto descendants = scene->GetDescendants(rag_doll);
     auto root_rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(rag_doll).lock();
@@ -2297,17 +2329,7 @@ void Tree::ClearGeometryEntities() const {
   }
 }
 
-void Tree::ClearStrandRenderer() const {
-  const auto scene = GetScene();
-  const auto self = GetOwner();
-  const auto children = scene->GetChildren(self);
-  for (const auto& child : children) {
-    auto name = scene->GetEntityName(child);
-    if (name == "Branch Strands") {
-      scene->DeleteEntity(child);
-    }
-  }
-}
+
 
 void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_generator_settings, int iteration) {
   const auto scene = GetScene();
@@ -2896,6 +2918,71 @@ void Tree::PrepareController(const std::shared_ptr<ShootDescriptor>& shoot_descr
       };
 }
 
+
+void Tree::ClearStrandRenderer() const {
+  const auto scene = GetScene();
+  const auto self = GetOwner();
+  const auto children = scene->GetChildren(self);
+  for (const auto& child : children) {
+    auto name = scene->GetEntityName(child);
+    if (name == "Branch Strands") {
+      scene->DeleteEntity(child);
+    }
+  }
+}
+
+void Tree::InitializeStrandParticles() {
+  const auto scene = GetScene();
+  const auto owner = GetOwner();
+
+  ClearStrandParticles();
+  if (strand_model.strand_model_skeleton.RefRawNodes().size() != tree_model.PeekShootSkeleton().PeekRawNodes().size()) {
+    BuildStrandModel();
+  }
+  const auto strands_entity = scene->CreateEntity("Branch Strand Particles");
+  scene->SetParent(strands_entity, owner);
+
+  const auto renderer = scene->GetOrSetPrivateComponent<Particles>(strands_entity).lock();
+  renderer->particle_info_list = GenerateStrandParticles();
+  renderer->mesh = Resources::GetResource<Mesh>("PRIMITIVE_CUBE");
+  const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+
+  renderer->material = material;
+  material->vertex_color_only = true;
+  material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+}
+
+void Tree::InitializeStrandParticles(const std::shared_ptr<ParticleInfoList>& particle_info_list) const {
+  const auto scene = GetScene();
+  const auto owner = GetOwner();
+
+  ClearStrandParticles();
+
+  const auto strands_entity = scene->CreateEntity("Branch Strand Particles");
+  scene->SetParent(strands_entity, owner);
+
+  const auto renderer = scene->GetOrSetPrivateComponent<Particles>(strands_entity).lock();
+  renderer->particle_info_list = particle_info_list;
+  renderer->mesh = Resources::GetResource<Mesh>("PRIMITIVE_CUBE");
+  const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+
+  renderer->material = material;
+  material->vertex_color_only = true;
+  material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+}
+
+void Tree::ClearStrandParticles() const {
+  const auto scene = GetScene();
+  const auto self = GetOwner();
+  const auto children = scene->GetChildren(self);
+  for (const auto& child : children) {
+    auto name = scene->GetEntityName(child);
+    if (name == "Branch Strand Particles") {
+      scene->DeleteEntity(child);
+    }
+  }
+}
+
 void Tree::InitializeStrandRenderer() {
   const auto scene = GetScene();
   const auto owner = GetOwner();
@@ -2936,6 +3023,8 @@ void Tree::InitializeStrandRenderer(const std::shared_ptr<Strands>& strands) con
   material->vertex_color_only = true;
   material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
 }
+
+
 
 void Tree::InitializeStrandModelMeshRenderer(
     const StrandModelMeshGeneratorSettings& strand_model_mesh_generator_settings) {

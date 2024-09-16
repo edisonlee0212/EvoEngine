@@ -16,6 +16,8 @@ struct StrandModelStrandSegmentData {
    */
   SkeletonNodeHandle node_handle = -1;
   ParticleHandle profile_particle_handle = -1;
+
+  bool is_boundary = false;
 };
 
 typedef StrandGroup<StrandModelStrandGroupData, StrandModelStrandData, StrandModelStrandSegmentData>

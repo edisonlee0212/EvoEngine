@@ -38,11 +38,16 @@ struct SkeletonNodeInfo {
   int cluster_index = 0;
 
   [[nodiscard]] glm::vec3 GetGlobalEndPosition() const;
+  [[nodiscard]] glm::vec3 GetGlobalCenterPosition() const;
   [[nodiscard]] glm::vec3 GetGlobalDirection() const;
 };
 
 inline glm::vec3 SkeletonNodeInfo::GetGlobalEndPosition() const {
   return global_position + glm::normalize(global_rotation * glm::vec3(0, 0, -1)) * length;
+}
+
+inline glm::vec3 SkeletonNodeInfo::GetGlobalCenterPosition() const {
+  return global_position + glm::normalize(global_rotation * glm::vec3(0, 0, -1)) * length * 0.5f;
 }
 
 inline glm::vec3 SkeletonNodeInfo::GetGlobalDirection() const {

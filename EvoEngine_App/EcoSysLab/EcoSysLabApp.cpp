@@ -82,7 +82,7 @@ int main() {
   Application::PushLayer<RayTracerLayer>();
 #endif
 
-#ifdef PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_PLUGIN
   Application::PushLayer<PhysicsLayer>();
 #endif
 #ifdef ECOSYSLAB_PLUGIN
@@ -104,7 +104,7 @@ int main() {
 #ifdef OPTIX_RAY_TRACER_PLUGIN
   auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
 #endif
-#ifdef PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_PLUGIN
   Application::GetActiveScene()->GetOrCreateSystem<PhysicsSystem>(1);
 #endif
   // adjust default camera speed

@@ -25,7 +25,7 @@ using namespace universe_plugin;
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
-#ifdef PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_PLUGIN
 #  include "PhysicsLayer.hpp"
 #  include "RigidBody.hpp"
 #endif
@@ -49,7 +49,7 @@ using namespace gpr_plugin;
 
 using namespace evo_engine;
 #pragma region Helpers
-#ifdef PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_PLUGIN
 Entity CreateDynamicCube(const float& mass, const glm::vec3& color, const glm::vec3& position,
                          const glm::vec3& rotation, const glm::vec3& scale, const std::string& name);
 
@@ -91,7 +91,7 @@ int main() {
 #ifdef OPTIX_RAY_TRACER_PLUGIN
   Application::PushLayer<RayTracerLayer>();
 #endif
-#ifdef PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_PLUGIN
   Application::PushLayer<PhysicsLayer>();
 #endif
 #ifdef ECOSYSLAB_PLUGIN
@@ -293,7 +293,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
 #pragma endregion
 
-#ifdef PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_PLUGIN
         LoadScene(scene, "Rendering Demo", false);
         const auto physics_demo = LoadPhysicsScene(scene, "Physics Demo");
         Transform physics_demo_transform;
@@ -495,7 +495,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
   }
 #pragma endregion
 }
-#ifdef PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_PLUGIN
 Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name) {
   const auto base_entity = scene->CreateEntity(base_entity_name);
 #  pragma region Create 9 spheres in different PBR properties

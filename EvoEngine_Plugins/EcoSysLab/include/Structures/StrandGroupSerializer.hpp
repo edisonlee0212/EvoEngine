@@ -29,44 +29,10 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Seri
     const std::function<void(YAML::Emitter& strand_out, const StrandData& strand_data)>& strand_func,
     const std::function<void(YAML::Emitter& group_out, const StrandGroupData& group_data)>& group_func) {
   const auto strand_size = strand_group.strands_.size();
-  auto strand_recycled_list = std::vector<int>(strand_size);
-  auto strand_info_color_list = std::vector<glm::vec4>(strand_size);
-  auto strand_info_base_info_global_position_list = std::vector<glm::vec3>(strand_size);
-  auto strand_info_base_info_thickness_list = std::vector<float>(strand_size);
-  auto strand_info_base_info_color_list = std::vector<glm::vec4>(strand_size);
-  auto strand_info_base_info_is_boundary_list = std::vector<int>(strand_size);
 
-  for (int strand_index = 0; strand_index < strand_size; strand_index++) {
-    const auto& strand = strand_group.strands_[strand_index];
-    strand_recycled_list[strand_index] = strand.recycled_ ? 1 : 0;
-    strand_info_color_list[strand_index] = strand.info.color;
-    strand_info_base_info_global_position_list[strand_index] = strand.info.base_info.global_position;
-    strand_info_base_info_thickness_list[strand_index] = strand.info.base_info.thickness;
-    strand_info_base_info_color_list[strand_index] = strand.info.base_info.color;
-    strand_info_base_info_is_boundary_list[strand_index] = strand.info.base_info.is_boundary;
-  }
-  if (strand_size != 0) {
-    out << YAML::Key << "strands_.recycled_" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_recycled_list.data()),
-                        strand_recycled_list.size() * sizeof(int));
-    out << YAML::Key << "strands_.info.color" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_info_color_list.data()),
-                        strand_info_color_list.size() * sizeof(glm::vec4));
-    out << YAML::Key << "strands_.info.base_info.global_position" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_info_base_info_global_position_list.data()),
-                        strand_info_base_info_global_position_list.size() * sizeof(glm::vec3));
-    out << YAML::Key << "strands_.info.base_info.thickness" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_info_base_info_thickness_list.data()),
-                        strand_info_base_info_thickness_list.size() * sizeof(float));
-    out << YAML::Key << "strands_.info.base_info.color" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_info_base_info_color_list.data()),
-                        strand_info_base_info_color_list.size() * sizeof(glm::vec4));
-    out << YAML::Key << "strands_.info.base_info.is_boundary" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_info_base_info_is_boundary_list.data()),
-                        strand_info_base_info_is_boundary_list.size() * sizeof(int));
-  }
   out << YAML::Key << "strands_" << YAML::Value << YAML::BeginSeq;
-  for (const auto& strand : strand_group.strands_) {
+  for (uint32_t strand_index = 0; strand_index < strand_group.strands_.size(); strand_index++) {
+    const auto& strand = strand_group.strands_[strand_index];
     out << YAML::BeginMap;
     {
       if (!strand.strand_segment_handles_.empty()) {
@@ -74,8 +40,12 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Seri
             << YAML::Binary(reinterpret_cast<const unsigned char*>(strand.strand_segment_handles_.data()),
                             strand.strand_segment_handles_.size() * sizeof(StrandSegmentHandle));
       }
+      out << YAML::Key << "start_position" << YAML::Value << strand.start_position;
+      out << YAML::Key << "start_thickness" << YAML::Value << strand.start_thickness;
+      out << YAML::Key << "start_color" << YAML::Value << strand.start_color;
+
       out << YAML::Key << "data" << YAML::Value << YAML::BeginMap;
-      { strand_func(out, strand.data); }
+      { strand_func(out, strand_group.strands_data_list[strand_index]); }
       out << YAML::EndMap;
     }
     out << YAML::EndMap;
@@ -83,42 +53,32 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Seri
   out << YAML::EndSeq;
 
   const auto strand_segment_size = strand_group.strand_segments_.size();
-  auto strand_segment_end_segment_list = std::vector<int>(strand_segment_size);
-  auto strand_segment_recycled_list = std::vector<int>(strand_segment_size);
-
+  
   auto strand_segment_prev_list = std::vector<StrandSegmentHandle>(strand_segment_size);
   auto strand_segment_next_list = std::vector<StrandSegmentHandle>(strand_segment_size);
   auto strand_segment_strand_handle_list = std::vector<StrandHandle>(strand_segment_size);
   auto strand_segment_index_list = std::vector<int>(strand_segment_size);
 
-  auto strand_segment_global_position_list = std::vector<glm::vec3>(strand_segment_size);
+  auto strand_segment_position_list = std::vector<glm::vec3>(strand_segment_size);
+  auto strand_segment_rotation_list = std::vector<glm::quat>(strand_segment_size);
   auto strand_segment_thickness_list = std::vector<float>(strand_segment_size);
   auto strand_segment_color_list = std::vector<glm::vec4>(strand_segment_size);
-  auto strand_segment_boundary_list = std::vector<int>(strand_segment_size);
 
   for (int strand_segment_index = 0; strand_segment_index < strand_segment_size; strand_segment_index++) {
     const auto& strand_segment = strand_group.strand_segments_[strand_segment_index];
-    strand_segment_recycled_list[strand_segment_index] = strand_segment.recycled_ ? 1 : 0;
-    strand_segment_end_segment_list[strand_segment_index] = strand_segment.end_segment_ ? 1 : 0;
-
+    
     strand_segment_prev_list[strand_segment_index] = strand_segment.prev_handle_;
     strand_segment_next_list[strand_segment_index] = strand_segment.next_handle_;
     strand_segment_strand_handle_list[strand_segment_index] = strand_segment.strand_handle_;
     strand_segment_index_list[strand_segment_index] = strand_segment.index_;
 
-    strand_segment_global_position_list[strand_segment_index] = strand_segment.info.global_position;
-    strand_segment_thickness_list[strand_segment_index] = strand_segment.info.thickness;
-    strand_segment_color_list[strand_segment_index] = strand_segment.info.color;
-    strand_segment_boundary_list[strand_segment_index] = strand_segment.info.is_boundary;
+    strand_segment_position_list[strand_segment_index] = strand_segment.end_position;
+    strand_segment_rotation_list[strand_segment_index] = strand_segment.rotation;
+
+    strand_segment_thickness_list[strand_segment_index] = strand_segment.end_thickness;
+    strand_segment_color_list[strand_segment_index] = strand_segment.end_color;
   }
   if (strand_segment_size != 0) {
-    out << YAML::Key << "strand_segments_.end_segment_" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_segment_end_segment_list.data()),
-                        strand_segment_end_segment_list.size() * sizeof(int));
-    out << YAML::Key << "strand_segments_.recycled_" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_segment_recycled_list.data()),
-                        strand_segment_recycled_list.size() * sizeof(int));
-
     out << YAML::Key << "strand_segments_.prev_handle_" << YAML::Value
         << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_segment_prev_list.data()),
                         strand_segment_prev_list.size() * sizeof(StrandSegmentHandle));
@@ -132,23 +92,29 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Seri
         << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_segment_index_list.data()),
                         strand_segment_index_list.size() * sizeof(int));
 
-    out << YAML::Key << "strand_segments_.info.global_position" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_segment_global_position_list.data()),
-                        strand_segment_global_position_list.size() * sizeof(glm::vec3));
-    out << YAML::Key << "strand_segments_.info.thickness" << YAML::Value
+    out << YAML::Key << "strand_segments_.position" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_segment_position_list.data()),
+                        strand_segment_position_list.size() * sizeof(glm::vec3));
+
+    out << YAML::Key << "strand_segments_.rotation" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_segment_rotation_list.data()),
+                        strand_segment_rotation_list.size() * sizeof(glm::quat));
+
+    out << YAML::Key << "strand_segments_.thickness" << YAML::Value
         << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_segment_thickness_list.data()),
                         strand_segment_thickness_list.size() * sizeof(float));
-    out << YAML::Key << "strand_segments_.info.color" << YAML::Value
+    out << YAML::Key << "strand_segments_.color" << YAML::Value
         << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_segment_color_list.data()),
                         strand_segment_color_list.size() * sizeof(glm::vec4));
-    out << YAML::Key << "strand_segments_.info.is_boundary" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_segment_boundary_list.data()),
-                        strand_segment_boundary_list.size() * sizeof(int));
   }
   out << YAML::Key << "strand_segments_.data" << YAML::Value << YAML::BeginSeq;
-  for (const auto& strand_segment : strand_group.strand_segments_) {
+  for (uint32_t strand_segment_index = 0; strand_segment_index < strand_group.strand_segments_data_list.size(); strand_segment_index++) {
+   
+  }
+
+  for (const auto& strand_segment_data : strand_group.strand_segments_data_list) {
     out << YAML::BeginMap;
-    { strand_segment_func(out, strand_segment.data); }
+    { strand_segment_func(out, strand_segment_data); }
     out << YAML::EndMap;
   }
   out << YAML::EndSeq;
@@ -164,113 +130,43 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Dese
     const std::function<void(const YAML::Node& segment_in, StrandSegmentData& segment_data)>& strand_segment_func,
     const std::function<void(const YAML::Node& strand_in, StrandData& strand_data)>& strand_func,
     const std::function<void(const YAML::Node& group_in, StrandGroupData& group_data)>& group_func) {
-  if (in["strands_.recycled_"]) {
-    auto list = std::vector<int>();
-    const auto data = in["strands_.recycled_"].as<YAML::Binary>();
-    list.resize(data.size() / sizeof(int));
-    std::memcpy(list.data(), data.data(), data.size());
-
-    strand_group.strands_.resize(list.size());
-    for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strands_[i].recycled_ = list[i] == 1;
-    }
-  }
-
-  if (in["strands_.info.color"]) {
-    auto list = std::vector<glm::vec4>();
-    const auto data = in["strands_.info.color"].as<YAML::Binary>();
-    list.resize(data.size() / sizeof(glm::vec4));
-    std::memcpy(list.data(), data.data(), data.size());
-    for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strands_[i].info.color = list[i];
-    }
-  }
-
-  if (in["strands_.info.base_info.global_position"]) {
-    auto list = std::vector<glm::vec3>();
-    const auto data = in["strands_.info.base_info.global_position"].as<YAML::Binary>();
-    list.resize(data.size() / sizeof(glm::vec3));
-    std::memcpy(list.data(), data.data(), data.size());
-    for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strands_[i].info.base_info.global_position = list[i];
-    }
-  }
-
-  if (in["strands_.info.base_info.thickness"]) {
-    auto list = std::vector<float>();
-    const auto data = in["strands_.info.base_info.thickness"].as<YAML::Binary>();
-    list.resize(data.size() / sizeof(float));
-    std::memcpy(list.data(), data.data(), data.size());
-    for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strands_[i].info.base_info.thickness = list[i];
-    }
-  }
-
-  if (in["strands_.info.base_info.color"]) {
-    auto list = std::vector<glm::vec4>();
-    const auto data = in["strands_.info.base_info.color"].as<YAML::Binary>();
-    list.resize(data.size() / sizeof(glm::vec4));
-    std::memcpy(list.data(), data.data(), data.size());
-    for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strands_[i].info.base_info.color = list[i];
-    }
-  }
-
-  if (in["strands_.info.base_info.is_boundary"]) {
-    auto list = std::vector<int>();
-    const auto data = in["strands_.info.base_info.is_boundary"].as<YAML::Binary>();
-    list.resize(data.size() / sizeof(int));
-    std::memcpy(list.data(), data.data(), data.size());
-    for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strands_[i].info.base_info.is_boundary = list[i] == 1;
-    }
-  }
-
+  strand_group = {};
   if (in["strands_"]) {
     const auto& in_strands = in["strands_"];
     StrandHandle strand_handle = 0;
     for (const auto& in_strand : in_strands) {
-      auto& strand = strand_group.strands_.at(strand_handle);
-      strand.handle_ = strand_handle;
+      strand_group.strands_.emplace_back();
+      auto& strand = strand_group.strands_.back();
       if (in_strand["strand_segment_handles_"]) {
         const auto segment_handles = in_strand["strand_segment_handles_"].as<YAML::Binary>();
         strand.strand_segment_handles_.resize(segment_handles.size() / sizeof(StrandSegmentHandle));
         std::memcpy(strand.strand_segment_handles_.data(), segment_handles.data(), segment_handles.size());
       }
+      if (in_strand["start_position"]) {
+        strand.start_position = in_strand["start_position"].as<glm::vec3>();
+      }
+      if (in_strand["start_color"]) {
+        strand.start_color = in_strand["start_color"].as<glm::vec4>();
+      }
+      if (in_strand["start_thickness"]) {
+        strand.start_thickness = in_strand["start_thickness"].as<float>();
+      }
       if (in_strand["data"]) {
         const auto& in_strand_data = in_strand["D"];
-        strand_func(in_strand_data, strand.data);
+        strand_group.strands_data_list.emplace_back();
+        strand_func(in_strand_data, strand_group.strands_data_list.back());
       }
       strand_handle++;
     }
   }
 
-  if (in["strand_segments_.end_segment_"]) {
-    auto list = std::vector<int>();
-    const auto data = in["strand_segments_.end_segment_"].as<YAML::Binary>();
-    list.resize(data.size() / sizeof(int));
-    std::memcpy(list.data(), data.data(), data.size());
-
-    strand_group.strand_segments_.resize(list.size());
-    for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strand_segments_[i].end_segment_ = list[i] == 1;
-    }
-  }
-
-  if (in["strand_segments_.recycled_"]) {
-    auto list = std::vector<int>();
-    const auto data = in["strand_segments_.recycled_"].as<YAML::Binary>();
-    list.resize(data.size() / sizeof(int));
-    std::memcpy(list.data(), data.data(), data.size());
-    for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strand_segments_[i].recycled_ = list[i] == 1;
-    }
-  }
 
   if (in["strand_segments_.prev_handle_"]) {
     auto list = std::vector<StrandSegmentHandle>();
     const auto data = in["strand_segments_.prev_handle_"].as<YAML::Binary>();
     list.resize(data.size() / sizeof(StrandSegmentHandle));
+    strand_group.strand_segments_.resize(list.size());
+    strand_group.strand_segments_data_list.resize(list.size());
     std::memcpy(list.data(), data.data(), data.size());
     for (size_t i = 0; i < list.size(); i++) {
       strand_group.strand_segments_[i].prev_handle_ = list[i];
@@ -307,43 +203,43 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Dese
     }
   }
 
-  if (in["strand_segments_.info.global_position"]) {
+  if (in["strand_segments_.position"]) {
     auto list = std::vector<glm::vec3>();
-    const auto data = in["strand_segments_.info.global_position"].as<YAML::Binary>();
+    const auto data = in["strand_segments_.position"].as<YAML::Binary>();
     list.resize(data.size() / sizeof(glm::vec3));
     std::memcpy(list.data(), data.data(), data.size());
     for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strand_segments_[i].info.global_position = list[i];
+      strand_group.strand_segments_[i].end_position = list[i];
+    }
+  }
+  
+  if (in["strand_segments_.rotation"]) {
+    auto list = std::vector<glm::quat>();
+    const auto data = in["strand_segments_.rotation"].as<YAML::Binary>();
+    list.resize(data.size() / sizeof(glm::quat));
+    std::memcpy(list.data(), data.data(), data.size());
+    for (size_t i = 0; i < list.size(); i++) {
+      strand_group.strand_segments_[i].rotation = list[i];
     }
   }
 
-  if (in["strand_segments_.info.thickness"]) {
+  if (in["strand_segments_.thickness"]) {
     auto list = std::vector<float>();
-    const auto data = in["strand_segments_.info.thickness"].as<YAML::Binary>();
+    const auto data = in["strand_segments_.thickness"].as<YAML::Binary>();
     list.resize(data.size() / sizeof(float));
     std::memcpy(list.data(), data.data(), data.size());
     for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strand_segments_[i].info.thickness = list[i];
+      strand_group.strand_segments_[i].end_thickness = list[i];
     }
   }
 
-  if (in["strand_segments_.info.color"]) {
+  if (in["strand_segments_.color"]) {
     auto list = std::vector<glm::vec4>();
-    const auto data = in["strand_segments_.info.color"].as<YAML::Binary>();
+    const auto data = in["strand_segments_.color"].as<YAML::Binary>();
     list.resize(data.size() / sizeof(glm::vec4));
     std::memcpy(list.data(), data.data(), data.size());
     for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strand_segments_[i].info.color = list[i];
-    }
-  }
-
-  if (in["strand_segments_.info.is_boundary"]) {
-    auto list = std::vector<int>();
-    const auto data = in["strand_segments_.info.is_boundary"].as<YAML::Binary>();
-    list.resize(data.size() / sizeof(int));
-    std::memcpy(list.data(), data.data(), data.size());
-    for (size_t i = 0; i < list.size(); i++) {
-      strand_group.strand_segments_[i].info.is_boundary = list[i] == 1;
+      strand_group.strand_segments_[i].end_color = list[i];
     }
   }
 
@@ -352,25 +248,11 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Dese
     StrandSegmentHandle strand_segment_handle = 0;
     for (const auto& in_strand_segment : in_strand_segments) {
       auto& strand_segment = strand_group.strand_segments_.at(strand_segment_handle);
-      strand_segment.handle_ = strand_segment_handle;
-      strand_segment_func(in_strand_segment, strand_segment.data);
+      strand_segment_func(in_strand_segment, strand_group.strand_segments_data_list[strand_segment_handle]);
       strand_segment_handle++;
     }
   }
-  strand_group.strand_pool_ = {};
-  strand_group.strand_segment_pool_ = {};
-
-  for (const auto& strand : strand_group.strands_) {
-    if (strand.recycled_) {
-      strand_group.strand_pool_.emplace(strand.handle_);
-    }
-  }
-
-  for (const auto& strand_segment : strand_group.strand_segments_) {
-    if (strand_segment.recycled_) {
-      strand_group.strand_segment_pool_.emplace(strand_segment.handle_);
-    }
-  }
+  
 
   if (in["data"])
     group_func(in["data"], strand_group.data);

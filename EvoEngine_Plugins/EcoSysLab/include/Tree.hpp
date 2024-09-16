@@ -13,7 +13,7 @@
 #include "TreeMeshGenerator.hpp"
 #include "TreeVisualizer.hpp"
 
-#ifdef BUILD_WITH_PHYSICS
+#ifdef PHYSX_PHYSICS_PLUGIN
 #  include "PhysicsLayer.hpp"
 #  include "RigidBody.hpp"
 #endif
@@ -106,6 +106,7 @@ class Tree : public IPrivateComponent {
   void BuildStrandModel();
 
   std::shared_ptr<Strands> GenerateStrands() const;
+  std::shared_ptr<ParticleInfoList> GenerateStrandParticles() const;
   void GenerateTrunkMeshes(const std::shared_ptr<Mesh>& trunk_mesh,
                            const TreeMeshGeneratorSettings& mesh_generator_settings);
   std::shared_ptr<Mesh> GenerateBranchMesh(const TreeMeshGeneratorSettings& mesh_generator_settings);
@@ -173,6 +174,10 @@ class Tree : public IPrivateComponent {
   void InitializeStrandRenderer(const std::shared_ptr<Strands>& strands) const;
   void ClearStrandRenderer() const;
 
+  void InitializeStrandParticles();
+  void InitializeStrandParticles(const std::shared_ptr<ParticleInfoList>& particle_info_list) const;
+  void ClearStrandParticles() const;
+
   void InitializeStrandModelMeshRenderer(const StrandModelMeshGeneratorSettings& strand_model_mesh_generator_settings);
 
   void ClearStrandModelMeshRenderer() const;
@@ -204,7 +209,7 @@ void BranchPhysicsParameters::Link(const std::shared_ptr<Scene>& scene,
                                    const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
                                    const std::unordered_map<unsigned, SkeletonFlowHandle>& corresponding_flow_handles,
                                    const Entity& entity, const Entity& child) {
-#ifdef BUILD_WITH_PHYSICS
+#ifdef PHYSX_PHYSICS_PLUGIN
   if (!scene->HasPrivateComponent<RigidBody>(entity)) {
     scene->RemovePrivateComponent<RigidBody>(child);
     scene->RemovePrivateComponent<Joint>(child);
