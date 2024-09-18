@@ -44,6 +44,23 @@ class StrandSegment {
    */
   glm::quat rotation{};
 
+  //=====================================================
+  // Cosserat Rod
+  //=====================================================
+  
+  glm::vec3 initial_end_position = glm::vec3(0.0f);
+
+  float inv_end_mass;
+
+  glm::vec3 end_velocity = glm::vec3(0.0f);
+
+  float stiffness;
+
+  glm::quat initial_rotation{};
+
+  glm::vec3 angular_velocity;
+
+
   /**
    * Whether this segment is the end segment.
    * @return True if this is end segment, false else wise.
@@ -97,6 +114,17 @@ class Strand {
    * \brief The color of the [[[START]]] current strand segment.
    */
   glm::vec4 start_color = glm::vec4(1.0f);
+
+  //=====================================================
+  // Cosserat Rod
+  //=====================================================
+
+  glm::vec3 initial_start_position = glm::vec3(0.0f);
+
+  glm::vec3 start_velocity = glm::vec3(0.0f);
+
+  float inv_start_mass;
+
   /**
    * Access the segments that belongs to this flow.
    * @return The list of handles.

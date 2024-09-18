@@ -25,6 +25,7 @@ entity_metadata_list:
         near_distance: 0.100000001
         far_distance: 200
         fov: 120
+        background_intensity: 1
         skybox:
           asset_handle_: 77
           asset_type_name_: Cubemap
@@ -53,7 +54,7 @@ entity_metadata_list:
     pc:
       - tn: Climate
         e: true
-        m_climateDescriptor:
+        climate_descriptor:
           asset_handle_: 18020656765688137943
           asset_type_name_: ClimateDescriptor
   - n: Soil
@@ -68,10 +69,7 @@ entity_metadata_list:
           asset_handle_: 2602803847738692072
           asset_type_name_: SoilDescriptor
 systems_:
-  - type_name: PhysicsSystem
-    enabled_: true
-    rank_: 1
-    handle_: 462650561693495121
+  []
 data_component_storage_list:
   - entity_size: 130
     chunk_capacity: 126
@@ -91,12 +89,12 @@ data_component_storage_list:
         dc:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAoEAAACBBAACAPw=="
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAoEAAACBBAACAPw=="
-          - d: !!binary "AAE="
+          - d: !!binary "AAA="
       - h: 4549134868711857240
         dc:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIAz//9/PwAAAAAAAAAA//9/vwAAgDMAAAAAAAAAAAAAAAAAAAAAAACAPw=="
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIAz//9/PwAAAAAAAAAA//9/vwAAgDMAAAAAAAAAAAAAAAAAAAAAAACAPw=="
-          - d: !!binary "AAE="
+          - d: !!binary "AAA="
       - h: 16141221334833496213
         dc:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="

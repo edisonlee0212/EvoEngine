@@ -58,7 +58,9 @@ void start_project_windowless(const std::filesystem::path& projectPath) {
   ApplicationInfo applicationInfo{};
   applicationInfo.project_path = projectPath;
   Application::Initialize(applicationInfo);
-  Application::Start();
+  const auto new_scene = std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset("DigitalForestry.evescene"));
+  Application::Attach(new_scene);
+  Application::Start();  
 }
 
 void forest_patch_point_cloud() {
