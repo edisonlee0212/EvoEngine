@@ -3,12 +3,14 @@
 //
 #include <Application.hpp>
 #include "ClassRegistry.hpp"
-#include "HeightField.hpp"
+
 #include "ProjectManager.hpp"
-#include "Tree.hpp"
+
 #include "WindowLayer.hpp"
 #ifdef ECOSYSLAB_PLUGIN
 #  include "BarkDescriptor.hpp"
+#  include "HeightField.hpp"
+#  include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 #endif
 #ifdef LOG_SCANNING_PLUGIN
@@ -20,6 +22,8 @@ using namespace log_scanning_plugin;
 using namespace log_grading_plugin;
 #endif
 
+#include "EditorLayer.hpp"
+using namespace evo_engine;
 
 void EngineSetup();
 

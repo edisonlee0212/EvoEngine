@@ -169,7 +169,7 @@ void VisibilityTest::Execute(const std::shared_ptr<Scene>& scene, const Entity& 
   RayTracer cpu_ray_tracer;
 
   cpu_ray_tracer.Initialize(
-      scene,
+      Application::GetLayer<RenderLayer>()->render_instances,
       [](uint32_t, const std::shared_ptr<Mesh>&) {
       },
       [](uint32_t, const Entity&) {

@@ -1,3 +1,4 @@
+message("===Checking 3rdParty Libs====")
 function(GetAllTargets var)
   set(targets)
   GetAllTargetsRecursive(targets ${CMAKE_CURRENT_SOURCE_DIR})
@@ -27,12 +28,15 @@ else()
   endforeach()
 endif()
 
+message("Loading 3rdParty libraries...")
+
 function(message)
-    if (NOT 3RDPARTY_SURPRESS_ALL_MESSAGES)
+    if (NOT 3RDPARTY_SUPPRESS_ALL_MESSAGES)
         _message(${ARGN})
     endif()
 endfunction()
-set(3RDPARTY_SURPRESS_ALL_MESSAGES OFF)
+
+set(3RDPARTY_SUPPRESS_ALL_MESSAGES OFF)
 
 add_subdirectory(zlib EXCLUDE_FROM_ALL)
 
@@ -56,7 +60,8 @@ add_subdirectory(yaml-cpp EXCLUDE_FROM_ALL)
 add_subdirectory(gpr EXCLUDE_FROM_ALL)
 
 
-unset(3RDPARTY_SURPRESS_ALL_MESSAGES)
+unset(3RDPARTY_SUPPRESS_ALL_MESSAGES)
+message("Loaded all 3rdParty libraries.")
 
 # Turn off warnings for 3rd party code, part 1. Some projects set their own warnings by compile options.
 # Need to turn them off as well.

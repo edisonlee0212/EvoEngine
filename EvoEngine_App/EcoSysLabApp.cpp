@@ -20,13 +20,14 @@ using namespace eco_sys_lab_plugin;
 
 #include "ProjectManager.hpp"
 
+#include "EditorLayer.hpp"
 #include "WindowLayer.hpp"
 #ifdef TEXTURE_BAKING_PLUGIN
 #  include "TextureBaking.hpp"
 using namespace texture_baking_plugin;
 #endif
 
-
+using namespace evo_engine;
 void EngineSetup();
 
 int main() {

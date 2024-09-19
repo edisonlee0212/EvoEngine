@@ -158,7 +158,7 @@ Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_en
     scene->SetDataComponent(collection, physics_demo_transform);
 #pragma endregion
   }
-  
+
 #pragma region Create ground
   auto ground = scene->CreateEntity("Ground");
   std::shared_ptr<MeshRenderer> ground_mesh_renderer;
@@ -486,9 +486,9 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
               glm::vec3(20.0f * glm::cos(Times::Now() / 2.0f), 15.0f, 20.0f * glm::sin(Times::Now() / 2.0f)), 0.0f));
           scene->SetDataComponent(ple2, ltw);
 #  pragma endregion
-#endif
         });
       });
+#endif
     } break;
     default: {
     } break;

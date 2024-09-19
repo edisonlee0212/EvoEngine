@@ -15,6 +15,11 @@
           "name": "YAML_CPP_BUILD_CONTRIB",
           "value": "False",
           "type": "BOOL"
+        },
+        {
+          "name": "EVOENGINE_PLUGIN_OPTIX_RAY_TRACER",
+          "value": "True",
+          "type": "BOOL"
         }
       ]
     },
@@ -27,8 +32,7 @@
       "cmakeCommandArgs": "",
       "buildCommandArgs": "",
       "ctestCommandArgs": "",
-      "inheritEnvironments": [ "msvc_x64_x64" ],
-      "variables": []
+      "inheritEnvironments": [ "msvc_x64_x64" ]
     }
   ]
 }

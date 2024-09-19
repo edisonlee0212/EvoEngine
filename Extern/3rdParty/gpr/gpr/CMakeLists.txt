@@ -7,32 +7,6 @@ set(CMAKE_C_FLAGS "-std=c99")
 
 # project name
 project( gpr )
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-  execute_process(
-    COMMAND git rev-parse --abbrev-ref HEAD
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    OUTPUT_VARIABLE GIT_BRANCH
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-  )
-
-  execute_process(
-    COMMAND git log -1 --format=%h
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    OUTPUT_VARIABLE GIT_COMMIT_HASH
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-  )
-else(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-  set(GIT_BRANCH "")
-  set(GIT_COMMIT_HASH "")
-endif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-
-message(STATUS "Git current branch: ${GIT_BRANCH}")
-message(STATUS "Git commit hash: ${GIT_COMMIT_HASH}")
-
-add_definitions("-DGIT_COMMIT_HASH=\"${GIT_COMMIT_HASH}\"")
-add_definitions("-DGIT_BRANCH=\"${GIT_BRANCH}\"")
-
 # add needed subdirectories
 add_subdirectory( "source/lib/common" )
 add_subdirectory( "source/lib/vc5_common" )

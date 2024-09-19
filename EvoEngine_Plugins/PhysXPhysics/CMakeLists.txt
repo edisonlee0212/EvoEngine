@@ -1,3 +1,5 @@
+return()
+
 set(PHYSX_PHYSICS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 set(PHYSX_PHYSICS_INCLUDES
@@ -73,7 +75,3 @@ elseif (UNIX AND NOT APPLE)
     endif ()
 endif ()
 set(EVOENGINE_PLUGINS_DLLS ${EVOENGINE_PLUGINS_DLLS} ${PHYSX_DLLS} PARENT_SCOPE)
-
-set(EvoEngine_Plugins ${EvoEngine_Plugins} PhysXPhysicsPlugin PARENT_SCOPE)
-
-set_target_properties(PhysXPhysicsPlugin PROPERTIES FOLDER "Plugins")

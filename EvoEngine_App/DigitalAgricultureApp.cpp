@@ -7,14 +7,22 @@
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
-#include "Times.hpp"
 #include "ClassRegistry.hpp"
-#include "ObjectRotator.hpp"
-#include "ProjectManager.hpp"
-#include "SorghumLayer.hpp"
-#include "WindowLayer.hpp"
-using namespace digital_agriculture_plugin;
+#include "Times.hpp"
+#ifdef ECO_SYS_LAB_PLUGIN
+#  include "ObjectRotator.hpp"
+using namespace eco_sys_lab_plugin;
+#endif
 
+#include "ProjectManager.hpp"
+
+#ifdef DIGITAL_AGRICULTURE_PLUGIN
+#  include "SorghumLayer.hpp"
+using namespace digital_agriculture_plugin;
+#endif
+#include "EditorLayer.hpp"
+#include "WindowLayer.hpp"
+using namespace evo_engine;
 void EngineSetup();
 
 int main() {
@@ -66,10 +74,13 @@ int main() {
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
   Application::PushLayer<SorghumLayer>();
 #endif
+#ifdef ECO_SYS_LAB_PLUGIN
   PrivateComponentRegistration<eco_sys_lab_plugin::ObjectRotator>("ObjectRotator");
+#endif
   ApplicationInfo applicationConfigs;
   applicationConfigs.application_name = "DigitalAgriculture";
-  applicationConfigs.project_path = std::filesystem::absolute(resourceFolderPath / "DigitalAgricultureProject" / "test.eveproj");
+  applicationConfigs.project_path =
+      std::filesystem::absolute(resourceFolderPath / "DigitalAgricultureProject" / "test.eveproj");
   Application::Initialize(applicationConfigs);
 
 #ifdef OPTIX_RAY_TRACER_PLUGIN

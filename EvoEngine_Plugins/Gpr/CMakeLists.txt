@@ -13,25 +13,25 @@ set(GPR_INCLUDES
 
 file(GLOB GPR_SOURCES ${GPR_DIRECTORY}/src/*.cpp)
 
-add_library(GPRPlugin
+add_library(GprPlugin
 	STATIC
 	${GPR_SOURCES}
 	)
-target_compile_definitions(GPRPlugin
+target_compile_definitions(GprPlugin
 	PRIVATE
 	${EVOENGINE_SDK_DEFS}
 	${EVOENGINE_PLUGINS_DEFS}
 	"-DGPR_READING=1"
 	"-DGPR_WRITING=1"
 	)
-target_include_directories(GPRPlugin
+target_include_directories(GprPlugin
 	PRIVATE
 	${EVOENGINE_SDK_INCLUDES}
 	${EVOENGINE_PLUGINS_INCLUDES}
 	${GPR_INCLUDES}
 	)
 
-target_link_libraries(GPRPlugin
+target_link_libraries(GprPlugin
 	common
 	vc5_common
 	vc5_decoder
@@ -47,7 +47,7 @@ target_link_libraries(GPRPlugin
 set(GPR_PCH ${GPR_DIRECTORY}/include/GPR_PCH.hpp)
 set(GPR_PCH ${GPR_PCH} PARENT_SCOPE)
 
-target_precompile_headers(GPRPlugin
+target_precompile_headers(GprPlugin
 	PRIVATE
 	${EVOENGINE_SDK_PCH}
 	${EVOENGINE_PLUGINS_PCHS}
@@ -62,7 +62,3 @@ set(EVOENGINE_PLUGINS_DEFS
 	"-DGPR_READING=1"
 	"-DGPR_WRITING=1"
 	PARENT_SCOPE)
-
-set(EvoEngine_Plugins ${EvoEngine_Plugins} GPRPlugin PARENT_SCOPE)
-
-set_target_properties(GPRPlugin PROPERTIES FOLDER "Plugins")

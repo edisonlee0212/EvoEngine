@@ -90,3 +90,4 @@ if(NOT OptiX_INCLUDE)
 	OptiX_report_error("OptiX headers (optix.h and friends) not found." TRUE headers )
 endif()
 
+set(OptiX_FOUND true)

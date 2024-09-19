@@ -1,3 +1,17 @@
+if(POLICY CMP0146)
+    cmake_policy(SET CMP0146 OLD)
+endif()
+
+# Use the older FindCUDA module (deprecated in newer CMake versions)
+find_package(CUDA QUIET)
+
+# Check if CUDA is found
+if (NOT CUDA_FOUND)
+    message(WARNING "CUDA not found. Skipping this plugin.")
+    return()
+endif()
+
+message("Found CUDA.")
 
 mark_as_advanced(CUDA_SDK_ROOT_DIR)
 enable_language(CUDA)
@@ -6,6 +20,13 @@ enable_language(CUDA)
 set(RAY_TRACER_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 include(${RAY_TRACER_DIRECTORY}/cmake/configure_optix.cmake)
+
+# Check if OptiX is found
+if (NOT OptiX_FOUND)
+    message(WARNING "OptiX not found. Skipping this plugin.")
+    return()
+endif()
+message("Found OptiX.")
 
 file(GLOB RAY_TRACER_SOURCES
 	${CMAKE_CURRENT_BINARY_DIR}
@@ -53,9 +74,7 @@ if (NOT WIN32)
 	message(STATUS CUDALIB=${CUDA_TOOLKIT_ROOT_DIR})
 	set(CUDA_CUDA_LIBRARY ${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs)
 endif ()
-message(STATUS OptiX_INCLUDE:${OptiX_INCLUDE})
-message(STATUS CUDA_LIBRARIES:${CUDA_LIBRARIES})
-message(STATUS CUDA_CUDA_LIBRARY:${CUDA_CUDA_LIBRARY})
+
 # Linker settings for all platforms
 if (NOT WIN32)
 	target_link_libraries(OptiXRayTracerPlugin
@@ -86,7 +105,3 @@ endif ()
 
 set(EVOENGINE_PLUGINS_INCLUDES ${EVOENGINE_PLUGINS_INCLUDES} ${RAY_TRACER_INCLUDES} PARENT_SCOPE)
 set(EVOENGINE_PLUGINS_DEFS ${EVOENGINE_PLUGINS_DEFS} OPTIX_RAY_TRACER_PLUGIN PARENT_SCOPE)
-
-set(EvoEngine_Plugins ${EvoEngine_Plugins} OptiXRayTracerPlugin PARENT_SCOPE)
-
-set_target_properties(OptiXRayTracerPlugin PROPERTIES FOLDER "Plugins")
