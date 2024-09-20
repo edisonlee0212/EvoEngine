@@ -2,9 +2,11 @@ name: RelWithDebInfo build on Windows
 
 on:
   push:
-    branches: [ "dev" ]
+    branches-ignore:
+      - 'untested/**'
   pull_request:
-    branches: [ "dev" ]
+    branches-ignore:
+      - 'untested/**'
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
