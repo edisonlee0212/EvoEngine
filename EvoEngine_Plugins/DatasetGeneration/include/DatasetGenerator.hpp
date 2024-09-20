@@ -2,8 +2,8 @@
 #include "ForestDescriptor.hpp"
 #include "SorghumField.hpp"
 #include "SorghumPointCloudScanner.hpp"
-#include "SorghumState.hpp"
-#include "SorghumStateGenerator.hpp"
+#include "SorghumDescriptor.hpp"
+#include "SorghumDescriptorGenerator.hpp"
 #include "TreeMeshGenerator.hpp"
 #include "TreePointCloudScanner.hpp"
 using namespace evo_engine;
@@ -51,7 +51,7 @@ class DatasetGenerator {
       const std::shared_ptr<ForestPatch>& forestPatch, const std::string& speciesFolderPath,
       const TreeMeshGeneratorSettings& meshGeneratorSettings, const std::string& pointCloudOutputPath);
   static void GeneratePointCloudForSorghumPatch(const SorghumFieldPatch& pattern,
-                                                const std::shared_ptr<SorghumStateGenerator>& sorghumDescriptor,
+                                                const std::shared_ptr<SorghumDescriptorGenerator>& sorghumDescriptor,
                                                 const SorghumPointCloudPointSettings& pointSettings,
                                                 const std::shared_ptr<PointCloudCaptureSettings>& captureSettings,
                                                 const SorghumMeshGeneratorSettings& sorghumMeshGeneratorSettings,

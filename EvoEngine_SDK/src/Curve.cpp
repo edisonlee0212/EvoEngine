@@ -100,6 +100,12 @@ void BezierSpline::Deserialize(const YAML::Node& in) {
       curves.emplace_back(i_curve["p0"].as<glm::vec3>(), i_curve["p1"].as<glm::vec3>(),
                             i_curve["p2"].as<glm::vec3>(), i_curve["p3"].as<glm::vec3>());
     }
+  } else if (in["m_curves"]) {
+    curves.clear();
+    for (const auto& i_curve : in["m_curves"]) {
+      curves.emplace_back(i_curve["m_p0"].as<glm::vec3>(), i_curve["m_p1"].as<glm::vec3>(), i_curve["m_p2"].as<glm::vec3>(),
+                          i_curve["m_p3"].as<glm::vec3>());
+    }
   }
 }
 

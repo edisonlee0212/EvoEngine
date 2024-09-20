@@ -26,15 +26,21 @@ using namespace evo_engine;
 void EngineSetup();
 
 int main() {
-  std::filesystem::path resourceFolderPath("../../../Resources");
-  if (!std::filesystem::exists(resourceFolderPath)) {
-    resourceFolderPath = "../../Resources";
+  std::filesystem::path resource_folder_path("../../../../../Resources");
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../../Resources";
   }
-  if (!std::filesystem::exists(resourceFolderPath)) {
-    resourceFolderPath = "../Resources";
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../Resources";
   }
-  if (std::filesystem::exists(resourceFolderPath)) {
-    for (auto i : std::filesystem::recursive_directory_iterator(resourceFolderPath)) {
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../Resources";
+  }
+  if (std::filesystem::exists(resource_folder_path)) {
+    for (auto i : std::filesystem::recursive_directory_iterator(resource_folder_path)) {
       if (i.is_directory())
         continue;
       auto oldPath = i.path();
@@ -80,7 +86,7 @@ int main() {
   ApplicationInfo applicationConfigs;
   applicationConfigs.application_name = "DigitalAgriculture";
   applicationConfigs.project_path =
-      std::filesystem::absolute(resourceFolderPath / "DigitalAgricultureProject" / "test.eveproj");
+      std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test.eveproj");
   Application::Initialize(applicationConfigs);
 
 #ifdef OPTIX_RAY_TRACER_PLUGIN

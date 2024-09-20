@@ -6,106 +6,104 @@ using namespace digital_agriculture_plugin;
 SorghumSplineSegment::SorghumSplineSegment(const glm::vec3& position, const glm::vec3& up, const glm::vec3& front,
                                            const float radius, const float theta, const float left_height_offset,
                                            const float right_height_offset) {
-  this->m_position = position;
-  this->m_up = up;
-  this->m_front = front;
-  this->m_radius = radius;
-  this->m_theta = theta;
-  this->m_leftHeightOffset = left_height_offset;
-  this->m_rightHeightOffset = right_height_offset;
+  this->position = position;
+  this->up = up;
+  this->front = front;
+  this->radius = radius;
+  this->theta = theta;
+  this->left_height_offset = left_height_offset;
+  this->right_height_offset = right_height_offset;
 }
 
 glm::vec3 SorghumSplineSegment::GetLeafPoint(const float angle) const {
-  if (glm::abs(m_theta) < 90.0f) {
-    const auto arc_radius = m_radius / glm::sin(glm::radians(glm::max(89.f, m_theta)));
-    const auto center = m_position + arc_radius * m_up;
-    const auto direction = glm::normalize(glm::rotate(m_up, glm::radians(angle), m_front));
+  if (glm::abs(theta) < 90.0f) {
+    const auto arc_radius = radius / glm::sin(glm::radians(glm::max(89.f, theta)));
+    const auto center = position + arc_radius * up;
+    const auto direction = glm::normalize(glm::rotate(up, glm::radians(angle), front));
     const auto point = center - arc_radius * direction;
-    const auto distance_to_center = glm::sin(glm::radians(angle)) * arc_radius / m_radius;
-    return point - (angle < 0 ? m_leftHeightOffset : m_rightHeightOffset) * glm::pow(distance_to_center, 2.f) * m_up;
+    const auto distance_to_center = glm::sin(glm::radians(angle)) * arc_radius / radius;
+    return point - (angle < 0 ? left_height_offset : right_height_offset) * glm::pow(distance_to_center, 2.f) * up;
   }
-  const auto radius = m_radius;
-  const auto center = m_position + radius * m_up;
-  const auto direction = glm::rotate(m_up, glm::radians(angle), m_front);
+  const auto center = position + radius * up;
+  const auto direction = glm::rotate(up, glm::radians(angle), front);
   return center - radius * direction;
 }
 
 glm::vec3 SorghumSplineSegment::GetStemPoint(const float angle) const {
-  const auto direction = glm::rotate(m_up, glm::radians(angle), m_front);
-  return m_position - m_radius * direction;
+  const auto direction = glm::rotate(up, glm::radians(angle), front);
+  return position - radius * direction;
 }
 
 glm::vec3 SorghumSplineSegment::GetNormal(const float angle) const {
-  return glm::normalize(glm::rotate(m_up, glm::radians(angle), m_front));
+  return glm::normalize(glm::rotate(up, glm::radians(angle), front));
 }
 
 SorghumSplineSegment SorghumSpline::Interpolate(int left_index, float a) const {
   if (a < glm::epsilon<float>()) {
-    return m_segments.at(left_index);
+    return segments.at(left_index);
   }
   if (1.f - a < glm::epsilon<float>()) {
-    return m_segments.at(left_index + 1);
+    return segments.at(left_index + 1);
   }
   SorghumSplineSegment ret_val{};
-  const auto& s1 = m_segments.at(left_index);
-  const auto& s2 = m_segments.at(left_index + 1);
+  const auto& s1 = segments.at(left_index);
+  const auto& s2 = segments.at(left_index + 1);
   SorghumSplineSegment s0, s3;
   if (left_index == 0) {
-    s0.m_position = 2.f * s1.m_position - s2.m_position;
-    s0.m_front = 2.f * s1.m_front - s2.m_front;
-    s0.m_up = 2.f * s1.m_up - s2.m_up;
-    s0.m_radius = 2.f * s1.m_radius - s2.m_radius;
-    s0.m_theta = 2.f * s1.m_theta - s2.m_theta;
-    s0.m_leftHeightOffset = 2.f * s1.m_leftHeightOffset - s2.m_leftHeightOffset;
-    s0.m_rightHeightOffset = 2.f * s1.m_rightHeightOffset - s2.m_rightHeightOffset;
+    s0.position = 2.f * s1.position - s2.position;
+    s0.front = 2.f * s1.front - s2.front;
+    s0.up = 2.f * s1.up - s2.up;
+    s0.radius = 2.f * s1.radius - s2.radius;
+    s0.theta = 2.f * s1.theta - s2.theta;
+    s0.left_height_offset = 2.f * s1.left_height_offset - s2.left_height_offset;
+    s0.right_height_offset = 2.f * s1.right_height_offset - s2.right_height_offset;
   } else {
-    s0 = m_segments.at(left_index - 1);
+    s0 = segments.at(left_index - 1);
   }
-  if (left_index < m_segments.size() - 1) {
-    s3.m_position = 2.f * s2.m_position - s1.m_position;
-    s3.m_front = 2.f * s2.m_front - s1.m_front;
-    s3.m_up = 2.f * s2.m_up - s1.m_up;
-    s3.m_radius = 2.f * s2.m_radius - s1.m_radius;
-    s3.m_theta = 2.f * s2.m_theta - s1.m_theta;
-    s3.m_leftHeightOffset = 2.f * s2.m_leftHeightOffset - s1.m_leftHeightOffset;
-    s3.m_rightHeightOffset = 2.f * s2.m_rightHeightOffset - s1.m_rightHeightOffset;
+  if (left_index < segments.size() - 1) {
+    s3.position = 2.f * s2.position - s1.position;
+    s3.front = 2.f * s2.front - s1.front;
+    s3.up = 2.f * s2.up - s1.up;
+    s3.radius = 2.f * s2.radius - s1.radius;
+    s3.theta = 2.f * s2.theta - s1.theta;
+    s3.left_height_offset = 2.f * s2.left_height_offset - s1.left_height_offset;
+    s3.right_height_offset = 2.f * s2.right_height_offset - s1.right_height_offset;
   } else {
-    s3 = m_segments.at(left_index + 2);
+    s3 = segments.at(left_index + 2);
   }
-  // Strands::CubicInterpolation(s0.m_position, s1.m_position, s2.m_position, s3.m_position, retVal.m_position,
-  // retVal.m_front, a); retVal.m_front = glm::normalize(retVal.m_front); retVal.m_up =
-  // Strands::CubicInterpolation(s0.m_up, s1.m_up, s2.m_up, s3.m_up, a);
+  // Strands::CubicInterpolation(s0.position, s1.position, s2.position, s3.position, retVal.position,
+  // retVal.front, a); retVal.front = glm::normalize(retVal.front); retVal.up =
+  // Strands::CubicInterpolation(s0.up, s1.up, s2.up, s3.up, a);
 
-  ret_val.m_radius =
-      glm::mix(s1.m_radius, s2.m_radius,
-               a);  // Strands::CubicInterpolation(s0.m_radius, s1.m_radius, s2.m_radius, s3.m_radius, a);
-  ret_val.m_theta = glm::mix(s1.m_theta, s2.m_theta,
-                             a);  // Strands::CubicInterpolation(s0.m_theta, s1.m_theta, s2.m_theta, s3.m_theta, a);
-  ret_val.m_leftHeightOffset = glm::mix(s1.m_leftHeightOffset, s2.m_leftHeightOffset,
-                                        a);  // Strands::CubicInterpolation(s0.m_leftHeightOffset,
-                                             // s1.m_leftHeightOffset, s2.m_leftHeightOffset, s3.m_leftHeightOffset, a);
-  ret_val.m_rightHeightOffset =
-      glm::mix(s1.m_rightHeightOffset, s2.m_rightHeightOffset,
-               a);  // Strands::CubicInterpolation(s0.m_rightHeightOffset, s1.m_rightHeightOffset,
-                    // s2.m_rightHeightOffset, s3.m_rightHeightOffset, a);
+  ret_val.radius = glm::mix(s1.radius, s2.radius,
+                            a);  // Strands::CubicInterpolation(s0.radius, s1.radius, s2.radius, s3.radius, a);
+  ret_val.theta = glm::mix(s1.theta, s2.theta,
+                           a);  // Strands::CubicInterpolation(s0.theta, s1.theta, s2.theta, s3.theta, a);
+  ret_val.left_height_offset = glm::mix(s1.left_height_offset, s2.left_height_offset,
+                                        a);  // Strands::CubicInterpolation(s0.left_height_offset,
+                                             // s1.left_height_offset, s2.left_height_offset, s3.left_height_offset, a);
+  ret_val.right_height_offset =
+      glm::mix(s1.right_height_offset, s2.right_height_offset,
+               a);  // Strands::CubicInterpolation(s0.right_height_offset, s1.right_height_offset,
+                    // s2.right_height_offset, s3.right_height_offset, a);
 
-  ret_val.m_position = glm::mix(s1.m_position, s2.m_position, a);
-  ret_val.m_front = glm::normalize(glm::mix(s1.m_front, s2.m_front, a));
-  ret_val.m_up = glm::normalize(glm::mix(s1.m_up, s2.m_up, a));
-  ret_val.m_up = glm::normalize(glm::cross(glm::cross(ret_val.m_front, ret_val.m_up), ret_val.m_front));
+  ret_val.position = glm::mix(s1.position, s2.position, a);
+  ret_val.front = glm::normalize(glm::mix(s1.front, s2.front, a));
+  ret_val.up = glm::normalize(glm::mix(s1.up, s2.up, a));
+  ret_val.up = glm::normalize(glm::cross(glm::cross(ret_val.front, ret_val.up), ret_val.front));
   return ret_val;
 }
 
 void SorghumSpline::Subdivide(const float subdivision_distance,
                               std::vector<SorghumSplineSegment>& subdivided_segments) const {
   std::vector<float> lengths;
-  lengths.resize(m_segments.size() - 1);
-  for (int i = 0; i < m_segments.size() - 1; i++) {
-    lengths[i] = glm::distance(m_segments.at(i).m_position, m_segments.at(i + 1).m_position);
+  lengths.resize(segments.size() - 1);
+  for (int i = 0; i < segments.size() - 1; i++) {
+    lengths[i] = glm::distance(segments.at(i).position, segments.at(i + 1).position);
   }
   int current_index = 0;
   float accumulated_distance = 0.f;
-  subdivided_segments.emplace_back(m_segments.front());
+  subdivided_segments.emplace_back(segments.front());
   while (true) {
     accumulated_distance += subdivision_distance;
     const auto current_segment_length = lengths.at(current_index);
@@ -118,4 +116,15 @@ void SorghumSpline::Subdivide(const float subdivision_distance,
     else
       break;
   }
+}
+
+void SorghumSpline::Serialize(const std::string& name, YAML::Emitter& out) const {
+  out << YAML::Key << name << YAML::BeginMap;
+  Serialization::SerializeVector("segments", segments, out);
+  out << YAML::EndMap;
+}
+
+void SorghumSpline::Deserialize(const std::string& name, const YAML::Node& in) {
+  if (in[name])
+    Serialization::DeserializeVector("segments", segments, in[name]);
 }

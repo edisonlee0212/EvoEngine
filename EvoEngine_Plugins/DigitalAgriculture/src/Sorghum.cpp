@@ -1,11 +1,11 @@
 #include "Sorghum.hpp"
 
 #include "SorghumLayer.hpp"
-#include "SorghumStateGenerator.hpp"
+#include "SorghumDescriptorGenerator.hpp"
 
 using namespace digital_agriculture_plugin;
 
-void Sorghum::ClearGeometryEntities() {
+void Sorghum::ClearGeometryEntities() const {
   const auto scene = GetScene();
   const auto self = GetOwner();
   const auto children = scene->GetChildren(self);
@@ -22,225 +22,225 @@ void Sorghum::ClearGeometryEntities() {
 }
 
 void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings) {
-  const auto sorghumLayer = Application::GetLayer<SorghumLayer>();
-  if (!sorghumLayer)
+  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  if (!sorghum_layer)
     return;
-  const auto sorghumState = m_sorghumState.Get<SorghumState>();
-  if (!sorghumState) {
-    if (const auto sorghumDescriptor = m_sorghumDescriptor.Get<SorghumStateGenerator>()) {
-      sorghumDescriptor->Apply(sorghumState);
-    } else if (const auto sorghumGrowthDescriptor = m_sorghumGrowthDescriptor.Get<SorghumGrowthStages>()) {
-      sorghumGrowthDescriptor->Apply(sorghumState, 1.f);
+  const auto sorghum_state = sorghum_descriptor.Get<SorghumDescriptor>();
+  if (!sorghum_state) {
+    if (const auto sdg = sorghum_state_generator.Get<SorghumDescriptorGenerator>()) {
+      sdg->Apply(sorghum_state);
+    } else if (const auto sorghum_growth_descriptor = sorghum_growth_stages.Get<SorghumGrowthStages>()) {
+      sorghum_growth_descriptor->Apply(sorghum_state, 1.f);
     }
   }
 
-  if (!sorghumState)
+  if (!sorghum_state)
     return;
-  if (sorghumState->m_stem.m_spline.m_segments.empty())
+  if (sorghum_state->stem.spline.segments.empty())
     return;
   ClearGeometryEntities();
   const auto scene = GetScene();
   const auto owner = GetOwner();
-  if (sorghum_mesh_generator_settings.m_enablePanicle && sorghumState->m_panicle.m_seedAmount > 0) {
-    const auto panicleEntity = scene->CreateEntity("Panicle Mesh");
-    const auto particles = scene->GetOrSetPrivateComponent<Particles>(panicleEntity).lock();
+  if (sorghum_mesh_generator_settings.enable_panicle && sorghum_state->panicle.seed_amount > 0) {
+    const auto panicle_entity = scene->CreateEntity("Panicle Mesh");
+    const auto particles = scene->GetOrSetPrivateComponent<Particles>(panicle_entity).lock();
     const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
     const auto material = ProjectManager::CreateTemporaryAsset<Material>();
-    const auto particleInfoList = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    const auto particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
     particles->mesh = mesh;
     particles->material = material;
-    const auto panicleMaterial = sorghumLayer->panicle_material.Get<Material>();
+    const auto panicle_material = sorghum_layer->panicle_material.Get<Material>();
     // material->SetAlbedoTexture(panicleMaterial->GetAlbedoTexture());
     // material->SetNormalTexture(panicleMaterial->GetNormalTexture());
     // material->SetRoughnessTexture(panicleMaterial->GetRoughnessTexture());
     // material->SetMetallicTexture(panicleMaterial->GetMetallicTexture());
-    material->material_properties = panicleMaterial->material_properties;
+    material->material_properties = panicle_material->material_properties;
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
 
-    sorghumState->m_panicle.GenerateGeometry(sorghumState->m_stem.m_spline.m_segments.back().m_position, vertices,
-                                             indices, particleInfoList);
+    sorghum_state->panicle.GenerateGeometry(sorghum_state->stem.spline.segments.back().position, vertices,
+                                             indices, particle_info_list);
     VertexAttributes attributes{};
     attributes.tex_coord = true;
     mesh->SetVertices(attributes, vertices, indices);
 
-    particles->particle_info_list = particleInfoList;
-    scene->SetParent(panicleEntity, owner);
+    particles->particle_info_list = particle_info_list;
+    scene->SetParent(panicle_entity, owner);
   }
-  if (sorghum_mesh_generator_settings.m_enableStem) {
-    const auto stemEntity = scene->CreateEntity("Stem Mesh");
-    const auto meshRenderer = scene->GetOrSetPrivateComponent<MeshRenderer>(stemEntity).lock();
+  if (sorghum_mesh_generator_settings.enable_stem) {
+    const auto stem_entity = scene->CreateEntity("Stem Mesh");
+    const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(stem_entity).lock();
     const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
     const auto material = ProjectManager::CreateTemporaryAsset<Material>();
-    meshRenderer->mesh = mesh;
-    meshRenderer->material = material;
-    const auto stemMaterial = sorghumLayer->leaf_material.Get<Material>();
+    mesh_renderer->mesh = mesh;
+    mesh_renderer->material = material;
+    const auto  stem_material = sorghum_layer->leaf_material.Get<Material>();
     // material->SetAlbedoTexture(stemMaterial->GetAlbedoTexture());
     // material->SetNormalTexture(stemMaterial->GetNormalTexture());
     // material->SetRoughnessTexture(stemMaterial->GetRoughnessTexture());
     // material->SetMetallicTexture(stemMaterial->GetMetallicTexture());
-    material->material_properties = stemMaterial->material_properties;
+    material->material_properties = stem_material->material_properties;
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
-    sorghumState->m_stem.GenerateGeometry(vertices, indices);
+    sorghum_state->stem.GenerateGeometry(vertices, indices);
     VertexAttributes attributes{};
     attributes.tex_coord = true;
     mesh->SetVertices(attributes, vertices, indices);
-    scene->SetParent(stemEntity, owner);
+    scene->SetParent(stem_entity, owner);
   }
-  if (sorghum_mesh_generator_settings.m_enableLeaves) {
-    if (sorghum_mesh_generator_settings.m_leafSeparated) {
-      for (const auto& leafState : sorghumState->m_leaves) {
-        const auto leafEntity = scene->CreateEntity("Leaf Mesh");
-        const auto meshRenderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leafEntity).lock();
+  if (sorghum_mesh_generator_settings.enable_leaves) {
+    if (sorghum_mesh_generator_settings.leaf_separated) {
+      for (const auto& leaf_state : sorghum_state->leaves) {
+        const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
+        const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
         const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
         const auto material = ProjectManager::CreateTemporaryAsset<Material>();
-        meshRenderer->mesh = mesh;
-        meshRenderer->material = material;
-        const auto leafMaterial = sorghumLayer->leaf_material.Get<Material>();
+        mesh_renderer->mesh = mesh;
+        mesh_renderer->material = material;
+        const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
         // material->SetAlbedoTexture(leafMaterial->GetAlbedoTexture());
         // material->SetNormalTexture(leafMaterial->GetNormalTexture());
         // material->SetRoughnessTexture(leafMaterial->GetRoughnessTexture());
         // material->SetMetallicTexture(leafMaterial->GetMetallicTexture());
-        material->material_properties = leafMaterial->material_properties;
+        material->material_properties = leaf_material->material_properties;
         std::vector<Vertex> vertices;
         std::vector<unsigned int> indices;
-        leafState.GenerateGeometry(vertices, indices, false, 0.f);
-        if (sorghum_mesh_generator_settings.m_bottomFace) {
-          leafState.GenerateGeometry(vertices, indices, true, sorghum_mesh_generator_settings.m_leafThickness);
+        leaf_state.GenerateGeometry(vertices, indices, false, 0.f);
+        if (sorghum_mesh_generator_settings.bottom_face) {
+          leaf_state.GenerateGeometry(vertices, indices, true, sorghum_mesh_generator_settings.leaf_thickness);
         }
         VertexAttributes attributes{};
         attributes.tex_coord = true;
         mesh->SetVertices(attributes, vertices, indices);
-        scene->SetParent(leafEntity, owner);
+        scene->SetParent(leaf_entity, owner);
       }
     } else {
-      const auto leafEntity = scene->CreateEntity("Leaf Mesh");
-      const auto meshRenderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leafEntity).lock();
+      const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
+      const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
       const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
       const auto material = ProjectManager::CreateTemporaryAsset<Material>();
-      meshRenderer->mesh = mesh;
-      meshRenderer->material = material;
-      const auto leafMaterial = sorghumLayer->leaf_material.Get<Material>();
-      material->SetAlbedoTexture(leafMaterial->GetAlbedoTexture());
+      mesh_renderer->mesh = mesh;
+      mesh_renderer->material = material;
+      const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
+      material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
       // material->SetNormalTexture(leafMaterial->GetNormalTexture());
       // material->SetRoughnessTexture(leafMaterial->GetRoughnessTexture());
       // material->SetMetallicTexture(leafMaterial->GetMetallicTexture());
-      material->material_properties = leafMaterial->material_properties;
+      material->material_properties = leaf_material->material_properties;
       std::vector<Vertex> vertices;
       std::vector<unsigned int> indices;
-      for (const auto& leafState : sorghumState->m_leaves) {
-        leafState.GenerateGeometry(vertices, indices, false, 0.f);
-        if (sorghum_mesh_generator_settings.m_bottomFace) {
-          leafState.GenerateGeometry(vertices, indices, true, sorghum_mesh_generator_settings.m_leafThickness);
+      for (const auto& leaf_state : sorghum_state->leaves) {
+        leaf_state.GenerateGeometry(vertices, indices, false, 0.f);
+        if (sorghum_mesh_generator_settings.bottom_face) {
+          leaf_state.GenerateGeometry(vertices, indices, true, sorghum_mesh_generator_settings.leaf_thickness);
         }
       }
       VertexAttributes attributes{};
       attributes.tex_coord = true;
       mesh->SetVertices(attributes, vertices, indices);
-      scene->SetParent(leafEntity, owner);
+      scene->SetParent(leaf_entity, owner);
     }
   }
 }
 
 void Sorghum::Serialize(YAML::Emitter& out) const {
-  m_sorghumState.Save("m_sorghumState", out);
-  m_sorghumDescriptor.Save("m_sorghumDescriptor", out);
-  m_sorghumGrowthDescriptor.Save("m_sorghumGrowthDescriptor", out);
+  sorghum_descriptor.Save("sorghum_descriptor", out);
+  sorghum_state_generator.Save("sorghum_state_generator", out);
+  sorghum_growth_stages.Save("sorghum_growth_stages", out);
 }
 
 void Sorghum::Deserialize(const YAML::Node& in) {
-  m_sorghumState.Load("m_sorghumState", in);
-  m_sorghumGrowthDescriptor.Load("m_sorghumGrowthDescriptor", in);
-  m_sorghumDescriptor.Load("m_sorghumDescriptor", in);
+  sorghum_descriptor.Load("sorghum_descriptor", in);
+  sorghum_growth_stages.Load("sorghum_growth_stages", in);
+  sorghum_state_generator.Load("sorghum_state_generator", in);
 }
 
-bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
+bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (editorLayer->DragAndDropButton<SorghumStateGenerator>(m_sorghumDescriptor, "SorghumStateGenerator"))
+  if (editor_layer->DragAndDropButton<SorghumDescriptorGenerator>(sorghum_state_generator, "SorghumDescriptorGenerator"))
     changed = true;
-  if (editorLayer->DragAndDropButton<SorghumGrowthStages>(m_sorghumGrowthDescriptor, "SorghumGrowthStages"))
+  if (editor_layer->DragAndDropButton<SorghumGrowthStages>(sorghum_growth_stages, "SorghumGrowthStages"))
     changed = true;
-  if (editorLayer->DragAndDropButton<SorghumState>(m_sorghumState, "SorghumState"))
+  if (editor_layer->DragAndDropButton<SorghumDescriptor>(sorghum_descriptor, "SorghumDescriptor"))
     changed = true;
 
   if (ImGui::Button("Form meshes")) {
     GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
   }
 
-  if (const auto sorghumDescriptor = m_sorghumDescriptor.Get<SorghumStateGenerator>()) {
+  if (const auto ssg = sorghum_state_generator.Get<SorghumDescriptorGenerator>()) {
     if (ImGui::TreeNode("Sorghum Descriptor settings")) {
       static int seed = 0;
       if (ImGui::DragInt("Seed", &seed)) {
-        auto sorghumState = m_sorghumState.Get<SorghumState>();
-        if (!sorghumState) {
-          sorghumState = ProjectManager::CreateTemporaryAsset<SorghumState>();
-          m_sorghumState = sorghumState;
+        auto sd = sorghum_descriptor.Get<SorghumDescriptor>();
+        if (!sd) {
+          sd = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+          sorghum_descriptor = sd;
         }
-        sorghumDescriptor->Apply(sorghumState, seed);
+        ssg->Apply(sd, seed);
         GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
       }
       ImGui::TreePop();
     }
   }
-  if (const auto sorghumGrowthDescriptor = m_sorghumGrowthDescriptor.Get<SorghumGrowthStages>()) {
+  if (const auto sgs = sorghum_growth_stages.Get<SorghumGrowthStages>()) {
     if (ImGui::TreeNode("Sorghum Growth Descriptor settings")) {
       static float time = 0.0f;
-      if (ImGui::SliderFloat("Time", &time, 0.0f, sorghumGrowthDescriptor->GetCurrentEndTime())) {
-        time = glm::clamp(time, 0.0f, sorghumGrowthDescriptor->GetCurrentEndTime());
-        auto sorghumState = m_sorghumState.Get<SorghumState>();
-        if (!sorghumState) {
-          sorghumState = ProjectManager::CreateTemporaryAsset<SorghumState>();
-          m_sorghumState = sorghumState;
+      if (ImGui::SliderFloat("Time", &time, 0.0f, sgs->GetCurrentEndTime())) {
+        time = glm::clamp(time, 0.0f, sgs->GetCurrentEndTime());
+        auto sd = sorghum_descriptor.Get<SorghumDescriptor>();
+        if (!sd) {
+          sd = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+          sorghum_descriptor = sd;
         }
-        sorghumGrowthDescriptor->Apply(sorghumState, time);
+        sgs->Apply(sd, time);
         GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
       }
       ImGui::TreePop();
     }
   }
-  static bool debugRendering = false;
-  ImGui::Checkbox("Debug", &debugRendering);
-  if (debugRendering) {
-    static float nodeRenderSize = .5f;
+  static bool debug_rendering = false;
+  ImGui::Checkbox("Debug", &debug_rendering);
+  if (debug_rendering) {
+    static float node_render_size = .5f;
     if (ImGui::TreeNode("Debug settings")) {
-      ImGui::DragFloat("Node size", &nodeRenderSize, 0.01f, 0.0f, 1.f);
+      ImGui::DragFloat("Node size", &node_render_size, 0.01f, 0.0f, 1.f);
       ImGui::TreePop();
     }
-    static std::shared_ptr<ParticleInfoList> nodeDebugInfoList;
-    if (!nodeDebugInfoList)
-      nodeDebugInfoList = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-    std::vector<ParticleInfo> particleInfos;
+    static std::shared_ptr<ParticleInfoList> node_debug_info_list;
+    if (!node_debug_info_list)
+      node_debug_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
 
-    if (const auto sorghumState = m_sorghumState.Get<SorghumState>()) {
+    if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>()) {
+      std::vector<ParticleInfo> particle_infos;
       const auto owner = GetOwner();
       const auto scene = GetScene();
-      const auto plantPosition = scene->GetDataComponent<GlobalTransform>(owner).GetPosition();
-      for (const auto& leafState : sorghumState->m_leaves) {
-        const auto startIndex = particleInfos.size();
-        particleInfos.resize(startIndex + leafState.m_spline.m_segments.size());
-        for (int i = 0; i < leafState.m_spline.m_segments.size(); i++) {
-          auto& matrix = particleInfos[startIndex + i].instance_matrix;
-          matrix.value = glm::translate(leafState.m_spline.m_segments.at(i).m_position + plantPosition) *
-                           glm::scale(glm::vec3(nodeRenderSize * leafState.m_spline.m_segments.at(i).m_radius));
-          particleInfos[startIndex + i].instance_color =
-              glm::vec4((leafState.m_index % 3) * 0.5f, ((leafState.m_index / 3) % 3) * 0.5f,
-                        ((leafState.m_index / 9) % 3) * 0.5f, 1.0f);
+      const auto plant_position = scene->GetDataComponent<GlobalTransform>(owner).GetPosition();
+      for (const auto& leaf_state : sd->leaves) {
+        const auto start_index = particle_infos.size();
+        particle_infos.resize(start_index + leaf_state.spline.segments.size());
+        for (int i = 0; i < leaf_state.spline.segments.size(); i++) {
+          auto& matrix = particle_infos[start_index + i].instance_matrix;
+          matrix.value = glm::translate(leaf_state.spline.segments.at(i).position + plant_position) *
+                           glm::scale(glm::vec3(node_render_size * leaf_state.spline.segments.at(i).radius));
+          particle_infos[start_index + i].instance_color =
+              glm::vec4((leaf_state.index % 3) * 0.5f, ((leaf_state.index / 3) % 3) * 0.5f,
+                        ((leaf_state.index / 9) % 3) * 0.5f, 1.0f);
         }
       }
-      nodeDebugInfoList->SetParticleInfos(particleInfos);
+      node_debug_info_list->SetParticleInfos(particle_infos);
     }
-    editorLayer->DrawGizmoCubes(nodeDebugInfoList);
+    editor_layer->DrawGizmoCubes(node_debug_info_list);
   }
 
   return changed;
 }
 
 void Sorghum::CollectAssetRef(std::vector<AssetRef>& list) {
-  if (m_sorghumState.Get<SorghumState>())
-    list.push_back(m_sorghumState);
-  if (m_sorghumGrowthDescriptor.Get<SorghumGrowthStages>())
-    list.push_back(m_sorghumGrowthDescriptor);
-  if (m_sorghumDescriptor.Get<SorghumStateGenerator>())
-    list.push_back(m_sorghumDescriptor);
+  if (sorghum_descriptor.Get<SorghumDescriptor>())
+    list.push_back(sorghum_descriptor);
+  if (sorghum_growth_stages.Get<SorghumGrowthStages>())
+    list.push_back(sorghum_growth_stages);
+  if (sorghum_state_generator.Get<SorghumDescriptorGenerator>())
+    list.push_back(sorghum_state_generator);
 }

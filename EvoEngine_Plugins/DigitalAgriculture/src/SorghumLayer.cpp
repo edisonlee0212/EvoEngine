@@ -7,7 +7,7 @@
 #include "ClassRegistry.hpp"
 #include "Platform.hpp"
 #include "SkyIlluminance.hpp"
-#include "SorghumStateGenerator.hpp"
+#include "SorghumDescriptorGenerator.hpp"
 #include "Times.hpp"
 
 #include "Material.hpp"
@@ -22,12 +22,11 @@
 using namespace digital_agriculture_plugin;
 using namespace evo_engine;
 
-AssetRegistration<SorghumState> sorghum_state_registry("SorghumState", {".ss"});
+AssetRegistration<SorghumDescriptor> sorghum_descriptor_registry("SorghumDescriptor", {".sorghum"});
 PrivateComponentRegistration<Sorghum> sorghum_registry("Sorghum");
 
-AssetRegistration<SorghumDescriptor> sd_registry("SorghumDescriptor", {".sorghum"});
 AssetRegistration<SorghumGrowthStages> sgt_registry("SorghumGrowthStages", {".sgs"});
-AssetRegistration<SorghumStateGenerator> ssg_registry("SorghumStateGenerator", {".ssg"});
+AssetRegistration<SorghumDescriptorGenerator> sdg_registry("SorghumDescriptorGenerator", {".sdg"});
 AssetRegistration<SorghumField> sf_registry("SorghumField", {".sorghumfield"});
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 AssetRegistration<PARSensorGroup> parssg_registry("PARSensorGroup", {".parsensorgroup"});
@@ -40,28 +39,21 @@ AssetRegistration<SorghumCoordinates> sc_registry("SorghumCoordinates", {".sorgh
 void SorghumLayer::OnCreate() {
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
     auto texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
-    texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources/Textures") /
+    texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
                                                  "SorghumGrowthDescriptor.png"));
-    editor_layer->AssetIcons()["SorghumGrowthDescriptor"] = texture_2d;
+    editor_layer->AssetIcons()["SorghumGrowthStages"] = texture_2d;
     texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
     texture_2d->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources/Textures") / "SorghumDescriptor.png"));
-    editor_layer->AssetIcons()["SorghumDescriptor"] = texture_2d;
+        std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") / "SorghumDescriptor.png"));
+    editor_layer->AssetIcons()["SorghumDescriptorGenerator"] = texture_2d;
     texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
     texture_2d->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources/Textures") / "PositionsField.png"));
-    editor_layer->AssetIcons()["PositionsField"] = texture_2d;
+        std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") / "PositionsField.png"));
+    editor_layer->AssetIcons()["SorghumField"] = texture_2d;
 
     texture_2d->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources/Textures") / "GeneralDataPipeline.png"));
+        std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") / "GeneralDataPipeline.png"));
     editor_layer->AssetIcons()["GeneralDataCapture"] = texture_2d;
-  }
-
-  if (!leaf_albedo_texture.Get<Texture2D>()) {
-    const auto albedo = ProjectManager::CreateTemporaryAsset<Texture2D>();
-    albedo->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources/Textures") / "leafSurface.jpg"));
-    leaf_albedo_texture.Set(albedo);
   }
 
   if (!leaf_material.Get<Material>()) {

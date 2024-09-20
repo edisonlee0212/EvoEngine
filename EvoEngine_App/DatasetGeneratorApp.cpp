@@ -229,16 +229,16 @@ void sorghum_field_point_cloud() {
   sorghumGantryCaptureSettings->m_gridSize = {gridSize, gridSize};
   sorghumGantryCaptureSettings->m_gridDistance = {gridDistance, gridDistance};
   SorghumFieldPatch pattern{};
-  pattern.m_gridSize = {gridSize, gridSize};
-  pattern.m_gridDistance = {gridDistance, gridDistance};
-  pattern.m_positionOffsetMean = {randomShift, randomShift};
-  pattern.m_positionOffsetVariance = {0.3f, 0.3f};
+  pattern.grid_size = {gridSize, gridSize};
+  pattern.grid_distance = {gridDistance, gridDistance};
+  pattern.position_offset_mean = {randomShift, randomShift};
+  pattern.position_offset_variance = {0.3f, 0.3f};
   int index = 0;
   for (int i = 0; i < 4096; i++) {
     std::filesystem::path target_descriptor_folder_path =
-        resourceFolderPath / "SorghumProject" / "SorghumStateGenerator";
-    const auto sorghumDescriptor = std::dynamic_pointer_cast<SorghumStateGenerator>(
-        ProjectManager::GetOrCreateAsset(std::filesystem::path("SorghumStateGenerator") / "Random.ssg"));
+        resourceFolderPath / "SorghumProject" / "SorghumDescriptorGenerator";
+    const auto sorghumDescriptor = std::dynamic_pointer_cast<SorghumDescriptorGenerator>(
+        ProjectManager::GetOrCreateAsset(std::filesystem::path("SorghumDescriptorGenerator") / "Random.ssg"));
     std::string name = "Sorghum_" + std::to_string(i);
     std::filesystem::path target_tree_pointcloud_path = output_root / (name + ".ply");
     DatasetGenerator::GeneratePointCloudForSorghumPatch(pattern, sorghumDescriptor, sorghumPointCloudPointSettings,

@@ -413,7 +413,7 @@ void Curve2D::SetTangent(bool value) {
 bool Curve2D::IsTangent() const {
   return tangent_;
 }
-float Curve2D::GetValue(float x, unsigned iteration) const {
+float Curve2D::GetValue(float x, const unsigned iteration) const {
   x = glm::clamp(x, 0.0f, 1.0f);
   if (tangent_) {
     const int point_size = values_.size() / 3;
@@ -427,7 +427,7 @@ float Curve2D::GetValue(float x, unsigned iteration) const {
         float upper = 1.0f;
         float lower = 0.0f;
         float temp_t = 0.5f;
-        for (unsigned iteration = 0; iteration < iteration; iteration++) {
+        for (unsigned iteration_index = 0; iteration_index < iteration; iteration_index++) {
           const float temp_t1 = 1.0f - temp_t;
           const float global_x = temp_t1 * temp_t1 * temp_t1 * prev.x +
                                  3.0f * temp_t1 * temp_t1 * temp_t * (prev.x + values_[i * 3 + 2].x) +
@@ -448,16 +448,14 @@ float Curve2D::GetValue(float x, unsigned iteration) const {
       }
     }
     return values_[values_.size() - 2].y;
-  } else {
-    for (int i = 0; i < values_.size() - 1; i++) {
-      auto& prev = values_[i];
-      auto& next = values_[i + 1];
-      if (x >= prev.x && x < next.x) {
-        return prev.y + (next.y - prev.y) * (x - prev.x) / (next.x - prev.x);
-      }
-    }
-    return values_[values_.size() - 1].y;
   }
+  for (int i = 0; i < values_.size() - 1; i++) {
+    auto& prev = values_[i];
+    if (auto& next = values_[i + 1]; x >= prev.x && x < next.x) {
+      return prev.y + (next.y - prev.y) * (x - prev.x) / (next.x - prev.x);
+    }
+  }
+  return values_[values_.size() - 1].y;
 }
 
 Curve2D::Curve2D(const glm::vec2& min, const glm::vec2& max, bool tangent) {
@@ -474,17 +472,17 @@ Curve2D::Curve2D(float start, float end, const glm::vec2& min, const glm::vec2& 
   tangent_ = tangent;
   if (!tangent_) {
     values_.clear();
-    values_.push_back({min_.x, start});
-    values_.push_back({max_.x, end});
+    values_.emplace_back(min_.x, start);
+    values_.emplace_back(max_.x, end);
   } else {
     values_.clear();
-    values_.push_back({-(max_.y - min_.y) / 10.0f, 0.0f});
-    values_.push_back({min_.x, start});
-    values_.push_back({(max_.y - min_.y) / 10.0f, 0.0f});
+    values_.emplace_back(-(max_.y - min_.y) / 10.0f, 0.0f);
+    values_.emplace_back(min_.x, start);
+    values_.emplace_back((max_.y - min_.y) / 10.0f, 0.0f);
 
-    values_.push_back({-(max_.y - min_.y) / 10.0f, 0.0f});
-    values_.push_back({max_.x, end});
-    values_.push_back({(max_.y - min_.y) / 10.0f, 0.0f});
+    values_.emplace_back(-(max_.y - min_.y) / 10.0f, 0.0f);
+    values_.emplace_back(max_.x, end);
+    values_.emplace_back((max_.y - min_.y) / 10.0f, 0.0f);
   }
 }
 void Curve2D::SetStart(float value) {
@@ -562,12 +560,26 @@ void Curve2D::Save(const std::string& name, YAML::Emitter& out) const {
 void Curve2D::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     const auto& cd = in[name];
-    tangent_ = cd["tangent_"].as<bool>();
-    min_ = cd["min_"].as<glm::vec2>();
-    max_ = cd["max_"].as<glm::vec2>();
-    values_.clear();
+    if (cd["tangent_"])
+      tangent_ = cd["tangent_"].as<bool>();
+    else if (cd["m_tangent"])
+      tangent_ = cd["m_tangent"].as<bool>();
+    if (cd["min_"])
+      min_ = cd["min_"].as<glm::vec2>();
+    else if (cd["m_min"])
+      min_ = cd["m_min"].as<glm::vec2>();
+    if (cd["max_"])
+      max_ = cd["max_"].as<glm::vec2>();
+    else if (cd["m_max"])
+      max_ = cd["m_max"].as<glm::vec2>();
     if (cd["values_"]) {
+      values_.clear();
       for (const auto& i : cd["values_"]) {
+        values_.push_back(i.as<glm::vec2>());
+      }
+    } else if (cd["m_values"]) {
+      values_.clear();
+      for (const auto& i : cd["m_values"]) {
         values_.push_back(i.as<glm::vec2>());
       }
     }

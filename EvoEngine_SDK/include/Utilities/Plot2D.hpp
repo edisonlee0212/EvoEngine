@@ -44,9 +44,9 @@ template <class T>
 struct Plot2D {
   T min_value = 0;
   T max_value = 1;
-  evo_engine::Curve2D curve = evo_engine::Curve2D(0.5f, 0.5f, {0, 0}, {1, 1});
+  Curve2D curve = Curve2D(0.5f, 0.5f, {0, 0}, {1, 1});
   Plot2D();
-  Plot2D(T min, T max, evo_engine::Curve2D curve = evo_engine::Curve2D(0.5f, 0.5f, {0, 0}, {1, 1}));
+  Plot2D(T min, T max, Curve2D curve = Curve2D(0.5f, 0.5f, {0, 0}, {1, 1}));
   bool OnInspect(const std::string& name, const CurveDescriptorSettings& settings = {});
   void Save(const std::string& name, YAML::Emitter& out) const;
   void Load(const std::string& name, const YAML::Node& in);
@@ -93,8 +93,14 @@ template <class T>
 void SingleDistribution<T>::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     const auto& cd = in[name];
-    mean = cd["mean"].as<T>();
-    deviation = cd["deviation"].as<float>();
+    if (cd["mean"])
+      mean = cd["mean"].as<T>();
+    else if (cd["m_mean"])
+      mean = cd["m_mean"].as<T>();
+    if (cd["deviation"])
+      deviation = cd["deviation"].as<float>();
+    else if (cd["m_deviation"])
+      deviation = cd["m_deviation"].as<float>();
   }
 }
 template <class T>
@@ -158,6 +164,9 @@ void PlottedDistribution<T>::Load(const std::string& name, const YAML::Node& in)
     const auto& cd = in[name];
     mean.Load("mean", cd);
     deviation.Load("deviation", cd);
+
+    mean.Load("m_mean", cd);
+    deviation.Load("m_deviation", cd);
   }
 }
 template <class T>
@@ -218,9 +227,15 @@ void Plot2D<T>::Load(const std::string& name, const YAML::Node& in) {
     const auto& cd = in[name];
     if (cd["min_value"])
       min_value = cd["min_value"].as<T>();
+    else if (cd["m_minValue"])
+      min_value = cd["m_minValue"].as<T>();
     if (cd["max_value"])
       max_value = cd["max_value"].as<T>();
+    else if (cd["m_maxValue"])
+      max_value = cd["m_maxValue"].as<T>();
+
     curve.Load("curve", cd);
+    curve.Load("m_curve", cd);
   }
 }
 template <class T>

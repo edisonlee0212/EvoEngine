@@ -525,7 +525,7 @@ void DatasetGenerator::GeneratePointCloudForForestPatchJoinedSpecies(
 }
 
 void DatasetGenerator::GeneratePointCloudForSorghumPatch(
-    const SorghumFieldPatch& pattern, const std::shared_ptr<SorghumStateGenerator>& sorghumDescriptor,
+    const SorghumFieldPatch& pattern, const std::shared_ptr<SorghumDescriptorGenerator>& sorghumDescriptor,
     const SorghumPointCloudPointSettings& pointSettings,
     const std::shared_ptr<PointCloudCaptureSettings>& captureSettings,
     const SorghumMeshGeneratorSettings& sorghumMeshGeneratorSettings, const std::string& pointCloudOutputPath) {
@@ -563,9 +563,9 @@ void DatasetGenerator::GeneratePointCloudForSorghumPatch(
   const auto sorghumField = ProjectManager::CreateTemporaryAsset<SorghumField>();
   std::vector<glm::mat4> matricesList;
   pattern.GenerateField(matricesList);
-  sorghumField->m_matrices.resize(matricesList.size());
+  sorghumField->matrices.resize(matricesList.size());
   for (int i = 0; i < matricesList.size(); i++) {
-    sorghumField->m_matrices[i] = {sorghumDescriptor, matricesList[i]};
+    sorghumField->matrices[i] = {sorghumDescriptor, matricesList[i]};
   }
 
   const auto field = sorghumField->InstantiateField();

@@ -5,7 +5,7 @@
 #include "ILayer.hpp"
 #include "PointCloud.hpp"
 #include "SorghumField.hpp"
-#include "SorghumState.hpp"
+#include "SorghumDescriptor.hpp"
 using namespace evo_engine;
 namespace digital_agriculture_plugin {
 class SorghumLayer : public ILayer {

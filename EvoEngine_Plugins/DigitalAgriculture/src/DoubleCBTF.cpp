@@ -22,10 +22,12 @@ void DoubleCBTF::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(bottom);
 }
 void DoubleCBTF::Serialize(YAML::Emitter& out) const {
-  top.Save("m_top", out);
+  top.Save("top", out);
   bottom.Save("bottom", out);
 }
 void DoubleCBTF::Deserialize(const YAML::Node& in) {
-  top.Load("m_top", in);
+  top.Load("top", in);
   bottom.Load("bottom", in);
+  top.Load("m_top", in);
+  bottom.Load("m_bottom", in);
 }
