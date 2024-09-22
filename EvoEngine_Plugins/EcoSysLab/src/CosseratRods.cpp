@@ -5,6 +5,7 @@ using namespace eco_sys_lab_plugin;
 
 void CosseratRods::Update(const Parameters& parameters, std::vector<Strand>& strands,
     std::vector<StrandSegment>& strand_segments) {
+  /*
   //1. Update velocity.
   Jobs::RunParallelFor(strand_segments.size(), [&](const auto& i) {
     auto& segment = strand_segments[i];
@@ -36,5 +37,5 @@ void CosseratRods::Update(const Parameters& parameters, std::vector<Strand>& str
         
       }
     }
-  }
+  }*/
 }

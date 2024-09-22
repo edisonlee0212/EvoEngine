@@ -422,7 +422,8 @@ float Curve2D::GetValue(float x, const unsigned iteration) const {
       auto& next = values_[i * 3 + 4];
       if (x == prev.x) {
         return prev.y;
-      } else if (x > prev.x && x < next.x) {
+      }
+      if (x > prev.x && x < next.x) {
         const float real_x = (x - prev.x) / (next.x - prev.x);
         float upper = 1.0f;
         float lower = 0.0f;

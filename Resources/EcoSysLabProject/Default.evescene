@@ -28,7 +28,7 @@ entity_metadata_list:
         background_intensity: 1
         skybox:
           asset_handle_: 77
-          asset_type_name_: Texture2D
+          asset_type_name_: Cubemap
         post_processing_stack:
           asset_handle_: 0
           asset_type_name_: ""
@@ -87,15 +87,20 @@ entity_metadata_list:
     pc:
       - tn: BillboardCloudsConverter
         e: true
+  - n: Broken Branch
+    h: 14804826820754598186
+    e: true
+    s: false
+    r: 14804826820754598186
+    pc:
+      - tn: BrokenBranch
+        e: true
 systems_:
-  - type_name: PhysicsSystem
-    enabled_: true
-    rank_: 1
-    handle_: 15921670767449097606
+  []
 data_component_storage_list:
   - entity_size: 130
     chunk_capacity: 126
-    entity_alive_count: 6
+    entity_alive_count: 7
     data_component_types:
       - type_name: Transform
         type_size: 64
@@ -111,12 +116,12 @@ data_component_storage_list:
         dc:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAoEAAACBBAACAPw=="
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAoEAAACBBAACAPw=="
-          - d: !!binary "AAE="
+          - d: !!binary "AAA="
       - h: 4980998256074025614
         dc:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIAz//9/PwAAAAAAAAAA//9/vwAAgDMAAAAAAAAAAAAAAAAAAAAAAACAPw=="
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIAz//9/PwAAAAAAAAAA//9/vwAAgDMAAAAAAAAAAAAAAAAAAAAAAACAPw=="
-          - d: !!binary "AAE="
+          - d: !!binary "AAA="
       - h: 1555701816245088991
         dc:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
@@ -133,6 +138,11 @@ data_component_storage_list:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
           - d: !!binary "AAA="
       - h: 2634850789993334228
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAA="
+      - h: 14804826820754598186
         dc:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="

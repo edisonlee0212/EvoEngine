@@ -88,13 +88,13 @@ bool Particle2D<T>::IsBoundary() const {
 
 template <typename T>
 void Particle2D<T>::Update(const UpdateSettings& update_settings) {
-  const auto lastV = position_ - last_position_ - update_settings.damping * (position_ - last_position_);
+  const auto last_v = position_ - last_position_ - update_settings.damping * (position_ - last_position_);
   last_position_ = position_;
-  auto targetV = lastV + acceleration_ * update_settings.dt * update_settings.dt;
-  const auto speed = glm::length(targetV);
+  auto target_v = last_v + acceleration_ * update_settings.dt * update_settings.dt;
+  const auto speed = glm::length(target_v);
   if (speed > glm::epsilon<float>()) {
-    targetV = glm::min(update_settings.max_velocity * update_settings.dt, speed) * glm::normalize(targetV);
-    position_ = position_ + targetV;
+    target_v = glm::min(update_settings.max_velocity * update_settings.dt, speed) * glm::normalize(target_v);
+    position_ = position_ + target_v;
   }
   acceleration_ = {};
 }

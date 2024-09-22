@@ -10,6 +10,7 @@
 #include "Times.hpp"
 
 #include "BillboardCloudsConverter.hpp"
+#include "BrokenBranch.hpp"
 #include "ClassRegistry.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
@@ -29,6 +30,9 @@ PrivateComponentRegistration<Tree> tree_registry("Tree");
 PrivateComponentRegistration<TreeStructor> tree_structor_registry("TreeStructor");
 PrivateComponentRegistration<Soil> soil_registry("Soil");
 PrivateComponentRegistration<Climate> climate_registry("Climate");
+
+PrivateComponentRegistration<BrokenBranch> broken_branch_registry("BrokenBranch");
+
 PrivateComponentRegistration<SpatialPlantDistributionSimulator> spds_registry("SpatialPlantDistributionSimulator");
 
 AssetRegistration<ProceduralNoise2D> procedural_noise2d_registry("ProceduralNoise2D", {".noise2D"});
