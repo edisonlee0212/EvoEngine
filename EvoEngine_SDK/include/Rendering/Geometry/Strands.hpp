@@ -132,9 +132,8 @@ float Strands::CalculateLengthAdaptive(const T& v0, const T& v1, const T& v2, co
   const glm::vec3 end_point = CubicInterpolation(v0, v1, v2, v3, t_end);
 
   const float linear_distance = glm::distance(start_point, end_point);
-
-  if (const float curve_distance = glm::distance(start_point, mid_point) + glm::distance(mid_point, end_point);
-      fabs(linear_distance - curve_distance) < tolerance) {
+  const float curve_distance = glm::distance(start_point, mid_point) + glm::distance(mid_point, end_point);
+  if (fabs(linear_distance - curve_distance) < tolerance) {
     return curve_distance;  // Close enough, return this estimate
   }
   // Subdivide further

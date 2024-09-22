@@ -138,9 +138,10 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
     EVOENGINE_ERROR("No sorghums!");
     return;
   }
+  
   for (const auto& sorghum_entity : *sorghum_entities) {
     if (scene->IsEntityValid(sorghum_entity)) {
-      scene->ForEachChild(sorghum_entity, [&](Entity child) {
+      scene->ForEachChild(sorghum_entity, [&](const Entity child) {
         if (scene->GetEntityName(child) == "Leaf Mesh" && scene->HasPrivateComponent<MeshRenderer>(child)) {
           const auto leaf_mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock();
           leaf_mesh_renderer_handles.insert({leaf_mesh_renderer->GetHandle(), sorghum_entity.GetIndex()});
@@ -223,7 +224,7 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
                         ball_rand + (sample_index >= pc_samples.size() / 2 ? left_offset : right_offset));
 
     if (sorghum_point_cloud_point_settings.leaf_index) {
-      leaf_index.emplace_back(static_cast<int>(sample.m_hitInfo.data.x + 0.1f));
+      leaf_index.emplace_back(glm::floatBitsToUint(sample.m_hitInfo.data.x));
     }
 
     auto leaf_search = leaf_mesh_renderer_handles.find(sample.m_handle);
@@ -281,6 +282,50 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
 
   // Write a binary file
   cube_file.write(ostream, true);
+  if (capture_settings->output_spline_info) {
+    try {
+      std::filesystem::path yaml_path = save_path;
+      yaml_path.replace_extension(".yml");
+      YAML::Emitter out;
+      out << YAML::BeginMap;
+      out << YAML::Key << "Sorghums" << YAML::BeginSeq;
+      for (const auto& sorghum_entity : *sorghum_entities) {
+        if (scene->IsEntityValid(sorghum_entity)) {
+          if (capture_settings->output_spline_info) {
+            const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+            const auto sorghum_descriptor = sorghum->sorghum_descriptor.Get<SorghumDescriptor>();
+            out << YAML::BeginMap;
+            {
+              out << YAML::Key << "Instance Index" << YAML::Value << sorghum_entity.GetIndex();
+              out << YAML::Key << "Leaves" << YAML::BeginSeq;
+              for (const auto& leaf : sorghum_descriptor->leaves) {
+                out << YAML::BeginMap;
+                std::vector<glm::vec3> points(capture_settings->spline_subdivision_count);
+                SorghumSpline leaf_part;
+                leaf_part.segments = leaf.spline.GetLeafPart();
+                const auto segments = leaf_part.RebuildFixedSizeSegments(capture_settings->spline_subdivision_count);
+                for (uint32_t node_index = 0; node_index < capture_settings->spline_subdivision_count; node_index++) {
+                  points[node_index] = segments[node_index].position;
+                }
+                out << YAML::Key << "Leaf Index" << YAML::Value << leaf.index + 1;
+                Serialization::SerializeVector("Center Points", points, out);
+                out << YAML::EndMap;
+              }
+              out << YAML::EndSeq;
+            }
+            out << YAML::EndMap;
+          }
+        }
+      }
+      out << YAML::EndSeq;
+      out << YAML::EndMap;
+      std::ofstream output_file(yaml_path.string());
+      output_file << out.c_str();
+      output_file.flush();
+    } catch (const std::exception& e) {
+      EVOENGINE_ERROR("Failed to save!");
+    }
+  }
 #endif
 }
 

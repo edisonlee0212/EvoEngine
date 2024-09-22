@@ -210,25 +210,52 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     static std::shared_ptr<ParticleInfoList> node_debug_info_list;
     if (!node_debug_info_list)
       node_debug_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-
-    if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>()) {
-      std::vector<ParticleInfo> particle_infos;
-      const auto owner = GetOwner();
-      const auto scene = GetScene();
-      const auto plant_position = scene->GetDataComponent<GlobalTransform>(owner).GetPosition();
-      for (const auto& leaf_state : sd->leaves) {
-        const auto start_index = particle_infos.size();
-        particle_infos.resize(start_index + leaf_state.spline.segments.size());
-        for (int i = 0; i < leaf_state.spline.segments.size(); i++) {
-          auto& matrix = particle_infos[start_index + i].instance_matrix;
-          matrix.value = glm::translate(leaf_state.spline.segments.at(i).position + plant_position) *
+    constexpr bool show_all_node = false;
+    if (show_all_node){
+      if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>()) {
+        std::vector<ParticleInfo> particle_infos;
+        const auto owner = GetOwner();
+        const auto scene = GetScene();
+        const auto plant_position = scene->GetDataComponent<GlobalTransform>(owner).GetPosition();
+        for (const auto& leaf_state : sd->leaves) {
+          const auto start_index = particle_infos.size();
+          particle_infos.resize(start_index + leaf_state.spline.segments.size());
+          for (int i = 0; i < leaf_state.spline.segments.size(); i++) {
+            auto& matrix = particle_infos[start_index + i].instance_matrix;
+            matrix.value = glm::translate(leaf_state.spline.segments.at(i).position + plant_position) *
                            glm::scale(glm::vec3(node_render_size * leaf_state.spline.segments.at(i).radius));
-          particle_infos[start_index + i].instance_color =
-              glm::vec4((leaf_state.index % 3) * 0.5f, ((leaf_state.index / 3) % 3) * 0.5f,
-                        ((leaf_state.index / 9) % 3) * 0.5f, 1.0f);
+            particle_infos[start_index + i].instance_color =
+                glm::vec4((leaf_state.index % 3) * 0.5f, ((leaf_state.index / 3) % 3) * 0.5f,
+                          ((leaf_state.index / 9) % 3) * 0.5f, 1.0f);
+          }
+        }
+        node_debug_info_list->SetParticleInfos(particle_infos);
+      }
+    }else {
+      if (ImGui::Button("Refresh leaf nodes")) {
+        if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>()) {
+          std::vector<ParticleInfo> particle_infos;
+          const auto owner = GetOwner();
+          const auto scene = GetScene();
+          const auto plant_position = scene->GetDataComponent<GlobalTransform>(owner).GetPosition();
+          for (const auto& leaf_state : sd->leaves) {
+            SorghumSpline leaf_part;
+            leaf_part.segments = leaf_state.spline.GetLeafPart();
+            const auto segments = leaf_part.RebuildFixedSizeSegments(8);
+            const auto start_index = particle_infos.size();
+            particle_infos.resize(start_index + segments.size());
+            for(int i = 0; i < segments.size(); i++) {
+              auto& matrix = particle_infos[start_index + i].instance_matrix;
+              matrix.value = glm::translate(segments.at(i).position + plant_position) *
+                             glm::scale(glm::vec3(node_render_size * segments.at(i).radius));
+              particle_infos[start_index + i].instance_color =
+                  glm::vec4((leaf_state.index % 3) * 0.5f, ((leaf_state.index / 3) % 3) * 0.5f,
+                            ((leaf_state.index / 9) % 3) * 0.5f, 1.0f);
+            }
+          }
+          node_debug_info_list->SetParticleInfos(particle_infos);
         }
       }
-      node_debug_info_list->SetParticleInfos(particle_infos);
     }
     editor_layer->DrawGizmoCubes(node_debug_info_list);
   }

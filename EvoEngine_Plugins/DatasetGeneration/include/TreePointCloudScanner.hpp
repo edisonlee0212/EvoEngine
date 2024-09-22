@@ -69,8 +69,8 @@ class TreePointCloudGridCaptureSettings : public PointCloudCaptureSettings {
 class TreePointCloudScanner : public IPrivateComponent {
  public:
   TreePointCloudPointSettings m_pointSettings;
-  void Capture(const TreeMeshGeneratorSettings& meshGeneratorSettings, const std::filesystem::path& savePath,
-               const std::shared_ptr<PointCloudCaptureSettings>& captureSettings) const;
+  void Capture(const TreeMeshGeneratorSettings& mesh_generator_settings, const std::filesystem::path& save_path,
+               const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
 
   void OnDestroy() override;

@@ -163,7 +163,7 @@ int main() {
   std::shared_ptr<SorghumGantryCaptureSettings> capture_settings = std::make_shared<SorghumGantryCaptureSettings>();
   capture_settings->step = glm::vec2(0.001f);
   capture_settings->scanner_angles = {30, 60};
-
+  capture_settings->output_spline_info = true;
   const auto sdg_relative_path = std::filesystem::path("SorghumDescriptorGenerator") / "Season12.sdg";
   sorghum_field_point_cloud(1, 0.75f, 0, 0, 8, capture_settings, sdg_relative_path, "D:\\SorghumPointCloudData\\");
   Application::Run();

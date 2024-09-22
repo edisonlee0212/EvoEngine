@@ -298,7 +298,7 @@ void SorghumLayer::ExportAllSorghumsModel(const std::string& filename) {
 
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 void SorghumLayer::CalculateIlluminationFrameByFrame() {
-  auto scene = GetScene();
+  const auto scene = GetScene();
   const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<TriangleIlluminationEstimator>();
   if (!owners)
     return;

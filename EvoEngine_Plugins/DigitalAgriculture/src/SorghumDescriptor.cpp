@@ -113,7 +113,7 @@ void SorghumStemState::GenerateGeometry(std::vector<Vertex>& vertices, std::vect
   if (!sorghum_layer)
     return;
   std::vector<SorghumSplineSegment> segments;
-  spline.Subdivide(sorghum_layer->vertical_subdivision_length, segments);
+  spline.SubdivideByDistance(sorghum_layer->vertical_subdivision_length, segments);
 
   const int vertex_index = vertices.size();
   Vertex archetype{};
@@ -180,16 +180,16 @@ void SorghumLeafState::GenerateGeometry(std::vector<Vertex>& vertices, std::vect
   if (!sorghum_layer)
     return;
   std::vector<SorghumSplineSegment> segments;  // = spline.segments;
-  spline.Subdivide(sorghum_layer->vertical_subdivision_length, segments);
+  spline.SubdivideByDistance(sorghum_layer->vertical_subdivision_length, segments);
 
   const int vertex_index = vertices.size();
   Vertex archetype{};
 #pragma region Semantic mask color
-  auto index = this->index + 1;
-  const auto vertex_color = glm::vec4(index % 3 * 0.5f, index / 3 % 3 * 0.5f, index / 9 % 3 * 0.5f, 1.0f);
+  const uint32_t actual_index = this->index + 1;
+  const auto vertex_color = glm::vec4(actual_index % 3 * 0.5f, actual_index / 3 % 3 * 0.5f, actual_index / 9 % 3 * 0.5f, 1.0f);
 #pragma endregion
   archetype.color = vertex_color;
-  archetype.vertex_info1 = index + 1;
+  archetype.vertex_info1 = glm::uintBitsToFloat(actual_index);
   const float x_step = 1.0f / static_cast<float>(sorghum_layer->horizontal_subdivision_step) / 2.0f;
   auto segment_size = segments.size();
   const float y_leaf_step = 0.5f / segment_size;
