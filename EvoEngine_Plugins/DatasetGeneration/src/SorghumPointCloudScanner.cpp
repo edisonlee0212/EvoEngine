@@ -23,45 +23,45 @@ void SorghumPointCloudPointSettings::Load(const std::string& name, const YAML::N
 
 bool SorghumPointCloudGridCaptureSettings::OnInspect() {
   bool changed = false;
-  if (ImGui::DragInt2("Grid size", &m_gridSize.x, 1, 0, 100))
+  if (ImGui::DragInt2("Grid size", &grid_size.x, 1, 0, 100))
     changed = true;
-  if (ImGui::DragFloat("Grid distance", &m_gridDistance, 0.1f, 0.0f, 100.0f))
+  if (ImGui::DragFloat("Grid distance", &grid_distance, 0.1f, 0.0f, 100.0f))
     changed = true;
-  if (ImGui::DragFloat("Step", &m_step, 0.01f, 0.0f, 0.5f))
+  if (ImGui::DragFloat("Step", &step, 0.01f, 0.0f, 0.5f))
     changed = true;
   return changed;
 }
 
 void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
-  const glm::vec2 start_point = glm::vec2((static_cast<float>(m_gridSize.x) * 0.5f - 0.5f) * m_gridDistance,
-                                         (static_cast<float>(m_gridSize.y) * 0.5f - 0.5f) * m_gridDistance);
+  const glm::vec2 start_point = glm::vec2((static_cast<float>(grid_size.x) * 0.5f - 0.5f) * grid_distance,
+                                         (static_cast<float>(grid_size.y) * 0.5f - 0.5f) * grid_distance);
 
-  const int y_step_size = m_gridSize.y * m_gridDistance / m_step;
-  const int x_step_size = m_gridSize.x * m_gridDistance / m_step;
+  const int y_step_size = grid_size.y * grid_distance / step;
+  const int x_step_size = grid_size.x * grid_distance / step;
 
-  point_cloud_samples.resize((m_gridSize.x * y_step_size + m_gridSize.y * x_step_size) * m_droneSample);
+  point_cloud_samples.resize((grid_size.x * y_step_size + grid_size.y * x_step_size) * drone_sample);
   unsigned start_index = 0;
-  for (int i = 0; i < m_gridSize.x; i++) {
-    float x = i * m_gridDistance;
+  for (int i = 0; i < grid_size.x; i++) {
+    float x = i * grid_distance;
     for (int step = 0; step < y_step_size; step++) {
-      float z = step * m_step;
-      const glm::vec3 center = glm::vec3{x, m_droneHeight, z} - glm::vec3(start_point.x, 0, start_point.y);
-      Jobs::RunParallelFor(m_droneSample, [&](const unsigned sample_index) {
-        auto& sample = point_cloud_samples[m_droneSample * (i * y_step_size + step) + sample_index];
+      float z = step * step;
+      const glm::vec3 center = glm::vec3{x, drone_height, z} - glm::vec3(start_point.x, 0, start_point.y);
+      Jobs::RunParallelFor(drone_sample, [&](const unsigned sample_index) {
+        auto& sample = point_cloud_samples[drone_sample * (i * y_step_size + step) + sample_index];
         sample.direction = glm::sphericalRand(1.0f);
         sample.direction.y = -glm::abs(sample.direction.y);
         sample.start = center;
       });
     }
   }
-  start_index += m_gridSize.x * y_step_size * m_droneSample;
-  for (int i = 0; i < m_gridSize.y; i++) {
-    float z = i * m_gridDistance;
+  start_index += grid_size.x * y_step_size * drone_sample;
+  for (int i = 0; i < grid_size.y; i++) {
+    float z = i * grid_distance;
     for (int step = 0; step < x_step_size; step++) {
-      float x = step * m_step;
-      const glm::vec3 center = glm::vec3{x, m_droneHeight, z} - glm::vec3(start_point.x, 0, start_point.y);
-      Jobs::RunParallelFor(m_droneSample, [&](const unsigned sample_index) {
-        auto& sample = point_cloud_samples[start_index + m_droneSample * (i * x_step_size + step) + sample_index];
+      float x = step * step;
+      const glm::vec3 center = glm::vec3{x, drone_height, z} - glm::vec3(start_point.x, 0, start_point.y);
+      Jobs::RunParallelFor(drone_sample, [&](const unsigned sample_index) {
+        auto& sample = point_cloud_samples[start_index + drone_sample * (i * x_step_size + step) + sample_index];
         sample.direction = glm::sphericalRand(1.0f);
         sample.direction.y = -glm::abs(sample.direction.y);
         sample.start = center;
@@ -71,49 +71,52 @@ void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointClou
 }
 
 bool SorghumPointCloudGridCaptureSettings::SampleFilter(const PointCloudSample& sample) {
-  return glm::abs(sample.m_hitInfo.position.x) < m_boundingBoxSize &&
-         glm::abs(sample.m_hitInfo.position.z) < m_boundingBoxSize;
+  return glm::abs(sample.m_hitInfo.position.x) < bounding_box_size &&
+         glm::abs(sample.m_hitInfo.position.z) < bounding_box_size;
 }
 
 bool SorghumGantryCaptureSettings::OnInspect() {
   bool changed = false;
-  if (ImGui::DragInt2("Grid size", &m_gridSize.x, 1, 0, 100))
+  if (ImGui::DragInt2("Grid size", &grid_size.x, 1, 0, 100))
     changed = true;
-  if (ImGui::DragFloat2("Grid distance", &m_gridDistance.x, 0.1f, 0.0f, 100.0f))
+  if (ImGui::DragFloat2("Grid distance", &grid_distance.x, 0.1f, 0.0f, 100.0f))
     changed = true;
-  if (ImGui::DragFloat2("Step", &m_step.x, 0.00001f, 0.0f, 0.5f))
+  if (ImGui::DragFloat2("Step", &step.x, 0.00001f, 0.0f, 0.5f))
     changed = true;
 
   return changed;
 }
 
 void SorghumGantryCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
-  const glm::vec2 start_point = glm::vec2((m_gridSize.x) * m_gridDistance.x, (m_gridSize.y) * m_gridDistance.y) * 0.5f;
-  const int x_step_size = static_cast<int>(m_gridSize.x * m_gridDistance.x / m_step.x);
-  const int y_step_size = static_cast<int>(m_gridSize.y * m_gridDistance.y / m_step.y);
+  const glm::vec2 start_point = glm::vec2((grid_size.x) * grid_distance.x, (grid_size.y) * grid_distance.y) * 0.5f;
+  const int x_step_size = static_cast<int>(grid_size.x * grid_distance.x / step.x);
+  const int y_step_size = static_cast<int>(grid_size.y * grid_distance.y / step.y);
 
-  point_cloud_samples.resize(y_step_size * x_step_size * 2);
+  point_cloud_samples.resize(y_step_size * x_step_size * 2 * scanner_angles.size());
   constexpr auto front = glm::vec3(0, -1, 0);
   const float roll_angle = glm::linearRand(0, 360);
   const auto up = glm::vec3(glm::sin(glm::radians(roll_angle)), 0, glm::cos(glm::radians(roll_angle)));
   Jobs::RunParallelFor(y_step_size * x_step_size, [&](unsigned i) {
     const auto x = i / y_step_size;
     const auto y = i % y_step_size;
-    const glm::vec3 center = glm::vec3{m_step.x * x, 0.f, m_step.y * y} - glm::vec3(start_point.x, 0, start_point.y);
+    const glm::vec3 center = glm::vec3{step.x * x, 0.f, step.y * y} - glm::vec3(start_point.x, 0, start_point.y);
+    for (int angle_index = 0; angle_index < scanner_angles.size(); angle_index++) {
+      auto& sample1 = point_cloud_samples[i * scanner_angles.size() + angle_index];
+      const auto& scanner_angle = scanner_angles[angle_index];
+      sample1.direction = glm::normalize(glm::rotate(front, glm::radians(scanner_angle), up));
+      sample1.start = center - sample1.direction * (sample_height / glm::cos(glm::radians(scanner_angle)));
 
-    auto& sample1 = point_cloud_samples[i];
-    sample1.direction = glm::normalize(glm::rotate(front, glm::radians(m_scannerAngle), up));
-    sample1.start = center - sample1.direction * (m_sampleHeight / glm::cos(glm::radians(m_scannerAngle)));
-
-    auto& sample2 = point_cloud_samples[y_step_size * x_step_size + i];
-    sample2.direction = glm::normalize(glm::rotate(front, glm::radians(-m_scannerAngle), up));
-    sample2.start = center - sample2.direction * (m_sampleHeight / glm::cos(glm::radians(m_scannerAngle)));
+      auto& sample2 = point_cloud_samples[y_step_size * x_step_size * scanner_angles.size() +
+                                          i * scanner_angles.size() + angle_index];
+      sample2.direction = glm::normalize(glm::rotate(front, glm::radians(-scanner_angle), up));
+      sample2.start = center - sample2.direction * (sample_height / glm::cos(glm::radians(scanner_angle)));
+    }
   });
 }
 
 bool SorghumGantryCaptureSettings::SampleFilter(const PointCloudSample& sample) {
-  return glm::abs(sample.m_hitInfo.position.x) < m_boundingBoxSize &&
-         glm::abs(sample.m_hitInfo.position.z) < m_boundingBoxSize;
+  return glm::abs(sample.m_hitInfo.position.x) < bounding_box_size &&
+         glm::abs(sample.m_hitInfo.position.z) < bounding_box_size;
 }
 
 void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
@@ -191,8 +194,8 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
   std::vector<int> leaf_index;
   std::vector<int> instance_index;
   std::vector<int> type_index;
-  glm::vec3 left_offset = glm::linearRand(-m_leftRandomOffset, m_leftRandomOffset);
-  glm::vec3 right_offset = glm::linearRand(-m_rightRandomOffset, m_rightRandomOffset);
+  glm::vec3 left_offset = glm::linearRand(-left_random_offset, left_random_offset);
+  glm::vec3 right_offset = glm::linearRand(-right_random_offset, right_random_offset);
   for (int sample_index = 0; sample_index < pc_samples.size(); sample_index++) {
     const auto& sample = pc_samples.at(sample_index);
     if (!sample.m_hit)
@@ -200,33 +203,33 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
     if (!capture_settings->SampleFilter(sample))
       continue;
     auto& position = sample.m_hitInfo.position;
-    if (position.x < (plant_bound.min.x - m_sorghumPointCloudPointSettings.m_boundingBoxLimit) ||
-        position.y < (plant_bound.min.y - m_sorghumPointCloudPointSettings.m_boundingBoxLimit) ||
-        position.z < (plant_bound.min.z - m_sorghumPointCloudPointSettings.m_boundingBoxLimit) ||
-        position.x > (plant_bound.max.x + m_sorghumPointCloudPointSettings.m_boundingBoxLimit) ||
-        position.y > (plant_bound.max.y + m_sorghumPointCloudPointSettings.m_boundingBoxLimit) ||
-        position.z > (plant_bound.max.z + m_sorghumPointCloudPointSettings.m_boundingBoxLimit))
+    if (position.x < (plant_bound.min.x - sorghum_point_cloud_point_settings.bounding_box_limit) ||
+        position.y < (plant_bound.min.y - sorghum_point_cloud_point_settings.bounding_box_limit) ||
+        position.z < (plant_bound.min.z - sorghum_point_cloud_point_settings.bounding_box_limit) ||
+        position.x > (plant_bound.max.x + sorghum_point_cloud_point_settings.bounding_box_limit) ||
+        position.y > (plant_bound.max.y + sorghum_point_cloud_point_settings.bounding_box_limit) ||
+        position.z > (plant_bound.max.z + sorghum_point_cloud_point_settings.bounding_box_limit))
       continue;
     auto ball_rand = glm::vec3(0.0f);
-    if (m_sorghumPointCloudPointSettings.m_ballRandRadius > 0.0f) {
-      ball_rand = glm::ballRand(m_sorghumPointCloudPointSettings.m_ballRandRadius);
+    if (sorghum_point_cloud_point_settings.ball_rand_radius > 0.0f) {
+      ball_rand = glm::ballRand(sorghum_point_cloud_point_settings.ball_rand_radius);
     }
     const auto distance = glm::distance(sample.m_hitInfo.position, sample.start);
 
     points.emplace_back(sample.m_hitInfo.position +
-                        distance * glm::vec3(glm::gaussRand(0.0f, m_sorghumPointCloudPointSettings.m_variance),
-                                             glm::gaussRand(0.0f, m_sorghumPointCloudPointSettings.m_variance),
-                                             glm::gaussRand(0.0f, m_sorghumPointCloudPointSettings.m_variance)) +
+                        distance * glm::vec3(glm::gaussRand(0.0f, sorghum_point_cloud_point_settings.variance),
+                                             glm::gaussRand(0.0f, sorghum_point_cloud_point_settings.variance),
+                                             glm::gaussRand(0.0f, sorghum_point_cloud_point_settings.variance)) +
                         ball_rand + (sample_index >= pc_samples.size() / 2 ? left_offset : right_offset));
 
-    if (m_sorghumPointCloudPointSettings.m_leafIndex) {
+    if (sorghum_point_cloud_point_settings.leaf_index) {
       leaf_index.emplace_back(static_cast<int>(sample.m_hitInfo.data.x + 0.1f));
     }
 
     auto leaf_search = leaf_mesh_renderer_handles.find(sample.m_handle);
     auto stem_search = stem_mesh_renderer_handles.find(sample.m_handle);
     auto panicle_search = panicle_mesh_renderer_handles.find(sample.m_handle);
-    if (m_sorghumPointCloudPointSettings.m_instanceIndex) {
+    if (sorghum_point_cloud_point_settings.instance_index) {
       if (leaf_search != leaf_mesh_renderer_handles.end()) {
         instance_index.emplace_back(leaf_search->second);
       } else if (stem_search != stem_mesh_renderer_handles.end()) {
@@ -238,7 +241,7 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
       }
     }
 
-    if (m_sorghumPointCloudPointSettings.m_typeIndex) {
+    if (sorghum_point_cloud_point_settings.type_index) {
       if (leaf_search != leaf_mesh_renderer_handles.end()) {
         type_index.emplace_back(0);
       } else if (stem_search != stem_mesh_renderer_handles.end()) {
@@ -262,16 +265,16 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
   cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32, points.size(),
                                       reinterpret_cast<uint8_t*>(points.data()), Type::INVALID, 0);
 
-  if (m_sorghumPointCloudPointSettings.m_typeIndex)
+  if (sorghum_point_cloud_point_settings.type_index)
     cube_file.add_properties_to_element("type_index", {"type_index"}, Type::INT32, type_index.size(),
                                         reinterpret_cast<uint8_t*>(type_index.data()), Type::INVALID, 0);
 
-  if (m_sorghumPointCloudPointSettings.m_instanceIndex) {
+  if (sorghum_point_cloud_point_settings.instance_index) {
     cube_file.add_properties_to_element("instance_index", {"instance_index"}, Type::INT32, instance_index.size(),
                                         reinterpret_cast<uint8_t*>(instance_index.data()), Type::INVALID, 0);
   }
 
-  if (m_sorghumPointCloudPointSettings.m_leafIndex) {
+  if (sorghum_point_cloud_point_settings.leaf_index) {
     cube_file.add_properties_to_element("leaf_index", {"leaf_index"}, Type::INT32, leaf_index.size(),
                                         reinterpret_cast<uint8_t*>(leaf_index.data()), Type::INVALID, 0);
   }
@@ -296,7 +299,7 @@ bool SorghumPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& edi
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Point settings")) {
-    if (m_sorghumPointCloudPointSettings.OnInspect())
+    if (sorghum_point_cloud_point_settings.OnInspect())
       changed = true;
     ImGui::TreePop();
   }
@@ -304,13 +307,13 @@ bool SorghumPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& edi
 }
 
 void SorghumPointCloudScanner::OnDestroy() {
-  m_sorghumPointCloudPointSettings = {};
+  sorghum_point_cloud_point_settings = {};
 }
 
 void SorghumPointCloudScanner::Serialize(YAML::Emitter& out) const {
-  m_sorghumPointCloudPointSettings.Save("m_sorghumPointCloudPointSettings", out);
+  sorghum_point_cloud_point_settings.Save("sorghum_point_cloud_point_settings", out);
 }
 
 void SorghumPointCloudScanner::Deserialize(const YAML::Node& in) {
-  m_sorghumPointCloudPointSettings.Load("m_sorghumPointCloudPointSettings", in);
+  sorghum_point_cloud_point_settings.Load("sorghum_point_cloud_point_settings", in);
 }

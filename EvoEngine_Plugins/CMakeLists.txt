@@ -9,8 +9,8 @@ set(EVOENGINE_PLUGINS_RESOURCES "")
 
 
 function(register_evoengine_plugin plugin_name default_enable)
-  set(option_name EvoEngine_Plugin-${plugin_name})
-  option(option_name "Enable ${plugin_name} plugin." ${default_enable}) 
+  set(option_name EVOENGINE_ENABLE_${plugin_name}_PLUGIN)
+  option(${option_name} "Enable ${plugin_name} plugin." ${default_enable}) 
   if(option_name AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${plugin_name})
 	add_subdirectory(${plugin_name})
 	if(TARGET ${plugin_name}Plugin)

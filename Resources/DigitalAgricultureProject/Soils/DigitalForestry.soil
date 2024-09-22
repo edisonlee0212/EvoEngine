@@ -1,0 +1,15 @@
+height_field:
+  asset_handle_: 12836438674490377808
+  asset_type_name_: HeightField
+soil_parameters:
+  m_voxelResolution: [128, 64, 128]
+  m_deltaX: 0.100000001
+  m_deltaTime: 0.00100000005
+  m_boundingBoxMin: [-6.4000001, -4.80000019, -6.4000001]
+  m_boundary_x: 3
+  m_boundary_y: 3
+  m_boundary_z: 3
+  m_diffusionForce: 1
+  m_gravityForce: [0, -1, 0]
+soil_layer_descriptors:
+  []

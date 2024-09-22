@@ -19,16 +19,15 @@ bool BasicPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &edito
     changed = true;
   if (ImGui::DragFloat2("Distance", &distance.x, 0.001f, 1.0f, 0.001f))
     changed = true;
-  auto scene = GetScene();
+  const auto scene = GetScene();
   static glm::vec4 color = glm::vec4(0, 1, 0, 0.5);
   if (ImGui::ColorEdit4("Color", &color.x))
     changed = true;
   static bool render_plane = true;
   ImGui::Checkbox("Render plane", &render_plane);
-  auto gt = scene->GetDataComponent<GlobalTransform>(GetOwner());
-  glm::vec3 front = glm::normalize(gt.GetRotation() * glm::vec3(0, 0, -1));
-  glm::vec3 up = glm::normalize(gt.GetRotation() * glm::vec3(0, 1, 0));
-  glm::vec3 left = glm::normalize(gt.GetRotation() * glm::vec3(1, 0, 0));
+  const auto gt = scene->GetDataComponent<GlobalTransform>(GetOwner());
+  const auto front = glm::normalize(gt.GetRotation() * glm::vec3(0, 0, -1));
+  const auto up = glm::normalize(gt.GetRotation() * glm::vec3(0, 1, 0));
   const glm::vec3 actual_vector = glm::rotate(front, glm::radians(rotate_angle), up);
   if (render_plane) {
     editor_layer->DrawGizmoMesh(Resources::GetResource<Mesh>("PRIMITIVE_QUAD"), glm::vec4(1, 0, 0, 0.5),
@@ -50,7 +49,6 @@ bool BasicPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &edito
   if (!points.empty()) {
     if (ImGui::Button("Clear")) {
       points.clear();
-      point_colors.clear();
       point_colors.clear();
     }
     static AssetRef point_cloud;
@@ -78,21 +76,21 @@ void BasicPointCloudScanner::Scan() {
   const auto row = static_cast<unsigned>(size.y / distance.y);
   const int row_start = -(row / 2);
   const auto size = column * row;
-  auto gt = GetScene()->GetDataComponent<GlobalTransform>(GetOwner());
-  glm::vec3 center = gt.GetPosition();
-  glm::vec3 front = gt.GetRotation() * glm::vec3(0, 0, -1);
-  glm::vec3 up = gt.GetRotation() * glm::vec3(0, 1, 0);
-  glm::vec3 left = gt.GetRotation() * glm::vec3(1, 0, 0);
+  const auto gt = GetScene()->GetDataComponent<GlobalTransform>(GetOwner());
+  const glm::vec3 center = gt.GetPosition();
+  const glm::vec3 front = gt.GetRotation() * glm::vec3(0, 0, -1);
+  const glm::vec3 up = gt.GetRotation() * glm::vec3(0, 1, 0);
+  const glm::vec3 left = gt.GetRotation() * glm::vec3(1, 0, 0);
   const glm::vec3 actual_vector = glm::rotate(front, glm::radians(rotate_angle), up);
   std::vector<PointCloudSample> pc_samples;
   pc_samples.resize(size);
 
   std::vector<std::shared_future<void>> results;
   Jobs::RunParallelFor(size, [&](unsigned i) {
-    const int column_index = (int)i / row;
-    const int row_index = (int)i % row;
-    const auto position = center + left * (float)(column_start + column_index) * distance.x +
-                          up * (float)(row_start + row_index) * distance.y;
+    const int column_index = static_cast<int>(i) / row;
+    const int row_index = static_cast<int>(i) % row;
+    const auto position = center + left * static_cast<float>(column_start + column_index) * distance.x +
+                          up * static_cast<float>(row_start + row_index) * distance.y;
     pc_samples[i].start = position;
     pc_samples[i].direction = glm::normalize(actual_vector);
   });
@@ -101,14 +99,17 @@ void BasicPointCloudScanner::Scan() {
   for (const auto &sample : pc_samples) {
     if (sample.m_hit) {
       points.push_back(sample.m_hitInfo.position - gt.GetPosition());
-      point_colors.push_back(sample.m_hitInfo.color);
+      point_colors.emplace_back(sample.m_hitInfo.color);
       handles.push_back(sample.m_handle);
     }
   }
 }
 
 void BasicPointCloudScanner::ConstructPointCloud(const std::shared_ptr<PointCloud> &point_cloud) const {
+  point_cloud->positions.reserve(points.size());
+  point_cloud->colors.reserve(point_colors.size());
   for (int i = 0; i < points.size(); i++) {
-    point_cloud->positions.push_back(points[i]);
+    point_cloud->positions.emplace_back(points[i]);
+    point_cloud->colors.emplace_back(point_colors[i], 1.f);
   }
 }

@@ -4,14 +4,14 @@
 using namespace evo_engine;
 namespace dataset_generation_plugin {
 struct SorghumPointCloudPointSettings {
-  float m_variance = 0.015f;
-  float m_ballRandRadius = 0.01f;
+  float variance = 0.015f;
+  float ball_rand_radius = 0.01f;
 
-  bool m_typeIndex = true;
-  bool m_instanceIndex = true;
-  bool m_leafIndex = true;
+  bool type_index = true;
+  bool instance_index = true;
+  bool leaf_index = true;
 
-  float m_boundingBoxLimit = 1.f;
+  float bounding_box_limit = 1.f;
 
   bool OnInspect();
   void Save(const std::string& name, YAML::Emitter& out) const;
@@ -20,13 +20,13 @@ struct SorghumPointCloudPointSettings {
 
 class SorghumPointCloudGridCaptureSettings : public PointCloudCaptureSettings {
  public:
-  float m_boundingBoxSize = 3.;
+  float bounding_box_size = 3.;
 
-  glm::ivec2 m_gridSize = {5, 5};
-  float m_gridDistance = 1.25f;
-  float m_step = 0.01f;
-  int m_droneSample = 512;
-  float m_droneHeight = 2.5f;
+  glm::ivec2 grid_size = {5, 5};
+  float grid_distance = 1.25f;
+  float step = 0.01f;
+  int drone_sample = 512;
+  float drone_height = 2.5f;
   bool OnInspect() override;
   void GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) override;
   bool SampleFilter(const PointCloudSample& sample) override;
@@ -34,38 +34,31 @@ class SorghumPointCloudGridCaptureSettings : public PointCloudCaptureSettings {
 
 class SorghumGantryCaptureSettings : public PointCloudCaptureSettings {
  public:
-  float m_boundingBoxSize = 3.;
+  float bounding_box_size = 3.;
 
-  glm::ivec2 m_gridSize = {5, 5};
-  glm::vec2 m_gridDistance = {0.75f, 0.75f};
-  glm::vec2 m_step = {0.0075f, 0.0075f};
-  float m_sampleHeight = 2.5f;
+  glm::ivec2 grid_size = {5, 5};
+  glm::vec2 grid_distance = {0.75f, 0.75f};
+  glm::vec2 step = {0.0075f, 0.0075f};
+  float sample_height = 2.5f;
 
-  float m_scannerAngle = 30.f;
+  std::vector<float> scanner_angles = {30.f};
   bool OnInspect() override;
-  void GenerateSamples(std::vector<PointCloudSample>& pointCloudSamples) override;
-  bool SampleFilter(const PointCloudSample& sample) override;
-};
-
-class SorghumPointCloudCaptureSettings : public PointCloudCaptureSettings {
- public:
-  bool OnInspect() override;
-  void GenerateSamples(std::vector<PointCloudSample>& pointCloudSamples) override;
+  void GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) override;
   bool SampleFilter(const PointCloudSample& sample) override;
 };
 
 class SorghumPointCloudScanner : public IPrivateComponent {
  public:
-  glm::vec3 m_leftRandomOffset = glm::vec3(0.02f);
-  glm::vec3 m_rightRandomOffset = glm::vec3(0.02f);
-  SorghumPointCloudPointSettings m_sorghumPointCloudPointSettings{};
-  void Capture(const std::filesystem::path& savePath,
-               const std::shared_ptr<PointCloudCaptureSettings>& captureSettings) const;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  glm::vec3 left_random_offset = glm::vec3(0.02f);
+  glm::vec3 right_random_offset = glm::vec3(0.02f);
+  SorghumPointCloudPointSettings sorghum_point_cloud_point_settings{};
+  void Capture(const std::filesystem::path& save_path,
+               const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   void OnDestroy() override;
 
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };
-}  // namespace eco_sys_lab_plugin
+}  // namespace dataset_generation_plugin
