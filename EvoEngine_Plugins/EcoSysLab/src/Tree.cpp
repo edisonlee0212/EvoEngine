@@ -2913,8 +2913,8 @@ void Tree::PrepareController(const std::shared_ptr<ShootDescriptor>& shoot_descr
           if (prune_by_crown_shyness)
             return 999.f;
         }
-        constexpr float pruningProbability = 0.0f;
-        return pruningProbability;
+        constexpr float pruning_probability = 0.0f;
+        return pruning_probability;
       };
 }
 

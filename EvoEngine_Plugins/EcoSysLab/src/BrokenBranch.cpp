@@ -5,49 +5,90 @@
 using namespace eco_sys_lab_plugin;
 
 void BrokenBranch::Serialize(YAML::Emitter& out) const {
-  
 }
 
 void BrokenBranch::Deserialize(const YAML::Node& in) {
-  
 }
 
 bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  EditorLayer::DragAndDropButton<Tree>(tree_ref, "Tree");
-  if (const auto tree = tree_ref.Get<Tree>()) {
-    if (ImGui::Button("Download Strand group")) {
+  static bool auto_subdivide = true;
+  static float segment_length = 0.005f;
+  ImGui::DragFloat("Subdivision length", &segment_length, .0001f, 0.0001f, 1.f, "%.5f");
+  ImGui::Checkbox("Auto subdivide", &auto_subdivide);
+  if (EditorLayer::DragAndDropButton<Tree>(tree_ref, "Download Strands from Tree...")) {
+    if (const auto tree = tree_ref.Get<Tree>()) {
       if (tree->strand_model.strand_model_skeleton.data.strand_group.PeekStrands().empty()) {
         tree->BuildStrandModel();
       }
       strand_group = tree->strand_model.strand_model_skeleton.data.strand_group;
-      strand_group.RandomAssignColor();
+      if (auto_subdivide) {
+        Subdivide(segment_length, strand_group, subdivided_strand_group);
+        InitializeStrandParticles(subdivided_strand_group);
+      }else {
+        InitializeStrandParticles(strand_group);
+      }
+      tree_ref.Clear();
     }
   }
-  
-  static float segment_length = 0.005f;
   if (ImGui::Button("Subdivide strands")) {
-    strand_group.UniformlySubdivide(subdivided_strand_group, segment_length, segment_length * .01f);
-    subdivided_strand_group.RandomAssignColor();
+    Subdivide(segment_length, strand_group, subdivided_strand_group);
+    InitializeStrandParticles(subdivided_strand_group);
   }
-  static float trunk_length = 0.3f;
+  if (ImGui::Button("Experiment")) {
+    ExperimentSetup();
+  }
+
+  ImGui::Text((std::string("Original strand count: ") + std::to_string(strand_group.PeekStrands().size())).c_str());
+  ImGui::Text(
+      (std::string("Original strand segment count: ") + std::to_string(strand_group.PeekStrandSegments().size()))
+          .c_str());
+  ImGui::Text((std::string("Subdivided strand count: ") + std::to_string(subdivided_strand_group.PeekStrands().size()))
+                  .c_str());
+  ImGui::Text((std::string("Subdivided strand segment count: ") +
+               std::to_string(subdivided_strand_group.PeekStrandSegments().size()))
+                  .c_str());
+
+  
+  
+
+  static float min_trunk_length = 0.3f;
+  static float max_trunk_length = 0.4f;
+  ImGui::DragFloat("Min trunk length", &min_trunk_length, .01f, 0.01f, max_trunk_length, "%.5f");
+  ImGui::DragFloat("Max trunk length", &max_trunk_length, .01f, min_trunk_length, 1.f, "%.5f");
+
+  static float noise_frequency = 100.f;
+  ImGui::DragFloat("Noise frequency", &noise_frequency, .1f, 0.1, 100.f, "%.1f");
+  static bool keep_upper = true;
+  static glm::vec3 upper_offset = glm::vec3(0, 0.1f, 0.0);
+  ImGui::Checkbox("Keep upper", &keep_upper);
+  if (keep_upper) {
+    ImGui::DragFloat3("Upper offset", &upper_offset.x, 0.01, 0.0f, 1.0f);
+  }
   if (ImGui::Button("Cut trunk")) {
-    const auto strand_size = subdivided_strand_group.PeekStrands().size();
-    std::vector<StrandHandle> new_strand_handles;
-    for (StrandHandle strand_handle = 0; strand_handle < strand_size; strand_handle++) {
+    auto temp_strand_group = strand_group;
+    const auto size = temp_strand_group.PeekStrands().size();
+    for (StrandHandle strand_handle = 0; strand_handle < temp_strand_group.PeekStrands().size(); strand_handle++) {
+      const auto& strand = temp_strand_group.PeekStrand(strand_handle);
       StrandSegmentHandle segment_handle;
       float t;
-      subdivided_strand_group.FindStrandT(strand_handle, segment_handle, t, trunk_length);
-      const auto new_strand_handle = subdivided_strand_group.Cut(segment_handle, t);
-      auto &new_strand = subdivided_strand_group.RefStrand(new_strand_handle);
-      new_strand.start_position += glm::vec3(0, 0.3f, 0);
+      temp_strand_group.FindStrandT(strand_handle, segment_handle, t,
+                                          min_trunk_length + glm::perlin(strand.start_position * noise_frequency) *
+                                                                 (max_trunk_length - min_trunk_length));
+      if (t <= 0.f)
+        continue;
+      const auto new_strand_handle = temp_strand_group.Cut(segment_handle, t);
+      if (new_strand_handle == -1) continue;
+      auto& new_strand = temp_strand_group.RefStrand(new_strand_handle);
+      new_strand.start_position += upper_offset;
       for (const auto& i : new_strand.PeekStrandSegmentHandles()) {
-        subdivided_strand_group.RefStrandSegment(i).end_position += glm::vec3(0, 0.05f, 0);
+        temp_strand_group.RefStrandSegment(i).end_position += upper_offset;
       }
-      new_strand_handles.emplace_back(new_strand_handle);
+      if (!keep_upper && new_strand_handle >= size) {
+        temp_strand_group.RemoveStrand(new_strand_handle);
+      }
     }
-    for (const auto& i : new_strand_handles) {
-      subdivided_strand_group.RemoveStrand(i);
-    }
+    Subdivide(segment_length, temp_strand_group, subdivided_strand_group);
+    InitializeStrandParticles(subdivided_strand_group);
   }
   if (ImGui::Button("Build particles for original")) {
     InitializeStrandParticles(strand_group);
@@ -68,18 +109,32 @@ void BrokenBranch::Update() {
 }
 
 void BrokenBranch::OnCreate() {
-  
 }
 
 void BrokenBranch::OnDestroy() {
-  
 }
 
 void BrokenBranch::CollectAssetRef(std::vector<AssetRef>& list) {
-  
 }
 
-void BrokenBranch::InitializeStrandParticles(const StrandModelStrandGroup& strand_group) const {
+void BrokenBranch::ExperimentSetup() {
+  strand_group.Clear();
+  const auto strand1_handle = strand_group.AllocateStrand();
+  auto& segment1 = strand_group.RefStrandSegment(strand_group.Extend(strand1_handle));
+  auto& strand1 = strand_group.RefStrand(strand1_handle);
+  segment1.end_position = glm::vec3(0, 0.5f, 0.);
+  strand1.start_color = segment1.end_color = glm::vec4(1, 0, 0, 0);
+  strand1.start_thickness = segment1.end_thickness = 0.01f;
+
+  strand_group.CalculateRotations();
+}
+
+void BrokenBranch::Subdivide(const float segment_length, const StrandModelStrandGroup& src, StrandModelStrandGroup& dst) {
+  src.UniformlySubdivide(dst, segment_length, segment_length * .01f);
+  dst.RandomAssignColor();
+}
+
+void BrokenBranch::InitializeStrandParticles(const StrandModelStrandGroup& target_strand_group) const {
   const auto scene = GetScene();
   const auto owner = GetOwner();
 
@@ -92,7 +147,7 @@ void BrokenBranch::InitializeStrandParticles(const StrandModelStrandGroup& stran
 
   const auto particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
   std::vector<ParticleInfo> particle_infos;
-  strand_group.BuildParticles(particle_infos);
+  target_strand_group.BuildParticles(particle_infos);
   particle_info_list->SetParticleInfos(particle_infos);
 
   renderer->particle_info_list = particle_info_list;

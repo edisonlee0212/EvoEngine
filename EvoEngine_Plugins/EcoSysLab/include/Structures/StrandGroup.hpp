@@ -438,12 +438,12 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RegulateRotati
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::CalculateRotations() {
   for (const auto& strand : strands_) {
+    if (strand.strand_segment_handles_.empty()) continue;
     glm::vec3 prev_position = strand.start_position;
     const glm::vec3 initial_front =
         glm::normalize(strand_segments_[strand.strand_segment_handles_[0]].end_position - prev_position);
     auto prev_up = glm::vec3(initial_front.y, initial_front.z, initial_front.x);
     strand_segments_[strand.strand_segment_handles_[0]].rotation = glm::quatLookAt(initial_front, prev_up);
-
     for (uint32_t i = 0; i < strand.strand_segment_handles_.size() - 1; i++) {
       auto& segment = strand_segments_[strand.strand_segment_handles_[i + 1]];
 
@@ -524,25 +524,32 @@ StrandSegmentHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>:
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Cut(
     const StrandSegmentHandle target_segment_handle) {
+  if (target_segment_handle == -1)
+    return -1;
+  if (const auto& handles = strands_[strand_segments_[target_segment_handle].strand_handle_].strand_segment_handles_; handles.front() ==
+      target_segment_handle || handles.size() == 1)
+    return -1;
   const auto new_strand_handle = AllocateStrand();
-  auto& strand = strands_[strand_segments_[target_segment_handle].GetStrandHandle()];
+  auto& target_segment = strand_segments_[target_segment_handle];
+  auto& strand = strands_[target_segment.GetStrandHandle()];
   auto& new_strand = strands_[new_strand_handle];
-  for (auto i = strand.strand_segment_handles_.begin(); i != strand.strand_segment_handles_.end(); ++i) {
-    if (*i == target_segment_handle) {
-      new_strand.strand_segment_handles_.insert(new_strand.strand_segment_handles_.end(), i,
-                                                strand.strand_segment_handles_.end());
-      strand.strand_segment_handles_.erase(i, strand.strand_segment_handles_.end());
-      for (const auto& handle : new_strand.strand_segment_handles_) {
-        strand_segments_[handle].strand_handle_ = new_strand_handle;
-      }
-      strand_segments_[new_strand.strand_segment_handles_.front()].prev_handle_ = -1;
-      auto& last_segment = strand_segments_[strand.strand_segment_handles_.back()];
-      new_strand.start_position = last_segment.end_position;
-      new_strand.start_color = last_segment.end_color;
-      new_strand.start_thickness = last_segment.end_thickness;
-      last_segment.next_handle_ = -1;
-      break;
-    }
+  
+  
+  new_strand.strand_segment_handles_.insert(new_strand.strand_segment_handles_.end(),
+                                            strand.strand_segment_handles_.begin() + target_segment.index_,
+                                            strand.strand_segment_handles_.end());
+  strand.strand_segment_handles_.erase(strand.strand_segment_handles_.begin() + target_segment.index_,
+                                       strand.strand_segment_handles_.end());
+
+  for (uint32_t i = 0; i < new_strand.strand_segment_handles_.size(); i++) {
+    const auto& new_segment_handle = new_strand.strand_segment_handles_[i];
+    auto& new_segment = strand_segments_[new_segment_handle];
+    new_segment.strand_handle_ = new_strand_handle;
+    new_segment.index_ = i;
+  }
+  if (target_segment.prev_handle_ != -1) {
+    strand_segments_[target_segment.prev_handle_].next_handle_ = -1;
+    target_segment.prev_handle_ = -1;
   }
   return new_strand_handle;
 }
@@ -550,7 +557,15 @@ StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Cut(
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Cut(StrandSegmentHandle target_segment_handle,
                                                                               float t) {
-  assert(t >= 0.f && t < 1.f);
+  assert(t >= 0.f && t <= 1.f);
+  if (t == 0.f) {
+    return Cut(target_segment_handle);
+  }
+  const auto next_handle = strand_segments_[target_segment_handle].next_handle_;
+  if (t == 1.f) {
+    return Cut(next_handle);
+  }
+  
   glm::vec3 p0, p1, p2, p3;
   float t0, t1, t2, t3;
   glm::vec4 c0, c1, c2, c3;
@@ -559,33 +574,47 @@ StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Cut(St
   GetColorControlPoints(target_segment_handle, c0, c1, c2, c3);
 
   const auto new_strand_handle = AllocateStrand();
-  const auto new_strand_first_segment_handle = Extend(new_strand_handle);
-  auto& strand = strands_[strand_segments_[target_segment_handle].GetStrandHandle()];
   auto& new_strand = strands_[new_strand_handle];
-  auto& strand_segment = strand_segments_[target_segment_handle];
 
-  new_strand.start_position = strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t);
-  new_strand.start_thickness = strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t);
-  new_strand.start_color = strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t);
+  const auto new_strand_first_segment_handle = Extend(new_strand_handle);
+  auto& original_strand_last_segment = strand_segments_[target_segment_handle];
+  auto& original_strand = strands_[original_strand_last_segment.GetStrandHandle()];
+    
+
+  new_strand.start_position = original_strand_last_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t);
+  new_strand.start_thickness = original_strand_last_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t);
+  new_strand.start_color = original_strand_last_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t);
+
   auto& new_strand_first_segment = strand_segments_[new_strand_first_segment_handle];
   strand_segments_data_list[new_strand_first_segment_handle] = strand_segments_data_list[target_segment_handle];
-  new_strand_first_segment = strand_segment;
-  new_strand_first_segment.prev_handle_ = -1;
-  if (new_strand_first_segment.next_handle_ != -1) {
-    for (auto i = strand.strand_segment_handles_.begin(); i != strand.strand_segment_handles_.end(); ++i) {
-      if (*i == strand_segment.next_handle_) {
-        new_strand.strand_segment_handles_.insert(new_strand.strand_segment_handles_.end(), i,
-                                                  strand.strand_segment_handles_.end());
-        strand.strand_segment_handles_.erase(i, strand.strand_segment_handles_.end());
-        for (const auto& handle : new_strand.strand_segment_handles_) {
-          strand_segments_[handle].strand_handle_ = new_strand_handle;
-        }
-        strand_segments_[new_strand.strand_segment_handles_[1]].prev_handle_ = new_strand_first_segment_handle;
-        break;
-      }
+  new_strand_first_segment = original_strand_last_segment;
+  original_strand_last_segment.next_handle_ = -1;
+
+  new_strand.strand_segment_handles_.insert(new_strand.strand_segment_handles_.end(),
+      original_strand.strand_segment_handles_.begin() + original_strand_last_segment.index_ + 1,
+                                            original_strand.strand_segment_handles_.end());
+
+  original_strand.strand_segment_handles_.erase(
+      original_strand.strand_segment_handles_.begin() + original_strand_last_segment.index_ + 1,
+      original_strand.strand_segment_handles_.end());
+
+  for (uint32_t i = 0; i < new_strand.strand_segment_handles_.size(); i++) {
+    const auto& new_segment_handle = new_strand.strand_segment_handles_[i];
+    auto& new_segment = strand_segments_[new_segment_handle];
+    new_segment.strand_handle_ = new_strand_handle;
+    new_segment.index_ = i;
+    if (i > 0) {
+      new_segment.prev_handle_ = new_strand.strand_segment_handles_[i - 1];
+    }else {
+      new_segment.prev_handle_ = -1;
     }
-    strand_segment.next_handle_ = -1;
+    if (i < new_strand.strand_segment_handles_.size() - 1) {
+      new_segment.next_handle_ = new_strand.strand_segment_handles_[i + 1];
+    } else {
+      new_segment.next_handle_ = -1;
+    }
   }
+
   return new_strand_handle;
 }
 
@@ -593,24 +622,25 @@ template <typename StrandGroupData, typename StrandData, typename StrandSegmentD
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RemoveSingleStrandSegment(
     StrandSegmentHandle target_segment_handle) {
   if (target_segment_handle < strand_segments_.size() - 1) {
-    const auto& last_segment = strand_segments_.back();
-    if (last_segment.prev_handle_ != -1) {
-      strand_segments_[last_segment.prev_handle_].next_handle_ = target_segment_handle;
-    }
-    if (last_segment.next_handle_ != -1) {
-      strand_segments_[last_segment.next_handle_].prev_handle_ = target_segment_handle;
-    }
-
-    strand_segments_[target_segment_handle] = last_segment;
+    auto& segment = strand_segments_[target_segment_handle];
+    segment = strand_segments_.back();
     strand_segments_data_list[target_segment_handle] = strand_segments_data_list.back();
+    //Repair relationships.
+    if (segment.prev_handle_ != -1) {
+      strand_segments_[segment.prev_handle_].next_handle_ = target_segment_handle;
+    }
+    if (segment.next_handle_ != -1) {
+      strand_segments_[segment.next_handle_].prev_handle_ = target_segment_handle;
+    }
+    strands_[segment.strand_handle_].strand_segment_handles_[segment.index_] = target_segment_handle;
+    
   }
-
   strand_segments_.pop_back();
   strand_segments_data_list.pop_back();
 }
 
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
-void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::CutLatter(StrandSegmentHandle target_segment_handle) {
+void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::CutLatter(const StrandSegmentHandle target_segment_handle) {
   // Recycle subsequent segments from strand.
   const auto& segment = strand_segments_[target_segment_handle];
   auto& strand = strands_[segment.strand_handle_];
@@ -632,16 +662,16 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::CutLatter(Stra
 }
 
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
-void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RemoveStrand(StrandHandle target_strand_handle) {
+void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RemoveStrand(const StrandHandle target_strand_handle) {
   // Recycle all segments;
+  if (target_strand_handle == -1)
+    return;
   auto& strand = strands_[target_strand_handle];
   for (auto i = strand.strand_segment_handles_.rbegin(); i != strand.strand_segment_handles_.rend(); ++i) {
     RemoveSingleStrandSegment(*i);
   }
   if (target_strand_handle < strands_.size() - 1) {
-    const auto& last_strand = strands_.back();
-    strand.strand_segment_handles_ = last_strand.strand_segment_handles_;
-    strand = last_strand;
+    strand = strands_.back();
     strands_data_list[target_strand_handle] = strands_data_list.back();
     for (const auto& i : strand.strand_segment_handles_) {
       strand_segments_[i].strand_handle_ = target_strand_handle;
@@ -917,11 +947,14 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::FindStrandT(
     const StrandHandle strand_handle, StrandSegmentHandle& result_strand_segment_handle, float& t,
     const float target_length, const float tolerance) const {
   float length_sum = 0.f;
-  for (const auto& segment_handle : strands_[strand_handle].strand_segment_handles_) {
+  const auto& segment_handles = strands_[strand_handle].strand_segment_handles_;
+  result_strand_segment_handle = segment_handles.back();
+  t = 1.f;
+  for (const auto& segment_handle : segment_handles) {
     const auto current_segment_length = GetStrandSegmentArcLength(segment_handle, 0, 1, tolerance);
     if (length_sum + current_segment_length > target_length) {
       result_strand_segment_handle = segment_handle;
-      t = FindStrandSegmentT(result_strand_segment_handle, 0.f, target_length - length_sum + current_segment_length,
+      t = FindStrandSegmentT(result_strand_segment_handle, 0.f, target_length - length_sum,
                              tolerance);
       return;
     }
