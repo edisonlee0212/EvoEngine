@@ -161,10 +161,12 @@ int main() {
   //start_project(project_path);
   start_project_windowless(project_path);
   std::shared_ptr<SorghumGantryCaptureSettings> capture_settings = std::make_shared<SorghumGantryCaptureSettings>();
-  capture_settings->step = glm::vec2(0.001f);
+  capture_settings->step = glm::vec2(0.001f); //Smaller -> more points.
   capture_settings->scanner_angles = {30, 60};
   capture_settings->output_spline_info = true;
+  //capture_settings->spline_subdivision_count = 32;
+
   const auto sdg_relative_path = std::filesystem::path("SorghumDescriptorGenerator") / "Season12.sdg";
-  sorghum_field_point_cloud(1, 0.75f, 0, 0, 8, capture_settings, sdg_relative_path, "D:\\SorghumPointCloudData\\");
+  sorghum_field_point_cloud(1, 0.75f, 0, 0, 128, capture_settings, sdg_relative_path, "D:\\SorghumPointCloudData\\");
   Application::Run();
 }

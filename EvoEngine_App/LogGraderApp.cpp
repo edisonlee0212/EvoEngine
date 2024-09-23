@@ -44,28 +44,22 @@ int main() {
   AssetRegistration<JoeScan>("JoeScan", {".jscan"});
   PrivateComponentRegistration<JoeScanScanner>("JoeScanScanner");
 #endif
-  ApplicationInfo applicationConfigs;
-  applicationConfigs.application_name = "Log Grader";
+  ApplicationInfo application_configs;
+  application_configs.application_name = "Log Grader";
   std::filesystem::create_directory(std::filesystem::path(".") / "LogGraderProject");
-  applicationConfigs.project_path =
+  application_configs.project_path =
       std::filesystem::absolute(std::filesystem::path(".") / "LogGraderProject" / "Default.eveproj");
-  Application::Initialize(applicationConfigs);
+  Application::Initialize(application_configs);
 
   // adjust default camera speed
-  const auto editorLayer = Application::GetLayer<EditorLayer>();
-  editorLayer->velocity = 2.f;
-  editorLayer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
+  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  editor_layer->velocity = 2.f;
+  editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
   // override default scene camera position etc.
-  editorLayer->show_scene_window = false;
-  editorLayer->show_camera_window = true;
-  editorLayer->show_entity_explorer_window = false;
-  editorLayer->show_entity_inspector_window = true;
-  editorLayer->GetSceneCamera()->use_clear_color = true;
-  editorLayer->default_scene_camera_position = glm::vec3(0, 2.5, 6);
-  editorLayer->SetCameraPosition(editorLayer->GetSceneCamera(), editorLayer->default_scene_camera_position);
-  editorLayer->enable_gizmos = false;
-  editorLayer->GetSceneCamera()->clear_color = glm::vec3(1.f);
-  const auto renderLayer = Application::GetLayer<RenderLayer>();
+  editor_layer->default_scene_camera_position = glm::vec3(0, 2.5, 6);
+  editor_layer->SetCameraPosition(editor_layer->GetSceneCamera(), editor_layer->default_scene_camera_position);
+  editor_layer->GetSceneCamera()->clear_color = glm::vec3(1.f);
+  const auto render_layer = Application::GetLayer<RenderLayer>();
 
   ProjectManager::GetInstance().show_project_window = false;
 #pragma region Engine Loop
@@ -85,9 +79,9 @@ void EngineSetup() {
     bool found = false;
     for (const auto& entity : entities) {
       if (scene->HasPrivateComponent<LogGrader>(entity)) {
-        const auto editorLayer = Application::GetLayer<EditorLayer>();
-        editorLayer->SetSelectedEntity(entity);
-        editorLayer->SetLockEntitySelection(true);
+        const auto editor_layer = Application::GetLayer<EditorLayer>();
+        editor_layer->SetSelectedEntity(entity);
+        editor_layer->SetLockEntitySelection(true);
         found = true;
         break;
       }
@@ -95,9 +89,9 @@ void EngineSetup() {
     if (!found) {
       const auto entity = scene->CreateEntity("LogGrader");
       scene->GetOrSetPrivateComponent<LogGrader>(entity);
-      const auto editorLayer = Application::GetLayer<EditorLayer>();
-      editorLayer->SetSelectedEntity(entity);
-      editorLayer->SetLockEntitySelection(true);
+      const auto editor_layer = Application::GetLayer<EditorLayer>();
+      editor_layer->SetSelectedEntity(entity);
+      editor_layer->SetLockEntitySelection(true);
     }
   });
   ProjectManager::SetActionAfterNewScene([=](const std::shared_ptr<Scene>& scene) {
@@ -108,9 +102,9 @@ void EngineSetup() {
 #  pragma endregion
     const auto entity = scene->CreateEntity("LogGrader");
     scene->GetOrSetPrivateComponent<LogGrader>(entity);
-    const auto editorLayer = Application::GetLayer<EditorLayer>();
-    editorLayer->SetSelectedEntity(entity);
-    editorLayer->SetLockEntitySelection(true);
+    const auto editor_layer = Application::GetLayer<EditorLayer>();
+    editor_layer->SetSelectedEntity(entity);
+    editor_layer->SetLockEntitySelection(true);
 #endif
   });
 }
