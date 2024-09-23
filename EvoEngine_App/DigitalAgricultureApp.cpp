@@ -9,7 +9,7 @@
 #endif
 #include "ClassRegistry.hpp"
 #include "Times.hpp"
-#ifdef ECO_SYS_LAB_PLUGIN
+#ifdef ECOSYSLAB_PLUGIN
 #  include "ObjectRotator.hpp"
 using namespace eco_sys_lab_plugin;
 #endif
@@ -43,28 +43,28 @@ int main() {
     for (auto i : std::filesystem::recursive_directory_iterator(resource_folder_path)) {
       if (i.is_directory())
         continue;
-      auto oldPath = i.path();
-      auto newPath = i.path();
+      const auto& old_path = i.path();
+      auto new_path = i.path();
       bool remove = false;
       if (i.path().extension().string() == ".uescene") {
-        newPath.replace_extension(".evescene");
+        new_path.replace_extension(".evescene");
         remove = true;
       }
       if (i.path().extension().string() == ".umeta") {
-        newPath.replace_extension(".evefilemeta");
+        new_path.replace_extension(".evefilemeta");
         remove = true;
       }
       if (i.path().extension().string() == ".ueproj") {
-        newPath.replace_extension(".eveproj");
+        new_path.replace_extension(".eveproj");
         remove = true;
       }
       if (i.path().extension().string() == ".ufmeta") {
-        newPath.replace_extension(".evefoldermeta");
+        new_path.replace_extension(".evefoldermeta");
         remove = true;
       }
       if (remove) {
-        std::filesystem::copy(oldPath, newPath);
-        std::filesystem::remove(oldPath);
+        std::filesystem::copy(old_path, new_path);
+        std::filesystem::remove(old_path);
       }
     }
   }
@@ -80,30 +80,30 @@ int main() {
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
   Application::PushLayer<SorghumLayer>();
 #endif
-#ifdef ECO_SYS_LAB_PLUGIN
-  PrivateComponentRegistration<eco_sys_lab_plugin::ObjectRotator>("ObjectRotator");
+#ifdef ECOSYSLAB_PLUGIN
+  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
 #endif
-  ApplicationInfo applicationConfigs;
-  applicationConfigs.application_name = "DigitalAgriculture";
-  applicationConfigs.project_path =
+  ApplicationInfo application_configs;
+  application_configs.application_name = "DigitalAgriculture";
+  application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test.eveproj");
-  Application::Initialize(applicationConfigs);
+  Application::Initialize(application_configs);
 
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 
-  auto rayTracerLayer = Application::GetLayer<RayTracerLayer>();
+  auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
 #endif
 
   // adjust default camera speed
-  const auto editorLayer = Application::GetLayer<EditorLayer>();
-  editorLayer->velocity = 2.f;
-  editorLayer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
+  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  editor_layer->velocity = 2.f;
+  editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
   // override default scene camera position etc.
-  editorLayer->show_camera_window = false;
-  editorLayer->show_scene_window = true;
-  editorLayer->show_entity_explorer_window = true;
-  editorLayer->show_entity_inspector_window = true;
-  const auto renderLayer = Application::GetLayer<RenderLayer>();
+  editor_layer->show_camera_window = false;
+  editor_layer->show_scene_window = true;
+  editor_layer->show_entity_explorer_window = true;
+  editor_layer->show_entity_inspector_window = true;
+  const auto render_layer = Application::GetLayer<RenderLayer>();
 #pragma region Engine Loop
   Application::Start();
   Application::Run();
@@ -121,10 +121,10 @@ void EngineSetup() {
     transform = Transform();
     transform.SetPosition(glm::vec3(0, 2, 35));
     transform.SetEulerRotation(glm::radians(glm::vec3(15, 0, 0)));
-    if (auto mainCamera = Application::GetActiveScene()->main_camera.Get<Camera>()) {
-      scene->SetDataComponent(mainCamera->GetOwner(), transform);
-      mainCamera->use_clear_color = true;
-      mainCamera->clear_color = glm::vec3(0.5f);
+    if (const auto main_camera = Application::GetActiveScene()->main_camera.Get<Camera>()) {
+      scene->SetDataComponent(main_camera->GetOwner(), transform);
+      main_camera->use_clear_color = true;
+      main_camera->clear_color = glm::vec3(0.5f);
     }
 #pragma endregion
 #pragma endregion

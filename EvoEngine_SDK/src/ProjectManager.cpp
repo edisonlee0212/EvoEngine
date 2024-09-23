@@ -567,14 +567,19 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
     std::stringstream string_stream;
     string_stream << stream.rdbuf();
     YAML::Node in = YAML::Load(string_stream.str());
-    if (auto temp = GetAsset(in["m_startSceneHandle"].as<uint64_t>())) {
+    uint64_t scene_handle = 0;
+    if (in["m_startSceneHandle"])
+      scene_handle = in["m_startSceneHandle"].as<uint64_t>();
+    if (in["start_scene_handle"])
+      scene_handle = in["start_scene_handle"].as<uint64_t>();
+    if (auto temp = GetAsset(scene_handle)) {
       scene = std::dynamic_pointer_cast<Scene>(temp);
       SetStartScene(scene);
       Application::Attach(scene);
       found_scene = true;
     }
     EVOENGINE_LOG("Found and loaded project")
-    if (project_manager.scene_post_load_function_.has_value()) {
+    if (found_scene && project_manager.scene_post_load_function_.has_value()) {
       project_manager.scene_post_load_function_.value()(scene);
       TransformGraph::CalculateTransformGraphs(scene);
     }
@@ -601,7 +606,7 @@ void ProjectManager::SaveProject() {
   }
   YAML::Emitter out;
   out << YAML::BeginMap;
-  out << YAML::Key << "m_startSceneHandle" << YAML::Value << project_manager.start_scene_->GetHandle();
+  out << YAML::Key << "start_scene_handle" << YAML::Value << project_manager.start_scene_->GetHandle();
   out << YAML::EndMap;
   std::ofstream file_out(project_manager.project_path_.string());
   file_out << out.c_str();

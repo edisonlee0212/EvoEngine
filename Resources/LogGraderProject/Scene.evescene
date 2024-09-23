@@ -1,42 +1,61 @@
-m_environment:
-  m_backgroundColor: [1, 1, 1]
-  m_environmentGamma: 2.20000005
-  m_ambientLightIntensity: 0.800000012
-  m_environmentType: 0
-  m_environment:
-    m_assetHandle: 0
-    m_assetTypeName: ""
-m_mainCamera:
-  m_entityHandle: 0
-  m_privateComponentTypeName: Camera
-m_entityMetadataList:
-  - m_name: LogGrader
-    m_handle: 12298027176277425128
-    m_enabled: true
-    m_static: false
-    Root.Handle: 12298027176277425128
-    m_privateComponentElements:
-      - m_typeName: LogGrader
-        m_enabled: true
-m_systems:
+environment:
+  background_color: [1, 1, 1]
+  environment_gamma: 2.20000005
+  ambient_light_intensity: 0.800000012
+  environment_type: 0
+  environmental_map:
+    asset_handle_: 0
+    asset_type_name_: ""
+main_camera:
+  entity_handle_: 0
+  private_component_type_name_: ""
+entity_metadata_list:
+  - n: LogGrader
+    h: 1708429880984663849
+    e: true
+    s: false
+    r: 1708429880984663849
+    pc:
+      - tn: LogGrader
+        e: true
+  - n: LogScanner
+    h: 15880724941517293900
+    e: true
+    s: false
+    r: 15880724941517293900
+    pc:
+      - tn: JoeScanScanner
+        e: true
+        m_config:
+          asset_handle_: 0
+          asset_type_name_: ""
+        m_joeScan:
+          asset_handle_: 0
+          asset_type_name_: ""
+systems_:
   []
-m_dataComponentStorages:
-  - m_entitySize: 130
-    m_chunkCapacity: 126
-    m_entityAliveCount: 1
-    m_dataComponentTypes:
-      - m_name: Transform
-        m_size: 64
-        m_offset: 0
-      - m_name: GlobalTransform
-        m_size: 64
-        m_offset: 64
-      - m_name: TransformUpdateFlag
-        m_size: 2
-        m_offset: 128
-    m_chunkArray:
-      - m_handle: 12298027176277425128
-        DataComponents:
-          - Data: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
-          - Data: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
-          - Data: !!binary "AAA="
+data_component_storage_list:
+  - entity_size: 130
+    chunk_capacity: 126
+    entity_alive_count: 2
+    data_component_types:
+      - type_name: Transform
+        type_size: 64
+        type_offset: 0
+      - type_name: GlobalTransform
+        type_size: 64
+        type_offset: 64
+      - type_name: TransformUpdateFlag
+        type_size: 2
+        type_offset: 128
+    chunk_array:
+      - h: 1708429880984663849
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAA="
+      - h: 15880724941517293900
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAA="

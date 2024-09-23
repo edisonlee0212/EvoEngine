@@ -25,10 +25,49 @@ using namespace log_grading_plugin;
 #include "EditorLayer.hpp"
 using namespace evo_engine;
 
-void EngineSetup();
-
 int main() {
-  EngineSetup();
+  std::filesystem::path resource_folder_path("../../../../../Resources");
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../Resources";
+  }
+  if (std::filesystem::exists(resource_folder_path)) {
+    for (auto i : std::filesystem::recursive_directory_iterator(resource_folder_path)) {
+      if (i.is_directory())
+        continue;
+      const auto& old_path = i.path();
+      auto new_path = i.path();
+      bool remove = false;
+      if (i.path().extension().string() == ".uescene") {
+        new_path.replace_extension(".evescene");
+        remove = true;
+      }
+      if (i.path().extension().string() == ".umeta") {
+        new_path.replace_extension(".evefilemeta");
+        remove = true;
+      }
+      if (i.path().extension().string() == ".ueproj") {
+        new_path.replace_extension(".eveproj");
+        remove = true;
+      }
+      if (i.path().extension().string() == ".ufmeta") {
+        new_path.replace_extension(".evefoldermeta");
+        remove = true;
+      }
+      if (remove) {
+        std::filesystem::copy(old_path, new_path);
+        std::filesystem::remove(old_path);
+      }
+    }
+  }
 
   Application::PushLayer<WindowLayer>();
   Application::PushLayer<EditorLayer>();
@@ -46,9 +85,8 @@ int main() {
 #endif
   ApplicationInfo application_configs;
   application_configs.application_name = "Log Grader";
-  std::filesystem::create_directory(std::filesystem::path(".") / "LogGraderProject");
   application_configs.project_path =
-      std::filesystem::absolute(std::filesystem::path(".") / "LogGraderProject" / "Default.eveproj");
+      std::filesystem::absolute(resource_folder_path / "LogGraderProject" / "Default.eveproj");
   Application::Initialize(application_configs);
 
   // adjust default camera speed
@@ -61,50 +99,9 @@ int main() {
   editor_layer->GetSceneCamera()->clear_color = glm::vec3(1.f);
   const auto render_layer = Application::GetLayer<RenderLayer>();
 
-  ProjectManager::GetInstance().show_project_window = false;
 #pragma region Engine Loop
   Application::Start();
   Application::Run();
 #pragma endregion
   Application::Terminate();
-}
-
-void EngineSetup() {
-  ProjectManager::SetActionAfterSceneLoad([=](const std::shared_ptr<Scene>& scene) {
-#ifdef LOG_GRADING_PLUGIN
-#  pragma region Engine Setup
-#  pragma endregion
-    std::vector<Entity> entities;
-    scene->GetAllEntities(entities);
-    bool found = false;
-    for (const auto& entity : entities) {
-      if (scene->HasPrivateComponent<LogGrader>(entity)) {
-        const auto editor_layer = Application::GetLayer<EditorLayer>();
-        editor_layer->SetSelectedEntity(entity);
-        editor_layer->SetLockEntitySelection(true);
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      const auto entity = scene->CreateEntity("LogGrader");
-      scene->GetOrSetPrivateComponent<LogGrader>(entity);
-      const auto editor_layer = Application::GetLayer<EditorLayer>();
-      editor_layer->SetSelectedEntity(entity);
-      editor_layer->SetLockEntitySelection(true);
-    }
-  });
-  ProjectManager::SetActionAfterNewScene([=](const std::shared_ptr<Scene>& scene) {
-#  pragma region Engine Setup
-#  pragma region Preparations
-    Times::SetTimeStep(0.016f);
-#  pragma endregion
-#  pragma endregion
-    const auto entity = scene->CreateEntity("LogGrader");
-    scene->GetOrSetPrivateComponent<LogGrader>(entity);
-    const auto editor_layer = Application::GetLayer<EditorLayer>();
-    editor_layer->SetSelectedEntity(entity);
-    editor_layer->SetLockEntitySelection(true);
-#endif
-  });
 }
