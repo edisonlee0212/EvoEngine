@@ -186,6 +186,13 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   GeometryStorage::AllocateMesh(GetHandle(), vertices_, triangles_, meshlet_range_, triangle_range_);
 
   version_++;
+
+  /*
+  if (Platform::Constants::support_ray_tracing) {
+    blas_ = std::make_shared<BLAS>(vertices, triangles);
+  }
+  */
+
   saved_ = false;
 }
 
@@ -257,11 +264,11 @@ void Mesh::RecalculateNormal() {
 
 void Mesh::RecalculateTangent() {
   auto tangent_lists = std::vector<std::vector<glm::vec3>>();
-  auto size = vertices_.size();
+  const auto size = vertices_.size();
   for (auto i = 0; i < size; i++) {
     tangent_lists.emplace_back();
   }
-  for (auto& triangle : triangles_) {
+  for (const auto& triangle : triangles_) {
     const auto i1 = triangle.x;
     const auto i2 = triangle.y;
     const auto i3 = triangle.z;
@@ -272,11 +279,11 @@ void Mesh::RecalculateTangent() {
     const auto& uv2 = vertices_[i2].tex_coord;
     const auto& uv3 = vertices_[i3].tex_coord;
 
-    auto e21 = p2 - p1;
-    auto d21 = uv2 - uv1;
-    auto e31 = p3 - p1;
-    auto d31 = uv3 - uv1;
-    float f = 1.0f / (d21.x * d31.y - d31.x * d21.y);
+    const auto e21 = p2 - p1;
+    const auto d21 = uv2 - uv1;
+    const auto e31 = p3 - p1;
+    const auto d31 = uv3 - uv1;
+    const float f = 1.0f / (d21.x * d31.y - d31.x * d21.y);
     auto tangent =
         f * glm::vec3(d31.y * e21.x - d21.y * e31.x, d31.y * e21.y - d21.y * e31.y, d31.y * e21.z - d21.y * e31.z);
     tangent_lists[i1].push_back(tangent);

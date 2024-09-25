@@ -1,4 +1,5 @@
 #pragma once
+#include "Vertex.hpp"
 #include "shaderc/shaderc.h"
 namespace evo_engine {
 class CommandBuffer;
@@ -68,6 +69,7 @@ class Image final : public IGraphicsResource {
   VkImageLayout initial_layout_;
 
   VkImageLayout layout_;
+
  public:
   [[nodiscard]] uint32_t GetMipLevels() const;
   explicit Image(VkImageCreateInfo image_create_info);
@@ -75,8 +77,7 @@ class Image final : public IGraphicsResource {
   bool HasStencilComponent() const;
   ~Image() override;
   void TransitImageLayout(VkCommandBuffer vk_command_buffer, VkImageLayout new_layout);
-  void CopyFromBuffer(VkCommandBuffer vk_command_buffer, const VkBuffer& src_buffer,
-                      VkDeviceSize src_offset = 0) const;
+  void CopyFromBuffer(VkCommandBuffer vk_command_buffer, const VkBuffer& src_buffer, VkDeviceSize src_offset = 0) const;
 
   void GenerateMipmaps(VkCommandBuffer vk_command_buffer);
 
@@ -226,6 +227,8 @@ class Buffer final : public IGraphicsResource {
 
   [[nodiscard]] VmaAllocation GetVmaAllocation() const;
 
+  [[nodiscard]] uint32_t GetDeviceAddress() const;
+
   [[nodiscard]] const VmaAllocationInfo& GetVmaAllocationInfo() const;
 };
 
@@ -363,10 +366,11 @@ class CommandQueue final : public IGraphicsResource {
   friend class Platform;
   VkQueue vk_queue_ = VK_NULL_HANDLE;
 
-public:
+ public:
   void Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers,
-             const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
-              const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores, const std::shared_ptr<Fence>& fence) const;
+              const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
+              const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores,
+              const std::shared_ptr<Fence>& fence) const;
 
   void Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers,
               const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
@@ -382,4 +386,20 @@ public:
   void WaitIdle() const;
 };
 
+class BLAS final : public IGraphicsResource {
+  VkAccelerationStructureKHR vk_acceleration_structure_khr_ = VK_NULL_HANDLE;
+  std::shared_ptr<Buffer> acceleration_structure_buffer_{};
+
+ public:
+  explicit BLAS(const std::vector<Vertex>& vertices, const std::vector<glm::uvec3>& triangles);
+
+  [[nodiscard]] uint64_t GetDeviceAddress() const;
+};
+class TLAS final : public IGraphicsResource {
+  VkAccelerationStructureKHR vk_acceleration_structure_khr_ = VK_NULL_HANDLE;
+  std::shared_ptr<Buffer> buffer_;
+
+ public:
+  explicit TLAS();
+};
 }  // namespace evo_engine

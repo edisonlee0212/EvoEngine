@@ -256,7 +256,8 @@ void Lighting::Initialize() {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy =
+        Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
@@ -316,7 +317,8 @@ void Lighting::Initialize() {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy =
+        Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
@@ -369,7 +371,8 @@ void Lighting::Initialize() {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy =
+        Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;

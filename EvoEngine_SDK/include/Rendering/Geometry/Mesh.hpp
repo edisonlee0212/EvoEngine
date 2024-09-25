@@ -1,10 +1,10 @@
 #pragma once
 #include "Bound.hpp"
 #include "GeometryStorage.hpp"
-#include "Platform.hpp"
 #include "GraphicsResources.hpp"
 #include "IAsset.hpp"
 #include "IGeometry.hpp"
+#include "Platform.hpp"
 #include "Vertex.hpp"
 namespace evo_engine {
 struct VertexAttributes {
@@ -50,6 +50,8 @@ class Mesh final : public IAsset, public IGeometry {
 
   std::shared_ptr<RangeDescriptor> triangle_range_;
   std::shared_ptr<RangeDescriptor> meshlet_range_;
+
+  std::shared_ptr<BLAS> blas_;
 
  protected:
   bool SaveInternal(const std::filesystem::path& path) const override;

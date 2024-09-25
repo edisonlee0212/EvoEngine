@@ -118,7 +118,7 @@ void Platform::CreateGraphicsPipelines() const {
     standard_deferred_prepass->Initialize();
     RegisterGraphicsPipeline("STANDARD_DEFERRED_PREPASS", standard_deferred_prepass);
   }
-  if (Constants::enable_mesh_shader) {
+  if (Constants::support_mesh_shader) {
     const auto standard_deferred_prepass = std::make_shared<GraphicsPipeline>();
     standard_deferred_prepass->task_shader = Resources::GetResource<Shader>("STANDARD_TASK");
     standard_deferred_prepass->mesh_shader = Resources::GetResource<Shader>("STANDARD_MESH");
@@ -265,7 +265,7 @@ void Platform::CreateGraphicsPipelines() const {
     directional_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP", directional_light_shadow_map);
   }
-  if (Constants::enable_mesh_shader) {
+  if (Constants::support_mesh_shader) {
     const auto directional_light_shadow_map = std::make_shared<GraphicsPipeline>();
     directional_light_shadow_map->task_shader = Resources::GetResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_TASK");
     directional_light_shadow_map->mesh_shader = Resources::GetResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_MESH");
@@ -367,7 +367,7 @@ void Platform::CreateGraphicsPipelines() const {
     point_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("POINT_LIGHT_SHADOW_MAP", point_light_shadow_map);
   }
-  if (Constants::enable_mesh_shader) {
+  if (Constants::support_mesh_shader) {
     const auto point_light_shadow_map = std::make_shared<GraphicsPipeline>();
 
     point_light_shadow_map->task_shader = Resources::GetResource<Shader>("POINT_LIGHT_SHADOW_MAP_TASK");
@@ -469,7 +469,7 @@ void Platform::CreateGraphicsPipelines() const {
     spot_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("SPOT_LIGHT_SHADOW_MAP", spot_light_shadow_map);
   }
-  if (Constants::enable_mesh_shader) {
+  if (Constants::support_mesh_shader) {
     const auto spot_light_shadow_map = std::make_shared<GraphicsPipeline>();
 
     spot_light_shadow_map->task_shader = Resources::GetResource<Shader>("SPOT_LIGHT_SHADOW_MAP_TASK");

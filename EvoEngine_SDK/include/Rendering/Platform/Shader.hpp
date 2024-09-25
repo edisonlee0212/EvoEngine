@@ -12,6 +12,12 @@ enum class ShaderType {
   Mesh,
   Fragment,
   Compute,
+  RayGen,
+  ClosestHit,
+  Miss,
+  AnyHit,
+  Intersection,
+  Callable,
   Unknown
 };
 class Shader final : public IAsset {

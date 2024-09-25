@@ -13,21 +13,22 @@ using namespace evo_engine;
 void Resources::LoadShaders() {
 #pragma region Shader Includes
   Shader::RegisterShaderIncludePath(std::filesystem::path("./DefaultResources/Shaders/Include"));
-
   std::string add;
   uint32_t mesh_work_group_invocations =
-      Platform::GetInstance().mesh_shader_properties_ext_.maxPreferredMeshWorkGroupInvocations;
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredMeshWorkGroupInvocations;
   uint32_t task_work_group_invocations =
-      Platform::GetInstance().mesh_shader_properties_ext_.maxPreferredTaskWorkGroupInvocations;
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
 
-  uint32_t mesh_subgroup_size = Platform::GetInstance().vk_physical_device_vulkan11_properties_.subgroupSize;
+  uint32_t mesh_subgroup_size =
+      Platform::GetSelectedPhysicalDevice()->vulkan11_properties.subgroupSize;
   uint32_t mesh_subgroup_count = (std::min(std::max(Platform::Constants::meshlet_max_vertices_size,
                                                     Platform::Constants::meshlet_max_triangles_size),
                                            mesh_work_group_invocations) +
                                   mesh_subgroup_size - 1) /
                                  mesh_subgroup_size;
 
-  uint32_t task_subgroup_size = Platform::GetInstance().vk_physical_device_vulkan11_properties_.subgroupSize;
+  uint32_t task_subgroup_size =
+      Platform::GetSelectedPhysicalDevice()->vulkan11_properties.subgroupSize;
   uint32_t task_subgroup_count = (task_work_group_invocations + task_subgroup_size - 1) / task_subgroup_size;
 
   task_subgroup_size = glm::max(task_subgroup_size, 1u);

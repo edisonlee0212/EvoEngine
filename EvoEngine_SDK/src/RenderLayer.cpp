@@ -332,11 +332,11 @@ void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
     ImGui::Checkbox("Count dc for shadows", &count_shadow_rendering_draw_calls);
     ImGui::Checkbox("Wireframe", &wire_frame);
-    if (Platform::Constants::enable_mesh_shader)
+    if (Platform::Constants::support_mesh_shader)
       ImGui::Checkbox("Meshlet", &Platform::Settings::use_mesh_shader);
     if (!Platform::Settings::use_mesh_shader)
       ImGui::Checkbox("Indirect Rendering", &enable_indirect_rendering);
-    if (Platform::Constants::enable_mesh_shader && Platform::Settings::use_mesh_shader) {
+    if (Platform::Constants::support_mesh_shader && Platform::Settings::use_mesh_shader) {
       ImGui::Checkbox("Show meshlets", &enable_debug_visualization);
     } else {
       ImGui::Checkbox("Show meshes", &enable_debug_visualization);
@@ -774,7 +774,7 @@ void RenderLayer::ApplyAnimator() const {
 
 void RenderLayer::PreparePointAndSpotLightShadowMap() const {
   const bool count_draw_calls = count_shadow_rendering_draw_calls;
-  const bool use_mesh_shader = Platform::Constants::enable_mesh_shader && Platform::Settings::use_mesh_shader;
+  const bool use_mesh_shader = Platform::Constants::support_mesh_shader && Platform::Settings::use_mesh_shader;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto& point_light_shadow_pipeline = use_mesh_shader
                                                 ? Platform::GetGraphicsPipeline("POINT_LIGHT_SHADOW_MAP_MESH")
@@ -793,7 +793,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
   auto& graphics = Platform::GetInstance();
 
   const uint32_t task_work_group_invocations =
-      graphics.mesh_shader_properties_ext_.maxPreferredTaskWorkGroupInvocations;
+      graphics.selected_physical_device->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
 
   Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
@@ -1406,7 +1406,8 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy =
+        Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
@@ -1480,7 +1481,7 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
 void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                                  const std::shared_ptr<Camera>& camera) {
   const bool count_draw_calls = count_shadow_rendering_draw_calls;
-  const bool use_mesh_shader = Platform::Constants::enable_mesh_shader && Platform::Settings::use_mesh_shader;
+  const bool use_mesh_shader = Platform::Constants::support_mesh_shader && Platform::Settings::use_mesh_shader;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const int camera_index = GetCameraIndex(camera->GetHandle());
   const auto scene = Application::GetActiveScene();
@@ -1496,7 +1497,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
       Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_STRANDS");
   auto& graphics = Platform::GetInstance();
   const uint32_t task_work_group_invocations =
-      graphics.mesh_shader_properties_ext_.maxPreferredTaskWorkGroupInvocations;
+      graphics.selected_physical_device->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
     VkRect2D render_area;

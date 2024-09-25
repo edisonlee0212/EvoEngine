@@ -81,6 +81,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo
 
 	cudaExternalMemoryHandleDesc cudaExtMemHandleDesc;
 	memset(&cudaExtMemHandleDesc, 0, sizeof(cudaExtMemHandleDesc));
+#if ENABLE_EXTERNAL_MEMORY
 #ifdef _WIN64
 	cudaExtMemHandleDesc.type =
 		cudaExternalMemoryHandleTypeOpaqueWin32;
@@ -99,6 +100,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo
 
 	CUDA_CHECK(ImportExternalMemory(&cudaImage->m_imageExternalMemory,
 		&cudaExtMemHandleDesc));
+#endif
 
 	cudaExternalMemoryMipmappedArrayDesc externalMemoryMipmappedArrayDesc;
 
@@ -158,7 +160,8 @@ std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo
 	texDescr.addressMode[1] = cudaAddressModeWrap;
 	texDescr.addressMode[2] = cudaAddressModeWrap;
 
-	texDescr.maxAnisotropy = evo_engine::Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+	texDescr.maxAnisotropy = evo_engine::Platform::GetSelectedPhysicalDevice()
+                                     ->properties.limits.maxSamplerAnisotropy;
 
 	texDescr.minMipmapLevelClamp = 0;
 	texDescr.maxMipmapLevelClamp = static_cast<float>(image->GetMipLevels() - 1);
@@ -179,6 +182,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_e
 
 	cudaExternalMemoryHandleDesc cudaExtMemHandleDesc;
 	memset(&cudaExtMemHandleDesc, 0, sizeof(cudaExtMemHandleDesc));
+#if ENABLE_EXTERNAL_MEMORY
 #ifdef _WIN64
 	cudaExtMemHandleDesc.type =
 		cudaExternalMemoryHandleTypeOpaqueWin32;
@@ -197,6 +201,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_e
 
 	CUDA_CHECK(ImportExternalMemory(&cudaImage->m_imageExternalMemory,
 		&cudaExtMemHandleDesc));
+#endif
 
 	cudaExternalMemoryMipmappedArrayDesc externalMemoryMipmappedArrayDesc;
 
@@ -256,7 +261,8 @@ std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_e
 	texDescr.addressMode[1] = cudaAddressModeWrap;
 	texDescr.addressMode[2] = cudaAddressModeWrap;
 
-	texDescr.maxAnisotropy = evo_engine::Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+	texDescr.maxAnisotropy = evo_engine::Platform::GetSelectedPhysicalDevice()
+                                     ->properties.limits.maxSamplerAnisotropy;
 
 	texDescr.minMipmapLevelClamp = 0;
 	texDescr.maxMipmapLevelClamp = static_cast<float>(image->GetMipLevels() - 1);
@@ -278,6 +284,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(
 
 	cudaExternalMemoryHandleDesc cudaExtMemHandleDesc;
 	memset(&cudaExtMemHandleDesc, 0, sizeof(cudaExtMemHandleDesc));
+#if ENABLE_EXTERNAL_MEMORY
 #ifdef _WIN64
 	cudaExtMemHandleDesc.type =
 		cudaExternalMemoryHandleTypeOpaqueWin32;
@@ -296,6 +303,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(
 
 	CUDA_CHECK(ImportExternalMemory(&cudaImage->m_imageExternalMemory,
 		&cudaExtMemHandleDesc));
+#endif
 
 	cudaExternalMemoryMipmappedArrayDesc externalMemoryMipmappedArrayDesc;
 
@@ -355,7 +363,8 @@ std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(
 	texDescr.addressMode[1] = cudaAddressModeWrap;
 	texDescr.addressMode[2] = cudaAddressModeWrap;
 
-	texDescr.maxAnisotropy = evo_engine::Platform::GetVkPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+	texDescr.maxAnisotropy = evo_engine::Platform::GetSelectedPhysicalDevice()
+                                     ->properties.limits.maxSamplerAnisotropy;
 
 	texDescr.minMipmapLevelClamp = 0;
 	texDescr.maxMipmapLevelClamp = static_cast<float>(image->GetMipLevels() - 1);

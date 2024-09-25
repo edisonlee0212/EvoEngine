@@ -7,7 +7,6 @@
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GpuRayTracerCamera.hpp"
-#include "Platform.hpp"
 #include "Input.hpp"
 #include "Jobs.hpp"
 #include "Json.hpp"
@@ -17,6 +16,7 @@
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
 #include "Particles.hpp"
+#include "Platform.hpp"
 #include "PlayerController.hpp"
 #include "PointCloud.hpp"
 #include "PostProcessingStack.hpp"
@@ -72,8 +72,8 @@ const auto mesh_registry = AssetRegistration<Mesh>("Mesh", {".evemesh"});
 const auto strands_registry = AssetRegistration<Strands>("Strands", {".evestrands", ".hair"});
 const auto prefab_registry = AssetRegistration<Prefab>(
     "Prefab", {".eveprefab", ".obj", ".gltf", ".glb", ".blend", ".ply", ".fbx", ".dae", ".x3d", ".OBJ", ".FBX"});
-const auto texture_2d_registry =
-    AssetRegistration<Texture2D>("Texture2D", {".evetexture2d", ".png", ".jpg", ".jpeg", ".tga", ".hdr", ".TGA", ".PNG", ".JPG"});
+const auto texture_2d_registry = AssetRegistration<Texture2D>(
+    "Texture2D", {".evetexture2d", ".png", ".jpg", ".jpeg", ".tga", ".hdr", ".TGA", ".PNG", ".JPG"});
 const auto scene_registry = AssetRegistration<Scene>("Scene", {".evescene"});
 const auto particle_info_list_registry =
     AssetRegistration<ParticleInfoList>("ParticleInfoList", {".eveparticleinfolist"});
@@ -388,7 +388,8 @@ void Application::Start() {
 }
 
 void Application::Run() {
-  while (Loop());
+  while (Loop())
+    ;
 }
 
 bool Application::Loop() {

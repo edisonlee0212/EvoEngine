@@ -1,23 +1,12 @@
 #pragma once
-#include "GraphicsPipeline.hpp"
 #include "ComputePipeline.hpp"
+#include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "ISingleton.hpp"
 
-namespace evo_engine {
-struct QueueFamilyIndices {
-  std::optional<uint32_t> graphics_and_compute_family;
-  std::optional<uint32_t> present_family;
-  [[nodiscard]] bool IsComplete() const {
-    return graphics_and_compute_family.has_value() && present_family.has_value();
-  }
-};
+#define ENABLE_EXTERNAL_MEMORY true
 
-struct SwapChainSupportDetails {
-  VkSurfaceCapabilitiesKHR capabilities;
-  std::vector<VkSurfaceFormatKHR> formats;
-  std::vector<VkPresentModeKHR> present_modes;
-};
+namespace evo_engine {
 
 class Platform final {
   EVOENGINE_SINGLETON_INSTANCE(Platform)
@@ -28,33 +17,72 @@ class Platform final {
   friend class SpotLightShadowMap;
 #pragma region Vulkan
   VkInstance vk_instance_ = VK_NULL_HANDLE;
-  std::vector<std::string> required_device_extensions_ = {};
-  std::vector<std::string> required_layers_ = {};
-  std::vector<VkExtensionProperties> vk_extensions_;
-  std::vector<VkLayerProperties> vk_layers_;
-  VkDebugUtilsMessengerEXT vk_debug_messenger_ = {};
-  VkPhysicalDeviceFeatures vk_physical_device_features_ = {};
-  VkPhysicalDeviceProperties vk_physical_device_properties_ = {};
-  VkPhysicalDeviceProperties2 vk_physical_device_properties2_ = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
-  VkPhysicalDeviceVulkan11Properties vk_physical_device_vulkan11_properties_{
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
-  VkPhysicalDeviceVulkan12Properties vk_physical_device_vulkan12_properties_{
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
-  VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties_ext_ = {
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
-  VkPhysicalDeviceSubgroupSizeControlProperties subgroup_size_control_properties_ = {
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES};
 
-  VkPhysicalDeviceMemoryProperties vk_physical_device_memory_properties_ = {};
+  std::vector<std::string> required_layers_ = {};
+  std::vector<VkLayerProperties> vk_supported_layers_;
+
+  std::vector<std::string> required_instance_extension_names_ = {};
+  std::unordered_map<std::string, VkExtensionProperties> vk_supported_instance_extensions_;
+
+  std::vector<std::string> required_device_extension_names_ = {};
+
+  struct PhysicalDevice {
+    VkPhysicalDevice vk_physical_device{};
+    std::unordered_map<std::string, VkExtensionProperties> supported_vk_extensions{};
+    VkPhysicalDeviceProperties properties{};
+
+    VkPhysicalDeviceProperties2 properties2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    VkPhysicalDeviceVulkan11Properties vulkan11_properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
+    VkPhysicalDeviceVulkan12Properties vulkan12_properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+    VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties_ext = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
+    VkPhysicalDeviceSubgroupSizeControlProperties subgroup_size_control_properties = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES};
+    VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties_ext = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
+    VkPhysicalDeviceRayTracingValidationFeaturesNV ray_tracing_validation_features_nv = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV};
+
+    VkPhysicalDeviceMemoryProperties vk_physical_device_memory_properties = {};
+
+    VkPhysicalDeviceFeatures features{};
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features{};
+
+    struct QueueFamilyIndices {
+      std::optional<uint32_t> graphics_and_compute_family;
+      std::optional<uint32_t> present_family;
+      [[nodiscard]] bool IsComplete() const;
+    };
+
+    struct SwapChainSupportDetails {
+      VkSurfaceCapabilitiesKHR capabilities;
+      std::vector<VkSurfaceFormatKHR> formats;
+      std::vector<VkPresentModeKHR> present_modes;
+    };
+
+    QueueFamilyIndices queue_family_indices = {};
+    SwapChainSupportDetails swap_chain_support_details{};
+
+    uint32_t score = 0;
+    void QueryInformation();
+    void QuerySwapChainSupport();
+
+    [[nodiscard]] bool CheckExtensionSupport(const std::string& required_extension_name) const;
+    [[nodiscard]] uint32_t FindMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties) const;
+    [[nodiscard]] bool Suitable(const std::vector<std::string>& required_extension_names) const;
+  };
+  VkDebugUtilsMessengerEXT vk_debug_messenger_ = {};
+
+  std::vector<std::shared_ptr<PhysicalDevice>> physical_devices_{};
+  std::shared_ptr<PhysicalDevice> selected_physical_device{};
+
   VkSurfaceKHR vk_surface_ = VK_NULL_HANDLE;
-  VkPhysicalDevice vk_physical_device_ = VK_NULL_HANDLE;
+
   VkDevice vk_device_ = VK_NULL_HANDLE;
 
   VmaAllocator vma_allocator_ = VK_NULL_HANDLE;
 
-  QueueFamilyIndices queue_family_indices_ = {};
-
-  std::unique_ptr<CommandQueue> immediate_submit_queue_ {};
+  std::unique_ptr<CommandQueue> immediate_submit_queue_{};
 
   std::unique_ptr<CommandQueue> main_queue_{};
   std::unique_ptr<CommandQueue> present_queue_{};
@@ -70,7 +98,6 @@ class Platform final {
 
   int max_frame_in_flight_ = 2;
 
-  
   std::vector<std::shared_ptr<Semaphore>> image_available_semaphores_ = {};
   std::vector<std::shared_ptr<Semaphore>> render_finished_semaphores_ = {};
   std::vector<std::shared_ptr<Fence>> in_flight_fences_ = {};
@@ -87,11 +114,6 @@ class Platform final {
   friend class RenderLayer;
 
 #pragma endregion
-
-  QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice physical_device) const;
-  SwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice physical_device) const;
-  bool IsDeviceSuitable(VkPhysicalDevice physical_device,
-                        const std::vector<std::string>& required_device_extensions) const;
 
   void CreateInstance();
   void CreateSurface();
@@ -121,7 +143,6 @@ class Platform final {
 
   bool recreate_swap_chain_ = false;
   unsigned swapchain_version_ = 0;
-  static uint32_t FindMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties);
 
   std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>> graphics_pipelines_;
   std::unordered_map<std::string, std::shared_ptr<ComputePipeline>> compute_pipelines_;
@@ -135,9 +156,9 @@ class Platform final {
   int used_command_buffer_size_ = 0;
   std::vector<std::vector<std::shared_ptr<CommandBuffer>>> command_buffer_pool_ = {};
   std::shared_ptr<CommandBuffer> immediate_submit_command_buffer;
+
  public:
   static void RecordCommandsMainQueue(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
-
 
   double cpu_wait_time = 0.0f;
   static void WaitForDeviceIdle();
@@ -145,7 +166,7 @@ class Platform final {
   static void RegisterGraphicsPipeline(const std::string& name,
                                        const std::shared_ptr<GraphicsPipeline>& graphics_pipeline);
   static void RegisterComputePipeline(const std::string& name,
-                                       const std::shared_ptr<ComputePipeline>& compute_pipeline);
+                                      const std::shared_ptr<ComputePipeline>& compute_pipeline);
   [[nodiscard]] static const std::shared_ptr<GraphicsPipeline>& GetGraphicsPipeline(const std::string& name);
   static void RegisterDescriptorSetLayout(const std::string& name,
                                           const std::shared_ptr<DescriptorSetLayout>& descriptor_set_layout);
@@ -171,7 +192,9 @@ class Platform final {
 
   class Constants {
    public:
-    inline static bool enable_mesh_shader = true;
+    inline static bool support_mesh_shader = true;
+    inline static bool support_ray_tracing = true;
+    inline static bool support_ray_tracing_validation = true;
     constexpr static uint32_t initial_descriptor_pool_max_size = 16384;
     constexpr static uint32_t initial_descriptor_pool_max_sets = 16384;
     constexpr static uint32_t initial_camera_size = 1;
@@ -203,11 +226,10 @@ class Platform final {
   static size_t GetMaxBoneAmount();
   static size_t GetMaxShadowCascadeAmount();
   static void ImmediateSubmit(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
-  static QueueFamilyIndices GetQueueFamilyIndices();
   static int GetMaxFramesInFlight();
   static void NotifyRecreateSwapChain();
   static VkInstance GetVkInstance();
-  static VkPhysicalDevice GetVkPhysicalDevice();
+  static const std::shared_ptr<PhysicalDevice>& GetSelectedPhysicalDevice();
   static VkDevice GetVkDevice();
   static uint32_t GetCurrentFrameIndex();
   static uint32_t GetNextImageIndex();
@@ -220,7 +242,6 @@ class Platform final {
   static const std::unique_ptr<DescriptorPool>& GetDescriptorPool();
   static unsigned GetSwapchainVersion();
   static VkSurfaceFormatKHR GetVkSurfaceFormat();
-  static const VkPhysicalDeviceProperties& GetVkPhysicalDeviceProperties();
   [[nodiscard]] static bool CheckExtensionSupport(const std::string& extension_name);
   [[nodiscard]] static bool CheckLayerSupport(const std::string& layer_name);
 };
