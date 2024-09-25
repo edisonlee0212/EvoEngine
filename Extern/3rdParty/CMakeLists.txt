@@ -43,7 +43,7 @@ add_subdirectory(zlib EXCLUDE_FROM_ALL)
 add_subdirectory(assimp EXCLUDE_FROM_ALL)
 add_subdirectory(base64 EXCLUDE_FROM_ALL)
 add_subdirectory(csvpp EXCLUDE_FROM_ALL)
-add_subdirectory(eigen EXCLUDE_FROM_ALL)
+
 add_subdirectory(glfw EXCLUDE_FROM_ALL)
 add_subdirectory(glm EXCLUDE_FROM_ALL)
 add_subdirectory(imgui EXCLUDE_FROM_ALL)
@@ -58,7 +58,8 @@ add_subdirectory(VulkanMemoryAllocator EXCLUDE_FROM_ALL)
 add_subdirectory(xatlas EXCLUDE_FROM_ALL)
 add_subdirectory(yaml-cpp EXCLUDE_FROM_ALL)
 add_subdirectory(gpr EXCLUDE_FROM_ALL)
-
+add_subdirectory(geogram EXCLUDE_FROM_ALL)
+add_subdirectory(eigen EXCLUDE_FROM_ALL)
 
 unset(3RDPARTY_SUPPRESS_ALL_MESSAGES)
 message("Loaded all 3rdParty libraries.")

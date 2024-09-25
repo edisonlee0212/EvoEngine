@@ -396,7 +396,7 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::BuildStrand(co
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 StrandSegmentHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::AllocateStrandSegment(
     StrandHandle strand_handle, StrandSegmentHandle prev_handle, const int index) {
-  const StrandSegmentHandle new_segment_handle = strand_segments_.size();
+  const StrandSegmentHandle new_segment_handle = static_cast<StrandSegmentHandle>(strand_segments_.size());
   strand_segments_.emplace_back(strand_handle, prev_handle);
   strand_segments_data_list.emplace_back();
   auto& segment = strand_segments_[new_segment_handle];
@@ -414,7 +414,7 @@ StrandSegmentHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>:
 
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::AllocateStrand() {
-  const StrandHandle new_strand_handle = strands_.size();
+  const StrandHandle new_strand_handle = static_cast<StrandHandle>(strands_.size());
   strands_.emplace_back();
   strands_data_list.emplace_back();
   version_++;
@@ -470,8 +470,7 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::BuildParticles
   particle_infos.clear();
   particle_infos.reserve(strand_segments_.size());
   for (const auto& strand : strands_) {
-    for (uint32_t i = 0; i < strand.strand_segment_handles_.size(); i++) {
-      const auto& strand_segment_handle = strand.strand_segment_handles_[i];
+    for (const auto& strand_segment_handle : strand.strand_segment_handles_) {
       const auto& segment = strand_segments_[strand_segment_handle];
       ParticleInfo particle_info;
       particle_info.instance_matrix.value = glm::translate(GetStrandSegmentCenter(strand_segment_handle)) *
@@ -492,7 +491,7 @@ StrandSegmentHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>:
   if (!strand.strand_segment_handles_.empty())
     prev_handle = strand.strand_segment_handles_.back();
   const auto new_segment_handle =
-      AllocateStrandSegment(target_handle, prev_handle, strand.strand_segment_handles_.size());
+      AllocateStrandSegment(target_handle, prev_handle, static_cast<StrandSegmentHandle>(strand.strand_segment_handles_.size()));
   strand.strand_segment_handles_.emplace_back(new_segment_handle);
   version_++;
   return new_segment_handle;
@@ -621,7 +620,7 @@ StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Cut(St
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RemoveSingleStrandSegment(
     StrandSegmentHandle target_segment_handle) {
-  if (target_segment_handle < strand_segments_.size() - 1) {
+  if (target_segment_handle < static_cast<StrandSegmentHandle>(strand_segments_.size()) - 1) {
     auto& segment = strand_segments_[target_segment_handle];
     segment = strand_segments_.back();
     strand_segments_data_list[target_segment_handle] = strand_segments_data_list.back();
@@ -670,7 +669,7 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RemoveStrand(c
   for (auto i = strand.strand_segment_handles_.rbegin(); i != strand.strand_segment_handles_.rend(); ++i) {
     RemoveSingleStrandSegment(*i);
   }
-  if (target_strand_handle < strands_.size() - 1) {
+  if (target_strand_handle < static_cast<StrandSegmentHandle>(strands_.size()) - 1) {
     strand = strands_.back();
     strands_data_list[target_strand_handle] = strands_data_list.back();
     for (const auto& i : strand.strand_segment_handles_) {
@@ -977,8 +976,7 @@ template <typename OSgd, typename OSd, typename OSsd>
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::UniformlySubdivide(
     StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const float target_segment_length, const float tolerance) const {
   target_strand_group.Clear();
-  for (StrandHandle src_strand_handle = 0; src_strand_handle < strands_.size(); src_strand_handle++) {
-    const auto& strand = strands_[src_strand_handle];
+  for (const auto& strand : strands_) {
     const auto new_strand_handle = target_strand_group.AllocateStrand();
     auto& new_strand = target_strand_group.strands_[new_strand_handle];
     new_strand.start_color = strand.start_color;

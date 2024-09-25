@@ -7,7 +7,7 @@
 #include "Jobs.hpp"
 #include "Platform.hpp"
 #include "TextureStorage.hpp"
-
+#include <stb_image_write.h>
 using namespace evo_engine;
 
 void Texture2D::SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution, const bool local_copy) {
@@ -321,7 +321,6 @@ void Texture2D::StoreToPng(const std::filesystem::path& path, const int resize_x
 void Texture2D::StoreToPng(const std::filesystem::path& path, const std::vector<float>& src_data, const int src_x,
                            const int src_y, const int src_channel_size, const int target_channel_size,
                            const unsigned compression_level, const int resize_x, const int resize_y) {
-  stbi_write_png_compression_level = static_cast<int>(compression_level);
   stbi_flip_vertically_on_write(true);
   std::vector<uint8_t> pixels;
   if (resize_x > 0 && resize_y > 0 && (resize_x != src_x || resize_y != src_y)) {

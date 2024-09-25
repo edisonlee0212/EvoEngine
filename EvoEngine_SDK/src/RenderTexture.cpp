@@ -352,7 +352,6 @@ bool RenderTexture::Save(const std::filesystem::path& path) const {
 
 void RenderTexture::StoreToPng(const std::string& path, int resize_x, int resize_y, unsigned compression_level) const {
   assert(color_);
-  stbi_write_png_compression_level = static_cast<int>(compression_level);
   const auto resolution_x = color_image_->GetExtent().width;
   const auto resolution_y = color_image_->GetExtent().height;
   constexpr size_t store_channels = 4;

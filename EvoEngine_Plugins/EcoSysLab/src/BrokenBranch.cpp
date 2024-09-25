@@ -1,7 +1,8 @@
+
 #include "BrokenBranch.hpp"
 
+#include "Delaunay.hpp"
 #include "Tree.hpp"
-
 using namespace eco_sys_lab_plugin;
 
 void BrokenBranch::Serialize(YAML::Emitter& out) const {
@@ -12,7 +13,7 @@ void BrokenBranch::Deserialize(const YAML::Node& in) {
 
 bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   static bool auto_subdivide = true;
-  static float segment_length = 0.005f;
+  static float segment_length = 0.01f;
   ImGui::DragFloat("Subdivision length", &segment_length, .0001f, 0.0001f, 1.f, "%.5f");
   ImGui::Checkbox("Auto subdivide", &auto_subdivide);
   if (EditorLayer::DragAndDropButton<Tree>(tree_ref, "Download Strands from Tree...")) {
@@ -47,9 +48,6 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Text((std::string("Subdivided strand segment count: ") +
                std::to_string(subdivided_strand_group.PeekStrandSegments().size()))
                   .c_str());
-
-  
-  
 
   static float min_trunk_length = 0.3f;
   static float max_trunk_length = 0.4f;
@@ -102,6 +100,12 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ClearStrandParticles();
   }
 
+  if (ImGui::Button("Build concave mesh")) {
+    InitializeStrandConcaveMesh(subdivided_strand_group, segment_length * 2.f);
+  }
+  if (ImGui::Button("Clear concave mesh")) {
+    ClearStrandConcaveMesh();
+  }
   return false;
 }
 
@@ -166,6 +170,41 @@ void BrokenBranch::ClearStrandParticles() const {
   for (const auto& child : children) {
     auto name = scene->GetEntityName(child);
     if (name == "Branch Strand Particles") {
+      scene->DeleteEntity(child);
+    }
+  }
+}
+
+void BrokenBranch::InitializeStrandConcaveMesh(const StrandModelStrandGroup& strand_group, const float max_edge_length) const {
+  const auto scene = GetScene();
+  const auto owner = GetOwner();
+
+  ClearStrandParticles();
+
+  const auto strands_entity = scene->CreateEntity("Branch Strand Concave Mesh");
+  scene->SetParent(strands_entity, owner);
+  const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(strands_entity).lock();
+
+  std::vector<glm::vec3> points(strand_group.PeekStrandSegments().size());
+  Jobs::RunParallelFor(strand_group.PeekStrandSegments().size(), [&](const auto& i) {
+    points[i] = strand_group.GetStrandSegmentCenter(i);
+  });
+  
+  renderer->mesh = Delaunay3D::GenerateConcaveHullMesh(points, max_edge_length);
+  const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+
+  renderer->material = material;
+  material->vertex_color_only = true;
+  material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+}
+
+void BrokenBranch::ClearStrandConcaveMesh() const {
+  const auto scene = GetScene();
+  const auto self = GetOwner();
+  const auto children = scene->GetChildren(self);
+  for (const auto& child : children) {
+    auto name = scene->GetEntityName(child);
+    if (name == "Branch Strand Concave Mesh") {
       scene->DeleteEntity(child);
     }
   }

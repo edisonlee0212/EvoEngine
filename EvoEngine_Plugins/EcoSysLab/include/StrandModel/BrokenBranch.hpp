@@ -19,5 +19,8 @@ class BrokenBranch : public IPrivateComponent {
   static void Subdivide(float segment_length, const StrandModelStrandGroup& src, StrandModelStrandGroup& dst);
   void InitializeStrandParticles(const StrandModelStrandGroup& strand_group) const;
   void ClearStrandParticles() const;
+
+  void InitializeStrandConcaveMesh(const StrandModelStrandGroup& strand_group, float max_edge_length) const;
+  void ClearStrandConcaveMesh() const;
 };
 }  // namespace eco_sys_lab_plugin

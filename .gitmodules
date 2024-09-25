@@ -49,3 +49,6 @@
 [submodule "Extern/3rdParty/glslang/glslang"]
 	path = Extern/3rdParty/glslang/glslang
 	url = https://github.com/KhronosGroup/glslang
+[submodule "Extern/3rdParty/geogram/geogram"]
+	path = Extern/3rdParty/geogram/geogram
+	url = https://github.com/edisonlee0212/geogram.git

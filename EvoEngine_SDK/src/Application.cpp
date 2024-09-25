@@ -36,6 +36,7 @@
 #include "Utilities.hpp"
 #include "WayPoints.hpp"
 #include "WindowLayer.hpp"
+#include "geogram/basic/common.h"
 using namespace evo_engine;
 DataComponentRegistration<Transform> transform_registry("Transform");
 DataComponentRegistration<GlobalTransform> global_transform_registry("GlobalTransform");
@@ -329,6 +330,8 @@ void Application::Reset() {
 }
 
 void Application::Initialize(const ApplicationInfo& application_create_info) {
+  GEO::initialize(GEO::GEOGRAM_INSTALL_ALL);
+
   auto& application = GetInstance();
 
   if (application.application_status_ != ApplicationStatus::Uninitialized) {
