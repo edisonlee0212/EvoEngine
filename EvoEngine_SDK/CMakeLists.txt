@@ -70,6 +70,7 @@ target_link_libraries(EvoEngine_SDK
 		glslang::SPIRV 
 		glslang::glslang-default-resource-limits
 		geogram
+		tetgen
 		)
 
 set(EVOENGINE_SDK_INTERNALS_DIR ${CMAKE_CURRENT_BINARY_DIR}/Internals/)

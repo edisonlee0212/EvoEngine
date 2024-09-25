@@ -52,3 +52,6 @@
 [submodule "Extern/3rdParty/geogram/geogram"]
 	path = Extern/3rdParty/geogram/geogram
 	url = https://github.com/edisonlee0212/geogram.git
+[submodule "Extern/3rdParty/tetgen/tetgen"]
+	path = Extern/3rdParty/tetgen/tetgen
+	url = https://github.com/libigl/tetgen.git

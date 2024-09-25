@@ -60,7 +60,7 @@ add_subdirectory(yaml-cpp EXCLUDE_FROM_ALL)
 add_subdirectory(gpr EXCLUDE_FROM_ALL)
 add_subdirectory(geogram EXCLUDE_FROM_ALL)
 add_subdirectory(eigen EXCLUDE_FROM_ALL)
-
+add_subdirectory(tetgen EXCLUDE_FROM_ALL)
 unset(3RDPARTY_SUPPRESS_ALL_MESSAGES)
 message("Loaded all 3rdParty libraries.")
 

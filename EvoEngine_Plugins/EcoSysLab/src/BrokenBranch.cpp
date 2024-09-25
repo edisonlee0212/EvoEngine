@@ -99,9 +99,10 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::Button("Clear particles")) {
     ClearStrandParticles();
   }
-
+  static float limit = 0.02f;
+  ImGui::DragFloat("Limit", &limit);
   if (ImGui::Button("Build concave mesh")) {
-    InitializeStrandConcaveMesh(subdivided_strand_group, segment_length * 2.f);
+    InitializeStrandConcaveMesh(subdivided_strand_group, limit);
   }
   if (ImGui::Button("Clear concave mesh")) {
     ClearStrandConcaveMesh();
@@ -179,7 +180,7 @@ void BrokenBranch::InitializeStrandConcaveMesh(const StrandModelStrandGroup& str
   const auto scene = GetScene();
   const auto owner = GetOwner();
 
-  ClearStrandParticles();
+  ClearStrandConcaveMesh();
 
   const auto strands_entity = scene->CreateEntity("Branch Strand Concave Mesh");
   scene->SetParent(strands_entity, owner);

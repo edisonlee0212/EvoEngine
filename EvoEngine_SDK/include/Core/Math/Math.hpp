@@ -13,3 +13,4 @@
 #include "glm/gtx/matrix_decompose.hpp"
 #include "glm/gtx/rotate_vector.hpp"
 #include "glm/gtx/transform.hpp"
+#include "glm/gtx/hash.hpp"
