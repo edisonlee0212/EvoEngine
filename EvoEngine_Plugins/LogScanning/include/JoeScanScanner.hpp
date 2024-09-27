@@ -6,48 +6,48 @@ using namespace evo_engine;
 namespace log_scanning_plugin {
 
 struct JoeScanProfile {
-  float m_encoderValue = 0.f;
-  std::vector<glm::vec2> m_points;
-  std::vector<int> m_brightness;
+  float encoder_value = 0.f;
+  std::vector<glm::vec2> points;
+  std::vector<int> brightness;
 };
 
 class JoeScan : public IAsset {
  public:
-  std::vector<JoeScanProfile> m_profiles;
+  std::vector<JoeScanProfile> profiles;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 struct JoeScanScannerSettings {
-  int m_step = 1;
+  int step = 1;
 };
 
 class JoeScanScanner : public IPrivateComponent {
-  std::shared_ptr<std::mutex> m_scannerMutex;
-  bool m_scanEnabled = false;
-  JobHandle m_scannerJob{};
-  float m_scanTimeStep = 0.5f;
+  std::shared_ptr<std::mutex> scanner_mutex_;
+  bool scan_enabled_ = false;
+  JobHandle scanner_job_{};
+  float scan_time_step_ = 0.5f;
 
-  std::unordered_map<int, JoeScanProfile> m_preservedProfiles;
+  std::unordered_map<int, JoeScanProfile> preserved_profiles_;
 
-  std::vector<glm::vec2> m_points;
+  std::vector<glm::vec2> points_;
 
  public:
-  AssetRef m_config;
-  AssetRef m_joeScan;
+  AssetRef config;
+  AssetRef joe_scan;
   void StopScanningProcess();
   void StartScanProcess(const JoeScanScannerSettings& settings);
   JoeScanScanner();
-  static bool InitializeScanSystem(const std::shared_ptr<Json>& json, jsScanSystem& scanSystem,
-                                   std::vector<jsScanHead>& scanHeads);
-  static void FreeScanSystem(jsScanSystem& scanSystem, std::vector<jsScanHead>& scanHeads);
-  jsScanSystem m_scanSystem = 0;
-  std::vector<jsScanHead> m_scanHeads;
+  static bool InitializeScanSystem(const std::shared_ptr<Json>& json, jsScanSystem& scan_system,
+                                   std::vector<jsScanHead>& scan_heads);
+  static void FreeScanSystem(jsScanSystem& scan_system, std::vector<jsScanHead>& scan_heads);
+  jsScanSystem scan_system = 0;
+  std::vector<jsScanHead> scan_heads;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void FixedUpdate() override;
   void OnCreate() override;
   void OnDestroy() override;

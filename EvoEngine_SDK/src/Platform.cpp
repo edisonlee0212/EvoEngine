@@ -644,8 +644,11 @@ void Platform::PhysicalDevice::QueryInformation() {
   VkPhysicalDeviceFeatures2 device_features{};
   device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
   device_features.pNext = &acceleration_structure_features;
-
+#if ENABLE_NV_RAY_TRACING_VALIDATION
   acceleration_structure_features.pNext = &ray_tracing_validation_features_nv;
+#else
+  acceleration_structure_features.pNext = nullptr;
+#endif
 
   vkGetPhysicalDeviceFeatures2(vk_physical_device, &device_features);
 
@@ -771,20 +774,23 @@ void Platform::CreateLogicalDevice() {
     vk_physical_device_vulkan12_features.pNext = nullptr;
   }
 
+  VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features{};
+  shader_draw_parameters_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
+  shader_draw_parameters_features.shaderDrawParameters = VK_TRUE;
+#if ENABLE_NV_RAY_TRACING_VALIDATION
   VkPhysicalDeviceRayTracingValidationFeaturesNV vk_physical_device_ray_tracing_validation_features_nv = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV};
   vk_physical_device_ray_tracing_validation_features_nv.rayTracingValidation = VK_TRUE;
   vk_physical_device_ray_tracing_validation_features_nv.pNext = &vk_physical_device_vulkan12_features;
-
-  VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features{};
-  shader_draw_parameters_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
-  shader_draw_parameters_features.shaderDrawParameters = VK_TRUE;
-
   if (Constants::support_ray_tracing_validation) {
     shader_draw_parameters_features.pNext = &vk_physical_device_ray_tracing_validation_features_nv;
   } else {
     shader_draw_parameters_features.pNext = &vk_physical_device_vulkan12_features;
   }
+#else
+  shader_draw_parameters_features.pNext = &vk_physical_device_vulkan12_features;
+#endif
+  
   VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features{};
   dynamic_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
   dynamic_rendering_features.dynamicRendering = VK_TRUE;

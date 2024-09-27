@@ -5,7 +5,7 @@
 #include "ISingleton.hpp"
 
 #define ENABLE_EXTERNAL_MEMORY true
-
+#define ENABLE_NV_RAY_TRACING_VALIDATION false
 namespace evo_engine {
 
 class Platform final {
@@ -40,9 +40,11 @@ class Platform final {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES};
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties_ext = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
+
+#if ENABLE_NV_RAY_TRACING_VALIDATION
     VkPhysicalDeviceRayTracingValidationFeaturesNV ray_tracing_validation_features_nv = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV};
-
+#endif
     VkPhysicalDeviceMemoryProperties vk_physical_device_memory_properties = {};
 
     VkPhysicalDeviceFeatures features{};
