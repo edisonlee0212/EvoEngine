@@ -2,9 +2,18 @@
 #include "Jobs.hpp"
 #include "Mesh.hpp"
 #include "ProjectManager.hpp"
+#define USE_GEOGRAM false
+#if USE_GEOGRAM
+#include "geogram/basic/psm.h"
+#include "geogram/delaunay/parallel_delaunay_3d.h"
+#else
+#include "tetgen.h"
+
+#endif
 using namespace evo_engine;
 
-GEO::Delaunay_var Delaunay3D::ProcessDelaunay3D(const bool keeps_infinite, const std::vector<glm::vec3>& points) {
+#if USE_GEOGRAM
+GEO::Delaunay_var GeogramProcessDelaunay3D(const bool keeps_infinite, const std::vector<glm::vec3>& points) {
   std::vector<double> converted_points(points.size() * 3);
   Jobs::RunParallelFor(points.size(), [&](const auto i) {
     converted_points[i * 3] = points[i].x;
@@ -22,8 +31,30 @@ GEO::Delaunay_var Delaunay3D::ProcessDelaunay3D(const bool keeps_infinite, const
   delaunay->set_vertices(static_cast<GEO::index_t>(points.size()), converted_points.data());
   return delaunay;
 }
+#else
+tetgenio TetGenProcessDelaunay3D(tetgenbehavior behavior, const std::vector<glm::vec3>& points) {
+  tetgenio in, out;
+  in.numberofpoints = points.size();
+  in.pointlist = new double[in.numberofpoints * 3]; 
+
+  Jobs::RunParallelFor(points.size(), [&](const auto i) {
+    in.pointlist[i * 3] = points[i].x;
+    in.pointlist[i * 3 + 1] = points[i].y;
+    in.pointlist[i * 3 + 2] = points[i].z;
+  });
+
+  try {
+    tetrahedralize(&behavior, &in, &out);  // Perform the mesh generation
+  } catch (const int err) {
+    EVOENGINE_ERROR("Error during tetrahedralization: " + std::to_string(err));
+  }
+  return out;
+}
+
+#endif
+
 std::shared_ptr<Mesh> GenerateMesh(std::vector<glm::uvec3>& triangles, const std::vector<glm::vec3>& points) {
-  std::unordered_map<GEO::index_t, unsigned> vertices_map;
+  std::unordered_map<unsigned, unsigned> vertices_map;
   std::vector<Vertex> vertices;
   Vertex archetype{};
   for (auto& triangle : triangles) {
@@ -46,11 +77,51 @@ std::shared_ptr<Mesh> GenerateMesh(std::vector<glm::uvec3>& triangles, const std
   return mesh;
 }
 
-std::vector<glm::uvec3> Delaunay3D::GenerateConvexHullTriangles(const std::vector<glm::vec3>& points) {
-  const auto delaunay = ProcessDelaunay3D(true, points);
 
+std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedrons(const std::vector<glm::vec3>& points) {
+  std::vector<Tetrahedron> tetrahedrons{};
+#if USE_GEOGRAM
+  const auto delaunay = GeogramProcessDelaunay3D(false, points);
+  tetrahedrons.resize(delaunay->nb_cells());
+  Jobs::RunParallelFor(delaunay->nb_cells(), [&](const auto t) {
+    auto& tetrahedron = tetrahedrons[t];
+    tetrahedron.v[0] = static_cast<GEO::index_t>(delaunay->cell_vertex(t, 0));
+    tetrahedron.v[1] = static_cast<GEO::index_t>(delaunay->cell_vertex(t, 1));
+    tetrahedron.v[2] = static_cast<GEO::index_t>(delaunay->cell_vertex(t, 2));
+    tetrahedron.v[3] = static_cast<GEO::index_t>(delaunay->cell_vertex(t, 3));
+    tetrahedron.volume = CalculateTetrahedronVolume(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
+                                                    points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
+    tetrahedron.circumradius = CalculateTetrahedronCircumradius(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
+                                                                points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
+  });
+#else
+  tetgenbehavior behavior{};  // Default behavior (Delaunay tetrahedralization)
+  behavior.zeroindex = 1;
+  const auto out = TetGenProcessDelaunay3D(behavior, points);
+
+  tetrahedrons.resize(out.numberoftetrahedra);
+  Jobs::RunParallelFor(out.numberoftetrahedra, [&](const auto i) {
+    auto& tetrahedron = tetrahedrons[i];
+    tetrahedron.v[0] = out.tetrahedronlist[i * 4];
+    tetrahedron.v[1] = out.tetrahedronlist[i * 4 + 1];
+    tetrahedron.v[2] = out.tetrahedronlist[i * 4 + 2];
+    tetrahedron.v[3] = out.tetrahedronlist[i * 4 + 3];
+    tetrahedron.volume = CalculateTetrahedronVolume(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
+                                                    points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
+    tetrahedron.circumradius = CalculateTetrahedronCircumradius(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
+                                                                points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
+  });
+#endif
+  return tetrahedrons;
+}
+
+
+std::vector<glm::uvec3> Delaunay3D::GenerateConvexHullTriangles(const std::vector<glm::vec3>& points) {
+  std::vector<glm::uvec3> triangles{};
+#if USE_GEOGRAM
+  const auto delaunay = GeogramProcessDelaunay3D(true, points);
   const auto triangle_count = delaunay->nb_cells() - delaunay->nb_finite_cells();
-  std::vector<glm::uvec3> triangles(triangle_count);
+  triangles.resize(triangle_count);
   Jobs::RunParallelFor(triangle_count, [&](const auto i) {
     for (GEO::index_t lv = 0; lv < 4; ++lv) {
       uint32_t v_i = 0;
@@ -61,6 +132,23 @@ std::vector<glm::uvec3> Delaunay3D::GenerateConvexHullTriangles(const std::vecto
       }
     }
   });
+#else
+  tetgenbehavior behavior{};  // Default behavior (Delaunay tetrahedralization)
+  behavior.quality = 1;
+  behavior.quiet = 1;
+  behavior.convex = 1;        // Convex hull generation
+  behavior.nobisect = 1;      // Do not add Steiner points
+  behavior.facesout = 1;      // Output boundary faces (convex hull)
+  behavior.zeroindex = 1;
+  const auto out = TetGenProcessDelaunay3D(behavior, points);
+
+  triangles.resize(out.numberoftrifaces);
+  Jobs::RunParallelFor(out.numberoftrifaces, [&](const auto i) {
+    triangles[i] = glm::uvec3(out.trifacelist[i * 3], out.trifacelist[i * 3 + 1], out.trifacelist[i * 3 + 2]
+    );
+  });
+
+#endif
   return triangles;
 }
 
@@ -159,22 +247,6 @@ float Delaunay3D::CalculateTetrahedronVolume(const glm::vec3& p0, const glm::vec
                   p3[0] * (p0[1] * p1[2] + p2[1] * p1[2] + p0[2] * p2[1] - p0[2] * p1[1] - p2[2] * p1[1] - p0[1] * p2[2]));
 }
 
-std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedrons(const std::vector<glm::vec3>& points) {
-  const auto delaunay = ProcessDelaunay3D(false, points);
-  std::vector<Tetrahedron> tetrahedrons(delaunay->nb_cells());
-  Jobs::RunParallelFor(delaunay->nb_cells(), [&](const auto t) {
-    auto& tetrahedron = tetrahedrons[t];
-    tetrahedron.v[0] = static_cast<GEO::index_t>(delaunay->cell_vertex(t, 0));
-    tetrahedron.v[1] = static_cast<GEO::index_t>(delaunay->cell_vertex(t, 1));
-    tetrahedron.v[2] = static_cast<GEO::index_t>(delaunay->cell_vertex(t, 2));
-    tetrahedron.v[3] = static_cast<GEO::index_t>(delaunay->cell_vertex(t, 3));
-    tetrahedron.volume = CalculateTetrahedronVolume(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
-                                                    points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
-    tetrahedron.circumradius = CalculateTetrahedronCircumradius(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
-                                                                points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
-  });
-  return tetrahedrons;
-}
 
 
 

@@ -1,13 +1,9 @@
 #pragma once
 #include "Mesh.hpp"
-#include "geogram/basic/psm.h"
-#include "geogram/delaunay/parallel_delaunay_3d.h"
 
 namespace evo_engine {
 class Delaunay3D {
  public:
-  static GEO::Delaunay_var ProcessDelaunay3D(bool keeps_infinite, const std::vector<glm::vec3>& points);
-
   struct Tetrahedron {
     uint32_t v[4]{};
     float circumradius = 0.f;
