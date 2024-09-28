@@ -187,11 +187,9 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
 
   version_++;
 
-  /*
   if (Platform::Constants::support_ray_tracing) {
-    blas_ = std::make_shared<BLAS>(vertices, triangles);
+    blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices, triangles);
   }
-  */
 
   saved_ = false;
 }
@@ -299,6 +297,10 @@ void Mesh::RecalculateTangent() {
   }
 }
 
+const std::shared_ptr<RangeDescriptor>& Mesh::GetTriangleRange() const {
+  return triangle_range_;
+}
+
 float Mesh::CalculateTriangleArea(const glm::uvec3& triangle) const {
   const auto& p0 = vertices_[triangle.x].position;
   const auto& p1 = vertices_[triangle.y].position;
@@ -328,6 +330,10 @@ std::vector<glm::uvec3>& Mesh::UnsafeGetTriangles() {
 
 Bound Mesh::GetBound() const {
   return bound_;
+}
+
+std::shared_ptr<BottomLevelAccelerationStructure> Mesh::GetBlas() const {
+  return blas_;
 }
 
 void Mesh::Serialize(YAML::Emitter& out) const {

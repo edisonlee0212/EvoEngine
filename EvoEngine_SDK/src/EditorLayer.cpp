@@ -1454,7 +1454,7 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
         instance_index_with_one_added > 0) {
       const auto render_layer = Application::GetLayer<RenderLayer>();
       const auto scene = GetScene();
-      const auto handle = render_layer->render_instances->GetInstanceHandle(static_cast<uint32_t>(instance_index_with_one_added - 1));
+      const auto handle = render_layer->render_instances_list[Platform::GetCurrentFrameIndex()]->GetInstanceHandle(static_cast<uint32_t>(instance_index_with_one_added - 1));
       if (handle != 0)
         ret_val = scene->GetEntity(handle);
     }

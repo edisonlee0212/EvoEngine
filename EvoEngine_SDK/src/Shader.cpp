@@ -59,10 +59,6 @@ class GlslShaderIncluder : public glslang::TShader::Includer {
 glslang::TShader::Includer::IncludeResult* GlslShaderIncluder::includeSystem(const char* header_name,
                                                                              const char* includer_name,
                                                                              size_t inclusion_depth) {
-#ifndef NDEBUG
-  EVOENGINE_LOG("includeLocal({" + std::string(header_name) + "}, {" + std::string(includer_name) + "}, {" +
-                std::to_string(inclusion_depth) + "})");
-#endif
   std::filesystem::path resolved_header_path;
   if (const auto it = includes_.find(resolved_header_path); it != includes_.end()) {
     return it->second.get();
@@ -105,10 +101,6 @@ glslang::TShader::Includer::IncludeResult* GlslShaderIncluder::includeLocal(cons
 }
 
 void GlslShaderIncluder::releaseInclude(IncludeResult* result) {
-#ifndef NDEBUG
-  EVOENGINE_LOG("releaseInclude(result->headerName: {" + result->headerName + "})");
-#endif
-
   if (const auto it = sources_.find(result->headerName); it != sources_.end()) {
     sources_.erase(it);
   }
@@ -160,6 +152,24 @@ std::vector<uint32_t> CompileGlsl(const ShaderType shader_type, const std::strin
         break;
       case ShaderType::Compute:
         sh_language = EShLangCompute;
+        break;
+      case ShaderType::RayGen:
+        sh_language = EShLangRayGen;
+        break;
+      case ShaderType::Miss:
+        sh_language = EShLangMiss;
+        break;
+      case ShaderType::AnyHit:
+        sh_language = EShLangAnyHit;
+        break;
+      case ShaderType::ClosestHit:
+        sh_language = EShLangClosestHit;
+        break;
+      case ShaderType::Intersection:
+        sh_language = EShLangIntersect;
+        break;
+      case ShaderType::Callable:
+        sh_language = EShLangCallable;
         break;
       case ShaderType::Unknown:
         EVOENGINE_ERROR("Unknown type shader!");

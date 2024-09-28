@@ -33,10 +33,10 @@ class IAsset : public ISerializable {
    * Whether the asset is saved or not.
    */
   bool saved_ = false;
-  unsigned version_ = 0;
+  uint32_t version_ = 0;
 
  public:
-  [[nodiscard]] unsigned GetVersion() const;
+  [[nodiscard]] uint32_t GetVersion() const;
   [[maybe_unused]] bool SetPathAndSave(const std::filesystem::path& project_relative_path);
   [[nodiscard]] std::filesystem::path GetProjectRelativePath() const;
   [[nodiscard]] std::filesystem::path GetAbsolutePath() const;

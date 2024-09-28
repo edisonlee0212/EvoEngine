@@ -1,12 +1,8 @@
 #include "GraphicsPipeline.hpp"
-
 #include "Application.hpp"
-#include "Console.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Shader.hpp"
-#include "Utilities.hpp"
-
 using namespace evo_engine;
 
 void GraphicsPipeline::Initialize() {

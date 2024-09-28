@@ -47,11 +47,11 @@ class Mesh final : public IAsset, public IGeometry {
   VertexAttributes vertex_attributes_ = {};
   friend class RenderLayer;
   friend class RenderInstances;
-
+  friend class TopLevelAccelerationStructure;
   std::shared_ptr<RangeDescriptor> triangle_range_;
   std::shared_ptr<RangeDescriptor> meshlet_range_;
 
-  std::shared_ptr<BLAS> blas_;
+  std::shared_ptr<BottomLevelAccelerationStructure> blas_;
 
  protected:
   bool SaveInternal(const std::filesystem::path& path) const override;
@@ -74,13 +74,13 @@ class Mesh final : public IAsset, public IGeometry {
 
   void RecalculateNormal();
   void RecalculateTangent();
-
+  [[nodiscard]] const std::shared_ptr<RangeDescriptor>& GetTriangleRange() const;
   [[nodiscard]] float CalculateTriangleArea(const glm::uvec3& triangle) const;
   [[nodiscard]] glm::vec3 CalculateCentroid(const glm::uvec3& triangle) const;
   [[nodiscard]] std::vector<Vertex>& UnsafeGetVertices();
   [[nodiscard]] std::vector<glm::uvec3>& UnsafeGetTriangles();
   [[nodiscard]] Bound GetBound() const;
-
+  [[nodiscard]] std::shared_ptr<BottomLevelAccelerationStructure> GetBlas() const;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };

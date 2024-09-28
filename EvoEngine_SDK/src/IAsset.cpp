@@ -100,7 +100,7 @@ std::filesystem::path IAsset::GetAbsolutePath() const {
   return asset_record_.lock()->GetAbsolutePath();
 }
 
-unsigned IAsset::GetVersion() const {
+uint32_t IAsset::GetVersion() const {
   return version_;
 }
 

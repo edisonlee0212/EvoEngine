@@ -58,7 +58,7 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
 
     color_image_ = std::make_shared<Image>(image_info);
     Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-      color_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+      color_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     });
 
     VkImageViewCreateInfo view_info{};
@@ -113,7 +113,7 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
 
     depth_image_ = std::make_shared<Image>(depth_info);
     Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-      depth_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+      depth_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     });
 
     VkImageViewCreateInfo depth_view_info{};
@@ -151,13 +151,21 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
   image_view_type_ = render_texture_create_info.image_view_type;
 
   if (color_) {
-    descriptor_set_ =
+    present_descriptor_set_ =
         std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
-    VkDescriptorImageInfo descriptor_image_info;
-    descriptor_image_info.imageLayout = color_image_->GetLayout();
-    descriptor_image_info.imageView = color_image_view_->GetVkImageView();
-    descriptor_image_info.sampler = color_sampler_->GetVkSampler();
-    descriptor_set_->UpdateImageDescriptorBinding(0, descriptor_image_info);
+    VkDescriptorImageInfo present_info;
+    present_info.imageLayout = color_image_->GetLayout();
+    present_info.imageView = color_image_view_->GetVkImageView();
+    present_info.sampler = color_sampler_->GetVkSampler();
+    present_descriptor_set_->UpdateImageDescriptorBinding(0, present_info);
+
+    storage_descriptor_set_ =
+        std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("RENDER_TEXTURE_STORAGE_LAYOUT"));
+    VkDescriptorImageInfo storage_info;
+    storage_info.imageLayout = color_image_->GetLayout();
+    storage_info.imageView = color_image_view_->GetVkImageView();
+    storage_info.sampler = color_sampler_->GetVkSampler();
+    storage_descriptor_set_->UpdateImageDescriptorBinding(0, storage_info);
   }
 }
 

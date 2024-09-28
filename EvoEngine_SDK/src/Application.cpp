@@ -6,7 +6,6 @@
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
-#include "GpuRayTracerCamera.hpp"
 #include "Input.hpp"
 #include "Jobs.hpp"
 #include "Json.hpp"
@@ -36,7 +35,7 @@
 #include "Utilities.hpp"
 #include "WayPoints.hpp"
 #include "WindowLayer.hpp"
-#include "geogram/basic/common.h"
+
 using namespace evo_engine;
 DataComponentRegistration<Transform> transform_registry("Transform");
 DataComponentRegistration<GlobalTransform> global_transform_registry("GlobalTransform");
@@ -85,7 +84,6 @@ const auto point_cloud_registry = AssetRegistration<PointCloud>("PointCloud", {"
 const auto json_registry = AssetRegistration<Json>("Json", {".json"});
 
 const auto cpu_ray_tracer_camera_registry = PrivateComponentRegistration<CpuRayTracerCamera>("CpuRayTracerCamera");
-const auto gpu_ray_tracer_camera_registry = PrivateComponentRegistration<GpuRayTracerCamera>("GpuRayTracerCamera");
 
 void Application::PreUpdateInternal() {
   auto& application = GetInstance();
@@ -330,8 +328,6 @@ void Application::Reset() {
 }
 
 void Application::Initialize(const ApplicationInfo& application_create_info) {
-  GEO::initialize(GEO::GEOGRAM_INSTALL_ALL);
-
   auto& application = GetInstance();
 
   if (application.application_status_ != ApplicationStatus::Uninitialized) {
@@ -388,8 +384,8 @@ void Application::Start() {
 }
 
 void Application::Run() {
-  while (Loop())
-    ;
+  while (Loop()) {
+  }
 }
 
 bool Application::Loop() {

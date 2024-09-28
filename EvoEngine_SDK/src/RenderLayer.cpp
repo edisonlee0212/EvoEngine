@@ -19,10 +19,12 @@ using namespace evo_engine;
 
 void RenderLayer::OnCreate() {
   const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
-
-  render_instances = std::make_shared<RenderInstances>(max_frame_in_flight);
+  render_instances_list.resize(max_frame_in_flight);
+  for (auto& i : render_instances_list) {
+    i = std::make_shared<RenderInstances>();
+  }
   CreateStandardDescriptorBuffers();
-  CreatePerFrameDescriptorSets();
+  CreateDescriptorSets();
 
   std::vector<glm::vec4> kernels;
   for (uint32_t i = 0; i < Platform::Constants::max_kernel_amount; i++) {
@@ -49,12 +51,14 @@ void RenderLayer::OnDestroy() {
 }
 
 void RenderLayer::ClearAllCameras() {
-  if (const auto scene = GetScene(); !scene)
+  const auto scene = GetScene();
+  if (!scene)
     return;
-  std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
-  CollectCameras(cameras);
 
-  Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
+  std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
+  CollectCameras(scene, cameras);
+
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (const auto& i : cameras) {
       if (const auto render_texture = i.second->GetRenderTexture())
         render_texture->Clear(vk_command_buffer);
@@ -66,130 +70,73 @@ void RenderLayer::RenderAllCameras() {
   const auto scene = GetScene();
   if (!scene)
     return;
-  std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
-  CollectCameras(cameras);
-  Bound world_bound{};
-  total_mesh_triangles_ = 0;
-
-  auto lod_center = glm::vec3(0.f);
-  float lod_max_distance = FLT_MAX;
-  bool lod_set = false;
-  if (const auto main_camera = scene->main_camera.Get<Camera>()) {
-    if (const auto main_camera_owner = main_camera->GetOwner(); scene->IsEntityValid(main_camera_owner)) {
-      lod_center = scene->GetDataComponent<GlobalTransform>(main_camera_owner).GetPosition();
-      lod_max_distance = main_camera->far_distance;
-      lod_set = true;
-    }
-  }
-  if (!lod_set) {
-    if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
-      if (const auto scene_camera = editor_layer->GetSceneCamera()) {
-        lod_center = editor_layer->GetSceneCameraPosition();
-        lod_max_distance = scene_camera->far_distance;
-        lod_set = true;
-      }
-    }
-  }
-
-  RenderInstances::CalculateLodFactor(scene, lod_center, lod_max_distance);
-
-  if (CollectRenderInstances(world_bound)) {
-    world_bound.min -= glm::vec3(0.1f);
-    world_bound.max += glm::vec3(0.1f);
-    scene->SetBound(world_bound);
-  } else {
-    world_bound.min = world_bound.max = glm::vec3(0.0f);
-    world_bound.min -= glm::vec3(1.f);
-    world_bound.max += glm::vec3(1.f);
-    scene->SetBound(world_bound);
-  }
-
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
-    editor_layer->MouseEntitySelection();
-  }
-
-  CollectDirectionalLights(cameras);
-  CollectPointLights();
-  CollectSpotLights();
-
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   auto& graphics = Platform::GetInstance();
   graphics.triangles[current_frame_index] = 0;
   graphics.strands_segments[current_frame_index] = 0;
   graphics.draw_call[current_frame_index] = 0;
-
-  ApplyAnimator();
-  // The following data stays consistent during entire frame.
-  {
-    for (int split = 0; split < 4; split++) {
-      float split_end = max_shadow_distance;
-      if (split != 3)
-        split_end = max_shadow_distance * shadow_cascade_split[split];
-      render_info_block.split_distances[split] = split_end;
-    }
-    render_info_block.brdflut_texture_index = environmental_brdf_lut_->GetTextureStorageIndex();
-    if (enable_debug_visualization)
-      render_info_block.debug_visualization = 1;
-    else
-      render_info_block.debug_visualization = 0;
+  if (UpdateRenderInfo(scene, current_frame_index)) {
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        0, render_info_descriptor_buffers_[current_frame_index]);
   }
 
-  {
-    switch (scene->environment.environment_type) {
-      case EnvironmentType::EnvironmentalMap: {
-        environment_info_block.background_color.w = 0.0f;
-      } break;
-      case EnvironmentType::Color: {
-        environment_info_block.background_color = glm::vec4(scene->environment.background_color, 1.0f);
-      } break;
-    }
-    environment_info_block.environmental_map_gamma = scene->environment.environment_gamma;
-    environment_info_block.environmental_lighting_intensity = scene->environment.ambient_light_intensity;
-    environment_info_block.background_intensity = scene->environment.background_intensity;
+  if (UpdateEnvironmentInfo(scene, current_frame_index)) {
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        1, environment_info_descriptor_buffers_[current_frame_index]);
   }
-  render_instances->Upload(current_frame_index);
-  render_info_descriptor_buffers_[current_frame_index]->Upload(render_info_block);
-  environment_info_descriptor_buffers_[current_frame_index]->Upload(environment_info_block);
-  directional_light_info_descriptor_buffers_[current_frame_index]->UploadVector(directional_light_info_blocks_);
-  point_light_info_descriptor_buffers_[current_frame_index]->UploadVector(point_light_info_blocks_);
-  spot_light_info_descriptor_buffers_[current_frame_index]->UploadVector(spot_light_info_blocks_);
 
-  camera_info_descriptor_buffers_[current_frame_index]->UploadVector(camera_info_blocks_);
+  std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
+  if (UpdateCameras(scene, current_frame_index, cameras)) {
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        2, camera_info_descriptor_buffers_[current_frame_index]);
+  }
 
-  mesh_draw_indexed_indirect_commands_buffers_[current_frame_index]->UploadVector(mesh_draw_indexed_indirect_commands_);
-  mesh_draw_mesh_tasks_indirect_commands_buffers_[current_frame_index]->UploadVector(
-      mesh_draw_mesh_tasks_indirect_commands_);
+  if (UpdateRenderInstances(scene, current_frame_index) || true) {
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        3, render_instances_list[current_frame_index]->material_info_descriptor_buffer);
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        4, render_instances_list[current_frame_index]->instance_info_descriptor_buffer);
 
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      0, render_info_descriptor_buffers_[current_frame_index]);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      1, environment_info_descriptor_buffers_[current_frame_index]);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      2, camera_info_descriptor_buffers_[current_frame_index]);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      3, render_instances->material_info_descriptor_buffers[current_frame_index]);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      4, render_instances->instance_info_descriptor_buffers[current_frame_index]);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      5, kernel_descriptor_buffers_[current_frame_index]);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      6, directional_light_info_descriptor_buffers_[current_frame_index]);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      7, point_light_info_descriptor_buffers_[current_frame_index]);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      8, spot_light_info_descriptor_buffers_[current_frame_index]);
-
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(9, GeometryStorage::GetVertexBuffer());
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(10,
+    meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, GeometryStorage::GetVertexBuffer());
+    meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1,
                                                                                  GeometryStorage::GetMeshletBuffer());
-  TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 13);
-  TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 14);
+    if (render_instances_list[current_frame_index]->mesh_top_level_acceleration_structure) {
+      ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+          0, GeometryStorage::GetVertexBuffer());
+      ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+          1, GeometryStorage::GetTriangleBuffer());
+      ray_tracing_descriptor_sets_[current_frame_index]->UpdateAccelerationStructureDescriptorBinding(
+          2, render_instances_list[current_frame_index]->mesh_top_level_acceleration_structure);
+    }
+  }
+
+  if (UpdateLighting(scene, current_frame_index, cameras)) {
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        5, kernel_descriptor_buffers_[current_frame_index]);
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        6, directional_light_info_descriptor_buffers_[current_frame_index]);
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        7, point_light_info_descriptor_buffers_[current_frame_index]);
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        8, spot_light_info_descriptor_buffers_[current_frame_index]);
+  }
+
+  TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
+  TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
+  
   PreparePointAndSpotLightShadowMap();
 
   for (const auto& [cameraGlobalTransform, camera] : cameras) {
     camera->rendered_ = false;
     if (camera->require_rendering_) {
       RenderToCamera(cameraGlobalTransform, camera);
+    }
+  }
+  if (render_instances_list[current_frame_index]->mesh_top_level_acceleration_structure) {
+    for (const auto& [cameraGlobalTransform, camera] : cameras) {
+      if (camera->require_rendering_) {
+        RenderToCameraRayTracing(cameraGlobalTransform, camera);
+      }
     }
   }
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
@@ -312,9 +259,6 @@ void RenderLayer::RenderAllCameras() {
   point_light_info_blocks_.clear();
   spot_light_info_blocks_.clear();
 
-  mesh_draw_indexed_indirect_commands_.clear();
-  mesh_draw_mesh_tasks_indirect_commands_.clear();
-
   cameras.clear();
 }
 
@@ -392,17 +336,44 @@ uint32_t RenderLayer::RegisterCameraIndex(const Handle& handle, const CameraInfo
   return search->second;
 }
 
-void RenderLayer::CollectCameras(std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
-  auto scene = GetScene();
-  camera_indices_.clear();
-  camera_info_blocks_.clear();
+bool RenderLayer::UpdateRenderInfo(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index) {
+  for (int split = 0; split < 4; split++) {
+    float split_end = max_shadow_distance;
+    if (split != 3)
+      split_end = max_shadow_distance * shadow_cascade_split[split];
+    render_info_block.split_distances[split] = split_end;
+  }
+  render_info_block.brdflut_texture_index = environmental_brdf_lut_->GetTextureStorageIndex();
+  if (enable_debug_visualization)
+    render_info_block.debug_visualization = 1;
+  else
+    render_info_block.debug_visualization = 0;
 
-  std::vector<std::pair<std::shared_ptr<Camera>, glm::vec3>> camera_pairs;
+  render_info_descriptor_buffers_[current_frame_index]->Upload(render_info_block);
+  return true;
+}
 
+bool RenderLayer::UpdateEnvironmentInfo(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index) {
+  switch (scene->environment.environment_type) {
+    case EnvironmentType::EnvironmentalMap: {
+      environment_info_block.background_color.w = 0.0f;
+    } break;
+    case EnvironmentType::Color: {
+      environment_info_block.background_color = glm::vec4(scene->environment.background_color, 1.0f);
+    } break;
+  }
+  environment_info_block.environmental_map_gamma = scene->environment.environment_gamma;
+  environment_info_block.environmental_lighting_intensity = scene->environment.ambient_light_intensity;
+  environment_info_block.background_intensity = scene->environment.background_intensity;
+
+  environment_info_descriptor_buffers_[current_frame_index]->Upload(environment_info_block);
+  return true;
+}
+void RenderLayer::CollectCameras(const std::shared_ptr<Scene>& scene,
+                                 std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
   if (auto editor_layer = Application::GetLayer<EditorLayer>()) {
     for (const auto& [cameraHandle, editorCamera] : editor_layer->editor_cameras_) {
       if (editorCamera.camera || editorCamera.camera->IsEnabled()) {
-        camera_pairs.emplace_back(editorCamera.camera, editorCamera.position);
         CameraInfoBlock camera_info_block;
         GlobalTransform scene_camera_gt;
         scene_camera_gt.SetValue(editorCamera.position, editorCamera.rotation, glm::vec3(1.0f));
@@ -422,7 +393,6 @@ void RenderLayer::CollectCameras(std::vector<std::pair<GlobalTransform, std::sha
       if (!camera || !camera->IsEnabled())
         continue;
       auto camera_global_transform = scene->GetDataComponent<GlobalTransform>(i);
-      camera_pairs.emplace_back(camera, camera_global_transform.GetPosition());
       CameraInfoBlock camera_info_block;
       camera->UpdateCameraInfoBlock(camera_info_block, camera_global_transform);
       const auto index = RegisterCameraIndex(camera->GetHandle(), camera_info_block);
@@ -431,10 +401,20 @@ void RenderLayer::CollectCameras(std::vector<std::pair<GlobalTransform, std::sha
     }
   }
 }
+bool RenderLayer::UpdateCameras(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
+                                std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
+  camera_indices_.clear();
+  camera_info_blocks_.clear();
+
+  CollectCameras(scene, cameras);
+
+  camera_info_descriptor_buffers_[current_frame_index]->UploadVector(camera_info_blocks_);
+  return true;
+}
 
 void RenderLayer::CollectDirectionalLights(
+    const std::shared_ptr<Scene>& scene,
     const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
-  const auto scene = GetScene();
   auto scene_bound = scene->GetBound();
   auto& min_bound = scene_bound.min;
   auto& max_bound = scene_bound.max;
@@ -600,15 +580,8 @@ void RenderLayer::CollectDirectionalLights(
   }
 }
 
-void RenderLayer::CollectPointLights() {
-  const auto scene = GetScene();
-  const auto main_camera = scene->main_camera.Get<Camera>();
-  glm::vec3 main_camera_position = {0, 0, 0};
-  if (main_camera) {
-    if (const auto main_camera_owner = main_camera->GetOwner(); scene->IsEntityValid(main_camera_owner)) {
-      main_camera_position = scene->GetDataComponent<GlobalTransform>(main_camera_owner).GetPosition();
-    }
-  }
+void RenderLayer::CollectPointLights(const std::shared_ptr<Scene>& scene, const GlobalTransform& view_point_gt) {
+  const glm::vec3 main_camera_position = view_point_gt.GetPosition();
   const std::vector<Entity>* point_light_entities = scene->UnsafeGetPrivateComponentOwnersList<PointLight>();
   render_info_block.point_light_size = 0;
   if (point_light_entities && !point_light_entities->empty()) {
@@ -671,24 +644,14 @@ void RenderLayer::CollectPointLights() {
   point_light_info_blocks_.resize(render_info_block.point_light_size);
 }
 
-void RenderLayer::CollectSpotLights() {
-  const auto scene = GetScene();
-  const auto main_camera = scene->main_camera.Get<Camera>();
-  glm::vec3 main_camera_position = {0, 0, 0};
-  if (main_camera) {
-    auto main_camera_owner = main_camera->GetOwner();
-    if (scene->IsEntityValid(main_camera_owner)) {
-      main_camera_position = scene->GetDataComponent<GlobalTransform>(main_camera_owner).GetPosition();
-    }
-  }
-
+void RenderLayer::CollectSpotLights(const std::shared_ptr<Scene>& scene, const GlobalTransform& view_point_gt) {
+  const glm::vec3 main_camera_position = view_point_gt.GetPosition();
   render_info_block.spot_light_size = 0;
   const std::vector<Entity>* spot_light_entities = scene->UnsafeGetPrivateComponentOwnersList<SpotLight>();
   if (spot_light_entities && !spot_light_entities->empty()) {
     spot_light_info_blocks_.resize(spot_light_entities->size());
     std::multimap<float, size_t> sorted_spot_light_indices;
-    for (int i = 0; i < spot_light_entities->size(); i++) {
-      Entity light_entity = spot_light_entities->at(i);
+    for (auto light_entity : *spot_light_entities) {
       if (!scene->IsEntityEnabled(light_entity))
         continue;
       const auto slc = scene->GetOrSetPrivateComponent<SpotLight>(light_entity).lock();
@@ -737,7 +700,7 @@ void RenderLayer::CollectSpotLights() {
   spot_light_info_blocks_.resize(render_info_block.spot_light_size);
 }
 
-void RenderLayer::ApplyAnimator() const {
+void RenderLayer::ApplyAnimators() const {
   const auto scene = GetScene();
   if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Animator>()) {
     Jobs::RunParallelFor(owners->size(), [&](unsigned i) {
@@ -837,7 +800,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         vkCmdBeginRendering(vk_command_buffer, &render_info);
         point_light_shadow_pipeline->Bind(vk_command_buffer);
         point_light_shadow_pipeline->BindDescriptorSet(
-            vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
+            vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+
         for (int i = 0; i < point_light_info_blocks_.size(); i++) {
           const auto& point_light_info_block = point_light_info_blocks_[i];
           viewport.x = point_light_info_block.viewport.x;
@@ -859,20 +823,26 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             if (count_draw_calls)
               graphics.draw_call[current_frame_index]++;
             if (count_draw_calls)
-              graphics.triangles[current_frame_index] += total_mesh_triangles_;
+              graphics.triangles[current_frame_index] +=
+                  render_instances_list[current_frame_index]->total_mesh_triangles;
             vkCmdDrawIndexedIndirect(
-                vk_command_buffer, mesh_draw_indexed_indirect_commands_buffers_[current_frame_index]->GetVkBuffer(), 0,
-                mesh_draw_indexed_indirect_commands_.size(), sizeof(VkDrawIndexedIndirectCommand));
+                vk_command_buffer,
+                render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(),
+                0, render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands.size(),
+                sizeof(VkDrawIndexedIndirectCommand));
           } else {
-            render_instances->deferred_render_instances.Dispatch([&](const RenderInstance& render_command) {
+            for (const auto& render_command :
+                 render_instances_list[current_frame_index]->deferred_render_instances.render_commands) {
               if (!render_command.cast_shadow)
-                return;
+                continue;
               RenderInstancePushConstant push_constant;
               push_constant.camera_index = i;
               push_constant.light_split_index = face;
               push_constant.instance_index = render_command.instance_index;
               point_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
               if (use_mesh_shader) {
+                point_light_shadow_pipeline->BindDescriptorSet(
+                    vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
                 if (count_draw_calls)
                   graphics.draw_call[current_frame_index]++;
                 if (count_draw_calls)
@@ -881,6 +851,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                 const uint32_t count =
                     (render_command.meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
                 vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+
               } else {
                 const auto mesh = render_command.mesh;
                 if (count_draw_calls)
@@ -889,7 +860,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                   graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
                 mesh->DrawIndexed(vk_command_buffer, point_light_shadow_pipeline->states, 1);
               }
-            });
+            }
           }
         }
         vkCmdEndRendering(vk_command_buffer);
@@ -910,7 +881,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         vkCmdBeginRendering(vk_command_buffer, &render_info);
         point_light_shadow_instanced_pipeline->Bind(vk_command_buffer);
         point_light_shadow_instanced_pipeline->BindDescriptorSet(
-            vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
+            vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
         for (int i = 0; i < point_light_info_blocks_.size(); i++) {
           const auto& point_light_info_block = point_light_info_blocks_[i];
           viewport.x = point_light_info_block.viewport.x;
@@ -921,27 +892,26 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           scissor.extent.height = viewport.height;
           point_light_shadow_instanced_pipeline->states.view_port = viewport;
           point_light_shadow_instanced_pipeline->states.scissor = scissor;
-          render_instances->deferred_instanced_render_instances.Dispatch(
-              [&](const InstancedRenderInstance& render_command) {
-                if (!render_command.cast_shadow)
-                  return;
-                point_light_shadow_instanced_pipeline->BindDescriptorSet(
-                    vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = i;
-                push_constant.light_split_index = face;
-                push_constant.instance_index = render_command.instance_index;
-                point_light_shadow_instanced_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-                const auto mesh = render_command.mesh;
-                if (count_draw_calls)
-                  graphics.draw_call[current_frame_index]++;
-                if (count_draw_calls)
-                  graphics.triangles[current_frame_index] +=
-                      render_command.mesh->triangles_.size() *
-                      render_command.particle_infos->PeekParticleInfoList().size();
-                mesh->DrawIndexed(vk_command_buffer, point_light_shadow_instanced_pipeline->states,
-                                  render_command.particle_infos->PeekParticleInfoList().size());
-              });
+          for (const auto& render_command :
+               render_instances_list[current_frame_index]->deferred_instanced_render_instances.render_commands) {
+            if (!render_command.cast_shadow)
+              continue;
+            point_light_shadow_instanced_pipeline->BindDescriptorSet(
+                vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
+            RenderInstancePushConstant push_constant;
+            push_constant.camera_index = i;
+            push_constant.light_split_index = face;
+            push_constant.instance_index = render_command.instance_index;
+            point_light_shadow_instanced_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+            const auto mesh = render_command.mesh;
+            if (count_draw_calls)
+              graphics.draw_call[current_frame_index]++;
+            if (count_draw_calls)
+              graphics.triangles[current_frame_index] +=
+                  render_command.mesh->triangles_.size() * render_command.particle_infos->PeekParticleInfoList().size();
+            mesh->DrawIndexed(vk_command_buffer, point_light_shadow_instanced_pipeline->states,
+                              render_command.particle_infos->PeekParticleInfoList().size());
+          }
         }
         vkCmdEndRendering(vk_command_buffer);
       }
@@ -962,7 +932,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         vkCmdBeginRendering(vk_command_buffer, &render_info);
         point_light_shadow_skinned_pipeline->Bind(vk_command_buffer);
         point_light_shadow_skinned_pipeline->BindDescriptorSet(
-            vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
+            vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
         for (int i = 0; i < point_light_info_blocks_.size(); i++) {
           const auto& point_light_info_block = point_light_info_blocks_[i];
           viewport.x = point_light_info_block.viewport.x;
@@ -973,24 +943,24 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           scissor.extent.height = viewport.height;
           point_light_shadow_skinned_pipeline->states.view_port = viewport;
           point_light_shadow_skinned_pipeline->states.scissor = scissor;
-          render_instances->deferred_skinned_render_instances.Dispatch(
-              [&](const SkinnedRenderInstance& render_command) {
-                if (!render_command.cast_shadow)
-                  return;
-                point_light_shadow_skinned_pipeline->BindDescriptorSet(
-                    vk_command_buffer, 1, render_command.bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = i;
-                push_constant.light_split_index = face;
-                push_constant.instance_index = render_command.instance_index;
-                point_light_shadow_skinned_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-                const auto skinned_mesh = render_command.skinned_mesh;
-                if (count_draw_calls)
-                  graphics.draw_call[current_frame_index]++;
-                if (count_draw_calls)
-                  graphics.triangles[current_frame_index] += render_command.skinned_mesh->skinned_triangles_.size();
-                skinned_mesh->DrawIndexed(vk_command_buffer, point_light_shadow_skinned_pipeline->states, 1);
-              });
+          for (const auto& render_command :
+               render_instances_list[current_frame_index]->deferred_skinned_render_instances.render_commands) {
+            if (!render_command.cast_shadow)
+              continue;
+            point_light_shadow_skinned_pipeline->BindDescriptorSet(
+                vk_command_buffer, 1, render_command.bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
+            RenderInstancePushConstant push_constant;
+            push_constant.camera_index = i;
+            push_constant.light_split_index = face;
+            push_constant.instance_index = render_command.instance_index;
+            point_light_shadow_skinned_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+            const auto skinned_mesh = render_command.skinned_mesh;
+            if (count_draw_calls)
+              graphics.draw_call[current_frame_index]++;
+            if (count_draw_calls)
+              graphics.triangles[current_frame_index] += render_command.skinned_mesh->skinned_triangles_.size();
+            skinned_mesh->DrawIndexed(vk_command_buffer, point_light_shadow_skinned_pipeline->states, 1);
+          }
         }
         vkCmdEndRendering(vk_command_buffer);
       }
@@ -1011,7 +981,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         vkCmdBeginRendering(vk_command_buffer, &render_info);
         point_light_shadow_strands_pipeline->Bind(vk_command_buffer);
         point_light_shadow_strands_pipeline->BindDescriptorSet(
-            vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
+            vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
         for (int i = 0; i < point_light_info_blocks_.size(); i++) {
           const auto& point_light_info_block = point_light_info_blocks_[i];
           viewport.x = point_light_info_block.viewport.x;
@@ -1022,22 +992,22 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           scissor.extent.height = viewport.height;
           point_light_shadow_strands_pipeline->states.view_port = viewport;
           point_light_shadow_strands_pipeline->states.scissor = scissor;
-          render_instances->deferred_strands_render_instances.Dispatch(
-              [&](const StrandsRenderInstance& render_command) {
-                if (!render_command.cast_shadow)
-                  return;
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = i;
-                push_constant.light_split_index = face;
-                push_constant.instance_index = render_command.instance_index;
-                point_light_shadow_strands_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-                const auto strands = render_command.m_strands;
-                if (count_draw_calls)
-                  graphics.draw_call[current_frame_index]++;
-                if (count_draw_calls)
-                  graphics.strands_segments[current_frame_index] += render_command.m_strands->segments_.size();
-                strands->DrawIndexed(vk_command_buffer, point_light_shadow_strands_pipeline->states, 1);
-              });
+          for (const auto& render_command :
+               render_instances_list[current_frame_index]->deferred_strands_render_instances.render_commands) {
+            if (!render_command.cast_shadow)
+              continue;
+            RenderInstancePushConstant push_constant;
+            push_constant.camera_index = i;
+            push_constant.light_split_index = face;
+            push_constant.instance_index = render_command.instance_index;
+            point_light_shadow_strands_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+            const auto strands = render_command.strands;
+            if (count_draw_calls)
+              graphics.draw_call[current_frame_index]++;
+            if (count_draw_calls)
+              graphics.strands_segments[current_frame_index] += render_command.strands->segments_.size();
+            strands->DrawIndexed(vk_command_buffer, point_light_shadow_strands_pipeline->states, 1);
+          }
         }
         vkCmdEndRendering(vk_command_buffer);
       }
@@ -1078,7 +1048,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       vkCmdBeginRendering(vk_command_buffer, &render_info);
       spot_light_shadow_pipeline->Bind(vk_command_buffer);
       spot_light_shadow_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
+          vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
       for (int i = 0; i < spot_light_info_blocks_.size(); i++) {
         const auto& spot_light_info_block = spot_light_info_blocks_[i];
         viewport.x = spot_light_info_block.viewport.x;
@@ -1099,12 +1069,15 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           if (count_draw_calls)
             graphics.draw_call[current_frame_index]++;
           if (count_draw_calls)
-            graphics.triangles[current_frame_index] += total_mesh_triangles_;
-          vkCmdDrawIndexedIndirect(vk_command_buffer,
-                                   mesh_draw_indexed_indirect_commands_buffers_[current_frame_index]->GetVkBuffer(), 0,
-                                   mesh_draw_indexed_indirect_commands_.size(), sizeof(VkDrawIndexedIndirectCommand));
+            graphics.triangles[current_frame_index] += render_instances_list[current_frame_index]->total_mesh_triangles;
+          vkCmdDrawIndexedIndirect(
+              vk_command_buffer,
+              render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(), 0,
+              render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands.size(),
+              sizeof(VkDrawIndexedIndirectCommand));
         } else {
-          render_instances->deferred_render_instances.Dispatch([&](const RenderInstance& render_command) {
+          for (const auto& render_command :
+               render_instances_list[current_frame_index]->deferred_render_instances.render_commands) {
             if (!render_command.cast_shadow)
               return;
             RenderInstancePushConstant push_constant;
@@ -1113,6 +1086,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             push_constant.instance_index = render_command.instance_index;
             spot_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
             if (use_mesh_shader) {
+              spot_light_shadow_pipeline->BindDescriptorSet(
+                  vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
               if (count_draw_calls)
                 graphics.draw_call[current_frame_index]++;
               if (count_draw_calls)
@@ -1128,7 +1103,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                 graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
               mesh->DrawIndexed(vk_command_buffer, spot_light_shadow_pipeline->states, 1);
             }
-          });
+          }
         }
       }
       vkCmdEndRendering(vk_command_buffer);
@@ -1149,7 +1124,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       vkCmdBeginRendering(vk_command_buffer, &render_info);
       spot_light_shadow_instanced_pipeline->Bind(vk_command_buffer);
       spot_light_shadow_instanced_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
+          vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
       for (int i = 0; i < spot_light_info_blocks_.size(); i++) {
         const auto& spot_light_info_block = spot_light_info_blocks_[i];
         viewport.x = spot_light_info_block.viewport.x;
@@ -1158,26 +1133,26 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         viewport.height = spot_light_info_block.viewport.w;
         spot_light_shadow_instanced_pipeline->states.view_port = viewport;
 
-        render_instances->deferred_instanced_render_instances.Dispatch(
-            [&](const InstancedRenderInstance& render_command) {
-              if (!render_command.cast_shadow)
-                return;
-              spot_light_shadow_instanced_pipeline->BindDescriptorSet(
-                  vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
-              RenderInstancePushConstant push_constant;
-              push_constant.camera_index = i;
-              push_constant.light_split_index = 0;
-              push_constant.instance_index = render_command.instance_index;
-              spot_light_shadow_instanced_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-              const auto mesh = render_command.mesh;
-              if (count_draw_calls)
-                graphics.draw_call[current_frame_index]++;
-              if (count_draw_calls)
-                graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size() *
-                                                           render_command.particle_infos->PeekParticleInfoList().size();
-              mesh->DrawIndexed(vk_command_buffer, spot_light_shadow_instanced_pipeline->states,
-                                render_command.particle_infos->PeekParticleInfoList().size());
-            });
+        for (const auto& render_command :
+             render_instances_list[current_frame_index]->deferred_instanced_render_instances.render_commands) {
+          if (!render_command.cast_shadow)
+            continue;
+          spot_light_shadow_instanced_pipeline->BindDescriptorSet(
+              vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
+          RenderInstancePushConstant push_constant;
+          push_constant.camera_index = i;
+          push_constant.light_split_index = 0;
+          push_constant.instance_index = render_command.instance_index;
+          spot_light_shadow_instanced_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          const auto mesh = render_command.mesh;
+          if (count_draw_calls)
+            graphics.draw_call[current_frame_index]++;
+          if (count_draw_calls)
+            graphics.triangles[current_frame_index] +=
+                render_command.mesh->triangles_.size() * render_command.particle_infos->PeekParticleInfoList().size();
+          mesh->DrawIndexed(vk_command_buffer, spot_light_shadow_instanced_pipeline->states,
+                            render_command.particle_infos->PeekParticleInfoList().size());
+        }
       }
       vkCmdEndRendering(vk_command_buffer);
     }
@@ -1198,7 +1173,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       vkCmdBeginRendering(vk_command_buffer, &render_info);
       spot_light_shadow_skinned_pipeline->Bind(vk_command_buffer);
       spot_light_shadow_skinned_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
+          vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
       for (int i = 0; i < spot_light_info_blocks_.size(); i++) {
         const auto& spot_light_info_block = spot_light_info_blocks_[i];
         viewport.x = spot_light_info_block.viewport.x;
@@ -1207,7 +1182,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         viewport.height = spot_light_info_block.viewport.w;
         spot_light_shadow_skinned_pipeline->states.view_port = viewport;
 
-        render_instances->deferred_skinned_render_instances.Dispatch([&](const SkinnedRenderInstance& render_command) {
+        for (const auto& render_command :
+             render_instances_list[current_frame_index]->deferred_skinned_render_instances.render_commands) {
           if (!render_command.cast_shadow)
             return;
           spot_light_shadow_skinned_pipeline->BindDescriptorSet(
@@ -1223,7 +1199,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           if (count_draw_calls)
             graphics.triangles[current_frame_index] += render_command.skinned_mesh->skinned_triangles_.size();
           skinned_mesh->DrawIndexed(vk_command_buffer, spot_light_shadow_skinned_pipeline->states, 1);
-        });
+        }
       }
       vkCmdEndRendering(vk_command_buffer);
     }
@@ -1244,7 +1220,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       vkCmdBeginRendering(vk_command_buffer, &render_info);
       spot_light_shadow_strands_pipeline->Bind(vk_command_buffer);
       spot_light_shadow_strands_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
+          vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
       for (int i = 0; i < spot_light_info_blocks_.size(); i++) {
         const auto& spot_light_info_block = spot_light_info_blocks_[i];
         viewport.x = spot_light_info_block.viewport.x;
@@ -1253,21 +1229,22 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         viewport.height = spot_light_info_block.viewport.w;
         spot_light_shadow_strands_pipeline->states.view_port = viewport;
 
-        render_instances->deferred_strands_render_instances.Dispatch([&](const StrandsRenderInstance& render_command) {
+        for (const auto& render_command :
+             render_instances_list[current_frame_index]->deferred_strands_render_instances.render_commands) {
           if (!render_command.cast_shadow)
-            return;
+            continue;
           RenderInstancePushConstant push_constant;
           push_constant.camera_index = i;
           push_constant.light_split_index = 0;
           push_constant.instance_index = render_command.instance_index;
           spot_light_shadow_strands_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-          const auto strands = render_command.m_strands;
+          const auto strands = render_command.strands;
           if (count_draw_calls)
             graphics.draw_call[current_frame_index]++;
           if (count_draw_calls)
-            graphics.strands_segments[current_frame_index] += render_command.m_strands->segments_.size();
+            graphics.strands_segments[current_frame_index] += render_command.strands->segments_.size();
           strands->DrawIndexed(vk_command_buffer, spot_light_shadow_strands_pipeline->states, 1);
-        });
+        }
       }
       vkCmdEndRendering(vk_command_buffer);
     }
@@ -1276,20 +1253,74 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
   });
 }
 
-bool RenderLayer::CollectRenderInstances(Bound& world_bound) {
-  need_fade_ = false;
-  const auto scene = GetScene();
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
-  const bool enable_selection_high_light = editor_layer && scene->IsEntityValid(editor_layer->GetSelectedEntity());
-  const bool has_render_instance = render_instances->UpdateRenderInstances(scene, world_bound);
-  if (has_render_instance && enable_selection_high_light) {
-    for (const auto& i : render_instances->instance_info_blocks_) {
-      if (i.entity_selected) {
-        need_fade_ = true;
+bool RenderLayer::UpdateRenderInstances(const std::shared_ptr<Scene>& scene, const uint32_t current_frame_index) {
+  ApplyAnimators();
+
+  auto lod_center = glm::vec3(0.f);
+  float lod_max_distance = FLT_MAX;
+  bool lod_set = false;
+  if (const auto main_camera = scene->main_camera.Get<Camera>()) {
+    if (const auto main_camera_owner = main_camera->GetOwner(); scene->IsEntityValid(main_camera_owner)) {
+      lod_center = scene->GetDataComponent<GlobalTransform>(main_camera_owner).GetPosition();
+      lod_max_distance = main_camera->far_distance;
+      lod_set = true;
+    }
+  }
+  if (!lod_set) {
+    if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+      if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+        lod_center = editor_layer->GetSceneCameraPosition();
+        lod_max_distance = scene_camera->far_distance;
       }
     }
   }
-  return has_render_instance;
+
+  RenderInstances::CalculateLodFactor(scene, lod_center, lod_max_distance);
+
+  Bound world_bound{};
+
+  need_fade_ = false;
+  const bool render_instance_updated =
+      render_instances_list[current_frame_index]->UpdateRenderInstances(scene, world_bound);
+
+  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+    if (render_instance_updated && scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
+      for (const auto& i : render_instances_list[current_frame_index]->instance_info_blocks_) {
+        if (i.entity_selected) {
+          need_fade_ = true;
+        }
+      }
+    }
+    editor_layer->MouseEntitySelection();
+  }
+
+  if (render_instance_updated) {
+    world_bound.min -= glm::vec3(0.1f);
+    world_bound.max += glm::vec3(0.1f);
+    scene->SetBound(world_bound);
+    render_instances_list[current_frame_index]->Upload();
+  }
+  return render_instance_updated;
+}
+
+bool RenderLayer::UpdateLighting(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
+                                 const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
+  const auto main_camera = scene->main_camera.Get<Camera>();
+  GlobalTransform main_camera_gt{};
+  if (main_camera) {
+    if (const auto main_camera_owner = main_camera->GetOwner(); scene->IsEntityValid(main_camera_owner)) {
+      main_camera_gt = scene->GetDataComponent<GlobalTransform>(main_camera_owner);
+    }
+  }
+
+  CollectDirectionalLights(scene, cameras);
+  CollectPointLights(scene, main_camera_gt);
+  CollectSpotLights(scene, main_camera_gt);
+  directional_light_info_descriptor_buffers_[current_frame_index]->UploadVector(directional_light_info_blocks_);
+  point_light_info_descriptor_buffers_[current_frame_index]->UploadVector(point_light_info_blocks_);
+  spot_light_info_descriptor_buffers_[current_frame_index]->UploadVector(spot_light_info_blocks_);
+
+  return true;
 }
 
 void RenderLayer::CreateStandardDescriptorBuffers() {
@@ -1302,9 +1333,6 @@ void RenderLayer::CreateStandardDescriptorBuffers() {
   directional_light_info_descriptor_buffers_.clear();
   point_light_info_descriptor_buffers_.clear();
   spot_light_info_descriptor_buffers_.clear();
-
-  mesh_draw_mesh_tasks_indirect_commands_buffers_.clear();
-  mesh_draw_indexed_indirect_commands_buffers_.clear();
 
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1340,25 +1368,28 @@ void RenderLayer::CreateStandardDescriptorBuffers() {
     buffer_create_info.size = sizeof(SpotLightInfo) * Platform::Settings::max_spot_light_size;
     spot_light_info_descriptor_buffers_.emplace_back(
         std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-
-    buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
-    buffer_create_info.size = sizeof(VkDrawMeshTasksIndirectCommandEXT) * Platform::Constants::initial_render_task_size;
-    mesh_draw_mesh_tasks_indirect_commands_buffers_.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-    buffer_create_info.size = sizeof(VkDrawIndexedIndirectCommand) * Platform::Constants::initial_render_task_size;
-    mesh_draw_indexed_indirect_commands_buffers_.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
   }
 #pragma endregion
 }
 
-void RenderLayer::CreatePerFrameDescriptorSets() {
+void RenderLayer::CreateDescriptorSets() {
   const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
-
   per_frame_descriptor_sets_.clear();
   for (size_t i = 0; i < max_frames_in_flight; i++) {
     auto descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT"));
     per_frame_descriptor_sets_.emplace_back(descriptor_set);
+  }
+
+  meshlet_descriptor_sets_.clear();
+  for (size_t i = 0; i < max_frames_in_flight; i++) {
+    auto descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("MESHLET_LAYOUT"));
+    meshlet_descriptor_sets_.emplace_back(descriptor_set);
+  }
+
+  ray_tracing_descriptor_sets_.clear();
+  for (size_t i = 0; i < max_frames_in_flight; i++) {
+    auto descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("RAY_TRACING_LAYOUT"));
+    ray_tracing_descriptor_sets_.emplace_back(descriptor_set);
   }
 }
 
@@ -1406,8 +1437,7 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy =
-        Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
@@ -1480,589 +1510,664 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
 
 void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                                  const std::shared_ptr<Camera>& camera) {
-  const bool count_draw_calls = count_shadow_rendering_draw_calls;
-  const bool use_mesh_shader = Platform::Constants::support_mesh_shader && Platform::Settings::use_mesh_shader;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const int camera_index = GetCameraIndex(camera->GetHandle());
   const auto scene = Application::GetActiveScene();
+  if (camera->camera_render_mode == Camera::CameraRenderMode::Rasterization) {
+    const bool count_draw_calls = count_shadow_rendering_draw_calls;
+    const bool use_mesh_shader = Platform::Constants::support_mesh_shader && Platform::Settings::use_mesh_shader;
 #pragma region Directional Light Shadows
-  const auto& directional_light_shadow_pipeline =
-      use_mesh_shader ? Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_MESH")
-                      : Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP");
-  const auto& directional_light_shadow_pipeline_skinned =
-      Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_SKINNED");
-  const auto& directional_light_shadow_pipeline_instanced =
-      Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_INSTANCED");
-  const auto& directional_light_shadow_pipeline_strands =
-      Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_STRANDS");
-  auto& graphics = Platform::GetInstance();
-  const uint32_t task_work_group_invocations =
-      graphics.selected_physical_device->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
+    const auto& directional_light_shadow_pipeline =
+        use_mesh_shader ? Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_MESH")
+                        : Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP");
+    const auto& directional_light_shadow_pipeline_skinned =
+        Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_SKINNED");
+    const auto& directional_light_shadow_pipeline_instanced =
+        Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_INSTANCED");
+    const auto& directional_light_shadow_pipeline_strands =
+        Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_STRANDS");
+    auto& graphics = Platform::GetInstance();
+    const uint32_t task_work_group_invocations =
+        graphics.selected_physical_device->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+    Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
-    VkRect2D render_area;
-    render_area.offset = {0, 0};
-    render_area.extent.width = lighting_->directional_light_shadow_map_->GetExtent().width;
-    render_area.extent.height = lighting_->directional_light_shadow_map_->GetExtent().height;
+      VkRect2D render_area;
+      render_area.offset = {0, 0};
+      render_area.extent.width = lighting_->directional_light_shadow_map_->GetExtent().width;
+      render_area.extent.height = lighting_->directional_light_shadow_map_->GetExtent().height;
 
-    VkViewport viewport;
-    viewport.x = 0;
-    viewport.y = 0;
-    viewport.width = render_area.extent.width;
-    viewport.height = render_area.extent.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
+      VkViewport viewport;
+      viewport.x = 0;
+      viewport.y = 0;
+      viewport.width = render_area.extent.width;
+      viewport.height = render_area.extent.height;
+      viewport.minDepth = 0.0f;
+      viewport.maxDepth = 1.0f;
 
-    VkRect2D scissor;
-    scissor.offset = {0, 0};
-    scissor.extent.width = render_area.extent.width;
-    scissor.extent.height = render_area.extent.height;
+      VkRect2D scissor;
+      scissor.offset = {0, 0};
+      scissor.extent.width = render_area.extent.width;
+      scissor.extent.height = render_area.extent.height;
 
 #pragma endregion
-    lighting_->directional_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+      lighting_->directional_light_shadow_map_->TransitImageLayout(vk_command_buffer,
+                                                                   VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
-    for (int split = 0; split < 4; split++) {
-      {
-        const auto depth_attachment = lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(
-            split, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
-        VkRenderingInfo render_info{};
-        render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        render_info.renderArea = render_area;
-        render_info.layerCount = 1;
-        render_info.colorAttachmentCount = 0;
-        render_info.pColorAttachments = nullptr;
-        render_info.pDepthAttachment = &depth_attachment;
-        directional_light_shadow_pipeline->states.ResetAllStates(0);
-        directional_light_shadow_pipeline->states.scissor = scissor;
-        directional_light_shadow_pipeline->states.view_port = viewport;
-        directional_light_shadow_pipeline->states.color_blend_attachment_states.clear();
-
-        vkCmdBeginRendering(vk_command_buffer, &render_info);
-        directional_light_shadow_pipeline->Bind(vk_command_buffer);
-        directional_light_shadow_pipeline->BindDescriptorSet(
-            vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-        GeometryStorage::BindVertices(vk_command_buffer);
-        for (int i = 0; i < render_info_block.directional_light_size; i++) {
-          const auto& directional_light_info_block =
-              directional_light_info_blocks_[camera_index * Platform::Settings::max_directional_light_size + i];
-          viewport.x = directional_light_info_block.viewport.x;
-          viewport.y = directional_light_info_block.viewport.y;
-          viewport.width = directional_light_info_block.viewport.z;
-          viewport.height = directional_light_info_block.viewport.w;
-          scissor.extent.width = directional_light_info_block.viewport.z;
-          scissor.extent.height = directional_light_info_block.viewport.w;
+      for (int split = 0; split < 4; split++) {
+        {
+          const auto depth_attachment = lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(
+              split, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
+          VkRenderingInfo render_info{};
+          render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+          render_info.renderArea = render_area;
+          render_info.layerCount = 1;
+          render_info.colorAttachmentCount = 0;
+          render_info.pColorAttachments = nullptr;
+          render_info.pDepthAttachment = &depth_attachment;
+          directional_light_shadow_pipeline->states.ResetAllStates(0);
           directional_light_shadow_pipeline->states.scissor = scissor;
           directional_light_shadow_pipeline->states.view_port = viewport;
-          directional_light_shadow_pipeline->states.ApplyAllStates(vk_command_buffer);
-          if (enable_indirect_rendering && !use_mesh_shader) {
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
-            push_constant.light_split_index = split;
-            push_constant.instance_index = 0;
-            directional_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          directional_light_shadow_pipeline->states.color_blend_attachment_states.clear();
+
+          vkCmdBeginRendering(vk_command_buffer, &render_info);
+          directional_light_shadow_pipeline->Bind(vk_command_buffer);
+          directional_light_shadow_pipeline->BindDescriptorSet(
+              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+          GeometryStorage::BindVertices(vk_command_buffer);
+          for (int i = 0; i < render_info_block.directional_light_size; i++) {
+            const auto& directional_light_info_block =
+                directional_light_info_blocks_[camera_index * Platform::Settings::max_directional_light_size + i];
+            viewport.x = directional_light_info_block.viewport.x;
+            viewport.y = directional_light_info_block.viewport.y;
+            viewport.width = directional_light_info_block.viewport.z;
+            viewport.height = directional_light_info_block.viewport.w;
+            scissor.extent.width = directional_light_info_block.viewport.z;
+            scissor.extent.height = directional_light_info_block.viewport.w;
+            directional_light_shadow_pipeline->states.scissor = scissor;
+            directional_light_shadow_pipeline->states.view_port = viewport;
             directional_light_shadow_pipeline->states.ApplyAllStates(vk_command_buffer);
-            if (count_draw_calls)
-              graphics.draw_call[current_frame_index]++;
-            if (count_draw_calls)
-              graphics.triangles[current_frame_index] += total_mesh_triangles_;
-            vkCmdDrawIndexedIndirect(
-                vk_command_buffer, mesh_draw_indexed_indirect_commands_buffers_[current_frame_index]->GetVkBuffer(), 0,
-                mesh_draw_indexed_indirect_commands_.size(), sizeof(VkDrawIndexedIndirectCommand));
-          } else {
-            render_instances->deferred_render_instances.Dispatch([&](const RenderInstance& render_command) {
+            if (enable_indirect_rendering && !use_mesh_shader) {
+              RenderInstancePushConstant push_constant;
+              push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+              push_constant.light_split_index = split;
+              push_constant.instance_index = 0;
+              directional_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+              directional_light_shadow_pipeline->states.ApplyAllStates(vk_command_buffer);
+              if (count_draw_calls)
+                graphics.draw_call[current_frame_index]++;
+              if (count_draw_calls)
+                graphics.triangles[current_frame_index] +=
+                    render_instances_list[current_frame_index]->total_mesh_triangles;
+              vkCmdDrawIndexedIndirect(
+                  vk_command_buffer,
+                  render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(),
+                  0, render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands.size(),
+                  sizeof(VkDrawIndexedIndirectCommand));
+            } else {
+              for (const auto& render_command :
+                   render_instances_list[current_frame_index]->deferred_render_instances.render_commands) {
+                if (!render_command.cast_shadow)
+                  continue;
+                RenderInstancePushConstant push_constant;
+                push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+                push_constant.light_split_index = split;
+                push_constant.instance_index = render_command.instance_index;
+                directional_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+                if (use_mesh_shader) {
+                  directional_light_shadow_pipeline->BindDescriptorSet(
+                      vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+                  if (count_draw_calls)
+                    graphics.draw_call[current_frame_index]++;
+                  if (count_draw_calls)
+                    graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
+
+                  const uint32_t count =
+                      (render_command.meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
+                  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+                } else {
+                  const auto mesh = render_command.mesh;
+                  GeometryStorage::BindVertices(vk_command_buffer);
+                  if (count_draw_calls)
+                    graphics.draw_call[current_frame_index]++;
+                  if (count_draw_calls)
+                    graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
+                  mesh->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline->states, 1);
+                }
+              }
+            }
+          }
+          vkCmdEndRendering(vk_command_buffer);
+        }
+        {
+          const auto depth_attachment = lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(
+              split, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
+          VkRenderingInfo render_info{};
+          render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+          render_info.renderArea = render_area;
+          render_info.layerCount = 1;
+          render_info.colorAttachmentCount = 0;
+          render_info.pColorAttachments = nullptr;
+          render_info.pDepthAttachment = &depth_attachment;
+          directional_light_shadow_pipeline_instanced->states.ResetAllStates(0);
+          directional_light_shadow_pipeline_instanced->states.scissor = scissor;
+          directional_light_shadow_pipeline_instanced->states.view_port = viewport;
+          directional_light_shadow_pipeline_instanced->states.color_blend_attachment_states.clear();
+
+          vkCmdBeginRendering(vk_command_buffer, &render_info);
+          directional_light_shadow_pipeline_instanced->Bind(vk_command_buffer);
+          directional_light_shadow_pipeline_instanced->BindDescriptorSet(
+              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+          directional_light_shadow_pipeline_instanced->states.cull_mode = VK_CULL_MODE_NONE;
+          GeometryStorage::BindVertices(vk_command_buffer);
+          for (int i = 0; i < render_info_block.directional_light_size; i++) {
+            const auto& directional_light_info_block =
+                directional_light_info_blocks_[camera_index * Platform::Settings::max_directional_light_size + i];
+            viewport.x = directional_light_info_block.viewport.x;
+            viewport.y = directional_light_info_block.viewport.y;
+            viewport.width = directional_light_info_block.viewport.z;
+            viewport.height = directional_light_info_block.viewport.w;
+            scissor.extent.width = directional_light_info_block.viewport.z;
+            scissor.extent.height = directional_light_info_block.viewport.w;
+            directional_light_shadow_pipeline_instanced->states.scissor = scissor;
+            directional_light_shadow_pipeline_instanced->states.view_port = viewport;
+            directional_light_shadow_pipeline_instanced->states.ApplyAllStates(vk_command_buffer);
+
+            for (const auto& render_command :
+                 render_instances_list[current_frame_index]->deferred_instanced_render_instances.render_commands) {
               if (!render_command.cast_shadow)
-                return;
+                continue;
+              directional_light_shadow_pipeline_instanced->BindDescriptorSet(
+                  vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
               RenderInstancePushConstant push_constant;
               push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
               push_constant.light_split_index = split;
               push_constant.instance_index = render_command.instance_index;
-              directional_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-              if (use_mesh_shader) {
-                if (count_draw_calls)
-                  graphics.draw_call[current_frame_index]++;
-                if (count_draw_calls)
-                  graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
-
-                const uint32_t count =
-                    (render_command.meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
-                vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
-              } else {
-                const auto mesh = render_command.mesh;
-                GeometryStorage::BindVertices(vk_command_buffer);
-                if (count_draw_calls)
-                  graphics.draw_call[current_frame_index]++;
-                if (count_draw_calls)
-                  graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
-                mesh->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline->states, 1);
-              }
-            });
+              directional_light_shadow_pipeline_instanced->PushConstant(vk_command_buffer, 0, push_constant);
+              const auto mesh = render_command.mesh;
+              if (count_draw_calls)
+                graphics.draw_call[current_frame_index]++;
+              if (count_draw_calls)
+                graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size() *
+                                                           render_command.particle_infos->PeekParticleInfoList().size();
+              mesh->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_instanced->states,
+                                render_command.particle_infos->PeekParticleInfoList().size());
+            }
           }
+          vkCmdEndRendering(vk_command_buffer);
         }
-        vkCmdEndRendering(vk_command_buffer);
-      }
-      {
-        const auto depth_attachment = lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(
-            split, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
-        VkRenderingInfo render_info{};
-        render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        render_info.renderArea = render_area;
-        render_info.layerCount = 1;
-        render_info.colorAttachmentCount = 0;
-        render_info.pColorAttachments = nullptr;
-        render_info.pDepthAttachment = &depth_attachment;
-        directional_light_shadow_pipeline_instanced->states.ResetAllStates(0);
-        directional_light_shadow_pipeline_instanced->states.scissor = scissor;
-        directional_light_shadow_pipeline_instanced->states.view_port = viewport;
-        directional_light_shadow_pipeline_instanced->states.color_blend_attachment_states.clear();
-
-        vkCmdBeginRendering(vk_command_buffer, &render_info);
-        directional_light_shadow_pipeline_instanced->Bind(vk_command_buffer);
-        directional_light_shadow_pipeline_instanced->BindDescriptorSet(
-            vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
-        directional_light_shadow_pipeline_instanced->states.cull_mode = VK_CULL_MODE_NONE;
-        GeometryStorage::BindVertices(vk_command_buffer);
-        for (int i = 0; i < render_info_block.directional_light_size; i++) {
-          const auto& directional_light_info_block =
-              directional_light_info_blocks_[camera_index * Platform::Settings::max_directional_light_size + i];
-          viewport.x = directional_light_info_block.viewport.x;
-          viewport.y = directional_light_info_block.viewport.y;
-          viewport.width = directional_light_info_block.viewport.z;
-          viewport.height = directional_light_info_block.viewport.w;
-          scissor.extent.width = directional_light_info_block.viewport.z;
-          scissor.extent.height = directional_light_info_block.viewport.w;
-          directional_light_shadow_pipeline_instanced->states.scissor = scissor;
-          directional_light_shadow_pipeline_instanced->states.view_port = viewport;
-          directional_light_shadow_pipeline_instanced->states.ApplyAllStates(vk_command_buffer);
-
-          render_instances->deferred_instanced_render_instances.Dispatch(
-              [&](const InstancedRenderInstance& render_command) {
-                if (!render_command.cast_shadow)
-                  return;
-                directional_light_shadow_pipeline_instanced->BindDescriptorSet(
-                    vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
-                push_constant.light_split_index = split;
-                push_constant.instance_index = render_command.instance_index;
-                directional_light_shadow_pipeline_instanced->PushConstant(vk_command_buffer, 0, push_constant);
-                const auto mesh = render_command.mesh;
-                if (count_draw_calls)
-                  graphics.draw_call[current_frame_index]++;
-                if (count_draw_calls)
-                  graphics.triangles[current_frame_index] +=
-                      render_command.mesh->triangles_.size() *
-                      render_command.particle_infos->PeekParticleInfoList().size();
-                mesh->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_instanced->states,
-                                  render_command.particle_infos->PeekParticleInfoList().size());
-              });
-        }
-        vkCmdEndRendering(vk_command_buffer);
-      }
-      GeometryStorage::BindSkinnedVertices(vk_command_buffer);
-      {
-        const auto depth_attachment = lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(
-            split, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
-        VkRenderingInfo render_info{};
-        render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        render_info.renderArea = render_area;
-        render_info.layerCount = 1;
-        render_info.colorAttachmentCount = 0;
-        render_info.pColorAttachments = nullptr;
-        render_info.pDepthAttachment = &depth_attachment;
-        directional_light_shadow_pipeline_skinned->states.ResetAllStates(0);
-        directional_light_shadow_pipeline_skinned->states.scissor = scissor;
-        directional_light_shadow_pipeline_skinned->states.view_port = viewport;
-        directional_light_shadow_pipeline_skinned->states.color_blend_attachment_states.clear();
-
-        vkCmdBeginRendering(vk_command_buffer, &render_info);
-        directional_light_shadow_pipeline_skinned->Bind(vk_command_buffer);
-        directional_light_shadow_pipeline_skinned->BindDescriptorSet(
-            vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
-        directional_light_shadow_pipeline_skinned->states.cull_mode = VK_CULL_MODE_NONE;
-        for (int i = 0; i < render_info_block.directional_light_size; i++) {
-          const auto& directional_light_info_block =
-              directional_light_info_blocks_[camera_index * Platform::Settings::max_directional_light_size + i];
-          viewport.x = directional_light_info_block.viewport.x;
-          viewport.y = directional_light_info_block.viewport.y;
-          viewport.width = directional_light_info_block.viewport.z;
-          viewport.height = directional_light_info_block.viewport.w;
-          scissor.extent.width = directional_light_info_block.viewport.z;
-          scissor.extent.height = directional_light_info_block.viewport.w;
+        GeometryStorage::BindSkinnedVertices(vk_command_buffer);
+        {
+          const auto depth_attachment = lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(
+              split, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
+          VkRenderingInfo render_info{};
+          render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+          render_info.renderArea = render_area;
+          render_info.layerCount = 1;
+          render_info.colorAttachmentCount = 0;
+          render_info.pColorAttachments = nullptr;
+          render_info.pDepthAttachment = &depth_attachment;
+          directional_light_shadow_pipeline_skinned->states.ResetAllStates(0);
           directional_light_shadow_pipeline_skinned->states.scissor = scissor;
           directional_light_shadow_pipeline_skinned->states.view_port = viewport;
-          directional_light_shadow_pipeline_skinned->states.ApplyAllStates(vk_command_buffer);
+          directional_light_shadow_pipeline_skinned->states.color_blend_attachment_states.clear();
 
-          render_instances->deferred_skinned_render_instances.Dispatch(
-              [&](const SkinnedRenderInstance& render_command) {
-                if (!render_command.cast_shadow)
-                  return;
-                directional_light_shadow_pipeline_skinned->BindDescriptorSet(
-                    vk_command_buffer, 1, render_command.bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
-                push_constant.light_split_index = split;
-                push_constant.instance_index = render_command.instance_index;
-                directional_light_shadow_pipeline_skinned->PushConstant(vk_command_buffer, 0, push_constant);
-                const auto skinned_mesh = render_command.skinned_mesh;
-                if (count_draw_calls)
-                  graphics.draw_call[current_frame_index]++;
-                if (count_draw_calls)
-                  graphics.triangles[current_frame_index] += render_command.skinned_mesh->skinned_triangles_.size();
-                skinned_mesh->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_skinned->states, 1);
-              });
+          vkCmdBeginRendering(vk_command_buffer, &render_info);
+          directional_light_shadow_pipeline_skinned->Bind(vk_command_buffer);
+          directional_light_shadow_pipeline_skinned->BindDescriptorSet(
+              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+          directional_light_shadow_pipeline_skinned->states.cull_mode = VK_CULL_MODE_NONE;
+          for (int i = 0; i < render_info_block.directional_light_size; i++) {
+            const auto& directional_light_info_block =
+                directional_light_info_blocks_[camera_index * Platform::Settings::max_directional_light_size + i];
+            viewport.x = directional_light_info_block.viewport.x;
+            viewport.y = directional_light_info_block.viewport.y;
+            viewport.width = directional_light_info_block.viewport.z;
+            viewport.height = directional_light_info_block.viewport.w;
+            scissor.extent.width = directional_light_info_block.viewport.z;
+            scissor.extent.height = directional_light_info_block.viewport.w;
+            directional_light_shadow_pipeline_skinned->states.scissor = scissor;
+            directional_light_shadow_pipeline_skinned->states.view_port = viewport;
+            directional_light_shadow_pipeline_skinned->states.ApplyAllStates(vk_command_buffer);
+
+            for (const auto& render_command :
+                 render_instances_list[current_frame_index]->deferred_skinned_render_instances.render_commands) {
+              if (!render_command.cast_shadow)
+                continue;
+              directional_light_shadow_pipeline_skinned->BindDescriptorSet(
+                  vk_command_buffer, 1, render_command.bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
+              RenderInstancePushConstant push_constant;
+              push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+              push_constant.light_split_index = split;
+              push_constant.instance_index = render_command.instance_index;
+              directional_light_shadow_pipeline_skinned->PushConstant(vk_command_buffer, 0, push_constant);
+              const auto skinned_mesh = render_command.skinned_mesh;
+              if (count_draw_calls)
+                graphics.draw_call[current_frame_index]++;
+              if (count_draw_calls)
+                graphics.triangles[current_frame_index] += render_command.skinned_mesh->skinned_triangles_.size();
+              skinned_mesh->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_skinned->states, 1);
+            }
+          }
+          vkCmdEndRendering(vk_command_buffer);
         }
-        vkCmdEndRendering(vk_command_buffer);
-      }
-      GeometryStorage::BindStrandPoints(vk_command_buffer);
-      {
-        const auto depth_attachment = lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(
-            split, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
-        VkRenderingInfo render_info{};
-        render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        render_info.renderArea = render_area;
-        render_info.layerCount = 1;
-        render_info.colorAttachmentCount = 0;
-        render_info.pColorAttachments = nullptr;
-        render_info.pDepthAttachment = &depth_attachment;
-        directional_light_shadow_pipeline_strands->states.ResetAllStates(0);
-        directional_light_shadow_pipeline_strands->states.scissor = scissor;
-        directional_light_shadow_pipeline_strands->states.view_port = viewport;
-        directional_light_shadow_pipeline_strands->states.color_blend_attachment_states.clear();
-
-        vkCmdBeginRendering(vk_command_buffer, &render_info);
-        directional_light_shadow_pipeline_strands->Bind(vk_command_buffer);
-        directional_light_shadow_pipeline_strands->BindDescriptorSet(
-            vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
-        directional_light_shadow_pipeline_strands->states.cull_mode = VK_CULL_MODE_NONE;
-        for (int i = 0; i < render_info_block.directional_light_size; i++) {
-          const auto& directional_light_info_block =
-              directional_light_info_blocks_[camera_index * Platform::Settings::max_directional_light_size + i];
-          viewport.x = directional_light_info_block.viewport.x;
-          viewport.y = directional_light_info_block.viewport.y;
-          viewport.width = directional_light_info_block.viewport.z;
-          viewport.height = directional_light_info_block.viewport.w;
-          scissor.extent.width = directional_light_info_block.viewport.z;
-          scissor.extent.height = directional_light_info_block.viewport.w;
+        GeometryStorage::BindStrandPoints(vk_command_buffer);
+        {
+          const auto depth_attachment = lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(
+              split, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
+          VkRenderingInfo render_info{};
+          render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+          render_info.renderArea = render_area;
+          render_info.layerCount = 1;
+          render_info.colorAttachmentCount = 0;
+          render_info.pColorAttachments = nullptr;
+          render_info.pDepthAttachment = &depth_attachment;
+          directional_light_shadow_pipeline_strands->states.ResetAllStates(0);
           directional_light_shadow_pipeline_strands->states.scissor = scissor;
           directional_light_shadow_pipeline_strands->states.view_port = viewport;
-          directional_light_shadow_pipeline_strands->states.ApplyAllStates(vk_command_buffer);
+          directional_light_shadow_pipeline_strands->states.color_blend_attachment_states.clear();
 
-          render_instances->deferred_strands_render_instances.Dispatch(
-              [&](const StrandsRenderInstance& render_command) {
-                if (!render_command.cast_shadow)
-                  return;
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
-                push_constant.light_split_index = split;
-                push_constant.instance_index = render_command.instance_index;
-                directional_light_shadow_pipeline_strands->PushConstant(vk_command_buffer, 0, push_constant);
-                const auto strands = render_command.m_strands;
-                if (count_draw_calls)
-                  graphics.draw_call[current_frame_index]++;
-                if (count_draw_calls)
-                  graphics.strands_segments[current_frame_index] += render_command.m_strands->segments_.size();
-                strands->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_strands->states, 1);
-              });
-        }
-        vkCmdEndRendering(vk_command_buffer);
-      }
-    }
-  });
+          vkCmdBeginRendering(vk_command_buffer, &render_info);
+          directional_light_shadow_pipeline_strands->Bind(vk_command_buffer);
+          directional_light_shadow_pipeline_strands->BindDescriptorSet(
+              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+          directional_light_shadow_pipeline_strands->states.cull_mode = VK_CULL_MODE_NONE;
+          for (int i = 0; i < render_info_block.directional_light_size; i++) {
+            const auto& directional_light_info_block =
+                directional_light_info_blocks_[camera_index * Platform::Settings::max_directional_light_size + i];
+            viewport.x = directional_light_info_block.viewport.x;
+            viewport.y = directional_light_info_block.viewport.y;
+            viewport.width = directional_light_info_block.viewport.z;
+            viewport.height = directional_light_info_block.viewport.w;
+            scissor.extent.width = directional_light_info_block.viewport.z;
+            scissor.extent.height = directional_light_info_block.viewport.w;
+            directional_light_shadow_pipeline_strands->states.scissor = scissor;
+            directional_light_shadow_pipeline_strands->states.view_port = viewport;
+            directional_light_shadow_pipeline_strands->states.ApplyAllStates(vk_command_buffer);
 
-#pragma endregion
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
-  bool is_scene_camera = false;
-  bool need_fade = false;
-  if (editor_layer) {
-    if (camera.get() == editor_layer->GetSceneCamera().get())
-      is_scene_camera = true;
-    if (need_fade_ && editor_layer->highlight_selection_)
-      need_fade = true;
-  }
-
-#pragma region Deferred Rendering
-  Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
-#pragma region Viewport and scissor
-    VkRect2D render_area;
-    render_area.offset = {0, 0};
-    render_area.extent.width = camera->GetSize().x;
-    render_area.extent.height = camera->GetSize().y;
-    VkViewport viewport;
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = camera->GetSize().x;
-    viewport.height = camera->GetSize().y;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-
-    VkRect2D scissor;
-    scissor.offset = {0, 0};
-    scissor.extent.width = camera->GetSize().x;
-    scissor.extent.height = camera->GetSize().y;
-
-    camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-    camera->render_texture_->GetDepthImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-
-    VkRenderingInfo render_info{};
-    render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    render_info.renderArea = render_area;
-    render_info.layerCount = 1;
-#pragma endregion
-#pragma region Geometry pass
-    GeometryStorage::BindVertices(vk_command_buffer);
-    {
-      const auto depth_attachment =
-          camera->render_texture_->GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
-      render_info.pDepthAttachment = &depth_attachment;
-      std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
-      camera->AppendGBufferColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                                VK_ATTACHMENT_STORE_OP_STORE);
-      render_info.colorAttachmentCount = color_attachment_infos.size();
-      render_info.pColorAttachments = color_attachment_infos.data();
-
-      const auto& deferred_prepass_pipeline = use_mesh_shader
-                                                  ? Platform::GetGraphicsPipeline("STANDARD_DEFERRED_PREPASS_MESH")
-                                                  : Platform::GetGraphicsPipeline("STANDARD_DEFERRED_PREPASS");
-      deferred_prepass_pipeline->states.ResetAllStates(color_attachment_infos.size());
-      deferred_prepass_pipeline->states.view_port = viewport;
-      deferred_prepass_pipeline->states.scissor = scissor;
-      deferred_prepass_pipeline->states.polygon_mode = wire_frame ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-      vkCmdBeginRendering(vk_command_buffer, &render_info);
-      deferred_prepass_pipeline->Bind(vk_command_buffer);
-      deferred_prepass_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
-      if (enable_indirect_rendering && !use_mesh_shader) {
-        if (!render_instances->deferred_render_instances.render_commands.empty()) {
-          RenderInstancePushConstant push_constant;
-          push_constant.camera_index = camera_index;
-          push_constant.instance_index = 0;
-          deferred_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-          GeometryStorage::BindVertices(vk_command_buffer);
-          graphics.draw_call[current_frame_index]++;
-          graphics.triangles[current_frame_index] += total_mesh_triangles_;
-          vkCmdDrawIndexedIndirect(vk_command_buffer,
-                                   mesh_draw_indexed_indirect_commands_buffers_[current_frame_index]->GetVkBuffer(), 0,
-                                   mesh_draw_indexed_indirect_commands_.size(), sizeof(VkDrawIndexedIndirectCommand));
-        }
-      } else {
-        render_instances->deferred_render_instances.Dispatch([&](const RenderInstance& render_command) {
-          RenderInstancePushConstant push_constant;
-          push_constant.camera_index = camera_index;
-          push_constant.instance_index = render_command.instance_index;
-          deferred_prepass_pipeline->states.polygon_mode =
-              wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
-          deferred_prepass_pipeline->states.cull_mode = render_command.cull_mode;
-          deferred_prepass_pipeline->states.line_width = render_command.line_width;
-          deferred_prepass_pipeline->states.ApplyAllStates(vk_command_buffer);
-          deferred_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-          if (use_mesh_shader) {
-            graphics.draw_call[current_frame_index]++;
-            graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
-
-            const uint32_t count =
-                (render_command.meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
-            vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
-          } else {
-            const auto mesh = render_command.mesh;
-            graphics.draw_call[current_frame_index]++;
-            graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
-            mesh->DrawIndexed(vk_command_buffer, deferred_prepass_pipeline->states, 1);
+            for (const auto& render_command :
+                 render_instances_list[current_frame_index]->deferred_strands_render_instances.render_commands) {
+              if (!render_command.cast_shadow)
+                continue;
+              RenderInstancePushConstant push_constant;
+              push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+              push_constant.light_split_index = split;
+              push_constant.instance_index = render_command.instance_index;
+              directional_light_shadow_pipeline_strands->PushConstant(vk_command_buffer, 0, push_constant);
+              const auto strands = render_command.strands;
+              if (count_draw_calls)
+                graphics.draw_call[current_frame_index]++;
+              if (count_draw_calls)
+                graphics.strands_segments[current_frame_index] += render_command.strands->segments_.size();
+              strands->DrawIndexed(vk_command_buffer, directional_light_shadow_pipeline_strands->states, 1);
+            }
           }
-        });
+          vkCmdEndRendering(vk_command_buffer);
+        }
       }
-
-      vkCmdEndRendering(vk_command_buffer);
-    }
-    {
-      const auto depth_attachment =
-          camera->render_texture_->GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
-      render_info.pDepthAttachment = &depth_attachment;
-      std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
-      camera->AppendGBufferColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD,
-                                                VK_ATTACHMENT_STORE_OP_STORE);
-      render_info.colorAttachmentCount = color_attachment_infos.size();
-      render_info.pColorAttachments = color_attachment_infos.data();
-
-      const auto& deferred_instanced_prepass_pipeline =
-          Platform::GetGraphicsPipeline("STANDARD_INSTANCED_DEFERRED_PREPASS");
-      deferred_instanced_prepass_pipeline->states.ResetAllStates(color_attachment_infos.size());
-      deferred_instanced_prepass_pipeline->states.view_port = viewport;
-      deferred_instanced_prepass_pipeline->states.scissor = scissor;
-      vkCmdBeginRendering(vk_command_buffer, &render_info);
-      deferred_instanced_prepass_pipeline->Bind(vk_command_buffer);
-      deferred_instanced_prepass_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
-      render_instances->deferred_instanced_render_instances.Dispatch(
-          [&](const InstancedRenderInstance& render_command) {
-            deferred_instanced_prepass_pipeline->BindDescriptorSet(
-                vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = camera_index;
-            push_constant.instance_index = render_command.instance_index;
-            deferred_instanced_prepass_pipeline->states.polygon_mode =
-                wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
-            deferred_instanced_prepass_pipeline->states.cull_mode = render_command.cull_mode;
-            deferred_instanced_prepass_pipeline->states.line_width = render_command.line_width;
-            deferred_instanced_prepass_pipeline->states.ApplyAllStates(vk_command_buffer);
-            deferred_instanced_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-            const auto mesh = render_command.mesh;
-            graphics.draw_call[current_frame_index]++;
-            graphics.triangles[current_frame_index] +=
-                render_command.mesh->triangles_.size() * render_command.particle_infos->PeekParticleInfoList().size();
-            mesh->DrawIndexed(vk_command_buffer, deferred_instanced_prepass_pipeline->states,
-                              render_command.particle_infos->PeekParticleInfoList().size());
-          });
-
-      vkCmdEndRendering(vk_command_buffer);
-    }
-    GeometryStorage::BindSkinnedVertices(vk_command_buffer);
-    {
-      const auto depth_attachment =
-          camera->render_texture_->GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
-      render_info.pDepthAttachment = &depth_attachment;
-      std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
-      camera->AppendGBufferColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD,
-                                                VK_ATTACHMENT_STORE_OP_STORE);
-      render_info.colorAttachmentCount = color_attachment_infos.size();
-      render_info.pColorAttachments = color_attachment_infos.data();
-
-      const auto& deferred_skinned_prepass_pipeline =
-          Platform::GetGraphicsPipeline("STANDARD_SKINNED_DEFERRED_PREPASS");
-      deferred_skinned_prepass_pipeline->states.ResetAllStates(color_attachment_infos.size());
-      deferred_skinned_prepass_pipeline->states.view_port = viewport;
-      deferred_skinned_prepass_pipeline->states.scissor = scissor;
-      vkCmdBeginRendering(vk_command_buffer, &render_info);
-      deferred_skinned_prepass_pipeline->Bind(vk_command_buffer);
-      deferred_skinned_prepass_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
-
-      render_instances->deferred_skinned_render_instances.Dispatch([&](const SkinnedRenderInstance& render_command) {
-        deferred_skinned_prepass_pipeline->BindDescriptorSet(
-            vk_command_buffer, 1, render_command.bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
-        RenderInstancePushConstant push_constant;
-        push_constant.camera_index = camera_index;
-        push_constant.instance_index = render_command.instance_index;
-        deferred_skinned_prepass_pipeline->states.polygon_mode =
-            wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
-        deferred_skinned_prepass_pipeline->states.cull_mode = render_command.cull_mode;
-        deferred_skinned_prepass_pipeline->states.line_width = render_command.line_width;
-        deferred_skinned_prepass_pipeline->states.ApplyAllStates(vk_command_buffer);
-        deferred_skinned_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        const auto skinned_mesh = render_command.skinned_mesh;
-        graphics.draw_call[current_frame_index]++;
-        graphics.triangles[current_frame_index] += render_command.skinned_mesh->skinned_triangles_.size();
-        skinned_mesh->DrawIndexed(vk_command_buffer, deferred_skinned_prepass_pipeline->states, 1);
-      });
-
-      vkCmdEndRendering(vk_command_buffer);
-    }
-    GeometryStorage::BindStrandPoints(vk_command_buffer);
-    {
-      const auto depth_attachment =
-          camera->render_texture_->GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
-      render_info.pDepthAttachment = &depth_attachment;
-      std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
-      camera->AppendGBufferColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD,
-                                                VK_ATTACHMENT_STORE_OP_STORE);
-      render_info.colorAttachmentCount = color_attachment_infos.size();
-      render_info.pColorAttachments = color_attachment_infos.data();
-
-      const auto& deferred_strands_prepass_pipeline =
-          Platform::GetGraphicsPipeline("STANDARD_STRANDS_DEFERRED_PREPASS");
-      deferred_strands_prepass_pipeline->states.ResetAllStates(color_attachment_infos.size());
-      deferred_strands_prepass_pipeline->states.view_port = viewport;
-      deferred_strands_prepass_pipeline->states.scissor = scissor;
-
-      vkCmdBeginRendering(vk_command_buffer, &render_info);
-      deferred_strands_prepass_pipeline->Bind(vk_command_buffer);
-      deferred_strands_prepass_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
-      render_instances->deferred_strands_render_instances.Dispatch([&](const StrandsRenderInstance& render_command) {
-        RenderInstancePushConstant push_constant;
-        push_constant.camera_index = camera_index;
-        push_constant.instance_index = render_command.instance_index;
-        deferred_strands_prepass_pipeline->states.polygon_mode =
-            wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
-        deferred_strands_prepass_pipeline->states.cull_mode = render_command.cull_mode;
-        deferred_strands_prepass_pipeline->states.line_width = render_command.line_width;
-        deferred_strands_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        const auto strands = render_command.m_strands;
-        graphics.draw_call[current_frame_index]++;
-        graphics.strands_segments[current_frame_index] += render_command.m_strands->segments_.size();
-        strands->DrawIndexed(vk_command_buffer, deferred_strands_prepass_pipeline->states, 1);
-      });
-
-      vkCmdEndRendering(vk_command_buffer);
-    }
+    });
 
 #pragma endregion
-#pragma region Lighting pass
-    GeometryStorage::BindVertices(vk_command_buffer);
-    {
-      camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    const auto editor_layer = Application::GetLayer<EditorLayer>();
+    bool is_scene_camera = false;
+    bool need_fade = false;
+    if (editor_layer) {
+      if (camera.get() == editor_layer->GetSceneCamera().get())
+        is_scene_camera = true;
+      if (need_fade_ && editor_layer->highlight_selection_)
+        need_fade = true;
+    }
+#pragma region Deferred Rendering
+    Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
+#pragma region Viewport and scissor
+      VkRect2D render_area;
+      render_area.offset = {0, 0};
+      render_area.extent.width = camera->GetSize().x;
+      render_area.extent.height = camera->GetSize().y;
+      VkViewport viewport;
+      viewport.x = 0.0f;
+      viewport.y = 0.0f;
+      viewport.width = camera->GetSize().x;
+      viewport.height = camera->GetSize().y;
+      viewport.minDepth = 0.0f;
+      viewport.maxDepth = 1.0f;
+
+      VkRect2D scissor;
+      scissor.offset = {0, 0};
+      scissor.extent.width = camera->GetSize().x;
+      scissor.extent.height = camera->GetSize().y;
+
+      camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
       camera->render_texture_->GetDepthImage()->TransitImageLayout(vk_command_buffer,
-                                                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-      std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
-      camera->GetRenderTexture()->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                                             VK_ATTACHMENT_STORE_OP_STORE);
+                                                                   VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+
       VkRenderingInfo render_info{};
       render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
       render_info.renderArea = render_area;
       render_info.layerCount = 1;
-      render_info.colorAttachmentCount = color_attachment_infos.size();
-      render_info.pColorAttachments = color_attachment_infos.data();
-      render_info.pDepthAttachment = VK_NULL_HANDLE;
-      lighting_->directional_light_shadow_map_->TransitImageLayout(vk_command_buffer,
-                                                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-      const auto& deferred_lighting_pipeline =
-          is_scene_camera ? Platform::GetGraphicsPipeline("STANDARD_DEFERRED_LIGHTING_SCENE_CAMERA")
-                          : Platform::GetGraphicsPipeline("STANDARD_DEFERRED_LIGHTING");
-      vkCmdBeginRendering(vk_command_buffer, &render_info);
-      deferred_lighting_pipeline->states.ResetAllStates(color_attachment_infos.size());
-      deferred_lighting_pipeline->states.depth_test = false;
-
-      deferred_lighting_pipeline->Bind(vk_command_buffer);
-      deferred_lighting_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0, per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
-      deferred_lighting_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                                    camera->g_buffer_descriptor_set_->GetVkDescriptorSet());
-      deferred_lighting_pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                                    lighting_->lighting_descriptor_set->GetVkDescriptorSet());
-      deferred_lighting_pipeline->states.view_port = viewport;
-      deferred_lighting_pipeline->states.scissor = scissor;
-      RenderInstancePushConstant push_constant;
-      push_constant.camera_index = camera_index;
-      push_constant.light_split_index = need_fade ? glm::max(128, 256 - editor_layer->selection_alpha_) : 256;
-      push_constant.instance_index = need_fade ? 1 : 0;
-      deferred_lighting_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      const auto mesh = Resources::GetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
-
-      mesh->DrawIndexed(vk_command_buffer, deferred_lighting_pipeline->states, 1);
-      vkCmdEndRendering(vk_command_buffer);
-    }
 #pragma endregion
-  });
-#pragma endregion
+#pragma region Geometry pass
+      GeometryStorage::BindVertices(vk_command_buffer);
+      {
+        const auto depth_attachment =
+            camera->render_texture_->GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
+        render_info.pDepthAttachment = &depth_attachment;
+        std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
+        camera->AppendGBufferColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                                  VK_ATTACHMENT_STORE_OP_STORE);
+        render_info.colorAttachmentCount = color_attachment_infos.size();
+        render_info.pColorAttachments = color_attachment_infos.data();
 
+        const auto& deferred_prepass_pipeline = use_mesh_shader
+                                                    ? Platform::GetGraphicsPipeline("STANDARD_DEFERRED_PREPASS_MESH")
+                                                    : Platform::GetGraphicsPipeline("STANDARD_DEFERRED_PREPASS");
+        deferred_prepass_pipeline->states.ResetAllStates(color_attachment_infos.size());
+        deferred_prepass_pipeline->states.view_port = viewport;
+        deferred_prepass_pipeline->states.scissor = scissor;
+        deferred_prepass_pipeline->states.polygon_mode = wire_frame ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+        vkCmdBeginRendering(vk_command_buffer, &render_info);
+        deferred_prepass_pipeline->Bind(vk_command_buffer);
+        deferred_prepass_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+        if (enable_indirect_rendering && !use_mesh_shader) {
+          if (!render_instances_list[current_frame_index]->deferred_render_instances.render_commands.empty()) {
+            RenderInstancePushConstant push_constant;
+            push_constant.camera_index = camera_index;
+            push_constant.instance_index = 0;
+            deferred_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+            GeometryStorage::BindVertices(vk_command_buffer);
+            graphics.draw_call[current_frame_index]++;
+            graphics.triangles[current_frame_index] += render_instances_list[current_frame_index]->total_mesh_triangles;
+            vkCmdDrawIndexedIndirect(
+                vk_command_buffer,
+                render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(),
+                0, render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands.size(),
+                sizeof(VkDrawIndexedIndirectCommand));
+          }
+        } else {
+          for (const auto& render_command :
+               render_instances_list[current_frame_index]->deferred_render_instances.render_commands) {
+            RenderInstancePushConstant push_constant;
+            push_constant.camera_index = camera_index;
+            push_constant.instance_index = render_command.instance_index;
+            deferred_prepass_pipeline->states.polygon_mode =
+                wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
+            deferred_prepass_pipeline->states.cull_mode = render_command.cull_mode;
+            deferred_prepass_pipeline->states.line_width = render_command.line_width;
+            deferred_prepass_pipeline->states.ApplyAllStates(vk_command_buffer);
+            deferred_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+            if (use_mesh_shader) {
+              deferred_prepass_pipeline->BindDescriptorSet(
+                  vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+              graphics.draw_call[current_frame_index]++;
+              graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
+
+              const uint32_t count =
+                  (render_command.meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
+              vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+            } else {
+              const auto mesh = render_command.mesh;
+              graphics.draw_call[current_frame_index]++;
+              graphics.triangles[current_frame_index] += render_command.mesh->triangles_.size();
+              mesh->DrawIndexed(vk_command_buffer, deferred_prepass_pipeline->states, 1);
+            }
+          }
+        }
+
+        vkCmdEndRendering(vk_command_buffer);
+      }
+      {
+        const auto depth_attachment =
+            camera->render_texture_->GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
+        render_info.pDepthAttachment = &depth_attachment;
+        std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
+        camera->AppendGBufferColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD,
+                                                  VK_ATTACHMENT_STORE_OP_STORE);
+        render_info.colorAttachmentCount = color_attachment_infos.size();
+        render_info.pColorAttachments = color_attachment_infos.data();
+
+        const auto& deferred_instanced_prepass_pipeline =
+            Platform::GetGraphicsPipeline("STANDARD_INSTANCED_DEFERRED_PREPASS");
+        deferred_instanced_prepass_pipeline->states.ResetAllStates(color_attachment_infos.size());
+        deferred_instanced_prepass_pipeline->states.view_port = viewport;
+        deferred_instanced_prepass_pipeline->states.scissor = scissor;
+        vkCmdBeginRendering(vk_command_buffer, &render_info);
+        deferred_instanced_prepass_pipeline->Bind(vk_command_buffer);
+        deferred_instanced_prepass_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+        for (const auto& render_command :
+             render_instances_list[current_frame_index]->deferred_instanced_render_instances.render_commands) {
+          deferred_instanced_prepass_pipeline->BindDescriptorSet(
+              vk_command_buffer, 1, render_command.particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
+          RenderInstancePushConstant push_constant;
+          push_constant.camera_index = camera_index;
+          push_constant.instance_index = render_command.instance_index;
+          deferred_instanced_prepass_pipeline->states.polygon_mode =
+              wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
+          deferred_instanced_prepass_pipeline->states.cull_mode = render_command.cull_mode;
+          deferred_instanced_prepass_pipeline->states.line_width = render_command.line_width;
+          deferred_instanced_prepass_pipeline->states.ApplyAllStates(vk_command_buffer);
+          deferred_instanced_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          const auto mesh = render_command.mesh;
+          graphics.draw_call[current_frame_index]++;
+          graphics.triangles[current_frame_index] +=
+              render_command.mesh->triangles_.size() * render_command.particle_infos->PeekParticleInfoList().size();
+          mesh->DrawIndexed(vk_command_buffer, deferred_instanced_prepass_pipeline->states,
+                            render_command.particle_infos->PeekParticleInfoList().size());
+        }
+
+        vkCmdEndRendering(vk_command_buffer);
+      }
+      GeometryStorage::BindSkinnedVertices(vk_command_buffer);
+      {
+        const auto depth_attachment =
+            camera->render_texture_->GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
+        render_info.pDepthAttachment = &depth_attachment;
+        std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
+        camera->AppendGBufferColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD,
+                                                  VK_ATTACHMENT_STORE_OP_STORE);
+        render_info.colorAttachmentCount = color_attachment_infos.size();
+        render_info.pColorAttachments = color_attachment_infos.data();
+
+        const auto& deferred_skinned_prepass_pipeline =
+            Platform::GetGraphicsPipeline("STANDARD_SKINNED_DEFERRED_PREPASS");
+        deferred_skinned_prepass_pipeline->states.ResetAllStates(color_attachment_infos.size());
+        deferred_skinned_prepass_pipeline->states.view_port = viewport;
+        deferred_skinned_prepass_pipeline->states.scissor = scissor;
+        vkCmdBeginRendering(vk_command_buffer, &render_info);
+        deferred_skinned_prepass_pipeline->Bind(vk_command_buffer);
+        deferred_skinned_prepass_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+
+        for (const auto& render_command :
+             render_instances_list[current_frame_index]->deferred_skinned_render_instances.render_commands) {
+          deferred_skinned_prepass_pipeline->BindDescriptorSet(
+              vk_command_buffer, 1, render_command.bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
+          RenderInstancePushConstant push_constant;
+          push_constant.camera_index = camera_index;
+          push_constant.instance_index = render_command.instance_index;
+          deferred_skinned_prepass_pipeline->states.polygon_mode =
+              wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
+          deferred_skinned_prepass_pipeline->states.cull_mode = render_command.cull_mode;
+          deferred_skinned_prepass_pipeline->states.line_width = render_command.line_width;
+          deferred_skinned_prepass_pipeline->states.ApplyAllStates(vk_command_buffer);
+          deferred_skinned_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          const auto skinned_mesh = render_command.skinned_mesh;
+          graphics.draw_call[current_frame_index]++;
+          graphics.triangles[current_frame_index] += render_command.skinned_mesh->skinned_triangles_.size();
+          skinned_mesh->DrawIndexed(vk_command_buffer, deferred_skinned_prepass_pipeline->states, 1);
+        }
+
+        vkCmdEndRendering(vk_command_buffer);
+      }
+      GeometryStorage::BindStrandPoints(vk_command_buffer);
+      {
+        const auto depth_attachment =
+            camera->render_texture_->GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
+        render_info.pDepthAttachment = &depth_attachment;
+        std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
+        camera->AppendGBufferColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD,
+                                                  VK_ATTACHMENT_STORE_OP_STORE);
+        render_info.colorAttachmentCount = color_attachment_infos.size();
+        render_info.pColorAttachments = color_attachment_infos.data();
+
+        const auto& deferred_strands_prepass_pipeline =
+            Platform::GetGraphicsPipeline("STANDARD_STRANDS_DEFERRED_PREPASS");
+        deferred_strands_prepass_pipeline->states.ResetAllStates(color_attachment_infos.size());
+        deferred_strands_prepass_pipeline->states.view_port = viewport;
+        deferred_strands_prepass_pipeline->states.scissor = scissor;
+
+        vkCmdBeginRendering(vk_command_buffer, &render_info);
+        deferred_strands_prepass_pipeline->Bind(vk_command_buffer);
+        deferred_strands_prepass_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+        for (const auto& render_command :
+             render_instances_list[current_frame_index]->deferred_strands_render_instances.render_commands) {
+          RenderInstancePushConstant push_constant;
+          push_constant.camera_index = camera_index;
+          push_constant.instance_index = render_command.instance_index;
+          deferred_strands_prepass_pipeline->states.polygon_mode =
+              wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
+          deferred_strands_prepass_pipeline->states.cull_mode = render_command.cull_mode;
+          deferred_strands_prepass_pipeline->states.line_width = render_command.line_width;
+          deferred_strands_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          const auto strands = render_command.strands;
+          graphics.draw_call[current_frame_index]++;
+          graphics.strands_segments[current_frame_index] += render_command.strands->segments_.size();
+          strands->DrawIndexed(vk_command_buffer, deferred_strands_prepass_pipeline->states, 1);
+        }
+
+        vkCmdEndRendering(vk_command_buffer);
+      }
+
+#pragma endregion
+#pragma region Lighting pass
+      GeometryStorage::BindVertices(vk_command_buffer);
+      {
+        camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        camera->render_texture_->GetDepthImage()->TransitImageLayout(vk_command_buffer,
+                                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
+        camera->GetRenderTexture()->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                                               VK_ATTACHMENT_STORE_OP_STORE);
+        VkRenderingInfo render_info{};
+        render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        render_info.renderArea = render_area;
+        render_info.layerCount = 1;
+        render_info.colorAttachmentCount = color_attachment_infos.size();
+        render_info.pColorAttachments = color_attachment_infos.data();
+        render_info.pDepthAttachment = VK_NULL_HANDLE;
+        lighting_->directional_light_shadow_map_->TransitImageLayout(vk_command_buffer,
+                                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        const auto& deferred_lighting_pipeline =
+            is_scene_camera ? Platform::GetGraphicsPipeline("STANDARD_DEFERRED_LIGHTING_SCENE_CAMERA")
+                            : Platform::GetGraphicsPipeline("STANDARD_DEFERRED_LIGHTING");
+        vkCmdBeginRendering(vk_command_buffer, &render_info);
+        deferred_lighting_pipeline->states.ResetAllStates(color_attachment_infos.size());
+        deferred_lighting_pipeline->states.depth_test = false;
+
+        deferred_lighting_pipeline->Bind(vk_command_buffer);
+        deferred_lighting_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+        deferred_lighting_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                                      camera->g_buffer_descriptor_set_->GetVkDescriptorSet());
+        deferred_lighting_pipeline->BindDescriptorSet(vk_command_buffer, 2,
+                                                      lighting_->lighting_descriptor_set->GetVkDescriptorSet());
+        deferred_lighting_pipeline->states.view_port = viewport;
+        deferred_lighting_pipeline->states.scissor = scissor;
+        RenderInstancePushConstant push_constant;
+        push_constant.camera_index = camera_index;
+        push_constant.light_split_index = need_fade ? glm::max(128, 256 - editor_layer->selection_alpha_) : 256;
+        push_constant.instance_index = need_fade ? 1 : 0;
+        deferred_lighting_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+        const auto mesh = Resources::GetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
+
+        mesh->DrawIndexed(vk_command_buffer, deferred_lighting_pipeline->states, 1);
+        vkCmdEndRendering(vk_command_buffer);
+      }
+#pragma endregion
+    });
+#pragma endregion
 #pragma region ForwardRendering
 
 #pragma endregion
-
-  // Post processing
-  if (const auto post_processing_stack = camera->post_processing_stack.Get<PostProcessingStack>()) {
-    post_processing_stack->Process(camera);
+    // Post processing
+    if (const auto post_processing_stack = camera->post_processing_stack.Get<PostProcessingStack>()) {
+      post_processing_stack->Process(camera);
+    }
+    camera->rendered_ = true;
+    camera->require_rendering_ = false;
   }
+}
 
-  camera->rendered_ = true;
-  camera->require_rendering_ = false;
+void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_transform,
+    const std::shared_ptr<Camera>& camera) {
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const int camera_index = GetCameraIndex(camera->GetHandle());
+  const auto scene = Application::GetActiveScene();
+  if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
+    const auto& ray_tracing_pipeline = Platform::GetRayTracingPipeline("RAY_TRACING_CAMERA");
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+      Platform::EverythingBarrier(vk_command_buffer);
+      std::vector<VkBufferMemoryBarrier> barriers;
+      auto get_buffer_barrier = [](const std::shared_ptr<Buffer>& buffer) {
+        VkBufferMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.buffer = buffer->GetVkBuffer();
+        barrier.size = buffer->GetVmaAllocationInfo().size;
+        return barrier;
+      };
+      // barriers.emplace_back(get_buffer_barrier(*dynamic_vertex_buffer));
+      // barriers.emplace_back(get_buffer_barrier(*dynamic_index_buffer));
+      // barriers.emplace_back(get_buffer_barrier(*instances_buffer));
+      // barriers.emplace_back(get_buffer_barrier(*ubo));
+
+      vkCmdPipelineBarrier(vk_command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                           VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_HOST_BIT, 0, 0,
+                           VK_NULL_HANDLE,                                           // memory barrier
+                           static_cast<uint32_t>(barriers.size()), barriers.data(),  // buffer memory barrier
+                           0, VK_NULL_HANDLE);                                       // image memory barrier
+
+      ray_tracing_pipeline->Bind(vk_command_buffer);
+
+      ray_tracing_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                              per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+      ray_tracing_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                              ray_tracing_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+
+      ray_tracing_pipeline->BindDescriptorSet(vk_command_buffer, 2,
+                                              camera->render_texture_->storage_descriptor_set_->GetVkDescriptorSet());
+
+      RayTracingPushConstant push_constant;
+      push_constant.camera_index = camera_index;
+      push_constant.frame_id = camera->frame_count_;
+      ray_tracing_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+
+      ray_tracing_pipeline->Trace(vk_command_buffer, camera->render_texture_->GetExtent().width,
+                                  camera->render_texture_->GetExtent().height, 1);
+      Platform::EverythingBarrier(vk_command_buffer);
+    });
+    camera->rendered_ = true;
+    camera->require_rendering_ = false;
+  }
+  
 }
 
 void RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
                            glm::mat4 model, bool cast_shadow) {
+  if (!material || !mesh || !mesh->meshlet_range_ || !mesh->triangle_range_)
+    return;
+  if (mesh->UnsafeGetVertices().empty() || mesh->UnsafeGetTriangles().empty())
+    return;
   auto scene = Application::GetActiveScene();
   MaterialInfoBlock material_info_block;
   material->UpdateMaterialInfoBlock(material_info_block);
-  auto material_index = render_instances->RegisterMaterialIndex(material->GetHandle(), material_info_block);
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  auto material_index =
+      render_instances_list[current_frame_index]->RegisterMaterialIndex(material->GetHandle(), material_info_block);
   InstanceInfoBlock instance_info_block;
   instance_info_block.model.value = model;
   instance_info_block.material_index = material_index;
@@ -2071,8 +2176,9 @@ void RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_
   instance_info_block.meshlet_size = mesh->meshlet_range_->range;
 
   auto entity_handle = Handle();
-  auto instance_index = render_instances->RegisterInstanceIndex(entity_handle, instance_info_block);
-  RenderInstance render_instance;
+  auto instance_index =
+      render_instances_list[current_frame_index]->RegisterInstanceIndex(entity_handle, instance_info_block);
+  MeshRenderInstance render_instance;
   render_instance.command_type = RenderCommandType::FromApi;
   render_instance.owner = Entity();
   render_instance.mesh = mesh;
@@ -2082,24 +2188,25 @@ void RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_
   if (instance_info_block.entity_selected == 1)
     need_fade_ = true;
   if (material->draw_settings.blending) {
-    render_instances->transparent_render_instances.render_commands.push_back(render_instance);
+    render_instances_list[current_frame_index]->transparent_render_instances.render_commands.push_back(render_instance);
   } else {
-    render_instances->deferred_render_instances.render_commands.push_back(render_instance);
+    render_instances_list[current_frame_index]->deferred_render_instances.render_commands.push_back(render_instance);
   }
 
-  auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands_.emplace_back();
+  auto& new_mesh_task =
+      render_instances_list[current_frame_index]->mesh_draw_mesh_tasks_indirect_commands.emplace_back();
   new_mesh_task.groupCountX = 1;
   new_mesh_task.groupCountY = 1;
   new_mesh_task.groupCountZ = 1;
 
-  auto& new_draw_task = mesh_draw_indexed_indirect_commands_.emplace_back();
+  auto& new_draw_task = render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands.emplace_back();
   new_draw_task.instanceCount = 1;
   new_draw_task.firstIndex = mesh->triangle_range_->offset * 3;
   new_draw_task.indexCount = static_cast<uint32_t>(mesh->triangles_.size() * 3);
   new_draw_task.vertexOffset = 0;
   new_draw_task.firstInstance = 0;
 
-  total_mesh_triangles_ += mesh->triangles_.size();
+  render_instances_list[current_frame_index]->total_mesh_triangles += mesh->triangles_.size();
 }
 
 const std::shared_ptr<DescriptorSet>& RenderLayer::GetPerFrameDescriptorSet() const {

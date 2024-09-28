@@ -24,6 +24,8 @@ struct CameraInfoBlock {
 };
 
 class Camera final : public IPrivateComponent {
+  
+
   friend class Platform;
   friend class RenderLayer;
   friend class EditorLayer;
@@ -56,6 +58,9 @@ class Camera final : public IPrivateComponent {
   void UpdateGBuffer();
 
  public:
+  enum class CameraRenderMode { Rasterization, RayTracing };
+  CameraRenderMode camera_render_mode = CameraRenderMode::Rasterization;
+
   void TransitGBufferImageLayout(VkCommandBuffer vk_command_buffer, VkImageLayout target_layout) const;
 
   void UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const GlobalTransform& global_transform);

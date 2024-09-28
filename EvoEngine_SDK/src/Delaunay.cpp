@@ -6,6 +6,7 @@
 #if USE_GEOGRAM
 #include "geogram/basic/psm.h"
 #include "geogram/delaunay/parallel_delaunay_3d.h"
+#include "geogram/basic/common.h"
 #else
 #include "tetgen.h"
 
@@ -13,7 +14,12 @@
 using namespace evo_engine;
 
 #if USE_GEOGRAM
+bool geogram_initialized = false;
 GEO::Delaunay_var GeogramProcessDelaunay3D(const bool keeps_infinite, const std::vector<glm::vec3>& points) {
+  if (!geogram_initialized) {
+    geogram_initialized = true;
+    GEO::initialize(GEO::GEOGRAM_INSTALL_ALL);
+  }
   std::vector<double> converted_points(points.size() * 3);
   Jobs::RunParallelFor(points.size(), [&](const auto i) {
     converted_points[i * 3] = points[i].x;

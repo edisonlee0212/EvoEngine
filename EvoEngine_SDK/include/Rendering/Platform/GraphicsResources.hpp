@@ -2,6 +2,8 @@
 #include "Vertex.hpp"
 #include "shaderc/shaderc.h"
 namespace evo_engine {
+struct MeshRenderInstance;
+class Scene;
 class CommandBuffer;
 
 class IGraphicsResource {
@@ -201,13 +203,13 @@ class Buffer final : public IGraphicsResource {
   std::vector<uint32_t> queue_family_indices_ = {};
   VmaAllocationCreateInfo vma_allocation_create_info_ = {};
 
-  void UploadData(size_t size, const void* src);
-  void DownloadData(size_t size, void* dst);
   void Allocate(VkBufferCreateInfo buffer_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info);
 
  public:
   explicit Buffer(size_t staging_buffer_size, bool random_access = false);
   explicit Buffer(const VkBufferCreateInfo& buffer_create_info);
+  void UploadData(size_t size, const void* src);
+  void DownloadData(size_t size, void* dst);
   ~Buffer() override;
   Buffer(const VkBufferCreateInfo& buffer_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info);
   void Resize(VkDeviceSize new_size);
@@ -227,7 +229,7 @@ class Buffer final : public IGraphicsResource {
 
   [[nodiscard]] VmaAllocation GetVmaAllocation() const;
 
-  [[nodiscard]] uint32_t GetDeviceAddress() const;
+  [[nodiscard]] VkDeviceAddress GetDeviceAddress() const;
 
   [[nodiscard]] const VmaAllocationInfo& GetVmaAllocationInfo() const;
 };
@@ -284,29 +286,7 @@ class DescriptorSetLayout final : public IGraphicsResource {
   void Initialize();
 };
 
-class DescriptorSet final : public IGraphicsResource {
-  std::shared_ptr<DescriptorSetLayout> descriptor_set_layout_;
-  VkDescriptorSet descriptor_set_ = VK_NULL_HANDLE;
 
- public:
-  [[nodiscard]] const VkDescriptorSet& GetVkDescriptorSet() const;
-  ~DescriptorSet() override;
-  DescriptorSet(const std::shared_ptr<DescriptorSetLayout>& target_layout);
-  /**
-   * \brief UpdateImageDescriptorBinding
-   * \param binding_index Target binding
-   * \param image_info
-   * \param array_element
-   * \param imageInfos The image info for update. Make sure the size is max frame size.
-   */
-  void UpdateImageDescriptorBinding(uint32_t binding_index, const VkDescriptorImageInfo& image_info,
-                                    uint32_t array_element = 0) const;
-  void UpdateBufferDescriptorBinding(uint32_t binding_index, const VkDescriptorBufferInfo& buffer_info,
-                                     uint32_t array_element = 0) const;
-
-  void UpdateBufferDescriptorBinding(uint32_t binding_index, const std::shared_ptr<Buffer>& buffer,
-                                     uint32_t array_element = 0) const;
-};
 
 class DescriptorPool final : public IGraphicsResource {
   VkDescriptorPool vk_descriptor_pool_ = VK_NULL_HANDLE;
@@ -368,6 +348,12 @@ class CommandQueue final : public IGraphicsResource {
 
  public:
   void Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers,
+              uint32_t offset, uint32_t buffer_count,
+              const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
+              const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores,
+              const std::shared_ptr<Fence>& fence) const;
+
+  void Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers,
               const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
               const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores,
               const std::shared_ptr<Fence>& fence) const;
@@ -386,20 +372,56 @@ class CommandQueue final : public IGraphicsResource {
   void WaitIdle() const;
 };
 
-class BLAS final : public IGraphicsResource {
+class BottomLevelAccelerationStructure final : public IGraphicsResource {
   VkAccelerationStructureKHR vk_acceleration_structure_khr_ = VK_NULL_HANDLE;
   std::shared_ptr<Buffer> acceleration_structure_buffer_{};
-
+  VkDeviceAddress device_address_{};
  public:
-  explicit BLAS(const std::vector<Vertex>& vertices, const std::vector<glm::uvec3>& triangles);
-
-  [[nodiscard]] uint64_t GetDeviceAddress() const;
+  explicit BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices, const std::vector<glm::uvec3>& triangles);
+  ~BottomLevelAccelerationStructure() override;
+  [[nodiscard]] VkDeviceAddress GetDeviceAddress() const;
 };
-class TLAS final : public IGraphicsResource {
+
+class TopLevelAccelerationStructure final : public IGraphicsResource {
   VkAccelerationStructureKHR vk_acceleration_structure_khr_ = VK_NULL_HANDLE;
-  std::shared_ptr<Buffer> buffer_;
+  std::shared_ptr<Buffer> acceleration_structure_buffer_{};
+  VkDeviceAddress device_address_{};
+ public:
+  explicit TopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene,
+                                         const std::vector<MeshRenderInstance>& render_instances);
+  ~TopLevelAccelerationStructure() override;
+
+  [[nodiscard]] VkAccelerationStructureKHR GetVkAccelerationStructure() const;
+  [[nodiscard]] VkDeviceAddress GetDeviceAddress() const;
+};
+
+class DescriptorSet final : public IGraphicsResource {
+  std::shared_ptr<DescriptorSetLayout> descriptor_set_layout_;
+  VkDescriptorSet descriptor_set_ = VK_NULL_HANDLE;
 
  public:
-  explicit TLAS();
+  [[nodiscard]] const VkDescriptorSet& GetVkDescriptorSet() const;
+  ~DescriptorSet() override;
+  DescriptorSet(const std::shared_ptr<DescriptorSetLayout>& target_layout);
+  /**
+   * \brief UpdateImageDescriptorBinding
+   * \param binding_index Target binding
+   * \param image_info
+   * \param array_element
+   * \param imageInfos The image info for update. Make sure the size is max frame size.
+   */
+  void UpdateImageDescriptorBinding(uint32_t binding_index, const VkDescriptorImageInfo& image_info,
+                                    uint32_t array_element = 0) const;
+
+  void UpdateAccelerationStructureDescriptorBinding(uint32_t binding_index,
+                                                    const VkAccelerationStructureKHR& acceleration_structure) const;
+  void UpdateAccelerationStructureDescriptorBinding(
+      uint32_t binding_index, const std::shared_ptr<TopLevelAccelerationStructure>& acceleration_structure) const;
+  void UpdateBufferDescriptorBinding(uint32_t binding_index, const VkDescriptorBufferInfo& buffer_info,
+                                     uint32_t array_element = 0) const;
+
+  void UpdateBufferDescriptorBinding(uint32_t binding_index, const std::shared_ptr<Buffer>& buffer,
+                                     uint32_t array_element = 0) const;
 };
+
 }  // namespace evo_engine
