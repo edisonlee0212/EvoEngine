@@ -139,7 +139,7 @@ class ComponentDataChunk {
 
  public:
   template <typename T>
-  T GetData(const size_t &offset);
+  T GetData(const size_t &offset) const;
   [[nodiscard]] void *RefData(const size_t &offset);
   [[nodiscard]] const void *PeekData(const size_t &offset) const;
   void SetData(const size_t &offset, const size_t &size, const void *data);

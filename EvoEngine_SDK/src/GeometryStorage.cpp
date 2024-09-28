@@ -34,7 +34,7 @@ void GeometryStorage::UploadData() {
       buffer_info.offset = 0;
       buffer_info.range = VK_WHOLE_SIZE;
       buffer_info.buffer = particle_info_list_data.m_buffer->GetVkBuffer();
-      particle_info_list_data.descriptor_set->UpdateBufferDescriptorBinding(18, buffer_info, 0);
+      particle_info_list_data.descriptor_set->UpdateBufferDescriptorBinding(0, buffer_info, 0);
 
       particle_info_list_data.m_status = ParticleInfoListDataStatus::Updated;
     }
@@ -51,6 +51,7 @@ void GeometryStorage::UploadData() {
 
   for (const auto& triangle_range : storage.skinned_triangle_range_descriptor_) {
     triangle_range->prev_frame_index_count = triangle_range->index_count;
+    triangle_range->prev_frame_offset = triangle_range->offset;
     triangle_range->prev_frame_offset = triangle_range->offset;
   }
 
@@ -115,6 +116,11 @@ void GeometryStorage::Initialize() {
   storage.segment_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage.require_strand_mesh_data_device_update_ = false;
+}
+
+const std::shared_ptr<Buffer>& GeometryStorage::GetTriangleBuffer() {
+  const auto& storage = GetInstance();
+  return storage.triangle_buffer_;
 }
 
 const std::shared_ptr<Buffer>& GeometryStorage::GetVertexBuffer() {

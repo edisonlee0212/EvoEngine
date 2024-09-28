@@ -421,8 +421,8 @@ namespace evo_engine {
 		PointCloudScanningLaunchParams m_pointCloudScanningLaunchParams;
 
 		RayTracerPipeline m_cameraRenderingPipeline;
-		RayTracerPipeline m_illuminationEstimationPipeline;
-		RayTracerPipeline m_pointCloudScanningPipeline;
+                RayTracerPipeline m_illuminationEstimationPipeline;
+                RayTracerPipeline m_pointCloudScanningPipeline;
 
 		/*! creates the module that contains all the programs we are going
 		  to use. in this simple example, we use a single module from a

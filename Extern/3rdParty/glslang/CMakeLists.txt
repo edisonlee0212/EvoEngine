@@ -13,4 +13,10 @@ set(3RDPARTY_INCLUDES
 	${CMAKE_CURRENT_SOURCE_DIR}/glslang/glslang/Public
 	PARENT_SCOPE)
 
+set(3RDPARTY_LIBS ${3RDPARTY_LIBS} 
+    ${TARGET_NAME}::${TARGET_NAME}
+	${TARGET_NAME}::SPIRV
+	${TARGET_NAME}::glslang-default-resource-limits
+    PARENT_SCOPE)
+
 set_property(DIRECTORY ${TARGET_NAME} PROPERTY FOLDER "3rdparty")

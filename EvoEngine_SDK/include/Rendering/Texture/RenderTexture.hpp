@@ -12,7 +12,6 @@ struct RenderTextureCreateInfo {
 class RenderTexture {
   friend class Platform;
   friend class RenderLayer;
-  friend class Camera;
   std::shared_ptr<Image> color_image_ = {};
   std::shared_ptr<ImageView> color_image_view_ = {};
 
@@ -28,8 +27,8 @@ class RenderTexture {
   bool color_ = true;
   bool depth_ = true;
   void Initialize(const RenderTextureCreateInfo& render_texture_create_info);
-  std::shared_ptr<DescriptorSet> descriptor_set_;
-
+  std::shared_ptr<DescriptorSet> present_descriptor_set_;
+  std::shared_ptr<DescriptorSet> storage_descriptor_set_;
  public:
   void Clear(VkCommandBuffer vk_command_buffer ) const;
   explicit RenderTexture(const RenderTextureCreateInfo& render_texture_create_info);

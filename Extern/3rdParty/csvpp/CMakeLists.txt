@@ -28,6 +28,11 @@ add_library (
     ALIAS
     ${TARGET_NAME}
 )
+
+set(3RDPARTY_LIBS ${3RDPARTY_LIBS} 
+    ${TARGET_NAME}
+    PARENT_SCOPE)
+
 set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/csvpp/include PARENT_SCOPE)
 
 set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "3rdparty")

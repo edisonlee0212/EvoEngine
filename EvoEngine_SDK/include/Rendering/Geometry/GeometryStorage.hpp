@@ -112,6 +112,7 @@ class GeometryStorage final {
   std::vector<ParticleInfoListData> particle_info_list_data_list_;
 
  public:
+  static const std::shared_ptr<Buffer>& GetTriangleBuffer();
   static const std::shared_ptr<Buffer>& GetVertexBuffer();
   static const std::shared_ptr<Buffer>& GetMeshletBuffer();
 

@@ -3,9 +3,19 @@
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "ISingleton.hpp"
-
+#include "RayTracingPipeline.hpp"
 #define ENABLE_EXTERNAL_MEMORY true
 #define ENABLE_NV_RAY_TRACING_VALIDATION false
+#define GRAPHICS_VALIDATION true
+#define USE_NSIGHT_AFTERMATH true
+// Enables the Nsight Aftermath code instrumentation for GPU crash dump creation.
+
+#if USE_NSIGHT_AFTERMATH
+#  include "NsightAftermathGpuCrashTracker.h"
+#  include "NsightAftermathHelpers.h"
+#  include "NsightAftermathShaderDatabase.h"
+#endif
+
 namespace evo_engine {
 
 class Platform final {
@@ -40,11 +50,12 @@ class Platform final {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES};
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties_ext = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
-
 #if ENABLE_NV_RAY_TRACING_VALIDATION
     VkPhysicalDeviceRayTracingValidationFeaturesNV ray_tracing_validation_features_nv = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV};
 #endif
+
+
     VkPhysicalDeviceMemoryProperties vk_physical_device_memory_properties = {};
 
     VkPhysicalDeviceFeatures features{};
@@ -77,6 +88,11 @@ class Platform final {
 
   std::vector<std::shared_ptr<PhysicalDevice>> physical_devices_{};
   std::shared_ptr<PhysicalDevice> selected_physical_device{};
+
+#if USE_NSIGHT_AFTERMATH
+  GpuCrashTracker::MarkerMap markerMap;
+  GpuCrashTracker gpu_crash_tracker{markerMap};
+#endif
 
   VkSurfaceKHR vk_surface_ = VK_NULL_HANDLE;
 
@@ -147,6 +163,7 @@ class Platform final {
   unsigned swapchain_version_ = 0;
 
   std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>> graphics_pipelines_;
+  std::unordered_map<std::string, std::shared_ptr<RayTracingPipeline>> ray_tracing_pipelines_;
   std::unordered_map<std::string, std::shared_ptr<ComputePipeline>> compute_pipelines_;
 
   std::shared_ptr<GraphicsPipeline> bound_graphics_pipeline;
@@ -169,7 +186,12 @@ class Platform final {
                                        const std::shared_ptr<GraphicsPipeline>& graphics_pipeline);
   static void RegisterComputePipeline(const std::string& name,
                                       const std::shared_ptr<ComputePipeline>& compute_pipeline);
+  static void RegisterRayTracingPipeline(const std::string& name,
+                                      const std::shared_ptr<RayTracingPipeline>& ray_tracing_pipeline);
   [[nodiscard]] static const std::shared_ptr<GraphicsPipeline>& GetGraphicsPipeline(const std::string& name);
+  [[nodiscard]] static const std::shared_ptr<ComputePipeline>& GetComputePipeline(const std::string& name);
+  [[nodiscard]] static const std::shared_ptr<RayTracingPipeline>& GetRayTracingPipeline(const std::string& name);
+
   static void RegisterDescriptorSetLayout(const std::string& name,
                                           const std::shared_ptr<DescriptorSetLayout>& descriptor_set_layout);
   [[nodiscard]] static const std::shared_ptr<DescriptorSetLayout>& GetDescriptorSetLayout(const std::string& name);

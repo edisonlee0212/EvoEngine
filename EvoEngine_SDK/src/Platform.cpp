@@ -11,9 +11,9 @@
 #include "Utilities.hpp"
 #include "WindowLayer.hpp"
 #include "vk_mem_alloc.h"
+
 using namespace evo_engine;
 
-#define GRAPHICS_VALIDATION
 VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
                        const VkDebugUtilsMessageTypeFlagsEXT message_type,
                        const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data, void* p_user_data) {
@@ -130,9 +130,29 @@ void Platform::RegisterComputePipeline(const std::string& name,
   graphics.compute_pipelines_[name] = compute_pipeline;
 }
 
+void Platform::RegisterRayTracingPipeline(const std::string& name,
+    const std::shared_ptr<RayTracingPipeline>& ray_tracing_pipeline) {
+  auto& graphics = GetInstance();
+  if (graphics.ray_tracing_pipelines_.find(name) != graphics.ray_tracing_pipelines_.end()) {
+    EVOENGINE_ERROR("RayTracingPipeline with same name exists!");
+    return;
+  }
+  graphics.ray_tracing_pipelines_[name] = ray_tracing_pipeline;
+}
+
 const std::shared_ptr<GraphicsPipeline>& Platform::GetGraphicsPipeline(const std::string& name) {
   const auto& graphics = GetInstance();
   return graphics.graphics_pipelines_.at(name);
+}
+
+const std::shared_ptr<ComputePipeline>& Platform::GetComputePipeline(const std::string& name) {
+  const auto& graphics = GetInstance();
+  return graphics.compute_pipelines_.at(name);
+}
+
+const std::shared_ptr<RayTracingPipeline>& Platform::GetRayTracingPipeline(const std::string& name) {
+  const auto& graphics = GetInstance();
+  return graphics.ray_tracing_pipelines_.at(name);
 }
 
 const std::shared_ptr<DescriptorSetLayout>& Platform::GetDescriptorSetLayout(const std::string& name) {
@@ -437,7 +457,7 @@ void Platform::CreateInstance() {
       required_instance_extension_names_.emplace_back(glfw_extensions[i]);
     }
   }
-#ifdef GRAPHICS_VALIDATION
+#if GRAPHICS_VALIDATION
   required_extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   required_instance_extension_names_.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 #endif
@@ -450,7 +470,7 @@ void Platform::CreateInstance() {
   vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
   vk_supported_layers_.resize(layer_count);
   vkEnumerateInstanceLayerProperties(&layer_count, vk_supported_layers_.data());
-#ifdef GRAPHICS_VALIDATION
+#if GRAPHICS_VALIDATION
   if (!CheckLayerSupport("VK_LAYER_KHRONOS_validation")) {
     throw std::runtime_error("Validation layers requested, but not available!");
   }
@@ -486,7 +506,7 @@ void Platform::CreateSurface() {
 
 void Platform::CreateDebugMessenger() {
 #pragma region Debug Messenger
-#ifdef GRAPHICS_VALIDATION
+#if GRAPHICS_VALIDATION
   VkDebugUtilsMessengerCreateInfoEXT debug_utils_messenger_create_info{};
   PopulateDebugMessengerCreateInfo(debug_utils_messenger_create_info);
   if (CreateDebugUtilsMessengerExt(vk_instance_, &debug_utils_messenger_create_info, nullptr, &vk_debug_messenger_) !=
@@ -531,7 +551,10 @@ void Platform::SelectPhysicalDevice() {
 #  endif
 #endif
   required_device_extension_names_.emplace_back(VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME);
-
+#if USE_NSIGHT_AFTERMATH
+  required_device_extension_names_.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+  required_device_extension_names_.emplace_back(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME);
+#endif
   required_device_extension_names_.emplace_back(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
   required_device_extension_names_.emplace_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
   required_device_extension_names_.emplace_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
@@ -736,11 +759,24 @@ void Platform::CreateLogicalDevice() {
     c_required_layers.emplace_back(i.c_str());
 
 #pragma region Logical Device
+#if USE_NSIGHT_AFTERMATH
+  VkDeviceDiagnosticsConfigCreateInfoNV vk_device_diagnostics_config_create_info_nv{};
+  vk_device_diagnostics_config_create_info_nv.pNext = nullptr;
+  vk_device_diagnostics_config_create_info_nv.sType = VK_STRUCTURE_TYPE_DEVICE_DIAGNOSTICS_CONFIG_CREATE_INFO_NV;
+  vk_device_diagnostics_config_create_info_nv.flags = VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_RESOURCE_TRACKING_BIT_NV |
+                                                      VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_AUTOMATIC_CHECKPOINTS_BIT_NV |
+                                                      VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_ERROR_REPORTING_BIT_NV;
+#endif
 
   VkPhysicalDeviceRayTracingPipelineFeaturesKHR vk_physical_device_ray_tracing_pipeline_features_khr{};
   vk_physical_device_ray_tracing_pipeline_features_khr.sType =
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+#if USE_NSIGHT_AFTERMATH
+  vk_device_diagnostics_config_create_info_nv.pNext = nullptr;
+#else
   vk_physical_device_ray_tracing_pipeline_features_khr.pNext = nullptr;
+#endif
+  
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipeline = VK_TRUE;
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipelineShaderGroupHandleCaptureReplay = VK_TRUE;
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipelineShaderGroupHandleCaptureReplayMixed = VK_TRUE;
@@ -752,11 +788,11 @@ void Platform::CreateLogicalDevice() {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
   vk_physical_device_acceleration_structure_features_khr.pNext = &vk_physical_device_ray_tracing_pipeline_features_khr;
   vk_physical_device_acceleration_structure_features_khr.accelerationStructure = VK_TRUE;
-  vk_physical_device_acceleration_structure_features_khr.accelerationStructureCaptureReplay = VK_TRUE;
-  vk_physical_device_acceleration_structure_features_khr.accelerationStructureIndirectBuild = VK_TRUE;
-  vk_physical_device_acceleration_structure_features_khr.accelerationStructureHostCommands = VK_TRUE;
+  vk_physical_device_acceleration_structure_features_khr.accelerationStructureCaptureReplay = VK_FALSE;
+  vk_physical_device_acceleration_structure_features_khr.accelerationStructureIndirectBuild = VK_FALSE;
+  vk_physical_device_acceleration_structure_features_khr.accelerationStructureHostCommands = VK_FALSE;
   vk_physical_device_acceleration_structure_features_khr.descriptorBindingAccelerationStructureUpdateAfterBind =
-      VK_TRUE;
+      VK_FALSE;
 
   VkPhysicalDeviceVulkan12Features vk_physical_device_vulkan12_features{};
   vk_physical_device_vulkan12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
@@ -914,6 +950,7 @@ void Platform::CreateLogicalDevice() {
 
   device_create_info.enabledLayerCount = static_cast<uint32_t>(required_layers_.size());
   device_create_info.ppEnabledLayerNames = c_required_layers.data();
+
   if (vkCreateDevice(selected_physical_device->vk_physical_device, &device_create_info, nullptr, &vk_device_) !=
       VK_SUCCESS) {
     throw std::runtime_error("Failed to create logical device!");
@@ -1049,6 +1086,39 @@ void Platform::CheckVk(const VkResult& result) {
   if (result >= 0) {
     return;
   }
+#if USE_NSIGHT_AFTERMATH
+  if (result == VK_ERROR_DEVICE_LOST) {
+    // Device lost notification is asynchronous to the NVIDIA display
+    // driver's GPU crash handling. Give the Nsight Aftermath GPU crash dump
+    // thread some time to do its work before terminating the process.
+    constexpr auto tdr_termination_timeout = std::chrono::seconds(3);
+    const auto t_start = std::chrono::steady_clock::now();
+    auto t_elapsed = std::chrono::milliseconds::zero();
+
+    GFSDK_Aftermath_CrashDump_Status status = GFSDK_Aftermath_CrashDump_Status_Unknown;
+    AFTERMATH_CHECK_ERROR(GFSDK_Aftermath_GetCrashDumpStatus(&status));
+
+    while (status != GFSDK_Aftermath_CrashDump_Status_CollectingDataFailed &&
+           status != GFSDK_Aftermath_CrashDump_Status_Finished && t_elapsed < tdr_termination_timeout) {
+      // Sleep 50ms and poll the status again until timeout or Aftermath finished processing the crash dump.
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      AFTERMATH_CHECK_ERROR(GFSDK_Aftermath_GetCrashDumpStatus(&status));
+
+      auto t_end = std::chrono::steady_clock::now();
+      t_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start);
+    }
+
+    if (status != GFSDK_Aftermath_CrashDump_Status_Finished) {
+      std::stringstream err_msg;
+      err_msg << "Unexpected crash dump status: " << status;
+      throw std::runtime_error(err_msg.str().c_str());
+    }
+
+    // Terminate on failure
+    EVOENGINE_ERROR("Vulkan error : Device Lost, GPU dump file saved to application folder.");
+  }
+#endif
+
   const std::string failure = StringifyResultVk(result);
   throw std::runtime_error("Vulkan error: " + failure);
 }
@@ -1249,13 +1319,6 @@ void Platform::SubmitPresent() {
       window_layer->window_size_.x == 0 || window_layer->window_size_.y == 0)
     return;
 
-  std::vector<std::shared_ptr<CommandBuffer>> command_buffers;
-
-  command_buffers.reserve(used_command_buffer_size_);
-  for (int i = 0; i < used_command_buffer_size_; i++) {
-    command_buffers.emplace_back(command_buffer_pool_[current_frame_index_][i]);
-  }
-
   std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>> wait_semaphores;
   std::vector<std::shared_ptr<Semaphore>> signal_semaphores;
 
@@ -1263,7 +1326,8 @@ void Platform::SubmitPresent() {
                                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
   signal_semaphores.emplace_back(render_finished_semaphores_[current_frame_index_]);
 
-  main_queue_->Submit(command_buffers, wait_semaphores, signal_semaphores, in_flight_fences_[current_frame_index_]);
+  main_queue_->Submit(command_buffer_pool_[current_frame_index_], 0, used_command_buffer_size_, wait_semaphores, signal_semaphores,
+                      in_flight_fences_[current_frame_index_]);
 
   std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>> targets;
   targets.emplace_back(swapchain_, next_image_index_);
@@ -1282,21 +1346,17 @@ void Platform::WaitForCommandsComplete() const {
 }
 
 void Platform::Submit() {
-  std::vector<std::shared_ptr<CommandBuffer>> command_buffers;
-  command_buffers.reserve(used_command_buffer_size_);
-  for (int i = 0; i < used_command_buffer_size_; i++) {
-    command_buffers.emplace_back(command_buffer_pool_[current_frame_index_][i]);
-  }
-  main_queue_->Submit(command_buffers, {}, {}, in_flight_fences_[current_frame_index_]);
+  main_queue_->Submit(command_buffer_pool_[current_frame_index_], 0, used_command_buffer_size_, {}, {},
+                      in_flight_fences_[current_frame_index_]);
   current_frame_index_ = (current_frame_index_ + 1) % max_frame_in_flight_;
 }
 
 void Platform::ResetCommandBuffers() {
-  used_command_buffer_size_ = 0;
   for (const auto& command_buffer : command_buffer_pool_[current_frame_index_]) {
     if (command_buffer->status_ == CommandBufferStatus::Recorded)
       command_buffer->Reset();
   }
+  used_command_buffer_size_ = 0;
 }
 
 #pragma endregion
@@ -1313,8 +1373,14 @@ void Platform::Initialize() {
   graphics.CreateSurface();
   graphics.CreateDebugMessenger();
   graphics.SelectPhysicalDevice();
+#if USE_NSIGHT_AFTERMATH
+  graphics.gpu_crash_tracker.Initialize();
+#endif
   graphics.CreateLogicalDevice();
   graphics.SetupVmaAllocator();
+
+  
+
   const auto& selected_physical_device = graphics.selected_physical_device;
   if (selected_physical_device->queue_family_indices.present_family.has_value()) {
     graphics.CreateSwapChain();
@@ -1365,11 +1431,11 @@ void Platform::Initialize() {
 
   graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
 
-  /*
+  
   std::vector<Vertex> vertices = {{{1.0f, 1.0f, 0.0f}}, {{-1.0f, 1.0f, 0.0f}}, {{0.0f, -1.0f, 0.0f}}};
   std::vector<glm::uvec3> indices = {glm::uvec3(0, 1, 2)};
-  const auto blas = std::make_shared<BLAS>(vertices, indices);
-  */
+  const auto blas = std::make_shared<BottomLevelAccelerationStructure>(vertices, indices);
+  
 
 #pragma endregion
   const auto& window_layer = Application::GetLayer<WindowLayer>();
@@ -1529,7 +1595,7 @@ void Platform::LateUpdate() {
             // From main camera to swap chain.
             render_texture_present->Bind(vk_command_buffer);
             render_texture_present->BindDescriptorSet(
-                vk_command_buffer, 0, main_camera->GetRenderTexture()->descriptor_set_->GetVkDescriptorSet());
+                vk_command_buffer, 0, main_camera->GetRenderTexture()->present_descriptor_set_->GetVkDescriptorSet());
 
             const auto mesh = Resources::GetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
             GeometryStorage::BindVertices(vk_command_buffer);

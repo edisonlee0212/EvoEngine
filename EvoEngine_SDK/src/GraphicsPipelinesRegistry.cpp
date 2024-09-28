@@ -11,6 +11,8 @@ using namespace evo_engine;
 
 void Platform::CreateGraphicsPipelines() const {
   auto per_frame_layout = GetDescriptorSetLayout("PER_FRAME_LAYOUT");
+  auto meshlet_layout = GetDescriptorSetLayout("MESHLET_LAYOUT");
+  auto ray_tracing_layout = GetDescriptorSetLayout("RAY_TRACING_LAYOUT");
   auto camera_g_buffer_layout = GetDescriptorSetLayout("CAMERA_GBUFFER_LAYOUT");
   auto lighting_layout = GetDescriptorSetLayout("LIGHTING_LAYOUT");
 
@@ -24,16 +26,31 @@ void Platform::CreateGraphicsPipelines() const {
     render_texture_pass_through->geometry_type = GeometryType::Mesh;
     render_texture_pass_through->descriptor_set_layouts.emplace_back(
         GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
-
+    
     render_texture_pass_through->depth_attachment_format = VK_FORMAT_UNDEFINED;
     render_texture_pass_through->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-
     render_texture_pass_through->color_attachment_formats = {1, swapchain_->GetImageFormat()};
-
     render_texture_pass_through->Initialize();
     RegisterGraphicsPipeline("RENDER_TEXTURE_PRESENT", render_texture_pass_through);
   }
+  {
+    const auto ray_tracing_camera = std::make_shared<RayTracingPipeline>();
+    ray_tracing_camera->raygen_shader = Resources::GetResource<Shader>("RAY_TRACING_CAMERA_RAYGEN");
+    ray_tracing_camera->miss_shader = Resources::GetResource<Shader>("RAY_TRACING_CAMERA_MISS");
+    ray_tracing_camera->closest_hit_shader = Resources::GetResource<Shader>("RAY_TRACING_CAMERA_CHIT");
 
+    ray_tracing_camera->descriptor_set_layouts.emplace_back(per_frame_layout);
+    ray_tracing_camera->descriptor_set_layouts.emplace_back(ray_tracing_layout);
+    ray_tracing_camera->descriptor_set_layouts.emplace_back(
+        GetDescriptorSetLayout("RENDER_TEXTURE_STORAGE_LAYOUT"));
+
+    auto& push_constant_range = ray_tracing_camera->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RayTracingPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    ray_tracing_camera->Initialize();
+    RegisterRayTracingPipeline("RAY_TRACING_CAMERA", ray_tracing_camera);
+  }
   {
     const auto ssr_reflect = std::make_shared<GraphicsPipeline>();
     ssr_reflect->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
@@ -126,7 +143,7 @@ void Platform::CreateGraphicsPipelines() const {
     standard_deferred_prepass->fragment_shader = Resources::GetResource<Shader>("STANDARD_DEFERRED_FRAG");
     standard_deferred_prepass->geometry_type = GeometryType::Mesh;
     standard_deferred_prepass->descriptor_set_layouts.emplace_back(per_frame_layout);
-
+    standard_deferred_prepass->descriptor_set_layouts.emplace_back(meshlet_layout);
     standard_deferred_prepass->depth_attachment_format = Constants::g_buffer_depth;
     standard_deferred_prepass->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     standard_deferred_prepass->color_attachment_formats = {2, Constants::g_buffer_color};
@@ -272,6 +289,7 @@ void Platform::CreateGraphicsPipelines() const {
     directional_light_shadow_map->fragment_shader = Resources::GetResource<Shader>("EMPTY_FRAG");
     directional_light_shadow_map->geometry_type = GeometryType::Mesh;
     directional_light_shadow_map->descriptor_set_layouts.emplace_back(per_frame_layout);
+    directional_light_shadow_map->descriptor_set_layouts.emplace_back(meshlet_layout);
     directional_light_shadow_map->depth_attachment_format = Constants::shadow_map;
     directional_light_shadow_map->stencil_attachment_format = VK_FORMAT_UNDEFINED;
 
@@ -376,6 +394,7 @@ void Platform::CreateGraphicsPipelines() const {
     point_light_shadow_map->fragment_shader = Resources::GetResource<Shader>("EMPTY_FRAG");
     point_light_shadow_map->geometry_type = GeometryType::Mesh;
     point_light_shadow_map->descriptor_set_layouts.emplace_back(per_frame_layout);
+    point_light_shadow_map->descriptor_set_layouts.emplace_back(meshlet_layout);
     point_light_shadow_map->depth_attachment_format = Constants::shadow_map;
     point_light_shadow_map->stencil_attachment_format = VK_FORMAT_UNDEFINED;
 
@@ -478,6 +497,7 @@ void Platform::CreateGraphicsPipelines() const {
     spot_light_shadow_map->fragment_shader = Resources::GetResource<Shader>("EMPTY_FRAG");
     spot_light_shadow_map->geometry_type = GeometryType::Mesh;
     spot_light_shadow_map->descriptor_set_layouts.emplace_back(per_frame_layout);
+    spot_light_shadow_map->descriptor_set_layouts.emplace_back(meshlet_layout);
     spot_light_shadow_map->depth_attachment_format = Constants::shadow_map;
     spot_light_shadow_map->stencil_attachment_format = VK_FORMAT_UNDEFINED;
 

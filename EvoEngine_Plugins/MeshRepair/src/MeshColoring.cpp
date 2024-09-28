@@ -1,7 +1,7 @@
 #include "MeshColoring.hpp"
 
 #include "ClassRegistry.hpp"
-#include "RayTracer.hpp"
+#include "CpuRayTracer.hpp"
 #include "Prefab.hpp"
 #include "Times.hpp"
 #include "VisibilityTest.hpp"

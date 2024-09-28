@@ -1,7 +1,7 @@
 #include "CpuRayTracerCamera.hpp"
 
 #include "ClassRegistry.hpp"
-#include "RayTracer.hpp"
+#include "CpuRayTracer.hpp"
 
 #include "EditorLayer.hpp"
 #include "ProjectManager.hpp"
@@ -39,9 +39,9 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& parameters,
   std::shared_ptr<RenderInstances> render_instances;
 
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
-    render_instances = render_layer->render_instances;
+    render_instances = render_layer->render_instances_list[Platform::GetCurrentFrameIndex()];
   } else {
-    render_instances = std::make_shared<RenderInstances>(1);
+    render_instances = std::make_shared<RenderInstances>();
   }
   std::vector<glm::vec4> pixels{resolution.x * resolution.y};
   CameraInfoBlock camera_info_block;
@@ -49,7 +49,7 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& parameters,
   const auto owner = GetOwner();
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(owner);
   UpdateCameraInfoBlock(camera_info_block, global_transform);
-  RayTracer cpu_ray_tracer;
+  CpuRayTracer cpu_ray_tracer;
   cpu_ray_tracer.Initialize(
       render_instances,
       [&](uint32_t, const std::shared_ptr<Mesh>&) {
@@ -68,7 +68,7 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& parameters,
     const float half_y = resolution.y * .5f;
     RandomSampler random_sampler;
     random_sampler.SetSeed(pixel_index);
-    RayTracer::RayDescriptor current_ray_descriptor{};
+    CpuRayTracer::RayDescriptor current_ray_descriptor{};
     float hit_count = 0;
     float temp = 0;
     for (uint32_t sample_index = 0; sample_index < parameters.sample; sample_index++) {
@@ -83,13 +83,13 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& parameters,
 
       aggregated_scene.Trace(
           current_ray_descriptor,
-          [&](const RayTracer::HitInfo& hit_info) {
+          [&](const CpuRayTracer::HitInfo& hit_info) {
             hit_count += 1;
             temp += static_cast<float>(cpu_ray_tracer.GetEntity(hit_info.node_index).GetIndex());
           },
           [&]() {
           },
-          [](const RayTracer::HitInfo& hit_info) {
+          [](const CpuRayTracer::HitInfo& hit_info) {
           });
     }
     if (hit_count > 0.f) {
