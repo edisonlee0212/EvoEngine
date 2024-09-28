@@ -590,12 +590,12 @@ void Scene::SetDataComponent(const size_t& index, const T& value) {
 template <typename T>
 T Scene::GetDataComponent(const Entity& entity) {
   assert(IsEntityValid(entity));
-  EntityMetadata& entity_info = scene_data_storage_.entity_metadata_list.at(entity.index_);
-  auto& data_component_storage =
+  const EntityMetadata& entity_info = scene_data_storage_.entity_metadata_list.at(entity.index_);
+  const auto& data_component_storage =
       scene_data_storage_.data_component_storage_list[entity_info.data_component_storage_index];
   const size_t chunk_index = entity_info.chunk_array_index / data_component_storage.chunk_capacity;
   const size_t chunk_pointer = entity_info.chunk_array_index % data_component_storage.chunk_capacity;
-  ComponentDataChunk& chunk = data_component_storage.chunk_array.chunks[chunk_index];
+  const ComponentDataChunk& chunk = data_component_storage.chunk_array.chunks[chunk_index];
   const size_t id = typeid(T).hash_code();
   if (id == typeid(Transform).hash_code()) {
     return chunk.GetData<T>(chunk_pointer * sizeof(Transform));

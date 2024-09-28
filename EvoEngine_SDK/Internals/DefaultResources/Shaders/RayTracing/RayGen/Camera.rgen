@@ -1,0 +1,38 @@
+#extension GL_ARB_shading_language_include : enable
+#include "RayTracingBasic.glsl"
+#include "Random.glsl"
+
+#include "CameraRayTracingPayload.glsl"
+
+layout(set = 2, binding = 0, rgba32f) uniform image2D result_image;
+
+layout(push_constant) uniform EE_CAMERA_CONSTANTS {
+  uint EE_CAMERA_INDEX;
+  uint EE_FRAME_ID;
+};
+
+#define FLT_MAX 3.402823466e+38
+
+void main() 
+{
+	const uvec2 pixel_coordinate = gl_LaunchIDEXT.xy;
+	const vec2 pixel_center = vec2(pixel_coordinate) + vec2(0.5);
+	const vec2 in_uv = pixel_center / vec2(gl_LaunchSizeEXT.xy);
+	vec2 d = in_uv * 2.0 - 1.0;
+
+	uint seed = pixel_coordinate.x + pixel_coordinate.y * gl_LaunchSizeEXT.x + EE_FRAME_ID;
+
+	vec4 camera_start = EE_CAMERAS[EE_CAMERA_INDEX].inverse_projection_view * vec4(d.x, d.y, 0, 1);
+	vec4 camera_end = EE_CAMERAS[EE_CAMERA_INDEX].inverse_projection_view * vec4(d.x, d.y, 1, 1);
+	camera_start /= camera_start.w;
+	camera_end /= camera_end.w;
+	vec3 sample_origin = camera_start.xyz;
+	vec3 sample_direction = normalize(camera_end.xyz - camera_start.xyz);
+	traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, camera_start.xyz, 0, sample_direction, 1000, 0);
+	if(hit_value.type == 0){
+		imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(0, 0, 0, 1));
+	}else{
+		imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(d.x, d.y, 0, 1));
+	}
+	//imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(camera_start.xyz, 1));
+}

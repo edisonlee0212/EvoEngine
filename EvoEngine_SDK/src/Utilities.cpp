@@ -22,7 +22,7 @@ std::string FileUtils::LoadFileAsString(const std::filesystem::path& path) {
     file.close();
     // convert stream into string
     return stream.str();
-  } catch (std::ifstream::failure e) {
+  } catch (const std::ifstream::failure &e) {
     EVOENGINE_ERROR("Load file failed!")
     throw;
   }

@@ -43,7 +43,7 @@ BoneMatrices::BoneMatrices() {
   }
 }
 
-size_t& BoneMatrices::GetVersion() {
+uint32_t BoneMatrices::GetVersion() const {
   return version_;
 }
 
@@ -56,7 +56,7 @@ void BoneMatrices::UploadData() {
   buffer_info.offset = 0;
   buffer_info.buffer = bone_matrices_buffer_[current_frame_index]->GetVkBuffer();
   buffer_info.range = VK_WHOLE_SIZE;
-  descriptor_set_[current_frame_index]->UpdateBufferDescriptorBinding(18, buffer_info);
+  descriptor_set_[current_frame_index]->UpdateBufferDescriptorBinding(0, buffer_info);
 }
 
 bool SkinnedMesh::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {

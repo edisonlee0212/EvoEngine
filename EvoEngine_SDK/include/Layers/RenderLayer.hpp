@@ -14,7 +14,10 @@ struct RenderInstancePushConstant {
   int camera_index = 0;
   int light_split_index = 0;
 };
-
+struct RayTracingPushConstant {
+  uint32_t camera_index = 0;
+  uint32_t frame_id = 0;
+};
 struct RenderInfoBlock {
   glm::vec4 split_distances = {};
   alignas(4) int pcf_sample_amount = 32;
@@ -46,7 +49,6 @@ struct EnvironmentInfoBlock {
   alignas(4) float environmental_padding2 = 0.0f;
 };
 
-
 #pragma endregion
 
 class RenderLayer final : public ILayer {
@@ -66,30 +68,29 @@ class RenderLayer final : public ILayer {
 
   void PrepareEnvironmentalBrdfLut();
   void RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera);
-
+  void RenderToCameraRayTracing(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera);
   
-
+  void CollectCameras(const std::shared_ptr<Scene>& scene,
+                      std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
   void ClearAllCameras();
   void RenderAllCameras();
 
  public:
-
-  std::shared_ptr<RenderInstances> render_instances;
+  std::vector<std::shared_ptr<RenderInstances>> render_instances_list;
 
   bool wire_frame = false;
 
   bool count_shadow_rendering_draw_calls = false;
-  bool enable_indirect_rendering = false;
+  bool enable_indirect_rendering = true;
   bool enable_debug_visualization = false;
   bool enable_render_menu = false;
   bool stable_fit = true;
   float max_shadow_distance = 100;
   float shadow_cascade_split[4] = {0.075f, 0.15f, 0.3f, 1.0f};
 
-  
   [[nodiscard]] uint32_t GetCameraIndex(const Handle& handle);
   [[nodiscard]] uint32_t RegisterCameraIndex(const Handle& handle, const CameraInfoBlock& camera_info_block);
-  
+
   RenderInfoBlock render_info_block = {};
   EnvironmentInfoBlock environment_info_block = {};
   void DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material, glm::mat4 model,
@@ -100,51 +101,49 @@ class RenderLayer final : public ILayer {
  private:
   bool need_fade_ = false;
 #pragma region Render procedure
+  bool UpdateRenderInfo(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
+  bool UpdateEnvironmentInfo(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
+  bool UpdateCameras(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
+                     std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
   
-  void CollectCameras(std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
+  bool UpdateRenderInstances(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
+  bool UpdateLighting(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
+                      const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
 
-  [[nodiscard]] bool CollectRenderInstances(Bound& world_bound);
-  void CollectDirectionalLights(const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
-  void CollectPointLights();
-  void CollectSpotLights();
+  void CollectDirectionalLights(const std::shared_ptr<Scene>& scene,
+                                const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
+  void CollectPointLights(const std::shared_ptr<Scene>& scene, const GlobalTransform& view_point_gt);
+  void CollectSpotLights(const std::shared_ptr<Scene>& scene, const GlobalTransform& view_point_gt);
 
   std::unique_ptr<Lighting> lighting_;
   std::shared_ptr<Texture2D> environmental_brdf_lut_ = {};
 
-  void ApplyAnimator() const;
+  void ApplyAnimators() const;
 
 #pragma endregion
 #pragma region Per Frame Descriptor Sets
   friend class TextureStorage;
   std::vector<std::shared_ptr<DescriptorSet>> per_frame_descriptor_sets_ = {};
+  std::vector<std::shared_ptr<DescriptorSet>> meshlet_descriptor_sets_ = {};
+  std::vector<std::shared_ptr<DescriptorSet>> ray_tracing_descriptor_sets_ = {};
 
   std::vector<std::shared_ptr<Buffer>> render_info_descriptor_buffers_ = {};
   std::vector<std::shared_ptr<Buffer>> environment_info_descriptor_buffers_ = {};
   std::vector<std::shared_ptr<Buffer>> camera_info_descriptor_buffers_ = {};
-  
+
   std::vector<std::shared_ptr<Buffer>> kernel_descriptor_buffers_ = {};
   std::vector<std::shared_ptr<Buffer>> directional_light_info_descriptor_buffers_ = {};
   std::vector<std::shared_ptr<Buffer>> point_light_info_descriptor_buffers_ = {};
   std::vector<std::shared_ptr<Buffer>> spot_light_info_descriptor_buffers_ = {};
 
   void CreateStandardDescriptorBuffers();
-  void CreatePerFrameDescriptorSets();
-
+  void CreateDescriptorSets();
   std::unordered_map<Handle, uint32_t> camera_indices_;
 
   std::vector<CameraInfoBlock> camera_info_blocks_{};
   std::vector<DirectionalLightInfo> directional_light_info_blocks_;
   std::vector<PointLightInfo> point_light_info_blocks_;
   std::vector<SpotLightInfo> spot_light_info_blocks_;
-
-  std::vector<std::shared_ptr<Buffer>> mesh_draw_indexed_indirect_commands_buffers_ = {};
-  std::vector<VkDrawIndexedIndirectCommand> mesh_draw_indexed_indirect_commands_{};
-  uint32_t total_mesh_triangles_ = 0;
-
-  std::vector<std::shared_ptr<Buffer>> mesh_draw_mesh_tasks_indirect_commands_buffers_ = {};
-  std::vector<VkDrawMeshTasksIndirectCommandEXT> mesh_draw_mesh_tasks_indirect_commands_{};
-
-  
 
 #pragma endregion
 };

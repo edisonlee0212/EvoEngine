@@ -131,19 +131,18 @@ void Camera::UpdateGBuffer() {
                                g_buffer_normal_view_->GetVkImageView(), g_buffer_normal_->GetLayout());
   EditorLayer::UpdateTextureId(g_buffer_material_im_texture_id_, g_buffer_material_sampler_->GetVkSampler(),
                                g_buffer_material_view_->GetVkImageView(), g_buffer_material_->GetLayout());
-
   {
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     image_info.imageView = render_texture_->GetDepthImageView()->GetVkImageView();
-    image_info.sampler = render_texture_->depth_sampler_->GetVkSampler();
-    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(18, image_info);
+    image_info.sampler = render_texture_->GetDepthSampler()->GetVkSampler();
+    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(17, image_info);
     image_info.imageView = g_buffer_normal_view_->GetVkImageView();
     image_info.sampler = g_buffer_normal_sampler_->GetVkSampler();
-    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(19, image_info);
+    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(18, image_info);
     image_info.imageView = g_buffer_material_view_->GetVkImageView();
     image_info.sampler = g_buffer_material_sampler_->GetVkSampler();
-    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(20, image_info);
+    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(19, image_info);
   }
 }
 
@@ -444,6 +443,12 @@ void Camera::OnDestroy() {
 
 bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
+  uint32_t mode = static_cast<uint32_t>(camera_render_mode);
+  if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
+    camera_render_mode = static_cast<CameraRenderMode>(mode);
+    changed = true;
+  }
+
   if (ImGui::TreeNode("Contents")) {
     require_rendering_ = true;
     static float debug_scale = 0.25f;
@@ -462,12 +467,18 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Background", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::DragFloat("Intensity", &background_intensity, 0.01f, 0.0f, 10.f);
-    ImGui::Checkbox("Use clear color", &use_clear_color);
+    if(ImGui::DragFloat("Intensity", &background_intensity, 0.01f, 0.0f, 10.f)) {
+      changed = true;
+    }
+    if(ImGui::Checkbox("Use clear color", &use_clear_color)) {
+      changed = true;
+    }
     if (use_clear_color) {
-      ImGui::ColorEdit3("Clear Color", (float*)(void*)&clear_color);
-    } else {
-      editor_layer->DragAndDropButton<Cubemap>(skybox, "Skybox");
+      if(ImGui::ColorEdit3("Clear Color", (float*)(void*)&clear_color)) {
+        changed = true;
+      }
+    } else if(editor_layer->DragAndDropButton<Cubemap>(skybox, "Skybox")) {
+        changed = true;
     }
     ImGui::TreePop();
   }
@@ -477,6 +488,7 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool is_main_camera = saved_state;
   ImGui::Checkbox("Main Camera", &is_main_camera);
   if (saved_state != is_main_camera) {
+    changed = true;
     if (is_main_camera) {
       scene->main_camera = scene->GetOrSetPrivateComponent<Camera>(GetOwner()).lock();
     } else {
@@ -490,19 +502,33 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
   }
 
-  editor_layer->DragAndDropButton<PostProcessingStack>(post_processing_stack, "PostProcessingStack");
+  if(editor_layer->DragAndDropButton<PostProcessingStack>(post_processing_stack, "PostProcessingStack")) {
+    changed = true;
+  }
   const auto pps = post_processing_stack.Get<PostProcessingStack>();
   if (pps && ImGui::TreeNode("Post Processing")) {
-    ImGui::Checkbox("SSAO", &pps->ssao);
-    ImGui::Checkbox("SSR", &pps->ssr);
+    if(ImGui::Checkbox("SSAO", &pps->ssao)) {
+      changed = true;
+    }
+    if(ImGui::Checkbox("SSR", &pps->ssr)) {
+      changed = true;
+    }
 
-    ImGui::Checkbox("Bloom", &pps->bloom);
+    if(ImGui::Checkbox("Bloom", &pps->bloom)) {
+      changed = true;
+    }
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Intrinsic Settings")) {
-    ImGui::DragFloat("Near", &near_distance, near_distance / 10.0f, 0, far_distance);
-    ImGui::DragFloat("Far", &far_distance, far_distance / 10.0f, near_distance);
-    ImGui::DragFloat("FOV", &fov, 1.0f, 1, 359);
+    if(ImGui::DragFloat("Near", &near_distance, near_distance / 10.0f, 0, far_distance)) {
+      changed = true;
+    }
+    if(ImGui::DragFloat("Far", &far_distance, far_distance / 10.0f, near_distance)) {
+      changed = true;
+    }
+    if(ImGui::DragFloat("FOV", &fov, 1.0f, 1, 359)) {
+      changed = true;
+    }
     ImGui::TreePop();
   }
   FileUtils::SaveFile(

@@ -389,13 +389,13 @@ void Lighting::Initialize() {
 
     image_info.imageView = directional_light_shadow_map_view_->GetVkImageView();
     image_info.sampler = directional_shadow_map_sampler_->GetVkSampler();
-    lighting_descriptor_set->UpdateImageDescriptorBinding(15, image_info);
+    lighting_descriptor_set->UpdateImageDescriptorBinding(14, image_info);
     image_info.imageView = point_light_shadow_map_view_->GetVkImageView();
     image_info.sampler = point_light_shadow_map_sampler_->GetVkSampler();
-    lighting_descriptor_set->UpdateImageDescriptorBinding(16, image_info);
+    lighting_descriptor_set->UpdateImageDescriptorBinding(15, image_info);
     image_info.imageView = spot_light_shadow_map_view_->GetVkImageView();
     image_info.sampler = spot_light_shadow_map_sampler_->GetVkSampler();
-    lighting_descriptor_set->UpdateImageDescriptorBinding(17, image_info);
+    lighting_descriptor_set->UpdateImageDescriptorBinding(16, image_info);
   }
 }
 

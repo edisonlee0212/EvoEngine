@@ -1,13 +1,19 @@
-set(xatlas_directory ${CMAKE_CURRENT_SOURCE_DIR}/xatlas/source/xatlas)
+set (TARGET_NAME xatlas)
 
-add_library(xatlas STATIC
+set(xatlas_directory ${CMAKE_CURRENT_SOURCE_DIR}/${TARGET_NAME}/source/${TARGET_NAME})
+
+add_library(${TARGET_NAME} STATIC
   ${xatlas_directory}/xatlas.h 
   ${xatlas_directory}/xatlas.cpp
 )
-target_include_directories(xatlas
+target_include_directories(${TARGET_NAME}
   PUBLIC
     ${xatlas_directory}
 )
-set_property(TARGET xatlas PROPERTY FOLDER "3rdparty")
+set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "3rdparty")
 
-set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/xatlas/source/xatlas PARENT_SCOPE)
+set(3RDPARTY_LIBS ${3RDPARTY_LIBS} 
+    ${TARGET_NAME}
+    PARENT_SCOPE)
+
+set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES} ${xatlas_directory} PARENT_SCOPE)

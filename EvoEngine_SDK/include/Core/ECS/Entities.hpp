@@ -188,8 +188,8 @@ EntityArchetype Entities::CreateEntityArchetype(const std::string &name, T arg, 
 #pragma endregion
 
 template <typename T>
-T ComponentDataChunk::GetData(const size_t &offset) {
-  return T(*reinterpret_cast<T *>(chunk_data_.data() + offset));
+T ComponentDataChunk::GetData(const size_t &offset) const {
+  return T(*reinterpret_cast<const T *>(chunk_data_.data() + offset));
 }
 
 template <typename T, typename... Ts>

@@ -16,7 +16,7 @@ struct SkinnedVertexAttributes {
 };
 
 class BoneMatrices {
-  size_t version_ = 0;
+  uint32_t version_ = 0;
   std::vector<std::unique_ptr<Buffer>> bone_matrices_buffer_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> descriptor_set_;
   friend class RenderLayer;
@@ -25,7 +25,7 @@ class BoneMatrices {
  public:
   [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetDescriptorSet() const;
   BoneMatrices();
-  [[nodiscard]] size_t& GetVersion();
+  [[nodiscard]] uint32_t GetVersion() const;
 
   std::vector<glm::mat4> value;
 };

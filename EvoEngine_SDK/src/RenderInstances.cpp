@@ -3,152 +3,169 @@
 
 using namespace evo_engine;
 
-void RenderInstanceCollection::Dispatch(const std::function<void(const RenderInstance&)>& command_action) const {
-  for (const auto& render_command : render_commands) {
-    command_action(render_command);
+bool MeshRenderInstance::operator!=(const MeshRenderInstance& other) const {
+  if (instance_index != other.instance_index)
+    return true;
+  if (command_type != other.command_type)
+    return true;
+  if (model.value != other.model.value)
+    return true;
+  if (owner != other.owner)
+    return true;
+  if (mesh != other.mesh)
+    return true;
+  if (material != other.material)
+    return true;
+  if (mesh_version != other.mesh_version)
+    return true;
+  if (material_version != other.material_version)
+    return true;
+  if (cast_shadow != other.cast_shadow)
+    return true;
+  if (line_width != other.line_width)
+    return true;
+  if (cull_mode != other.cull_mode)
+    return true;
+  if (polygon_mode != other.polygon_mode)
+    return true;
+  return false;
+}
+
+bool SkinnedMeshRenderInstance::operator!=(const SkinnedMeshRenderInstance& other) const {
+  if (instance_index != other.instance_index)
+    return true;
+  if (command_type != other.command_type)
+    return true;
+  if (model.value != other.model.value)
+    return true;
+  if (owner != other.owner)
+    return true;
+  if (material != other.material)
+    return true;
+  if (skinned_mesh != other.skinned_mesh)
+    return true;
+  if (bone_matrices != other.bone_matrices)
+    return true;
+  if (skinned_mesh_version != other.skinned_mesh_version)
+    return true;
+  if (material_version != other.material_version)
+    return true;
+  if (bone_matrices_version != other.bone_matrices_version)
+    return true;
+  if (cast_shadow != other.cast_shadow)
+    return true;
+  if (line_width != other.line_width)
+    return true;
+  if (cull_mode != other.cull_mode)
+    return true;
+  if (polygon_mode != other.polygon_mode)
+    return true;
+  return false;
+}
+
+bool InstancedRenderInstance::operator!=(const InstancedRenderInstance& other) const {
+  if (instance_index != other.instance_index)
+    return true;
+  if (command_type != other.command_type)
+    return true;
+  if (model.value != other.model.value)
+    return true;
+  if (owner != other.owner)
+    return true;
+  if (material != other.material)
+    return true;
+  if (mesh != other.mesh)
+    return true;
+  if (particle_infos != other.particle_infos)
+    return true;
+  if (mesh_version != other.mesh_version)
+    return true;
+  if (material_version != other.material_version)
+    return true;
+  if (particle_info_list_version != other.particle_info_list_version)
+    return true;
+  if (cast_shadow != other.cast_shadow)
+    return true;
+  if (line_width != other.line_width)
+    return true;
+  if (cull_mode != other.cull_mode)
+    return true;
+  if (polygon_mode != other.polygon_mode)
+    return true;
+  return false;
+}
+
+bool StrandsRenderInstance::operator!=(const StrandsRenderInstance& other) const {
+  if (instance_index != other.instance_index)
+    return true;
+  if (command_type != other.command_type)
+    return true;
+  if (model.value != other.model.value)
+    return true;
+  if (owner != other.owner)
+    return true;
+  if (material != other.material)
+    return true;
+  if (strands != other.strands)
+    return true;
+
+  if (strands_version != other.strands_version)
+    return true;
+  if (material_version != other.material_version)
+    return true;
+
+  if (cast_shadow != other.cast_shadow)
+    return true;
+  if (line_width != other.line_width)
+    return true;
+  if (cull_mode != other.cull_mode)
+    return true;
+  if (polygon_mode != other.polygon_mode)
+    return true;
+  return false;
+}
+
+bool MeshRenderInstanceCollection::operator!=(const MeshRenderInstanceCollection& other) const {
+  if (render_commands.size() != other.render_commands.size())
+    return true;
+  for (uint32_t i = 0; i < render_commands.size(); i++) {
+    if (render_commands[i] != other.render_commands[i])
+      return true;
   }
+  return false;
 }
 
-void SkinnedRenderInstanceCollection::Dispatch(
-    const std::function<void(const SkinnedRenderInstance&)>& command_action) const {
-  for (const auto& render_command : render_commands) {
-    command_action(render_command);
+bool SkinnedMeshRenderInstanceCollection::operator!=(const SkinnedMeshRenderInstanceCollection& other) const {
+  if (render_commands.size() != other.render_commands.size())
+    return true;
+  for (uint32_t i = 0; i < render_commands.size(); i++) {
+    if (render_commands[i] != other.render_commands[i])
+      return true;
   }
+  return false;
 }
 
-void StrandsRenderInstanceCollection::Dispatch(
-    const std::function<void(const StrandsRenderInstance&)>& command_action) const {
-  for (const auto& render_command : render_commands) {
-    command_action(render_command);
+bool StrandsRenderInstanceCollection::operator!=(const StrandsRenderInstanceCollection& other) const {
+  if (render_commands.size() != other.render_commands.size())
+    return true;
+  for (uint32_t i = 0; i < render_commands.size(); i++) {
+    if (render_commands[i] != other.render_commands[i])
+      return true;
   }
+  return false;
 }
 
-void InstancedRenderInstanceCollection::Dispatch(
-    const std::function<void(const InstancedRenderInstance&)>& command_action) const {
-  for (const auto& render_command : render_commands) {
-    command_action(render_command);
+bool InstancedRenderInstanceCollection::operator!=(const InstancedRenderInstanceCollection& other) const {
+  if (render_commands.size() != other.render_commands.size())
+    return true;
+  for (uint32_t i = 0; i < render_commands.size(); i++) {
+    if (render_commands[i] != other.render_commands[i])
+      return true;
   }
+  return false;
 }
 
-void RenderInstances::Clear() {
-  deferred_render_instances.render_commands.clear();
-  deferred_skinned_render_instances.render_commands.clear();
-  deferred_instanced_render_instances.render_commands.clear();
-  deferred_strands_render_instances.render_commands.clear();
-  transparent_render_instances.render_commands.clear();
-  transparent_skinned_render_instances.render_commands.clear();
-  transparent_instanced_render_instances.render_commands.clear();
-  transparent_strands_render_instances.render_commands.clear();
-
-  material_indices_.clear();
-  instance_indices_.clear();
-  instance_handles_.clear();
-
-  material_info_blocks_.clear();
-  instance_info_blocks_.clear();
-
-  target_scene.reset();
-}
-
-RenderInstances::RenderInstances(const uint32_t max_frame_in_flight) {
-  VkBufferCreateInfo buffer_create_info{};
-  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
-  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  for (size_t i = 0; i < max_frame_in_flight; i++) {
-    buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    buffer_create_info.size = sizeof(MaterialInfoBlock) * Platform::Constants::initial_material_size;
-    material_info_descriptor_buffers.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-    buffer_create_info.size = sizeof(InstanceInfoBlock) * Platform::Constants::initial_instance_size;
-    instance_info_descriptor_buffers.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-  }
-}
-
-void RenderInstances::Upload(const uint32_t current_frame_index) const {
-  material_info_descriptor_buffers[current_frame_index]->UploadVector(material_info_blocks_);
-  instance_info_descriptor_buffers[current_frame_index]->UploadVector(instance_info_blocks_);
-}
-
-const std::vector<MaterialInfoBlock>& RenderInstances::GetMaterialInfoBlocks() const {
-  return material_info_blocks_;
-}
-
-const std::vector<InstanceInfoBlock>& RenderInstances::GetInstanceInfoBlocks() const {
-  return instance_info_blocks_;
-}
-
-bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared_ptr<StrandsRenderer>& strands_renderer,
-                                          glm::vec3& min_bound, glm::vec3& max_bound) {
-  auto material = strands_renderer->material.Get<Material>();
-  auto strands = strands_renderer->strands.Get<Strands>();
-  if (!strands_renderer->IsEnabled() || !material || !strands || !strands->strand_meshlet_range_ ||
-      !strands->segment_range_)
-    return false;
-  auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
-  auto ltw = gt.value;
-  auto mesh_bound = strands->bound_;
-  mesh_bound.ApplyTransform(ltw);
-  glm::vec3 center = mesh_bound.Center();
-
-  glm::vec3 size = mesh_bound.Size();
-  min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
-                        (glm::min)(min_bound.z, center.z - size.z));
-  max_bound = glm::vec3((glm::max)(max_bound.x, center.x + size.x), (glm::max)(max_bound.y, center.y + size.y),
-                        (glm::max)(max_bound.z, center.z + size.z));
-
-  MaterialInfoBlock material_info_block;
-  material->UpdateMaterialInfoBlock(material_info_block);
-  auto material_index = RegisterMaterialIndex(material->GetHandle(), material_info_block);
-  InstanceInfoBlock instance_info_block;
-  instance_info_block.model = gt;
-  instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = target_scene->IsEntityAncestorSelected(owner) ? 1 : 0;
-  instance_info_block.meshlet_size = strands->strand_meshlet_range_->range;
-  auto entity_handle = target_scene->GetEntityHandle(owner);
-  auto instance_index = RegisterInstanceIndex(entity_handle, instance_info_block);
-
-  StrandsRenderInstance render_instance;
-  render_instance.command_type = RenderCommandType::FromRenderer;
-  render_instance.m_owner = owner;
-  render_instance.m_strands = strands;
-  render_instance.cast_shadow = strands_renderer->cast_shadow;
-  render_instance.strand_meshlet_size = strands->strand_meshlet_range_->range;
-
-  render_instance.instance_index = instance_index;
-
-  render_instance.line_width = material->draw_settings.line_width;
-  render_instance.cull_mode = material->draw_settings.cull_mode;
-  render_instance.polygon_mode = material->draw_settings.polygon_mode;
-
-  if (material->draw_settings.blending) {
-    transparent_strands_render_instances.render_commands.push_back(render_instance);
-  } else {
-    deferred_strands_render_instances.render_commands.push_back(render_instance);
-  }
-  return true;
-}
-
-void RenderInstances::CalculateLodFactor(const std::shared_ptr<Scene>& scene, const glm::vec3& view_position,
-                                         const float max_distance) {
-  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<LodGroup>()) {
-    for (auto owner : *owners) {
-      if (const auto lod_group = scene->GetOrSetPrivateComponent<LodGroup>(owner).lock();
-          !lod_group->override_lod_factor) {
-        auto gt = scene->GetDataComponent<GlobalTransform>(owner);
-        const auto distance = glm::distance(gt.GetPosition(), view_position);
-        const auto distance_factor = glm::clamp(distance / max_distance, 0.f, 1.f);
-        lod_group->lod_factor = glm::clamp(distance_factor * distance_factor, 0.f, 1.f);
-      }
-    }
-  }
-}
-
-bool RenderInstances::UpdateRenderInstances(const std::shared_ptr<Scene>& scene, Bound& world_bound) {
-  Clear();
-  target_scene = scene;
+void RenderInstances::Collect(Bound& world_bound) {
   auto& min_bound = world_bound.min;
   auto& max_bound = world_bound.max;
   min_bound = glm::vec3(FLT_MAX);
@@ -220,6 +237,7 @@ bool RenderInstances::UpdateRenderInstances(const std::shared_ptr<Scene>& scene,
       }
     }
   }
+
   if (const auto* owners = target_scene->UnsafeGetPrivateComponentOwnersList<SkinnedMeshRenderer>()) {
     for (auto owner : *owners) {
       if (!target_scene->IsEntityEnabled(owner))
@@ -258,9 +276,236 @@ bool RenderInstances::UpdateRenderInstances(const std::shared_ptr<Scene>& scene,
       }
     }
   }
-  return has_render_instance;
+  if (!has_render_instance) {
+    min_bound = max_bound = glm::vec3(0.0f);
+  }
 }
 
+RenderInstances::RenderInstances() {
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
+  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.size =
+      glm::max(static_cast<size_t>(1), sizeof(MaterialInfoBlock) * Platform::Constants::initial_material_size);
+  material_info_descriptor_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  buffer_create_info.size =
+      glm::max(static_cast<size_t>(1), sizeof(InstanceInfoBlock) * Platform::Constants::initial_instance_size);
+  instance_info_descriptor_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+  buffer_create_info.size = glm::max(static_cast<size_t>(1),
+                                     sizeof(VkDrawIndexedIndirectCommand) * mesh_draw_indexed_indirect_commands.size());
+  mesh_draw_indexed_indirect_commands_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
+  buffer_create_info.size = glm::max(static_cast<size_t>(1), sizeof(VkDrawMeshTasksIndirectCommandEXT) *
+                                                                 mesh_draw_mesh_tasks_indirect_commands.size());
+  mesh_draw_mesh_tasks_indirect_commands_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+}
+
+bool RenderInstances::MeshInstancesUpdated(const RenderInstances& other) const {
+  if (deferred_render_instances.render_commands.size() != other.deferred_render_instances.render_commands.size())
+    return true;
+  if (transparent_render_instances.render_commands.size() != other.transparent_render_instances.render_commands.size())
+    return true;
+  if (deferred_render_instances != other.deferred_render_instances)
+    return true;
+  if (transparent_render_instances != other.transparent_render_instances)
+    return true;
+  return false;
+}
+
+bool RenderInstances::SkinnedMeshInstancesUpdated(const RenderInstances& other) const {
+  if (deferred_skinned_render_instances.render_commands.size() !=
+      other.deferred_skinned_render_instances.render_commands.size())
+    return true;
+  if (transparent_skinned_render_instances.render_commands.size() !=
+      other.transparent_skinned_render_instances.render_commands.size())
+    return true;
+  if (deferred_skinned_render_instances != other.deferred_skinned_render_instances)
+    return true;
+  if (transparent_skinned_render_instances != other.transparent_skinned_render_instances)
+    return true;
+  return false;
+}
+
+bool RenderInstances::InstancedMeshInstancesUpdated(const RenderInstances& other) const {
+  if (deferred_instanced_render_instances.render_commands.size() !=
+      other.deferred_instanced_render_instances.render_commands.size())
+    return true;
+  if (transparent_instanced_render_instances.render_commands.size() !=
+      other.transparent_instanced_render_instances.render_commands.size())
+    return true;
+  if (deferred_instanced_render_instances != other.deferred_instanced_render_instances)
+    return true;
+  if (transparent_instanced_render_instances != other.transparent_instanced_render_instances)
+    return true;
+  return false;
+}
+
+bool RenderInstances::StrandsInstancesUpdated(const RenderInstances& other) const {
+  if (deferred_strands_render_instances.render_commands.size() !=
+      other.deferred_strands_render_instances.render_commands.size())
+    return true;
+  if (transparent_strands_render_instances.render_commands.size() !=
+      other.transparent_strands_render_instances.render_commands.size())
+    return true;
+  if (deferred_strands_render_instances != other.deferred_strands_render_instances)
+    return true;
+  if (transparent_strands_render_instances != other.transparent_strands_render_instances)
+    return true;
+  return false;
+}
+
+void RenderInstances::Clear() {
+  total_mesh_triangles = 0;
+  total_skinned_mesh_triangles = 0;
+  total_instanced_mesh_triangles = 0;
+  total_strands_segments = 0;
+
+  deferred_render_instances.render_commands.clear();
+  deferred_skinned_render_instances.render_commands.clear();
+  deferred_instanced_render_instances.render_commands.clear();
+  deferred_strands_render_instances.render_commands.clear();
+  transparent_render_instances.render_commands.clear();
+  transparent_skinned_render_instances.render_commands.clear();
+  transparent_instanced_render_instances.render_commands.clear();
+  transparent_strands_render_instances.render_commands.clear();
+
+  material_indices_.clear();
+  instance_indices_.clear();
+  instance_handles_.clear();
+
+  material_info_blocks_.clear();
+  instance_info_blocks_.clear();
+
+  target_scene.reset();
+
+  mesh_draw_indexed_indirect_commands.clear();
+  mesh_draw_mesh_tasks_indirect_commands.clear();
+}
+
+void RenderInstances::Upload() const {
+
+  material_info_descriptor_buffer->UploadVector(material_info_blocks_);
+  instance_info_descriptor_buffer->UploadVector(instance_info_blocks_);
+
+  mesh_draw_indexed_indirect_commands_buffer->UploadVector(mesh_draw_indexed_indirect_commands);
+  mesh_draw_mesh_tasks_indirect_commands_buffer->UploadVector(mesh_draw_mesh_tasks_indirect_commands);
+}
+
+const std::vector<MaterialInfoBlock>& RenderInstances::GetMaterialInfoBlocks() const {
+  return material_info_blocks_;
+}
+
+const std::vector<InstanceInfoBlock>& RenderInstances::GetInstanceInfoBlocks() const {
+  return instance_info_blocks_;
+}
+
+void RenderInstances::CalculateLodFactor(const std::shared_ptr<Scene>& scene, const glm::vec3& view_position,
+                                         const float max_distance) {
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<LodGroup>()) {
+    for (auto owner : *owners) {
+      if (const auto lod_group = scene->GetOrSetPrivateComponent<LodGroup>(owner).lock();
+          !lod_group->override_lod_factor) {
+        auto gt = scene->GetDataComponent<GlobalTransform>(owner);
+        const auto distance = glm::distance(gt.GetPosition(), view_position);
+        const auto distance_factor = glm::clamp(distance / max_distance, 0.f, 1.f);
+        lod_group->lod_factor = glm::clamp(distance_factor * distance_factor, 0.f, 1.f);
+      }
+    }
+  }
+}
+
+bool RenderInstances::UpdateRenderInstances(const std::shared_ptr<Scene>& scene, Bound& world_bound) {
+  const RenderInstances old_render_instances = *this;
+  Clear();
+  target_scene = scene;
+  Collect(world_bound);
+
+  const bool mesh_updated = MeshInstancesUpdated(old_render_instances);
+  const bool skinned_mesh_updated = SkinnedMeshInstancesUpdated(old_render_instances);
+  const bool instanced_mesh_updated = InstancedMeshInstancesUpdated(old_render_instances);
+  const bool strands_updated = StrandsInstancesUpdated(old_render_instances);
+
+  if (mesh_updated || skinned_mesh_updated || instanced_mesh_updated || strands_updated) {
+    if (mesh_updated) {
+      if (Platform::Constants::support_ray_tracing) {
+        UpdateTopLevelAccelerationStructure(scene);
+#ifndef NDEBUG
+        EVOENGINE_LOG("TLAS updated!");
+#endif
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+void RenderInstances::UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene) {
+  mesh_top_level_acceleration_structure =
+      std::make_shared<TopLevelAccelerationStructure>(scene, deferred_render_instances.render_commands);
+}
+
+bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared_ptr<StrandsRenderer>& strands_renderer,
+                                          glm::vec3& min_bound, glm::vec3& max_bound) {
+  auto material = strands_renderer->material.Get<Material>();
+  auto strands = strands_renderer->strands.Get<Strands>();
+  if (!strands_renderer->IsEnabled() || !material || !strands || !strands->strand_meshlet_range_ ||
+      !strands->segment_range_)
+    return false;
+  auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
+  auto ltw = gt.value;
+  auto mesh_bound = strands->bound_;
+  mesh_bound.ApplyTransform(ltw);
+  glm::vec3 center = mesh_bound.Center();
+
+  glm::vec3 size = mesh_bound.Size();
+  min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
+                        (glm::min)(min_bound.z, center.z - size.z));
+  max_bound = glm::vec3((glm::max)(max_bound.x, center.x + size.x), (glm::max)(max_bound.y, center.y + size.y),
+                        (glm::max)(max_bound.z, center.z + size.z));
+
+  MaterialInfoBlock material_info_block;
+  material->UpdateMaterialInfoBlock(material_info_block);
+  auto material_index = RegisterMaterialIndex(material->GetHandle(), material_info_block);
+  InstanceInfoBlock instance_info_block;
+  instance_info_block.model = gt;
+  instance_info_block.material_index = material_index;
+  instance_info_block.entity_selected = target_scene->IsEntityAncestorSelected(owner) ? 1 : 0;
+  instance_info_block.meshlet_size = strands->strand_meshlet_range_->range;
+  auto entity_handle = target_scene->GetEntityHandle(owner);
+  auto instance_index = RegisterInstanceIndex(entity_handle, instance_info_block);
+
+  StrandsRenderInstance render_instance;
+  render_instance.command_type = RenderCommandType::FromRenderer;
+  render_instance.owner = owner;
+  render_instance.model = gt;
+  render_instance.strands = strands;
+  render_instance.material = material;
+  render_instance.cast_shadow = strands_renderer->cast_shadow;
+  render_instance.strand_meshlet_size = strands->strand_meshlet_range_->range;
+  render_instance.strands_version = strands->GetVersion();
+  render_instance.material_version = material->GetVersion();
+
+  render_instance.instance_index = instance_index;
+
+  render_instance.line_width = material->draw_settings.line_width;
+  render_instance.cull_mode = material->draw_settings.cull_mode;
+  render_instance.polygon_mode = material->draw_settings.polygon_mode;
+
+  if (material->draw_settings.blending) {
+    transparent_strands_render_instances.render_commands.push_back(render_instance);
+  } else {
+    deferred_strands_render_instances.render_commands.push_back(render_instance);
+  }
+
+  total_strands_segments += strands->segments_.size();
+  return true;
+}
 bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared_ptr<MeshRenderer>& mesh_renderer,
                                           glm::vec3& min_bound, glm::vec3& max_bound) {
   auto material = mesh_renderer->material.Get<Material>();
@@ -288,6 +533,7 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
   InstanceInfoBlock instance_info_block;
   instance_info_block.model = gt;
   instance_info_block.material_index = material_index;
+  instance_info_block.triangle_offset = mesh->GetTriangleRange()->offset;
   instance_info_block.entity_selected = target_scene->IsEntityAncestorSelected(owner) ? 1 : 0;
 
   instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
@@ -295,13 +541,18 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
 
   auto entity_handle = target_scene->GetEntityHandle(owner);
   auto instance_index = RegisterInstanceIndex(entity_handle, instance_info_block);
-  RenderInstance render_instance;
+  MeshRenderInstance render_instance;
   render_instance.command_type = RenderCommandType::FromRenderer;
   render_instance.owner = owner;
   render_instance.mesh = mesh;
+  render_instance.material = material;
+  render_instance.model = gt;
+
   render_instance.cast_shadow = mesh_renderer->cast_shadow;
   render_instance.meshlet_size = mesh->meshlet_range_->range;
   render_instance.instance_index = instance_index;
+  render_instance.mesh_version = mesh->GetVersion();
+  render_instance.material_version = material->GetVersion();
 
   render_instance.line_width = material->draw_settings.line_width;
   render_instance.cull_mode = material->draw_settings.cull_mode;
@@ -312,20 +563,20 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
   } else {
     deferred_render_instances.render_commands.push_back(render_instance);
   }
-  /*
-  auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands_.emplace_back();
+
+  auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands.emplace_back();
   new_mesh_task.groupCountX = 1;
   new_mesh_task.groupCountY = 1;
   new_mesh_task.groupCountZ = 1;
 
-  auto& new_draw_task = mesh_draw_indexed_indirect_commands_.emplace_back();
+  auto& new_draw_task = mesh_draw_indexed_indirect_commands.emplace_back();
   new_draw_task.instanceCount = 1;
   new_draw_task.firstIndex = mesh->triangle_range_->offset * 3;
   new_draw_task.indexCount = static_cast<uint32_t>(mesh->triangles_.size() * 3);
   new_draw_task.vertexOffset = 0;
   new_draw_task.firstInstance = 0;
 
-  total_mesh_triangles_ += mesh->triangles_.size();*/
+  total_mesh_triangles += mesh->triangles_.size();
   return true;
 }
 
@@ -368,14 +619,19 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner,
   auto entity_handle = target_scene->GetEntityHandle(owner);
   auto instance_index = RegisterInstanceIndex(entity_handle, instance_info_block);
 
-  SkinnedRenderInstance render_instance;
+  SkinnedMeshRenderInstance render_instance;
   render_instance.command_type = RenderCommandType::FromRenderer;
-  render_instance.m_owner = owner;
+  render_instance.owner = owner;
+  render_instance.model = gt;
   render_instance.skinned_mesh = skinned_mesh;
+  render_instance.material = material;
   render_instance.cast_shadow = skinned_mesh_renderer->cast_shadow;
   render_instance.bone_matrices = skinned_mesh_renderer->bone_matrices;
   render_instance.skinned_meshlet_size = skinned_mesh->skinned_meshlet_range_->range;
   render_instance.instance_index = instance_index;
+  render_instance.skinned_mesh_version = skinned_mesh->GetVersion();
+  render_instance.material_version = material->GetVersion();
+  render_instance.bone_matrices_version = skinned_mesh_renderer->bone_matrices->GetVersion();
 
   render_instance.line_width = material->draw_settings.line_width;
   render_instance.cull_mode = material->draw_settings.cull_mode;
@@ -386,6 +642,8 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner,
   } else {
     deferred_skinned_render_instances.render_commands.push_back(render_instance);
   }
+
+  total_skinned_mesh_triangles += skinned_mesh->skinned_triangles_.size();
   return true;
 }
 
@@ -425,11 +683,16 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
 
   InstancedRenderInstance render_instance;
   render_instance.command_type = RenderCommandType::FromRenderer;
+  render_instance.model = gt;
   render_instance.owner = owner;
   render_instance.mesh = mesh;
+  render_instance.material = material;
   render_instance.cast_shadow = particles->cast_shadow;
   render_instance.particle_infos = particle_info_list;
   render_instance.meshlet_size = mesh->meshlet_range_->range;
+  render_instance.mesh_version = mesh->GetVersion();
+  render_instance.material_version = material->GetVersion();
+  render_instance.particle_info_list_version = particle_info_list->GetVersion();
 
   render_instance.instance_index = instance_index;
 
@@ -442,6 +705,8 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
   } else {
     deferred_instanced_render_instances.render_commands.push_back(render_instance);
   }
+
+  total_instanced_mesh_triangles += mesh->triangles_.size() * particle_info_list->PeekParticleInfoList().size();
   return true;
 }
 

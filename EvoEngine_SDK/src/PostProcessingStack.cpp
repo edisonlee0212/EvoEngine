@@ -64,16 +64,18 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
       image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
       image_info.imageView = target_camera->GetRenderTexture()->GetDepthImageView()->GetVkImageView();
       image_info.sampler = target_camera->GetRenderTexture()->GetDepthSampler()->GetVkSampler();
-      ssr_reflect_descriptor_set_->UpdateImageDescriptorBinding(18, image_info);
+      ssr_reflect_descriptor_set_->UpdateImageDescriptorBinding(17, image_info);
       image_info.imageView = target_camera->g_buffer_normal_view_->GetVkImageView();
       image_info.sampler = target_camera->g_buffer_normal_sampler_->GetVkSampler();
+      ssr_reflect_descriptor_set_->UpdateImageDescriptorBinding(18, image_info);
+      image_info.imageView = target_camera->g_buffer_material_view_->GetVkImageView();
+      image_info.sampler = target_camera->g_buffer_material_sampler_->GetVkSampler();
       ssr_reflect_descriptor_set_->UpdateImageDescriptorBinding(19, image_info);
+
       image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
       image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
       ssr_reflect_descriptor_set_->UpdateImageDescriptorBinding(20, image_info);
-      image_info.imageView = target_camera->g_buffer_material_view_->GetVkImageView();
-      image_info.sampler = target_camera->g_buffer_material_sampler_->GetVkSampler();
-      ssr_reflect_descriptor_set_->UpdateImageDescriptorBinding(21, image_info);
+      
     }
     {
       VkDescriptorImageInfo image_info;
