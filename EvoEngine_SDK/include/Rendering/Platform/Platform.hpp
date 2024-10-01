@@ -55,7 +55,6 @@ class Platform final {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV};
 #endif
 
-
     VkPhysicalDeviceMemoryProperties vk_physical_device_memory_properties = {};
 
     VkPhysicalDeviceFeatures features{};
@@ -187,7 +186,7 @@ class Platform final {
   static void RegisterComputePipeline(const std::string& name,
                                       const std::shared_ptr<ComputePipeline>& compute_pipeline);
   static void RegisterRayTracingPipeline(const std::string& name,
-                                      const std::shared_ptr<RayTracingPipeline>& ray_tracing_pipeline);
+                                         const std::shared_ptr<RayTracingPipeline>& ray_tracing_pipeline);
   [[nodiscard]] static const std::shared_ptr<GraphicsPipeline>& GetGraphicsPipeline(const std::string& name);
   [[nodiscard]] static const std::shared_ptr<ComputePipeline>& GetComputePipeline(const std::string& name);
   [[nodiscard]] static const std::shared_ptr<RayTracingPipeline>& GetRayTracingPipeline(const std::string& name);

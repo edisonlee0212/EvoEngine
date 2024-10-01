@@ -131,7 +131,7 @@ void Platform::RegisterComputePipeline(const std::string& name,
 }
 
 void Platform::RegisterRayTracingPipeline(const std::string& name,
-    const std::shared_ptr<RayTracingPipeline>& ray_tracing_pipeline) {
+                                          const std::shared_ptr<RayTracingPipeline>& ray_tracing_pipeline) {
   auto& graphics = GetInstance();
   if (graphics.ray_tracing_pipelines_.find(name) != graphics.ray_tracing_pipelines_.end()) {
     EVOENGINE_ERROR("RayTracingPipeline with same name exists!");
@@ -639,13 +639,16 @@ void Platform::SelectPhysicalDevice() {
     Constants::support_ray_tracing = false;
     EVOENGINE_LOG("Target device doesn't support ray tracing!");
   }
-
+#if ENABLE_NV_RAY_TRACING_VALIDATION
   if (selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME)) {
     required_device_extension_names_.emplace_back(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME);
     Constants::support_ray_tracing_validation = true;
   } else {
     Constants::support_ray_tracing_validation = false;
   }
+#else
+  Constants::support_ray_tracing_validation = false;
+#endif
 }
 
 bool Platform::PhysicalDevice::QueueFamilyIndices::IsComplete() const {
@@ -776,7 +779,7 @@ void Platform::CreateLogicalDevice() {
 #else
   vk_physical_device_ray_tracing_pipeline_features_khr.pNext = nullptr;
 #endif
-  
+
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipeline = VK_TRUE;
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipelineShaderGroupHandleCaptureReplay = VK_TRUE;
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipelineShaderGroupHandleCaptureReplayMixed = VK_TRUE;
@@ -826,7 +829,7 @@ void Platform::CreateLogicalDevice() {
 #else
   shader_draw_parameters_features.pNext = &vk_physical_device_vulkan12_features;
 #endif
-  
+
   VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features{};
   dynamic_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
   dynamic_rendering_features.dynamicRendering = VK_TRUE;
@@ -1326,8 +1329,8 @@ void Platform::SubmitPresent() {
                                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
   signal_semaphores.emplace_back(render_finished_semaphores_[current_frame_index_]);
 
-  main_queue_->Submit(command_buffer_pool_[current_frame_index_], 0, used_command_buffer_size_, wait_semaphores, signal_semaphores,
-                      in_flight_fences_[current_frame_index_]);
+  main_queue_->Submit(command_buffer_pool_[current_frame_index_], 0, used_command_buffer_size_, wait_semaphores,
+                      signal_semaphores, in_flight_fences_[current_frame_index_]);
 
   std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>> targets;
   targets.emplace_back(swapchain_, next_image_index_);
@@ -1379,8 +1382,6 @@ void Platform::Initialize() {
   graphics.CreateLogicalDevice();
   graphics.SetupVmaAllocator();
 
-  
-
   const auto& selected_physical_device = graphics.selected_physical_device;
   if (selected_physical_device->queue_family_indices.present_family.has_value()) {
     graphics.CreateSwapChain();
@@ -1431,11 +1432,9 @@ void Platform::Initialize() {
 
   graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
 
-  
   std::vector<Vertex> vertices = {{{1.0f, 1.0f, 0.0f}}, {{-1.0f, 1.0f, 0.0f}}, {{0.0f, -1.0f, 0.0f}}};
   std::vector<glm::uvec3> indices = {glm::uvec3(0, 1, 2)};
   const auto blas = std::make_shared<BottomLevelAccelerationStructure>(vertices, indices);
-  
 
 #pragma endregion
   const auto& window_layer = Application::GetLayer<WindowLayer>();
