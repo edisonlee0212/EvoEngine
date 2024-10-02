@@ -36,6 +36,8 @@
 #include "WayPoints.hpp"
 #include "WindowLayer.hpp"
 
+#include "GpuRayTracerCamera.hpp"
+
 using namespace evo_engine;
 DataComponentRegistration<Transform> transform_registry("Transform");
 DataComponentRegistration<GlobalTransform> global_transform_registry("GlobalTransform");
@@ -84,7 +86,7 @@ const auto point_cloud_registry = AssetRegistration<PointCloud>("PointCloud", {"
 const auto json_registry = AssetRegistration<Json>("Json", {".json"});
 
 const auto cpu_ray_tracer_camera_registry = PrivateComponentRegistration<CpuRayTracerCamera>("CpuRayTracerCamera");
-
+const auto gpu_ray_tracer_camera_registry = PrivateComponentRegistration<GpuRayTracerCamera>("GpuRayTracerCamera");
 void Application::PreUpdateInternal() {
   auto& application = GetInstance();
   const auto now = std::chrono::system_clock::now();

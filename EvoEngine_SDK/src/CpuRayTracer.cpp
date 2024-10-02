@@ -72,9 +72,9 @@ bool RayAabb(const glm::vec3& r_o, const glm::vec3& r_inv_d, const Bound& aabb) 
 }
 
 void CpuRayTracer::Trace(const RayDescriptor& ray_descriptor,
-                      const std::function<void(const HitInfo& hit_info)>& closest_hit_func,
-                      const std::function<void()>& miss_func,
-                      const std::function<void(const HitInfo& hit_info)>& any_hit_func) const {
+                         const std::function<void(const HitInfo& hit_info)>& closest_hit_func,
+                         const std::function<void()>& miss_func,
+                         const std::function<void(const HitInfo& hit_info)>& any_hit_func) const {
   HitInfo closest_hit_info{};
   closest_hit_info.has_hit = true;
   closest_hit_info.distance = FLT_MAX;
@@ -250,8 +250,9 @@ float CpuRayTracer::BucketBound::ComputeCost(const int triangle_count) const {
   return static_cast<float>(triangle_count) * surface_area;
 }
 
-CpuRayTracer::BucketSplit CpuRayTracer::SelectSplitFromBuckets(const uint32_t buckets[16], const BucketBound buckets_aabb[16],
-                                                         const size_t triangle_count) {
+CpuRayTracer::BucketSplit CpuRayTracer::SelectSplitFromBuckets(const uint32_t buckets[16],
+                                                               const BucketBound buckets_aabb[16],
+                                                               const size_t triangle_count) {
   // Pass to compute AABB on the right side of the split
   BucketBound aabb_right_side[15];
   aabb_right_side[14] = buckets_aabb[15];
@@ -447,11 +448,27 @@ uint32_t FloatBitsToUint(const float src) {
 
 void CpuRayTracer::AggregatedScene::InitializeBuffers() {
   VkBufferCreateInfo buffer_create_info{};
+  /**
+   * You must set the type to VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO.
+   */
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  /**
+   * You have to nominate all potential usages for this buffer as they can't change in future.
+   * VK_BUFFER_USAGE_TRANSFER_DST_BIT: This means we are going to upload data to this buffer from CPU.
+   * VK_BUFFER_USAGE_STORAGE_BUFFER_BIT: This means we are going to set this buffer as a storage buffer so we can
+   * read/modify it in shader as buffer.
+   */
   buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  /**
+   * When you create a buffer, you don't need to calculate the size, since the UploadBuffer() will auto resize the
+   * buffer for you. But you can't create zero size buffer. So we set it as 1.
+   */
   buffer_create_info.size = 1;
   VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
+  /**
+   * This means we want the buffer to sit on GPU memory.
+   */
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
   aggregate_scene_graph_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
@@ -479,16 +496,20 @@ void CpuRayTracer::AggregatedScene::InitializeBuffers() {
   gpu_scene_info.size_2.y = UintBitsToFloat(aggregate_scene_info.triangles_offset);
   gpu_scene_info.size_2.z = UintBitsToFloat(aggregate_scene_info.vertices_offset);
   gpu_scene_info.size_2.w = UintBitsToFloat(aggregate_scene_info.local_triangle_indices_offset);
-
+  /**
+   * Upload data from render instances. Material and instance information is already prepared in RenderLayer befor our
+   * LateUpdate(). UploadVector() will auto resize buffer to fit what you need to upload. We also have Upload() if you
+   * just want to upload single instance, or a chunk of memory.
+   */
   aggregate_scene_graph_buffer->UploadVector(scene_graph_data);
   aggregate_scene_geometry_buffer->UploadVector(scene_geometry_data);
   aggregate_scene_info_buffer->Upload(gpu_scene_info);
 }
 
 void CpuRayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
-                                       const std::function<void(const HitInfo& hit_info)>& closest_hit_func,
-                                       const std::function<void()>& miss_func,
-                                       const std::function<void(const HitInfo& hit_info)>& any_hit_func) const {
+                                          const std::function<void(const HitInfo& hit_info)>& closest_hit_func,
+                                          const std::function<void()>& miss_func,
+                                          const std::function<void(const HitInfo& hit_info)>& any_hit_func) const {
   HitInfo closest_hit_info{};
   closest_hit_info.has_hit = true;
   closest_hit_info.distance = FLT_MAX;
@@ -763,7 +784,7 @@ struct AggregateSceneInternal {
   std::vector<Vertex> vertices;
 };
 void CpuRayTracer::AggregatedScene::TraceGpu(const std::vector<RayDescriptor>& rays, std::vector<HitInfo>& hit_infos,
-                                          const TraceFlags flags) {
+                                             const TraceFlags flags) {
   if (!trace_descriptor_set_layout) {
     trace_descriptor_set_layout = std::make_shared<DescriptorSetLayout>();
     trace_descriptor_set_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -1173,9 +1194,9 @@ void CpuRayTracer::GeometryInstance::Clear() noexcept {
 }
 
 void CpuRayTracer::NodeInstance::Initialize(const std::shared_ptr<RenderInstances>& render_instances,
-                                         const MeshRenderInstance& render_instance,
-                                         const std::vector<GeometryInstance>& mesh_instances,
-                                         const std::map<Handle, uint32_t>& mesh_instances_map) {
+                                            const MeshRenderInstance& render_instance,
+                                            const std::vector<GeometryInstance>& mesh_instances,
+                                            const std::map<Handle, uint32_t>& mesh_instances_map) {
   const auto mesh_index = mesh_instances_map.at(render_instance.instance_index);
   const auto& mesh_instance = mesh_instances[mesh_index];
   transformation = render_instances->target_scene->GetDataComponent<GlobalTransform>(render_instance.owner);

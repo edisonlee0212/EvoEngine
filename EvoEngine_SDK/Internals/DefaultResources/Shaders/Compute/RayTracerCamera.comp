@@ -1,5 +1,8 @@
+//You need to have GL_ARB_shading_language_include extention enabled to use "#include" feature. You also need to put your include shaders in the .../EvoEngine_SDK/Internals/Shaders/Include folder.
 #extension GL_ARB_shading_language_include : enable
 #extension GL_EXT_nonuniform_qualifier : enable
+
+//Following resources will be bind via No.0 descriptor set.
 #define TRACE_DATA_SET 0
 #define EE_PER_FRAME_SET 0
 #define SCENE_GRAPH_DATA_BINDING 0
@@ -7,19 +10,22 @@
 #define SCENE_INFO_BLOCK_BINDING 2
 #include "Trace.glsl"
 
-#define EE_MATERIAL_BLOCK_BINDING 3
+#define EE_MATERIALS_BLOCK_SET 0
+#define EE_MATERIALS_BLOCK_BINDING 3
 #include "Materials.glsl"
 
-#define EE_INSTANCE_BLOCK_BINDING 4
+#define EE_INSTANCES_BLOCK_SET 0
+#define EE_INSTANCES_BLOCK_BINDING 4
 #include "Instances.glsl"
 
+#define EE_TEXTURES_BLOCK_SET 0
 #define EE_TEXTURE_2DS_BINDING 6
 #define EE_CUBEMAPS_BINDING 7
 #include "Textures.glsl"
 
 #include "Random.glsl"
-
-layout(set = TRACE_DATA_SET, binding = 5, rgba32f) uniform image2D result_image;
+//Following resource will be bind via No.1 descriptor set.
+layout(set = 1, binding = 0, rgba32f) uniform image2D result_image;
 
 layout(push_constant) uniform RAY_CASTING_CONSTANTS{
 	vec4 resolution_xy_sample_bounce;
