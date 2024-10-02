@@ -123,7 +123,7 @@ void RenderLayer::RenderAllCameras() {
 
   TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
   TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
-  
+
   PreparePointAndSpotLightShadowMap();
 
   for (const auto& [cameraGlobalTransform, camera] : cameras) {
@@ -2100,46 +2100,22 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
 }
 
 void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_transform,
-    const std::shared_ptr<Camera>& camera) {
+                                           const std::shared_ptr<Camera>& camera) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const int camera_index = GetCameraIndex(camera->GetHandle());
   const auto scene = Application::GetActiveScene();
   if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
     const auto& ray_tracing_pipeline = Platform::GetRayTracingPipeline("RAY_TRACING_CAMERA");
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+      camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       Platform::EverythingBarrier(vk_command_buffer);
-      std::vector<VkBufferMemoryBarrier> barriers;
-      auto get_buffer_barrier = [](const std::shared_ptr<Buffer>& buffer) {
-        VkBufferMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        barrier.buffer = buffer->GetVkBuffer();
-        barrier.size = buffer->GetVmaAllocationInfo().size;
-        return barrier;
-      };
-      // barriers.emplace_back(get_buffer_barrier(*dynamic_vertex_buffer));
-      // barriers.emplace_back(get_buffer_barrier(*dynamic_index_buffer));
-      // barriers.emplace_back(get_buffer_barrier(*instances_buffer));
-      // barriers.emplace_back(get_buffer_barrier(*ubo));
-
-      vkCmdPipelineBarrier(vk_command_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-                           VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_HOST_BIT, 0, 0,
-                           VK_NULL_HANDLE,                                           // memory barrier
-                           static_cast<uint32_t>(barriers.size()), barriers.data(),  // buffer memory barrier
-                           0, VK_NULL_HANDLE);                                       // image memory barrier
-
       ray_tracing_pipeline->Bind(vk_command_buffer);
-
       ray_tracing_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                               per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
       ray_tracing_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                               ray_tracing_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-
-      ray_tracing_pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                              camera->render_texture_->storage_descriptor_set_->GetVkDescriptorSet());
+      ray_tracing_pipeline->BindDescriptorSet(
+          vk_command_buffer, 2, camera->GetRenderTexture()->storage_descriptor_set_->GetVkDescriptorSet());
 
       RayTracingPushConstant push_constant;
       push_constant.camera_index = camera_index;
@@ -2153,7 +2129,6 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
     camera->rendered_ = true;
     camera->require_rendering_ = false;
   }
-  
 }
 
 void RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,

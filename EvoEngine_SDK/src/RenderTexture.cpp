@@ -82,8 +82,7 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy =
-        Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
@@ -137,8 +136,7 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
     depth_sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     depth_sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     depth_sampler_info.anisotropyEnable = VK_TRUE;
-    depth_sampler_info.maxAnisotropy =
-        Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
+    depth_sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
     depth_sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     depth_sampler_info.unnormalizedCoordinates = VK_FALSE;
     depth_sampler_info.compareEnable = VK_FALSE;
@@ -290,7 +288,7 @@ void RenderTexture::BeginRendering(const VkCommandBuffer vk_command_buffer, cons
   if (depth_)
     depth_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   if (color_)
-    color_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    color_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   VkRect2D render_area;
   render_area.offset = {0, 0};
   render_area.extent.width = extent_.width;
@@ -318,7 +316,7 @@ void RenderTexture::BeginRendering(const VkCommandBuffer vk_command_buffer, cons
   vkCmdBeginRendering(vk_command_buffer, &render_info);
 }
 
-void RenderTexture::EndRendering(VkCommandBuffer vk_command_buffer) const {
+void RenderTexture::EndRendering(const VkCommandBuffer vk_command_buffer) const {
   vkCmdEndRendering(vk_command_buffer);
 }
 

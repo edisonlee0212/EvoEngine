@@ -10,7 +10,6 @@ RayTracingPipeline::~RayTracingPipeline() {
   }
 }
 
-
 void RayTracingPipeline::Initialize() {
   std::vector<VkDescriptorSetLayout> set_layouts = {};
   set_layouts.reserve(descriptor_set_layouts.size());
@@ -83,7 +82,7 @@ void RayTracingPipeline::Initialize() {
     closes_hit_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
     shader_groups.push_back(closes_hit_group_ci);
   }
-  
+
   if (any_hit_shader && any_hit_shader->GetShaderType() == ShaderType::AnyHit && any_hit_shader->Compiled()) {
     VkPipelineShaderStageCreateInfo shader_stage_info{};
     shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -101,7 +100,6 @@ void RayTracingPipeline::Initialize() {
     closes_hit_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
     shader_groups.push_back(closes_hit_group_ci);
   }
-  
 
   VkRayTracingPipelineCreateInfoKHR raytracing_pipeline_create_info{};
   raytracing_pipeline_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
@@ -114,32 +112,30 @@ void RayTracingPipeline::Initialize() {
 
   raytracing_pipeline_create_info.maxPipelineRayRecursionDepth = 1;
 
-  Platform::CheckVk(vkCreateRayTracingPipelinesKHR(Platform::GetVkDevice(), VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &raytracing_pipeline_create_info,
-                                                   nullptr,
-                                             &vk_ray_tracing_pipeline_));
+  Platform::CheckVk(vkCreateRayTracingPipelinesKHR(Platform::GetVkDevice(), VK_NULL_HANDLE, VK_NULL_HANDLE, 1,
+                                                   &raytracing_pipeline_create_info, nullptr,
+                                                   &vk_ray_tracing_pipeline_));
 
   const auto aligned_size = [&](const uint32_t value, const uint32_t alignment) {
     return value + alignment - 1 & ~(alignment - 1);
   };
 
-  const auto &ray_tracing_pipeline_properties = Platform::GetSelectedPhysicalDevice()->ray_tracing_properties_ext;
+  const auto& ray_tracing_pipeline_properties = Platform::GetSelectedPhysicalDevice()->ray_tracing_properties_ext;
   const uint32_t handle_size = ray_tracing_pipeline_properties.shaderGroupHandleSize;
   handle_size_aligned_ = aligned_size(ray_tracing_pipeline_properties.shaderGroupHandleSize,
-                                                    ray_tracing_pipeline_properties.shaderGroupHandleAlignment);
+                                      ray_tracing_pipeline_properties.shaderGroupHandleAlignment);
   auto group_count = static_cast<uint32_t>(shader_groups.size());
   const uint32_t sbt_size = group_count * handle_size_aligned_;
 
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_create_info.usage = VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                             VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+                             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
   buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   buffer_create_info.size = handle_size;
 
   VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  
 
   // Create binding table buffers for each shader type
   raygen_shader_binding_table_ = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
@@ -148,14 +144,13 @@ void RayTracingPipeline::Initialize() {
 
   // Copy the pipeline's shader handles into a host buffer
   std::vector<uint8_t> shader_handle_storage(sbt_size);
-  Platform::CheckVk(vkGetRayTracingShaderGroupHandlesKHR(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, 0, group_count, sbt_size,
-                                                shader_handle_storage.data()));
+  Platform::CheckVk(vkGetRayTracingShaderGroupHandlesKHR(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, 0,
+                                                         group_count, sbt_size, shader_handle_storage.data()));
 
   // Copy the shader handles from the host buffer to the binding tables
   raygen_shader_binding_table_->UploadData(handle_size, shader_handle_storage.data());
   miss_shader_binding_table_->UploadData(handle_size, shader_handle_storage.data() + handle_size_aligned_);
   closest_hit_shader_binding_table_->UploadData(handle_size, shader_handle_storage.data() + handle_size_aligned_ * 2);
-
 }
 
 bool RayTracingPipeline::Initialized() const {
@@ -169,8 +164,7 @@ void RayTracingPipeline::Bind(const VkCommandBuffer vk_command_buffer) const {
 void RayTracingPipeline::BindDescriptorSet(const VkCommandBuffer vk_command_buffer, const uint32_t first_set,
                                            const VkDescriptorSet descriptor_set) const {
   vkCmdBindDescriptorSets(vk_command_buffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-                          pipeline_layout_->GetVkPipelineLayout(),
-                          first_set, 1, &descriptor_set, 0, nullptr);
+                          pipeline_layout_->GetVkPipelineLayout(), first_set, 1, &descriptor_set, 0, nullptr);
 }
 
 void RayTracingPipeline::Trace(const VkCommandBuffer vk_command_buffer, const uint32_t x, const uint32_t y,
