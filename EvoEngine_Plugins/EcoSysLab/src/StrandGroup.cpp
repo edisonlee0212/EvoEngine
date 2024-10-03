@@ -18,7 +18,7 @@ StrandSegmentHandle StrandSegment::GetNextHandle() const {
   return next_handle_;
 }
 
-uint32_t StrandSegment::GetIndex() const {
+int StrandSegment::GetIndex() const {
   return index_;
 }
 

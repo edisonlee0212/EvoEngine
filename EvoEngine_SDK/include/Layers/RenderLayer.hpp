@@ -80,7 +80,7 @@ class RenderLayer final : public ILayer {
 
   bool wire_frame = false;
 
-  bool count_shadow_rendering_draw_calls = false;
+  bool count_shadow_rendering_draw_calls = true;
   bool enable_indirect_rendering = true;
   bool enable_debug_visualization = false;
   bool enable_render_menu = false;

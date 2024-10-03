@@ -187,7 +187,7 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
 
   version_++;
 
-  if (Platform::Constants::support_ray_tracing) {
+  if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
     blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices, triangles);
   }
 

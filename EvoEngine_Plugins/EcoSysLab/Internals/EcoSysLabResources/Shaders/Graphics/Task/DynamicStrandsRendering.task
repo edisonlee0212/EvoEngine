@@ -1,0 +1,41 @@
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shader_draw_parameters : enable
+
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+
+#include "PerFrame.glsl"
+
+#include "DynamicStrands.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+
+const uint TASK_MESHLET_ITERATIONS = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+
+struct Task{
+	vec4 start_color;
+	vec3 start_position;
+	float start_thickness;
+
+	int strand_index;
+	int strand_segment_handles_offset;
+}
+
+#define BARRIER() \
+	memoryBarrierShared(); \
+	barrier();
+
+
+void main(){
+	uint strand_index = gl_drawID;
+	Strand strand = strands[strand_index];
+
+
+}

@@ -11,9 +11,9 @@
 
 const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
 
-const uint TASK_MESHLET_ITERATIONS = ((EXT_MESHLET_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint TASK_MESHLET_ITERATIONS = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-uint baseID = gl_WorkGroupID.x * EXT_MESHLET_PER_TASK;
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
 uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE) in;
@@ -21,7 +21,7 @@ layout(local_size_x = WORKGROUP_SIZE) in;
 struct Task{
 	uint instanceIndex;
 	uint	baseID;
-	uint8_t	deltaIDs[EXT_MESHLET_PER_TASK];
+	uint8_t	deltaIDs[EXT_INVOCATIONS_PER_TASK];
 };
 
 #define BARRIER() \
@@ -35,7 +35,7 @@ taskPayloadSharedEXT Task ts_out;
 
 void main()
 {
-	uint instanceIndex = EE_INSTANCE_INDEX;
+	uint instanceIndex = gl_DrawID + EE_INSTANCE_INDEX;
 	uint meshLetIndexOffset = EE_INSTANCES[instanceIndex].meshlet_offset;
 	uint meshlet_size = EE_INSTANCES[instanceIndex].meshlet_size;
 

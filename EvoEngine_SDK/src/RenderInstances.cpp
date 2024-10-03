@@ -389,7 +389,6 @@ void RenderInstances::Clear() {
 }
 
 void RenderInstances::Upload() const {
-
   material_info_descriptor_buffer->UploadVector(material_info_blocks_);
   instance_info_descriptor_buffer->UploadVector(instance_info_blocks_);
 
@@ -433,7 +432,7 @@ bool RenderInstances::UpdateRenderInstances(const std::shared_ptr<Scene>& scene,
 
   if (mesh_updated || skinned_mesh_updated || instanced_mesh_updated || strands_updated) {
     if (mesh_updated) {
-      if (Platform::Constants::support_ray_tracing) {
+      if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
         UpdateTopLevelAccelerationStructure(scene);
 #ifndef NDEBUG
         EVOENGINE_LOG("TLAS updated!");
@@ -563,9 +562,11 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
   } else {
     deferred_render_instances.render_commands.push_back(render_instance);
   }
-
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands.emplace_back();
-  new_mesh_task.groupCountX = 1;
+  const uint32_t count = (render_instance.meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
+  new_mesh_task.groupCountX = count;
   new_mesh_task.groupCountY = 1;
   new_mesh_task.groupCountZ = 1;
 

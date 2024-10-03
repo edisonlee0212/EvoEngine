@@ -46,15 +46,16 @@ struct SpotLight {
   int viewport_y_size;
 };
 
-layout(set = EE_LIGHTING_BLOCK_SET,
+layout(std430, set = EE_LIGHTING_BLOCK_SET,
        binding = EE_DIRECTIONAL_LIGHT_BLOCK_BINDING) readonly buffer EE_DIRECTIONAL_LIGHT_BLOCK {
   DirectionalLight EE_DIRECTIONAL_LIGHTS[];
 };
 
-layout(set = EE_LIGHTING_BLOCK_SET, binding = EE_POINT_LIGHT_BLOCK_BINDING) readonly buffer EE_POINT_LIGHT_BLOCK {
+layout(std430, set = EE_LIGHTING_BLOCK_SET,
+       binding = EE_POINT_LIGHT_BLOCK_BINDING) readonly buffer EE_POINT_LIGHT_BLOCK {
   PointLight EE_POINT_LIGHTS[];
 };
 
-layout(set = EE_LIGHTING_BLOCK_SET, binding = EE_SPOT_LIGHT_BLOCK_BINDING) readonly buffer EE_SPOT_LIGHT_BLOCK {
+layout(std430, set = EE_LIGHTING_BLOCK_SET, binding = EE_SPOT_LIGHT_BLOCK_BINDING) readonly buffer EE_SPOT_LIGHT_BLOCK {
   SpotLight EE_SPOT_LIGHTS[];
 };

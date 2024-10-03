@@ -25,7 +25,7 @@ layout(location = 0) out MS_V_OUT {
 struct Task{
 	uint	instanceIndex;
 	uint	baseID;
-	uint8_t	deltaIDs[EXT_MESHLET_PER_TASK];
+	uint8_t	deltaIDs[EXT_INVOCATIONS_PER_TASK];
 };
 
 taskPayloadSharedEXT Task ts_in;

@@ -1,0 +1,32 @@
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shader_draw_parameters : enable
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_ARB_shading_language_include : enable
+
+#include "Basic.glsl"
+
+
+const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * EXT_MESH_SUBGROUP_SIZE;
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+layout(triangles) out;
+
+#define SEGMENT_MAX_VERTICES_SIZE 8
+#define SEGMENT_MAX_TIANGLE_SIZE 12
+
+layout(max_vertices = SEGMENT_MAX_VERTICES_SIZE, max_primitives = SEGMENT_MAX_TIANGLE_SIZE) out;
+
+const uint SEGMENT_VERTEX_ITERATIONS    = ((SEGMENT_MAX_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint SEGMENT_PRIMITIVE_ITERATIONS = ((SEGMENT_MAX_TIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+layout(location = 0) out MS_V_OUT {
+	vec3 FragPos;
+	vec3 Normal;
+	vec3 Tangent;
+	vec2 TexCoord;
+} ms_v_out[];
+
+
+void main(){
+	
+}

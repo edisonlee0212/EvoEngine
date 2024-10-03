@@ -13,46 +13,10 @@ using namespace evo_engine;
 void Resources::LoadShaders() {
 #pragma region Shader Includes
   Shader::RegisterShaderIncludePath(std::filesystem::path("./DefaultResources/Shaders/Includes"));
-  std::string add;
-  uint32_t mesh_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredMeshWorkGroupInvocations;
-  uint32_t task_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-
-  uint32_t mesh_subgroup_size =
-      Platform::GetSelectedPhysicalDevice()->vulkan11_properties.subgroupSize;
-  uint32_t mesh_subgroup_count = (std::min(std::max(Platform::Constants::meshlet_max_vertices_size,
-                                                    Platform::Constants::meshlet_max_triangles_size),
-                                           mesh_work_group_invocations) +
-                                  mesh_subgroup_size - 1) /
-                                 mesh_subgroup_size;
-  uint32_t task_subgroup_size =
-      Platform::GetSelectedPhysicalDevice()->vulkan11_properties.subgroupSize;
-  uint32_t task_subgroup_count = (task_work_group_invocations + task_subgroup_size - 1) / task_subgroup_size;
-
-  task_subgroup_size = glm::max(task_subgroup_size, 1u);
-  mesh_subgroup_size = glm::max(mesh_subgroup_size, 1u);
-  task_subgroup_count = glm::max(task_subgroup_count, 1u);
-  mesh_subgroup_count = glm::max(mesh_subgroup_count, 1u);
-  add += "\n#define MAX_DIRECTIONAL_LIGHT_SIZE " + std::to_string(Platform::Settings::max_directional_light_size) +
-         "\n#define MAX_KERNEL_AMOUNT " + std::to_string(Platform::Constants::max_kernel_amount) +
-         "\n#define MESHLET_MAX_VERTICES_SIZE " + std::to_string(Platform::Constants::meshlet_max_vertices_size) +
-         "\n#define MESHLET_MAX_TRIANGLES_SIZE " + std::to_string(Platform::Constants::meshlet_max_triangles_size) +
-         "\n#define MESHLET_MAX_INDICES_SIZE " + std::to_string(Platform::Constants::meshlet_max_triangles_size * 3)
-
-         + "\n#define EXT_TASK_SUBGROUP_SIZE " + std::to_string(task_subgroup_size) +
-         "\n#define EXT_MESH_SUBGROUP_SIZE " + std::to_string(mesh_subgroup_size) +
-         "\n#define EXT_TASK_SUBGROUP_COUNT " + std::to_string(task_subgroup_count) +
-         "\n#define EXT_MESH_SUBGROUP_COUNT " + std::to_string(mesh_subgroup_count)
-
-         + "\n#define EXT_MESHLET_PER_TASK " + std::to_string(task_work_group_invocations)
-
-         + "\n";
-
+  const auto& add = Platform::Constants::shader_global_defines;
 #pragma endregion
 #pragma region Ray Tracing Shader
   {
-
     auto camera_raygen = CreateResource<Shader>("RAY_TRACING_CAMERA_RAYGEN");
     camera_raygen->Set(ShaderType::RayGen, add,
                        std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/RayGen/Camera.rgen");
@@ -61,9 +25,9 @@ void Resources::LoadShaders() {
     camera_miss->Set(ShaderType::Miss, add,
                      std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/Miss/Camera.rmiss");
 
-     auto camera_chit = CreateResource<Shader>("RAY_TRACING_CAMERA_CHIT");
+    auto camera_chit = CreateResource<Shader>("RAY_TRACING_CAMERA_CHIT");
     camera_chit->Set(ShaderType::Miss, add,
-                      std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/ClosestHit/Camera.rchit");
+                     std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/ClosestHit/Camera.rchit");
   }
 #pragma endregion
 
@@ -74,30 +38,34 @@ void Resources::LoadShaders() {
                        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/Standard.vert");
 
     standard_vert = CreateResource<Shader>("STANDARD_SKINNED_VERT");
-    standard_vert->Set(ShaderType::Vertex, add,
-                       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/StandardSkinned.vert");
+    standard_vert->Set(
+        ShaderType::Vertex, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/StandardSkinned.vert");
 
     standard_vert = CreateResource<Shader>("STANDARD_INSTANCED_VERT");
-    standard_vert->Set(ShaderType::Vertex, add,
-                       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/StandardInstanced.vert");
+    standard_vert->Set(
+        ShaderType::Vertex, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/StandardInstanced.vert");
 
     standard_vert = CreateResource<Shader>("STANDARD_STRANDS_VERT");
-    standard_vert->Set(ShaderType::Vertex, add,
-                       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/StandardStrands.vert");
+    standard_vert->Set(
+        ShaderType::Vertex, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/StandardStrands.vert");
 
     auto standard_tesc = CreateResource<Shader>("STANDARD_STRANDS_TESC");
-    standard_tesc->Set(
-        ShaderType::TessellationControl, add,
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/TessellationControl/Standard/StandardStrands.tesc");
+    standard_tesc->Set(ShaderType::TessellationControl, add,
+                       std::filesystem::path("./DefaultResources") /
+                           "Shaders/Graphics/TessellationControl/Standard/StandardStrands.tesc");
 
     auto standard_tese = CreateResource<Shader>("STANDARD_STRANDS_TESE");
-    standard_tese->Set(
-        ShaderType::TessellationEvaluation, add,
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/TessellationEvaluation/Standard/StandardStrands.tese");
+    standard_tese->Set(ShaderType::TessellationEvaluation, add,
+                       std::filesystem::path("./DefaultResources") /
+                           "Shaders/Graphics/TessellationEvaluation/Standard/StandardStrands.tese");
 
     auto standard_geom = CreateResource<Shader>("STANDARD_STRANDS_GEOM");
-    standard_geom->Set(ShaderType::Geometry, add,
-                       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Geometry/Standard/StandardStrands.geom");
+    standard_geom->Set(
+        ShaderType::Geometry, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Geometry/Standard/StandardStrands.geom");
 
     auto standard_task = CreateResource<Shader>("STANDARD_TASK");
     standard_task->Set(ShaderType::Task, add,
@@ -125,167 +93,163 @@ void Resources::LoadShaders() {
 #pragma region GBuffer
   {
     auto frag_shader = CreateResource<Shader>("STANDARD_DEFERRED_LIGHTING_FRAG");
-    frag_shader->Set(ShaderType::Fragment, add, std::filesystem::path("./DefaultResources") /
-                                               "Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.frag");
+    frag_shader->Set(ShaderType::Fragment, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.frag");
 
     frag_shader = CreateResource<Shader>("STANDARD_DEFERRED_LIGHTING_SCENE_CAMERA_FRAG");
     frag_shader->Set(ShaderType::Fragment, add,
                      std::filesystem::path("./DefaultResources") /
-                                               "Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.frag");
+                         "Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.frag");
 
     frag_shader = CreateResource<Shader>("STANDARD_DEFERRED_FRAG");
-    frag_shader->Set(ShaderType::Fragment, add, 
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
+    frag_shader->Set(
+        ShaderType::Fragment, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
   }
 #pragma endregion
 
 #pragma region PostProcessing
   {
     auto frag_shader = CreateResource<Shader>("SSR_REFLECT_FRAG");
-    frag_shader->Set(ShaderType::Fragment, add,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRReflect.frag");
+    frag_shader->Set(
+        ShaderType::Fragment, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRReflect.frag");
 
     frag_shader = CreateResource<Shader>("SSR_BLUR_FRAG");
-    frag_shader->Set(ShaderType::Fragment,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRBlur.frag");
+    frag_shader->Set(ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
+                                               "Shaders/Graphics/Fragment/PostProcessing/SSRBlur.frag");
 
     frag_shader = CreateResource<Shader>("SSR_COMBINE_FRAG");
-    frag_shader->Set(ShaderType::Fragment,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRCombine.frag");
+    frag_shader->Set(ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
+                                               "Shaders/Graphics/Fragment/PostProcessing/SSRCombine.frag");
   }
 #pragma endregion
 #pragma region Shadow Maps
   {
     auto vert_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_VERT");
-    vert_shader->Set(
-        ShaderType::Vertex, add,
-        std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMap.vert");
+    vert_shader->Set(ShaderType::Vertex, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMap.vert");
 
     vert_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_SKINNED_VERT");
-    vert_shader->Set(
-        ShaderType::Vertex, add,
-        std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.vert");
+    vert_shader->Set(ShaderType::Vertex, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.vert");
 
     vert_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_INSTANCED_VERT");
     vert_shader->Set(ShaderType::Vertex, add,
                      std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.vert");
+                         "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.vert");
 
     vert_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_STRANDS_VERT");
-    vert_shader->Set(
-        ShaderType::Vertex, add,
-        std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapStrands.vert");
+    vert_shader->Set(ShaderType::Vertex, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapStrands.vert");
 
     vert_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_VERT");
-    vert_shader->Set(ShaderType::Vertex, add, 
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMap.vert");
+    vert_shader->Set(
+        ShaderType::Vertex, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMap.vert");
 
     vert_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_SKINNED_VERT");
-    vert_shader->Set(
-        ShaderType::Vertex, add,
-        std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapSkinned.vert");
+    vert_shader->Set(ShaderType::Vertex, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapSkinned.vert");
 
     vert_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_INSTANCED_VERT");
-    vert_shader->Set(
-        ShaderType::Vertex, add,
-        std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapInstanced.vert");
+    vert_shader->Set(ShaderType::Vertex, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapInstanced.vert");
 
     vert_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_STRANDS_VERT");
-    vert_shader->Set(
-        ShaderType::Vertex, add,
-        std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapStrands.vert");
+    vert_shader->Set(ShaderType::Vertex, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapStrands.vert");
 
     vert_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_VERT");
-    vert_shader->Set(ShaderType::Vertex, add, 
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMap.vert");
+    vert_shader->Set(
+        ShaderType::Vertex, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMap.vert");
 
     vert_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_SKINNED_VERT");
-    vert_shader->Set(
-        ShaderType::Vertex, add,
-        std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.vert");
+    vert_shader->Set(ShaderType::Vertex, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.vert");
 
     vert_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_INSTANCED_VERT");
-    vert_shader->Set(
-        ShaderType::Vertex, add,
-        std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.vert");
+    vert_shader->Set(ShaderType::Vertex, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.vert");
 
     vert_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_STRANDS_VERT");
-    vert_shader->Set(
-        ShaderType::Vertex, add,
-        std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapStrands.vert");
+    vert_shader->Set(ShaderType::Vertex, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapStrands.vert");
 
     auto tesc_shader = CreateResource<Shader>("SHADOW_MAP_STRANDS_TESC");
-    tesc_shader->Set(
-        ShaderType::TessellationControl, add,
-        std::filesystem::path("./DefaultResources") /
-                                                          "Shaders/Graphics/TessellationControl/Lighting/ShadowMapStrands.tesc");
+    tesc_shader->Set(ShaderType::TessellationControl, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/TessellationControl/Lighting/ShadowMapStrands.tesc");
 
     auto tese_shader = CreateResource<Shader>("SHADOW_MAP_STRANDS_TESE");
-    tese_shader->Set(
-        ShaderType::TessellationEvaluation, add, 
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/TessellationEvaluation/Lighting/ShadowMapStrands.tese");
+    tese_shader->Set(ShaderType::TessellationEvaluation, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/TessellationEvaluation/Lighting/ShadowMapStrands.tese");
 
     auto geom_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_STRANDS_GEOM");
     geom_shader->Set(ShaderType::Geometry, add,
                      std::filesystem::path("./DefaultResources") /
-                                               "Shaders/Graphics/Geometry/Lighting/DirectionalLightShadowMapStrands.geom");
+                         "Shaders/Graphics/Geometry/Lighting/DirectionalLightShadowMapStrands.geom");
 
     geom_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_STRANDS_GEOM");
-    geom_shader->Set(
-        ShaderType::Geometry, add,
-        std::filesystem::path("./DefaultResources") /
-                                               "Shaders/Graphics/Geometry/Lighting/PointLightShadowMapStrands.geom");
+    geom_shader->Set(ShaderType::Geometry, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Geometry/Lighting/PointLightShadowMapStrands.geom");
 
     geom_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_STRANDS_GEOM");
-    geom_shader->Set(
-        ShaderType::Geometry, add,
-        std::filesystem::path("./DefaultResources") /
-                                               "Shaders/Graphics/Geometry/Lighting/SpotLightShadowMapStrands.geom");
+    geom_shader->Set(ShaderType::Geometry, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Geometry/Lighting/SpotLightShadowMapStrands.geom");
 
     auto task_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_TASK");
     task_shader->Set(
         ShaderType::Task, add,
-        std::filesystem::path("./DefaultResources") /
-                                           "Shaders/Graphics/Task/Lighting/DirectionalLightShadowMap.task");
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Task/Lighting/DirectionalLightShadowMap.task");
 
     task_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_TASK");
-    task_shader->Set(ShaderType::Task, add,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Task/Lighting/PointLightShadowMap.task");
+    task_shader->Set(
+        ShaderType::Task, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Task/Lighting/PointLightShadowMap.task");
 
     task_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_TASK");
-    task_shader->Set(ShaderType::Task, add,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Task/Lighting/SpotLightShadowMap.task");
+    task_shader->Set(
+        ShaderType::Task, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Task/Lighting/SpotLightShadowMap.task");
 
     auto mesh_shader = CreateResource<Shader>("DIRECTIONAL_LIGHT_SHADOW_MAP_MESH");
     mesh_shader->Set(
         ShaderType::Mesh, add,
-        std::filesystem::path("./DefaultResources") /
-                                           "Shaders/Graphics/Mesh/Lighting/DirectionalLightShadowMap.mesh");
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Mesh/Lighting/DirectionalLightShadowMap.mesh");
 
     mesh_shader = CreateResource<Shader>("POINT_LIGHT_SHADOW_MAP_MESH");
-    mesh_shader->Set(ShaderType::Mesh, add,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Mesh/Lighting/PointLightShadowMap.mesh");
+    mesh_shader->Set(
+        ShaderType::Mesh, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Mesh/Lighting/PointLightShadowMap.mesh");
 
     mesh_shader = CreateResource<Shader>("SPOT_LIGHT_SHADOW_MAP_MESH");
-    mesh_shader->Set(ShaderType::Mesh, add,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Mesh/Lighting/SpotLightShadowMap.mesh");
+    mesh_shader->Set(
+        ShaderType::Mesh, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Mesh/Lighting/SpotLightShadowMap.mesh");
 
     auto frag_shader = CreateResource<Shader>("EMPTY_FRAG");
     frag_shader->Set(ShaderType::Fragment, add,
                      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
 
     frag_shader = CreateResource<Shader>("SHADOW_MAP_PASS_THROUGH_FRAG");
-    frag_shader->Set(ShaderType::Fragment, add,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
+    frag_shader->Set(
+        ShaderType::Fragment, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
   }
 #pragma endregion
 #pragma region Environmental
@@ -301,8 +265,9 @@ void Resources::LoadShaders() {
                                                "Shaders/Graphics/Fragment/Lighting/EquirectangularMapToCubemap.frag");
 
     frag_shader = CreateResource<Shader>("IRRADIANCE_CONSTRUCT_FRAG");
-    frag_shader->Set(ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
-                                               "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapIrradianceConvolution.frag");
+    frag_shader->Set(ShaderType::Fragment,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapIrradianceConvolution.frag");
 
     frag_shader = CreateResource<Shader>("PREFILTER_CONSTRUCT_FRAG");
     frag_shader->Set(ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
@@ -313,46 +278,47 @@ void Resources::LoadShaders() {
 #pragma region Gizmos
   {
     auto vert_shader = CreateResource<Shader>("GIZMOS_VERT");
-    vert_shader->Set(ShaderType::Vertex, add, 
+    vert_shader->Set(ShaderType::Vertex, add,
                      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/Gizmos.vert");
 
     vert_shader = CreateResource<Shader>("GIZMOS_STRANDS_VERT");
-    vert_shader->Set(ShaderType::Vertex, add, 
+    vert_shader->Set(ShaderType::Vertex, add,
                      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosStrands.vert");
 
     vert_shader = CreateResource<Shader>("GIZMOS_INSTANCED_COLORED_VERT");
-    vert_shader->Set(ShaderType::Vertex, add, 
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosInstancedColored.vert");
+    vert_shader->Set(
+        ShaderType::Vertex, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosInstancedColored.vert");
 
     vert_shader = CreateResource<Shader>("GIZMOS_NORMAL_COLORED_VERT");
-    vert_shader->Set(ShaderType::Vertex, add, 
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosNormalColored.vert");
+    vert_shader->Set(
+        ShaderType::Vertex, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosNormalColored.vert");
 
     vert_shader = CreateResource<Shader>("GIZMOS_STRANDS_NORMAL_COLORED_VERT");
     vert_shader->Set(
         ShaderType::Vertex, add,
-        std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Gizmos/GizmosStrandsNormalColored.vert");
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosStrandsNormalColored.vert");
 
     vert_shader = CreateResource<Shader>("GIZMOS_VERTEX_COLORED_VERT");
-    vert_shader->Set(ShaderType::Vertex, add,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosVertexColored.vert");
+    vert_shader->Set(
+        ShaderType::Vertex, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosVertexColored.vert");
 
     auto tesc_shader = CreateResource<Shader>("GIZMOS_STRANDS_TESC");
     tesc_shader->Set(
         ShaderType::TessellationControl, add,
-        std::filesystem::path("./DefaultResources") /
-                                                          "Shaders/Graphics/TessellationControl/Gizmos/GizmosStrands.tesc");
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/TessellationControl/Gizmos/GizmosStrands.tesc");
 
     tesc_shader = CreateResource<Shader>("GIZMOS_STRANDS_COLORED_TESC");
-    tesc_shader->Set(
-        ShaderType::TessellationControl, add,
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/TessellationControl/Gizmos/GizmosStrandsColored.tesc");
+    tesc_shader->Set(ShaderType::TessellationControl, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/TessellationControl/Gizmos/GizmosStrandsColored.tesc");
 
     auto tese_shader = CreateResource<Shader>("GIZMOS_STRANDS_TESE");
-    tese_shader->Set(
-        ShaderType::TessellationEvaluation, add,
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/TessellationEvaluation/Gizmos/GizmosStrands.tese");
+    tese_shader->Set(ShaderType::TessellationEvaluation, add,
+                     std::filesystem::path("./DefaultResources") /
+                         "Shaders/Graphics/TessellationEvaluation/Gizmos/GizmosStrands.tese");
 
     tese_shader = CreateResource<Shader>("GIZMOS_STRANDS_COLORED_TESE");
     tese_shader->Set(ShaderType::TessellationEvaluation, add,
@@ -360,26 +326,28 @@ void Resources::LoadShaders() {
                          "Shaders/Graphics/TessellationEvaluation/Gizmos/GizmosStrandsColored.tese");
 
     auto geom_shader = CreateResource<Shader>("GIZMOS_STRANDS_GEOM");
-    geom_shader->Set(ShaderType::Geometry, add,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Geometry/Gizmos/GizmosStrands.geom");
+    geom_shader->Set(
+        ShaderType::Geometry, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Geometry/Gizmos/GizmosStrands.geom");
 
     geom_shader = CreateResource<Shader>("GIZMOS_STRANDS_COLORED_GEOM");
-    geom_shader->Set(ShaderType::Geometry, add,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Geometry/Gizmos/GizmosStrandsColored.geom");
+    geom_shader->Set(
+        ShaderType::Geometry, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Geometry/Gizmos/GizmosStrandsColored.geom");
 
     vert_shader = CreateResource<Shader>("GIZMOS_STRANDS_VERTEX_COLORED_VERT");
     vert_shader->Set(
         ShaderType::Vertex, add,
-        std::filesystem::path("./DefaultResources") /
-                                             "Shaders/Graphics/Vertex/Gizmos/GizmosStrandsVertexColored.vert");
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosStrandsVertexColored.vert");
 
     auto frag_shader = CreateResource<Shader>("GIZMOS_FRAG");
     frag_shader->Set(ShaderType::Fragment, add,
                      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Gizmos/Gizmos.frag");
 
     frag_shader = CreateResource<Shader>("GIZMOS_COLORED_FRAG");
-    frag_shader->Set(ShaderType::Fragment, add,
-                     std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
+    frag_shader->Set(
+        ShaderType::Fragment, add,
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
   }
 #pragma endregion
 }
@@ -441,9 +409,8 @@ void Resources::LoadPrimitives() {
     vertices.emplace_back(vertex);  // 7:
 
     std::vector<glm::uvec3> triangles = {
-        {0, 1, 2}, {1, 0, 3},  // OK
-        {4, 5, 6}, {6, 7, 4},  // OK
-        {7, 3, 0}, {0, 4, 7}, {6, 2, 1}, {2, 6, 5}, {0, 2, 5}, {5, 4, 0}, {3, 6, 1}, {6, 3, 7},
+        {0, 1, 2}, {1, 0, 3}, {4, 5, 6}, {6, 7, 4}, {7, 3, 0}, {0, 4, 7},
+        {6, 2, 1}, {2, 6, 5}, {0, 2, 5}, {5, 4, 0}, {3, 6, 1}, {6, 3, 7},
     };
     const auto rendering_cube = CreateResource<Mesh>("PRIMITIVE_RENDERING_CUBE");
     rendering_cube->SetVertices(attributes, vertices, triangles);

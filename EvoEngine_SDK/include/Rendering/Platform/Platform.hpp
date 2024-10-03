@@ -201,7 +201,8 @@ class Platform final {
 
   class Settings {
    public:
-    inline static bool use_mesh_shader = false;
+    inline static bool use_mesh_shader = true;
+    inline static bool use_ray_tracing = false;
     inline static uint32_t directional_light_shadow_map_resolution = 2048;
     inline static uint32_t point_light_shadow_map_resolution = 1024;
     inline static uint32_t spot_light_shadow_map_resolution = 1024;
@@ -235,6 +236,16 @@ class Platform final {
     constexpr static VkFormat shadow_map = VK_FORMAT_D32_SFLOAT;
     constexpr static uint32_t meshlet_max_vertices_size = 64;
     constexpr static uint32_t meshlet_max_triangles_size = 40;
+
+    inline static uint32_t task_subgroup_size = 1;
+    inline static uint32_t task_subgroup_count = 1;
+    inline static uint32_t mesh_subgroup_size = 1;
+    inline static uint32_t mesh_subgroup_count = 1;
+    inline static uint32_t task_work_group_invocations = 1;
+    /**
+     * \brief Defined during Platform::Initialize();
+     */
+    inline static std::string shader_global_defines{};
   };
   static uint32_t DivUp(uint32_t a, uint32_t b);
   static void EverythingBarrier(VkCommandBuffer vk_command_buffer);

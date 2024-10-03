@@ -24,6 +24,7 @@
 #include "StrandsRenderer.hpp"
 #include "Tree.hpp"
 #include "TreeStructor.hpp"
+#include "Shader.hpp"
 using namespace eco_sys_lab_plugin;
 
 PrivateComponentRegistration<Tree> tree_registry("Tree");
@@ -57,6 +58,7 @@ AssetRegistration<ForestPatch> forest_patch_registry("ForestPatch", {".forestpat
 PrivateComponentRegistration<BillboardCloudsConverter> billboard_clouds_converter_register("BillboardCloudsConverter");
 
 void EcoSysLabLayer::OnCreate() {
+  Shader::RegisterShaderIncludePath(std::filesystem::path("./EcoSysLabResources/Shaders/Includes"));
   if (m_randomColors.empty()) {
     for (int i = 0; i < 20000; i++) {
       m_randomColors.emplace_back(glm::linearRand(glm::vec3(0.0f), glm::vec3(1.0f)));

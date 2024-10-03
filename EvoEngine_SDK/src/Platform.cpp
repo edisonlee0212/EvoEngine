@@ -13,6 +13,165 @@
 #include "vk_mem_alloc.h"
 
 using namespace evo_engine;
+void Platform::Initialize() {
+  auto& graphics = GetInstance();
+#pragma region volk
+  if (volkInitialize() != VK_SUCCESS) {
+    throw std::runtime_error("Volk failed to initialize!");
+  }
+#pragma endregion
+#pragma region Vulkan
+  graphics.CreateInstance();
+  graphics.CreateSurface();
+  graphics.CreateDebugMessenger();
+  graphics.SelectPhysicalDevice();
+#if USE_NSIGHT_AFTERMATH
+  graphics.gpu_crash_tracker.Initialize();
+#endif
+  graphics.CreateLogicalDevice();
+  graphics.SetupVmaAllocator();
+
+  const auto& selected_physical_device = graphics.selected_physical_device;
+  if (selected_physical_device->queue_family_indices.present_family.has_value()) {
+    graphics.CreateSwapChain();
+    graphics.vk_surface_format_ = selected_physical_device->swap_chain_support_details.formats[0];
+    for (const auto& available_format : selected_physical_device->swap_chain_support_details.formats) {
+      if (available_format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+          available_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+        graphics.vk_surface_format_ = available_format;
+        break;
+      }
+    }
+  }
+
+  if (graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
+#pragma region Command pool
+    VkCommandPoolCreateInfo pool_info{};
+    pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    pool_info.queueFamilyIndex =
+        graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
+    graphics.command_pool_ = std::make_unique<CommandPool>(pool_info);
+#pragma endregion
+    graphics.used_command_buffer_size_ = 0;
+    graphics.command_buffer_pool_.resize(graphics.max_frame_in_flight_);
+    graphics.CreateSwapChainSyncObjects();
+
+    constexpr VkDescriptorPoolSize render_layer_descriptor_pool_sizes[] = {
+        {VK_DESCRIPTOR_TYPE_SAMPLER, Constants::initial_descriptor_pool_max_size},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, Constants::initial_descriptor_pool_max_size},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, Constants::initial_descriptor_pool_max_size},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, Constants::initial_descriptor_pool_max_size},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, Constants::initial_descriptor_pool_max_size},
+        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, Constants::initial_descriptor_pool_max_size},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, Constants::initial_descriptor_pool_max_size},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, Constants::initial_descriptor_pool_max_size},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, Constants::initial_descriptor_pool_max_size},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, Constants::initial_descriptor_pool_max_size},
+        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, Constants::initial_descriptor_pool_max_size}};
+
+    VkDescriptorPoolCreateInfo render_layer_descriptor_pool_info{};
+    render_layer_descriptor_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    render_layer_descriptor_pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    render_layer_descriptor_pool_info.poolSizeCount = std::size(render_layer_descriptor_pool_sizes);
+    render_layer_descriptor_pool_info.pPoolSizes = render_layer_descriptor_pool_sizes;
+    render_layer_descriptor_pool_info.maxSets = Constants::initial_descriptor_pool_max_sets;
+    graphics.descriptor_pool_ = std::make_unique<DescriptorPool>(render_layer_descriptor_pool_info);
+  }
+
+  graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
+
+  std::vector<Vertex> vertices = {{{1.0f, 1.0f, 0.0f}}, {{-1.0f, 1.0f, 0.0f}}, {{0.0f, -1.0f, 0.0f}}};
+  std::vector<glm::uvec3> indices = {glm::uvec3(0, 1, 2)};
+  const auto blas = std::make_shared<BottomLevelAccelerationStructure>(vertices, indices);
+
+#pragma endregion
+  const auto& window_layer = Application::GetLayer<WindowLayer>();
+  if (const auto& editor_layer = Application::GetLayer<EditorLayer>(); window_layer && editor_layer) {
+    // Setup Dear ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImNodes::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    //  io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;
+    io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleFonts;
+    // io.ConfigFlags |= ImGuiConfigFlags_IsSRGB;
+    ImGui::StyleColorsDark();
+
+    // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular
+    // ones.
+    ImGuiStyle& style = ImGui::GetStyle();
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+      style.WindowRounding = 0.0f;
+      style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
+
+    ImGui_ImplGlfw_InitForVulkan(window_layer->GetGlfwWindow(), true);
+    ImGui_ImplVulkan_InitInfo init_info = {};
+    init_info.Instance = graphics.vk_instance_;
+    init_info.PhysicalDevice = selected_physical_device->vk_physical_device;
+    init_info.Device = graphics.vk_device_;
+    init_info.QueueFamily = graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
+    init_info.Queue = graphics.main_queue_->vk_queue_;
+    init_info.PipelineCache = VK_NULL_HANDLE;
+    init_info.DescriptorPool = graphics.descriptor_pool_->GetVkDescriptorPool();
+    init_info.MinImageCount = graphics.swapchain_->GetAllImageViews().size();
+    init_info.ImageCount = graphics.swapchain_->GetAllImageViews().size();
+    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    init_info.UseDynamicRendering = true;
+    init_info.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+    init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    const auto format = graphics.swapchain_->GetImageFormat();
+    init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &format;
+    init_info.PipelineRenderingCreateInfo.pNext = nullptr;
+    // init_info.ColorAttachmentFormat = graphics.swapchain_->GetImageFormat();
+
+    ImGui_ImplVulkan_LoadFunctions([](const char* function_name, void*) {
+      return vkGetInstanceProcAddr(GetVkInstance(), function_name);
+    });
+    ImGui_ImplVulkan_Init(&init_info);
+  }
+
+  GeometryStorage::Initialize();
+  TextureStorage::Initialize();
+  graphics.draw_call.resize(graphics.max_frame_in_flight_);
+  graphics.triangles.resize(graphics.max_frame_in_flight_);
+  graphics.strands_segments.resize(graphics.max_frame_in_flight_);
+
+  const uint32_t mesh_work_group_invocations =
+      selected_physical_device->mesh_shader_properties_ext.maxPreferredMeshWorkGroupInvocations;
+  Constants::task_work_group_invocations =
+      selected_physical_device->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+
+  const uint32_t mesh_subgroup_size = selected_physical_device->vulkan11_properties.subgroupSize;
+  const uint32_t mesh_subgroup_count =
+      (std::min(std::max(Constants::meshlet_max_vertices_size, Constants::meshlet_max_triangles_size),
+                mesh_work_group_invocations) +
+       mesh_subgroup_size - 1) /
+      mesh_subgroup_size;
+  const uint32_t task_subgroup_size = selected_physical_device->vulkan11_properties.subgroupSize;
+  const uint32_t task_subgroup_count =
+      (Constants::task_work_group_invocations + task_subgroup_size - 1) / task_subgroup_size;
+
+  Constants::task_subgroup_size = glm::max(task_subgroup_size, 1u);
+  Constants::mesh_subgroup_size = glm::max(mesh_subgroup_size, 1u);
+  Constants::task_subgroup_count = glm::max(task_subgroup_count, 1u);
+  Constants::mesh_subgroup_count = glm::max(mesh_subgroup_count, 1u);
+  Constants::shader_global_defines =
+      "\n#define MAX_DIRECTIONAL_LIGHT_SIZE " + std::to_string(Settings::max_directional_light_size) +
+      "\n#define MAX_KERNEL_AMOUNT " + std::to_string(Constants::max_kernel_amount) +
+      "\n#define MESHLET_MAX_VERTICES_SIZE " + std::to_string(Constants::meshlet_max_vertices_size) +
+      "\n#define MESHLET_MAX_TRIANGLES_SIZE " + std::to_string(Constants::meshlet_max_triangles_size) +
+      "\n#define MESHLET_MAX_INDICES_SIZE " + std::to_string(Constants::meshlet_max_triangles_size * 3)
+
+      + "\n#define EXT_TASK_SUBGROUP_SIZE " + std::to_string(task_subgroup_size) + "\n#define EXT_MESH_SUBGROUP_SIZE " +
+      std::to_string(mesh_subgroup_size) + "\n#define EXT_TASK_SUBGROUP_COUNT " + std::to_string(task_subgroup_count) +
+      "\n#define EXT_MESH_SUBGROUP_COUNT " + std::to_string(mesh_subgroup_count)
+
+      + "\n#define EXT_INVOCATIONS_PER_TASK " + std::to_string(Constants::task_work_group_invocations) + "\n";
+}
 
 VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
                        const VkDebugUtilsMessageTypeFlagsEXT message_type,
@@ -1364,134 +1523,6 @@ void Platform::ResetCommandBuffers() {
 
 #pragma endregion
 
-void Platform::Initialize() {
-  auto& graphics = GetInstance();
-#pragma region volk
-  if (volkInitialize() != VK_SUCCESS) {
-    throw std::runtime_error("Volk failed to initialize!");
-  }
-#pragma endregion
-#pragma region Vulkan
-  graphics.CreateInstance();
-  graphics.CreateSurface();
-  graphics.CreateDebugMessenger();
-  graphics.SelectPhysicalDevice();
-#if USE_NSIGHT_AFTERMATH
-  graphics.gpu_crash_tracker.Initialize();
-#endif
-  graphics.CreateLogicalDevice();
-  graphics.SetupVmaAllocator();
-
-  const auto& selected_physical_device = graphics.selected_physical_device;
-  if (selected_physical_device->queue_family_indices.present_family.has_value()) {
-    graphics.CreateSwapChain();
-    graphics.vk_surface_format_ = selected_physical_device->swap_chain_support_details.formats[0];
-    for (const auto& available_format : selected_physical_device->swap_chain_support_details.formats) {
-      if (available_format.format == VK_FORMAT_B8G8R8A8_SRGB &&
-          available_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-        graphics.vk_surface_format_ = available_format;
-        break;
-      }
-    }
-  }
-
-  if (graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
-#pragma region Command pool
-    VkCommandPoolCreateInfo pool_info{};
-    pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    pool_info.queueFamilyIndex =
-        graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
-    graphics.command_pool_ = std::make_unique<CommandPool>(pool_info);
-#pragma endregion
-    graphics.used_command_buffer_size_ = 0;
-    graphics.command_buffer_pool_.resize(graphics.max_frame_in_flight_);
-    graphics.CreateSwapChainSyncObjects();
-
-    constexpr VkDescriptorPoolSize render_layer_descriptor_pool_sizes[] = {
-        {VK_DESCRIPTOR_TYPE_SAMPLER, Constants::initial_descriptor_pool_max_size},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, Constants::initial_descriptor_pool_max_size},
-        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, Constants::initial_descriptor_pool_max_size},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, Constants::initial_descriptor_pool_max_size},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, Constants::initial_descriptor_pool_max_size},
-        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, Constants::initial_descriptor_pool_max_size},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, Constants::initial_descriptor_pool_max_size},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, Constants::initial_descriptor_pool_max_size},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, Constants::initial_descriptor_pool_max_size},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, Constants::initial_descriptor_pool_max_size},
-        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, Constants::initial_descriptor_pool_max_size}};
-
-    VkDescriptorPoolCreateInfo render_layer_descriptor_pool_info{};
-    render_layer_descriptor_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    render_layer_descriptor_pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    render_layer_descriptor_pool_info.poolSizeCount = std::size(render_layer_descriptor_pool_sizes);
-    render_layer_descriptor_pool_info.pPoolSizes = render_layer_descriptor_pool_sizes;
-    render_layer_descriptor_pool_info.maxSets = Constants::initial_descriptor_pool_max_sets;
-    graphics.descriptor_pool_ = std::make_unique<DescriptorPool>(render_layer_descriptor_pool_info);
-  }
-
-  graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
-
-  std::vector<Vertex> vertices = {{{1.0f, 1.0f, 0.0f}}, {{-1.0f, 1.0f, 0.0f}}, {{0.0f, -1.0f, 0.0f}}};
-  std::vector<glm::uvec3> indices = {glm::uvec3(0, 1, 2)};
-  const auto blas = std::make_shared<BottomLevelAccelerationStructure>(vertices, indices);
-
-#pragma endregion
-  const auto& window_layer = Application::GetLayer<WindowLayer>();
-  if (const auto& editor_layer = Application::GetLayer<EditorLayer>(); window_layer && editor_layer) {
-    // Setup Dear ImGui context
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImNodes::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-    //  io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;
-    io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleFonts;
-    // io.ConfigFlags |= ImGuiConfigFlags_IsSRGB;
-    ImGui::StyleColorsDark();
-
-    // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular
-    // ones.
-    ImGuiStyle& style = ImGui::GetStyle();
-    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-      style.WindowRounding = 0.0f;
-      style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-    }
-
-    ImGui_ImplGlfw_InitForVulkan(window_layer->GetGlfwWindow(), true);
-    ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = graphics.vk_instance_;
-    init_info.PhysicalDevice = selected_physical_device->vk_physical_device;
-    init_info.Device = graphics.vk_device_;
-    init_info.QueueFamily = graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
-    init_info.Queue = graphics.main_queue_->vk_queue_;
-    init_info.PipelineCache = VK_NULL_HANDLE;
-    init_info.DescriptorPool = graphics.descriptor_pool_->GetVkDescriptorPool();
-    init_info.MinImageCount = graphics.swapchain_->GetAllImageViews().size();
-    init_info.ImageCount = graphics.swapchain_->GetAllImageViews().size();
-    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-    init_info.UseDynamicRendering = true;
-    init_info.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
-    init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-    const auto format = graphics.swapchain_->GetImageFormat();
-    init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &format;
-    init_info.PipelineRenderingCreateInfo.pNext = nullptr;
-    // init_info.ColorAttachmentFormat = graphics.swapchain_->GetImageFormat();
-
-    ImGui_ImplVulkan_LoadFunctions([](const char* function_name, void*) {
-      return vkGetInstanceProcAddr(GetVkInstance(), function_name);
-    });
-    ImGui_ImplVulkan_Init(&init_info);
-  }
-
-  GeometryStorage::Initialize();
-  TextureStorage::Initialize();
-
-  graphics.draw_call.resize(graphics.max_frame_in_flight_);
-  graphics.triangles.resize(graphics.max_frame_in_flight_);
-  graphics.strands_segments.resize(graphics.max_frame_in_flight_);
-}
 
 void Platform::PostResourceLoadingInitialization() {
   const auto& graphics = GetInstance();

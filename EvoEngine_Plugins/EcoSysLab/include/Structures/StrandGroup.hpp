@@ -22,7 +22,7 @@ class StrandSegment {
 
   StrandHandle strand_handle_ = -1;
 
-  uint32_t index_ = -1;
+  int index_ = -1;
 
  public:
   StrandHandle neighbors[8];
@@ -68,7 +68,7 @@ class StrandSegment {
    */
   [[nodiscard]] StrandSegmentHandle GetNextHandle() const;
 
-  [[nodiscard]] uint32_t GetIndex() const;
+  [[nodiscard]] int GetIndex() const;
   StrandSegment() = default;
   explicit StrandSegment(StrandHandle strand_handle, StrandSegmentHandle prev_handle);
 };

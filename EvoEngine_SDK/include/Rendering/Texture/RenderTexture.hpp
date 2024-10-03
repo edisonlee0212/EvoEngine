@@ -46,9 +46,8 @@ class RenderTexture {
   [[nodiscard]] const std::shared_ptr<Image>& GetDepthImage();
   [[nodiscard]] const std::shared_ptr<ImageView>& GetColorImageView();
   [[nodiscard]] const std::shared_ptr<ImageView>& GetDepthImageView();
-  void BeginRendering(VkCommandBuffer vk_command_buffer , VkAttachmentLoadOp load_op,
-                      VkAttachmentStoreOp store_op) const;
-  void EndRendering(VkCommandBuffer vk_command_buffer ) const;
+  void Render(VkCommandBuffer vk_command_buffer, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op,
+                      const std::function<void()>& func) const;
   [[nodiscard]] ImTextureID GetColorImTextureId() const;
   void ApplyGraphicsPipelineStates(GraphicsPipelineStates& global_pipeline_state) const;
   [[maybe_unused]] bool Save(const std::filesystem::path& path) const;

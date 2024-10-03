@@ -283,8 +283,9 @@ const std::shared_ptr<ImageView>& RenderTexture::GetDepthImageView() {
   return depth_image_view_;
 }
 
-void RenderTexture::BeginRendering(const VkCommandBuffer vk_command_buffer, const VkAttachmentLoadOp load_op,
-                                   const VkAttachmentStoreOp store_op) const {
+void RenderTexture::Render(const VkCommandBuffer vk_command_buffer, const VkAttachmentLoadOp load_op,
+                                   const VkAttachmentStoreOp store_op, const
+                                       std::function<void()>& func) const {
   if (depth_)
     depth_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   if (color_)
@@ -314,11 +315,10 @@ void RenderTexture::BeginRendering(const VkCommandBuffer vk_command_buffer, cons
   render_info.renderArea = render_area;
   render_info.layerCount = 1;
   vkCmdBeginRendering(vk_command_buffer, &render_info);
-}
-
-void RenderTexture::EndRendering(const VkCommandBuffer vk_command_buffer) const {
+  func();
   vkCmdEndRendering(vk_command_buffer);
 }
+
 
 ImTextureID RenderTexture::GetColorImTextureId() const {
   return color_im_texture_id_;
