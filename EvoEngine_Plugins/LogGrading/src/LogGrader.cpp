@@ -372,15 +372,15 @@ void LogGrader::GenerateCylinderMesh(const std::shared_ptr<Mesh>& mesh,
       auto a = vertexStartIndex + xIndex;
       auto b = vertexStartIndex + (xIndex == 360 - 1 ? 0 : xIndex + 1);
       auto c = vertexStartIndex + 360 + xIndex;
-      indices.at((yIndex * 360 + xIndex) * 6) = c;
+      indices.at((yIndex * 360 + xIndex) * 6) = a;
       indices.at((yIndex * 360 + xIndex) * 6 + 1) = b;
-      indices.at((yIndex * 360 + xIndex) * 6 + 2) = a;
+      indices.at((yIndex * 360 + xIndex) * 6 + 2) = c;
       a = vertexStartIndex + 360 + (xIndex == 360 - 1 ? 0 : xIndex + 1);
       b = vertexStartIndex + 360 + xIndex;
       c = vertexStartIndex + (xIndex == 360 - 1 ? 0 : xIndex + 1);
-      indices.at((yIndex * 360 + xIndex) * 6 + 3) = c;
+      indices.at((yIndex * 360 + xIndex) * 6 + 3) = a;
       indices.at((yIndex * 360 + xIndex) * 6 + 4) = b;
-      indices.at((yIndex * 360 + xIndex) * 6 + 5) = a;
+      indices.at((yIndex * 360 + xIndex) * 6 + 5) = c;
     }
   });
 
@@ -432,15 +432,15 @@ void LogGrader::GenerateFlatMesh(const std::shared_ptr<Mesh>& mesh,
       auto a = vertexStartIndex + xIndex;
       auto b = vertexStartIndex + xIndex + 1;
       auto c = vertexStartIndex + (span + 1) + xIndex;
-      indices.at((yIndex * span + xIndex) * 6) = c;
+      indices.at((yIndex * span + xIndex) * 6) = a;
       indices.at((yIndex * span + xIndex) * 6 + 1) = b;
-      indices.at((yIndex * span + xIndex) * 6 + 2) = a;
+      indices.at((yIndex * span + xIndex) * 6 + 2) = c;
       a = vertexStartIndex + (span + 1) + xIndex + 1;
       b = vertexStartIndex + (span + 1) + xIndex;
       c = vertexStartIndex + xIndex + 1;
-      indices.at((yIndex * span + xIndex) * 6 + 3) = c;
+      indices.at((yIndex * span + xIndex) * 6 + 3) = a;
       indices.at((yIndex * span + xIndex) * 6 + 4) = b;
-      indices.at((yIndex * span + xIndex) * 6 + 5) = a;
+      indices.at((yIndex * span + xIndex) * 6 + 5) = c;
     }
   });
 

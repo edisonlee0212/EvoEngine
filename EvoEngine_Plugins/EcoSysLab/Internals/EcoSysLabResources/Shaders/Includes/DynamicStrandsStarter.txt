@@ -1,0 +1,35 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+
+#define STRAND_SEGMENTS_BLOCK_SET 1
+#define STRAND_SEGMENTS_BLOCK_BINDING 0
+#define STRANDS_BLOCK_SET 1
+#define STRANDS_BLOCK_BINDING 1
+#define STRAND_SEGMENT_HANDLE_BLOCK_SET 1
+#define STRAND_SEGMENT_HANDLE_BLOCK_BINDING 2
+#include "DynamicStrands.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+
+#define BARRIER() \
+	memoryBarrierShared(); \
+	barrier();
+
+void main(){
+
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint global_index = baseID + local_index;
+	}
+}

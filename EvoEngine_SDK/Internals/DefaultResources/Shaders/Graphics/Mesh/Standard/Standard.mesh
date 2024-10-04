@@ -52,7 +52,7 @@ void main()
 	{
 		uint vert = laneID + i * WORKGROUP_SIZE;
 
-		if ((WORKGROUP_SIZE * MESHLET_VERTEX_ITERATIONS > MESHLET_MAX_VERTICES_SIZE) && vert >= MESHLET_MAX_VERTICES_SIZE) break;
+		if (vert >= verticesSize) break;
 
 		Vertex v = EE_VERTEX_DATA_CHUNKS[meshletID].vertices[vert];
 		vec3 N = normalize(vec3(model * vec4(v.normal.xyz, 0.0)));

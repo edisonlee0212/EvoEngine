@@ -76,6 +76,7 @@ class Camera final : public IPrivateComponent {
   [[nodiscard]] bool Rendered() const;
   void SetRequireRendering(bool value);
   float near_distance = 0.1f;
+  float exposure = 1.0f;
   float far_distance = 200.0f;
   float fov = 120;
   bool use_clear_color = false;

@@ -1,3 +1,4 @@
+#extension GL_EXT_nonuniform_qualifier : enable
 
 #define EE_RENDER_INFO_BLOCK_SET 0
 #define EE_RENDER_INFO_BLOCK_BINDING 0

@@ -185,7 +185,6 @@ void GraphicsPipeline::Initialize() {
   rendering_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
   rendering_create_info.depthAttachmentFormat = depth_attachment_format;
   rendering_create_info.stencilAttachmentFormat = stencil_attachment_format;
-
   VkGraphicsPipelineCreateInfo pipeline_info{};
   pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
   pipeline_info.pDepthStencilState = &depth_stencil;

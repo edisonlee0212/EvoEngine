@@ -25,7 +25,9 @@ void main()
 	if(ndcDepth == 1.0) {
 		vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
 		Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
-		vec3 envColor = EE_SKY_COLOR(fragPos - cameraPosition);
+		vec3 color = EE_SKY_COLOR(fragPos - cameraPosition);
+		color = vec3(1.0) - exp(-color * EE_CAMERAS[EE_CAMERA_INDEX].reserved_2.w);
+		color = pow(color, vec3(1.0 / EE_RENDER_INFO.gamma));
 		if(!instanceSelected){
 			vec2 texOffset = 1.0 / textureSize(inMaterial, 0); // gets size of single texel
 			for(int i = -3; i <= 3; i++){
@@ -33,14 +35,14 @@ void main()
 					float temp2 = texture(inMaterial, fs_in.TexCoord + vec2(texOffset.x * i, texOffset.y * j)).z;
 					int infoIndex = int(round(temp2));
 					if(infoIndex == 1){
-						FragColor = mix(vec4(1, 0.75, 0.0, 1.0), vec4(envColor, 1.0), 0.1);
+						FragColor = mix(vec4(1, 0.75, 0.0, 1.0), vec4(color, 1.0), 0.1);
 						return;
 					}
 				}
 			}
-			FragColor = mix(vec4(0.5, 0.5, 0.5, 1.0), vec4(envColor, 1.0), float(EE_LIGHT_SPLIT_INDEX) / 256.0);
+			FragColor = mix(vec4(0.5, 0.5, 0.5, 1.0), vec4(color, 1.0), float(EE_LIGHT_SPLIT_INDEX) / 256.0);
 		}else{
-			FragColor = vec4(envColor, 1.0);
+			FragColor = vec4(color, 1.0);
 		}
 		return;
 	}
@@ -84,6 +86,9 @@ void main()
 	vec3 result = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.xyz, 1.0, depth, normal, viewDir, fragPos, metallic, roughness, F0);
 	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.xyz, normal, viewDir, metallic, roughness, F0);
 	vec3 color = result + emission * normalize(albedo.xyz) + ambient * ao;
+	
+	//exposure tone mapping
+	color = vec3(1.0) - exp(-color * EE_CAMERAS[EE_CAMERA_INDEX].reserved_2.w);
 	color = pow(color, vec3(1.0 / EE_RENDER_INFO.gamma));
 
 	if(!instanceSelected && EE_INSTANCE_INDEX == 1){
