@@ -24,8 +24,10 @@ void main()
 	if(ndcDepth == 1.0) {
 		vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
 		Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
-		vec3 envColor = EE_SKY_COLOR(fragPos - cameraPosition);
-		FragColor = vec4(envColor, 1.0);
+		vec3 color = EE_SKY_COLOR(fragPos - cameraPosition);
+		color = vec3(1.0) - exp(-color * EE_CAMERAS[EE_CAMERA_INDEX].reserved_2.w);
+		color = pow(color, vec3(1.0 / EE_RENDER_INFO.gamma));
+		FragColor = vec4(color, 1.0);
 		return;
 	}
 
@@ -55,6 +57,9 @@ void main()
 	vec3 result = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.xyz, 1.0, depth, normal, viewDir, fragPos, metallic, roughness, F0);
 	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.xyz, normal, viewDir, metallic, roughness, F0);
 	vec3 color = result + emission * normalize(albedo.xyz) + ambient * ao;
+	//exposure tone mapping
+	color = vec3(1.0) - exp(-color * EE_CAMERAS[EE_CAMERA_INDEX].reserved_2.w);
 	color = pow(color, vec3(1.0 / EE_RENDER_INFO.gamma));
+	
 	FragColor = vec4(color, 1.0);
 }

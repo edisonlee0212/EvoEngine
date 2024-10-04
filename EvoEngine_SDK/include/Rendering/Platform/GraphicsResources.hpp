@@ -376,6 +376,11 @@ class BottomLevelAccelerationStructure final : public IGraphicsResource {
   VkAccelerationStructureKHR vk_acceleration_structure_khr_ = VK_NULL_HANDLE;
   std::shared_ptr<Buffer> acceleration_structure_buffer_{};
   VkDeviceAddress device_address_{};
+
+  std::shared_ptr<Buffer> vertex_buffer;
+  std::shared_ptr<Buffer> index_buffer;
+  std::shared_ptr<Buffer> transform_buffer;
+
  public:
   explicit BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices, const std::vector<glm::uvec3>& triangles);
   ~BottomLevelAccelerationStructure() override;
@@ -386,6 +391,9 @@ class TopLevelAccelerationStructure final : public IGraphicsResource {
   VkAccelerationStructureKHR vk_acceleration_structure_khr_ = VK_NULL_HANDLE;
   std::shared_ptr<Buffer> acceleration_structure_buffer_{};
   VkDeviceAddress device_address_{};
+
+  std::shared_ptr<Buffer> instances_data_buffer;
+
  public:
   explicit TopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene,
                                          const std::vector<MeshRenderInstance>& render_instances);

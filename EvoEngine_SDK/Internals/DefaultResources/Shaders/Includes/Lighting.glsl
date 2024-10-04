@@ -4,9 +4,9 @@ layout(set = EE_PER_GROUP_SET, binding = 16) uniform sampler2D EE_SPOT_LIGHT_SM;
 
 vec3 EE_SKY_COLOR(vec3 direction) {
 	Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
-	return pow(camera.use_clear_color == 1 ?
-		pow(camera.clear_color.xyz * camera.clear_color.w, vec3(EE_RENDER_INFO.gamma))
-		: pow(texture(EE_CUBEMAPS[camera.skybox_tex_index], normalize(direction)).rgb, vec3(1.0 / EE_ENVIRONMENT.gamma)), vec3(1.0 / EE_RENDER_INFO.gamma)) * pow(camera.clear_color.w, EE_RENDER_INFO.gamma);
+	return camera.use_clear_color == 1 ?
+		camera.clear_color.xyz * camera.clear_color.w
+		: pow(texture(EE_CUBEMAPS[camera.skybox_tex_index], normalize(direction)).rgb, vec3(1.0 / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
 }
 
 const float PI = 3.14159265359;
@@ -74,12 +74,12 @@ vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDi
 	vec3 kD = 1.0 - kS;
 	kD *= 1.0 - metallic;
 
-	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0 ? pow(EE_ENVIRONMENT.background_color.xyz, vec3(EE_RENDER_INFO.gamma)) : pow(texture(EE_CUBEMAPS[EE_CAMERAS[EE_CAMERA_INDEX].irradiance_map_index], normal).rgb, vec3(1.0 / EE_ENVIRONMENT.gamma));
+	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0 ? EE_ENVIRONMENT.background_color.xyz : pow(texture(EE_CUBEMAPS[EE_CAMERAS[EE_CAMERA_INDEX].irradiance_map_index], normal).rgb, vec3(1.0 / EE_ENVIRONMENT.gamma));
 	vec3 diffuse = irradiance * albedo;
 
 	// sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
 	const float MAX_REFLECTION_LOD = 4.0;
-	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0 ? pow(EE_ENVIRONMENT.background_color.xyz, vec3(EE_RENDER_INFO.gamma)) : pow(textureLod(EE_CUBEMAPS[EE_CAMERAS[EE_CAMERA_INDEX].prefiltered_map_index], R, roughness * MAX_REFLECTION_LOD).rgb, vec3(1.0 / EE_ENVIRONMENT.gamma));
+	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0 ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_CUBEMAPS[EE_CAMERAS[EE_CAMERA_INDEX].prefiltered_map_index], R, roughness * MAX_REFLECTION_LOD).rgb, vec3(1.0 / EE_ENVIRONMENT.gamma));
 	vec2 brdf = texture(EE_TEXTURE_2DS[EE_RENDER_INFO.brdf_lut_map_index], vec2(max(dot(normal, viewDir), 0.0), roughness)).rg;
 	vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 	vec3 ambient = (kD * diffuse + specular) * pow(EE_ENVIRONMENT.light_intensity, EE_RENDER_INFO.gamma);
@@ -157,7 +157,7 @@ vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, 
 	DirectionalLight light = EE_DIRECTIONAL_LIGHTS[i];
 	vec3 lightDir = normalize(-light.direction);
 	vec3 H = normalize(viewDir + lightDir);
-	vec3 radiance = pow(light.diffuse.xyz, vec3(EE_RENDER_INFO.gamma));
+	vec3 radiance = light.diffuse.xyz;
 	float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
 	float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
 	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0, 1.0), F0);
@@ -179,7 +179,7 @@ vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 f
 	vec3 H = normalize(viewDir + lightDir);
 	float distance = length(light.position - fragPos);
 	float attenuation = 1.0 / (light.constant_linear_quadratic_far.x + light.constant_linear_quadratic_far.y * distance + light.constant_linear_quadratic_far.z * (distance * distance));
-	vec3 radiance = pow(light.diffuse.xyz, vec3(EE_RENDER_INFO.gamma)) * attenuation;
+	vec3 radiance = light.diffuse.xyz * attenuation;
 	float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
 	float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
 	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0, 1.0), F0);
@@ -207,7 +207,7 @@ vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fr
 	float epsilon = light.cutoff_outer_inner_size_bias.x - light.cutoff_outer_inner_size_bias.y;
 	float intensity = clamp((theta - light.cutoff_outer_inner_size_bias.y) / epsilon, 0.0, 1.0);
 
-	vec3 radiance = pow(light.diffuse.xyz, vec3(EE_RENDER_INFO.gamma)) * attenuation * intensity;
+	vec3 radiance = light.diffuse.xyz * attenuation * intensity;
 	float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
 	float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
 	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0, 1.0), F0);

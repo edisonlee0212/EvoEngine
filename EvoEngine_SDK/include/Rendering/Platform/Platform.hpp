@@ -6,7 +6,6 @@
 #include "RayTracingPipeline.hpp"
 #define ENABLE_EXTERNAL_MEMORY true
 #define ENABLE_NV_RAY_TRACING_VALIDATION false
-#define GRAPHICS_VALIDATION true
 #define USE_NSIGHT_AFTERMATH true
 // Enables the Nsight Aftermath code instrumentation for GPU crash dump creation.
 
@@ -50,6 +49,10 @@ class Platform final {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES};
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties_ext = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
+
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties_khr = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
+
 #if ENABLE_NV_RAY_TRACING_VALIDATION
     VkPhysicalDeviceRayTracingValidationFeaturesNV ray_tracing_validation_features_nv = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV};
@@ -213,6 +216,7 @@ class Platform final {
     inline static uint32_t max_point_light_size = 16;
     inline static uint32_t max_spot_light_size = 16;
   };
+
 
   class Constants {
    public:

@@ -1089,14 +1089,14 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
   VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   buffer_create_info.size = vertices.size() * sizeof(Vertex);
-  const auto vertex_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  vertex_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   
   vertex_buffer->UploadVector(vertices);
 
   buffer_create_info.size = triangles.size() * sizeof(glm::uvec3);
-  const auto index_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  index_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   index_buffer->UploadVector(triangles);
-  const auto transform_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  transform_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   VkTransformMatrixKHR transform_matrix = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
   transform_buffer->Upload(transform_matrix);
 
@@ -1141,7 +1141,11 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
 
   acceleration_structure_buffer_ = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   // Create a scratch buffer as a temporary storage for the acceleration structure build
-  buffer_create_info.size = acceleration_structure_build_sizes_info.buildScratchSize;
+  const auto& scratch_buffer_alignment =
+      Platform::GetSelectedPhysicalDevice()
+          ->acceleration_structure_properties_khr.minAccelerationStructureScratchOffsetAlignment;
+  buffer_create_info.size = acceleration_structure_build_sizes_info.buildScratchSize + scratch_buffer_alignment;
+                            ;
   buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
   const auto scratch_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
@@ -1166,7 +1170,8 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
   acceleration_build_geometry_info.dstAccelerationStructure = vk_acceleration_structure_khr_;
   acceleration_build_geometry_info.geometryCount = 1;
   acceleration_build_geometry_info.pGeometries = &acceleration_structure_geometry;
-  acceleration_build_geometry_info.scratchData.deviceAddress = scratch_buffer->GetDeviceAddress();
+  acceleration_build_geometry_info.scratchData.deviceAddress =
+      (scratch_buffer->GetDeviceAddress() + scratch_buffer_alignment - 1) & ~(scratch_buffer_alignment - 1);
 
   VkAccelerationStructureBuildRangeInfoKHR acceleration_structure_build_range_info{};
   acceleration_structure_build_range_info.primitiveCount = primitive_count;
@@ -1225,7 +1230,7 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   buffer_create_info.size = acceleration_structure_instances.size() * sizeof(VkAccelerationStructureInstanceKHR);
-  const auto instances_data_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  instances_data_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   instances_data_buffer->UploadVector(acceleration_structure_instances);
 
@@ -1264,11 +1269,15 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
 
   acceleration_structure_buffer_ = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   // Create a scratch buffer as a temporary storage for the acceleration structure build
-  buffer_create_info.size = acceleration_structure_build_sizes_info.buildScratchSize;
+  const auto& scratch_buffer_alignment =
+      Platform::GetSelectedPhysicalDevice()
+          ->acceleration_structure_properties_khr.minAccelerationStructureScratchOffsetAlignment;
+  buffer_create_info.size = acceleration_structure_build_sizes_info.buildScratchSize + scratch_buffer_alignment;
+  ;
   buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
   const auto scratch_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-
+  
   VkAccelerationStructureCreateInfoKHR acceleration_structure_create_info{};
   acceleration_structure_create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
   acceleration_structure_create_info.buffer = acceleration_structure_buffer_->GetVkBuffer();
@@ -1288,7 +1297,8 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   acceleration_build_geometry_info.dstAccelerationStructure = vk_acceleration_structure_khr_;
   acceleration_build_geometry_info.geometryCount = 1;
   acceleration_build_geometry_info.pGeometries = &acceleration_structure_geometry;
-  acceleration_build_geometry_info.scratchData.deviceAddress = scratch_buffer->GetDeviceAddress();
+  acceleration_build_geometry_info.scratchData.deviceAddress =
+      (scratch_buffer->GetDeviceAddress() + scratch_buffer_alignment - 1) & ~(scratch_buffer_alignment - 1);
 
 
   VkAccelerationStructureBuildRangeInfoKHR acceleration_structure_build_range_info{};

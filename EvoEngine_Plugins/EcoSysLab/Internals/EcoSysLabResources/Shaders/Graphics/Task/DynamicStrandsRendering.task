@@ -1,18 +1,17 @@
 #extension GL_EXT_mesh_shader : enable
 #extension GL_ARB_shader_draw_parameters : enable
-
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_ballot : require
 #extension GL_KHR_shader_subgroup_vote : require
 #extension GL_ARB_shading_language_include : enable
 
-#include "PerFrame.glsl"
-
+#define DYNAMIC_STRANDS_SET 1
 #include "DynamicStrands.glsl"
 
 const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
 
-const uint TASK_MESHLET_ITERATIONS = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
 uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
 uint laneID = gl_LocalInvocationID.x;
@@ -20,22 +19,67 @@ uint laneID = gl_LocalInvocationID.x;
 layout(local_size_x = WORKGROUP_SIZE) in;
 
 struct Task{
-	vec4 start_color;
-	vec3 start_position;
-	float start_thickness;
+	uint	baseID;
+	uint8_t	deltaIDs[EXT_INVOCATIONS_PER_TASK];
+};
 
-	int strand_index;
-	int strand_segment_handles_offset;
-}
+taskPayloadSharedEXT Task ts_out;
+
+#if EXT_TASK_SUBGROUP_COUNT > 1
+	shared uint s_out_strand_segments_count;
+#endif
 
 #define BARRIER() \
 	memoryBarrierShared(); \
 	barrier();
 
+layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
+  uint camera_index;
+  uint strands_size;
+  uint strand_segments_size;
+};
 
 void main(){
-	uint strand_index = gl_drawID;
-	Strand strand = strands[strand_index];
+	
+#if EXT_TASK_SUBGROUP_COUNT > 1
+	if (laneID == 0) {
+		s_out_strand_segments_count = 0;
+	}
+	BARRIER();
+#endif
+	uint out_strand_segments_count = 0;
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint strand_segment_index_local  = laneID + i * WORKGROUP_SIZE;
+		uint strand_segment_index_global = baseID + strand_segment_index_local;
 
+		bool render = !(strand_segment_index_global > strand_segments_size - 1);
 
+		uvec4 vote_strand_segments = subgroupBallot(render);
+		uint num_strand_segments  = subgroupBallotBitCount(vote_strand_segments);
+
+#if EXT_TASK_SUBGROUP_COUNT > 1
+		if (gl_SubgroupInvocationID == 0) {
+			out_strand_segments_count = atomicAdd(s_out_strand_segments_count, num_strand_segments);
+		}
+		out_strand_segments_count = subgroupBroadcastFirst(out_strand_segments_count);
+#endif
+		uint idx_offset  = subgroupBallotExclusiveBitCount(vote_strand_segments) + out_strand_segments_count;
+		if (render) 
+		{
+			ts_out.deltaIDs[idx_offset] = uint8_t(strand_segment_index_local);
+		}
+#if EXT_TASK_SUBGROUP_COUNT == 1
+		out_strand_segments_count += num_strand_segments;
+#endif
+	}
+
+#if EXT_TASK_SUBGROUP_COUNT > 1
+	BARRIER();
+	out_strand_segments_count = s_out_strand_segments_count;
+#endif
+	if (laneID == 0) {
+		ts_out.baseID = baseID;
+	}
+	EmitMeshTasksEXT(out_strand_segments_count, 1, 1);
 }

@@ -1516,7 +1516,6 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
                                                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
 }
-
 void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                                  const std::shared_ptr<Camera>& camera) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();

@@ -28,6 +28,7 @@ void main()
 	camera_end /= camera_end.w;
 	vec3 sample_origin = camera_start.xyz;
 	vec3 sample_direction = normalize(camera_end.xyz - camera_start.xyz);
+	hit_value.type = 0;
 	traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, camera_start.xyz, 0, sample_direction, 1000, 0);
 	if(hit_value.type == 0){
 		imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(0, 0, 0, 1));

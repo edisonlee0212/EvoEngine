@@ -2,31 +2,168 @@
 #extension GL_ARB_shader_draw_parameters : enable
 #extension GL_EXT_control_flow_attributes : require
 #extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 
-#include "Basic.glsl"
+#include "PerFrame.glsl"
 
+#define DYNAMIC_STRANDS_SET 1
+#include "DynamicStrands.glsl"
 
 const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * EXT_MESH_SUBGROUP_SIZE;
 
 layout(local_size_x = WORKGROUP_SIZE) in;
 layout(triangles) out;
 
-#define SEGMENT_MAX_VERTICES_SIZE 8
-#define SEGMENT_MAX_TIANGLE_SIZE 12
+#define SEGMENT_VERTICES_SIZE 8
+#define SEGMENT_TRIANGLE_SIZE 12
 
-layout(max_vertices = SEGMENT_MAX_VERTICES_SIZE, max_primitives = SEGMENT_MAX_TIANGLE_SIZE) out;
+layout(max_vertices = SEGMENT_VERTICES_SIZE, max_primitives = SEGMENT_TRIANGLE_SIZE) out;
 
-const uint SEGMENT_VERTEX_ITERATIONS    = ((SEGMENT_MAX_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-const uint SEGMENT_PRIMITIVE_ITERATIONS = ((SEGMENT_MAX_TIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint SEGMENT_VERTEX_ITERATIONS    = ((SEGMENT_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint SEGMENT_PRIMITIVE_ITERATIONS = ((SEGMENT_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
 layout(location = 0) out MS_V_OUT {
-	vec3 FragPos;
-	vec3 Normal;
-	vec3 Tangent;
-	vec2 TexCoord;
+	vec3 frag_pos;
+	vec3 normal;
+	vec3 tangent;
+	vec4 color;
 } ms_v_out[];
 
+struct Task{
+	uint	baseID;
+	uint8_t	deltaIDs[EXT_INVOCATIONS_PER_TASK];
+};
+
+vec3 positions[] = {
+    vec3(-0.5, -0.5, -0.5),
+    vec3(0.5, 0.5, -0.5),
+	vec3(0.5, -0.5, -0.5),
+	vec3(-0.5, 0.5, -0.5),
+
+	vec3(-0.5, -0.5, 0.5),
+	vec3(0.5, -0.5, 0.5),
+	vec3(0.5, 0.5, 0.5),
+	vec3(-0.5, 0.5, 0.5)
+};
+
+uvec3 triangles[] = {
+	uvec3(0, 1, 2),
+	uvec3(1, 0, 3),
+	uvec3(4, 5, 6),
+
+	uvec3(6, 7, 4),
+	uvec3(7, 3, 0),
+	uvec3(0, 4, 7),
+
+	uvec3(6, 2, 1),
+	uvec3(2, 6, 5),
+	uvec3(0, 2, 5),
+
+	uvec3(5, 4, 0),
+	uvec3(3, 6, 1),
+	uvec3(6, 3, 7)
+};
+
+layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
+  uint camera_index;
+  uint strands_size;
+  uint strand_segments_size;
+};
+
+taskPayloadSharedEXT Task ts_in;
+
+// gl_WorkGroupID.x runs from [0 .. parentTask.groupCountX - 1]
+uint strand_segment_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
+uint laneID = gl_LocalInvocationID.x;
+
+mat4 translate(in vec3 d){
+	return mat4(1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				d.x, d.y, d.z, 1);
+}
+
+mat4 scale(in vec3 s){
+	return mat4(s.x, 0, 0, 0,
+				0, s.y, 0, 0,
+				0, 0, s.z, 0,
+				0, 0, 0, 1);
+}
+
+mat4 mat4_cast(in vec4 q){
+	float qxx = q.x * q.x;
+	float qyy = q.y * q.y;
+	float qzz = q.z * q.z;
+	float qxz = q.x * q.z;
+	float qxy = q.x * q.y;
+	float qyz = q.y * q.z;
+	float qwx = q.w * q.x;
+	float qwy = q.w * q.y;
+	float qwz = q.w * q.z;
+	mat4 ret_val = mat4(0, 0, 0, 0,
+				0, 0, 0, 0,
+				0, 0, 0, 0,
+				0, 0, 0, 1);
+	ret_val[0][0] = 1.0 - 2.0 * (qyy +  qzz);
+	ret_val[0][1] = 2.0 * (qxy + qwz);
+	ret_val[0][2] = 2.0 * (qxz - qwy);
+
+	ret_val[1][0] = 2.0 * (qxy - qwz);
+	ret_val[1][1] = 1.0 - 2.0 * (qxx +  qzz);
+	ret_val[1][2] = 2.0 * (qyz + qwx);
+
+	ret_val[2][0] = 2.0 * (qxz + qwy);
+	ret_val[2][1] = 2.0 * (qyz - qwx);
+	ret_val[2][2] = 1.0 - 2.0 * (qxx +  qyy);
+
+	return ret_val;
+}
 
 void main(){
+
+	SetMeshOutputsEXT(SEGMENT_VERTICES_SIZE, SEGMENT_TRIANGLE_SIZE);
 	
+	StrandSegment strand_segment = strand_segments[strand_segment_id];
+
+	vec3 start_position;
+	float start_thickness;
+	if(strand_segment.prev_handle != -1){
+		start_position = strand_segments[strand_segment.prev_handle].end_position_thickness.xyz;
+		start_thickness = strand_segments[strand_segment.prev_handle].end_position_thickness.w;
+	}else{
+		start_position = strands[strand_segment.strand_handle].start_position_thickness.xyz;
+		start_thickness = strands[strand_segment.strand_handle].start_position_thickness.w;
+	}
+	vec3 end_position = strand_segment.end_position_thickness.xyz;
+	float end_thickness = strand_segment.end_position_thickness.w;
+
+	vec3 center_position = (start_position + end_position) * 0.5;
+	float center_thickness = (start_thickness + end_thickness) * 0.5;
+	vec4 rotation = strand_segment.rotation;
+	mat4 instance_matrix = translate(end_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, distance(start_position, end_position)));
+	
+	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
+	
+	[[unroll]]
+	for (uint i = 0; i < uint(SEGMENT_VERTEX_ITERATIONS); ++i)
+	{
+		uint vertex_index = laneID + i * WORKGROUP_SIZE;
+		if (vertex_index > SEGMENT_VERTICES_SIZE) break;
+		vec3 vertex_position = positions[vertex_index];
+
+		ms_v_out[vertex_index].frag_pos = vec4(instance_matrix * vec4(vertex_position, 1.0)).xyz;
+		ms_v_out[vertex_index].normal = vec3(0, 1, 0);
+		ms_v_out[vertex_index].tangent = vec3(0, 0, 1);
+		ms_v_out[vertex_index].color = strand_segment.end_color;
+		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
+	}
+
+	[[unroll]]
+	for (uint i = 0; i < uint(SEGMENT_PRIMITIVE_ITERATIONS); ++i)
+	{
+		uint triangle_index = laneID + i * WORKGROUP_SIZE;
+		if(triangle_index <= SEGMENT_TRIANGLE_SIZE){
+			gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
+		}
+	}
 }

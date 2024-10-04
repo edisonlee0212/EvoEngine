@@ -166,7 +166,7 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.reserved_parameters1 =
       glm::vec4(near_distance, far_distance, glm::tan(glm::radians(fov * 0.5f)), glm::tan(glm::radians(fov * 0.25f)));
   camera_info_block.clear_color = glm::vec4(clear_color, background_intensity);
-  camera_info_block.reserved_parameters2 = glm::vec4(size_.x, size_.y, static_cast<float>(size_.x) / size_.y, 0.0f);
+  camera_info_block.reserved_parameters2 = glm::vec4(size_.x, size_.y, static_cast<float>(size_.x) / size_.y, exposure);
   if (use_clear_color) {
     camera_info_block.camera_use_clear_color = 1;
   } else {
@@ -399,6 +399,7 @@ Ray Camera::ScreenPointToRay(GlobalTransform& ltw, glm::vec2 mouse_position) con
 
 void Camera::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "x" << YAML::Value << size_.x;
+  
   out << YAML::Key << "y" << YAML::Value << size_.y;
   out << YAML::Key << "use_clear_color" << YAML::Value << use_clear_color;
   out << YAML::Key << "clear_color" << YAML::Value << clear_color;
@@ -406,7 +407,7 @@ void Camera::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "far_distance" << YAML::Value << far_distance;
   out << YAML::Key << "fov" << YAML::Value << fov;
   out << YAML::Key << "background_intensity" << YAML::Value << background_intensity;
-
+  out << YAML::Key << "exposure" << YAML::Value << exposure;
   skybox.Save("skybox", out);
   post_processing_stack.Save("post_processing_stack", out);
 }
@@ -420,8 +421,11 @@ void Camera::Deserialize(const YAML::Node& in) {
     near_distance = in["near_distance"].as<float>();
   if (in["far_distance"])
     far_distance = in["far_distance"].as<float>();
+  if (in["exposure"])
+    exposure = in["exposure"].as<float>();
   if (in["fov"])
     fov = in["fov"].as<float>();
+
   if (in["x"] && in["y"]) {
     int resolution_x = in["x"].as<int>();
     int resolution_y = in["y"].as<int>();
@@ -448,7 +452,9 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     camera_render_mode = static_cast<CameraRenderMode>(mode);
     changed = true;
   }
-
+  if (ImGui::DragFloat("Exposure", &exposure, 0.01f, 0.01f, 2.0f)) {
+    changed = true;
+  }
   if (ImGui::TreeNode("Contents")) {
     require_rendering_ = true;
     static float debug_scale = 0.25f;

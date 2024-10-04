@@ -5,6 +5,15 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
+void BrokenBranch::UploadStrands() {
+  DynamicStrands::InitializeParameters initialize_parameters{};
+  const auto owner = GetOwner();
+  const auto scene = GetScene();
+  initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
+  dynamic_strands.UpdateData(initialize_parameters, subdivided_strand_group.PeekStrands(),
+                             subdivided_strand_group.PeekStrandSegments());
+}
+
 void BrokenBranch::Serialize(YAML::Emitter& out) const {
 }
 
@@ -24,16 +33,15 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       strand_group = tree->strand_model.strand_model_skeleton.data.strand_group;
       if (auto_subdivide) {
         Subdivide(segment_length, strand_group, subdivided_strand_group);
-        InitializeStrandParticles(subdivided_strand_group);
-      }else {
-        InitializeStrandParticles(strand_group);
+        dynamic_strands.UpdateData({}, subdivided_strand_group.PeekStrands(),
+                                subdivided_strand_group.PeekStrandSegments());
       }
       tree_ref.Clear();
     }
   }
   if (ImGui::Button("Subdivide strands")) {
     Subdivide(segment_length, strand_group, subdivided_strand_group);
-    InitializeStrandParticles(subdivided_strand_group);
+    dynamic_strands.UpdateData({}, subdivided_strand_group.PeekStrands(), subdivided_strand_group.PeekStrandSegments());
   }
   if (ImGui::Button("Experiment")) {
     ExperimentSetup();
@@ -70,12 +78,13 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       StrandSegmentHandle segment_handle;
       float t;
       temp_strand_group.FindStrandT(strand_handle, segment_handle, t,
-                                          min_trunk_length + glm::perlin(strand.start_position * noise_frequency) *
-                                                                 (max_trunk_length - min_trunk_length));
+                                    min_trunk_length + glm::perlin(strand.start_position * noise_frequency) *
+                                                           (max_trunk_length - min_trunk_length));
       if (t <= 0.f)
         continue;
       const auto new_strand_handle = temp_strand_group.Cut(segment_handle, t);
-      if (new_strand_handle == -1) continue;
+      if (new_strand_handle == -1)
+        continue;
       auto& new_strand = temp_strand_group.RefStrand(new_strand_handle);
       new_strand.start_position += upper_offset;
       for (const auto& i : new_strand.PeekStrandSegmentHandles()) {
@@ -86,7 +95,7 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       }
     }
     Subdivide(segment_length, temp_strand_group, subdivided_strand_group);
-    InitializeStrandParticles(subdivided_strand_group);
+    
   }
   if (ImGui::Button("Build particles for original")) {
     InitializeStrandParticles(strand_group);
@@ -107,10 +116,20 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::Button("Clear concave mesh")) {
     ClearStrandConcaveMesh();
   }
+  ImGui::Checkbox("Render strands", &enable_simulation);
+
   return false;
 }
 
 void BrokenBranch::Update() {
+}
+
+void BrokenBranch::LateUpdate() {
+  if (enable_simulation) {
+    const auto editor_layer = Application::GetLayer<EditorLayer>();
+    dynamic_strands.step_parameters.render_parameters.target_camera = editor_layer->GetSceneCamera();
+    dynamic_strands.Step();
+  }
 }
 
 void BrokenBranch::OnCreate() {
@@ -134,7 +153,8 @@ void BrokenBranch::ExperimentSetup() {
   strand_group.CalculateRotations();
 }
 
-void BrokenBranch::Subdivide(const float segment_length, const StrandModelStrandGroup& src, StrandModelStrandGroup& dst) {
+void BrokenBranch::Subdivide(const float segment_length, const StrandModelStrandGroup& src,
+                             StrandModelStrandGroup& dst) {
   src.UniformlySubdivide(dst, segment_length, segment_length * .01f);
   dst.RandomAssignColor();
 }
@@ -176,7 +196,8 @@ void BrokenBranch::ClearStrandParticles() const {
   }
 }
 
-void BrokenBranch::InitializeStrandConcaveMesh(const StrandModelStrandGroup& strand_group, const float max_edge_length) const {
+void BrokenBranch::InitializeStrandConcaveMesh(const StrandModelStrandGroup& strand_group,
+                                               const float max_edge_length) const {
   const auto scene = GetScene();
   const auto owner = GetOwner();
 
@@ -190,7 +211,7 @@ void BrokenBranch::InitializeStrandConcaveMesh(const StrandModelStrandGroup& str
   Jobs::RunParallelFor(strand_group.PeekStrandSegments().size(), [&](const auto& i) {
     points[i] = strand_group.GetStrandSegmentCenter(i);
   });
-  
+
   renderer->mesh = Delaunay3D::GenerateConcaveHullMesh(points, max_edge_length);
   const auto material = ProjectManager::CreateTemporaryAsset<Material>();
 

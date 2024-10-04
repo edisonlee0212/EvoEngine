@@ -12,6 +12,10 @@
 #include "WindowLayer.hpp"
 #include "vk_mem_alloc.h"
 
+#ifndef NDEBUG 
+#define GRAPHICS_VALIDATION true
+#endif
+
 using namespace evo_engine;
 void Platform::Initialize() {
   auto& graphics = GetInstance();
@@ -43,7 +47,6 @@ void Platform::Initialize() {
       }
     }
   }
-
   if (graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
 #pragma region Command pool
     VkCommandPoolCreateInfo pool_info{};
@@ -842,7 +845,8 @@ void Platform::PhysicalDevice::QueryInformation() {
   vulkan12_properties.pNext = &mesh_shader_properties_ext;
   mesh_shader_properties_ext.pNext = &subgroup_size_control_properties;
   subgroup_size_control_properties.pNext = &ray_tracing_properties_ext;
-  ray_tracing_properties_ext.pNext = nullptr;
+  ray_tracing_properties_ext.pNext = &acceleration_structure_properties_khr;
+  acceleration_structure_properties_khr.pNext = nullptr;
 
   vkGetPhysicalDeviceProperties2(vk_physical_device, &properties2);
   vkGetPhysicalDeviceMemoryProperties(vk_physical_device, &vk_physical_device_memory_properties);
