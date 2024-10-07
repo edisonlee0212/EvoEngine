@@ -81,7 +81,6 @@ class SkeletonNode {
   friend class SkeletonSerializer;
 
   bool end_node_ = true;
-  bool recycled_ = false;
   SkeletonNodeHandle handle_ = -1;
   SkeletonFlowHandle flow_handle_ = -1;
   SkeletonNodeHandle parent_handle_ = -1;
@@ -102,11 +101,6 @@ class SkeletonNode {
    */
   [[nodiscard]] bool IsEndNode() const;
 
-  /**
-   * Whether this node is recycled (removed).
-   * @return True if this node is recycled (removed), false else wise.
-   */
-  [[nodiscard]] bool IsRecycled() const;
   /**
    * Whether this node is apical_.
    * @return True if this node is apical, false else wise.
@@ -155,7 +149,6 @@ class SkeletonFlow {
   template <typename Sd, typename Fd, typename Id>
   friend class SkeletonSerializer;
 
-  bool recycled_ = false;
   SkeletonFlowHandle handle_ = -1;
   std::vector<SkeletonNodeHandle> nodes_;
   SkeletonFlowHandle parent_handle_ = -1;
@@ -166,12 +159,6 @@ class SkeletonFlow {
  public:
   SkeletonFlowData data;
   SkeletonFlowInfo info;
-
-  /**
-   * Whether this flow is recycled (removed).
-   * @return True if this flow is recycled (removed), false else wise.
-   */
-  [[nodiscard]] bool IsRecycled() const;
 
   /**
    * Whether this flow is extended from an apical bud. The apical flow will have the same order as parent flow.
@@ -220,8 +207,6 @@ class Skeleton {
 
   std::vector<SkeletonFlow<FlowData>> flows_;
   std::vector<SkeletonNode<NodeData>> nodes_;
-  std::queue<SkeletonNodeHandle> node_pool_;
-  std::queue<SkeletonFlowHandle> flow_pool_;
 
   int new_version_ = 0;
   int version_ = -1;
@@ -229,10 +214,6 @@ class Skeleton {
   std::vector<SkeletonFlowHandle> sorted_flow_list_;
 
   SkeletonNodeHandle AllocateNode();
-
-  void RecycleNodeSingle(SkeletonNodeHandle handle, const std::function<void(SkeletonNodeHandle)>& node_handler);
-
-  void RecycleFlowSingle(SkeletonFlowHandle handle, const std::function<void(SkeletonFlowHandle)>& flow_handler);
 
   SkeletonFlowHandle AllocateFlow();
 
@@ -252,8 +233,6 @@ class Skeleton {
   void RefreshBaseNodeList();
 
  public:
-  void CalculateClusters(const SkeletonClusterSettings& cluster_settings);
-
   template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
   void Clone(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& src_skeleton);
 
@@ -263,27 +242,13 @@ class Skeleton {
 
   void CalculateDistance();
   void CalculateRegulatedGlobalRotation();
-  /**
-   * Recycle (Remove) a node, the descendants of this node will also be recycled. The relevant flow will also be
-   * removed/restructured.
-   * @param handle The handle of the node to be removed. Must be valid (non-zero and the node should not be recycled
-   * prior to this operation).
-   * @param flow_handler Function to be called right before a flow in recycled.
-   * @param node_handler Function to be called right before a node in recycled.
-   */
-  void RecycleNode(SkeletonNodeHandle handle, const std::function<void(SkeletonFlowHandle)>& flow_handler,
-                   const std::function<void(SkeletonNodeHandle)>& node_handler);
 
   /**
-   * Recycle (Remove) a flow, the descendants of this flow will also be recycled. The relevant node will also be
+   * Remove nodes, the descendants of this node will also be removed. The relevant flow will also be
    * removed/restructured.
-   * @param handle The handle of the flow to be removed. Must be valid (non-zero and the flow should not be recycled
-   * prior to this operation).
-   * @param flow_handler Function to be called right before a flow in recycled.
-   * @param node_handler Function to be called right before a node in recycled.
+   * @param node_handles The set of handles of the node to be removed.
    */
-  void RecycleFlow(SkeletonFlowHandle handle, const std::function<void(SkeletonFlowHandle)>& flow_handler,
-                   const std::function<void(SkeletonNodeHandle)>& node_handler);
+  void RemoveNodes(const std::vector<SkeletonNodeHandle>& node_handles);
 
   /**
    * Branch/prolong node during growth process. The flow structure will also be updated.
@@ -436,7 +401,6 @@ void Skeleton<SkeletonData, FlowData, NodeData>::SortLists() {
     sorted_flow_list_.emplace_back(flow_wait_list.front());
     flow_wait_list.pop();
     for (const auto& i : flows_[sorted_flow_list_.back()].child_handles_) {
-      assert(!flows_[i].recycled_);
       flow_wait_list.push(i);
     }
   }
@@ -445,7 +409,6 @@ void Skeleton<SkeletonData, FlowData, NodeData>::SortLists() {
     sorted_node_list_.emplace_back(node_wait_list.front());
     node_wait_list.pop();
     for (const auto& i : nodes_[sorted_node_list_.back()].child_handles_) {
-      assert(!nodes_[i].recycled_);
       node_wait_list.push(i);
     }
   }
@@ -506,10 +469,8 @@ SkeletonNodeHandle Skeleton<SkeletonData, FlowData, NodeData>::Extend(SkeletonNo
                                                                       const bool branching) {
   assert(target_handle < nodes_.size());
   auto& target_node = nodes_[target_handle];
-  assert(!target_node.recycled_);
   assert(target_node.flow_handle_ < flows_.size());
   auto& flow = flows_[target_node.flow_handle_];
-  assert(!flow.recycled_);
   auto new_node_handle = AllocateNode();
   SetParentNode(new_node_handle, target_handle);
   auto& original_node = nodes_[target_handle];
@@ -564,99 +525,117 @@ const std::vector<SkeletonNodeHandle>& Skeleton<SkeletonData, FlowData, NodeData
 }
 
 template <typename SkeletonData, typename FlowData, typename NodeData>
-void Skeleton<SkeletonData, FlowData, NodeData>::RecycleFlow(
-    SkeletonFlowHandle handle, const std::function<void(SkeletonFlowHandle)>& flow_handler,
-    const std::function<void(SkeletonNodeHandle)>& node_handler) {
-  assert(handle != 0);
-  assert(!flows_[handle].recycled_);
-  auto& flow = flows_[handle];
-  // Remove children
-  auto children = flow.child_handles_;
-  for (const auto& child : children) {
-    if (flows_[child].recycled_)
-      continue;
-    RecycleFlow(child, flow_handler, node_handler);
+void Skeleton<SkeletonData, FlowData, NodeData>::RemoveNodes(const std::vector<SkeletonNodeHandle>& node_handles) {
+  std::set<SkeletonNodeHandle> collected_node_handle_set{};
+  std::set<SkeletonFlowHandle> collected_flow_handle_set{};
+
+  std::queue<SkeletonNodeHandle> processing_node_handles;
+  for (const auto& i : node_handles) {
+    processing_node_handles.emplace(i);
   }
-  // Detach from parent
-  auto parent_handle = flow.parent_handle_;
-  if (parent_handle != -1)
-    DetachChildFlow(parent_handle, handle);
-  // Remove node
-  if (!flow.nodes_.empty()) {
-    // Detach first node from parent.
-    auto nodes = flow.nodes_;
-    for (const auto& i : nodes) {
-      RecycleNodeSingle(i, node_handler);
+  while (!processing_node_handles.empty()) {
+    auto node_handle = processing_node_handles.front();
+    processing_node_handles.pop();
+    collected_node_handle_set.emplace(node_handle);
+
+    const auto& node = nodes_[node_handle];
+    if (const auto& flow = flows_[node.flow_handle_]; !flow.nodes_.empty() && flow.nodes_.front() == node_handle) {
+      collected_flow_handle_set.emplace(node.flow_handle_);
+    }
+    for (const auto& child_node_handle : node.child_handles_) {
+      processing_node_handles.push(child_node_handle);
     }
   }
-  RecycleFlowSingle(handle, flow_handler);
-  new_version_++;
-}
-
-template <typename SkeletonData, typename FlowData, typename NodeData>
-void Skeleton<SkeletonData, FlowData, NodeData>::RecycleNode(
-    SkeletonNodeHandle handle, const std::function<void(SkeletonFlowHandle)>& flow_handler,
-    const std::function<void(SkeletonNodeHandle)>& node_handler) {
-  assert(handle != 0);
-  assert(!nodes_[handle].recycled_);
-  auto& node = nodes_[handle];
-  auto flow_handle = node.flow_handle_;
-  auto& flow = flows_[flow_handle];
-  if (handle == flow.nodes_[0]) {
-    auto parent_flow_handle = flow.parent_handle_;
-
-    RecycleFlow(node.flow_handle_, flow_handler, node_handler);
-    if (parent_flow_handle != -1) {
-      // Connect parent branch with the only apical child flow.
-      if (auto& parent_flow = flows_[parent_flow_handle]; parent_flow.child_handles_.size() == 1) {
-        auto child_handle = parent_flow.child_handles_[0];
-        if (auto& child_flow = flows_[child_handle]; child_flow.apical_) {
-          for (const auto& node_handle : child_flow.nodes_) {
-            nodes_[node_handle].flow_handle_ = parent_flow_handle;
-          }
-          for (const auto& grand_child_flow_handle : child_flow.child_handles_) {
-            flows_[grand_child_flow_handle].parent_handle_ = parent_flow_handle;
-          }
-          parent_flow.nodes_.insert(parent_flow.nodes_.end(), child_flow.nodes_.begin(), child_flow.nodes_.end());
-          parent_flow.child_handles_.clear();
-          parent_flow.child_handles_.insert(parent_flow.child_handles_.end(), child_flow.child_handles_.begin(),
-                                            child_flow.child_handles_.end());
-          RecycleFlowSingle(child_handle, flow_handler);
+  // Remove nodes.
+  for (auto i = collected_node_handle_set.rbegin(); i != collected_node_handle_set.rend(); ++i) {
+    auto& node = nodes_[*i];
+    if (node.parent_handle_ != -1) {
+      auto& parent_node = nodes_[node.parent_handle_];
+      for (int32_t child_handle_i = parent_node.child_handles_.size() - 1; child_handle_i >= 0; --child_handle_i) {
+        if (parent_node.child_handles_[child_handle_i] == *i) {
+          parent_node.child_handles_.erase(parent_node.child_handles_.begin() + child_handle_i);
+          break;
         }
       }
     }
-    return;
-  }
-  // Collect list of subsequent nodes
-  std::vector<SkeletonNodeHandle> subsequent_nodes;
-  while (flow.nodes_.back() != handle) {
-    subsequent_nodes.emplace_back(flow.nodes_.back());
-    flow.nodes_.pop_back();
-  }
-  subsequent_nodes.emplace_back(flow.nodes_.back());
-  flow.nodes_.pop_back();
-  assert(!flow.nodes_.empty());
-  // Detach from parent
-  if (node.parent_handle_ != -1)
-    DetachChildNode(node.parent_handle_, handle);
-  // From end node remove one by one.
-  SkeletonNodeHandle prev = -1;
-  for (const auto& i : subsequent_nodes) {
-    auto children = nodes_[i].child_handles_;
-    for (const auto& child_node_handle : children) {
-      if (child_node_handle == prev)
-        continue;
-      auto& child = nodes_[child_node_handle];
-      assert(!child.recycled_);
-      auto child_branch_handle = child.flow_handle_;
-      if (child_branch_handle != flow_handle) {
-        RecycleFlow(child_branch_handle, flow_handler, node_handler);
+    auto& flow = flows_[node.flow_handle_];
+    for (int32_t flow_node_handle_i = flow.nodes_.size() - 1; flow_node_handle_i >= 0; --flow_node_handle_i) {
+      if (flow.nodes_[flow_node_handle_i] == *i) {
+        flow.nodes_.erase(flow.nodes_.begin() + flow_node_handle_i);
+        break;
       }
     }
-    prev = i;
-    RecycleNodeSingle(i, node_handler);
+    if (*i != nodes_.size() - 1) {
+      auto& repair_node = nodes_[*i];
+      repair_node = nodes_.back();
+
+      const auto repair_node_handle = nodes_.size() - 1;
+      repair_node.handle_ = repair_node_handle;
+      if (repair_node.parent_handle_ != -1) {
+        auto& parent_node = nodes_[repair_node.parent_handle_];
+        for (std::vector<SkeletonNodeHandle>::reverse_iterator child_handle_i = parent_node.child_handles_.rbegin();
+             child_handle_i != parent_node.child_handles_.rend(); ++child_handle_i) {
+          if (*child_handle_i == repair_node_handle) {
+            *child_handle_i = *i;
+            break;
+          }
+        }
+      }
+      for (const auto& child_handle : repair_node.child_handles_) {
+        nodes_[child_handle].parent_handle_ = *i;
+      }
+      auto& repair_flow = flows_[repair_node.flow_handle_];
+      for (int32_t flow_node_handle_i = repair_flow.nodes_.size() - 1; flow_node_handle_i >= 0; --flow_node_handle_i) {
+        if (repair_flow.nodes_[flow_node_handle_i] == repair_node_handle) {
+          repair_flow.nodes_[flow_node_handle_i] = *i;
+          break;
+        }
+      }
+    }
+
+    nodes_.pop_back();
+  }
+  for (auto i = collected_flow_handle_set.rbegin(); i != collected_flow_handle_set.rend(); ++i) {
+    auto& flow = flows_[*i];
+
+    if (flow.parent_handle_ != -1) {
+      auto& parent_flow = flows_[flow.parent_handle_];
+      for (int32_t child_handle_i = parent_flow.child_handles_.size() - 1; child_handle_i >= 0; --child_handle_i) {
+        if (parent_flow.child_handles_[child_handle_i] == *i) {
+          parent_flow.child_handles_.erase(parent_flow.child_handles_.begin() + child_handle_i);
+          break;
+        }
+      }
+    }
+
+    assert(flow.nodes_.empty());
+    if (*i != flows_.size() - 1) {
+      auto& repair_flow = flows_[*i];
+      repair_flow = flows_.back();
+
+      const auto repair_flow_handle = flows_.size() - 1;
+      repair_flow.handle_ = repair_flow_handle;
+      if (repair_flow.parent_handle_ != -1) {
+        auto& parent_flow = flows_[repair_flow.parent_handle_];
+        for (std::vector<SkeletonFlowHandle>::reverse_iterator child_handle_i = parent_flow.child_handles_.rbegin();
+             child_handle_i != parent_flow.child_handles_.rend(); ++child_handle_i) {
+          if (*child_handle_i == repair_flow_handle) {
+            *child_handle_i = *i;
+            break;
+          }
+        }
+      }
+      for (const auto& child_handle : repair_flow.child_handles_) {
+        flows_[child_handle].parent_handle_ = *i;
+      }
+      for (const auto& node_handle : repair_flow.nodes_) {
+        nodes_[node_handle].flow_handle_ = *i;
+      }
+    }
+    flows_.pop_back();
   }
   new_version_++;
+  SortLists();
 }
 
 #pragma endregion
@@ -665,7 +644,6 @@ void Skeleton<SkeletonData, FlowData, NodeData>::RecycleNode(
 template <typename NodeData>
 SkeletonNode<NodeData>::SkeletonNode(const SkeletonNodeHandle handle) {
   handle_ = handle;
-  recycled_ = false;
   end_node_ = true;
   data = {};
   info = {};
@@ -675,11 +653,6 @@ SkeletonNode<NodeData>::SkeletonNode(const SkeletonNodeHandle handle) {
 template <typename NodeData>
 bool SkeletonNode<NodeData>::IsEndNode() const {
   return end_node_;
-}
-
-template <typename NodeData>
-bool SkeletonNode<NodeData>::IsRecycled() const {
-  return recycled_;
 }
 
 template <typename NodeData>
@@ -720,7 +693,6 @@ int SkeletonNode<NodeData>::GetIndex() const {
 template <typename FlowData>
 SkeletonFlow<FlowData>::SkeletonFlow(const SkeletonFlowHandle handle) {
   handle_ = handle;
-  recycled_ = false;
   data = {};
   info = {};
   apical_ = false;
@@ -745,11 +717,6 @@ SkeletonFlowHandle SkeletonFlow<FlowData>::GetParentHandle() const {
 template <typename FlowData>
 const std::vector<SkeletonFlowHandle>& SkeletonFlow<FlowData>::PeekChildHandles() const {
   return child_handles_;
-}
-
-template <typename FlowData>
-bool SkeletonFlow<FlowData>::IsRecycled() const {
-  return recycled_;
 }
 
 template <typename FlowData>
@@ -783,8 +750,6 @@ void Skeleton<SkeletonData, FlowData, NodeData>::DetachChildNode(SkeletonNodeHan
   assert(target_handle >= 0 && child_handle >= 0 && target_handle < nodes_.size() && child_handle < nodes_.size());
   auto& target_node = nodes_[target_handle];
   auto& child_node = nodes_[child_handle];
-  assert(!target_node.recycled_);
-  assert(!child_node.recycled_);
   auto& children = target_node.child_handles_;
   for (int i = 0; i < children.size(); i++) {
     if (children[i] == child_handle) {
@@ -802,13 +767,9 @@ template <typename SkeletonData, typename FlowData, typename NodeData>
 void Skeleton<SkeletonData, FlowData, NodeData>::RefreshBaseNodeList() {
   std::vector<SkeletonNodeHandle> temp;
   for (const auto& i : base_node_list_)
-    if (!nodes_[i].recycled_ && nodes_[i].parent_handle_ == -1)
+    if (nodes_[i].parent_handle_ == -1)
       temp.emplace_back(i);
   base_node_list_ = temp;
-}
-
-template <typename SkeletonData, typename FlowData, typename NodeData>
-void Skeleton<SkeletonData, FlowData, NodeData>::CalculateClusters(const SkeletonClusterSettings& cluster_settings) {
 }
 
 template <typename SkeletonData, typename FlowData, typename NodeData>
@@ -816,8 +777,6 @@ template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
 void Skeleton<SkeletonData, FlowData, NodeData>::Clone(
     const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& src_skeleton) {
   data = {};
-  flow_pool_ = src_skeleton.flow_pool_;
-  node_pool_ = src_skeleton.node_pool_;
   sorted_node_list_ = src_skeleton.sorted_node_list_;
   sorted_flow_list_ = src_skeleton.sorted_flow_list_;
 
@@ -826,7 +785,6 @@ void Skeleton<SkeletonData, FlowData, NodeData>::Clone(
     nodes_[i].info = src_skeleton.nodes_[i].info;
 
     nodes_[i].end_node_ = src_skeleton.nodes_[i].end_node_;
-    nodes_[i].recycled_ = src_skeleton.nodes_[i].recycled_;
     nodes_[i].handle_ = src_skeleton.nodes_[i].handle_;
     nodes_[i].flow_handle_ = src_skeleton.nodes_[i].flow_handle_;
     nodes_[i].parent_handle_ = src_skeleton.nodes_[i].parent_handle_;
@@ -839,7 +797,6 @@ void Skeleton<SkeletonData, FlowData, NodeData>::Clone(
   for (int i = 0; i < src_skeleton.flows_.size(); i++) {
     flows_[i].info = src_skeleton.flows_[i].info;
 
-    flows_[i].recycled_ = src_skeleton.flows_[i].recycled_;
     flows_[i].handle_ = src_skeleton.flows_[i].handle_;
     flows_[i].nodes_ = src_skeleton.flows_[i].nodes_;
     flows_[i].parent_handle_ = src_skeleton.flows_[i].parent_handle_;
@@ -924,8 +881,6 @@ void Skeleton<SkeletonData, FlowData, NodeData>::SetParentNode(SkeletonNodeHandl
   assert(target_handle >= 0 && parent_handle >= 0 && target_handle < nodes_.size() && parent_handle < nodes_.size());
   auto& target_node = nodes_[target_handle];
   auto& parent_node = nodes_[parent_handle];
-  assert(!target_node.recycled_);
-  assert(!parent_node.recycled_);
   target_node.parent_handle_ = parent_handle;
   parent_node.child_handles_.emplace_back(target_handle);
 }
@@ -936,8 +891,6 @@ void Skeleton<SkeletonData, FlowData, NodeData>::DetachChildFlow(SkeletonFlowHan
   assert(target_handle >= 0 && child_handle >= 0 && target_handle < flows_.size() && child_handle < flows_.size());
   auto& target_branch = flows_[target_handle];
   auto& child_branch = flows_[child_handle];
-  assert(!target_branch.recycled_);
-  assert(!child_branch.recycled_);
 
   if (!child_branch.nodes_.empty()) {
     auto first_node_handle = child_branch.nodes_[0];
@@ -962,80 +915,24 @@ void Skeleton<SkeletonData, FlowData, NodeData>::SetParentFlow(SkeletonFlowHandl
   assert(target_handle >= 0 && parent_handle >= 0 && target_handle < flows_.size() && parent_handle < flows_.size());
   auto& target_branch = flows_[target_handle];
   auto& parent_branch = flows_[parent_handle];
-  assert(!target_branch.recycled_);
-  assert(!parent_branch.recycled_);
   target_branch.parent_handle_ = parent_handle;
   parent_branch.child_handles_.emplace_back(target_handle);
 }
 
 template <typename SkeletonData, typename FlowData, typename NodeData>
-void Skeleton<SkeletonData, FlowData, NodeData>::RecycleFlowSingle(
-    SkeletonFlowHandle handle, const std::function<void(SkeletonFlowHandle)>& flow_handler) {
-  assert(!flows_[handle].recycled_);
-  auto& flow = flows_[handle];
-  flow_handler(handle);
-  flow.parent_handle_ = -1;
-  flow.child_handles_.clear();
-  flow.nodes_.clear();
-
-  flow.data = {};
-  flow.info = {};
-
-  flow.recycled_ = true;
-  flow.apical_ = false;
-  flow_pool_.emplace(handle);
-}
-
-template <typename SkeletonData, typename FlowData, typename NodeData>
-void Skeleton<SkeletonData, FlowData, NodeData>::RecycleNodeSingle(
-    SkeletonNodeHandle handle, const std::function<void(SkeletonNodeHandle)>& node_handler) {
-  assert(!nodes_[handle].recycled_);
-  auto& node = nodes_[handle];
-  node_handler(handle);
-  node.parent_handle_ = -1;
-  node.flow_handle_ = -1;
-  node.end_node_ = true;
-  node.child_handles_.clear();
-
-  node.data = {};
-  node.info = {};
-  node.info.locked = false;
-  node.info.wounds.clear();
-
-  node.recycled_ = true;
-  node_pool_.emplace(handle);
-}
-
-template <typename SkeletonData, typename FlowData, typename NodeData>
 SkeletonFlowHandle Skeleton<SkeletonData, FlowData, NodeData>::AllocateFlow() {
   max_flow_index_++;
-  if (flow_pool_.empty()) {
-    flows_.emplace_back(flows_.size());
-    flows_.back().index_ = max_flow_index_;
-    return flows_.back().handle_;
-  }
-  auto handle = flow_pool_.front();
-  flow_pool_.pop();
-  auto& flow = flows_[handle];
-  flow.recycled_ = false;
-  flow.index_ = max_flow_index_;
-  return handle;
+  flows_.emplace_back(flows_.size());
+  flows_.back().index_ = max_flow_index_;
+  return flows_.back().handle_;
 }
 
 template <typename SkeletonData, typename FlowData, typename NodeData>
 SkeletonNodeHandle Skeleton<SkeletonData, FlowData, NodeData>::AllocateNode() {
   max_node_index_++;
-  if (node_pool_.empty()) {
-    nodes_.emplace_back(nodes_.size());
-    nodes_.back().index_ = max_node_index_;
-    return nodes_.back().handle_;
-  }
-  auto handle = node_pool_.front();
-  node_pool_.pop();
-  auto& node = nodes_[handle];
-  node.recycled_ = false;
-  node.index_ = max_node_index_;
-  return handle;
+  nodes_.emplace_back(nodes_.size());
+  nodes_.back().index_ = max_node_index_;
+  return nodes_.back().handle_;
 }
 
 template <typename SkeletonData, typename FlowData, typename NodeData>

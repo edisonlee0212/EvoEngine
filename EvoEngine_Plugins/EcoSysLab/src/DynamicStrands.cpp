@@ -134,7 +134,6 @@ void DynamicStrands::Simulate(const SimulateParameters& simulate_parameters) {
   }
 }*/
 
-
 void DynamicStrands::Upload() const {
   const auto current_frame_index = current_left ? 0 : 1;
   device_ref_strand_segments_buffer[current_frame_index]->UploadVector(ref_strand_segments);

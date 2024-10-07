@@ -14,10 +14,10 @@ class DynamicStrands {
   std::shared_ptr<Buffer> device_ref_strands_buffer[2];
   std::shared_ptr<Buffer> device_ref_strand_segment_handles_buffer[2];
 
-
   std::shared_ptr<Buffer> device_strand_segments_buffer[2];
   std::shared_ptr<Buffer> device_strands_buffer[2];
   std::shared_ptr<Buffer> device_strand_segment_handles_buffer[2];
+
  public:
   struct InitializeParameters {
     GlobalTransform root_transform{};
@@ -61,7 +61,7 @@ class DynamicStrands {
   inline static std::shared_ptr<DescriptorSetLayout> strands_layout{};
   DynamicStrands();
   void UpdateData(const InitializeParameters& initialize_parameters, const std::vector<Strand>& target_strands,
-               const std::vector<StrandSegment>& target_strand_segments);
+                  const std::vector<StrandSegment>& target_strand_segments);
   void Step(const StepParameters& target_step_parameters);
   void Step();
   void Clear();

@@ -31,12 +31,7 @@ bool ProceduralNoise2D::OnInspect(const SkeletonNodeHandle node_handle) {
   const std::string tag = "##ProceduralNoise3DNode" + std::to_string(node_handle);
   if (ImGui::TreeNode((prefix + node.data.m_name + "'s settings" + tag).c_str())) {
     if (node_handle != 0 && ImGui::Button(("Remove" + tag).c_str())) {
-      m_pipeline.RecycleNode(
-          node_handle,
-          [&](SkeletonFlowHandle) {
-          },
-          [&](SkeletonNodeHandle) {
-          });
+      m_pipeline.RemoveNodes({node_handle});
       ImGui::TreePop();
       return true;
     }
@@ -98,12 +93,7 @@ bool ProceduralNoise3D::OnInspect(const SkeletonNodeHandle nodeHandle) {
   const std::string tag = "##ProceduralNoise3DNode" + std::to_string(nodeHandle);
   if (ImGui::TreeNode((prefix + node.data.m_name + "'s settings" + tag).c_str())) {
     if (nodeHandle != 0 && ImGui::Button(("Remove" + tag).c_str())) {
-      m_pipeline.RecycleNode(
-          nodeHandle,
-          [&](SkeletonFlowHandle) {
-          },
-          [&](SkeletonNodeHandle) {
-          });
+      m_pipeline.RemoveNodes({nodeHandle});
       ImGui::TreePop();
       return true;
     }
@@ -259,7 +249,7 @@ bool ProceduralNoise2D::OnInspect(const std::shared_ptr<EditorLayer>& editorLaye
         });
   }
 
-  if (m_pipeline.RefRawNodes().empty() || m_pipeline.PeekNode(0).IsRecycled()) {
+  if (m_pipeline.RefRawNodes().empty()) {
     return changed;
   }
   static glm::vec2 testPoint{};
@@ -278,7 +268,7 @@ bool ProceduralNoise2D::OnInspect(const std::shared_ptr<EditorLayer>& editorLaye
 }
 
 float ProceduralNoise2D::Process(const glm::vec2& samplePoint, float value) {
-  if (m_pipeline.RefRawNodes().empty() || m_pipeline.PeekNode(0).IsRecycled()) {
+  if (m_pipeline.RefRawNodes().empty()) {
     EVOENGINE_WARNING("Pipeline is empty!");
     return value;
   }
@@ -286,7 +276,7 @@ float ProceduralNoise2D::Process(const glm::vec2& samplePoint, float value) {
 }
 
 float ProceduralNoise3D::Process(const glm::vec3& samplePoint, float value) {
-  if (m_pipeline.RefRawNodes().empty() || m_pipeline.PeekNode(0).IsRecycled()) {
+  if (m_pipeline.RefRawNodes().empty()) {
     EVOENGINE_WARNING("Pipeline is empty!");
     return value;
   }
@@ -328,7 +318,7 @@ void ProceduralNoise3D::Deserialize(const YAML::Node& in) {
 
 bool ProceduralNoise3D::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (m_pipeline.RefRawNodes().empty() || m_pipeline.PeekNode(0).IsRecycled()) {
+  if (m_pipeline.RefRawNodes().empty()) {
     return changed;
   }
   static glm::vec3 test_point{};
