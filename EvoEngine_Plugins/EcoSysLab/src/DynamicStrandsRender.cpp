@@ -55,6 +55,7 @@ void DynamicStrands::Render(const StepParameters::RenderParameters& render_param
 
     render_pipeline->fragment_shader = frag_shader;
     render_pipeline->geometry_type = GeometryType::Mesh;
+
     auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
     render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
     render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
@@ -81,6 +82,7 @@ void DynamicStrands::Render(const StepParameters::RenderParameters& render_param
   push_constant.camera_index = render_layer->GetCameraIndex(render_parameters.target_camera->GetHandle());
   push_constant.strand_size = ref_strands.size();
   push_constant.strand_segment_size = ref_strand_segments.size();
+
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
     VkViewport viewport;
@@ -98,7 +100,7 @@ void DynamicStrands::Render(const StepParameters::RenderParameters& render_param
 
     std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
     render_parameters.target_camera->GetRenderTexture()->AppendColorAttachmentInfos(
-        color_attachment_infos, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
+        color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
     render_pipeline->states.ResetAllStates(color_attachment_infos.size());
     render_pipeline->states.view_port = viewport;
     render_pipeline->states.scissor = scissor;
