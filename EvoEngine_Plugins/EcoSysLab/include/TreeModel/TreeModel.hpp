@@ -32,7 +32,8 @@ class TreeModel {
 
   void CalculateBiomass(SkeletonNodeHandle internode_handle, const ShootGrowthController& shoot_growth_controller);
 
-  void CalculateSaggingStress(SkeletonNodeHandle internode_handle, const ShootGrowthController& shoot_growth_controller);
+  void CalculateSaggingStress(SkeletonNodeHandle internode_handle,
+                              const ShootGrowthController& shoot_growth_controller);
 
   void CalculateLevel();
 
@@ -85,8 +86,6 @@ class TreeModel {
   void RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model,
                      const ShootGrowthController& shoot_growth_controller);
   TreeOccupancyGrid tree_occupancy_grid{};
-
-  void PruneInternode(SkeletonNodeHandle internode_handle);
 
   void CalculateShootFlux(const glm::mat4& global_transform, const ClimateModel& climate_model,
                           const ShootGrowthController& shoot_growth_controller);

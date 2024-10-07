@@ -40,19 +40,17 @@ void DynamicStrands::Physics(const StepParameters::PhysicsParameters& physics_pa
   if (ref_strand_segments.empty())
     return;
 
-
-
-
   BindStrandsDescriptorSet(strands_descriptor_sets[current_frame_index]);
   PrecomputePushConstant push_constant{};
   push_constant.strand_segment_size = ref_strand_segments.size();
   push_constant.strand_size = ref_strands.size();
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  
+
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     precompute_pipeline->Bind(vk_command_buffer);
-    precompute_pipeline->BindDescriptorSet(vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    precompute_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                           strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     precompute_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     /**
      * Dispatch!

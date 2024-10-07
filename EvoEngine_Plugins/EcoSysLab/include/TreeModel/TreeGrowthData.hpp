@@ -80,19 +80,19 @@ struct InternodeGrowthData {
   std::vector<glm::mat4> leaves;
   std::vector<glm::mat4> fruits;
 
-  int level = 0;                     // No Serialize
-  bool max_child = false;             // No Serialize
+  int level = 0;                       // No Serialize
+  bool max_child = false;              // No Serialize
   float descendant_total_biomass = 0;  // No Serialize
-  float biomass = 0;                 // No Serialize
+  float biomass = 0;                   // No Serialize
   glm::vec3 desired_descendant_weight_center = glm::vec3(0.f);
   glm::vec3 descendant_weight_center = glm::vec3(0.f);
-  float temperature = 0.0f;                       // No Serialize
+  float temperature = 0.0f;                        // No Serialize
   float inhibitor_sink = 0;                        // No Serialize
   float light_intensity = 1.0f;                    // No Serialize
-  float max_descendant_light_intensity = 0.f;        // No Serialize
+  float max_descendant_light_intensity = 0.f;      // No Serialize
   glm::vec3 light_direction = glm::vec3(0, 1, 0);  // No Serialize
   float growth_potential = 0.0f;                   // No Serialize
-  float desired_growth_rate = 0.0f;                 // No Serialize
+  float desired_growth_rate = 0.0f;                // No Serialize
   float growth_rate = 0.0f;                        // No Serialize
   float space_occupancy = 0.0f;
 };

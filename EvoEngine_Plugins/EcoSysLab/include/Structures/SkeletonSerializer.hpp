@@ -32,7 +32,6 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Serialize(
   out << YAML::Key << "max" << YAML::Value << skeleton.max;
 
   const auto node_size = skeleton.nodes_.size();
-  auto node_recycled_list = std::vector<int>(node_size);
   auto node_flow_handle_list = std::vector<SkeletonFlowHandle>(node_size);
   auto node_parent_handle_list = std::vector<SkeletonNodeHandle>(node_size);
   auto node_apical_list = std::vector<int>(node_size);
@@ -49,7 +48,6 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Serialize(
   auto info_fruits_list = std::vector<int>(node_size);
   for (int node_index = 0; node_index < node_size; node_index++) {
     const auto& node = skeleton.nodes_[node_index];
-    node_recycled_list[node_index] = node.recycled_ ? 1 : 0;
     node_flow_handle_list[node_index] = node.flow_handle_;
     node_parent_handle_list[node_index] = node.parent_handle_;
     node_apical_list[node_index] = node.apical_ ? 1 : 0;
@@ -65,9 +63,6 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Serialize(
     info_leaves_list[node_index] = node.info.leaves;
     info_fruits_list[node_index] = node.info.fruits;
   }
-  out << YAML::Key << "nodes_.recycled_" << YAML::Value
-      << YAML::Binary(reinterpret_cast<const unsigned char*>(node_recycled_list.data()),
-                      node_recycled_list.size() * sizeof(int));
   out << YAML::Key << "nodes_.flow_handle_" << YAML::Value
       << YAML::Binary(reinterpret_cast<const unsigned char*>(node_flow_handle_list.data()),
                       node_flow_handle_list.size() * sizeof(SkeletonFlowHandle));
@@ -132,20 +127,15 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Serialize(
   out << YAML::EndSeq;
 
   const auto flow_size = skeleton.flows_.size();
-  auto flow_recycled_list = std::vector<int>(flow_size);
   auto flow_parent_handle_list = std::vector<SkeletonFlowHandle>(flow_size);
   auto flow_apical_list = std::vector<int>(flow_size);
   auto flow_index_list = std::vector<int>(flow_size);
   for (int flow_index = 0; flow_index < flow_size; flow_index++) {
     const auto& flow = skeleton.flows_[flow_index];
-    flow_recycled_list[flow_index] = flow.recycled_ ? 1 : 0;
     flow_parent_handle_list[flow_index] = flow.parent_handle_;
     flow_apical_list[flow_index] = flow.apical_ ? 1 : 0;
     flow_index_list[flow_index] = flow.index_;
   }
-  out << YAML::Key << "flows_.recycled_" << YAML::Value
-      << YAML::Binary(reinterpret_cast<const unsigned char*>(flow_recycled_list.data()),
-                      flow_recycled_list.size() * sizeof(int));
   out << YAML::Key << "flows_.parent_handle_" << YAML::Value
       << YAML::Binary(reinterpret_cast<const unsigned char*>(flow_parent_handle_list.data()),
                       flow_parent_handle_list.size() * sizeof(SkeletonFlowHandle));
@@ -197,24 +187,12 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Deserialize(
   if (in["max"])
     skeleton.max = in["max"].as<glm::vec3>();
 
-  if (in["nodes_.recycled_"]) {
-    auto node_recycled_list = std::vector<int>();
-    const auto data = in["nodes_.recycled_"].as<YAML::Binary>();
-    node_recycled_list.resize(data.size() / sizeof(int));
-    std::memcpy(node_recycled_list.data(), data.data(), data.size());
-
-    skeleton.nodes_.resize(node_recycled_list.size());
-    for (size_t i = 0; i < node_recycled_list.size(); i++) {
-      skeleton.nodes_[i].recycled_ = node_recycled_list[i] == 1;
-    }
-  }
-
   if (in["nodes_.flow_handle_"]) {
     auto node_flow_handle_list = std::vector<SkeletonFlowHandle>();
     const auto data = in["nodes_.flow_handle_"].as<YAML::Binary>();
     node_flow_handle_list.resize(data.size() / sizeof(SkeletonFlowHandle));
     std::memcpy(node_flow_handle_list.data(), data.data(), data.size());
-
+    skeleton.nodes_.resize(node_flow_handle_list.size());
     for (size_t i = 0; i < node_flow_handle_list.size(); i++) {
       skeleton.nodes_[i].flow_handle_ = node_flow_handle_list[i];
     }
@@ -365,24 +343,12 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Deserialize(
     }
   }
 
-  if (in["flows_.recycled_"]) {
-    auto flow_recycled_list = std::vector<int>();
-    const auto data = in["flows_.recycled_"].as<YAML::Binary>();
-    flow_recycled_list.resize(data.size() / sizeof(int));
-    std::memcpy(flow_recycled_list.data(), data.data(), data.size());
-
-    skeleton.flows_.resize(flow_recycled_list.size());
-    for (size_t i = 0; i < flow_recycled_list.size(); i++) {
-      skeleton.flows_[i].recycled_ = flow_recycled_list[i] == 1;
-    }
-  }
-
   if (in["flows_.parent_handle_"]) {
     auto flow_parent_handle_list = std::vector<SkeletonFlowHandle>();
     const auto data = in["flows_.parent_handle_"].as<YAML::Binary>();
     flow_parent_handle_list.resize(data.size() / sizeof(SkeletonFlowHandle));
     std::memcpy(flow_parent_handle_list.data(), data.data(), data.size());
-
+    skeleton.flows_.resize(flow_parent_handle_list.size());
     for (size_t i = 0; i < flow_parent_handle_list.size(); i++) {
       skeleton.flows_[i].parent_handle_ = flow_parent_handle_list[i];
     }
@@ -428,12 +394,8 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Deserialize(
       flow_handle++;
     }
   }
-  skeleton.node_pool_ = {};
-  skeleton.flow_pool_ = {};
   for (const auto& node : skeleton.nodes_) {
-    if (node.recycled_) {
-      skeleton.node_pool_.emplace(node.handle_);
-    } else if (node.parent_handle_ != -1) {
+    if (node.parent_handle_ != -1) {
       skeleton.nodes_[node.parent_handle_].child_handles_.emplace_back(node.handle_);
     }
   }
@@ -441,9 +403,7 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Deserialize(
     node.end_node_ = node.child_handles_.empty();
   }
   for (const auto& flow : skeleton.flows_) {
-    if (flow.recycled_) {
-      skeleton.flow_pool_.emplace(flow.handle_);
-    } else if (flow.parent_handle_ != -1) {
+    if (flow.parent_handle_ != -1) {
       skeleton.flows_[flow.parent_handle_].child_handles_.emplace_back(flow.handle_);
     }
   }

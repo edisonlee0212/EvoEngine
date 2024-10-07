@@ -27,8 +27,6 @@ bool TreeVisualizer::ScreenCurveSelection(const std::function<void(SkeletonNodeH
     if (internodeHandle == 0)
       continue;
     auto& internode = skeleton.RefNode(internodeHandle);
-    if (internode.IsRecycled())
-      continue;
     glm::vec3 position = internode.info.global_position;
     auto rotation = internode.info.global_rotation;
     const auto direction = glm::normalize(rotation * glm::vec3(0, 0, -1));
@@ -242,17 +240,14 @@ void TreeVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
     const glm::mat4 rotationTransform = glm::mat4_cast(rotation);
     if (m_lineThickness != 0.0f) {
       matrices[i].instance_matrix.value =
-          glm::translate(node.info.global_position +
-                         (node.info.length / 2.0f) * node.info.GetGlobalDirection()) *
+          glm::translate(node.info.global_position + (node.info.length / 2.0f) * node.info.GetGlobalDirection()) *
           rotationTransform *
           glm::scale(glm::vec3(m_lineThickness * (subTree ? 1.25f : 1.0f), node.info.length,
                                m_lineThickness * (subTree ? 1.25f : 1.0f)));
     } else {
       matrices[i].instance_matrix.value =
-          glm::translate(node.info.global_position +
-                         (node.info.length / 2.0f) * node.info.GetGlobalDirection()) *
-          rotationTransform *
-          glm::scale(glm::vec3(node.info.thickness, node.info.length, node.info.thickness));
+          glm::translate(node.info.global_position + (node.info.length / 2.0f) * node.info.GetGlobalDirection()) *
+          rotationTransform * glm::scale(glm::vec3(node.info.thickness, node.info.length, node.info.thickness));
     }
   });
   Jobs::RunParallelFor(sortedNodeList.size(), [&](unsigned i) {
@@ -289,9 +284,9 @@ void TreeVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
         matrices[i].instance_color = glm::vec4(glm::vec3(node.data.max_child ? 1.0f : 0.0f), 1.0f);
         break;
       case ShootVisualizerMode::DesiredGrowthRate:
-        matrices[i].instance_color = glm::mix(
-            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-            glm::clamp(glm::pow(node.data.desired_growth_rate, m_settings.m_shootColorMultiplier), 0.0f, 1.f));
+        matrices[i].instance_color =
+            glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+                     glm::clamp(glm::pow(node.data.desired_growth_rate, m_settings.m_shootColorMultiplier), 0.0f, 1.f));
         break;
       case ShootVisualizerMode::GrowthPotential:
         matrices[i].instance_color =
@@ -345,15 +340,13 @@ bool TreeVisualizer::DrawInternodeInspectionGui(TreeModel& treeModel, SkeletonNo
   bool modified = deleted;
   if (opened && !deleted) {
     ImGui::TreePush(std::to_string(internodeHandle).c_str());
-    const auto& internodeChildren = treeSkeleton.RefNode(internodeHandle).PeekChildHandles();
-    for (const auto& child : internodeChildren) {
-      bool childDeleted = false;
-      DrawInternodeInspectionGui(treeModel, child, childDeleted, hierarchyLevel + 1);
-      if (childDeleted) {
+    const auto& internode_children = treeSkeleton.RefNode(internodeHandle).PeekChildHandles();
+    for (const auto& child : internode_children) {
+      bool child_deleted = false;
+      DrawInternodeInspectionGui(treeModel, child, child_deleted, hierarchyLevel + 1);
+      if (child_deleted) {
         treeModel.Step();
-        treeModel.PruneInternode(child);
-
-        treeSkeleton.SortLists();
+        treeModel.RefShootSkeleton().RemoveNodes({child});
         m_checkpointIteration = treeModel.CurrentIteration();
         modified = true;
         break;
@@ -478,8 +471,8 @@ void TreeVisualizer::Visualize(const TreeModel& treeModel, const GlobalTransform
         rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
         const glm::mat4 rotationTransform = glm::mat4_cast(rotation);
         const glm::vec3 selectedCenter = node.info.global_position + node.info.length *
-                                                                            m_selectedInternodeLengthFactor *
-                                                                            node.info.GetGlobalDirection();
+                                                                         m_selectedInternodeLengthFactor *
+                                                                         node.info.GetGlobalDirection();
         const auto matrix = globalTransform.value * glm::translate(selectedCenter) * rotationTransform *
                             glm::scale(glm::vec3(2.0f * node.info.thickness + 0.01f, node.info.length / 5.0f,
                                                  2.0f * node.info.thickness + 0.01f));
@@ -548,10 +541,9 @@ void TreeVisualizer::Visualize(StrandModel& strandModel) {
                 mousePosition = position;
               },
               [&](const ImVec2 origin, const float zoomFactor, ImDrawList* drawList) {
-                node.data.profile.RenderEdges(origin, zoomFactor, drawList, IM_COL32(0.0f, 0.0f, 128.0f, 128.0f),
-                                                  1.0f);
-                node.data.profile.RenderBoundary(origin, zoomFactor, drawList,
-                                                     IM_COL32(255.f, 255.f, 255.0f, 255.0f), 4.0f);
+                node.data.profile.RenderEdges(origin, zoomFactor, drawList, IM_COL32(0.0f, 0.0f, 128.0f, 128.0f), 1.0f);
+                node.data.profile.RenderBoundary(origin, zoomFactor, drawList, IM_COL32(255.f, 255.f, 255.0f, 255.0f),
+                                                 4.0f);
 
                 if (node.GetParentHandle() != -1) {
                   const auto& parentNode = skeleton.RefNode(node.GetParentHandle());
