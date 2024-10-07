@@ -80,7 +80,7 @@ glslang::TShader::Includer::IncludeResult* GlslShaderIncluder::includeSystem(con
   }
   if (found) {
     sources_[resolved_header_path] = FileUtils::LoadFileAsString(resolved_header_path);
-  }else {
+  } else {
     return &sm_fail_result_;
   }
   auto [it, b] = includes_.emplace(std::make_pair(
@@ -113,8 +113,8 @@ GlslShaderIncluder glsl_shader_includer{};
 
 std::vector<uint32_t> CompileGlsl(const ShaderType shader_type, const std::string& source) {
   // 1. Look for compiled resource.
-  const auto binary_search_path = std::filesystem::path("./DefaultResources") / "CompiledShaderBinaries" /
-                                  (std::to_string(std::hash<std::string>{}(source)) + ".yml");
+  const auto binary_search_path =
+      std::filesystem::path("./ShaderBinaries") / (std::to_string(std::hash<std::string>{}(source)) + ".yml");
   std::vector<uint32_t> ret_val;
   if (std::filesystem::exists(binary_search_path)) {
     const std::ifstream stream(binary_search_path.string());
@@ -176,7 +176,7 @@ std::vector<uint32_t> CompileGlsl(const ShaderType shader_type, const std::strin
         return {};
     }
     glslang::TShader shader(sh_language);
-    std::string actual_code = std::string("#version 460\n") + source; 
+    std::string actual_code = std::string("#version 460\n") + source;
     const char* sources[1] = {actual_code.data()};
     constexpr int default_version = 460;
     shader.setStrings(sources, 1);
@@ -224,7 +224,7 @@ std::vector<uint32_t> CompileGlsl(const ShaderType shader_type, const std::strin
     out << YAML::Key << "CompiledBinaries" << YAML::Value
         << YAML::Binary(reinterpret_cast<const unsigned char*>(ret_val.data()), ret_val.size() * sizeof(uint32_t));
     out << YAML::EndMap;
-    std::filesystem::create_directories(std::filesystem::path("./DefaultResources") / "CompiledShaderBinaries");
+    std::filesystem::create_directories(std::filesystem::path("./ShaderBinaries"));
     std::ofstream file_output(binary_search_path);
     file_output << out.c_str();
     file_output.close();
