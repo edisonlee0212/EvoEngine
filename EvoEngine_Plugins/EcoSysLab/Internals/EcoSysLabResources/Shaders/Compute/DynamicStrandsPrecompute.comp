@@ -25,10 +25,10 @@ struct PhysicsCommand{
 	vec3 position_offset;
 };
 
-
-layout(std430, set = PHYSICS_COMMANDS_SET, binding = 0) readonly buffer PHYSICS_COMMAND_BLOCK {
-	PhysicsCommand physics_commands[];
-};
+//#define PHYSICS_COMMANDS_SET 0
+//layout(std430, set = PHYSICS_COMMANDS_SET, binding = 0) readonly buffer PHYSICS_COMMAND_BLOCK {
+//	PhysicsCommand physics_commands[];
+//};
 
 
 layout(push_constant) uniform STRANDS_PRECOMPUTE_CONSTANTS {
