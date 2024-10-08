@@ -12,11 +12,11 @@ class DynamicStrands {
   uint32_t device_buffer_version[2];
   std::shared_ptr<Buffer> device_ref_strand_segments_buffer[2];
   std::shared_ptr<Buffer> device_ref_strands_buffer[2];
-  std::shared_ptr<Buffer> device_ref_strand_segment_handles_buffer[2];
+  std::shared_ptr<Buffer> device_ref_strand_segment_particles_buffer[2];
 
   std::shared_ptr<Buffer> device_strand_segments_buffer[2];
   std::shared_ptr<Buffer> device_strands_buffer[2];
-  std::shared_ptr<Buffer> device_strand_segment_handles_buffer[2];
+  std::shared_ptr<Buffer> device_strand_segment_particles_buffer[2];
 
  public:
   struct InitializeParameters {
@@ -35,29 +35,29 @@ class DynamicStrands {
   } step_parameters{};
 
   struct GpuStrand {
-    int32_t strand_segment_handles_offset = -1;
-    int32_t strand_segment_handles_size = -1;
     StrandSegmentHandle first_strand_segment_handle = -1;
     StrandSegmentHandle last_strand_segment_handle = -1;
-
-    /**
-     * \brief The position of the [[[START]]] of first strand segment.
-     */
-    glm::vec3 start_position = glm::vec3(0.0f);
-    /**
-     * \brief The thickness of the [[[START]]] current strand segment.
-     */
-    float start_thickness = 0.0f;
-
-    /**
-     * \brief The color of the [[[START]]] current strand segment.
-     */
-    glm::vec4 start_color = glm::vec4(1.0f);
   };
+  struct GpuStrandSegment {
+    int prev_handle = -1;
+    int next_handle = -1;
+    int strand_handle = -1;
+    int index = -1;
 
-  std::vector<StrandSegment> ref_strand_segments;
+    glm::quat rotation;
+
+    int start_particle_index;
+    int end_particle_index;
+    int neighbors[10];
+  };
+  struct GpuStrandSegmentParticle {
+    glm::vec3 position;
+    float thickness;
+    glm::vec4 color;
+  };
+  std::vector<GpuStrandSegment> ref_strand_segments;
+  std::vector<GpuStrandSegmentParticle> ref_strand_segment_particles;
   std::vector<GpuStrand> ref_strands;
-  std::vector<StrandSegmentHandle> ref_strand_segment_handles;
   inline static std::shared_ptr<DescriptorSetLayout> strands_layout{};
   DynamicStrands();
   void UpdateData(const InitializeParameters& initialize_parameters, const std::vector<Strand>& target_strands,

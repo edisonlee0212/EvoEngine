@@ -25,7 +25,7 @@ class StrandSegment {
   int index_ = -1;
 
  public:
-  StrandHandle neighbors[8];
+  StrandSegmentHandle neighbors[8];
   /**
    * \brief The position of the [[[END]]] of current strand segment.
    */

@@ -4,21 +4,23 @@ struct StrandSegment {
   int next_handle;
   int strand_handle;
   int index;
-  int neighbots[8];
-  vec4 end_position_thickness;
-  vec4 end_color;
+
   vec4 rotation;
+
+  int start_particle_index;
+  int end_particle_index;
+
+  int neighbors[10];
 };
 
 struct Strand {
-  int strand_segment_handles_offset;
-  int strand_segment_handles_size;
   int first_strand_segment_handle;
   int last_strand_segment_handle;
+};
 
-  vec4 start_position_thickness;
-
-  vec4 start_color;
+struct StrandSegmentParticle {
+  vec4 position_thickness;
+  vec4 color;
 };
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 0) readonly buffer REF_STRAND_SEGMENTS_BLOCK {
@@ -29,8 +31,8 @@ layout(std430, set = DYNAMIC_STRANDS_SET, binding = 1) readonly buffer REF_STRAN
   Strand ref_strands[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 2) readonly buffer REF_STRAND_SEGMENT_HANDLE_BLOCK {
-  int ref_strand_segment_handles[];
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 2) readonly buffer REF_STRAND_SEGMENT_PARTICLES_BLOCK {
+  StrandSegmentParticle ref_strand_segment_particles[];
 };
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 3) buffer STRAND_SEGMENTS_BLOCK {
@@ -41,7 +43,7 @@ layout(std430, set = DYNAMIC_STRANDS_SET, binding = 4) buffer STRANDS_BLOCK {
   Strand strands[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 5) buffer STRAND_SEGMENT_HANDLE_BLOCK {
-  int strand_segment_handles[];
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 5) buffer STRAND_SEGMENT_PARTICLES_BLOCK {
+  StrandSegmentParticle strand_segment_particles[];
 };
 
