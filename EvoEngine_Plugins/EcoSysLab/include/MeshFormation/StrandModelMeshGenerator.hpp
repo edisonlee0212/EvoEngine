@@ -7,12 +7,12 @@
 
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {
-enum class StrandModelMeshGeneratorType { RecursiveSlicing, MarchingCube };
+enum class StrandModelMeshGeneratorType { RecursiveSlicing, MarchingCube, AlphaShape };
 
 struct StrandModelMeshGeneratorSettings {
   unsigned generator_type = static_cast<unsigned>(StrandModelMeshGeneratorType::RecursiveSlicing);
 #pragma region Recursive Slicing
-  int steps_per_segment = 4;
+  int steps_per_segment = 16;
   // this is for debugging purposes only and should not be used to obtain a proper mesh
   // bool m_limitProfileIterations = false;
   // int m_maxProfileIterations = 20;
@@ -48,17 +48,6 @@ struct StrandModelMeshGeneratorSettings {
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 class StrandModelMeshGenerator {
-  static void RecursiveSlicing(const StrandModel& strand_model, std::vector<Vertex>& vertices,
-                               std::vector<unsigned int>& indices, const StrandModelMeshGeneratorSettings& settings);
-
-  static void RecursiveSlicing(const StrandModel& strand_model, std::vector<Vertex>& vertices,
-                               std::vector<glm::vec2>& tex_coords,
-                               std::vector<std::pair<unsigned int, unsigned int>>& indices,
-                               const StrandModelMeshGeneratorSettings& settings);
-
-  static void MarchingCube(const StrandModel& strand_model, std::vector<Vertex>& vertices,
-                           std::vector<unsigned int>& indices, const StrandModelMeshGeneratorSettings& settings);
-
   static void CylindricalMeshing(const StrandModel& strand_model, std::vector<Vertex>& vertices,
                                  std::vector<unsigned int>& indices, const StrandModelMeshGeneratorSettings& settings);
 
@@ -75,8 +64,8 @@ class StrandModelMeshGenerator {
                           const StrandModelMeshGeneratorSettings& settings);
 
  public:
-  static void Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,
-                       std::vector<unsigned int>& indices, const StrandModelMeshGeneratorSettings& settings);
+  static void Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices, std::vector<unsigned int>& indices,
+                       const StrandModelMeshGeneratorSettings& settings);
   static void Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices, std::vector<glm::vec2>& tex_coords,
                        std::vector<std::pair<unsigned int, unsigned int>>& indices,
                        const StrandModelMeshGeneratorSettings& settings);
