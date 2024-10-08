@@ -17,12 +17,12 @@ DynamicStrands::DynamicStrands() {
     device_ref_strand_segments_buffer[i] =
         std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
     device_ref_strands_buffer[i] = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-    device_ref_strand_segment_handles_buffer[i] =
+    device_ref_strand_segment_particles_buffer[i] =
         std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
     device_strand_segments_buffer[i] = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
     device_strands_buffer[i] = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-    device_strand_segment_handles_buffer[i] =
+    device_strand_segment_particles_buffer[i] =
         std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
     device_buffer_version[i] = current_version;
@@ -67,34 +67,38 @@ void DynamicStrands::UpdateData(const InitializeParameters& initialize_parameter
                                 const std::vector<StrandSegment>& target_strand_segments) {
   Clear();
   assert(initialize_parameters.root_transform.GetScale() == glm::vec3(1.0f));
-  ref_strand_segments = target_strand_segments;
   ref_strands.resize(target_strands.size());
-  Jobs::RunParallelFor(target_strands.size(), [&](const size_t i) {
-    ref_strands[i].start_position =
-        initialize_parameters.root_transform.TransformPoint(target_strands[i].start_position);
-    ref_strands[i].start_thickness = target_strands[i].start_thickness;
-    ref_strands[i].start_color = target_strands[i].start_color;
-  });
-  Jobs::RunParallelFor(target_strand_segments.size(), [&](const size_t i) {
-    ref_strand_segments[i].end_position =
-        initialize_parameters.root_transform.TransformPoint(ref_strand_segments[i].end_position);
-    ref_strand_segments[i].rotation =
-        initialize_parameters.root_transform.GetRotation() * ref_strand_segments[i].rotation;
-  });
-  for (uint32_t i = 0; i < target_strands.size(); i++) {
-    const auto& handles = target_strands[i].PeekStrandSegmentHandles();
-    ref_strands[i].strand_segment_handles_offset = static_cast<int32_t>(ref_strand_segment_handles.size());
-    if (handles.empty()) {
-      ref_strands[i].first_strand_segment_handle = -1;
-      ref_strands[i].last_strand_segment_handle = -1;
-    } else {
-      ref_strands[i].first_strand_segment_handle = handles.front();
-      ref_strands[i].last_strand_segment_handle = handles.back();
+  ref_strand_segments.resize(target_strand_segments.size());
+  ref_strand_segment_particles.resize(ref_strands.size() + ref_strand_segments.size());
+  int particle_index = 0;
+  for (uint32_t strand_index = 0; strand_index < target_strands.size(); strand_index++) {
+    auto& target_strand = target_strands[strand_index];
+    auto& first_particle = ref_strand_segment_particles[particle_index];
+    first_particle.position = target_strand.start_position;
+    first_particle.thickness = target_strand.start_thickness;
+    first_particle.color = target_strand.start_color;
+    particle_index++;
+    const auto& handles = target_strand.PeekStrandSegmentHandles();
+    for (const auto& i : handles) {
+      ref_strand_segments[i].start_particle_index = particle_index - 1;
+      ref_strand_segments[i].end_particle_index = particle_index;
+      auto& particle = ref_strand_segment_particles[particle_index];
+      particle.position = target_strand_segments[i].end_position;
+      particle.thickness = target_strand_segments[i].end_thickness;
+      particle.color = target_strand_segments[i].end_color;
+      particle_index++;
     }
-    ref_strands[i].strand_segment_handles_size = static_cast<int32_t>(handles.size());
-    ref_strand_segment_handles.insert(ref_strand_segment_handles.end(), handles.begin(), handles.end());
+    ref_strands[strand_index].first_strand_segment_handle = handles.front();
+    ref_strands[strand_index].last_strand_segment_handle = handles.back();
   }
-  ref_strand_segment_handles.resize(ref_strand_segment_handles.size() + ref_strand_segment_handles.size() % 4);
+  Jobs::RunParallelFor(target_strand_segments.size(), [&](const size_t i) {
+    ref_strand_segments[i].prev_handle = target_strand_segments[i].GetPrevHandle();
+    ref_strand_segments[i].next_handle = target_strand_segments[i].GetNextHandle();
+    ref_strand_segments[i].strand_handle = target_strand_segments[i].GetStrandHandle();
+    ref_strand_segments[i].index = target_strand_segments[i].GetIndex();
+    ref_strand_segments[i].rotation =
+        initialize_parameters.root_transform.GetRotation() * target_strand_segments[i].rotation;
+  });
   current_version++;
 }
 
@@ -138,27 +142,28 @@ void DynamicStrands::Upload() const {
   const auto current_frame_index = current_left ? 0 : 1;
   device_ref_strand_segments_buffer[current_frame_index]->UploadVector(ref_strand_segments);
   device_ref_strands_buffer[current_frame_index]->UploadVector(ref_strands);
-  device_ref_strand_segment_handles_buffer[current_frame_index]->UploadVector(ref_strand_segment_handles);
+  device_ref_strand_segment_particles_buffer[current_frame_index]->UploadVector(ref_strand_segment_particles);
 
   device_strand_segments_buffer[current_frame_index]->UploadVector(ref_strand_segments);
   device_strands_buffer[current_frame_index]->UploadVector(ref_strands);
-  device_strand_segment_handles_buffer[current_frame_index]->UploadVector(ref_strand_segment_handles);
+  device_strand_segment_particles_buffer[current_frame_index]->UploadVector(ref_strand_segment_particles);
 }
 
 void DynamicStrands::Clear() {
   ref_strand_segments.clear();
   ref_strands.clear();
-  ref_strand_segment_handles.clear();
+  ref_strand_segment_particles.clear();
 }
 
 void DynamicStrands::BindStrandsDescriptorSet(const std::shared_ptr<DescriptorSet>& target_descriptor_set) const {
   const auto current_frame_index = current_left ? 0 : 1;
   target_descriptor_set->UpdateBufferDescriptorBinding(0, device_ref_strand_segments_buffer[current_frame_index], 0);
   target_descriptor_set->UpdateBufferDescriptorBinding(1, device_ref_strands_buffer[current_frame_index], 0);
-  target_descriptor_set->UpdateBufferDescriptorBinding(2, device_ref_strand_segment_handles_buffer[current_frame_index],
-                                                       0);
+  target_descriptor_set->UpdateBufferDescriptorBinding(
+      2, device_ref_strand_segment_particles_buffer[current_frame_index], 0);
 
   target_descriptor_set->UpdateBufferDescriptorBinding(3, device_strand_segments_buffer[current_frame_index], 0);
   target_descriptor_set->UpdateBufferDescriptorBinding(4, device_strands_buffer[current_frame_index], 0);
-  target_descriptor_set->UpdateBufferDescriptorBinding(5, device_strand_segment_handles_buffer[current_frame_index], 0);
+  target_descriptor_set->UpdateBufferDescriptorBinding(5, device_strand_segment_particles_buffer[current_frame_index],
+                                                       0);
 }

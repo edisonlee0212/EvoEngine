@@ -30,7 +30,6 @@ struct PhysicsCommand{
 //	PhysicsCommand physics_commands[];
 //};
 
-
 layout(push_constant) uniform STRANDS_PRECOMPUTE_CONSTANTS {
 	uint strands_size;
 	uint strand_segments_size;
