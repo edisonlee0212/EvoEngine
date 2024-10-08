@@ -1,5 +1,6 @@
 #pragma once
 #include "ISingleton.hpp"
+#include <iostream>
 namespace evo_engine {
 class Console final {
   EVOENGINE_SINGLETON_INSTANCE(Console)
@@ -29,7 +30,9 @@ class Console final {
  */
 #define EVOENGINE_LOG(msg)                                                               \
   {                                                                                      \
-    evo_engine::Console::Log(msg);                                                       \
+    std::stringstream ss;                                                                \
+    ss << msg;                                                                           \
+    evo_engine::Console::Log(ss.str());                                                  \
     std::cout << "[evo_engine]Log: " << msg << " (" << __FILE__ << ": line " << __LINE__ \
               << ")\n==========" << std::endl;                                           \
   }
@@ -40,7 +43,9 @@ class Console final {
  */
 #define EVOENGINE_ERROR(msg)                                                               \
   {                                                                                        \
-    evo_engine::Console::Error(msg);                                                       \
+    std::stringstream ss;                                                                  \
+    ss << msg;                                                                             \
+    evo_engine::Console::Error(ss.str());                                                  \
     std::cerr << "[evo_engine]Error: " << msg << " (" << __FILE__ << ": line " << __LINE__ \
               << ")\n==========" << std::endl;                                             \
   }
@@ -50,7 +55,9 @@ class Console final {
  */
 #define EVOENGINE_WARNING(msg)                                                               \
   {                                                                                          \
-    evo_engine::Console::Warning(msg);                                                       \
+    std::stringstream ss;                                                                    \
+    ss << msg;                                                                               \
+    evo_engine::Console::Warning(ss.str());                                                  \
     std::cout << "[evo_engine]Warning: " << msg << " (" << __FILE__ << ": line " << __LINE__ \
               << ")\n==========" << std::endl;                                               \
   }
