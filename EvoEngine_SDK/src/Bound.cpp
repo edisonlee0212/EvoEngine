@@ -185,12 +185,12 @@ glm::vec3 Ray::GetEnd() const {
 }
 
 glm::vec3 Ray::ClosestPointOnLine(const glm::vec3& point, const glm::vec3& a, const glm::vec3& b) {
-  const float line_length = distance(a, b);
+  const float line_length = glm::distance(a, b);
   const glm::vec3 vector = point - a;
   const glm::vec3 line_direction = (b - a) / line_length;
 
   // Project Vector to LineDirection to get the distance of point from a
-  const float distance = dot(vector, line_direction);
+  const float distance = glm::dot(vector, line_direction);
   return a + line_direction * distance;
 }
 

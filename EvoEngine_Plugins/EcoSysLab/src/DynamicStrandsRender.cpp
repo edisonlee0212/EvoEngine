@@ -97,11 +97,8 @@ void DynamicStrands::Render(const StepParameters::RenderParameters& render_param
     scissor.extent.width = render_parameters.target_camera->GetSize().x;
     scissor.extent.height = render_parameters.target_camera->GetSize().y;
 #pragma endregion
-
-    std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
-    render_parameters.target_camera->GetRenderTexture()->AppendColorAttachmentInfos(
-        color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
-    render_pipeline->states.ResetAllStates(color_attachment_infos.size());
+    //1 here means we only have 1 color attachment. (For deferred shading we will have multiple attachments for GBuffer)
+    render_pipeline->states.ResetAllStates(1);
     render_pipeline->states.view_port = viewport;
     render_pipeline->states.scissor = scissor;
     render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
