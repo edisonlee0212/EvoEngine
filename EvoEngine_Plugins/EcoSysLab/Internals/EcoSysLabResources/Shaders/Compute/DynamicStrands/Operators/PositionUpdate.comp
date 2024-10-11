@@ -1,0 +1,56 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+
+#include "Math.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+struct PositionUpdate{
+	vec4 new_position_index;
+};
+
+layout(std430, set = 1, binding = 0) readonly buffer POSITION_UPDATE_BLOCK {
+  PositionUpdate position_updates[];
+};
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint command_size;
+};
+
+void main(){
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint global_index = baseID + local_index;
+
+		if(global_index >= command_size) break;
+
+		PositionUpdate position_update = position_updates[global_index];
+
+		uint segment_index = floatBitsToUint(position_update.new_position_index.w);
+
+		vec3 new_position = position_update.new_position_index.xyz;
+		vec3 old_position = strand_segments[segment_index].x.xyz;
+		vec3 delta_position = new_position - old_position;
+
+		strand_segments[segment_index].x.xyz = new_position;
+		strand_segments[segment_index].last_x.xyz = strand_segments[segment_index].last_x.xyz + delta_position;
+	}
+}

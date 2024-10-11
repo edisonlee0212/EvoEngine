@@ -6,6 +6,7 @@
 
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrands.glsl"
+#include "Math.glsl"
 
 const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
 
@@ -20,28 +21,18 @@ layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 memoryBarrierShared(); \
 barrier();
 
-struct PhysicsCommand{
-	int strand_segment_handle;
-	vec3 position_offset;
-};
 
-//#define PHYSICS_COMMANDS_SET 0
-//layout(std430, set = PHYSICS_COMMANDS_SET, binding = 0) readonly buffer PHYSICS_COMMAND_BLOCK {
-//	PhysicsCommand physics_commands[];
-//};
-
-layout(push_constant) uniform STRANDS_PRECOMPUTE_CONSTANTS {
-	uint strands_size;
-	uint strand_segments_size;
-	uint command_size;
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint segment_size;
 };
 
 void main(){
-
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint global_index = baseID + local_index;
-		//strand_segments[global_index].end_position_thickness.y = 0.0;
+		uint segment_index = baseID + local_index;
+
+		if(segment_index >= segment_size) break;
+		StrandSegment segment = strand_segments[segment_index];
 	}
 }

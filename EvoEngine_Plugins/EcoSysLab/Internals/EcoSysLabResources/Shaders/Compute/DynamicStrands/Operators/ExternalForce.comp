@@ -1,0 +1,52 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+
+#include "Math.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+struct ExternalForce{
+ vec4 force_index;
+};
+
+layout(std430, set = 1, binding = 0) readonly buffer EXTERNAL_FORCE_BLOCK {
+  ExternalForce external_forces[];
+};
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint command_size;
+	float delta_time;
+};
+
+void main(){
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint global_index = baseID + local_index;
+
+		if(global_index >= command_size) break;
+
+		ExternalForce external_force = external_forces[global_index];
+		uint segment_index = floatBitsToUint(external_force.force_index.w);
+		vec3 force = external_force.force_index.xyz;
+		StrandSegment segment = strand_segments[segment_index];
+		strand_segments[segment_index].acceleration.xyz = force * segment.inv_inertia_tensor_inv_mass.w;
+	}
+}

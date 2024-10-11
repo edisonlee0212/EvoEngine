@@ -9,22 +9,24 @@ class BrokenBranch : public IPrivateComponent {
   
   bool enable_simulation = true;
 
-  PrivateComponentRef tree_ref;
-  StrandModelStrandGroup strand_group;
-  StrandModelStrandGroup subdivided_strand_group;
+  PrivateComponentRef tree_ref{};
+  StrandModelStrandGroup strand_group{};
+  StrandModelStrandGroup subdivided_strand_group{};
 
-  DynamicStrands dynamic_strands;
-  void UploadStrands();
+  DynamicStrands::InitializeParameters initialize_parameters{};
+  DynamicStrands::StepParameters step_parameters{};
+  DynamicStrands dynamic_strands{};
+  void UpdateDynamicStrands();
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void Update() override;
   void LateUpdate() override;
+  void FixedUpdate() override;
   void OnCreate() override;
   void OnDestroy() override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
   void ExperimentSetup();
-  static void Subdivide(float segment_length, const StrandModelStrandGroup& src, StrandModelStrandGroup& dst);
+  void Subdivide(float segment_length, const StrandModelStrandGroup& src);
   void InitializeStrandParticles(const StrandModelStrandGroup& strand_group) const;
   void ClearStrandParticles() const;
 
