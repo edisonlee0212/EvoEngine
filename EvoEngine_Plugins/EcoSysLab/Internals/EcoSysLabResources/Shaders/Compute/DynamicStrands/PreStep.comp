@@ -1,0 +1,106 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+#include "Math.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint segment_size;
+	float time_step;
+	float inv_time_step;
+};
+
+void update_inertia_w(inout StrandSegment segment){
+	//Update w
+	mat3 rot = mat3_cast(segment.q);
+	mat3 inertia_tensor_diag =
+		mat3(
+			segment.inertia_tensor_mass.x, 0.0, 0.0, 
+			0.0, segment.inertia_tensor_mass.y, 0.0, 
+			0.0, 0.0, segment.inertia_tensor_mass.z);
+	mat3 inertia_w = rot * inertia_tensor_diag * transpose(rot);
+
+	mat3 inverse_inertia_tensor_diag =
+		mat3(
+			segment.inv_inertia_tensor_inv_mass.x, 0.0, 0.0, 
+			0.0, segment.inv_inertia_tensor_inv_mass.y, 0.0, 
+			0.0, 0.0, segment.inv_inertia_tensor_inv_mass.z);
+	mat3 inverse_inertia_w = rot * inverse_inertia_tensor_diag * transpose(rot);
+
+	segment.inertia_w = mat4(
+		inertia_w[0][0], inertia_w[0][1], inertia_w[0][2], 0.0,
+		inertia_w[1][0], inertia_w[1][1], inertia_w[1][2], 0.0,
+		inertia_w[2][0], inertia_w[2][1], inertia_w[2][2], 0.0,
+		0.0, 0.0, 0.0, 0.0
+		);
+	segment.inv_inertia_w = mat4(
+		inverse_inertia_w[0][0], inverse_inertia_w[0][1], inverse_inertia_w[0][2], 0.0,
+		inverse_inertia_w[1][0], inverse_inertia_w[1][1], inverse_inertia_w[1][2], 0.0,
+		inverse_inertia_w[2][0], inverse_inertia_w[2][1], inverse_inertia_w[2][2], 0.0,
+		0.0, 0.0, 0.0, 0.0
+		);
+}
+
+void main(){
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint segment_index = baseID + local_index;
+
+		if(segment_index >= segment_size) break;
+
+		StrandSegment segment = strand_segments[segment_index];
+		update_inertia_w(segment);
+
+		//Calculate velocity and apply acceleration.
+		vec3 velocity = vec3(0, 0, 0);
+		if(segment.inv_inertia_tensor_inv_mass.w != 0.0){
+			velocity = inv_time_step * (1.5 * segment.x.xyz - 2.0 * segment.old_x.xyz + 0.5 * segment.last_x.xyz);
+			velocity += segment.acceleration.xyz * time_step;
+		}
+		//Calculate angular velocity and apply torque.
+		vec3 angular_velocity = vec3(0, 0, 0);
+		if(segment.inv_inertia_tensor_inv_mass.w != 0.0){
+			vec4 rot = quat_mul(segment.q, conjugate(segment.old_q));
+			angular_velocity = rot.xyz * 2.0 * inv_time_step;
+			angular_velocity += time_step * mat3(segment.inv_inertia_w) * (segment.torque.xyz - cross(angular_velocity, mat3(segment.inertia_w) * angular_velocity));
+		}
+		
+		//Shift position values
+		segment.last_x.xyz = segment.old_x.xyz;
+		segment.old_x.xyz = segment.x.xyz;
+		//Apply velocity
+		segment.x.xyz += time_step * velocity;
+
+
+		//Shift rotation values
+		segment.last_q = segment.old_q;
+		segment.old_q = segment.q;
+		//Apply angular velocity
+		vec4 angular_velocity_q = vec4(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0.0);
+
+		segment.q += 0.5 * time_step * quat_mul(angular_velocity_q, segment.q);
+		segment.q = normalize(segment.q);
+
+		//Update w
+		update_inertia_w(segment);
+		strand_segments[segment_index] = segment;
+	}
+}

@@ -149,9 +149,7 @@ class Platform final {
   void RecreateSwapChain();
 
   void OnDestroy();
-  void SwapChainSwapImage();
   void SubmitPresent();
-  void WaitForCommandsComplete() const;
   void Submit();
 
   void ResetCommandBuffers();
@@ -216,7 +214,6 @@ class Platform final {
     inline static uint32_t max_point_light_size = 16;
     inline static uint32_t max_spot_light_size = 16;
   };
-
 
   class Constants {
    public:

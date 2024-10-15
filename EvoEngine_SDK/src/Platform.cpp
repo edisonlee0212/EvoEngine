@@ -12,8 +12,8 @@
 #include "WindowLayer.hpp"
 #include "vk_mem_alloc.h"
 
-#ifndef NDEBUG 
-#define GRAPHICS_VALIDATION true
+#ifndef NDEBUG
+#  define GRAPHICS_VALIDATION true
 #endif
 
 using namespace evo_engine;
@@ -1453,33 +1453,6 @@ void Platform::OnDestroy() {
 #pragma endregion
 }
 
-void Platform::SwapChainSwapImage() {
-  if (const auto& window_layer = Application::GetLayer<WindowLayer>();
-      window_layer->window_size_.x == 0 || window_layer->window_size_.y == 0)
-    return;
-  const auto just_now = Times::Now();
-  vkDeviceWaitIdle(vk_device_);
-  GeometryStorage::DeviceSync();
-  TextureStorage::DeviceSync();
-  const VkFence in_flight_fences[] = {in_flight_fences_[current_frame_index_]->GetVkFence()};
-  vkWaitForFences(vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX);
-  cpu_wait_time = Times::Now() - just_now;
-  auto result = vkAcquireNextImageKHR(vk_device_, swapchain_->GetVkSwapchain(), UINT64_MAX,
-                                      image_available_semaphores_[current_frame_index_]->GetVkSemaphore(),
-                                      VK_NULL_HANDLE, &next_image_index_);
-  while (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || recreate_swap_chain_) {
-    RecreateSwapChain();
-    result = vkAcquireNextImageKHR(vk_device_, swapchain_->GetVkSwapchain(), UINT64_MAX,
-                                   image_available_semaphores_[current_frame_index_]->GetVkSemaphore(), VK_NULL_HANDLE,
-                                   &next_image_index_);
-    recreate_swap_chain_ = false;
-  }
-  if (result != VK_SUCCESS) {
-    throw std::runtime_error("failed to acquire swap chain image!");
-  }
-  vkResetFences(vk_device_, 1, in_flight_fences);
-}
-
 void Platform::SubmitPresent() {
   if (const auto& window_layer = Application::GetLayer<WindowLayer>();
       window_layer->window_size_.x == 0 || window_layer->window_size_.y == 0)
@@ -1502,15 +1475,6 @@ void Platform::SubmitPresent() {
   current_frame_index_ = (current_frame_index_ + 1) % max_frame_in_flight_;
 }
 
-void Platform::WaitForCommandsComplete() const {
-  vkDeviceWaitIdle(vk_device_);
-  GeometryStorage::DeviceSync();
-  TextureStorage::DeviceSync();
-  const VkFence in_flight_fences[] = {in_flight_fences_[current_frame_index_]->GetVkFence()};
-  vkWaitForFences(vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX);
-  vkResetFences(vk_device_, 1, in_flight_fences);
-}
-
 void Platform::Submit() {
   main_queue_->Submit(command_buffer_pool_[current_frame_index_], 0, used_command_buffer_size_, {}, {},
                       in_flight_fences_[current_frame_index_]);
@@ -1527,7 +1491,6 @@ void Platform::ResetCommandBuffers() {
 
 #pragma endregion
 
-
 void Platform::PostResourceLoadingInitialization() {
   const auto& graphics = GetInstance();
   PrepareDescriptorSetLayouts();
@@ -1543,15 +1506,46 @@ void Platform::PreUpdate() {
   auto& graphics = GetInstance();
   const auto window_layer = Application::GetLayer<WindowLayer>();
   const auto render_layer = Application::GetLayer<RenderLayer>();
+
+  const auto vulkan_update = [&](const std::function<void()>& action) {
+    vkDeviceWaitIdle(graphics.vk_device_);
+    GeometryStorage::DeviceSync();
+    TextureStorage::DeviceSync();
+    const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
+    vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX);
+    action();
+    vkResetFences(graphics.vk_device_, 1, in_flight_fences);
+  };
+
   if (window_layer) {
     if (glfwWindowShouldClose(window_layer->window_)) {
       Application::End();
     }
     if (render_layer || Application::GetLayer<EditorLayer>()) {
-      graphics.SwapChainSwapImage();
+      if (window_layer->window_size_.x != 0 || window_layer->window_size_.y != 0) {
+        const auto just_now = Times::Now();
+        vulkan_update([&]() {
+          graphics.cpu_wait_time = Times::Now() - just_now;
+          auto result = vkAcquireNextImageKHR(
+              graphics.vk_device_, graphics.swapchain_->GetVkSwapchain(), UINT64_MAX,
+              graphics.image_available_semaphores_[graphics.current_frame_index_]->GetVkSemaphore(), VK_NULL_HANDLE,
+              &graphics.next_image_index_);
+          while (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || graphics.recreate_swap_chain_) {
+            graphics.RecreateSwapChain();
+            result = vkAcquireNextImageKHR(
+                graphics.vk_device_, graphics.swapchain_->GetVkSwapchain(), UINT64_MAX,
+                graphics.image_available_semaphores_[graphics.current_frame_index_]->GetVkSemaphore(), VK_NULL_HANDLE,
+                &graphics.next_image_index_);
+            graphics.recreate_swap_chain_ = false;
+          }
+          if (result != VK_SUCCESS) {
+            throw std::runtime_error("failed to acquire swap chain image!");
+          }
+        });
+      }
     }
   } else {
-    graphics.WaitForCommandsComplete();
+    vulkan_update({});
   }
 
   graphics.ResetCommandBuffers();

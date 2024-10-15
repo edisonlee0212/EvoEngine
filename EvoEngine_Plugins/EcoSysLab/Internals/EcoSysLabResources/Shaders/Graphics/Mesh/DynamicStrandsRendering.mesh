@@ -4,6 +4,8 @@
 #extension GL_ARB_shading_language_include : enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 
+#include "Math.glsl"
+
 #include "PerFrame.glsl"
 
 #define DYNAMIC_STRANDS_SET 1
@@ -76,66 +78,20 @@ taskPayloadSharedEXT Task ts_in;
 uint strand_segment_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
 uint laneID = gl_LocalInvocationID.x;
 
-mat4 translate(in vec3 d){
-	return mat4(1, 0, 0, 0,
-				0, 1, 0, 0,
-				0, 0, 1, 0,
-				d.x, d.y, d.z, 1);
-}
-
-mat4 scale(in vec3 s){
-	return mat4(s.x, 0, 0, 0,
-				0, s.y, 0, 0,
-				0, 0, s.z, 0,
-				0, 0, 0, 1);
-}
-
-mat4 mat4_cast(in vec4 q){
-	float qxx = q.x * q.x;
-	float qyy = q.y * q.y;
-	float qzz = q.z * q.z;
-	float qxz = q.x * q.z;
-	float qxy = q.x * q.y;
-	float qyz = q.y * q.z;
-	float qwx = q.w * q.x;
-	float qwy = q.w * q.y;
-	float qwz = q.w * q.z;
-	mat4 ret_val = mat4(0, 0, 0, 0,
-				0, 0, 0, 0,
-				0, 0, 0, 0,
-				0, 0, 0, 1);
-	ret_val[0][0] = 1.0 - 2.0 * (qyy +  qzz);
-	ret_val[0][1] = 2.0 * (qxy + qwz);
-	ret_val[0][2] = 2.0 * (qxz - qwy);
-
-	ret_val[1][0] = 2.0 * (qxy - qwz);
-	ret_val[1][1] = 1.0 - 2.0 * (qxx +  qzz);
-	ret_val[1][2] = 2.0 * (qyz + qwx);
-
-	ret_val[2][0] = 2.0 * (qxz + qwy);
-	ret_val[2][1] = 2.0 * (qyz - qwx);
-	ret_val[2][2] = 1.0 - 2.0 * (qxx +  qyy);
-
-	return ret_val;
-}
 
 void main(){
+	if(strand_segment_id >= strand_segments_size) return;
 
 	SetMeshOutputsEXT(SEGMENT_VERTICES_SIZE, SEGMENT_TRIANGLE_SIZE);
 	
 	StrandSegment strand_segment = strand_segments[strand_segment_id];
 
-	vec3 start_position = strand_segment_particles[strand_segment.start_particle_index].position_thickness.xyz;
-	float start_thickness = strand_segment_particles[strand_segment.start_particle_index].position_thickness.w;
-	vec4 start_color = strand_segment_particles[strand_segment.start_particle_index].color;
-	vec3 end_position = strand_segment_particles[strand_segment.end_particle_index].position_thickness.xyz;
-	float end_thickness = strand_segment_particles[strand_segment.end_particle_index].position_thickness.w;
-	vec4 end_color = strand_segment_particles[strand_segment.end_particle_index].color;
+	vec3 center_position = strand_segment.x.xyz;
+	float center_thickness = strand_segment.color_radius.w * 2.0;
+	
+	vec4 rotation = strand_segment.q;
 
-	vec3 center_position = (start_position + end_position) * 0.5;
-	float center_thickness = (start_thickness + end_thickness) * 0.5;
-	vec4 rotation = strand_segment.rotation;
-	mat4 instance_matrix = translate(end_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, distance(start_position, end_position)));
+	mat4 instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, strand_segment.x0_length.w));
 	
 	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 	
@@ -149,7 +105,7 @@ void main(){
 		ms_v_out[vertex_index].frag_pos = vec4(instance_matrix * vec4(vertex_position, 1.0)).xyz;
 		ms_v_out[vertex_index].normal = vec3(0, 1, 0);
 		ms_v_out[vertex_index].tangent = vec3(0, 0, 1);
-		ms_v_out[vertex_index].color = end_color;
+		ms_v_out[vertex_index].color = vec4(strand_segment.color_radius.xyz, 1.0);
 		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
 	}
 

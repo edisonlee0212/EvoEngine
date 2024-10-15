@@ -2,7 +2,7 @@
 #include "Shader.hpp"
 using namespace eco_sys_lab_plugin;
 
-void DynamicStrands::Render(const StepParameters::RenderParameters& render_parameters) const {
+void DynamicStrands::Render(const RenderParameters& render_parameters) const {
   if (!Platform::Constants::support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return;
@@ -12,10 +12,9 @@ void DynamicStrands::Render(const StepParameters::RenderParameters& render_param
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
   }
-  const auto current_frame_index = current_left ? 0 : 1;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
   static std::shared_ptr<GraphicsPipeline> render_pipeline{};
-  static std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets{};
   struct RenderPushConstant {
     uint32_t camera_index = 0;
     uint32_t strand_size;
@@ -26,12 +25,6 @@ void DynamicStrands::Render(const StepParameters::RenderParameters& render_param
     static std::shared_ptr<Shader> task_shader{};
     static std::shared_ptr<Shader> mesh_shader{};
     static std::shared_ptr<Shader> frag_shader{};
-    const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
-    strands_descriptor_sets.resize(max_frame_in_flight);
-    for (auto& i : strands_descriptor_sets) {
-      i = std::make_shared<DescriptorSet>(strands_layout);
-    }
-
     // Load shader
     task_shader = std::make_shared<Shader>();
     task_shader->Set(
@@ -71,17 +64,12 @@ void DynamicStrands::Render(const StepParameters::RenderParameters& render_param
     render_pipeline->Initialize();
   }
 
-  if (ref_strand_segments.empty())
-    return;
-
-  BindStrandsDescriptorSet(strands_descriptor_sets[current_frame_index]);
-
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   RenderPushConstant push_constant;
   push_constant.camera_index = render_layer->GetCameraIndex(render_parameters.target_camera->GetHandle());
-  push_constant.strand_size = ref_strands.size();
-  push_constant.strand_segment_size = ref_strand_segments.size();
+  push_constant.strand_size = strands.size();
+  push_constant.strand_segment_size = strand_segments.size();
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
@@ -111,7 +99,7 @@ void DynamicStrands::Render(const StepParameters::RenderParameters& render_param
           render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                              strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
           render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-          const uint32_t count = Platform::DivUp(ref_strand_segments.size(), task_work_group_invocations);
+          const uint32_t count = Platform::DivUp(strand_segments.size(), task_work_group_invocations);
           vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
         });
   });

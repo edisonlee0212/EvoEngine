@@ -1,0 +1,55 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint constraint_size;
+};
+
+#define DYNAMIC_STRANDS_PHYSICS_SET 1
+#include "DynamicStrandsPhysics.glsl"
+
+void update_constraint(in uint rod_constraint_handle);
+
+void main(){
+
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint constraint_index = baseID + local_index;
+
+		if(constraint_index >= constraint_size) break;
+		update_constraint(constraint_index);
+	}
+}
+
+void update_constraint(in uint rod_constraint_handle){
+	RodConstraint rod_constraint = rod_constraints[rod_constraint_handle];
+	mat4 constraint_info = rod_constraint.constraint_info;
+
+	StrandSegment strand_segment0 = strand_segments[floatBitsToInt(rod_constraint.stiffness_coefficient_k_segment0_index.w)];
+	StrandSegment strand_segment1 = strand_segments[floatBitsToInt(rod_constraint.rest_darboux_vector_segment1_index.w)];
+
+	update_stretch_bending_twisting_constraint(strand_segment0.x.xyz, strand_segment0.q, strand_segment1.x.xyz, strand_segment1.q, constraint_info);
+	rod_constraints[rod_constraint_handle].constraint_info = constraint_info;
+}

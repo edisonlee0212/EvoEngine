@@ -440,16 +440,15 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::CalculateRotat
   for (const auto& strand : strands_) {
     if (strand.strand_segment_handles_.empty()) continue;
     glm::vec3 prev_position = strand.start_position;
-    const glm::vec3 initial_front =
-        glm::normalize(strand_segments_[strand.strand_segment_handles_[0]].end_position - prev_position);
-    auto prev_up = glm::vec3(initial_front.y, initial_front.z, initial_front.x);
-    strand_segments_[strand.strand_segment_handles_[0]].rotation = glm::quatLookAt(initial_front, prev_up);
+    const auto& end_position = strand_segments_[strand.strand_segment_handles_[0]].end_position;
+    glm::vec3 front = glm::normalize(end_position - prev_position);
+    strand_segments_[strand.strand_segment_handles_[0]].rotation = glm::quatLookAt(front, glm::vec3(front.y, front.z, front.x));
+
+    prev_position = end_position;
     for (uint32_t i = 0; i < strand.strand_segment_handles_.size() - 1; i++) {
       auto& segment = strand_segments_[strand.strand_segment_handles_[i + 1]];
-
-      auto front = glm::normalize(segment.end_position - prev_position);
-      prev_up = glm::normalize(glm::cross(glm::cross(front, prev_up), front));
-      segment.rotation = glm::quatLookAt(front, prev_up);
+      front = glm::normalize(segment.end_position - prev_position);
+      segment.rotation = glm::quatLookAt(front, glm::vec3(front.y, front.z, front.x));
       prev_position = segment.end_position;
     }
   }
