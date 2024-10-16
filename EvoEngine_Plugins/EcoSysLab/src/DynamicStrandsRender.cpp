@@ -69,7 +69,7 @@ void DynamicStrands::Render(const RenderParameters& render_parameters) const {
   RenderPushConstant push_constant;
   push_constant.camera_index = render_layer->GetCameraIndex(render_parameters.target_camera->GetHandle());
   push_constant.strand_size = strands.size();
-  push_constant.strand_segment_size = strand_segments.size();
+  push_constant.strand_segment_size = segments.size();
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
@@ -99,7 +99,7 @@ void DynamicStrands::Render(const RenderParameters& render_parameters) const {
           render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                              strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
           render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-          const uint32_t count = Platform::DivUp(strand_segments.size(), task_work_group_invocations);
+          const uint32_t count = Platform::DivUp(segments.size(), task_work_group_invocations);
           vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
         });
   });

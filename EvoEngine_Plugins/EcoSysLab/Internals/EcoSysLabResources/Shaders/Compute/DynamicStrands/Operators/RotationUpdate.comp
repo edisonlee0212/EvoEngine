@@ -22,12 +22,16 @@ layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 memoryBarrierShared(); \
 barrier();
 
-struct ExternalForce{
- vec4 force_index;
+struct RotationUpdate{
+	vec4 new_rotation;
+	int index;
+	int padding0;
+	int padding1;
+	int padding2;
 };
 
-layout(std430, set = 1, binding = 0) readonly buffer EXTERNAL_FORCE_BLOCK {
-  ExternalForce external_forces[];
+layout(std430, set = 1, binding = 0) readonly buffer POSITION_UPDATE_BLOCK {
+  RotationUpdate rotation_updates[];
 };
 
 layout(push_constant) uniform PUSH_CONSTANTS {
@@ -42,10 +46,16 @@ void main(){
 
 		if(global_index >= command_size) break;
 
-		ExternalForce external_force = external_forces[global_index];
-		uint particle_index = floatBitsToUint(external_force.force_index.w);
-		vec3 force = external_force.force_index.xyz;
-		Particle particle = particles[particle_index];
-		particles[particle_index].acceleration_inv_mass.xyz = force * particle.acceleration_inv_mass.w;
+		RotationUpdate rotation_update = rotation_updates[global_index];
+
+		uint segment_index = rotation_update.index;
+
+		vec4 new_rotation = rotation_update.new_rotation;
+		vec4 old_rotation = segments[segment_index].q;
+		vec4 delta_rotation = new_rotation - old_rotation;
+
+		segments[segment_index].q = new_rotation;
+		segments[segment_index].last_q = segments[segment_index].last_q + delta_rotation;
+		segments[segment_index].old_q = segments[segment_index].old_q + delta_rotation;
 	}
 }

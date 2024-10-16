@@ -23,14 +23,27 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint constraint_size;
-	float time_step;
-	float inv_time_step;
+    float time_step;
 };
 
 #define DYNAMIC_STRANDS_PHYSICS_SET 1
 #include "DynamicStrandsPhysics.glsl"
 
-void init_constraint(in uint rod_constraint_handle);
+void init_stretch_bending_twisting_constraint(in vec3 stiffness_coefficient_k, in float time_step,
+                                              in float average_segment_length, out vec3 stretch_compliance,
+                                              out vec3 bending_and_torsion_compliance) {
+  float time_step_quadratic = time_step * time_step;
+
+  stretch_compliance = vec3(time_step_quadratic / stiffness_coefficient_k[0],
+                            time_step_quadratic / stiffness_coefficient_k[0],
+                            time_step_quadratic / stiffness_coefficient_k[0]);
+
+  bending_and_torsion_compliance = vec3(time_step_quadratic / stiffness_coefficient_k[1],
+                                        time_step_quadratic / stiffness_coefficient_k[1],
+                                        time_step_quadratic / stiffness_coefficient_k[2]);
+}
+
+void init_constraint(in uint constraint_handle);
 //Line 52
 void main(){
 
@@ -41,33 +54,6 @@ void main(){
 		uint constraint_index = baseID + local_index;
 
 		if(constraint_index >= constraint_size) break;
-		init_constraint(constraint_index);
+		
 	}
-}
-
-void init_constraint(in uint rod_constraint_handle){
-	RodConstraint rod_constraint = rod_constraints[rod_constraint_handle];
-			
-	vec3 stretch_compliance;
-	vec3 bending_and_torsion_compliance;
-	vec6 lambda_sum;
-
-	init_stretch_bending_twisting_constraint(
-		rod_constraint.stiffness_coefficient_k_segment0_index.xyz, 
-		inv_time_step,
-		rod_constraint.stretch_compliance_average_segment_length.w,
-		stretch_compliance,
-		bending_and_torsion_compliance,
-		lambda_sum);
-
-	rod_constraints[rod_constraint_handle].stretch_compliance_average_segment_length.xyz = stretch_compliance;
-	rod_constraints[rod_constraint_handle].bending_and_torsion_compliance_next_constraint_handle.xyz = bending_and_torsion_compliance;
-
-	rod_constraints[rod_constraint_handle].lambda_sum0 = lambda_sum.v[0];
-	rod_constraints[rod_constraint_handle].lambda_sum1 = lambda_sum.v[1];
-	rod_constraints[rod_constraint_handle].lambda_sum2 = lambda_sum.v[2];
-	rod_constraints[rod_constraint_handle].lambda_sum3 = lambda_sum.v[3];
-	rod_constraints[rod_constraint_handle].lambda_sum4 = lambda_sum.v[4];
-	rod_constraints[rod_constraint_handle].lambda_sum5 = lambda_sum.v[5];
-
 }

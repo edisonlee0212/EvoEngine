@@ -14,21 +14,25 @@ void BrokenBranch::UpdateDynamicStrands() {
   const auto owner = GetOwner();
   const auto scene = GetScene();
   initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
-  
-  
   dynamic_strands.InitializeStrandsGroup(initialize_parameters, subdivided_strand_group);
-  const auto& external_force = std::dynamic_pointer_cast<DsExternalForce>(dynamic_strands.operators.front());
-  external_force->commands.resize(dynamic_strands.strand_segments.size());
+
+  external_force->commands.resize(dynamic_strands.particles.size());
   Jobs::RunParallelFor(external_force->commands.size(), [&](const size_t i) {
-    external_force->commands[i].strand_segment_index = static_cast<uint32_t>(i);
-    external_force->commands[i].force = glm::vec3(0, -1, 0) * dynamic_strands.strand_segments[i].mass;
+    external_force->commands[i].particle_index = static_cast<uint32_t>(i);
+    if (dynamic_strands.particles[i].inv_mass != 0.0)
+      external_force->commands[i].force = glm::vec3(0, -1, 0) * (1.f / dynamic_strands.particles[i].inv_mass);
+    else
+      external_force->commands[i].force = glm::vec3(0.f);
   });
-  const auto& position_update = std::dynamic_pointer_cast<DsPositionUpdate>(dynamic_strands.operators.back());
-  position_update->commands.resize(dynamic_strands.strands.size());
-  Jobs::RunParallelFor(position_update->commands.size(), [&](const size_t i) {
-    position_update->commands[i].strand_segment_index = dynamic_strands.strands[i].begin_segment_handle;
-    position_update->commands[i].new_position =
-        dynamic_strands.strand_segments[position_update->commands[i].strand_segment_index].x0;
+  position_update->commands.resize(dynamic_strands.strands.size() * 2);
+  Jobs::RunParallelFor(dynamic_strands.strands.size(), [&](const size_t i) {
+    const auto& segment_handle = dynamic_strands.strands[i].begin_segment_handle;
+    const auto& segment = dynamic_strands.segments[segment_handle];
+    position_update->commands[i * 2].particle_index = segment.particle0_handle;
+    position_update->commands[i * 2].new_position = dynamic_strands.particles[segment.particle0_handle].x0;
+
+    position_update->commands[i * 2 + 1].particle_index = segment.particle1_handle;
+    position_update->commands[i * 2 + 1].new_position = dynamic_strands.particles[segment.particle1_handle].x0;
   });
 }
 
@@ -132,9 +136,9 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (!step_parameters.physics) {
     if (ImGui::Button("Simulate 1 step")) {
       step_parameters.physics = true;
-      const bool resume_render = step_parameters.render; 
+      const bool resume_render = step_parameters.render;
       step_parameters.render = false;
-      dynamic_strands.Step(step_parameters);
+      Step();
       step_parameters.physics = false;
       step_parameters.render = resume_render;
     }
@@ -144,44 +148,34 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       dynamic_strands.Download();
       EVOENGINE_LOG("Downloaded data from GPU")
     }
+
+
+    ImGui::SameLine();
+    if (ImGui::Button("Upload strands")) {
+      dynamic_strands.Upload();
+      EVOENGINE_LOG("Uploaded data from GPU")
+    }
   }
+
   return false;
 }
 void BrokenBranch::LateUpdate() {
-  if (enable_simulation && !dynamic_strands.strand_segments.empty()) {
-    const auto owner = GetOwner();
-    const auto scene = GetScene();
-    const auto current_root_transform = scene->GetDataComponent<GlobalTransform>(owner);
-    GlobalTransform original_inverse_root_transform;
-    original_inverse_root_transform.value = glm::inverse(initialize_parameters.root_transform.value);
-    const auto& position_update = std::dynamic_pointer_cast<DsPositionUpdate>(dynamic_strands.operators.back());
-    Jobs::RunParallelFor(position_update->commands.size(), [&](const size_t i) {
-      position_update->commands[i].strand_segment_index = dynamic_strands.strands[i].begin_segment_handle;
-      position_update->commands[i]
-          .new_position = current_root_transform.TransformPoint(original_inverse_root_transform.TransformPoint(
-          dynamic_strands.strand_segments[position_update->commands[i].strand_segment_index].x0));
-    });
-    const auto editor_layer = Application::GetLayer<EditorLayer>();
-    step_parameters.render_parameters.target_camera = editor_layer->GetSceneCamera();
-    dynamic_strands.Step(step_parameters);
-  }
+  Step();
 }
 
 void BrokenBranch::FixedUpdate() {
-  
 }
 
 void BrokenBranch::OnCreate() {
   dynamic_strands.operators.clear();
   dynamic_strands.constraints.clear();
-
-  dynamic_strands.operators.emplace_back(std::make_shared<DsExternalForce>());
-  dynamic_strands.operators.emplace_back(std::make_shared<DsPositionUpdate>());
+  external_force = std::make_shared<DsExternalForce>();
+  position_update = std::make_shared<DsPositionUpdate>();
 
   dynamic_strands.pre_step = std::make_shared<DynamicStrandsPreStep>();
   dynamic_strands.constraints.emplace_back(std::make_shared<DsStiffRod>());
 
-  dynamic_strands.post_step = std::make_shared<DynamicStrandsPostStep>();
+
 }
 
 void BrokenBranch::OnDestroy() {
@@ -195,11 +189,13 @@ void BrokenBranch::ExperimentSetup() {
   const auto strand1_handle = strand_group.AllocateStrand();
   auto& segment1 = strand_group.RefStrandSegment(strand_group.Extend(strand1_handle));
   auto& strand1 = strand_group.RefStrand(strand1_handle);
-  segment1.end_position = glm::vec3(0, 0.5f, 0.);
+  segment1.end_position = glm::vec3(0, 5.0f, 0.);
   strand1.start_color = segment1.end_color = glm::vec4(1, 0, 0, 0);
-  strand1.start_thickness = segment1.end_thickness = 0.01f;
+  strand1.start_thickness = segment1.end_thickness = 0.1f;
 
   strand_group.CalculateRotations();
+
+  Subdivide(0.5, strand_group);
 }
 
 void BrokenBranch::Subdivide(const float segment_length, const StrandModelStrandGroup& src) {
@@ -242,6 +238,28 @@ void BrokenBranch::ClearStrandParticles() const {
     if (name == "Branch Strand Particles") {
       scene->DeleteEntity(child);
     }
+  }
+}
+
+void BrokenBranch::Step() {
+  if (!dynamic_strands.segments.empty()) {
+    dynamic_strands.operators.clear();
+    if (step_parameters.physics) {
+      const auto owner = GetOwner();
+      const auto scene = GetScene();
+      const auto current_root_transform = scene->GetDataComponent<GlobalTransform>(owner);
+      GlobalTransform original_inverse_root_transform;
+      original_inverse_root_transform.value = glm::inverse(initialize_parameters.root_transform.value);
+      Jobs::RunParallelFor(position_update->commands.size(), [&](const size_t i) {
+        auto& command = position_update->commands[i];
+        command.new_position = current_root_transform.TransformPoint(
+            original_inverse_root_transform.TransformPoint(dynamic_strands.particles[command.particle_index].x0));
+      });
+      dynamic_strands.operators.emplace_back(position_update);
+    }
+    const auto editor_layer = Application::GetLayer<EditorLayer>();
+    step_parameters.render_parameters.target_camera = editor_layer->GetSceneCamera();
+    dynamic_strands.Step(step_parameters);
   }
 }
 
