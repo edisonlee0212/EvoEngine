@@ -4,17 +4,17 @@
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+class DsPositionUpdate;
+class DsExternalForce;
 class BrokenBranch : public IPrivateComponent {
  public:
-  
-  bool enable_simulation = true;
-
   PrivateComponentRef tree_ref{};
   StrandModelStrandGroup strand_group{};
   StrandModelStrandGroup subdivided_strand_group{};
-
   DynamicStrands::InitializeParameters initialize_parameters{};
   DynamicStrands::StepParameters step_parameters{};
+  std::shared_ptr<DsExternalForce> external_force;
+  std::shared_ptr<DsPositionUpdate> position_update;
   DynamicStrands dynamic_strands{};
   void UpdateDynamicStrands();
   void Serialize(YAML::Emitter& out) const override;
@@ -29,7 +29,7 @@ class BrokenBranch : public IPrivateComponent {
   void Subdivide(float segment_length, const StrandModelStrandGroup& src);
   void InitializeStrandParticles(const StrandModelStrandGroup& strand_group) const;
   void ClearStrandParticles() const;
-
+  void Step();
   void InitializeStrandConcaveMesh(const StrandModelStrandGroup& strand_group, float max_edge_length) const;
   void ClearStrandConcaveMesh() const;
 };

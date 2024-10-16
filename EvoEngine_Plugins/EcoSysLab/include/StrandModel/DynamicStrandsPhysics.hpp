@@ -15,7 +15,7 @@ class DynamicStrandsPreStep {
 
   inline static std::shared_ptr<ComputePipeline> pre_step_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands);
+               DynamicStrands& target_dynamic_strands);
 };
 
 class DynamicStrandsPostStep {
@@ -28,27 +28,31 @@ class DynamicStrandsPostStep {
 
   inline static std::shared_ptr<ComputePipeline> post_step_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands);
+               DynamicStrands& target_dynamic_strands);
 };
 class IDynamicStrandsOperator {
  public:
   virtual ~IDynamicStrandsOperator() = default;
   virtual void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
-                              const DynamicStrands& target_dynamic_strands) {
+                              DynamicStrands& target_dynamic_strands) {
   }
   virtual void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-                       const DynamicStrands& target_dynamic_strands) = 0;
+                       DynamicStrands& target_dynamic_strands) = 0;
   virtual void DownloadData() {
+  }
+  virtual void UploadData() {
   }
 };
 class IDynamicStrandsConstraint {
  public:
   virtual void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
-                              const DynamicStrands& target_dynamic_strands){};
+                              DynamicStrands& target_dynamic_strands){};
   virtual void Project(const DynamicStrands::PhysicsParameters& physics_parameters,
-                       const DynamicStrands& target_dynamic_strands) = 0;
+                       DynamicStrands& target_dynamic_strands) = 0;
 
   virtual void DownloadData() {
+  }
+  virtual void UploadData() {
   }
 };
 
@@ -75,7 +79,7 @@ class DsPositionUpdate final : public IDynamicStrandsOperator {
   std::vector<std::shared_ptr<DescriptorSet>> commands_descriptor_sets;
 
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands) override;
+               DynamicStrands& target_dynamic_strands) override;
 };
 class DsExternalForce final : public IDynamicStrandsOperator {
  public:
@@ -99,7 +103,7 @@ class DsExternalForce final : public IDynamicStrandsOperator {
   std::vector<std::shared_ptr<DescriptorSet>> commands_descriptor_sets{};
 
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands) override;
+               DynamicStrands& target_dynamic_strands) override;
 };
 
 #pragma endregion
@@ -121,7 +125,12 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
     float padding1;
     float padding2;
   };
-
+  struct vec6 {
+    float v[6];
+  };
+  struct mat6 {
+    vec6 v[6];
+  };
   struct GpuRodConstraint {
     glm::vec3 stiffness_coefficient_k;
     int segment0_index;
@@ -133,7 +142,7 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
     float average_segment_length;
 
     glm::vec3 bending_and_torsion_compliance;
-    int next_handle = -1;
+    int next_constraint_handle = -1;
 
     /**
      * \brief
@@ -145,7 +154,53 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
      */
     glm::mat4 constraint_info;
 
-    float lambda_sum[8];
+    vec6 lambda_sum;
+    float lambda_sum_padding[2];
+
+    //---------
+    //| Debug |
+    //---------
+
+    glm::vec3 omega;
+    float padding_omega;
+
+    glm::mat4 j_omega0;
+    glm::mat4 j_omega1;
+    glm::mat4 g0;
+    glm::mat4 g1;
+
+    glm::mat4 j_omega_g0;
+    glm::mat4 j_omega_g1;
+
+    glm::vec3 connector0;
+    float padding0;
+    glm::vec3 connector1;
+    float padding1;
+
+    glm::vec3 stretch_violation;
+    float padding2;
+    glm::vec3 bending_and_torsion_violation;
+    float padding3;
+
+    glm::vec3 delta_lambda_stretch;
+    float padding4;
+    glm::vec3 delta_lambda_bending_and_torsion;
+    float padding5;
+
+    glm::vec3 x0_correction;
+    float padding6;
+
+    glm::vec3 x1_correction;
+    float padding7;
+
+    glm::quat q0_correction;
+    glm::quat q1_correction;
+
+    float x[8];
+    float y[8];
+    float z[8];
+    float rhs[8];
+
   };
 
   struct PerStrandData {
@@ -168,7 +223,6 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
   struct StiffRodInitConstraintConstant {
     uint32_t constraint_size = 0;
     float time_step;
-    float inv_time_step;
   };
 
   struct StiffRodUpdateConstraintConstant {
@@ -186,11 +240,12 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
   std::vector<std::shared_ptr<DescriptorSet>> strands_physics_descriptor_sets{};
 
   void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
-                      const DynamicStrands& target_dynamic_strands) override;
+                      DynamicStrands& target_dynamic_strands) override;
 
   void Project(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands) override;
+               DynamicStrands& target_dynamic_strands) override;
   void DownloadData() override;
+  void UploadData() override;
   static glm::vec3 ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1, float average_segment_length);
 };
 #pragma endregion

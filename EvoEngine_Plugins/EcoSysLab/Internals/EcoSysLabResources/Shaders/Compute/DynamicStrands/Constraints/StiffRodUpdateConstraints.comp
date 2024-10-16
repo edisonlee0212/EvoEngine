@@ -28,6 +28,24 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 #define DYNAMIC_STRANDS_PHYSICS_SET 1
 #include "DynamicStrandsPhysics.glsl"
 
+void update_stretch_bending_twisting_constraint(in vec3 x0, in vec4 q0, in vec3 x1, in vec4 q1,
+                                                inout mat4 constraint_info) {
+  // constraintInfo contains
+  // 0:	connector in segment 0 (local)
+  // 1:	connector in segment 1 (local)
+  // 2:	connector in segment 0 (global)
+  // 3:	connector in segment 1 (global)
+
+  // compute world space positions of connectors
+  mat3 rot0 = mat3_cast(q0);
+  mat3 rot1 = mat3_cast(q1);
+
+  constraint_info[2].xyz = rot0 * constraint_info[0].xyz + x0;
+  constraint_info[3].xyz = rot1 * constraint_info[1].xyz + x1;
+}
+
+
+
 void update_constraint(in uint rod_constraint_handle);
 
 void main(){

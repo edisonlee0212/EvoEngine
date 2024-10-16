@@ -16,8 +16,9 @@ class DynamicStrands {
   struct InitializeParameters {
     bool static_root = true;
     float wood_density = 1.f;
-    float youngs_modulus = 1.f;
-    float torsion_modulus = 1.f;
+    
+    float youngs_modulus = 0.01f; //In GPa
+    float torsion_modulus = 0.01f; //In GPa
     GlobalTransform root_transform{};
   };
   template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
@@ -26,9 +27,10 @@ class DynamicStrands {
 #pragma endregion
 #pragma region Step
   struct PhysicsParameters {
+    bool gpu = false;
     float time_step = 0.01f;
     uint32_t sub_step = 1;
-    uint32_t max_iteration;
+    uint32_t max_iteration = 10;
   };
 
   struct RenderParameters {
@@ -83,13 +85,18 @@ class DynamicStrands {
     glm::vec3 x0;
     float length;
     // Current position
-    glm::vec4 x;
+    glm::vec3 x;
+    float padding1;
+
     // Last frame position
-    glm::vec4 last_x;
-    glm::vec4 old_x;
+    glm::vec3 last_x;
+    float padding2;
+
+    glm::vec3 old_x;
+    float padding3;
 
     glm::vec3 acceleration = glm::vec3(0.f);
-    float padding1;
+    float padding4;
 
     glm::vec3 inertia_tensor;
     float mass;
@@ -98,7 +105,7 @@ class DynamicStrands {
     float inv_mass;
 
     glm::mat4 inertia_w;
-    glm::mat4 inverse_inertia_w;
+    glm::mat4 inv_inertia_w;
 
     int neighbors[8];
   };
@@ -123,8 +130,8 @@ class DynamicStrands {
 
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
   static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
-  void InitializeOperators(const InitializeParameters& initialize_parameters) const;
-  void InitializeConstraints(const InitializeParameters& initialize_parameters) const;
+  void InitializeOperators(const InitializeParameters& initialize_parameters);
+  void InitializeConstraints(const InitializeParameters& initialize_parameters);
   void Render(const RenderParameters& render_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters,
                const std::vector<std::shared_ptr<IDynamicStrandsOperator>>& target_operators,

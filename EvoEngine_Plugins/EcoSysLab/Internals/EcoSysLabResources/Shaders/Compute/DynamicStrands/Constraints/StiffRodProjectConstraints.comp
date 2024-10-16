@@ -27,6 +27,366 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 #define DYNAMIC_STRANDS_PHYSICS_SET 1
 #include "DynamicStrandsPhysics.glsl"
 
+
+void compute_bending_and_torsion_jacobians(in vec4 q0, in vec4 q1, float segment_length, out mat4 j_omega0,
+                                           out mat4 j_omega1) {
+  j_omega0 = mat4(
+                -q1[3], -q1[2], q1[1], q1[0], 
+                q1[2], -q1[3], -q1[0], q1[1], 
+                -q1[1], q1[0], -q1[3], q1[2],
+                0.0, 0.0, 0.0, 0.0);
+  j_omega1 = mat4(
+                q0[3], q0[2], -q0[1], -q0[0], 
+                -q0[2], q0[3], q0[0], -q0[1], 
+                q0[1], -q0[0], q0[3], -q0[2], 
+                0.0, 0.0, 0.0, 0.0);
+  j_omega0 *= 2.0 / segment_length;
+  j_omega1 *= 2.0 / segment_length;
+}
+
+void compute_matrix_g(in vec4 q, out mat4 g) {
+  g = mat4(
+    q[3], q[2], -q[1], 0.0, 
+    -q[2], q[3], q[0], 0.0, 
+    q[1], -q[0], q[3], 0.0, 
+    -q[0], -q[1], -q[2], 0.0) * 0.5;
+}
+
+void compute_matrix_k(in vec3 connector, in float inv_mass, in vec3 x, in mat3 inverse_inertia, out mat3 k) {
+  if (inv_mass != 0.0) {
+    vec3 v = connector - x;
+    float a = v[0];
+    float b = v[1];
+    float c = v[2];
+
+    float j11 = inverse_inertia[0][0];
+    float j12 = inverse_inertia[0][1];
+    float j13 = inverse_inertia[0][2];
+    float j22 = inverse_inertia[1][1];
+    float j23 = inverse_inertia[1][2];
+    float j33 = inverse_inertia[2][2];
+
+    k[0][0] = c * c * j22 - b * c * (j23 + j23) + b * b * j33 + inv_mass;
+    k[0][1] = -(c * c * j12) + a * c * j23 + b * c * j13 - a * b * j33;
+    k[0][2] = b * c * j12 - a * c * j22 - b * b * j13 + a * b * j23;
+    k[1][0] = k[0][1];
+    k[1][1] = c * c * j11 - a * c * (j13 + j13) + a * a * j33 + inv_mass;
+    k[1][2] = -(b * c * j11) + a * c * j12 + a * b * j13 - a * a * j23;
+    k[2][0] = k[0][2];
+    k[2][1] = k[1][2];
+    k[2][2] = b * b * j11 - a * b * (j12 + j12) + a * a * j22 + inv_mass;
+  } else {
+    k = mat3(0, 0, 0, 0, 0, 0, 0, 0, 0);
+  }
+}
+
+mat3 cross_product_matrix(in vec3 v) {
+  return mat3(0, -v[2], v[1], v[2], 0, -v[0], -v[1], v[0], 0);
+}
+
+void solve_ldlt(in mat6 A, out vec6 x, out vec6 y, out vec6 z, in vec6 b) {
+  mat6 L;
+  L.v[0].v[0] = 1.0;
+  L.v[0].v[1] = 0.0;
+  L.v[0].v[2] = 0.0;
+  L.v[0].v[3] = 0.0;
+  L.v[0].v[4] = 0.0;
+  L.v[0].v[5] = 0.0;
+
+  L.v[1].v[0] = 0.0;
+  L.v[1].v[1] = 1.0;
+  L.v[1].v[2] = 0.0;
+  L.v[1].v[3] = 0.0;
+  L.v[1].v[4] = 0.0;
+  L.v[1].v[5] = 0.0;
+
+  L.v[2].v[0] = 0.0;
+  L.v[2].v[1] = 0.0;
+  L.v[2].v[2] = 1.0;
+  L.v[2].v[3] = 0.0;
+  L.v[2].v[4] = 0.0;
+  L.v[2].v[5] = 0.0;
+
+  L.v[3].v[0] = 0.0;
+  L.v[3].v[1] = 0.0;
+  L.v[3].v[2] = 0.0;
+  L.v[3].v[3] = 1.0;
+  L.v[3].v[4] = 0.0;
+  L.v[3].v[5] = 0.0;
+
+  L.v[4].v[0] = 0.0;
+  L.v[4].v[1] = 0.0;
+  L.v[4].v[2] = 0.0;
+  L.v[4].v[3] = 0.0;
+  L.v[4].v[4] = 1.0;
+  L.v[4].v[5] = 0.0;
+
+  L.v[5].v[0] = 0.0;
+  L.v[5].v[1] = 0.0;
+  L.v[5].v[2] = 0.0;
+  L.v[5].v[3] = 0.0;
+  L.v[5].v[4] = 0.0;
+  L.v[5].v[5] = 1.0;
+
+  vec6 D;
+  D.v[0] = 0.0;
+  D.v[1] = 0.0;
+  D.v[2] = 0.0;
+  D.v[3] = 0.0;
+  D.v[4] = 0.0;
+  D.v[5] = 0.0;
+
+
+  // Decomposition
+  for (int i = 0; i < 6; i++) {
+    // Compute diagonal elements of D
+    D.v[i] = A.v[i].v[i];
+    for (int k = 0; k < i; k++) {
+      D.v[i] -= L.v[i].v[k] * L.v[i].v[k] * D.v[k];
+    }
+    // Compute elements of L (below the diagonal)
+    for (int j = i + 1; j < 6; j++) {
+      L.v[j].v[i] = A.v[j].v[i];
+      for (int k = 0; k < i; k++) {
+        L.v[j].v[i] -= L.v[j].v[k] * L.v[i].v[k] * D.v[k];
+      }
+      L.v[j].v[i] /= D.v[i];
+    }
+  }
+
+  // Forward substitution
+  for (int i = 0; i < 6; i++) {
+    y.v[i] = b.v[i];
+    for (int j = 0; j < i; j++) {
+      y.v[i] -= L.v[i].v[j] * y.v[j];
+    }
+  }
+
+  // Diagonal solve
+  for (int i = 0; i < 6; i++) {
+    z.v[i] = y.v[i] / D.v[i];
+  }
+
+  // Backward substitution
+  for (int i = 5; i >= 0; i--) {
+    x.v[i] = z.v[i];
+    for (int j = i + 1; j < 6; j++) {
+      x.v[i] -= L.v[j].v[i] * x.v[j];
+    }
+  }
+}
+
+void solve_stretch_bending_twisting_constraints(in int constraint_handle, in float inv_mass0, in vec3 x0,
+                                                in mat3 inverse_inertia0, in vec4 q0, in float inv_mass1, in vec3 x1,
+                                                in mat3 inverse_inertia1, in vec4 q1, in vec3 rest_darboux_vector,
+                                                in float average_segment_length, in vec3 stretch_compliance,
+                                                in vec3 bending_and_torsion_compliance, in mat4 constraint_info,
+                                                out vec3 x0_correction, out vec4 q0_correction, out vec3 x1_correction,
+                                                out vec4 q1_correction, inout vec6 lambda_sum) {
+  
+
+  vec3 omega = compute_darboux_vector(q0, q1, average_segment_length);
+  mat4 j_omega0, j_omega1;
+  compute_bending_and_torsion_jacobians(q0, q1, average_segment_length, j_omega0, j_omega1);
+  mat4 g0, g1;
+  compute_matrix_g(q0, g0);
+  compute_matrix_g(q1, g1);
+
+  mat3 j_omega_g0 = mat3(j_omega0 * g0);
+  mat3 j_omega_g1 = mat3(j_omega1 * g1);
+
+  vec3 connector0 = constraint_info[2].xyz;
+  vec3 connector1 = constraint_info[3].xyz;
+
+  vec3 stretch_violation = connector0 - connector1;
+  vec3 bending_and_torsion_violation = omega - rest_darboux_vector;
+
+  
+  stretch_violation = stretch_violation + stretch_compliance * vec3(lambda_sum.v[0], lambda_sum.v[1], lambda_sum.v[2]);
+  bending_and_torsion_violation =
+      bending_and_torsion_violation +
+      bending_and_torsion_compliance * vec3(lambda_sum.v[3], lambda_sum.v[4], lambda_sum.v[5]);
+  
+  vec6 rhs;
+  rhs.v[0] = -stretch_violation.x;
+  rhs.v[1] = -stretch_violation.y;
+  rhs.v[2] = -stretch_violation.z;
+  rhs.v[3] = -bending_and_torsion_violation.x;
+  rhs.v[4] = -bending_and_torsion_violation.y;
+  rhs.v[5] = -bending_and_torsion_violation.z;
+
+  mat3 k0, k1;
+  compute_matrix_k(connector0, inv_mass0, x0, inverse_inertia0, k0);
+  compute_matrix_k(connector1, inv_mass1, x1, inverse_inertia1, k1);
+  mat3 k = k0 + k1;
+  mat6 jmjt;
+  jmjt.v[0].v[0] = k[0][0];
+  jmjt.v[0].v[1] = k[0][1];
+  jmjt.v[0].v[2] = k[0][2];
+  jmjt.v[1].v[0] = k[1][0];
+  jmjt.v[1].v[1] = k[1][1];
+  jmjt.v[1].v[2] = k[1][2];
+  jmjt.v[2].v[0] = k[2][0];
+  jmjt.v[2].v[1] = k[2][1];
+  jmjt.v[2].v[2] = k[2][2];
+
+  vec3 r0 = connector0 - x0;
+  vec3 r1 = connector1 - x1;
+
+  mat3 r0_cross_t = cross_product_matrix(-r0);
+  mat3 r1_cross_t = cross_product_matrix(-r1);
+
+  mat3 off_diag = mat3(0, 0, 0, 0, 0, 0, 0, 0, 0);
+  if (inv_mass0 != 0.0) {
+    off_diag = j_omega_g0 * inverse_inertia0 * r0_cross_t * -1.0;
+  }
+  if (inv_mass1 != 0.0) {
+    off_diag += j_omega_g1 * inverse_inertia1 * r1_cross_t;
+  }
+  jmjt.v[3].v[0] = off_diag[0][0];
+  jmjt.v[3].v[1] = off_diag[0][1];
+  jmjt.v[3].v[2] = off_diag[0][2];
+  jmjt.v[4].v[0] = off_diag[1][0];
+  jmjt.v[4].v[1] = off_diag[1][1];
+  jmjt.v[4].v[2] = off_diag[1][2];
+  jmjt.v[5].v[0] = off_diag[2][0];
+  jmjt.v[5].v[1] = off_diag[2][1];
+  jmjt.v[5].v[2] = off_diag[2][2];
+
+  mat3 off_diag_t = transpose(off_diag);
+  jmjt.v[0].v[3] = off_diag_t[0][0];
+  jmjt.v[0].v[4] = off_diag_t[0][1];
+  jmjt.v[0].v[5] = off_diag_t[0][2];
+  jmjt.v[1].v[3] = off_diag_t[1][0];
+  jmjt.v[1].v[4] = off_diag_t[1][1];
+  jmjt.v[1].v[5] = off_diag_t[1][2];
+  jmjt.v[2].v[3] = off_diag_t[2][0];
+  jmjt.v[2].v[4] = off_diag_t[2][1];
+  jmjt.v[2].v[5] = off_diag_t[2][2];
+
+  mat3 m_inv_jt0 = inverse_inertia0 * transpose(j_omega_g0);
+  mat3 m_inv_jt1 = inverse_inertia1 * transpose(j_omega_g1);
+
+  mat3 jmjt_omega = mat3(0, 0, 0, 0, 0, 0, 0, 0, 0);
+  if (inv_mass0 != 0.0) {
+    jmjt_omega = j_omega_g0 * m_inv_jt0;
+  }
+  if (inv_mass1 != 0.0) {
+    jmjt_omega += j_omega_g1 * m_inv_jt1;
+  }
+
+  jmjt.v[3].v[3] = jmjt_omega[0][0];
+  jmjt.v[3].v[4] = jmjt_omega[0][1];
+  jmjt.v[3].v[5] = jmjt_omega[0][2];
+  jmjt.v[4].v[3] = jmjt_omega[1][0];
+  jmjt.v[4].v[4] = jmjt_omega[1][1];
+  jmjt.v[4].v[5] = jmjt_omega[1][2];
+  jmjt.v[5].v[3] = jmjt_omega[2][0];
+  jmjt.v[5].v[4] = jmjt_omega[2][1];
+  jmjt.v[5].v[5] = jmjt_omega[2][2];
+
+  jmjt.v[0].v[0] += stretch_compliance[0];
+  jmjt.v[1].v[1] += stretch_compliance[1];
+  jmjt.v[2].v[2] += stretch_compliance[2];
+  jmjt.v[3].v[3] += bending_and_torsion_compliance[0];
+  jmjt.v[4].v[4] += bending_and_torsion_compliance[1];
+  jmjt.v[5].v[5] += bending_and_torsion_compliance[2];
+
+  vec6 delta_lambda, y, z;
+
+  solve_ldlt(jmjt, delta_lambda, y, z, rhs);
+
+  lambda_sum.v[0] += delta_lambda.v[0];
+  lambda_sum.v[1] += delta_lambda.v[1];
+  lambda_sum.v[2] += delta_lambda.v[2];
+  lambda_sum.v[3] += delta_lambda.v[3];
+  lambda_sum.v[4] += delta_lambda.v[4];
+  lambda_sum.v[5] += delta_lambda.v[5];
+
+  vec3 delta_lambda_stretch = vec3(delta_lambda.v[0], delta_lambda.v[1], delta_lambda.v[2]);
+  vec3 delta_lambda_bending_and_torsion = vec3(delta_lambda.v[3], delta_lambda.v[4], delta_lambda.v[5]);
+
+  x0_correction = vec3(0, 0, 0);
+  q0_correction = vec4(0, 0, 0, 0);
+  x1_correction = vec3(0, 0, 0);
+  q1_correction = vec4(0, 0, 0, 0);
+
+  if (inv_mass0 != 0.0) {
+    x0_correction += inv_mass0 * delta_lambda_stretch;
+    vec3 v =
+        inverse_inertia0 * r0_cross_t * (-1.0 * delta_lambda_stretch) + m_inv_jt0 * delta_lambda_bending_and_torsion;
+    q0_correction[0] = g0[0][0] * v[0] + g0[0][1] * v[1] + g0[0][2] * v[2];
+    q0_correction[1] = g0[1][0] * v[0] + g0[1][1] * v[1] + g0[1][2] * v[2];
+    q0_correction[2] = g0[2][0] * v[0] + g0[2][1] * v[1] + g0[2][2] * v[2];
+    q0_correction[3] = g0[3][0] * v[0] + g0[3][1] * v[1] + g0[3][2] * v[2];
+  }
+
+  if (inv_mass1 != 0.0) {
+    x1_correction -= inv_mass1 * delta_lambda_stretch;
+    vec3 v = inverse_inertia1 * r1_cross_t * delta_lambda_stretch + m_inv_jt1 * delta_lambda_bending_and_torsion;
+    q1_correction[0] = g1[0][0] * v[0] + g1[0][1] * v[1] + g1[0][2] * v[2];
+    q1_correction[1] = g1[1][0] * v[0] + g1[1][1] * v[1] + g1[1][2] * v[2];
+    q1_correction[2] = g1[2][0] * v[0] + g1[2][1] * v[1] + g1[2][2] * v[2];
+    q1_correction[3] = g1[3][0] * v[0] + g1[3][1] * v[1] + g1[3][2] * v[2];
+  }
+
+
+  RodConstraint rod_constraint = rod_constraints[constraint_handle];
+  rod_constraint.omega.xyz = omega;
+  rod_constraint.j_omega0 = j_omega0;
+  rod_constraint.j_omega1 = j_omega1;
+  rod_constraint.g0 = g0;
+  rod_constraint.g1 = g1;
+  rod_constraint.j_omega_g0 = mat4_cast(j_omega_g0);
+  rod_constraint.j_omega_g1 = mat4_cast(j_omega_g1);
+
+  rod_constraint.connector0.xyz = connector0;
+  rod_constraint.connector1.xyz = connector1;
+
+  rod_constraint.stretch_violation.xyz = stretch_violation;
+  rod_constraint.bending_and_torsion_violation.xyz = bending_and_torsion_violation;
+
+  rod_constraint.delta_lambda_stretch.xyz = delta_lambda_stretch;
+  rod_constraint.delta_lambda_bending_and_torsion.xyz = delta_lambda_bending_and_torsion;
+
+  rod_constraint.x0_correction.xyz = x0_correction;
+  rod_constraint.x1_correction.xyz = x1_correction;
+  
+  rod_constraint.q0_correction = q0_correction;
+  rod_constraint.q1_correction = q1_correction;
+
+  rod_constraint.x[0] = delta_lambda.v[0];
+  rod_constraint.x[1] = delta_lambda.v[1];
+  rod_constraint.x[2] = delta_lambda.v[2];
+  rod_constraint.x[3] = delta_lambda.v[3];
+  rod_constraint.x[4] = delta_lambda.v[4];
+  rod_constraint.x[5] = delta_lambda.v[5];
+
+  rod_constraint.y[0] = y.v[0];
+  rod_constraint.y[1] = y.v[1];
+  rod_constraint.y[2] = y.v[2];
+  rod_constraint.y[3] = y.v[3];
+  rod_constraint.y[4] = y.v[4];
+  rod_constraint.y[5] = y.v[5];
+
+  rod_constraint.z[0] = z.v[0];
+  rod_constraint.z[1] = z.v[1];
+  rod_constraint.z[2] = z.v[2];
+  rod_constraint.z[3] = z.v[3];
+  rod_constraint.z[4] = z.v[4];
+  rod_constraint.z[5] = z.v[5];
+
+  rod_constraint.rhs[0] = rhs.v[0];
+  rod_constraint.rhs[1] = rhs.v[1];
+  rod_constraint.rhs[2] = rhs.v[2];
+  rod_constraint.rhs[3] = rhs.v[3];
+  rod_constraint.rhs[4] = rhs.v[4];
+  rod_constraint.rhs[5] = rhs.v[5];
+
+  rod_constraints[constraint_handle] = rod_constraint;
+}
+
+
 void project_constraint(in int rod_constraint_handle);
 
 void main(){
@@ -41,11 +401,10 @@ void main(){
 
 		PerStrandData strand_data = per_strand_data_list[strand_index];
 		int rod_constraint_handle = strand_data.begin_rod_constraint_handle;
-		while(rod_constraint_handle != strand_data.end_rod_constraint_handle){
+		while(rod_constraint_handle != -1){
 			project_constraint(rod_constraint_handle);
 			rod_constraint_handle = floatBitsToInt(rod_constraints[rod_constraint_handle].bending_and_torsion_compliance_next_constraint_handle.w);
 		}
-		project_constraint(rod_constraint_handle);
 	}
 }
 
@@ -71,7 +430,7 @@ void project_constraint(in int rod_constraint_handle){
 	inverse_inertia_tensor_w0 = mat3(segment0.inv_inertia_w);
 	inverse_inertia_tensor_w1 = mat3(segment1.inv_inertia_w);
 
-	solve_stretch_bending_twisting_constraints(
+	solve_stretch_bending_twisting_constraints(rod_constraint_handle,
 		segment0.inv_inertia_tensor_inv_mass.w, segment0.x.xyz, inverse_inertia_tensor_w0, segment0.q,
 		segment1.inv_inertia_tensor_inv_mass.w, segment1.x.xyz, inverse_inertia_tensor_w1, segment1.q,
 		rod_constraint.rest_darboux_vector_segment1_index.xyz,

@@ -32,7 +32,6 @@ layout(std430, set = 1, binding = 0) readonly buffer EXTERNAL_FORCE_BLOCK {
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint command_size;
-	float delta_time;
 };
 
 void main(){

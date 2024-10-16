@@ -21,6 +21,7 @@ void DynamicStrands::Render(const RenderParameters& render_parameters) const {
     uint32_t strand_segment_size = 0;
   };
 
+
   if (!render_pipeline) {
     static std::shared_ptr<Shader> task_shader{};
     static std::shared_ptr<Shader> mesh_shader{};

@@ -31,6 +31,7 @@ DynamicStrands::DynamicStrands() {
   for (auto& i : strands_descriptor_sets) {
     i = std::make_shared<DescriptorSet>(strands_layout);
   }
+
 }
 
 void DynamicStrands::Step(const StepParameters& target_step_parameters) {
@@ -54,6 +55,12 @@ void DynamicStrands::Step(const StepParameters& target_step_parameters) {
 void DynamicStrands::Upload() const {
   device_strands_buffer->UploadVector(strands);
   device_strand_segments_buffer->UploadVector(strand_segments);
+  for (const auto& op : operators) {
+    op->UploadData();
+  }
+  for (const auto& c : constraints) {
+    c->UploadData();
+  }
 }
 
 void DynamicStrands::Download() {
@@ -88,12 +95,12 @@ glm::vec3 DynamicStrands::ComputeInertiaTensorRod(const float mass, const float 
   };
 }
 
-void DynamicStrands::InitializeOperators(const InitializeParameters& initialize_parameters) const {
+void DynamicStrands::InitializeOperators(const InitializeParameters& initialize_parameters) {
   for (const auto& i : operators)
     i->InitializeData(initialize_parameters, *this);
 }
 
-void DynamicStrands::InitializeConstraints(const InitializeParameters& initialize_parameters) const {
+void DynamicStrands::InitializeConstraints(const InitializeParameters& initialize_parameters) {
   for (const auto& i : constraints)
     i->InitializeData(initialize_parameters, *this);
 }
