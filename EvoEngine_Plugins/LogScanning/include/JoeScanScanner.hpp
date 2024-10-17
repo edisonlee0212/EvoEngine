@@ -13,7 +13,7 @@ struct JoeScanProfile {
 
 class JoeScan : public IAsset {
  public:
-  std::vector<JoeScanProfile> m_profiles;
+  std::vector<JoeScanProfile> profiles;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 
@@ -21,7 +21,7 @@ class JoeScan : public IAsset {
 };
 
 struct JoeScanScannerSettings {
-  int m_step = 1;
+  int step = 1;
 };
 
 class JoeScanScanner : public IPrivateComponent {

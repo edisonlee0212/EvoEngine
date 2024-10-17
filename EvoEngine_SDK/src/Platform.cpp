@@ -616,13 +616,13 @@ void Platform::SelectPhysicalDevice() {
     Constants::support_ray_tracing = false;
     EVOENGINE_LOG("Target device doesn't support ray tracing!");
   }
-
+  /*
   if (selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME)) {
     required_device_extension_names_.emplace_back(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME);
     Constants::support_ray_tracing_validation = true;
   } else {
     Constants::support_ray_tracing_validation = false;
-  }
+  }*/
 }
 
 bool Platform::PhysicalDevice::QueueFamilyIndices::IsComplete() const {
@@ -644,9 +644,9 @@ void Platform::PhysicalDevice::QueryInformation() {
   VkPhysicalDeviceFeatures2 device_features{};
   device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
   device_features.pNext = &acceleration_structure_features;
-
+  /*
   acceleration_structure_features.pNext = &ray_tracing_validation_features_nv;
-
+  */
   vkGetPhysicalDeviceFeatures2(vk_physical_device, &device_features);
 
   properties2.pNext = &vulkan11_properties;
@@ -770,21 +770,23 @@ void Platform::CreateLogicalDevice() {
   } else {
     vk_physical_device_vulkan12_features.pNext = nullptr;
   }
-
+  /*
   VkPhysicalDeviceRayTracingValidationFeaturesNV vk_physical_device_ray_tracing_validation_features_nv = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV};
   vk_physical_device_ray_tracing_validation_features_nv.rayTracingValidation = VK_TRUE;
   vk_physical_device_ray_tracing_validation_features_nv.pNext = &vk_physical_device_vulkan12_features;
-
+  */
   VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features{};
   shader_draw_parameters_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
   shader_draw_parameters_features.shaderDrawParameters = VK_TRUE;
-
+  /*
   if (Constants::support_ray_tracing_validation) {
     shader_draw_parameters_features.pNext = &vk_physical_device_ray_tracing_validation_features_nv;
   } else {
     shader_draw_parameters_features.pNext = &vk_physical_device_vulkan12_features;
   }
+  */
+  shader_draw_parameters_features.pNext = &vk_physical_device_vulkan12_features;
   VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features{};
   dynamic_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
   dynamic_rendering_features.dynamicRendering = VK_TRUE;

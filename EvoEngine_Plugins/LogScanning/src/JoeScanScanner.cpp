@@ -68,7 +68,7 @@ bool JoeScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
   static bool enable_joe_scan_rendering = true;
   ImGui::Checkbox("Render JoeScan", &enable_joe_scan_rendering);
-  static float divider = 2000.f;
+  static float divider = 3100.f;
   ImGui::DragFloat("Divider", &divider);
 
   static auto color = glm::vec3(1);
@@ -288,7 +288,7 @@ bool JoeScanScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     changed = true;
   if (editor_layer->DragAndDropButton<JoeScan>(joe_scan, "JoeScan"))
     changed = true;
-  const auto config = config.Get<Json>();
+  const auto config = this->config.Get<Json>();
   if (config && ImGui::Button("Initialize ScanSystem")) {
     InitializeScanSystem(config, scan_system, scan_heads);
   }
