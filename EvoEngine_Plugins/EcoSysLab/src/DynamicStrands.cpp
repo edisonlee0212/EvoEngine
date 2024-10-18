@@ -37,11 +37,6 @@ DynamicStrands::DynamicStrands() {
 void DynamicStrands::Step(const StepParameters& target_step_parameters) {
   if (strand_segments.empty())
     return;
-  const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_strand_segments_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_strands_buffer, 0);
-
   if (target_step_parameters.physics) {
     Physics(target_step_parameters.physics_parameters, operators, pre_step, constraints, post_step);
   }

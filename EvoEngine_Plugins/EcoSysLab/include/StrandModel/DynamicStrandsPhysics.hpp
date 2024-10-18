@@ -160,7 +160,7 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
     //---------
     //| Debug |
     //---------
-
+    /*
     glm::vec3 omega;
     float padding_omega;
 
@@ -195,12 +195,13 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
 
     glm::quat q0_correction;
     glm::quat q1_correction;
-
+    mat6 A;
     float x[8];
     float y[8];
     float z[8];
+    float D[8];
     float rhs[8];
-
+    */
   };
 
   struct PerStrandData {

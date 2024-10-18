@@ -12,6 +12,14 @@ struct RodProperties {
   float padding2;
 };
 
+struct vec6 {
+  float v[6];
+};
+
+struct mat6 {
+  vec6 v[6];
+};
+
 layout(set = DYNAMIC_STRANDS_PHYSICS_SET, binding = 0) readonly uniform ROD_PROPERTIES_BLOCK {
   RodProperties rod_properties;
 };
@@ -52,6 +60,7 @@ struct RodConstraint {
   float padding0;
   float padding1;
 
+  /*
   vec4 omega;
 
   mat4 j_omega0;
@@ -78,10 +87,13 @@ struct RodConstraint {
   vec4 q0_correction;
   vec4 q1_correction;
 
+  mat6 A;
   float x[8];
   float y[8];
   float z[8];
+  float D[8];
   float rhs[8];
+  */
 };
 
 layout(std430, set = DYNAMIC_STRANDS_PHYSICS_SET, binding = 2) buffer ROD_CONSTRAINT_BLOCK {
@@ -96,13 +108,7 @@ layout(std430, set = DYNAMIC_STRANDS_PHYSICS_SET, binding = 3) buffer PER_SEGMEN
   PerSegmentData per_segment_data_list[];
 };
 
-struct vec6 {
-  float v[6];
-};
 
-struct mat6 {
-  vec6 v[6];
-};
 
 
 mat3 compute_inverse_inertia_tensor_w(in StrandSegment strand_segment) {

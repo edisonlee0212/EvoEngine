@@ -477,6 +477,8 @@ void DsStiffRod::InitializeData(const DynamicStrands::InitializeParameters& init
       const float segment_length = (l0 + l1) * .5f;
       rod_constraint.rest_darboux_vector = ComputeDarbouxVector(q0, q1, segment_length);
       rod_constraint.average_segment_length = segment_length;
+
+
       const auto rotation0_transpose = glm::transpose(glm::mat3_cast(q0));
       const auto rotation1_transpose = glm::transpose(glm::mat3_cast(q1));
       const auto& p0 = segment0.x0;
@@ -500,7 +502,7 @@ void DsStiffRod::InitializeData(const DynamicStrands::InitializeParameters& init
       const auto torsional_stiffness = shear_modulus * polar_moment_of_inertia / segment_length;
 
       rod_constraint.stiffness_coefficient_k = glm::vec3(stretching_stiffness, bending_stiffness, torsional_stiffness);
-
+      rod_constraint.stiffness_coefficient_k = glm::vec3(0.9, 0.9, 0.9);
       segment_handle = next_segment_handle;
       next_segment_handle = target_dynamic_strands.strand_segments[segment_handle].next_handle;
     }
@@ -1004,6 +1006,9 @@ void DsStiffRod::Project(const DynamicStrands::PhysicsParameters& physics_parame
               q1_correction.w = g1[3][0] * v[0] + g1[3][1] * v[1] + g1[3][2] * v[2];
             }
 
+
+            //Debug
+            /*
             GpuRodConstraint rod_constraint = rod_constraints[constraint_handle];
             rod_constraint.omega = omega;
             rod_constraint.j_omega0 = j_omega0;
@@ -1042,7 +1047,7 @@ void DsStiffRod::Project(const DynamicStrands::PhysicsParameters& physics_parame
             rod_constraint.rhs[4] = rhs.v[4];
             rod_constraint.rhs[5] = rhs.v[5];
 
-            rod_constraints[constraint_handle] = rod_constraint;
+            rod_constraints[constraint_handle] = rod_constraint;*/
           };
 
       const auto project_constraint = [&](const int rod_constraint_handle) {

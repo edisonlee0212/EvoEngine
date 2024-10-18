@@ -192,6 +192,8 @@ void DynamicStrands::InitializeStrandsGroup(const InitializeParameters& initiali
       segment.mass = segment.radius * segment.radius * glm::pi<float>() * initialize_parameters.wood_density;
       segment.inv_mass = 1.f / segment.mass;
       segment.inertia_tensor = ComputeInertiaTensorRod(segment.mass, segment.radius, segment.length);
+      segment.inertia_tensor = glm::vec3(1);
+      
       segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     }
     
@@ -199,6 +201,11 @@ void DynamicStrands::InitializeStrandsGroup(const InitializeParameters& initiali
   });
   Upload();
 
+  const auto frame_count = Platform::GetMaxFramesInFlight();
+  for (uint32_t current_frame_index = 0; current_frame_index < frame_count; current_frame_index++) {
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_strand_segments_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_strands_buffer, 0);
+  }
   InitializeOperators(initialize_parameters);
   InitializeConstraints(initialize_parameters);
 }
