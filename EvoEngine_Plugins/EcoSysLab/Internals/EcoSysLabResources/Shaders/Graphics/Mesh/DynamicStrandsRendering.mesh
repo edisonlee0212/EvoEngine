@@ -93,7 +93,7 @@ void main(){
 	vec3 end_position = particle1.x.xyz;
 
 	vec3 center_position = (start_position + end_position) * 0.5;
-	float center_thickness = segment.color_radius.w * 2.0;
+	float center_thickness = segment.radius * 2.0;
 	
 	//vec4 rotation = segment.q;
 
@@ -114,7 +114,7 @@ void main(){
 		ms_v_out[vertex_index].frag_pos = vec4(instance_matrix * vec4(vertex_position, 1.0)).xyz;
 		ms_v_out[vertex_index].normal = vec3(0, 1, 0);
 		ms_v_out[vertex_index].tangent = vec3(0, 0, 1);
-		ms_v_out[vertex_index].color = vec4(segment.color_radius.xyz, 1.0);
+		ms_v_out[vertex_index].color = segment.color;
 		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
 	}
 

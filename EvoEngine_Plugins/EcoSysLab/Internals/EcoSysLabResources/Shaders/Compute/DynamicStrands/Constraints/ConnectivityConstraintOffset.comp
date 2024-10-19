@@ -24,11 +24,20 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint particle_size;
-	float time_step;
-	float inv_time_step;
+};
+
+struct Connectivity{
+	vec4 new_position;
+	int neighbors[8];
+	float distances[8];
+};
+
+layout(std430, set = 1, binding = 0) buffer CONNECTIVITY_BLOCK {
+  Connectivity connecvitity_list[];
 };
 
 void main(){
+
 	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
@@ -38,20 +47,21 @@ void main(){
 		if(particle_index >= particle_size) break;
 
 		Particle particle = particles[particle_index];
-		
-		//Calculate velocity and apply acceleration.
-		vec3 velocity = vec3(0, 0, 0);
-		if(particle.acceleration_inv_mass.w != 0.0){
-			velocity = inv_time_step * (1.5 * particle.x.xyz - 2.0 * particle.old_x.xyz + 0.5 * particle.last_x.xyz);
-			velocity += particle.acceleration_inv_mass.xyz * time_step;
+		Connectivity connectivity = connecvitity_list[particle_index];
+		vec3 movement = vec3(0.0, 0.0, 0.0);
+		int sum = 0;
+		[[unroll]]
+		for(uint n_i = 0; n_i < 8; n_i++){
+			int neighbor_particle_index = connectivity.neighbors[n_i];
+			if(neighbor_particle_index == -1) continue;
+			vec3 neighbor_position = particles[neighbor_particle_index].x.xyz;
+			float current_distance = distance(neighbor_position, particle.x.xyz);
+			vec3 direction = normalize(neighbor_position - particle.x.xyz);
+			movement += direction * (current_distance - connectivity.distances[n_i]) * 0.5;
+			sum += 1;
 		}
-		velocity *= 1.0 - particle.x0_damping.w;
-		//Shift position values
-		particle.last_x.xyz = particle.old_x.xyz;
-		particle.old_x.xyz = particle.x.xyz;
-		//Apply velocity
-		particle.x.xyz += time_step * velocity;
-
-		particles[particle_index] = particle;
+		
+		if(sum != 0) connecvitity_list[particle_index].new_position.xyz = particle.x.xyz + movement / sum;
+		else connecvitity_list[particle_index].new_position.xyz = particle.x.xyz;
 	}
 }

@@ -5,6 +5,8 @@
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+class DsConnectivity;
+class DsRotationUpdate;
 class DsPositionUpdate;
 class DsExternalForce;
 class BrokenBranch : public IPrivateComponent {
@@ -20,8 +22,11 @@ class BrokenBranch : public IPrivateComponent {
   DynamicStrands::StepParameters step_parameters{};
   DynamicStrands dynamic_strands{};
 
+  GlobalTransform previous_global_transform;
   std::shared_ptr<DsPositionUpdate> position_update;
+  std::shared_ptr<DsRotationUpdate> rotation_update;
   std::shared_ptr<DsExternalForce> external_force;
+  std::shared_ptr<DsConnectivity> connectivity;
   void UpdateDynamicStrands();
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;

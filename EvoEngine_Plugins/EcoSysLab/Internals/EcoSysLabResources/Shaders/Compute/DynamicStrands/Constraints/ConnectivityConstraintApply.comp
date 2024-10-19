@@ -7,7 +7,6 @@
 
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrands.glsl"
-
 #include "Math.glsl"
 
 const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
@@ -23,39 +22,30 @@ layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 memoryBarrierShared(); \
 barrier();
 
-struct RotationUpdate{
-	vec4 new_rotation;
-	uint index;
-	uint padding0;
-	uint padding1;
-	uint padding2;
-};
-
-layout(std430, set = 1, binding = 0) readonly buffer POSITION_UPDATE_BLOCK {
-  RotationUpdate rotation_updates[];
-};
-
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint command_size;
+	uint particle_size;
+};
+
+struct Connectivity{
+	vec4 new_position;
+	int neighbors[8];
+	float distances[8];
+};
+
+layout(std430, set = 1, binding = 0) buffer CONNECTIVITY_BLOCK {
+  Connectivity connecvitity_list[];
 };
 
 void main(){
+
 	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint global_index = baseID + local_index;
+		uint particle_index = baseID + local_index;
 
-		if(global_index >= command_size) break;
+		if(particle_index >= particle_size) break;
 
-		RotationUpdate rotation_update = rotation_updates[global_index];
-
-		uint segment_index = rotation_update.index;
-
-		vec4 new_rotation = rotation_update.new_rotation;
-		//vec4 old_rotation = segments[segment_index].q;
-		//vec4 delta_rotation = new_rotation - old_rotation;
-
-		segments[segment_index].q = segments[segment_index].last_q = segments[segment_index].old_q = new_rotation;
+		particles[particle_index].x.xyz = connecvitity_list[particle_index].new_position.xyz;
 	}
 }

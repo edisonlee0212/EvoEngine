@@ -24,6 +24,7 @@ void BrokenBranch::UpdateDynamicStrands() {
     else
       external_force->commands[i].force = glm::vec3(0.f);
   });
+
   position_update->commands.resize(dynamic_strands.strands.size() * 2);
   Jobs::RunParallelFor(dynamic_strands.strands.size(), [&](const size_t i) {
     const auto& segment_handle = dynamic_strands.strands[i].begin_segment_handle;
@@ -33,6 +34,14 @@ void BrokenBranch::UpdateDynamicStrands() {
 
     position_update->commands[i * 2 + 1].particle_index = segment.particle1_handle;
     position_update->commands[i * 2 + 1].new_position = dynamic_strands.particles[segment.particle1_handle].x0;
+  });
+
+  rotation_update->commands.resize(dynamic_strands.strands.size());
+  Jobs::RunParallelFor(dynamic_strands.strands.size(), [&](const size_t i) {
+    const auto& segment_handle = dynamic_strands.strands[i].begin_segment_handle;
+    const auto& segment = dynamic_strands.segments[segment_handle];
+    rotation_update->commands[i].segment_index = segment_handle;
+    rotation_update->commands[i].new_rotation = segment.q0;
   });
 }
 
@@ -171,11 +180,13 @@ void BrokenBranch::OnCreate() {
   dynamic_strands.constraints.clear();
   external_force = std::make_shared<DsExternalForce>();
   position_update = std::make_shared<DsPositionUpdate>();
-
+  rotation_update = std::make_shared<DsRotationUpdate>();
   dynamic_strands.pre_step = std::make_shared<DynamicStrandsPreStep>();
   dynamic_strands.constraints.emplace_back(std::make_shared<DsStiffRod>());
 
-
+  dynamic_strands.operators.emplace_back(position_update);
+  dynamic_strands.operators.emplace_back(rotation_update);
+  dynamic_strands.constraints.emplace_back(std::make_shared<DsConnectivity>());
 }
 
 void BrokenBranch::OnDestroy() {
@@ -243,22 +254,36 @@ void BrokenBranch::ClearStrandParticles() const {
 
 void BrokenBranch::Step() {
   if (!dynamic_strands.segments.empty()) {
-    dynamic_strands.operators.clear();
     if (step_parameters.physics) {
       const auto owner = GetOwner();
       const auto scene = GetScene();
       const auto current_root_transform = scene->GetDataComponent<GlobalTransform>(owner);
-      GlobalTransform original_inverse_root_transform;
-      original_inverse_root_transform.value = glm::inverse(initialize_parameters.root_transform.value);
-      Jobs::RunParallelFor(position_update->commands.size(), [&](const size_t i) {
-        auto& command = position_update->commands[i];
-        command.new_position = current_root_transform.TransformPoint(
-            original_inverse_root_transform.TransformPoint(dynamic_strands.particles[command.particle_index].x0));
-      });
-      dynamic_strands.operators.emplace_back(position_update);
+      if (current_root_transform.value != previous_global_transform.value) {
+        previous_global_transform = current_root_transform;
+        GlobalTransform original_inverse_root_transform;
+        original_inverse_root_transform.value = glm::inverse(initialize_parameters.root_transform.value);
+        Jobs::RunParallelFor(position_update->commands.size(), [&](const size_t i) {
+          auto& command = position_update->commands[i];
+          command.new_position = current_root_transform.TransformPoint(
+              original_inverse_root_transform.TransformPoint(dynamic_strands.particles[command.particle_index].x0));
+        });
+        
+        position_update->enabled = true;
+        const glm::quat rotation = current_root_transform.GetRotation() * original_inverse_root_transform.GetRotation();
+        Jobs::RunParallelFor(rotation_update->commands.size(), [&](const size_t i) {
+          auto& command = rotation_update->commands[i];
+          command.new_rotation = rotation * dynamic_strands.segments[command.segment_index].q0;
+        });
+        rotation_update->enabled = true;
+      }else {
+        position_update->enabled = false;
+        rotation_update->enabled = false;
+      }
     }
     const auto editor_layer = Application::GetLayer<EditorLayer>();
     step_parameters.render_parameters.target_camera = editor_layer->GetSceneCamera();
+    for (const auto& constraint : dynamic_strands.constraints)
+      constraint->enabled = true;
     dynamic_strands.Step(step_parameters);
   }
 }
