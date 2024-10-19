@@ -69,29 +69,38 @@ uvec3 triangles[] = {
 layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
   uint camera_index;
   uint strands_size;
-  uint strand_segments_size;
+  uint segments_size;
 };
 
 taskPayloadSharedEXT Task ts_in;
 
 // gl_WorkGroupID.x runs from [0 .. parentTask.groupCountX - 1]
-uint strand_segment_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
+uint segment_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
 uint laneID = gl_LocalInvocationID.x;
 
 
 void main(){
-	if(strand_segment_id >= strand_segments_size) return;
+	if(segment_id >= segments_size) return;
 
 	SetMeshOutputsEXT(SEGMENT_VERTICES_SIZE, SEGMENT_TRIANGLE_SIZE);
 	
-	StrandSegment strand_segment = strand_segments[strand_segment_id];
+	Segment segment = segments[segment_id];
 
-	vec3 center_position = strand_segment.x.xyz;
-	float center_thickness = strand_segment.color_radius.w * 2.0;
+	Particle particle0 = particles[floatBitsToInt(segment.inertia_tensor_particle_0_handle.w)];
+	Particle particle1 = particles[floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w)];
+
+	vec3 start_position = particle0.x.xyz;
+	vec3 end_position = particle1.x.xyz;
+
+	vec3 center_position = (start_position + end_position) * 0.5;
+	float center_thickness = segment.color_radius.w * 2.0;
 	
-	vec4 rotation = strand_segment.q;
+	//vec4 rotation = segment.q;
 
-	mat4 instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, strand_segment.x0_length.w));
+	vec3 front = normalize(end_position - start_position);
+	vec4 rotation = quatLookAt(front, vec3(front.y, front.z, front.x));
+
+	mat4 instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, distance(start_position, end_position)));
 	
 	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 	
@@ -105,7 +114,7 @@ void main(){
 		ms_v_out[vertex_index].frag_pos = vec4(instance_matrix * vec4(vertex_position, 1.0)).xyz;
 		ms_v_out[vertex_index].normal = vec3(0, 1, 0);
 		ms_v_out[vertex_index].tangent = vec3(0, 0, 1);
-		ms_v_out[vertex_index].color = vec4(strand_segment.color_radius.xyz, 1.0);
+		ms_v_out[vertex_index].color = vec4(segment.color_radius.xyz, 1.0);
 		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
 	}
 

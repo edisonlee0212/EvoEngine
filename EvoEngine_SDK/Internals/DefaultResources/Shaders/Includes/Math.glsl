@@ -34,6 +34,10 @@ mat4 mat4_cast(in vec4 q) {
   return ret_val;
 }
 
+mat4 mat4_cast(in mat3 m) {
+  return mat4(m[0][0], m[0][1], m[0][2], 0, m[1][0], m[1][1], m[1][2], 0, m[2][0], m[2][1], m[2][2], 0, 0, 0, 0, 0);
+}
+
 mat3 mat3_cast(in vec4 q) {
   float qxx = q.x * q.x;
   float qyy = q.y * q.y;
@@ -114,13 +118,14 @@ vec4 conjugate(in vec4 q) {
 }
 
 vec4 quat_mul(in vec4 a, in vec4 b) {
-  return vec4(a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
-                a.w * b.y + a.y * b.w + a.z * b.x - a.x * b.z, 
-                a.w * b.z + a.z * b.w + a.x * b.y - a.y * b.x,
-                a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z);
+  return vec4(a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, a.w * b.y + a.y * b.w + a.z * b.x - a.x * b.z,
+              a.w * b.z + a.z * b.w + a.x * b.y - a.y * b.x, a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z);
 }
 
 vec3 compute_darboux_vector(in vec4 q0, in vec4 q1, float length) {
-  return (quat_mul(conjugate(q0), q1) * 2.0 / length).xyz;  // Eq. 27.5
+  return 2.0 / length * quat_mul(conjugate(q0), q1).xyz;  // Eq. 27.5
 }
 
+float squared_norm(in vec4 q) {
+  return q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
+}

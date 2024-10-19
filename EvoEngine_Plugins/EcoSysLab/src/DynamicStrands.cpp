@@ -11,20 +11,23 @@ DynamicStrands::DynamicStrands() {
     strands_layout = std::make_shared<DescriptorSetLayout>();
     strands_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
 
     strands_layout->Initialize();
   }
 
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.usage =
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   buffer_create_info.size = 1;
   VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
-  device_strand_segments_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_strands_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segments_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
   strands_descriptor_sets.resize(max_frame_in_flight);
@@ -34,17 +37,17 @@ DynamicStrands::DynamicStrands() {
 }
 
 void DynamicStrands::Step(const StepParameters& target_step_parameters) {
-  if (strand_segments.empty())
+  if (segments.empty())
     return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_strand_segments_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_strands_buffer, 0);
+
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_strands_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_segments_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(2, device_particles_buffer, 0);
 
   if (target_step_parameters.physics) {
-    Physics(target_step_parameters.physics_parameters, operators, pre_step, constraints, post_step);
+    Physics(target_step_parameters.physics_parameters, operators, pre_step, constraints);
   }
-
 
   if (target_step_parameters.render) {
     Render(target_step_parameters.render_parameters);
@@ -53,12 +56,21 @@ void DynamicStrands::Step(const StepParameters& target_step_parameters) {
 
 void DynamicStrands::Upload() const {
   device_strands_buffer->UploadVector(strands);
-  device_strand_segments_buffer->UploadVector(strand_segments);
+  device_segments_buffer->UploadVector(segments);
+  device_particles_buffer->UploadVector(particles);
+
+  for (const auto& op : operators) {
+    op->UploadData();
+  }
+  for (const auto& c : constraints) {
+    c->UploadData();
+  }
 }
 
 void DynamicStrands::Download() {
   device_strands_buffer->DownloadVector(strands, strands.size());
-  device_strand_segments_buffer->DownloadVector(strand_segments, strand_segments.size());
+  device_segments_buffer->DownloadVector(segments, segments.size());
+  device_particles_buffer->DownloadVector(particles, particles.size());
   for (const auto& op : operators) {
     op->DownloadData();
   }
@@ -69,10 +81,12 @@ void DynamicStrands::Download() {
 
 void DynamicStrands::Clear() {
   strands.clear();
-  strand_segments.clear();
+  segments.clear();
+  particles.clear();
 }
 
-glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height, const float depth) {
+glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height,
+                                                  const float depth) {
   return {
       mass / 12.f * (height * height + depth * depth),
       mass / 12.f * (width * width + depth * depth),

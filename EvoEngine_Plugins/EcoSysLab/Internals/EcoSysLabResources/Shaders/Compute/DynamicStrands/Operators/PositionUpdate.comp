@@ -44,13 +44,14 @@ void main(){
 
 		PositionUpdate position_update = position_updates[global_index];
 
-		uint segment_index = floatBitsToUint(position_update.new_position_index.w);
+		uint particle_index = floatBitsToUint(position_update.new_position_index.w);
 
 		vec3 new_position = position_update.new_position_index.xyz;
-		vec3 old_position = strand_segments[segment_index].x.xyz;
+		vec3 old_position = particles[particle_index].x.xyz;
 		vec3 delta_position = new_position - old_position;
 
-		strand_segments[segment_index].x.xyz = new_position;
-		strand_segments[segment_index].last_x.xyz = strand_segments[segment_index].last_x.xyz + delta_position;
+		particles[particle_index].x.xyz = new_position;
+		particles[particle_index].last_x.xyz = particles[particle_index].last_x.xyz + delta_position;
+		particles[particle_index].old_x.xyz = particles[particle_index].old_x.xyz + delta_position;
 	}
 }

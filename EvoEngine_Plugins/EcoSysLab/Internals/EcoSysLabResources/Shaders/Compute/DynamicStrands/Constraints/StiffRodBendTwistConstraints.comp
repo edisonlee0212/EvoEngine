@@ -1,0 +1,101 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint strand_size;
+};
+
+#define DYNAMIC_STRANDS_PHYSICS_SET 1
+#include "DynamicStrandsPhysics.glsl"
+
+void project_constraint(in int constraint_handle);
+
+void solve_bend_twist_constraint(
+	in vec4 q0, in float inv_mass_q0,
+	in vec4 q1, in float inv_mass_q1,
+	in vec3 bending_and_twisting_k, in vec4 rest_darboux_vector,
+	out vec4 q0_correction, out vec4 q1_correction){
+	
+	vec4 omega = quat_mul(conjugate(q0), q1);
+	vec4 omega_plus = omega + rest_darboux_vector;
+	omega -= rest_darboux_vector;
+	if(squared_norm(omega) > squared_norm(omega_plus)) omega = omega_plus;
+
+	float mul_factor = inv_mass_q0 + inv_mass_q1 + 1e-6;
+	omega.x *= bending_and_twisting_k.x / mul_factor;
+	omega.y *= bending_and_twisting_k.y / mul_factor;
+	omega.z *= bending_and_twisting_k.z / mul_factor;
+	omega.w = 0.0;
+
+	q0_correction = quat_mul(q1, omega) * inv_mass_q0;
+	q1_correction = quat_mul(q0, omega) * inv_mass_q1 * -1.0;
+}
+
+void main(){
+
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint strand_index = baseID + local_index;
+
+		if(strand_index >= strand_size) break;
+
+		PerStrandData strand_data = per_strand_data_list[strand_index];
+		int front_propagate_handle = strand_data.front_propagate_begin_constraint_handle;
+		int back_propagate_handle = -1;//strand_data.back_propagate_begin_constraint_handle;
+		while(front_propagate_handle != -1 || back_propagate_handle != -1){
+			if(front_propagate_handle != -1) {
+				project_constraint(front_propagate_handle);
+				front_propagate_handle = constraints[front_propagate_handle].next_constraint_handle;
+				//if(front_propagate_handle != -1) front_propagate_handle = constraints[front_propagate_handle].next_constraint_handle;
+			}
+			//if(back_propagate_handle != -1) {
+			//	project_constraint(back_propagate_handle);
+			//	back_propagate_handle = constraints[back_propagate_handle].prev_constraint_handle;
+			//	if(back_propagate_handle != -1) back_propagate_handle = constraints[back_propagate_handle].prev_constraint_handle;
+			//}
+		}
+	}
+}
+
+void project_constraint(in int constraint_handle){
+	Constraint constraint = constraints[constraint_handle];
+	int segment0_handle = floatBitsToInt(constraint.indices_length.x);
+	int segment1_handle = floatBitsToInt(constraint.indices_length.y);
+	Segment segment0 = segments[segment0_handle];
+	Segment segment1 = segments[segment1_handle];
+
+	vec4 q0_correction, q1_correction;
+
+	float rest_length = constraint.indices_length.w;
+	solve_bend_twist_constraint(
+		segment0.q, segment0.inv_mass,
+		segment1.q, segment1.inv_mass,
+		vec3(constraint.bending_stiffness, constraint.bending_stiffness, constraint.twisting_stiffness),
+		constraint.rest_darboux_vector,
+		q0_correction, q1_correction
+	);
+
+	segments[segment0_handle].q = normalize(q0_correction + segment0.q);
+	segments[segment1_handle].q = normalize(q1_correction + segment1.q);
+}
