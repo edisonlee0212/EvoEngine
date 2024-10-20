@@ -20,4 +20,4 @@ set(3RDPARTY_LIBS ${3RDPARTY_LIBS}
     volk
     PARENT_SCOPE)
 
-set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "3rdparty")
+set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER 3rdParty)

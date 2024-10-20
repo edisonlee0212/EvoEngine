@@ -5,10 +5,12 @@ set(MESH_REPAIR_INCLUDES
 	${MESH_REPAIR_DIRECTORY}/include/VisibilityTest
 	)
 
-file(GLOB MESH_REPAIR_SOURCES ${MESH_REPAIR_DIRECTORY}/src/*.cpp)
+file(GLOB_RECURSE MESH_REPAIR_HEADERS ${MESH_REPAIR_DIRECTORY}/include/*.hpp)
+file(GLOB_RECURSE MESH_REPAIR_SOURCES ${MESH_REPAIR_DIRECTORY}/src/*.cpp)
 
 add_library(MeshRepairPlugin
 	STATIC
+	${MESH_REPAIR_HEADERS}
 	${MESH_REPAIR_SOURCES}
 	)
 target_compile_definitions(MeshRepairPlugin

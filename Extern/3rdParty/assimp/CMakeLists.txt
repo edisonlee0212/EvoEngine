@@ -38,7 +38,7 @@ if(CMAKE_C_COMPILER_ID MATCHES Clang)
   )
 endif()
 
-set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "3rdparty")
+set_target_properties(${TARGET_NAME} PROPERTIES FOLDER 3rdParty)
 
 set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES} 
     ${CMAKE_CURRENT_SOURCE_DIR}

@@ -10,11 +10,12 @@ set(GPR_INCLUDES
 	${3RDPARTY_DIR}/gpr/gpr/source/lib/dng_sdk
 	${3RDPARTY_DIR}/gpr/gpr/source/lib/gpr_sdk/public
 )
-
-file(GLOB GPR_SOURCES ${GPR_DIRECTORY}/src/*.cpp)
+file(GLOB_RECURSE GPR_HEADERS ${GPR_DIRECTORY}/include/*.hpp)
+file(GLOB_RECURSE GPR_SOURCES ${GPR_DIRECTORY}/src/*.cpp)
 
 add_library(GprPlugin
 	STATIC
+	${GPR_HEADERS}
 	${GPR_SOURCES}
 	)
 target_compile_definitions(GprPlugin

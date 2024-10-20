@@ -13,4 +13,4 @@ endif()
 add_subdirectory(${TARGET_NAME} EXCLUDE_FROM_ALL)
 set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/eigen/Eigen PARENT_SCOPE)
 
-set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "3rdparty")
+set_target_properties(${TARGET_NAME} PROPERTIES FOLDER 3rdParty)

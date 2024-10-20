@@ -2,6 +2,7 @@
 #include "Jobs.hpp"
 #include "Mesh.hpp"
 #include "ProjectManager.hpp"
+#include "glm/gtx/hash.hpp"
 #define USE_GEOGRAM false
 #if USE_GEOGRAM
 #include "geogram/basic/psm.h"

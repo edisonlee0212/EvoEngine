@@ -6,4 +6,4 @@ set(3RDPARTY_LIBS ${3RDPARTY_LIBS}
     meshoptimizer
     PARENT_SCOPE)
 
-set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "3rdparty")
+set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER 3rdParty)

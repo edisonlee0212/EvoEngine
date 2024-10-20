@@ -1,5 +1,14 @@
 message("=========Checking Apps=========")
 
+add_custom_target(ResourceCopy)
+evoengine_copy_resources(ResourceCopy ${CMAKE_CURRENT_BINARY_DIR})
+evoengine_clear_shader_binaries(ResourceCopy)
+add_custom_command(TARGET ResourceCopy POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy 
+			${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini ${CMAKE_CURRENT_BINARY_DIR} VERBATIM)
+
+set_property(TARGET ResourceCopy PROPERTY FOLDER PostBuildActions)
+
 function(register_evoengine_app app_name default_enable)
 	if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 		set(option_name EvoEngine_App-${app_name})
@@ -25,10 +34,8 @@ function(register_evoengine_app app_name default_enable)
 				EvoEngine_SDK
 				${EvoEngine_Plugins}
 				)
-			file(COPY imgui.ini DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-			evoengine_copy_resources(${app_name} ${CMAKE_CURRENT_BINARY_DIR})
-			evoengine_clear_shader_binaries(${app_name})
-			set_property(TARGET ${app_name} PROPERTY FOLDER "Apps")
+			add_dependencies(${app_name} ResourceCopy)
+			set_property(TARGET ${app_name} PROPERTY FOLDER Executables)
 		endif ()
 	endif ()
 endfunction()
