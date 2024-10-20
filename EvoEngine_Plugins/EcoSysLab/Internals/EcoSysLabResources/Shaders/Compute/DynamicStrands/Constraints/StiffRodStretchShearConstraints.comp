@@ -71,22 +71,12 @@ void project_constraint(in int segment_handle){
 	vec3 p0 = particle0.x.xyz;
 	vec3 p1 = particle1.x.xyz;
 
-	
-
 	float inv_mass_p0 = particle0.acceleration_inv_mass.w;
 	float inv_mass_p1 = particle1.acceleration_inv_mass.w;
 	vec4 q = segment.q;
 	float inv_mass_q = segment.inv_mass;
 	vec3 stretching_and_shearing_k = vec3(segment.shearing_stiffness, segment.shearing_stiffness, segment.stretching_stiffness);
 	float rest_length = segment.torque_rest_length.w;
-
-	
-	segments[segment_handle].p0.xyz = p0;
-	segments[segment_handle].p1.xyz = p1;
-	segments[segment_handle].p0.w = intBitsToFloat(particle0_handle);
-	segments[segment_handle].p1.w = intBitsToFloat(particle1_handle);
-
-	segments[segment_handle].original_gamma.xyz = (p1 - p0) / rest_length;
 
 	vec3 d3;
 	d3[0] = -2.0 * (q.x * q.z + q.w * q.y);
@@ -116,12 +106,7 @@ void project_constraint(in int segment_handle){
 	q_correction = quat_mul(vec4(gamma.x, gamma.y, gamma.z, 0.0), q_e_3_bar);
 	q_correction *= 2.0 * inv_mass_q * rest_length;
 
-
 	particles[particle0_handle].x.xyz += x0_correction;
 	particles[particle1_handle].x.xyz += x1_correction;
 	segments[segment_handle].q = normalize(q_correction + segment.q);
-
-	
-	segments[segment_handle].d3.xyz = d3;
-	segments[segment_handle].gamma.xyz = gamma;
 }

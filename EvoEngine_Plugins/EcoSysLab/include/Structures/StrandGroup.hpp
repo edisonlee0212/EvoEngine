@@ -25,7 +25,6 @@ class StrandSegment {
   int index_ = -1;
 
  public:
-  StrandSegmentHandle neighbors[8];
   /**
    * \brief The position of the [[[END]]] of current strand segment.
    */
@@ -975,12 +974,14 @@ template <typename OSgd, typename OSd, typename OSsd>
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::UniformlySubdivide(
     StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const float target_segment_length, const float tolerance) const {
   target_strand_group.Clear();
-  for (const auto& strand : strands_) {
+  for (int strand_handle = 0; strand_handle < strands_.size(); strand_handle++) {
+    const auto& strand = strands_[strand_handle];
     const auto new_strand_handle = target_strand_group.AllocateStrand();
     auto& new_strand = target_strand_group.strands_[new_strand_handle];
     new_strand.start_color = strand.start_color;
     new_strand.start_thickness = strand.start_thickness;
     new_strand.start_position = strand.start_position;
+    target_strand_group.strands_data_list[new_strand_handle] = strands_data_list[strand_handle];
     float t = 0.f;
     float remaining_length = target_segment_length;
     for (const auto& segment_handle : strand.strand_segment_handles_) {
@@ -1001,6 +1002,8 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::UniformlySubdi
           new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t);
           new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t);
           new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t);
+          target_strand_group.strand_segments_data_list[new_strand_segment_handle] =
+              strand_segments_data_list[segment_handle];
         } else {
           remaining_length -= Strands::CalculateLengthAdaptive(p0, p1, p2, p3, t, 1.f, tolerance);
           t = 0.f;

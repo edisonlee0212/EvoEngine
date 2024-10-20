@@ -3,6 +3,7 @@
 #extension GL_KHR_shader_subgroup_ballot : require
 #extension GL_KHR_shader_subgroup_vote : require
 #extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
 
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrands.glsl"
@@ -35,6 +36,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 };
 
 void main(){
+	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
