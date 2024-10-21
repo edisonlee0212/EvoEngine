@@ -90,29 +90,57 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
   }
   if (sorghum_mesh_generator_settings.enable_leaves) {
     if (sorghum_mesh_generator_settings.leaf_separated) {
-      for (const auto& leaf_state : sorghum_state->leaves) {
-        const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
-        const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
-        const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
-        const auto material = ProjectManager::CreateTemporaryAsset<Material>();
-        mesh_renderer->mesh = mesh;
-        mesh_renderer->material = material;
-        const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
-        // material->SetAlbedoTexture(leafMaterial->GetAlbedoTexture());
-        // material->SetNormalTexture(leafMaterial->GetNormalTexture());
-        // material->SetRoughnessTexture(leafMaterial->GetRoughnessTexture());
-        // material->SetMetallicTexture(leafMaterial->GetMetallicTexture());
-        material->material_properties = leaf_material->material_properties;
-        std::vector<Vertex> vertices;
-        std::vector<unsigned int> indices;
-        leaf_state.GenerateGeometry(vertices, indices, false, 0.f);
-        if (sorghum_mesh_generator_settings.bottom_face) {
-          leaf_state.GenerateGeometry(vertices, indices, true, sorghum_mesh_generator_settings.leaf_thickness);
+      if (sorghum_mesh_generator_settings.single_leaf_index != -1) {
+        if (sorghum_mesh_generator_settings.single_leaf_index < sorghum_state->leaves.size()) {
+          const auto& leaf_state = sorghum_state->leaves[sorghum_mesh_generator_settings.single_leaf_index];
+          const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
+          const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
+          const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+          const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+          mesh_renderer->mesh = mesh;
+          mesh_renderer->material = material;
+          const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
+          // material->SetAlbedoTexture(leafMaterial->GetAlbedoTexture());
+          // material->SetNormalTexture(leafMaterial->GetNormalTexture());
+          // material->SetRoughnessTexture(leafMaterial->GetRoughnessTexture());
+          // material->SetMetallicTexture(leafMaterial->GetMetallicTexture());
+          material->material_properties = leaf_material->material_properties;
+          std::vector<Vertex> vertices;
+          std::vector<unsigned int> indices;
+          leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, false);
+          if (sorghum_mesh_generator_settings.bottom_face) {
+            leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, true);
+          }
+          VertexAttributes attributes{};
+          attributes.tex_coord = true;
+          mesh->SetVertices(attributes, vertices, indices);
+          scene->SetParent(leaf_entity, owner);
         }
-        VertexAttributes attributes{};
-        attributes.tex_coord = true;
-        mesh->SetVertices(attributes, vertices, indices);
-        scene->SetParent(leaf_entity, owner);
+      } else {
+        for (const auto& leaf_state : sorghum_state->leaves) {
+          const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
+          const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
+          const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+          const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+          mesh_renderer->mesh = mesh;
+          mesh_renderer->material = material;
+          const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
+          // material->SetAlbedoTexture(leafMaterial->GetAlbedoTexture());
+          // material->SetNormalTexture(leafMaterial->GetNormalTexture());
+          // material->SetRoughnessTexture(leafMaterial->GetRoughnessTexture());
+          // material->SetMetallicTexture(leafMaterial->GetMetallicTexture());
+          material->material_properties = leaf_material->material_properties;
+          std::vector<Vertex> vertices;
+          std::vector<unsigned int> indices;
+          leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, false);
+          if (sorghum_mesh_generator_settings.bottom_face) {
+            leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, true);
+          }
+          VertexAttributes attributes{};
+          attributes.tex_coord = true;
+          mesh->SetVertices(attributes, vertices, indices);
+          scene->SetParent(leaf_entity, owner);
+        }
       }
     } else {
       const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
@@ -130,9 +158,9 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
       std::vector<Vertex> vertices;
       std::vector<unsigned int> indices;
       for (const auto& leaf_state : sorghum_state->leaves) {
-        leaf_state.GenerateGeometry(vertices, indices, false, 0.f);
+        leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, false);
         if (sorghum_mesh_generator_settings.bottom_face) {
-          leaf_state.GenerateGeometry(vertices, indices, true, sorghum_mesh_generator_settings.leaf_thickness);
+          leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, true);
         }
       }
       VertexAttributes attributes{};

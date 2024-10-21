@@ -6,6 +6,8 @@ struct SorghumMeshGeneratorSettings {
   bool enable_panicle = true;
   bool enable_stem = true;
   bool enable_leaves = true;
+  bool enable_leaf_stem = false;
+  int single_leaf_index = -1;
   bool bottom_face = true;
   bool leaf_separated = false;
   float leaf_thickness = 0.001f;
@@ -45,8 +47,8 @@ class SorghumLeafState {
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
 
-  void GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned int>& indices, bool bottom_face = false,
-                        float thickness = 0.0f) const;
+  void GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned int>& indices,
+                        const SorghumMeshGeneratorSettings& mesh_generator_settings, bool current_bottom_face = false) const;
 };
 
 class SorghumDescriptor : public IAsset {

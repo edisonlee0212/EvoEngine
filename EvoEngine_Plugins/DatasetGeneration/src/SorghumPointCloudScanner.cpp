@@ -34,7 +34,7 @@ bool SorghumPointCloudGridCaptureSettings::OnInspect() {
 
 void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
   const glm::vec2 start_point = glm::vec2((static_cast<float>(grid_size.x) * 0.5f - 0.5f) * grid_distance,
-                                         (static_cast<float>(grid_size.y) * 0.5f - 0.5f) * grid_distance);
+                                          (static_cast<float>(grid_size.y) * 0.5f - 0.5f) * grid_distance);
 
   const int y_step_size = grid_size.y * grid_distance / step;
   const int x_step_size = grid_size.x * grid_distance / step;
@@ -119,26 +119,24 @@ bool SorghumGantryCaptureSettings::SampleFilter(const PointCloudSample& sample) 
          glm::abs(sample.m_hitInfo.position.z) < bounding_box_size;
 }
 
-void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
-                                       const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const {
+void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
+                                       std::vector<glm::vec3>& points, std::vector<int>& leaf_indices,
+                                       std::vector<int>& instance_indices, std::vector<int>& type_indices) const {
 #ifdef OPTIX_RAY_TRACER_PLUGIN
   const auto digital_agriculture_layer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
   if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
     soil = soil_candidate.lock();
-  if (!soil) {
-    EVOENGINE_ERROR("No soil!");
-    return;
-  }
   Bound plant_bound{};
-  std::unordered_map<Handle, Handle> leaf_mesh_renderer_handles, stem_mesh_renderer_handles, panicle_mesh_renderer_handles;
+  std::unordered_map<Handle, Handle> leaf_mesh_renderer_handles, stem_mesh_renderer_handles,
+      panicle_mesh_renderer_handles;
   const auto scene = GetScene();
   const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
   if (sorghum_entities == nullptr) {
     EVOENGINE_ERROR("No sorghums!");
     return;
   }
-  
+
   for (const auto& sorghum_entity : *sorghum_entities) {
     if (scene->IsEntityValid(sorghum_entity)) {
       scene->ForEachChild(sorghum_entity, [&](const Entity child) {
@@ -179,22 +177,19 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
   }
 
   Handle ground_mesh_renderer_handle = 0;
-  if (auto soil_entity = soil->GetOwner(); scene->IsEntityValid(soil_entity)) {
-    scene->ForEachChild(soil_entity, [&](Entity child) {
-      if (scene->GetEntityName(child) == "Ground Mesh" && scene->HasPrivateComponent<MeshRenderer>(child)) {
-        ground_mesh_renderer_handle = scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->GetHandle();
-      }
-    });
+  if (soil) {
+    if (auto soil_entity = soil->GetOwner(); scene->IsEntityValid(soil_entity)) {
+      scene->ForEachChild(soil_entity, [&](Entity child) {
+        if (scene->GetEntityName(child) == "Ground Mesh" && scene->HasPrivateComponent<MeshRenderer>(child)) {
+          ground_mesh_renderer_handle = scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->GetHandle();
+        }
+      });
+    }
   }
-
   std::vector<PointCloudSample> pc_samples;
   capture_settings->GenerateSamples(pc_samples);
   CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
 
-  std::vector<glm::vec3> points;
-  std::vector<int> leaf_index;
-  std::vector<int> instance_index;
-  std::vector<int> type_index;
   glm::vec3 left_offset = glm::linearRand(-left_random_offset, left_random_offset);
   glm::vec3 right_offset = glm::linearRand(-right_random_offset, right_random_offset);
   for (int sample_index = 0; sample_index < pc_samples.size(); sample_index++) {
@@ -224,7 +219,7 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
                         ball_rand + (sample_index >= pc_samples.size() / 2 ? left_offset : right_offset));
 
     if (sorghum_point_cloud_point_settings.leaf_index) {
-      leaf_index.emplace_back(glm::floatBitsToUint(sample.m_hitInfo.data.x));
+      leaf_indices.emplace_back(glm::floatBitsToUint(sample.m_hitInfo.data.x));
     }
 
     auto leaf_search = leaf_mesh_renderer_handles.find(sample.m_handle);
@@ -232,30 +227,38 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
     auto panicle_search = panicle_mesh_renderer_handles.find(sample.m_handle);
     if (sorghum_point_cloud_point_settings.instance_index) {
       if (leaf_search != leaf_mesh_renderer_handles.end()) {
-        instance_index.emplace_back(leaf_search->second);
+        instance_indices.emplace_back(leaf_search->second);
       } else if (stem_search != stem_mesh_renderer_handles.end()) {
-        instance_index.emplace_back(stem_search->second);
+        instance_indices.emplace_back(stem_search->second);
       } else if (panicle_search != panicle_mesh_renderer_handles.end()) {
-        instance_index.emplace_back(panicle_search->second);
+        instance_indices.emplace_back(panicle_search->second);
       } else {
-        instance_index.emplace_back(0);
+        instance_indices.emplace_back(0);
       }
     }
 
     if (sorghum_point_cloud_point_settings.type_index) {
       if (leaf_search != leaf_mesh_renderer_handles.end()) {
-        type_index.emplace_back(0);
+        type_indices.emplace_back(0);
       } else if (stem_search != stem_mesh_renderer_handles.end()) {
-        type_index.emplace_back(1);
+        type_indices.emplace_back(1);
       } else if (panicle_search != panicle_mesh_renderer_handles.end()) {
-        type_index.emplace_back(2);
+        type_indices.emplace_back(2);
       } else if (sample.m_handle == ground_mesh_renderer_handle) {
-        type_index.emplace_back(3);
+        type_indices.emplace_back(3);
       } else {
-        type_index.emplace_back(-1);
+        type_indices.emplace_back(-1);
       }
     }
   }
+#endif
+}
+
+void SorghumPointCloudScanner::SavePointCloud(const std::filesystem::path& save_path,
+                                              const std::vector<glm::vec3>& points,
+                                              const std::vector<int>& leaf_indices,
+                                              const std::vector<int>& instance_indices,
+                                              const std::vector<int>& type_indices) const {
   std::filebuf fb_binary;
   fb_binary.open(save_path.string(), std::ios::out | std::ios::binary);
   std::ostream ostream(&fb_binary);
@@ -264,67 +267,97 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
 
   PlyFile cube_file;
   cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32, points.size(),
-                                      reinterpret_cast<uint8_t*>(points.data()), Type::INVALID, 0);
+                                      static_cast<const uint8_t*>(static_cast<const void*>(points.data())),
+                                      Type::INVALID, 0);
 
   if (sorghum_point_cloud_point_settings.type_index)
-    cube_file.add_properties_to_element("type_index", {"type_index"}, Type::INT32, type_index.size(),
-                                        reinterpret_cast<uint8_t*>(type_index.data()), Type::INVALID, 0);
+    cube_file.add_properties_to_element("type_index", {"type_index"}, Type::INT32, type_indices.size(),
+                                        static_cast<const uint8_t*>(static_cast<const void*>(type_indices.data())), Type::INVALID, 0);
 
   if (sorghum_point_cloud_point_settings.instance_index) {
-    cube_file.add_properties_to_element("instance_index", {"instance_index"}, Type::INT32, instance_index.size(),
-                                        reinterpret_cast<uint8_t*>(instance_index.data()), Type::INVALID, 0);
+    cube_file.add_properties_to_element("instance_index", {"instance_index"}, Type::INT32, instance_indices.size(),
+                                        static_cast<const uint8_t*>(static_cast<const void*>(instance_indices.data())), Type::INVALID, 0);
   }
 
   if (sorghum_point_cloud_point_settings.leaf_index) {
-    cube_file.add_properties_to_element("leaf_index", {"leaf_index"}, Type::INT32, leaf_index.size(),
-                                        reinterpret_cast<uint8_t*>(leaf_index.data()), Type::INVALID, 0);
+    cube_file.add_properties_to_element("leaf_index", {"leaf_index"}, Type::INT32, leaf_indices.size(),
+                                        static_cast<const uint8_t*>(static_cast<const void*>(leaf_indices.data())), Type::INVALID, 0);
   }
-
   // Write a binary file
   cube_file.write(ostream, true);
-  if (capture_settings->output_spline_info) {
-    try {
-      std::filesystem::path yaml_path = save_path;
-      yaml_path.replace_extension(".yml");
-      YAML::Emitter out;
-      out << YAML::BeginMap;
-      out << YAML::Key << "Sorghums" << YAML::BeginSeq;
-      for (const auto& sorghum_entity : *sorghum_entities) {
-        if (scene->IsEntityValid(sorghum_entity)) {
-          if (capture_settings->output_spline_info) {
-            const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
-            const auto sorghum_descriptor = sorghum->sorghum_descriptor.Get<SorghumDescriptor>();
-            out << YAML::BeginMap;
-            {
-              out << YAML::Key << "Instance Index" << YAML::Value << sorghum_entity.GetIndex();
-              out << YAML::Key << "Leaves" << YAML::BeginSeq;
-              for (const auto& leaf : sorghum_descriptor->leaves) {
-                out << YAML::BeginMap;
-                std::vector<glm::vec3> points(capture_settings->spline_subdivision_count);
-                SorghumSpline leaf_part;
-                leaf_part.segments = leaf.spline.GetLeafPart();
-                const auto segments = leaf_part.RebuildFixedSizeSegments(capture_settings->spline_subdivision_count);
-                for (uint32_t node_index = 0; node_index < capture_settings->spline_subdivision_count; node_index++) {
-                  points[node_index] = segments[node_index].position;
-                }
-                out << YAML::Key << "Leaf Index" << YAML::Value << leaf.index + 1;
-                Serialization::SerializeVector("Center Points", points, out);
-                out << YAML::EndMap;
+}
+
+void SorghumPointCloudScanner::WriteSplineInfo(const std::filesystem::path& save_path,
+                                               const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) {
+  const auto scene = Application::GetActiveScene();
+  const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+  if (sorghum_entities == nullptr) {
+    EVOENGINE_ERROR("No sorghums!");
+    return;
+  }
+  try {
+    std::filesystem::path yaml_path = save_path;
+    yaml_path.replace_extension(".yml");
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    out << YAML::Key << "Sorghums" << YAML::BeginSeq;
+    for (const auto& sorghum_entity : *sorghum_entities) {
+      if (scene->IsEntityValid(sorghum_entity)) {
+        if (capture_settings->output_spline_info) {
+          const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+          const auto sorghum_descriptor = sorghum->sorghum_descriptor.Get<SorghumDescriptor>();
+          out << YAML::BeginMap;
+          {
+            out << YAML::Key << "Instance Index" << YAML::Value << sorghum_entity.GetIndex();
+            out << YAML::Key << "Leaves" << YAML::BeginSeq;
+            for (const auto& leaf : sorghum_descriptor->leaves) {
+              out << YAML::BeginMap;
+              std::vector<glm::vec3> points(capture_settings->spline_subdivision_count);
+              SorghumSpline leaf_part;
+              leaf_part.segments = leaf.spline.GetLeafPart();
+              const auto segments = leaf_part.RebuildFixedSizeSegments(capture_settings->spline_subdivision_count);
+              for (uint32_t node_index = 0; node_index < capture_settings->spline_subdivision_count; node_index++) {
+                points[node_index] = segments[node_index].position;
               }
-              out << YAML::EndSeq;
+              out << YAML::Key << "Leaf Index" << YAML::Value << leaf.index + 1;
+              Serialization::SerializeVector("Center Points", points, out);
+              out << YAML::EndMap;
             }
-            out << YAML::EndMap;
+            out << YAML::EndSeq;
           }
+          out << YAML::EndMap;
         }
       }
-      out << YAML::EndSeq;
-      out << YAML::EndMap;
-      std::ofstream output_file(yaml_path.string());
-      output_file << out.c_str();
-      output_file.flush();
-    } catch (const std::exception& e) {
-      EVOENGINE_ERROR("Failed to save!");
     }
+    out << YAML::EndSeq;
+    out << YAML::EndMap;
+    std::ofstream output_file(yaml_path.string());
+    output_file << out.c_str();
+    output_file.flush();
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to save!");
+  }
+}
+
+void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
+                                       const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const {
+#ifdef OPTIX_RAY_TRACER_PLUGIN
+  const auto scene = Application::GetActiveScene();
+  const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+  if (sorghum_entities == nullptr) {
+    EVOENGINE_ERROR("No sorghums!");
+    return;
+  }
+  std::vector<glm::vec3> points;
+  std::vector<int> leaf_indices;
+  std::vector<int> instance_indices;
+  std::vector<int> type_indices;
+
+  Scan(capture_settings, points, leaf_indices, instance_indices, type_indices);
+  SavePointCloud(save_path, points, leaf_indices, instance_indices, type_indices);
+  
+  if (capture_settings->output_spline_info) {
+    WriteSplineInfo(save_path, capture_settings);
   }
 #endif
 }

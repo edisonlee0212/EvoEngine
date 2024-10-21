@@ -172,16 +172,21 @@ void SorghumLeafState::Deserialize(const YAML::Node& in) {
   spline.Deserialize("spline", in);
 }
 
-void SorghumLeafState::GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned>& indices, bool bottom_face,
-                                        float thickness) const {
+void SorghumLeafState::GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned>& indices,
+                                        const SorghumMeshGeneratorSettings& mesh_generator_settings, bool current_bottom_face) const {
   if (spline.segments.empty())
     return;
   auto sorghum_layer = Application::GetLayer<SorghumLayer>();
   if (!sorghum_layer)
     return;
   std::vector<SorghumSplineSegment> segments;  // = spline.segments;
-  spline.SubdivideByDistance(sorghum_layer->vertical_subdivision_length, segments);
-
+  SorghumSpline temp_spline;
+  spline.SubdivideByDistance(sorghum_layer->vertical_subdivision_length, temp_spline.segments);
+  if (mesh_generator_settings.enable_leaf_stem) {
+    segments = temp_spline.segments;
+  }else {
+    segments = temp_spline.GetLeafPart();
+  }
   const int vertex_index = vertices.size();
   Vertex archetype{};
 #pragma region Semantic mask color
@@ -202,7 +207,7 @@ void SorghumLeafState::GenerateGeometry(std::vector<Vertex>& vertices, std::vect
       auto position = segment.GetLeafPoint((j - sorghum_layer->horizontal_subdivision_step) * angle_step);
       auto normal = segment.GetNormal((j - sorghum_layer->horizontal_subdivision_step) * angle_step);
       if (i != 0 && j != 0 && j != verts_count - 1) {
-        position -= normal * thickness;
+        position -= normal * mesh_generator_settings.leaf_thickness;
       }
       archetype.position = glm::vec3(position.x, position.y, position.z);
       float y_pos = 0.5f + y_leaf_step * i;
@@ -211,7 +216,7 @@ void SorghumLeafState::GenerateGeometry(std::vector<Vertex>& vertices, std::vect
     }
     if (i != 0) {
       for (int j = 0; j < verts_count - 1; j++) {
-        if (bottom_face) {
+        if (current_bottom_face) {
           // Down triangle
           indices.emplace_back(vertex_index + i * verts_count + j);
           indices.emplace_back(vertex_index + (i - 1) * verts_count + j + 1);
