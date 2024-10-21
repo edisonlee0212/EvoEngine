@@ -2,4 +2,4 @@ add_subdirectory(glm EXCLUDE_FROM_ALL)
 
 set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/glm PARENT_SCOPE)
 
-set_property(TARGET glm PROPERTY FOLDER "3rdparty")
+set_property(TARGET glm PROPERTY FOLDER 3rdParty)

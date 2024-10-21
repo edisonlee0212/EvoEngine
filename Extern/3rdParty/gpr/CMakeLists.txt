@@ -19,4 +19,12 @@ add_subdirectory(gpr EXCLUDE_FROM_ALL)
 
 set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/gpr PARENT_SCOPE)
 
-set_property(DIRECTORY gpr PROPERTY FOLDER "3rdparty")
+set_property(TARGET common PROPERTY FOLDER 3rdParty/gpr)
+set_property(TARGET dng_sdk PROPERTY FOLDER 3rdParty/gpr)
+set_property(TARGET expat_lib PROPERTY FOLDER 3rdParty/gpr)
+set_property(TARGET gpr_sdk PROPERTY FOLDER 3rdParty/gpr)
+set_property(TARGET md5_lib PROPERTY FOLDER 3rdParty/gpr)
+set_property(TARGET vc5_common PROPERTY FOLDER 3rdParty/gpr)
+set_property(TARGET vc5_decoder PROPERTY FOLDER 3rdParty/gpr)
+set_property(TARGET vc5_encoder PROPERTY FOLDER 3rdParty/gpr)
+set_property(TARGET xmp_core PROPERTY FOLDER 3rdParty/gpr)

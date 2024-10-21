@@ -14,4 +14,4 @@ set(3RDPARTY_LIBS ${3RDPARTY_LIBS}
 
 set(3RDPARTY_INCLUDES ${3RDPARTY_INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/include PARENT_SCOPE)
 
-set_property(TARGET yaml-cpp PROPERTY FOLDER "3rdparty")
+set_property(TARGET yaml-cpp PROPERTY FOLDER 3rdParty)

@@ -10,7 +10,7 @@ target_include_directories(${TARGET_NAME}
   PUBLIC
     ${xatlas_directory}
 )
-set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "3rdparty")
+set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER 3rdParty)
 
 set(3RDPARTY_LIBS ${3RDPARTY_LIBS} 
     ${TARGET_NAME}

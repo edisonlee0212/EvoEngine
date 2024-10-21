@@ -4,10 +4,12 @@ set(UNIVERSE_INCLUDES
 	${UNIVERSE_DIRECTORY}/include
 	)
 
-file(GLOB UNIVERSE_SOURCES ${UNIVERSE_DIRECTORY}/src/*.cpp)
+file(GLOB_RECURSE UNIVERSE_HEADERS ${UNIVERSE_DIRECTORY}/include/*.hpp)
+file(GLOB_RECURSE UNIVERSE_SOURCES ${UNIVERSE_DIRECTORY}/src/*.cpp)
 
 add_library(UniversePlugin
 	STATIC
+	${UNIVERSE_HEADERS}
 	${UNIVERSE_SOURCES}
 	)
 target_compile_definitions(UniversePlugin

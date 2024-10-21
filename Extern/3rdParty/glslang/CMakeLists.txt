@@ -19,4 +19,9 @@ set(3RDPARTY_LIBS ${3RDPARTY_LIBS}
 	${TARGET_NAME}::glslang-default-resource-limits
     PARENT_SCOPE)
 
-set_property(DIRECTORY ${TARGET_NAME} PROPERTY FOLDER "3rdparty")
+set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER 3rdParty/glslang)
+set_property(TARGET GenericCodeGen PROPERTY FOLDER 3rdParty/glslang)
+set_property(TARGET glslang-default-resource-limits PROPERTY FOLDER 3rdParty/glslang)
+set_property(TARGET MachineIndependent PROPERTY FOLDER 3rdParty/glslang)
+set_property(TARGET OSDependent PROPERTY FOLDER 3rdParty/glslang)
+set_property(TARGET SPIRV PROPERTY FOLDER 3rdParty/glslang)
