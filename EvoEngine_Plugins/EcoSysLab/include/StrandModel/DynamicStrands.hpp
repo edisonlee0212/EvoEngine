@@ -35,7 +35,7 @@ class DynamicStrands {
 #pragma region Step
   struct PhysicsParameters {
     float time_step = 0.01f;
-    int sub_step = 5;
+    int constraint_iteration = 50;
   };
 
   struct RenderParameters {
@@ -72,8 +72,8 @@ class DynamicStrands {
     int begin_segment_handle = -1;
     int end_segment_handle = -1;
 
-    int begin_particle_handle = -1;
-    int end_particle_handle = -1;
+    int begin_connection_handle = -1;
+    int end_connection_handle = -1;
   };
 
   struct GpuSegment {
@@ -120,30 +120,46 @@ class DynamicStrands {
     float damping;
     // Current position
     glm::vec3 x;
-    int padding0;
+    int padding0 = -1;
     // Last frame position
     glm::vec3 last_x;
-    int prev_handle = -1;
+    int padding1 = -1;
     glm::vec3 old_x;
-    int next_handle = -1;
+    int padding2 = -1;
 
     glm::vec3 acceleration = glm::vec3(0.f);
     float inv_mass;
 
     int node_handle;
     int strand_handle;
+    int segment_handle;
     float connectivity_strain = 0.0;
-    int padding2;
   };
+
+  struct GpuConnection {
+    int segment0_handle;
+    int segment1_handle;
+    int segment0_particle_handle;
+    int segment1_particle_handle;
+
+    glm::quat rest_darboux_vector;
+    float bending_stiffness;
+    float twisting_stiffness;
+    
+    int prev_handle = -1;
+    int next_handle = -1;
+  };
+
   inline static std::shared_ptr<DescriptorSetLayout> strands_layout{};
 
   std::shared_ptr<Buffer> device_strands_buffer;
   std::shared_ptr<Buffer> device_segments_buffer;
   std::shared_ptr<Buffer> device_particles_buffer;
-
+  std::shared_ptr<Buffer> device_connections_buffer;
   std::vector<GpuStrand> strands;
   std::vector<GpuSegment> segments;
   std::vector<GpuParticle> particles;
+  std::vector<GpuConnection> connections;
 #pragma endregion
 
   void Upload() const;

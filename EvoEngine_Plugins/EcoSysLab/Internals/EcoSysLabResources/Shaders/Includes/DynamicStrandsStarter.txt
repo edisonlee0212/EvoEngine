@@ -3,14 +3,11 @@
 #extension GL_KHR_shader_subgroup_ballot : require
 #extension GL_KHR_shader_subgroup_vote : require
 #extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
 
-#define STRAND_SEGMENTS_BLOCK_SET 1
-#define STRAND_SEGMENTS_BLOCK_BINDING 0
-#define STRANDS_BLOCK_SET 1
-#define STRANDS_BLOCK_BINDING 1
-#define STRAND_SEGMENT_HANDLE_BLOCK_SET 1
-#define STRAND_SEGMENT_HANDLE_BLOCK_BINDING 2
+#define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrands.glsl"
+#include "Math.glsl"
 
 const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
 
@@ -26,7 +23,7 @@ layout(local_size_x = WORKGROUP_SIZE) in;
 	barrier();
 
 void main(){
-
+	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;

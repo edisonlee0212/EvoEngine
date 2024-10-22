@@ -12,6 +12,7 @@ DynamicStrands::DynamicStrands() {
     strands_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
 
     strands_layout->Initialize();
   }
@@ -28,6 +29,7 @@ DynamicStrands::DynamicStrands() {
   device_strands_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segments_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_connections_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
   strands_descriptor_sets.resize(max_frame_in_flight);
@@ -99,58 +101,76 @@ void DynamicStrands::InitializeStrandsGroup(const InitializeParameters& initiali
     segment.shearing_stiffness = initialize_parameters.shear_stiffness;
   });
 
-  particles.resize(strands.size() + segments.size());
+  particles.resize(segments.size() * 2);
+  Jobs::RunParallelFor(segments.size(), [&](const size_t segment_handle) {
+    auto& segment = segments[segment_handle];
+    const auto& strand_segment = strand_group.PeekStrandSegment(static_cast<int>(segment_handle));
+    const auto& strand_segment_data = strand_group.PeekStrandSegmentData(static_cast<int>(segment_handle));
+    auto& particle0 = particles[segment_handle * 2];
+    auto& particle1 = particles[segment_handle * 2 + 1];
+    segment.particle0_handle = static_cast<int>(segment_handle) * 2;
+    segment.particle1_handle = static_cast<int>(segment_handle) * 2 + 1;
+    particle0.damping = particle1.damping = initialize_parameters.velocity_damping;
+    particle0.x0 = particle0.x = particle0.last_x = particle0.old_x =
+        glm::vec4(initialize_parameters.root_transform.TransformPoint(strand_group.GetStrandSegmentStart(static_cast<int>(segment_handle))), 0.0);
+    
+    particle1.x0 = particle1.x = particle1.last_x = particle1.old_x =
+        glm::vec4(initialize_parameters.root_transform.TransformPoint(strand_segment.end_position), 0.0);
 
-  int particle_index = 0;
+    particle0.acceleration = particle1.acceleration = glm::vec3(0.0);
+    particle0.strand_handle = particle1.strand_handle = segment.strand_handle;
+    particle0.node_handle = particle1.node_handle = strand_segment_data.node_handle;
+    const float mass =
+        segment.radius * segment.radius * glm::pi<float>() * initialize_parameters.wood_density * segment.rest_length;
+    particle0.inv_mass = particle1.inv_mass = 1.f / mass;
+    particle0.segment_handle = particle1.segment_handle = static_cast<int>(segment_handle);
+  });
+
   for (uint32_t strand_index = 0; strand_index < target_strands.size(); strand_index++) {
     auto& target_strand = target_strands[strand_index];
     const auto& handles = target_strand.PeekStrandSegmentHandles();
-    if (handles.empty())
+    if (handles.size() < 2)
       continue;
+
     auto& strand = strands[strand_index];
-    strand.begin_particle_handle = particle_index;
-    auto& first_particle = particles[particle_index];
-    first_particle.x = first_particle.last_x = first_particle.old_x =
-        glm::vec4(initialize_parameters.root_transform.TransformPoint(target_strand.start_position), 0.0);
-    first_particle.damping = initialize_parameters.velocity_damping;
-    first_particle.x0 = first_particle.x;
-    first_particle.acceleration = glm::vec3(0.f);
-    first_particle.inv_mass = 0;
-    first_particle.prev_handle = -1;
-    particle_index++;
-    first_particle.next_handle = particle_index;
-    for (const auto& i : handles) {
-      auto& segment = segments[i];
-      segment.particle0_handle = particle_index - 1;
-      segment.particle1_handle = particle_index;
-      const auto& node_handle = strand_group.PeekStrandSegmentData(i).node_handle;
-      particles[segment.particle0_handle].node_handle = node_handle;
-      particles[segment.particle1_handle].node_handle = node_handle;
-      particles[segment.particle0_handle].strand_handle = strand_index;
-      particles[segment.particle1_handle].strand_handle = strand_index;
-
-      const auto segment_length = strand_group.GetStrandSegmentLength(i);
-      auto& particle = particles[particle_index];
-      particle.prev_handle = particle_index - 1;
-      particle.next_handle = particle_index + 1;
-      particle.x = particle.last_x = particle.old_x =
-          glm::vec4(initialize_parameters.root_transform.TransformPoint(target_strand_segments[i].end_position), 0.0);
-
-      particle.x0 = particle.x;
-      particle.acceleration = glm::vec3(0.f);
-      particle.damping = initialize_parameters.velocity_damping;
-      const float mass =
-          segment.radius * segment.radius * glm::pi<float>() * initialize_parameters.wood_density * segment_length;
-      particle.inv_mass = 1.f / mass;
-
-      particle_index++;
-    }
-    particles.back().next_handle = -1;
-
     strand.begin_segment_handle = handles.front();
     strand.end_segment_handle = handles.back();
+    const int handle_index_offset = static_cast<int>(connections.size());
+    strand.begin_connection_handle = handle_index_offset;
+    strand.end_connection_handle = handle_index_offset + static_cast<int>(handles.size()) - 2;
 
-    strand.end_particle_handle = particle_index - 1;
+    connections.resize(connections.size() + handles.size() - 1);
+    for (int handle_index = 0; handle_index < static_cast<int>(handles.size()) - 1; handle_index++) {
+      auto& connection = connections[handle_index + handle_index_offset];
+      connection.segment0_handle = handles[handle_index];
+      connection.segment1_handle = handles[handle_index + 1];
+      const auto& segment0 = segments[connection.segment0_handle];
+      const auto& segment1 = segments[connection.segment1_handle];
+      connection.segment0_particle_handle = segment0.particle1_handle;
+      connection.segment1_particle_handle = segment1.particle0_handle;
+
+      if (handle_index > 0) {
+        connection.prev_handle = handle_index + handle_index_offset - 1;
+      }
+      else {
+        connection.prev_handle = -1;
+      }
+      if (handle_index < static_cast<int>(handles.size()) - 2) {
+        connection.next_handle = handle_index + handle_index_offset + 1;
+      }else {
+        connection.next_handle = -1;
+      }
+
+      connection.bending_stiffness = initialize_parameters.bending_stiffness;
+      connection.twisting_stiffness = initialize_parameters.twisting_stiffness;
+      const auto& q0 = segment0.q0;
+      const auto& q1 = segment1.q0;
+
+      connection.rest_darboux_vector = glm::conjugate(q0) * q1;
+    }
+
+    auto& first_particle = particles[segments[strand.begin_segment_handle].particle0_handle];
+    first_particle.inv_mass = 0;
   }
   Upload();
 
@@ -166,6 +186,7 @@ void DynamicStrands::Step(const StepParameters& target_step_parameters) const {
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_strands_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_segments_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(2, device_particles_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_connections_buffer, 0);
 
   if (target_step_parameters.physics) {
     Physics(target_step_parameters.physics_parameters, operators, pre_step, constraints);
@@ -180,6 +201,7 @@ void DynamicStrands::Upload() const {
   device_strands_buffer->UploadVector(strands);
   device_segments_buffer->UploadVector(segments);
   device_particles_buffer->UploadVector(particles);
+  device_connections_buffer->UploadVector(connections);
 
   for (const auto& op : operators) {
     op->UploadData();
@@ -193,6 +215,8 @@ void DynamicStrands::Download() {
   device_strands_buffer->DownloadVector(strands, strands.size());
   device_segments_buffer->DownloadVector(segments, segments.size());
   device_particles_buffer->DownloadVector(particles, particles.size());
+  device_connections_buffer->DownloadVector(connections, connections.size());
+
   for (const auto& op : operators) {
     op->DownloadData();
   }
@@ -205,6 +229,7 @@ void DynamicStrands::Clear() {
   strands.clear();
   segments.clear();
   particles.clear();
+  connections.clear();
 }
 
 glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height,

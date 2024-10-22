@@ -26,14 +26,14 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	uint particle_size;
 };
 
-struct Connectivity{
+struct ParticleNeighbor{
 	vec4 new_position;
 	int neighbors[8];
 	float distances[8];
 };
 
 layout(std430, set = 1, binding = 0) buffer CONNECTIVITY_BLOCK {
-  Connectivity connecvitity_list[];
+  ParticleNeighbor particle_neighbors[];
 };
 
 void main(){
@@ -46,6 +46,6 @@ void main(){
 
 		if(particle_index >= particle_size) break;
 
-		particles[particle_index].x.xyz = connecvitity_list[particle_index].new_position.xyz;
+		particles[particle_index].x.xyz = particle_neighbors[particle_index].new_position.xyz;
 	}
 }

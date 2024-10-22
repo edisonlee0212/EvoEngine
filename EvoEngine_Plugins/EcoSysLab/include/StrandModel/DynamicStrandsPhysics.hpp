@@ -143,31 +143,15 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
   inline static std::shared_ptr<DescriptorSetLayout> layout{};
 
   struct PerStrandData {
-    int front_propagate_begin_constraint_handle = -1;
-    int back_propagate_begin_constraint_handle = -1;
+    int front_propagate_begin_connection_handle = -1;
+    int back_propagate_begin_connection_handle = -1;
     int front_propagate_begin_segment_handle = -1;
     int back_propagate_begin_segment_handle = -1;
   };
 
-  struct GpuRodConstraint {
-    glm::quat rest_darboux_vector;
-
-    int segment0_index = -1;
-    int segment1_index = -1;
-    int padding = -1;
-    float average_segment_length;
-
-    float bending_stiffness;
-    float twisting_stiffness;
-    int next_constraint_handle = -1;
-    int prev_constraint_handle = -1;
-  };
-
   std::vector<PerStrandData> per_strand_data_list;
-  std::vector<GpuRodConstraint> rod_constraints;
 
   std::shared_ptr<Buffer> per_strand_data_list_buffer;
-  std::shared_ptr<Buffer> rod_constraints_buffer;
 
   struct StretchShearConstraintConstant {
     uint32_t strand_size = 0;
@@ -176,7 +160,7 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
   struct BendTwistConstraintConstant {
     uint32_t strand_size = 0;
   };
-  uint32_t sub_iteration = 50;
+
   inline static std::shared_ptr<ComputePipeline> stretch_shear_constraint_pipeline{};
   inline static std::shared_ptr<ComputePipeline> bend_twist_constraint_pipeline{};
 
@@ -192,26 +176,25 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
   static glm::vec3 ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1, float average_segment_length);
 };
 
-class DsConnectivity : public IDynamicStrandsConstraint {
+class DsParticleNeighbor : public IDynamicStrandsConstraint {
  public:
-  struct Connectivity {
+  struct ParticleNeighbor {
     glm::vec3 new_position;
     float padding;
     int neighbors[8];
     float distances[8];
   };
-  DsConnectivity();
+  DsParticleNeighbor();
 
   inline static std::shared_ptr<DescriptorSetLayout> layout{};
-  struct ConnectivityConstraintConstant {
+  struct ParticleNeighborConstraintConstant {
     uint32_t particle_size = 0;
   };
-  std::vector<Connectivity> connectivity_list;
-  std::shared_ptr<Buffer> connectivity_list_buffer;
-  inline static std::shared_ptr<ComputePipeline> connectivity_offset_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> connectivity_apply_pipeline{};
-  std::vector<std::shared_ptr<DescriptorSet>> connectivity_list_descriptor_sets{};
-  uint32_t sub_iteration = 50;
+  std::vector<ParticleNeighbor> particle_neighbors;
+  std::shared_ptr<Buffer> particle_neighbors_buffer;
+  inline static std::shared_ptr<ComputePipeline> particle_neighbor_offset_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> particle_neighbor_apply_pipeline{};
+  std::vector<std::shared_ptr<DescriptorSet>> particle_neighbors_descriptor_sets{};
   void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
                       const DynamicStrands& target_dynamic_strands) override;
 
