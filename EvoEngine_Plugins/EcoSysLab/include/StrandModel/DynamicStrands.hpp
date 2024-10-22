@@ -22,8 +22,8 @@ class DynamicStrands {
     float bending_stiffness = 0.9f;
     float twisting_stiffness = 0.9f;
 
-    float velocity_damping = 0.0f;
-    float angular_velocity_damping = 0.0f;
+    float velocity_damping = 0.01f;
+    float angular_velocity_damping = 0.01f;
 
 
     float connectivity_detection_range = 0.05f;
@@ -35,10 +35,21 @@ class DynamicStrands {
 #pragma region Step
   struct PhysicsParameters {
     float time_step = 0.01f;
-    uint32_t constraint_iteration = 5;
+    int sub_step = 5;
   };
 
   struct RenderParameters {
+    enum class RenderMode {
+      Default,
+      BendTwistStrain,
+      StretchShearStrain,
+      ConnectivityStrain
+    };
+
+    uint32_t render_mode = 1;
+    glm::vec4 min_color = glm::vec4(0.2f);
+    glm::vec4 max_color = glm::vec4(1.f);
+    float multiplier = 1.0f;
     std::shared_ptr<Camera> target_camera{};
   };
 
@@ -97,6 +108,11 @@ class DynamicStrands {
 
     glm::mat4 inertia_w;
     glm::mat4 inv_inertia_w;
+
+    float bend_twist_strain0 = 0.0;
+    float bend_twist_strain1 = 0.0;
+    float stretch_shear_strain = 0.0;
+    float padding;
   };
   struct GpuParticle {
     // Initial position
@@ -116,7 +132,7 @@ class DynamicStrands {
 
     int node_handle;
     int strand_handle;
-    int padding1;
+    float connectivity_strain = 0.0;
     int padding2;
   };
   inline static std::shared_ptr<DescriptorSetLayout> strands_layout{};

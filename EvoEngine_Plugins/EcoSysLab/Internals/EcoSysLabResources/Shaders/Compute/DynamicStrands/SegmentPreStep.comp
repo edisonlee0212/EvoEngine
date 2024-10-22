@@ -90,6 +90,11 @@ void main(){
 
 		//Update w
 		update_inertia_w(segment);
+		segment.bend_twist_strain0 = 0.0;
+		segment.bend_twist_strain1 = 0.0;
+		segment.stretch_shear_strain = 0.0;
+		
+
 		segments[segment_index] = segment;
 	}
 }

@@ -33,6 +33,11 @@ struct Segment {
   
   mat4 inertia_w;
   mat4 inv_inertia_w;
+
+  float bend_twist_strain0;
+  float bend_twist_strain1;
+  float stretch_shear_strain;
+  float padding;
 };
 
 struct Particle {
@@ -44,8 +49,8 @@ struct Particle {
 
   int node_handle;
   int strand_handle;
-  int padding1;
-  int padding2;
+  float connectivity_strain;
+  int padding0;
 };
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 0) buffer STRANDS_BLOCK {

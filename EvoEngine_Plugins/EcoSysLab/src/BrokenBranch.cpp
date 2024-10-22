@@ -141,7 +141,6 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::TreePop();
   }
   ImGui::Checkbox("Physics", &step_parameters.physics);
-  ImGui::Checkbox("Render", &step_parameters.render);
   if (!step_parameters.physics) {
     if (ImGui::Button("Simulate 1 step")) {
       step_parameters.physics = true;
@@ -152,13 +151,30 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       step_parameters.render = resume_render;
     }
   }
+  if (ImGui::TreeNode("Physics settings")) {
+    ImGui::DragFloat("Time step", &step_parameters.physics_parameters.time_step, 0.001f, 0.0f, 1.0f);
+    if(ImGui::DragInt("Sub step", &step_parameters.physics_parameters.sub_step, 1, 1, 100)) {
+      step_parameters.physics_parameters.sub_step = glm::clamp(step_parameters.physics_parameters.sub_step, 1, 100);
+    }
+    ImGui::TreePop();
+  }
+  ImGui::Checkbox("Render", &step_parameters.render);
+  if (step_parameters.render) {
+    if (ImGui::TreeNode("Render settings")) {
+      ImGui::Combo("Render Mode", {"Default", "Bend/twist strain", "Stretch/shear strain", "Connectivity strain"},
+                   step_parameters.render_parameters.render_mode);
+      ImGui::ColorEdit4("Min Color", &step_parameters.render_parameters.min_color.x);
+      ImGui::ColorEdit4("Max Color", &step_parameters.render_parameters.max_color.x);
+      ImGui::DragFloat("Multiplier", &step_parameters.render_parameters.multiplier, 0.1f, 0.1f, 1000.f);
+      ImGui::TreePop();
+    }
+  }
+  
   if (!step_parameters.physics && !step_parameters.render) {
     if (ImGui::Button("Download strands")) {
       dynamic_strands.Download();
       EVOENGINE_LOG("Downloaded data from GPU")
     }
-
-
     ImGui::SameLine();
     if (ImGui::Button("Upload strands")) {
       dynamic_strands.Upload();

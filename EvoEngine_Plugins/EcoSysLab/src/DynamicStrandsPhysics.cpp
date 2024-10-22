@@ -13,7 +13,7 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
   }
   if (target_pre_step)
     target_pre_step->Execute(physics_parameters, *this);
-  for (int iteration_i = 0; iteration_i < physics_parameters.constraint_iteration; iteration_i++) {
+  for (int iteration_i = 0; iteration_i < physics_parameters.sub_step; iteration_i++) {
     for (const auto& c : target_constraints) {
       if (c->enabled)
         c->Project(physics_parameters, *this);
@@ -22,6 +22,7 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
 }
 
 DynamicStrandsPreStep::DynamicStrandsPreStep() {
+
   if (!particle_pre_step_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -44,7 +45,6 @@ DynamicStrandsPreStep::DynamicStrandsPreStep() {
     shader = std::make_shared<Shader>();
     shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/SegmentPreStep.comp");
-
     segment_pre_step_pipeline = std::make_shared<ComputePipeline>();
     segment_pre_step_pipeline->compute_shader = shader;
     segment_pre_step_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -138,7 +138,6 @@ DsPositionUpdate::DsPositionUpdate() {
 
     position_update_pipeline->Initialize();
   }
-
   commands_descriptor_sets.resize(max_frame_in_flight);
   for (auto& i : commands_descriptor_sets) {
     i = std::make_shared<DescriptorSet>(layout);
