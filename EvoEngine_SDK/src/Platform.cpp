@@ -877,7 +877,7 @@ void Platform::PhysicalDevice::QueryInformation() {
     i++;
   }
 
-  QuerySwapChainSupport();
+  if(window_layer) QuerySwapChainSupport();
 
   score = 0;
   // Discrete GPUs have a significant performance advantage
@@ -1545,7 +1545,7 @@ void Platform::PreUpdate() {
       }
     }
   } else {
-    vulkan_update({});
+    vulkan_update([]{});
   }
 
   graphics.ResetCommandBuffers();
