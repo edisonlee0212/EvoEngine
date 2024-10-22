@@ -42,18 +42,18 @@ void main(){
 
 		PerStrandData strand_data = per_strand_data_list[strand_index];
 		int front_propagate_handle = strand_data.front_propagate_begin_segment_handle;
-		int back_propagate_handle = -1;//strand_data.back_propagate_begin_segment_handle;
+		int back_propagate_handle = strand_data.back_propagate_begin_segment_handle;
 		while(front_propagate_handle != -1 || back_propagate_handle != -1){
 			if(front_propagate_handle != -1) {
 				project_constraint(front_propagate_handle);
 				front_propagate_handle = segments[front_propagate_handle].next_handle;
-				//if(front_propagate_handle != -1) front_propagate_handle = segments[front_propagate_handle].next_handle;
+				if(front_propagate_handle != -1) front_propagate_handle = segments[front_propagate_handle].next_handle;
 			}
-			//if(back_propagate_handle != -1) {
-			//	project_constraint(back_propagate_handle);
-			//	back_propagate_handle = segments[back_propagate_handle].prev_handle;
-			//	if(back_propagate_handle != -1) back_propagate_handle = segments[back_propagate_handle].prev_handle;
-			//}
+			if(back_propagate_handle != -1) {
+				project_constraint(back_propagate_handle);
+				back_propagate_handle = segments[back_propagate_handle].prev_handle;
+				if(back_propagate_handle != -1) back_propagate_handle = segments[back_propagate_handle].prev_handle;
+			}
 		}
 	}
 }
@@ -84,8 +84,9 @@ void project_constraint(in int segment_handle){
 	d3[2] = -q.w * q.w + q.x * q.x + q.y * q.y - q.z * q.z;
 
 	vec3 gamma = (p1 - p0) / rest_length - d3;
-	gamma /= (inv_mass_p0 + inv_mass_p1) / rest_length + inv_mass_q * 4.0 * rest_length + 1e-6;
+	segments[segment_handle].stretch_shear_strain = max(segment.stretch_shear_strain, length(gamma));
 
+	gamma /= (inv_mass_p0 + inv_mass_p1) / rest_length + inv_mass_q * 4.0 * rest_length + 1e-6;
 	if(abs(stretching_and_shearing_k.x - stretching_and_shearing_k.y) < 1e-6 
 		&& abs(stretching_and_shearing_k.x - stretching_and_shearing_k.z) < 1e-6){
 		gamma.x *= stretching_and_shearing_k.x;

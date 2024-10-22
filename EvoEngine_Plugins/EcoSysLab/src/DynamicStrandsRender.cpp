@@ -17,10 +17,13 @@ void DynamicStrands::Render(const RenderParameters& render_parameters) const {
   static std::shared_ptr<GraphicsPipeline> render_pipeline{};
   struct RenderPushConstant {
     uint32_t camera_index = 0;
-    uint32_t strand_size;
+    uint32_t padding = 0;
     uint32_t strand_segment_size = 0;
+    uint32_t render_mode = 2;
+    
+    glm::vec4 min_color = glm::vec4(0.2f);
+    glm::vec4 max_color = glm::vec4(1.f);
   };
-
   if (!render_pipeline) {
     static std::shared_ptr<Shader> task_shader{};
     static std::shared_ptr<Shader> mesh_shader{};
@@ -41,7 +44,6 @@ void DynamicStrands::Render(const RenderParameters& render_parameters) const {
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsRendering.frag");
     // Descriptor set layout
-
     render_pipeline = std::make_shared<GraphicsPipeline>();
     render_pipeline->task_shader = task_shader;
     render_pipeline->mesh_shader = mesh_shader;
@@ -67,8 +69,11 @@ void DynamicStrands::Render(const RenderParameters& render_parameters) const {
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   RenderPushConstant push_constant;
+  push_constant.render_mode = render_parameters.render_mode;
+  push_constant.min_color = render_parameters.min_color;
+  push_constant.max_color = render_parameters.max_color;
   push_constant.camera_index = render_layer->GetCameraIndex(render_parameters.target_camera->GetHandle());
-  push_constant.strand_size = strands.size();
+  //push_constant.multiplier = render_parameters.multiplier;
   push_constant.strand_segment_size = segments.size();
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -85,11 +90,14 @@ void DynamicStrands::Render(const RenderParameters& render_parameters) const {
     scissor.extent.width = render_parameters.target_camera->GetSize().x;
     scissor.extent.height = render_parameters.target_camera->GetSize().y;
 #pragma endregion
-    //1 here means we only have 1 color attachment. (For deferred shading we will have multiple attachments for GBuffer)
+    // 1 here means we only have 1 color attachment. (For deferred shading we will have multiple attachments for
+    // GBuffer)
     render_pipeline->states.ResetAllStates(1);
     render_pipeline->states.view_port = viewport;
     render_pipeline->states.scissor = scissor;
     render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+    render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
+
     render_pipeline->states.ApplyAllStates(vk_command_buffer);
     render_parameters.target_camera->GetRenderTexture()->Render(
         vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {

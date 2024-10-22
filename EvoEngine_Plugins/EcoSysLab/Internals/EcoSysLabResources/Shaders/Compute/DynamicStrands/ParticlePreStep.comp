@@ -51,7 +51,7 @@ void main(){
 		particle.old_x.xyz = particle.x.xyz;
 		//Apply velocity
 		particle.x.xyz += time_step * velocity;
-
+		particle.connectivity_strain = 0.0;
 		particles[particle_index] = particle;
 	}
 }

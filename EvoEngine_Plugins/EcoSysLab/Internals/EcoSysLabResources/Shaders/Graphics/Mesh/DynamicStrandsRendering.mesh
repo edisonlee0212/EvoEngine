@@ -67,9 +67,14 @@ uvec3 triangles[] = {
 };
 
 layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
-  uint camera_index;
-  uint strands_size;
-  uint segments_size;
+	uint camera_index;
+	uint padding0;
+	uint segments_size;
+
+	uint color_mode;
+
+	vec4 min_color;
+	vec4 max_color;
 };
 
 taskPayloadSharedEXT Task ts_in;
@@ -104,6 +109,16 @@ void main(){
 	
 	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 	
+	vec4 color = segment.color;
+	
+	if(color_mode == 1){
+		color = mix(min_color, max_color, clamp(max(segment.bend_twist_strain0, segment.bend_twist_strain1), 0.0, 1.0));
+	}else if(color_mode == 2){
+		color = mix(min_color, max_color, clamp(segment.stretch_shear_strain, 0.0, 1.0));
+	}else if(color_mode == 3){
+		color = mix(min_color, max_color, clamp(max(particle0.connectivity_strain, particle0.connectivity_strain), 0.0, 1.0));
+	}
+	
 	[[unroll]]
 	for (uint i = 0; i < uint(SEGMENT_VERTEX_ITERATIONS); ++i)
 	{
@@ -114,7 +129,7 @@ void main(){
 		ms_v_out[vertex_index].frag_pos = vec4(instance_matrix * vec4(vertex_position, 1.0)).xyz;
 		ms_v_out[vertex_index].normal = vec3(0, 1, 0);
 		ms_v_out[vertex_index].tangent = vec3(0, 0, 1);
-		ms_v_out[vertex_index].color = segment.color;
+		ms_v_out[vertex_index].color = color;
 		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
 	}
 
