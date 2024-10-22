@@ -64,7 +64,7 @@ void project_constraint(in int segment_handle){
 	int particle1_handle = floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w);
 	Particle particle0 = particles[particle0_handle];
 	Particle particle1 = particles[particle1_handle];
-	
+
 	vec3 x0_correction, x1_correction;
 	vec4 q_correction;
 
@@ -107,7 +107,18 @@ void project_constraint(in int segment_handle){
 	q_correction = quat_mul(vec4(gamma.x, gamma.y, gamma.z, 0.0), q_e_3_bar);
 	q_correction *= 2.0 * inv_mass_q * rest_length;
 
-	particles[particle0_handle].x.xyz += x0_correction;
-	particles[particle1_handle].x.xyz += x1_correction;
+	vec3 particle0_new_position = particles[particle0_handle].x.xyz + x0_correction;
+	vec3 particle1_new_position = particles[particle1_handle].x.xyz + x1_correction;
+	particles[particle0_handle].x.xyz = particle0_new_position;
+	particles[particle1_handle].x.xyz = particle1_new_position;
 	segments[segment_handle].q = normalize(q_correction + segment.q);
+
+	if(segment.prev_handle != -1){
+		int copy_particle_handle = floatBitsToInt(segments[segment.prev_handle].inv_inertia_tensor_particle_1_handle.w);
+		particles[copy_particle_handle].x.xyz = particle0_new_position;
+	}
+	if(segment.next_handle != -1){
+		int copy_particle_handle = floatBitsToInt(segments[segment.next_handle].inertia_tensor_particle_0_handle.w);
+		particles[copy_particle_handle].x.xyz = particle1_new_position;
+	}
 }

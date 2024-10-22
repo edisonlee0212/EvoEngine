@@ -5,8 +5,8 @@ struct Strand {
   int begin_segment_handle;
   int end_segment_handle;
 
-  int begin_particle_handle;
-  int end_particle_handle;
+  int begin_connection_handle;
+  int end_connection_handle;
 };
 
 struct Segment {
@@ -49,9 +49,23 @@ struct Particle {
 
   int node_handle;
   int strand_handle;
+  int segment_handle;
   float connectivity_strain;
-  int padding0;
 };
+
+struct Connection {
+  int segment0_handle;
+  int segment1_handle;
+  int segment0_particle_handle;
+  int segment1_particle_handle;
+
+  vec4 rest_darboux_vector;
+  float bending_stiffness;
+  float twisting_stiffness;
+  int prev_handle;
+  int next_handle;
+};
+
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 0) buffer STRANDS_BLOCK {
   Strand strands[];
@@ -63,4 +77,8 @@ layout(std430, set = DYNAMIC_STRANDS_SET, binding = 1) buffer SEGMENTS_BLOCK {
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 2) buffer PARTICLES_BLOCK {
   Particle particles[];
+};
+
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 3) buffer CONNECTIONS_BLOCK {
+  Connection connections[];
 };

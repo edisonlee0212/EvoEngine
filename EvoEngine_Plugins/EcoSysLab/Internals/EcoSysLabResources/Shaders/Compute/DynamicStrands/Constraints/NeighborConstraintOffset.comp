@@ -26,14 +26,14 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	uint particle_size;
 };
 
-struct Connectivity{
+struct ParticleNeighbor{
 	vec4 new_position;
 	int neighbors[8];
 	float distances[8];
 };
 
 layout(std430, set = 1, binding = 0) buffer CONNECTIVITY_BLOCK {
-  Connectivity connecvitity_list[];
+  ParticleNeighbor particle_neighbors[];
 };
 
 void main(){
@@ -47,23 +47,23 @@ void main(){
 		if(particle_index >= particle_size) break;
 
 		Particle particle = particles[particle_index];
-		Connectivity connectivity = connecvitity_list[particle_index];
+		ParticleNeighbor particle_neighbor = particle_neighbors[particle_index];
 		vec3 movement = vec3(0.0, 0.0, 0.0);
 		int sum = 0;
 		float distance_diff_sum = 0.0;
 		[[unroll]]
 		for(uint n_i = 0; n_i < 8; n_i++){
-			int neighbor_particle_index = connectivity.neighbors[n_i];
+			int neighbor_particle_index = particle_neighbor.neighbors[n_i];
 			if(neighbor_particle_index == -1) continue;
 			vec3 neighbor_position = particles[neighbor_particle_index].x.xyz;
 			float current_distance = distance(neighbor_position, particle.x.xyz);
 			vec3 direction = normalize(neighbor_position - particle.x.xyz);
-			distance_diff_sum += abs(current_distance - connectivity.distances[n_i]);
-			movement += direction * (current_distance - connectivity.distances[n_i]) * 0.5;
+			distance_diff_sum += abs(current_distance - particle_neighbor.distances[n_i]);
+			movement += direction * (current_distance - particle_neighbor.distances[n_i]) * 0.5;
 			sum += 1;
 		}
 		particles[particle_index].connectivity_strain = max(particle.connectivity_strain, distance_diff_sum / sum * 100.0);
-		if(sum != 0) connecvitity_list[particle_index].new_position.xyz = particle.x.xyz + movement / sum;
-		else connecvitity_list[particle_index].new_position.xyz = particle.x.xyz;
+		if(sum != 0) particle_neighbors[particle_index].new_position.xyz = particle.x.xyz + movement / sum;
+		else particle_neighbors[particle_index].new_position.xyz = particle.x.xyz;
 	}
 }

@@ -153,8 +153,9 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
   if (ImGui::TreeNode("Physics settings")) {
     ImGui::DragFloat("Time step", &step_parameters.physics_parameters.time_step, 0.001f, 0.0f, 1.0f);
-    if(ImGui::DragInt("Sub step", &step_parameters.physics_parameters.sub_step, 1, 1, 100)) {
-      step_parameters.physics_parameters.sub_step = glm::clamp(step_parameters.physics_parameters.sub_step, 1, 100);
+    if(ImGui::DragInt("Constraint iteration", &step_parameters.physics_parameters.constraint_iteration, 1, 1, 100)) {
+      step_parameters.physics_parameters.constraint_iteration =
+          glm::clamp(step_parameters.physics_parameters.constraint_iteration, 1, 100);
     }
     ImGui::TreePop();
   }
@@ -202,7 +203,7 @@ void BrokenBranch::OnCreate() {
 
   dynamic_strands.operators.emplace_back(position_update);
   dynamic_strands.operators.emplace_back(rotation_update);
-  dynamic_strands.constraints.emplace_back(std::make_shared<DsConnectivity>());
+  dynamic_strands.constraints.emplace_back(std::make_shared<DsParticleNeighbor>());
 }
 
 void BrokenBranch::OnDestroy() {

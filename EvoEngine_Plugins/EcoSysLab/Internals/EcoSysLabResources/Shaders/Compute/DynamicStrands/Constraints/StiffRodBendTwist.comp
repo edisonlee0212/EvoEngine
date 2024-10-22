@@ -27,7 +27,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 #define DYNAMIC_STRANDS_PHYSICS_SET 1
 #include "DynamicStrandsPhysics.glsl"
 
-void project_constraint(in int constraint_handle);
+void project_constraint(in int connection_handle);
 
 void solve_bend_twist_constraint(
 	in vec4 q0, in float inv_mass_q0,
@@ -61,41 +61,41 @@ void main(){
 		if(strand_index >= strand_size) break;
 
 		PerStrandData strand_data = per_strand_data_list[strand_index];
-		int front_propagate_handle = strand_data.front_propagate_begin_constraint_handle;
-		int back_propagate_handle = strand_data.back_propagate_begin_constraint_handle;
+		int front_propagate_handle = strand_data.front_propagate_begin_connection_handle;
+		int back_propagate_handle = strand_data.back_propagate_begin_connection_handle;
 		while(front_propagate_handle != -1 || back_propagate_handle != -1){
 			if(front_propagate_handle != -1) {
 				project_constraint(front_propagate_handle);
-				front_propagate_handle = constraints[front_propagate_handle].next_constraint_handle;
-				if(front_propagate_handle != -1) front_propagate_handle = constraints[front_propagate_handle].next_constraint_handle;
+				front_propagate_handle = connections[front_propagate_handle].next_handle;
+				if(front_propagate_handle != -1) front_propagate_handle = connections[front_propagate_handle].next_handle;
 			}
 			if(back_propagate_handle != -1) {
 				project_constraint(back_propagate_handle);
-				back_propagate_handle = constraints[back_propagate_handle].prev_constraint_handle;
-				if(back_propagate_handle != -1) back_propagate_handle = constraints[back_propagate_handle].prev_constraint_handle;
+				back_propagate_handle = connections[back_propagate_handle].prev_handle;
+				if(back_propagate_handle != -1) back_propagate_handle = connections[back_propagate_handle].prev_handle;
 			}
 		}
 	}
 }
 
-void project_constraint(in int constraint_handle){
-	Constraint constraint = constraints[constraint_handle];
-	int segment0_handle = floatBitsToInt(constraint.indices_length.x);
-	int segment1_handle = floatBitsToInt(constraint.indices_length.y);
+void project_constraint(in int connection_handle){
+	Connection connection = connections[connection_handle];
+	int segment0_handle = connection.segment0_handle;
+	int segment1_handle = connection.segment1_handle;
 	Segment segment0 = segments[segment0_handle];
 	Segment segment1 = segments[segment1_handle];
 
 	vec4 q0_correction, q1_correction;
 
-	float rest_length = constraint.indices_length.w;
+	float rest_length = (segment0.torque_rest_length.w + segment1.torque_rest_length.w) * 0.5;
 
-	vec3 bending_and_twisting_k = vec3(constraint.bending_stiffness, constraint.bending_stiffness, constraint.twisting_stiffness);
+	vec3 bending_and_twisting_k = vec3(connection.bending_stiffness, connection.bending_stiffness, connection.twisting_stiffness);
 	float inv_mass_q0 = segment0.inv_mass;
 	float inv_mass_q1 = segment1.inv_mass;
 
 	vec4 omega = quat_mul(conjugate(segment0.q), segment1.q);
-	vec4 omega_plus = omega + constraint.rest_darboux_vector;
-	omega -= constraint.rest_darboux_vector;
+	vec4 omega_plus = omega + connection.rest_darboux_vector;
+	omega -= connection.rest_darboux_vector;
 	if(squared_norm(omega) > squared_norm(omega_plus)) omega = omega_plus;
 
 	segments[segment0_handle].bend_twist_strain1 
@@ -107,8 +107,6 @@ void project_constraint(in int constraint_handle){
 	omega.y *= bending_and_twisting_k.y / mul_factor;
 	omega.z *= bending_and_twisting_k.z / mul_factor;
 	omega.w = 0.0;
-
-	
 
 	q0_correction = quat_mul(segment1.q, omega) * inv_mass_q0;
 	q1_correction = quat_mul(segment0.q, omega) * inv_mass_q1 * -1.0;
