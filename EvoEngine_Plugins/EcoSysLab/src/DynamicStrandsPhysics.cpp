@@ -382,12 +382,6 @@ DsStiffRod::DsStiffRod() {
     bend_twist_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     bend_twist_constraint_pipeline->Initialize();
-
-    static std::shared_ptr<Shader> connection_constraint_shader{};
-    connection_constraint_shader = std::make_shared<Shader>();
-    connection_constraint_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                                      std::filesystem::path("./EcoSysLabResources") /
-                                          "Shaders/Compute/DynamicStrands/Constraints/StiffRodConnection.comp");
   }
 
   if (strands_physics_descriptor_sets.empty()) {
@@ -522,7 +516,7 @@ DsParticleNeighbor::DsParticleNeighbor() {
     shader = std::make_shared<Shader>();
     shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Constraints/ConnectivityConstraintOffset.comp");
+                    "Shaders/Compute/DynamicStrands/Constraints/NeighborConstraintOffset.comp");
 
     particle_neighbor_offset_pipeline = std::make_shared<ComputePipeline>();
     particle_neighbor_offset_pipeline->compute_shader = shader;
@@ -541,7 +535,7 @@ DsParticleNeighbor::DsParticleNeighbor() {
     shader = std::make_shared<Shader>();
     shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Constraints/ConnectivityConstraintApply.comp");
+                    "Shaders/Compute/DynamicStrands/Constraints/NeighborConstraintApply.comp");
 
     particle_neighbor_apply_pipeline = std::make_shared<ComputePipeline>();
     particle_neighbor_apply_pipeline->compute_shader = shader;
