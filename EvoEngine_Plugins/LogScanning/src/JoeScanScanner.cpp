@@ -3,120 +3,6 @@
 #include "Scene.hpp"
 using namespace log_scanning_plugin;
 
-void JoeScan::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "profiles" << YAML::Value << YAML::BeginSeq;
-  for (const auto& profile : profiles) {
-    out << YAML::BeginMap;
-    {
-      out << YAML::Key << "encoder_value" << YAML::Value << profile.encoder_value;
-      out << YAML::Key << "points" << YAML::Value
-          << YAML::Binary(reinterpret_cast<const unsigned char*>(profile.points.data()),
-                          profile.points.size() * sizeof(glm::vec2));
-      out << YAML::Key << "brightness" << YAML::Value
-          << YAML::Binary(reinterpret_cast<const unsigned char*>(profile.brightness.data()),
-                          profile.brightness.size() * sizeof(float));
-    }
-    out << YAML::EndMap;
-  }
-}
-
-void JoeScan::Deserialize(const YAML::Node& in) {
-  if (in["profiles"]) {
-    profiles.clear();
-    for (const auto& in_profile : in["profiles"]) {
-      profiles.emplace_back();
-      auto& profile = profiles.back();
-      if (in_profile["encoder_value"])
-        profile.encoder_value = in_profile["encoder_value"].as<float>();
-      if (in_profile["points"]) {
-        const auto in_points = in_profile["points"].as<YAML::Binary>();
-        profile.points.resize(in_points.size() / sizeof(glm::vec2));
-        std::memcpy(profile.points.data(), in_points.data(), in_points.size());
-      }
-      if (in_profile["brightness"]) {
-        const auto in_brightness = in_profile["brightness"].as<YAML::Binary>();
-        profile.brightness.resize(in_brightness.size() / sizeof(float));
-        std::memcpy(profile.brightness.data(), in_brightness.data(), in_brightness.size());
-      }
-    }
-  } else if (in["m_profiles"]) {
-    profiles.clear();
-    for (const auto& in_profile : in["m_profiles"]) {
-      profiles.emplace_back();
-      auto& profile = profiles.back();
-      if (in_profile["m_encoderValue"])
-        profile.encoder_value = in_profile["m_encoderValue"].as<float>();
-      if (in_profile["m_points"]) {
-        const auto in_points = in_profile["m_points"].as<YAML::Binary>();
-        profile.points.resize(in_points.size() / sizeof(glm::vec2));
-        std::memcpy(profile.points.data(), in_points.data(), in_points.size());
-      }
-      if (in_profile["m_brightness"]) {
-        const auto in_brightness = in_profile["m_brightness"].as<YAML::Binary>();
-        profile.brightness.resize(in_brightness.size() / sizeof(float));
-        std::memcpy(profile.brightness.data(), in_brightness.data(), in_brightness.size());
-      }
-    }
-  }
-}
-
-bool JoeScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  static std::shared_ptr<ParticleInfoList> joe_scan_list;
-  if (!joe_scan_list)
-    joe_scan_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-
-  static bool enable_joe_scan_rendering = true;
-  ImGui::Checkbox("Render JoeScan", &enable_joe_scan_rendering);
-  static float divider = 2000.f;
-  ImGui::DragFloat("Divider", &divider);
-
-  static auto color = glm::vec3(1);
-  static float brightness_factor = 1.f;
-  static bool brightness = true;
-  ImGui::Checkbox("Brightness", &brightness);
-  if (brightness)
-    ImGui::DragFloat("Brightness factor", &brightness_factor, 0.001f, 0.0f, 1.0f);
-
-  ImGui::ColorEdit3("Color", &color.x);
-  if (enable_joe_scan_rendering) {
-    if (ImGui::Button("Refresh JoeScan")) {
-      std::vector<ParticleInfo> data;
-      for (const auto& profile : profiles) {
-        const auto startIndex = data.size();
-        data.resize(profile.points.size() + startIndex);
-        Jobs::RunParallelFor(profile.points.size(), [&](unsigned i) {
-          data[i + startIndex].instance_matrix.SetPosition(glm::vec3(
-              profile.points[i].x / 10000.f, profile.points[i].y / 10000.f, profile.encoder_value / divider));
-          data[i + startIndex].instance_matrix.SetScale(glm::vec3(0.005f));
-          data[i + startIndex].instance_color = glm::vec4(color, 1.f / 128);
-          if (brightness)
-            data[i + startIndex].instance_color.w =
-                static_cast<float>(profile.brightness[i]) / 2048.f * brightness_factor;
-        });
-      }
-      joe_scan_list->SetParticleInfos(data);
-      /*
-      const auto scene = Application::GetActiveScene();
-      const auto newEntity = scene->CreateEntity("Scan");
-      const auto particles = scene->GetOrSetPrivateComponent<Particles>(newEntity).lock();
-      const auto material = ProjectManager::CreateTemporaryAsset<Material>();
-      particles->material = material;
-      particles->mesh = Resources::GetResource<Mesh>("PRIMITIVE_CUBE");
-      particles->particle_info_list = joeScanList;
-      */
-    }
-  }
-
-  if (enable_joe_scan_rendering) {
-    GizmoSettings settings{};
-    settings.draw_settings.blending = true;
-    editor_layer->DrawGizmoCubes(joe_scan_list, glm::mat4(1), 1.f, settings);
-  }
-
-  return changed;
-}
-
 void logger(const jsError err, const std::string msg) {
   EVOENGINE_LOG(msg);
   if (0 != err) {
@@ -138,7 +24,7 @@ void JoeScanScanner::StopScanningProcess() {
     Jobs::Wait(scanner_job_);
     scanner_job_ = {};
     points_.clear();
-    if (const auto joeScan = joe_scan.Get<JoeScan>()) {
+    if (const auto joeScan = log_scan.Get<LogScan>()) {
       joeScan->profiles.clear();
       for (const auto& profile : preserved_profiles_) {
         joeScan->profiles.emplace_back(profile.second);
@@ -188,7 +74,7 @@ void JoeScanScanner::StartScanProcess(const JoeScanScannerSettings& settings) {
       }
       size_t valid_count = 0;
       std::vector<glm::vec2> points;
-      JoeScanProfile joe_scan_profile;
+      LogScanProfile joe_scan_profile;
       bool has_encoder_value = false;
       for (int profile_index = 0; profile_index < profile_size; profile_index++) {
         if (jsRawProfileIsValid(profiles[profile_index])) {
@@ -232,22 +118,24 @@ bool JoeScanScanner::InitializeScanSystem(const std::shared_ptr<Json>& json, jsS
       EVOENGINE_ERROR("JoeScan Error: Json config missing!");
       return false;
     }
-    int retVal = joescan::jsSetupConfigParse(json->m_json, scan_system, scan_heads, &logger);
-    if (0 > retVal) {
+    int ret_val = joescan::jsSetupConfigParse(json->m_json, scan_system, scan_heads, &logger);
+    if (0 > ret_val) {
       // The Scan System and Scan Heads should be assumed to be in an
       // indeterminate state; only action to take is to free the Scan System.
       EVOENGINE_ERROR("JoeScan Error: Configuration failed");
+      FreeScanSystem(scan_system, scan_heads);
       return false;
     }
     // Scan System and Scan Heads are fully configured.
     EVOENGINE_LOG("JoeScan: Configured successfully");
 
-    retVal = jsScanSystemConnect(scan_system, 5);
-    if (retVal < 0) {
+    ret_val = jsScanSystemConnect(scan_system, 5);
+    if (ret_val < 0) {
       EVOENGINE_ERROR("JoeScan Error: Connection failed");
+      FreeScanSystem(scan_system, scan_heads);
       return false;
     }
-    EVOENGINE_LOG("JoeScan: Connected to " + std::to_string(retVal) + " heads");
+    EVOENGINE_LOG("JoeScan: Connected to " + std::to_string(ret_val) + " heads");
 
   } catch (const std::exception& e) {
     EVOENGINE_ERROR(e.what());
@@ -274,26 +162,23 @@ void JoeScanScanner::FreeScanSystem(jsScanSystem& scan_system, std::vector<jsSca
 
 void JoeScanScanner::Serialize(YAML::Emitter& out) const {
   config.Save("config", out);
-  joe_scan.Save("joe_scan", out);
+  log_scan.Save("log_scan", out);
 }
 
 void JoeScanScanner::Deserialize(const YAML::Node& in) {
   config.Load("config", in);
-  joe_scan.Load("joe_scan", in);
+  log_scan.Load("log_scan", in);
 }
 
 bool JoeScanScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (editor_layer->DragAndDropButton<Json>(config, "Json Config"))
     changed = true;
-  if (editor_layer->DragAndDropButton<JoeScan>(joe_scan, "JoeScan"))
+  if (editor_layer->DragAndDropButton<LogScan>(log_scan, "LogScan"))
     changed = true;
+
   if (const auto json_config = this->config.Get<Json>(); json_config && ImGui::Button("Initialize ScanSystem")) {
     InitializeScanSystem(json_config, scan_system, scan_heads);
-  }
-
-  if (scan_system != 0 && ImGui::Button("Free ScanSystem")) {
-    FreeScanSystem(scan_system, scan_heads);
   }
 
   ImGui::Separator();
@@ -304,6 +189,7 @@ bool JoeScanScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
 
   if (scan_enabled_ && ImGui::Button("Stop Scanning")) {
     StopScanningProcess();
+    FreeScanSystem(scan_system, scan_heads);
   }
   static std::shared_ptr<ParticleInfoList> latest_point_list;
   if (!latest_point_list)
@@ -340,4 +226,6 @@ void JoeScanScanner::OnDestroy() {
 void JoeScanScanner::CollectAssetRef(std::vector<AssetRef>& list) {
   if (config.Get<Json>())
     list.emplace_back(config);
+  if (log_scan.Get<LogScan>())
+    list.emplace_back(log_scan);
 }
