@@ -70,7 +70,7 @@ bool BrokenBranch::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     Subdivide(segment_length, strand_group);
   }
   if (ImGui::Button("Experiment")) {
-    ExperimentSetup();
+    ExperimentSetup(5.0, segment_length);
   }
   if (ImGui::TreeNode("Stats")) {
     ImGui::Text((std::string("Original strand count: ") + std::to_string(strand_group.PeekStrands().size())).c_str());
@@ -212,18 +212,18 @@ void BrokenBranch::OnDestroy() {
 void BrokenBranch::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
-void BrokenBranch::ExperimentSetup() {
+void BrokenBranch::ExperimentSetup(const float total_length, const float segment_length) {
   strand_group.Clear();
   const auto strand1_handle = strand_group.AllocateStrand();
   auto& segment1 = strand_group.RefStrandSegment(strand_group.Extend(strand1_handle));
   auto& strand1 = strand_group.RefStrand(strand1_handle);
-  segment1.end_position = glm::vec3(0, 5.0f, 0.);
+  segment1.end_position = glm::vec3(0, total_length, 0.);
   strand1.start_color = segment1.end_color = glm::vec4(1, 0, 0, 0);
   strand1.start_thickness = segment1.end_thickness = 0.1f;
 
   strand_group.CalculateRotations();
 
-  Subdivide(0.5, strand_group);
+  Subdivide(segment_length, strand_group);
 }
 
 void BrokenBranch::Subdivide(const float segment_length, const StrandModelStrandGroup& src) {

@@ -36,7 +36,7 @@ class BrokenBranch : public IPrivateComponent {
   void OnCreate() override;
   void OnDestroy() override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
-  void ExperimentSetup();
+  void ExperimentSetup(float total_length, float segment_length);
   void Subdivide(float segment_length, const StrandModelStrandGroup& src);
   void InitializeStrandParticles(const StrandModelStrandGroup& strand_group) const;
   void ClearStrandParticles() const;

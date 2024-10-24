@@ -44,7 +44,7 @@ void register_classes() {
 #endif
 }
 
-void register_layers(bool enable_window_layer, bool enable_editor_layer) {
+void push_layers(bool enable_window_layer, bool enable_editor_layer) {
   if (enable_window_layer)
     Application::PushLayer<WindowLayer>();
   if (enable_window_layer && enable_editor_layer)
@@ -58,13 +58,13 @@ void register_layers(bool enable_window_layer, bool enable_editor_layer) {
 #endif
 }
 
-void start_project_windowless(const std::filesystem::path& project_path) {
+void run_windowless(const std::filesystem::path& project_path) {
   if (std::filesystem::path(project_path).extension().string() != ".eveproj") {
     EVOENGINE_ERROR("Project path doesn't point to a EvoEngine project!");
     return;
   }
   register_classes();
-  register_layers(false, false);
+  push_layers(false, false);
   ApplicationInfo application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
@@ -94,7 +94,7 @@ void forest_patch_point_cloud() {
   resource_folder_path = std::filesystem::absolute(resource_folder_path);
 
   std::filesystem::path project_path = resource_folder_path / "EcoSysLabProject" / "test.eveproj";
-  start_project_windowless(project_path);
+  run_windowless(project_path);
 
   TreeMeshGeneratorSettings tmgs{};
   tmgs.branch_y_subdivision = 0.05f;
@@ -246,7 +246,7 @@ void tree_trunk_mesh() {
 
   std::filesystem::path project_path = resource_folder_path / "EcoSysLabProject" / "test.eveproj";
 
-  start_project_windowless(project_path);
+  run_windowless(project_path);
 
   TreeMeshGeneratorSettings tmgs{};
   tmgs.x_subdivision = 0.01f;
@@ -296,7 +296,7 @@ void tree_growth_mesh() {
 
   std::filesystem::path project_path = resource_folder_path / "EcoSysLabProject" / "test.eveproj";
 
-  start_project_windowless(project_path);
+  run_windowless(project_path);
 
   TreeMeshGeneratorSettings tmgs{};
   tmgs.x_subdivision = 0.01f;
@@ -344,7 +344,7 @@ int main() {
   resource_folder_path = std::filesystem::absolute(resource_folder_path);
 
   const std::filesystem::path project_path = resource_folder_path / "EcoSysLabProject" / "test.eveproj";
-  start_project_windowless(project_path);
+  run_windowless(project_path);
 
   constexpr bool export_junction = true;
   forest_patch_point_cloud_joined("TreeStructor", export_junction, 5, 8);
