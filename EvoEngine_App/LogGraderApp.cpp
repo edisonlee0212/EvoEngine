@@ -80,7 +80,7 @@ int main() {
 #endif
 
 #ifdef LOG_SCANNING_PLUGIN
-  AssetRegistration<JoeScan>("JoeScan", {".jscan"});
+  AssetRegistration<LogScan>("LogScan", {".jscan"});
   PrivateComponentRegistration<JoeScanScanner>("JoeScanScanner");
 #endif
   ApplicationInfo application_configs;
