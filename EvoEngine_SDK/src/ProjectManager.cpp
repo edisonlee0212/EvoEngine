@@ -1264,7 +1264,7 @@ std::weak_ptr<Folder> ProjectManager::GetFolder(const Handle& handle) {
   return {};
 }
 std::filesystem::path ProjectManager::GetPathRelativeToProject(const std::filesystem::path& absolute_path) {
-  auto& project_manager = GetInstance();
+  const auto& project_manager = GetInstance();
   if (!project_manager.project_folder_)
     return {};
   if (!absolute_path.is_absolute())

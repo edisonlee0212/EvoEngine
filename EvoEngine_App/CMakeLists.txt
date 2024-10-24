@@ -12,7 +12,7 @@ set_property(TARGET ResourceCopy PROPERTY FOLDER PostBuildActions)
 function(register_evoengine_app app_name default_enable)
 	if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 		set(option_name EvoEngine_App-${app_name})
-		option(option_name "Build ${app_name} application" ON)
+		option(option_name "Build ${app_name} application" default_enable)
 		if(option_name)
 			add_executable(${app_name}
 				${app_name}.cpp
@@ -31,11 +31,13 @@ function(register_evoengine_app app_name default_enable)
 				${EVOENGINE_PCHS}
 				)
 			target_link_libraries(${app_name}
+				PRIVATE
 				EvoEngine_SDK
 				${EvoEngine_Plugins}
 				)
 			add_dependencies(${app_name} ResourceCopy)
 			set_property(TARGET ${app_name} PROPERTY FOLDER Executables)
+			message("Enabled [${app_name}] application.")
 		endif ()
 	endif ()
 endfunction()
