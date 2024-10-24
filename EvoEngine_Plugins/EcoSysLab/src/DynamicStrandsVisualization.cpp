@@ -2,7 +2,21 @@
 #include "Shader.hpp"
 using namespace eco_sys_lab_plugin;
 
-void DynamicStrands::Render(const RenderParameters& render_parameters) const {
+bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
+  if (ImGui::Combo("Visualization Mode",
+                   {"Default", "Bend/twist strain", "Stretch/shear strain", "Connectivity strain"}, render_mode))
+    changed = true;
+  if (ImGui::ColorEdit4("Min Color", &min_color.x))
+    changed = true;
+  if (ImGui::ColorEdit4("Max Color", &max_color.x))
+    changed = true;
+  if (ImGui::DragFloat("Multiplier", &multiplier, 0.1f, 0.1f, 1000.f))
+    changed = true;
+  return changed;
+}
+
+void DynamicStrands::Visualization(const VisualizationParameters& render_parameters) const {
   if (!Platform::Constants::support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return;
@@ -20,7 +34,7 @@ void DynamicStrands::Render(const RenderParameters& render_parameters) const {
     uint32_t padding = 0;
     uint32_t strand_segment_size = 0;
     uint32_t render_mode = 2;
-    
+
     glm::vec4 min_color = glm::vec4(0.2f);
     glm::vec4 max_color = glm::vec4(1.f);
   };
@@ -72,8 +86,8 @@ void DynamicStrands::Render(const RenderParameters& render_parameters) const {
   push_constant.render_mode = render_parameters.render_mode;
   push_constant.min_color = render_parameters.min_color;
   push_constant.max_color = render_parameters.max_color;
-  push_constant.camera_index = render_layer->GetCameraIndex(render_parameters.target_camera->GetHandle());
-  //push_constant.multiplier = render_parameters.multiplier;
+  push_constant.camera_index = render_layer->GetCameraIndex(render_parameters.target_visualization_camera->GetHandle());
+  // push_constant.multiplier = visualization_parameters.multiplier;
   push_constant.strand_segment_size = segments.size();
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -81,14 +95,14 @@ void DynamicStrands::Render(const RenderParameters& render_parameters) const {
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = render_parameters.target_camera->GetSize().x;
-    viewport.height = render_parameters.target_camera->GetSize().y;
+    viewport.width = render_parameters.target_visualization_camera->GetSize().x;
+    viewport.height = render_parameters.target_visualization_camera->GetSize().y;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     VkRect2D scissor;
     scissor.offset = {0, 0};
-    scissor.extent.width = render_parameters.target_camera->GetSize().x;
-    scissor.extent.height = render_parameters.target_camera->GetSize().y;
+    scissor.extent.width = render_parameters.target_visualization_camera->GetSize().x;
+    scissor.extent.height = render_parameters.target_visualization_camera->GetSize().y;
 #pragma endregion
     // 1 here means we only have 1 color attachment. (For deferred shading we will have multiple attachments for
     // GBuffer)
@@ -99,7 +113,7 @@ void DynamicStrands::Render(const RenderParameters& render_parameters) const {
     render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
 
     render_pipeline->states.ApplyAllStates(vk_command_buffer);
-    render_parameters.target_camera->GetRenderTexture()->Render(
+    render_parameters.target_visualization_camera->GetRenderTexture()->Render(
         vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
           render_pipeline->Bind(vk_command_buffer);
           render_pipeline->BindDescriptorSet(vk_command_buffer, 0,

@@ -1,6 +1,7 @@
 #pragma once
 #include "StrandGroup.hpp"
 #include "StrandModelData.hpp"
+#include "TreeGrowthData.hpp"
 
 using namespace evo_engine;
 
@@ -8,7 +9,7 @@ namespace eco_sys_lab_plugin {
 class DynamicStrandsPreStep;
 class IDynamicStrandsOperator;
 class IDynamicStrandsConstraint;
-
+class DynamicStrandsPrediction;
 class DynamicStrands {
  public:
   DynamicStrands();
@@ -19,50 +20,51 @@ class DynamicStrands {
     float shear_stiffness = 1.f;
     float stretch_stiffness = 1.f;
 
-    float bending_stiffness = 0.9f;
-    float twisting_stiffness = 0.9f;
+    float bending_stiffness = 1.f;
+    float twisting_stiffness = 1.f;
 
     float velocity_damping = 0.01f;
     float angular_velocity_damping = 0.01f;
 
-
-    float connectivity_detection_range = 0.05f;
+    float neighbor_range = 0.05f;
     GlobalTransform root_transform{};
+
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
-  void InitializeStrandsGroup(const InitializeParameters& initialize_parameters,
-                              const StrandModelStrandGroup& strand_group);
+  void Initialize(const InitializeParameters& initialize_parameters, const StrandModelSkeleton& strand_model_skeleton,
+                  const StrandModelStrandGroup& strand_group);
+
 #pragma endregion
 #pragma region Step
   struct PhysicsParameters {
     float time_step = 0.01f;
     int constraint_iteration = 50;
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
-  struct RenderParameters {
-    enum class RenderMode {
-      Default,
-      BendTwistStrain,
-      StretchShearStrain,
-      ConnectivityStrain
-    };
+  struct VisualizationParameters {
+    enum class RenderMode { Default, BendTwistStrain, StretchShearStrain, ConnectivityStrain };
 
     uint32_t render_mode = 1;
     glm::vec4 min_color = glm::vec4(0.2f);
     glm::vec4 max_color = glm::vec4(1.f);
     float multiplier = 1.0f;
-    std::shared_ptr<Camera> target_camera{};
+    std::shared_ptr<Camera> target_visualization_camera{};
+
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   struct StepParameters {
     bool physics = false;
     PhysicsParameters physics_parameters{};
 
-    bool render = false;
-    RenderParameters render_parameters;
+    bool visualization = false;
+    VisualizationParameters visualization_parameters;
   };
+  std::shared_ptr<DynamicStrandsPreStep> pre_step;
 
   std::vector<std::shared_ptr<IDynamicStrandsOperator>> operators;
-  std::shared_ptr<DynamicStrandsPreStep> pre_step;
+  std::shared_ptr<DynamicStrandsPrediction> prediction;
   std::vector<std::shared_ptr<IDynamicStrandsConstraint>> constraints;
 
   void Step(const StepParameters& target_step_parameters) const;
@@ -98,7 +100,6 @@ class DynamicStrands {
     float shearing_stiffness;
     float stretching_stiffness;
     float damping;
-    
 
     glm::vec3 inertia_tensor;
     int particle0_handle = -1;
@@ -145,7 +146,7 @@ class DynamicStrands {
     glm::quat rest_darboux_vector;
     float bending_stiffness;
     float twisting_stiffness;
-    
+
     int prev_handle = -1;
     int next_handle = -1;
   };
@@ -172,12 +173,7 @@ class DynamicStrands {
  private:
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
   static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
-  void InitializeOperators(const InitializeParameters& initialize_parameters) const;
-  void InitializeConstraints(const InitializeParameters& initialize_parameters) const;
-  void Render(const RenderParameters& render_parameters) const;
-  void Physics(const PhysicsParameters& physics_parameters,
-               const std::vector<std::shared_ptr<IDynamicStrandsOperator>>& target_operators,
-               const std::shared_ptr<DynamicStrandsPreStep>& target_pre_step,
-               const std::vector<std::shared_ptr<IDynamicStrandsConstraint>>& target_constraints) const;
+  void Visualization(const VisualizationParameters& render_parameters) const;
+  void Physics(const PhysicsParameters& physics_parameters) const;
 };
 }  // namespace eco_sys_lab_plugin

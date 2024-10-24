@@ -26,9 +26,10 @@ entity_metadata_list:
         far_distance: 200
         fov: 120
         background_intensity: 1
+        exposure: 1
         skybox:
           asset_handle_: 77
-          asset_type_name_: Cubemap
+          asset_type_name_: Mesh
         post_processing_stack:
           asset_handle_: 0
           asset_type_name_: ""
@@ -79,28 +80,20 @@ entity_metadata_list:
         tree_descriptor:
           asset_handle_: 11433142983488560832
           asset_type_name_: TreeDescriptor
-  - n: BBCloud Converter
-    h: 2634850789993334228
+  - n: DynamicTreeStrands
+    h: 8067209465027929104
     e: true
     s: false
-    r: 2634850789993334228
+    r: 8067209465027929104
     pc:
-      - tn: BillboardCloudsConverter
-        e: true
-  - n: Broken Branch
-    h: 14804826820754598186
-    e: true
-    s: false
-    r: 14804826820754598186
-    pc:
-      - tn: BrokenBranch
+      - tn: DynamicTreeStrands
         e: true
 systems_:
   []
 data_component_storage_list:
   - entity_size: 130
     chunk_capacity: 126
-    entity_alive_count: 7
+    entity_alive_count: 6
     data_component_types:
       - type_name: Transform
         type_size: 64
@@ -137,12 +130,7 @@ data_component_storage_list:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
           - d: !!binary "AAA="
-      - h: 2634850789993334228
-        dc:
-          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
-          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
-          - d: !!binary "AAA="
-      - h: 14804826820754598186
+      - h: 8067209465027929104
         dc:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
