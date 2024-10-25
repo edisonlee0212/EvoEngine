@@ -36,10 +36,41 @@ DynamicStrands::DynamicStrands() {
   for (auto& i : strands_descriptor_sets) {
     i = std::make_shared<DescriptorSet>(strands_layout);
   }
+
+  pre_step = std::make_shared<DynamicStrandsPreStep>();
+  prediction = std::make_shared<DynamicStrandsPrediction>();
 }
 
-void DynamicStrands::InitializeStrandsGroup(const InitializeParameters& initialize_parameters,
-    const StrandModelStrandGroup& strand_group) {
+bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
+  if (ImGui::Checkbox("Static root", &static_root))
+    changed = true;
+  if (ImGui::DragFloat("Wood Density", &wood_density, 0.01f, 0.01f, 3.0f))
+    changed = true;
+  if (ImGui::DragFloat("Shear stiffness", &shear_stiffness, 0.01f, 0.01f, 1.0f))
+    changed = true;
+  if (ImGui::DragFloat("Stretch stiffness", &stretch_stiffness, 0.01f, 0.01f, 1.0f))
+    changed = true;
+
+  if (ImGui::DragFloat("Bending stiffness", &bending_stiffness, 0.01f, 0.01f, 1.0f))
+    changed = true;
+  if (ImGui::DragFloat("Twisting stiffness", &twisting_stiffness, 0.01f, 0.01f, 1.0f))
+    changed = true;
+
+  if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
+    changed = true;
+  if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.01f, 0.01f, 1.0f))
+    changed = true;
+
+  if (ImGui::DragFloat("Neighbor range", &neighbor_range, 0.01f, 0.01f, 1.0f))
+    changed = true;
+
+  return changed;
+}
+
+void DynamicStrands::Initialize(const InitializeParameters& initialize_parameters,
+                                const StrandModelSkeleton& strand_model_skeleton,
+                                const StrandModelStrandGroup& strand_group) {
   Clear();
   assert(initialize_parameters.root_transform.GetScale() == glm::vec3(1.0f));
   const auto& target_strands = strand_group.PeekStrands();
@@ -75,16 +106,11 @@ void DynamicStrands::InitializeStrandsGroup(const InitializeParameters& initiali
         initialize_parameters.root_transform.GetRotation() * target_strand_segment.rotation;
     segment.torque = glm::vec3(0.f);
 
-    if (segment.prev_handle == -1 && initialize_parameters.static_root) {
-      segment.inertia_tensor = segment.inv_inertia_tensor = glm::vec3(0.0f);
-      segment.inv_mass = 0.f;
-    } else {
-      const float mass =
-          segment.radius * segment.radius * glm::pi<float>() * initialize_parameters.wood_density * segment.rest_length;
-      segment.inertia_tensor = ComputeInertiaTensorRod(mass, segment.radius, segment.rest_length);
-      segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
-      segment.inv_mass = 1.f / mass;
-    }
+    const float mass =
+        segment.radius * segment.radius * glm::pi<float>() * initialize_parameters.wood_density * segment.rest_length;
+    segment.inertia_tensor = ComputeInertiaTensorRod(mass, segment.radius, segment.rest_length);
+    segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
+    segment.inv_mass = 1.f / mass;
 
     /*
     const float youngs_modulus = initialize_parameters.youngs_modulus * 1000000000.f;
@@ -112,8 +138,10 @@ void DynamicStrands::InitializeStrandsGroup(const InitializeParameters& initiali
     segment.particle1_handle = static_cast<int>(segment_handle) * 2 + 1;
     particle0.damping = particle1.damping = initialize_parameters.velocity_damping;
     particle0.x0 = particle0.x = particle0.last_x = particle0.old_x =
-        glm::vec4(initialize_parameters.root_transform.TransformPoint(strand_group.GetStrandSegmentStart(static_cast<int>(segment_handle))), 0.0);
-    
+        glm::vec4(initialize_parameters.root_transform.TransformPoint(
+                      strand_group.GetStrandSegmentStart(static_cast<int>(segment_handle))),
+                  0.0);
+
     particle1.x0 = particle1.x = particle1.last_x = particle1.old_x =
         glm::vec4(initialize_parameters.root_transform.TransformPoint(strand_segment.end_position), 0.0);
 
@@ -151,13 +179,12 @@ void DynamicStrands::InitializeStrandsGroup(const InitializeParameters& initiali
 
       if (handle_index > 0) {
         connection.prev_handle = handle_index + handle_index_offset - 1;
-      }
-      else {
+      } else {
         connection.prev_handle = -1;
       }
       if (handle_index < static_cast<int>(handles.size()) - 2) {
         connection.next_handle = handle_index + handle_index_offset + 1;
-      }else {
+      } else {
         connection.next_handle = -1;
       }
 
@@ -168,14 +195,24 @@ void DynamicStrands::InitializeStrandsGroup(const InitializeParameters& initiali
 
       connection.rest_darboux_vector = glm::conjugate(q0) * q1;
     }
-
-    auto& first_particle = particles[segments[strand.begin_segment_handle].particle0_handle];
-    first_particle.inv_mass = 0;
+    if (initialize_parameters.static_root) {
+      auto& first_particle = particles[segments[strand.begin_segment_handle].particle0_handle];
+      first_particle.inv_mass = 0;
+    }
   }
-  Upload();
+  for (const auto& i : operators)
+    i->InitializeData(initialize_parameters, strand_model_skeleton, *this);
+  for (const auto& i : constraints)
+    i->InitializeData(initialize_parameters, strand_model_skeleton, *this);
+}
 
-  InitializeOperators(initialize_parameters);
-  InitializeConstraints(initialize_parameters);
+bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
+  if (ImGui::DragFloat("Time step", &time_step, 0.001f, 0.001f, 1.0f))
+    changed = true;
+  if (ImGui::DragInt("Constraint Iteration", &constraint_iteration, 1, 1, 500))
+    changed = true;
+  return changed;
 }
 
 void DynamicStrands::Step(const StepParameters& target_step_parameters) const {
@@ -189,11 +226,11 @@ void DynamicStrands::Step(const StepParameters& target_step_parameters) const {
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_connections_buffer, 0);
 
   if (target_step_parameters.physics) {
-    Physics(target_step_parameters.physics_parameters, operators, pre_step, constraints);
+    Physics(target_step_parameters.physics_parameters);
   }
 
-  if (target_step_parameters.render) {
-    Render(target_step_parameters.render_parameters);
+  if (target_step_parameters.visualization) {
+    Visualization(target_step_parameters.visualization_parameters);
   }
 }
 
@@ -247,14 +284,4 @@ glm::vec3 DynamicStrands::ComputeInertiaTensorRod(const float mass, const float 
       mass / 12.f * (radius * radius + length * length),
       mass / 4.f * (radius * radius + radius * radius),
   };
-}
-
-void DynamicStrands::InitializeOperators(const InitializeParameters& initialize_parameters) const {
-  for (const auto& i : operators)
-    i->InitializeData(initialize_parameters, *this);
-}
-
-void DynamicStrands::InitializeConstraints(const InitializeParameters& initialize_parameters) const {
-  for (const auto& i : constraints)
-    i->InitializeData(initialize_parameters, *this);
 }

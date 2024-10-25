@@ -7,7 +7,6 @@
 
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrands.glsl"
-
 #include "Math.glsl"
 
 const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
@@ -48,6 +47,6 @@ void main(){
 		uint particle_index = floatBitsToUint(external_force.force_index.w);
 		vec3 force = external_force.force_index.xyz;
 		Particle particle = particles[particle_index];
-		particles[particle_index].acceleration_inv_mass.xyz = force * particle.acceleration_inv_mass.w;
+		particles[particle_index].acceleration_inv_mass.xyz += force * particle.acceleration_inv_mass.w;
 	}
 }

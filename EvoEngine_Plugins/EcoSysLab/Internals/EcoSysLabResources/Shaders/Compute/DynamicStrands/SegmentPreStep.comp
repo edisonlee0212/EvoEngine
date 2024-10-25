@@ -28,37 +28,6 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	float inv_time_step;
 };
 
-void update_inertia_w(inout Segment segment){
-	//Update w
-	mat3 rot = mat3_cast(segment.q);
-	mat3 inertia_tensor_diag =
-		mat3(
-			segment.inertia_tensor_particle_0_handle.x, 0.0, 0.0, 
-			0.0, segment.inertia_tensor_particle_0_handle.y, 0.0, 
-			0.0, 0.0, segment.inertia_tensor_particle_0_handle.z);
-	mat3 inertia_w = rot * inertia_tensor_diag * transpose(rot);
-
-	mat3 inverse_inertia_tensor_diag =
-		mat3(
-			segment.inv_inertia_tensor_particle_1_handle.x, 0.0, 0.0, 
-			0.0, segment.inv_inertia_tensor_particle_1_handle.y, 0.0, 
-			0.0, 0.0, segment.inv_inertia_tensor_particle_1_handle.z);
-	mat3 inverse_inertia_w = rot * inverse_inertia_tensor_diag * transpose(rot);
-
-	segment.inertia_w = mat4(
-		inertia_w[0][0], inertia_w[0][1], inertia_w[0][2], 0.0,
-		inertia_w[1][0], inertia_w[1][1], inertia_w[1][2], 0.0,
-		inertia_w[2][0], inertia_w[2][1], inertia_w[2][2], 0.0,
-		0.0, 0.0, 0.0, 0.0
-		);
-	segment.inv_inertia_w = mat4(
-		inverse_inertia_w[0][0], inverse_inertia_w[0][1], inverse_inertia_w[0][2], 0.0,
-		inverse_inertia_w[1][0], inverse_inertia_w[1][1], inverse_inertia_w[1][2], 0.0,
-		inverse_inertia_w[2][0], inverse_inertia_w[2][1], inverse_inertia_w[2][2], 0.0,
-		0.0, 0.0, 0.0, 0.0
-		);
-}
-
 void main(){
 	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
@@ -69,32 +38,7 @@ void main(){
 		if(segment_index >= segment_size) break;
 
 		Segment segment = segments[segment_index];
-		update_inertia_w(segment);
-
-		//Calculate angular velocity and apply torque.
-		vec3 angular_velocity = vec3(0, 0, 0);
-		if(segment.inv_inertia_tensor_particle_1_handle.x != 0.0 || segment.inv_inertia_tensor_particle_1_handle.y != 0.0 || segment.inv_inertia_tensor_particle_1_handle.z != 0.0){
-			vec4 rot = quat_mul(segment.q, conjugate(segment.old_q));
-			angular_velocity = rot.xyz * 2.0 * inv_time_step;
-			angular_velocity += time_step * mat3(segment.inv_inertia_w) * (segment.torque_rest_length.xyz - cross(angular_velocity, mat3(segment.inertia_w) * angular_velocity));
-		}
-		angular_velocity *= 1.0 - segment.damping;
-		//Shift rotation values
-		segment.last_q = segment.old_q;
-		segment.old_q = segment.q;
-		//Apply angular velocity
-		vec4 angular_velocity_q = vec4(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0.0);
-
-		segment.q += 0.5 * time_step * quat_mul(angular_velocity_q, segment.q);
-		segment.q = normalize(segment.q);
-
-		//Update w
-		update_inertia_w(segment);
-		segment.bend_twist_strain0 = 0.0;
-		segment.bend_twist_strain1 = 0.0;
-		segment.stretch_shear_strain = 0.0;
-		
-
+		segment.torque_rest_length.xyz = vec3(0.0, 0.0, 0.0);
 		segments[segment_index] = segment;
 	}
 }
