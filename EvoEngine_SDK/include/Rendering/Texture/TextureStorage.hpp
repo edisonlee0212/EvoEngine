@@ -63,8 +63,10 @@ class TextureStorage final {
   friend class Platform;
   friend class Resources;
   
-
+  uint32_t version_ = 0;
  public:
+  [[nodiscard]] static uint32_t GetVersion();
+
   static void DeviceSync();
   static void BindTexture2DToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set, uint32_t binding);
   static void BindCubemapToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set, uint32_t binding);

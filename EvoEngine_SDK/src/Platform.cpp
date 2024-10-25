@@ -83,11 +83,6 @@ void Platform::Initialize() {
   }
 
   graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
-
-  std::vector<Vertex> vertices = {{{1.0f, 1.0f, 0.0f}}, {{-1.0f, 1.0f, 0.0f}}, {{0.0f, -1.0f, 0.0f}}};
-  std::vector<glm::uvec3> indices = {glm::uvec3(0, 1, 2)};
-  const auto blas = std::make_shared<BottomLevelAccelerationStructure>(vertices, indices);
-
 #pragma endregion
   const auto& window_layer = Application::GetLayer<WindowLayer>();
   if (const auto& editor_layer = Application::GetLayer<EditorLayer>(); window_layer && editor_layer) {

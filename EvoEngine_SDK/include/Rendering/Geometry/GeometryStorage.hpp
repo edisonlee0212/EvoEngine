@@ -110,8 +110,9 @@ class GeometryStorage final {
   static void Initialize();
 
   std::vector<ParticleInfoListData> particle_info_list_data_list_;
-
+  uint32_t version_ = 0;
  public:
+  [[nodiscard]] static uint32_t GetVersion(); 
   static const std::shared_ptr<Buffer>& GetTriangleBuffer();
   static const std::shared_ptr<Buffer>& GetVertexBuffer();
   static const std::shared_ptr<Buffer>& GetMeshletBuffer();

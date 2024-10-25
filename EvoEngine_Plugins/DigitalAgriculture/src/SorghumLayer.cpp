@@ -95,7 +95,6 @@ void SorghumLayer::OnCreate() {
 
 void SorghumLayer::GenerateMeshForAllSorghums(
     const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings) const {
-  std::vector<Entity> plants;
   const auto scene = GetScene();
   if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
       sorghum_entities && !sorghum_entities->empty()) {
@@ -107,7 +106,7 @@ void SorghumLayer::GenerateMeshForAllSorghums(
 }
 
 void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  auto scene = GetScene();
+  const auto scene = GetScene();
   if (ImGui::Begin("Sorghum Layer")) {
 #ifdef OPTIX_RAY_TRACER_PLUGIN
     if (ImGui::TreeNodeEx("Illumination Estimation")) {
@@ -128,7 +127,6 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::Checkbox("Enable BTF", &enable_compressed_btf);
 #endif
     ImGui::Separator();
-    ImGui::Checkbox("Auto regenerate sorghum", &auto_refresh_sorghums);
     sorghum_mesh_generator_settings.OnInspect(editor_layer);
     if (ImGui::Button("Generate mesh for all sorghums")) {
       GenerateMeshForAllSorghums(sorghum_mesh_generator_settings);
@@ -151,14 +149,18 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       auto tex = leaf_albedo_texture.Get<Texture2D>();
       if (tex) {
         leaf_material.Get<Material>()->SetAlbedoTexture(leaf_albedo_texture.Get<Texture2D>());
-        std::vector<Entity> sorghum_entities;
-
-        for (const auto& i : sorghum_entities) {
-          if (scene->HasPrivateComponent<MeshRenderer>(i)) {
-            scene->GetOrSetPrivateComponent<MeshRenderer>(i).lock()->material.Get<Material>()->SetAlbedoTexture(
-                leaf_albedo_texture.Get<Texture2D>());
+        if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+            sorghum_entities && !sorghum_entities->empty()) {
+          for (const auto& sorghum_entity : *sorghum_entities) {
+            for (const auto child : scene->GetChildren(sorghum_entity)) {
+              if (scene->HasPrivateComponent<MeshRenderer>(child)) {
+                scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetAlbedoTexture(
+                    leaf_albedo_texture.Get<Texture2D>());
+              }
+            }
           }
         }
+        
       }
     }
 
@@ -166,12 +168,15 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       auto tex = leaf_normal_texture.Get<Texture2D>();
       if (tex) {
         leaf_material.Get<Material>()->SetNormalTexture(leaf_normal_texture.Get<Texture2D>());
-        const std::vector<Entity> sorghum_entities;
-
-        for (const auto& i : sorghum_entities) {
-          if (scene->HasPrivateComponent<MeshRenderer>(i)) {
-            scene->GetOrSetPrivateComponent<MeshRenderer>(i).lock()->material.Get<Material>()->SetNormalTexture(
-                leaf_normal_texture.Get<Texture2D>());
+        if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+            sorghum_entities && !sorghum_entities->empty()) {
+          for (const auto& sorghum_entity : *sorghum_entities) {
+            for (const auto child : scene->GetChildren(sorghum_entity)) {
+              if (scene->HasPrivateComponent<MeshRenderer>(child)) {
+                scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetNormalTexture(
+                    leaf_albedo_texture.Get<Texture2D>());
+              }
+            }
           }
         }
       }
@@ -179,7 +184,7 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
     FileUtils::SaveFile("Export OBJ for all sorghums", "3D Model", {".obj"}, [this](const std::filesystem::path& path) {
       ExportAllSorghumsModel(path.string());
-    });
+    }, false);
 
     static bool opened = false;
 #ifdef OPTIX_RAY_TRACER_PLUGIN
@@ -189,10 +194,10 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
     if (ImGui::BeginPopupModal("Illumination Estimation", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
       ImGui::Text("Progress: ");
-      float fraction = 1.0f - static_cast<float>(processing_index) / processing_entities.size();
-      std::string text = std::to_string(static_cast<int>(fraction * 100.0f)) + "% - " +
-                         std::to_string(processing_entities.size() - processing_index) + "/" +
-                         std::to_string(processing_entities.size());
+      const float fraction = 1.0f - static_cast<float>(processing_index) / processing_entities.size();
+      const std::string text = std::to_string(static_cast<int>(fraction * 100.0f)) + "% - " +
+                               std::to_string(processing_entities.size() - processing_index) + "/" +
+                               std::to_string(processing_entities.size());
       ImGui::ProgressBar(fraction, ImVec2(240, 0), text.c_str());
       ImGui::SetItemDefaultFocus();
       ImGui::Text(("Estimation time for 1 plant: " + std::to_string(per_plant_calculation_time) + " seconds").c_str());
@@ -209,7 +214,7 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 }
 
 void SorghumLayer::ExportSorghum(const Entity& sorghum, std::ofstream& of, unsigned& start_index) {
-  auto scene = Application::GetActiveScene();
+  const auto scene = Application::GetActiveScene();
   const std::string start = "#Sorghum\n";
   of.write(start.c_str(), start.size());
   of.flush();
@@ -218,7 +223,7 @@ void SorghumLayer::ExportSorghum(const Entity& sorghum, std::ofstream& of, unsig
   const auto stem_mesh = scene->GetOrSetPrivateComponent<MeshRenderer>(sorghum).lock()->mesh.Get<Mesh>();
   ObjExportHelper(position, stem_mesh, of, start_index);
 
-  scene->ForEachDescendant(sorghum, [&](Entity child) {
+  scene->ForEachDescendant(sorghum, [&](const Entity child) {
     if (!scene->HasPrivateComponent<MeshRenderer>(child))
       return;
     const auto leaf_mesh = scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->mesh.Get<Mesh>();
@@ -226,7 +231,7 @@ void SorghumLayer::ExportSorghum(const Entity& sorghum, std::ofstream& of, unsig
   });
 }
 
-void SorghumLayer::ObjExportHelper(glm::vec3 position, std::shared_ptr<Mesh> mesh, std::ofstream& of,
+void SorghumLayer::ObjExportHelper(glm::vec3 position, const std::shared_ptr<Mesh>& mesh, std::ofstream& of,
                                    unsigned& start_index) {
   if (mesh && !mesh->UnsafeGetTriangles().empty()) {
     std::string header = "#Vertices: " + std::to_string(mesh->GetVerticesAmount()) +
@@ -241,9 +246,9 @@ void SorghumLayer::ObjExportHelper(glm::vec3 position, std::shared_ptr<Mesh> mes
     std::string data;
 #pragma region Data collection
 
-    for (auto i = 0; i < mesh->UnsafeGetVertices().size(); i++) {
-      auto& vertex_position = mesh->UnsafeGetVertices().at(i).position;
-      auto& color = mesh->UnsafeGetVertices().at(i).color;
+    for (auto& i : mesh->UnsafeGetVertices()) {
+      const auto& vertex_position = i.position;
+      const auto& color = i.color;
       data += "v " + std::to_string(vertex_position.x + position.x) + " " +
               std::to_string(vertex_position.y + position.y) + " " + std::to_string(vertex_position.z + position.z) +
               " " + std::to_string(color.x) + " " + std::to_string(color.y) + " " + std::to_string(color.z) + "\n";
@@ -258,7 +263,7 @@ void SorghumLayer::ObjExportHelper(glm::vec3 position, std::shared_ptr<Mesh> mes
     }
     // data += "s off\n";
     data += "# List of indices for faces vertices, with (x, y, z).\n";
-    auto& triangles = mesh->UnsafeGetTriangles();
+    const auto& triangles = mesh->UnsafeGetTriangles();
     for (auto i = 0; i < mesh->GetTriangleAmount(); i++) {
       const auto triangle = triangles[i];
       const auto f1 = triangle.x + start_index;
@@ -275,7 +280,7 @@ void SorghumLayer::ObjExportHelper(glm::vec3 position, std::shared_ptr<Mesh> mes
   }
 }
 
-void SorghumLayer::ExportAllSorghumsModel(const std::string& filename) {
+void SorghumLayer::ExportAllSorghumsModel(const std::string& filename) const {
   std::ofstream of;
   of.open(filename, std::ofstream::out | std::ofstream::trunc);
   if (of.is_open()) {
@@ -283,11 +288,13 @@ void SorghumLayer::ExportAllSorghumsModel(const std::string& filename) {
     start += "\n";
     of.write(start.c_str(), start.size());
     of.flush();
-    auto scene = GetScene();
-    unsigned start_index = 1;
-    std::vector<Entity> sorghums;
-    for (const auto& plant : sorghums) {
-      ExportSorghum(plant, of, start_index);
+    const auto scene = GetScene();
+    if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+        sorghum_entities && !sorghum_entities->empty()) {
+      unsigned start_index = 1;
+      for (const auto& sorghum_entity : *sorghum_entities) {
+        ExportSorghum(sorghum_entity, of, start_index);
+      }
     }
     of.close();
     EVOENGINE_LOG("Sorghums saved as " + filename);
@@ -309,7 +316,7 @@ void SorghumLayer::CalculateIlluminationFrameByFrame() {
   processing = true;
 }
 void SorghumLayer::CalculateIllumination() {
-  auto scene = GetScene();
+  const auto scene = GetScene();
   const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<TriangleIlluminationEstimator>();
   if (!owners)
     return;
@@ -323,7 +330,7 @@ void SorghumLayer::CalculateIllumination() {
       processing = false;
     } else {
       const float timer = Times::Now();
-      auto estimator =
+      const auto estimator =
           scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(processing_entities[processing_index]).lock();
       estimator->PrepareLightProbeGroup();
       estimator->SampleLightProbeGroup(ray_properties, m_seed, push_distance);
@@ -332,7 +339,7 @@ void SorghumLayer::CalculateIllumination() {
 }
 #endif
 void SorghumLayer::Update() {
-  auto scene = GetScene();
+  const auto scene = GetScene();
 #ifdef OPTIX_RAY_TRACER_PLUGIN
   if (processing) {
     processing_index--;
@@ -340,7 +347,7 @@ void SorghumLayer::Update() {
       processing = false;
     } else {
       const float timer = Times::Now();
-      auto estimator =
+      const auto estimator =
           scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(processing_entities[processing_index]).lock();
       estimator->PrepareLightProbeGroup();
       estimator->SampleLightProbeGroup(ray_properties, m_seed, push_distance);
@@ -348,13 +355,4 @@ void SorghumLayer::Update() {
     }
   }
 #endif
-}
-
-void SorghumLayer::LateUpdate() {
-  if (auto_refresh_sorghums) {
-    auto scene = GetScene();
-    std::vector<Entity> plants;
-    for (auto& plant : plants) {
-    }
-  }
 }

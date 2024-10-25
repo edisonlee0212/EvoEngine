@@ -264,6 +264,10 @@ void Texture2DStorage::UploadDataImmediately() {
   SetDataImmediately(new_data_, new_resolution_);
 }
 
+uint32_t TextureStorage::GetVersion() {
+  return GetInstance().version_;
+}
+
 void TextureStorage::DeviceSync() {
   auto& storage = GetInstance();
   for (int texture_index = 0; texture_index < storage.texture_2ds_.size(); texture_index++) {
@@ -271,6 +275,7 @@ void TextureStorage::DeviceSync() {
       storage.texture_2ds_[texture_index] = storage.texture_2ds_.back();
       storage.texture_2ds_[texture_index].handle->value = texture_index;
       storage.texture_2ds_.pop_back();
+      storage.version_++;
       texture_index--;
     }
   }
@@ -280,6 +285,7 @@ void TextureStorage::DeviceSync() {
       texture_storage.UploadData(texture_storage.new_data_, texture_storage.new_resolution_);
       texture_storage.new_data_.clear();
       texture_storage.new_resolution_ = {};
+      storage.version_++;
     }
   }
 
@@ -288,6 +294,7 @@ void TextureStorage::DeviceSync() {
       storage.cubemaps_[texture_index] = storage.cubemaps_.back();
       storage.cubemaps_[texture_index].handle->value = texture_index;
       storage.cubemaps_.pop_back();
+      storage.version_++;
       texture_index--;
     }
   }

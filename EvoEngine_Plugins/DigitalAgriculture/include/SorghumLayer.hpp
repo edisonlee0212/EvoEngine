@@ -9,7 +9,7 @@
 using namespace evo_engine;
 namespace digital_agriculture_plugin {
 class SorghumLayer : public ILayer {
-  static void ObjExportHelper(glm::vec3 position, std::shared_ptr<Mesh> mesh, std::ofstream& of, unsigned& start_index);
+  static void ObjExportHelper(glm::vec3 position, const std::shared_ptr<Mesh>& mesh, std::ofstream& of, unsigned& start_index);
 
  public:
 #ifdef OPTIX_RAY_TRACER_PLUGIN
@@ -30,7 +30,6 @@ class SorghumLayer : public ILayer {
 #  pragma endregion
 #endif
   SorghumMeshGeneratorSettings sorghum_mesh_generator_settings;
-  bool auto_refresh_sorghums = true;
 
   AssetRef panicle_material;
 
@@ -52,10 +51,9 @@ class SorghumLayer : public ILayer {
   void GenerateMeshForAllSorghums(const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings) const;
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Update() override;
-  void LateUpdate() override;
 
   static void ExportSorghum(const Entity& sorghum, std::ofstream& of, unsigned& start_index);
-  void ExportAllSorghumsModel(const std::string& filename);
+  void ExportAllSorghumsModel(const std::string& filename) const;
 };
 
 }  // namespace eco_sys_lab_plugin

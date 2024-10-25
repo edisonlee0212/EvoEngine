@@ -170,7 +170,8 @@ void RenderInstances::Collect(Bound& world_bound) {
   auto& max_bound = world_bound.max;
   min_bound = glm::vec3(FLT_MAX);
   max_bound = glm::vec3(-FLT_MAX);
-
+  geometry_storage_version = GeometryStorage::GetVersion();
+  texture_storage_version = TextureStorage::GetVersion();
   bool has_render_instance = false;
   std::unordered_set<Handle> lod_group_renderers{};
   if (const auto* owners = target_scene->UnsafeGetPrivateComponentOwnersList<LodGroup>()) {
@@ -429,8 +430,11 @@ bool RenderInstances::UpdateRenderInstances(const std::shared_ptr<Scene>& scene,
   const bool skinned_mesh_updated = SkinnedMeshInstancesUpdated(old_render_instances);
   const bool instanced_mesh_updated = InstancedMeshInstancesUpdated(old_render_instances);
   const bool strands_updated = StrandsInstancesUpdated(old_render_instances);
+  const bool geometry_updated = geometry_storage_version != old_render_instances.geometry_storage_version;
+  const bool textures_updated = texture_storage_version != old_render_instances.texture_storage_version;
 
-  if (mesh_updated || skinned_mesh_updated || instanced_mesh_updated || strands_updated) {
+  if (mesh_updated || skinned_mesh_updated || instanced_mesh_updated || strands_updated || geometry_updated ||
+      textures_updated) {
     if (mesh_updated) {
       if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
         UpdateTopLevelAccelerationStructure(scene);
