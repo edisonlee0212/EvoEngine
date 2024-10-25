@@ -22,20 +22,10 @@ layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 memoryBarrierShared(); \
 barrier();
 
-struct RotationUpdate{
-	vec4 new_rotation;
-	uint index;
-	uint padding0;
-	uint padding1;
-	uint padding2;
-};
-
-layout(std430, set = 1, binding = 0) readonly buffer POSITION_UPDATE_BLOCK {
-  RotationUpdate rotation_updates[];
-};
-
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint command_size;
+	uint particle_size;
+	float time_step;
+	float inv_time_step;
 };
 
 void main(){
@@ -43,18 +33,25 @@ void main(){
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint global_index = baseID + local_index;
+		uint particle_index = baseID + local_index;
 
-		if(global_index >= command_size) break;
+		if(particle_index >= particle_size) break;
 
-		RotationUpdate rotation_update = rotation_updates[global_index];
-
-		uint segment_index = rotation_update.index;
-
-		vec4 new_rotation = rotation_update.new_rotation;
-		//vec4 old_rotation = segments[segment_index].q;
-		//vec4 delta_rotation = new_rotation - old_rotation;
-
-		segments[segment_index].q = segments[segment_index].last_q = segments[segment_index].old_q = new_rotation;
+		Particle particle = particles[particle_index];
+		
+		//Calculate velocity and apply acceleration.
+		vec3 velocity = vec3(0, 0, 0);
+		if(particle.acceleration_inv_mass.w != 0.0){
+			velocity = inv_time_step * (1.5 * particle.x.xyz - 2.0 * particle.old_x.xyz + 0.5 * particle.last_x.xyz);
+			velocity += particle.acceleration_inv_mass.xyz * time_step;
+		}
+		velocity *= 1.0 - particle.x0_damping.w;
+		//Shift position values
+		particle.last_x.xyz = particle.old_x.xyz;
+		particle.old_x.xyz = particle.x.xyz;
+		//Apply velocity
+		particle.x.xyz += time_step * velocity;
+		particle.connectivity_strain = 0.0;
+		particles[particle_index] = particle;
 	}
 }

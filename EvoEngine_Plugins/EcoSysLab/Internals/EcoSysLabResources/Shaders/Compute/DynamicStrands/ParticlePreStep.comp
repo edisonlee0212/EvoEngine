@@ -39,19 +39,9 @@ void main(){
 
 		Particle particle = particles[particle_index];
 		
-		//Calculate velocity and apply acceleration.
-		vec3 velocity = vec3(0, 0, 0);
-		if(particle.acceleration_inv_mass.w != 0.0){
-			velocity = inv_time_step * (1.5 * particle.x.xyz - 2.0 * particle.old_x.xyz + 0.5 * particle.last_x.xyz);
-			velocity += particle.acceleration_inv_mass.xyz * time_step;
-		}
-		velocity *= 1.0 - particle.x0_damping.w;
-		//Shift position values
-		particle.last_x.xyz = particle.old_x.xyz;
-		particle.old_x.xyz = particle.x.xyz;
-		//Apply velocity
-		particle.x.xyz += time_step * velocity;
-		particle.connectivity_strain = 0.0;
+		//Reset acceration
+		particle.acceleration_inv_mass.xyz = vec3(0.0, 0.0, 0.0);
+
 		particles[particle_index] = particle;
 	}
 }

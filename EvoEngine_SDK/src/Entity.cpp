@@ -123,7 +123,7 @@ void EntityRef::Set(const Entity &target) {
   if (target.GetIndex() == 0) {
     Clear();
   } else {
-    auto scene = Application::GetActiveScene();
+    const auto scene = Application::GetActiveScene();
     entity_handle_ = scene->GetEntityHandle(target);
     value_ = target;
   }
@@ -133,7 +133,7 @@ void EntityRef::Clear() {
   entity_handle_ = Handle(0);
 }
 void EntityRef::Update() {
-  auto scene = Application::GetActiveScene();
+  const auto scene = Application::GetActiveScene();
   if (entity_handle_.GetValue() == 0) {
     Clear();
     return;

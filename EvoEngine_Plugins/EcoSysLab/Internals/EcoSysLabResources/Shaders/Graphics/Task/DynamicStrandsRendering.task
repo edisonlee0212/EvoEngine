@@ -8,6 +8,7 @@
 
 #define DYNAMIC_STRANDS_SET 1
 #include "DynamicStrands.glsl"
+#include "Math.glsl"
 
 const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
 
