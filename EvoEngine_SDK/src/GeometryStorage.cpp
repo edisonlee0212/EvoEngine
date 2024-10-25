@@ -8,18 +8,24 @@ void GeometryStorage::UploadData() {
     meshlet_buffer_->UploadVector(meshlets_);
     triangle_buffer_->UploadVector(triangles_);
     require_mesh_data_device_update_ = false;
+
+    version_++;
   }
   if (require_skinned_mesh_data_device_update_) {
     skinned_vertex_buffer_->UploadVector(skinned_vertex_data_chunks_);
     skinned_meshlet_buffer_->UploadVector(skinned_meshlets_);
     skinned_triangle_buffer_->UploadVector(skinned_triangles_);
     require_skinned_mesh_data_device_update_ = false;
+
+    version_++;
   }
   if (require_strand_mesh_data_device_update_) {
     strand_point_buffer_->UploadVector(strand_point_data_chunks_);
     strand_meshlet_buffer_->UploadVector(strand_meshlets_);
     segment_buffer_->UploadVector(segments_);
     require_strand_mesh_data_device_update_ = false;
+
+    version_++;
   }
 
   for (int index = 0; index < particle_info_list_data_list_.size(); index++) {
@@ -30,6 +36,9 @@ void GeometryStorage::UploadData() {
       index--;
     } else if (particle_info_list_data.m_status == ParticleInfoListDataStatus::UpdatePending) {
       particle_info_list_data.m_buffer->UploadVector(particle_info_list_data.particle_info_list);
+
+      version_++;
+
       VkDescriptorBufferInfo buffer_info{};
       buffer_info.offset = 0;
       buffer_info.range = VK_WHOLE_SIZE;
@@ -116,6 +125,10 @@ void GeometryStorage::Initialize() {
   storage.segment_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage.require_strand_mesh_data_device_update_ = false;
+}
+
+uint32_t GeometryStorage::GetVersion() {
+  return GetInstance().version_;
 }
 
 const std::shared_ptr<Buffer>& GeometryStorage::GetTriangleBuffer() {

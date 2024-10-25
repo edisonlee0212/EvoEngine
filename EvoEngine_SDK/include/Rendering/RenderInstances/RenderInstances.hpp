@@ -145,7 +145,8 @@ class RenderInstances {
   friend class CpuRayTracer;
 
   void Collect(Bound& world_bound);
-
+  uint32_t geometry_storage_version = 0;
+  uint32_t texture_storage_version = 0;
  public:
   RenderInstances();
   [[nodiscard]] bool MeshInstancesUpdated(const RenderInstances& other) const;
