@@ -196,7 +196,9 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       connection.rest_darboux_vector = glm::conjugate(q0) * q1;
     }
     if (initialize_parameters.static_root) {
-      auto& first_particle = particles[segments[strand.begin_segment_handle].particle0_handle];
+      auto& first_segment = segments[strand.begin_segment_handle];
+      first_segment.inv_mass = 0;
+      auto& first_particle = particles[first_segment.particle0_handle];
       first_particle.inv_mass = 0;
     }
   }
@@ -210,6 +212,10 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   bool changed = false;
   if (ImGui::DragFloat("Time step", &time_step, 0.001f, 0.001f, 1.0f))
     changed = true;
+  if (ImGui::DragInt("Sub step", &sub_step, 1, 1, 100)) {
+    changed = true;
+  }
+
   if (ImGui::DragInt("Constraint Iteration", &constraint_iteration, 1, 1, 500))
     changed = true;
   return changed;

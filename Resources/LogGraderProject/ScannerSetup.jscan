@@ -1,0 +1,8 @@
+config:
+  asset_handle_: 9469520003874853729
+  asset_type_name_: Json
+scanner_prefab:
+  asset_handle_: 12967556410262387709
+  asset_type_name_: Prefab
+profiles:
+  {}

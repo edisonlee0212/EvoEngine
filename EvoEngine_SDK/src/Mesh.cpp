@@ -83,6 +83,7 @@ bool Mesh::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         },
         false);
   }
+
   /*
   static bool visualize = true;
   static std::shared_ptr<Camera> visualizationCamera;
@@ -156,8 +157,21 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
     return;
   }
   vertices_ = vertices;
-  triangles_ = triangles;
-
+  //triangles_ = triangles;
+  triangles_.clear();
+  triangles_.reserve(triangles.size());
+  for (const auto& triangle : triangles) {
+    const auto& i1 = triangle.x;
+    const auto& i2 = triangle.y;
+    const auto& i3 = triangle.z;
+    if (i1 >= vertices_.size())
+      continue;
+    if (i2 >= vertices_.size())
+      continue;
+    if (i3 >= vertices_.size())
+      continue;
+    triangles_.emplace_back() = triangle;
+  }
 #pragma region Bound
   glm::vec3 min_bound = vertices_.at(0).position;
   glm::vec3 max_bound = vertices_.at(0).position;
@@ -243,6 +257,12 @@ void Mesh::RecalculateNormal() {
     const auto& i1 = triangle.x;
     const auto& i2 = triangle.y;
     const auto& i3 = triangle.z;
+    if (i1 >= vertices_.size())
+      continue;
+    if (i2 >= vertices_.size())
+      continue;
+    if (i3 >= vertices_.size())
+      continue;
     const auto& v1 = vertices_[i1].position;
     const auto& v2 = vertices_[i2].position;
     const auto& v3 = vertices_[i3].position;
@@ -270,6 +290,12 @@ void Mesh::RecalculateTangent() {
     const auto i1 = triangle.x;
     const auto i2 = triangle.y;
     const auto i3 = triangle.z;
+    if (i1 >= vertices_.size())
+      continue;
+    if (i2 >= vertices_.size())
+      continue;
+    if (i3 >= vertices_.size())
+      continue;
     const auto& p1 = vertices_[i1].position;
     const auto& p2 = vertices_[i2].position;
     const auto& p3 = vertices_[i3].position;

@@ -1,14 +1,16 @@
 #pragma once
 
 #include "Json.hpp"
-#include "jsSetupConfigParser.hpp"
 #include "LogScan.hpp"
+#include "jsSetupConfigParser.hpp"
 using namespace evo_engine;
 namespace log_scanning_plugin {
 
 struct JoeScanScannerSettings {
   int step = 1;
 };
+
+
 
 class JoeScanScanner : public IPrivateComponent {
   std::shared_ptr<std::mutex> scanner_mutex_;
@@ -39,4 +41,4 @@ class JoeScanScanner : public IPrivateComponent {
   void OnDestroy() override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
-}  // namespace eco_sys_lab_plugin
+}  // namespace log_scanning_plugin

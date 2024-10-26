@@ -1,5 +1,15 @@
 message("====Checking Python Binding====")
 
+add_custom_target(PyResourceCopy)
+evoengine_copy_resources(PyResourceCopy ${CMAKE_CURRENT_BINARY_DIR})
+evoengine_clear_shader_binaries(PyResourceCopy)
+add_custom_command(TARGET PyResourceCopy POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy 
+			${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini ${CMAKE_CURRENT_BINARY_DIR} VERBATIM)
+
+set_property(TARGET PyResourceCopy PROPERTY FOLDER PostBuildActions)
+
+
 function(register_python_binding target_name default_enable)
 	if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 		set(option_name PythonBinding-${target_name})
@@ -24,6 +34,8 @@ function(register_python_binding target_name default_enable)
 				EvoEngine_SDK
 				${EvoEngine_Plugins}
 				)
+			add_dependencies(${target_name} PyResourceCopy)
+			set_property(TARGET ${target_name} PROPERTY FOLDER PythonBindings)
 			message("Enabled [${target_name}] PythonBinding.")
 		endif()
 	endif ()

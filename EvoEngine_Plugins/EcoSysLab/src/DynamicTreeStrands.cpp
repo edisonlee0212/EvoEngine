@@ -66,11 +66,16 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (ImGui::Button("Re-subdivide")) {
     Subdivide(segment_length, strand_group);
   }
-  if (ImGui::Button("Single Rod Experiment")) {
-    SingleRodExperimentSetup(1.0, segment_length);
-  }
-  if (ImGui::Button("Multiple Rod Experiment")) {
-    MultipleRodExperimentSetup(1.0, segment_length, 0.002f, {20, 20});
+  if (ImGui::TreeNode("Experiments")) {
+    if (ImGui::Button("Single Rod Experiment")) {
+      SingleRodExperimentSetup(1.0, segment_length);
+    }
+    static bool add_operator = false;
+    ImGui::Checkbox("Add operator", &add_operator);
+    if (ImGui::Button("Multiple Rod Experiment")) {
+      MultipleRodExperimentSetup(1.0, segment_length, 0.002f, {20, 20}, add_operator);
+    }
+    ImGui::TreePop();
   }
   EditorLayer::DragAndDropButton(operator_entity_ref, "Operator");
   if (ImGui::TreeNode("Stats")) {
@@ -245,8 +250,8 @@ void DynamicTreeStrands::SingleRodExperimentSetup(const float total_length, cons
 }
 
 void DynamicTreeStrands::MultipleRodExperimentSetup(const float total_length, const float segment_length,
-                                                    const float radius,
-                                                    const glm::vec2& intersection) {
+                                                    const float radius, const glm::vec2& intersection,
+                                                    bool add_operator) {
   strand_model_skeleton = {1};
   auto& strand_group = strand_model_skeleton.data.strand_group;
   for (int x = 0; x < intersection.x; x++) {
@@ -269,44 +274,49 @@ void DynamicTreeStrands::MultipleRodExperimentSetup(const float total_length, co
   strand_group.UniformlySubdivide(subdivided_strand_group, segment_length, segment_length * .01f);
   subdivided_strand_group.RandomAssignColor();
   UpdateDynamicStrands();
-
-  const auto scene = Application::GetActiveScene();
-  const auto children = scene->GetChildren(GetOwner());
-  Entity operator_entity{};
-  for(const auto& child : children) {
-    if (scene->GetEntityName(child) == "Operator") {
-      operator_entity = child;
-      break;
+  if (add_operator) {
+    const auto scene = Application::GetActiveScene();
+    const auto children = scene->GetChildren(GetOwner());
+    Entity operator_entity{};
+    for (const auto& child : children) {
+      if (scene->GetEntityName(child) == "Operator") {
+        operator_entity = child;
+        break;
+      }
     }
+    if (!scene->IsEntityValid(operator_entity))
+      operator_entity = scene->CreateEntity("Operator");
+    operator_entity_ref = operator_entity;
+
+    operator_root_transform = GlobalTransform();
+    operator_root_transform.SetPosition(glm::vec3(total_length, 0, 0));
+    scene->SetDataComponent(operator_entity, operator_root_transform);
+    scene->SetParent(operator_entity, GetOwner());
+    operator_position_update->commands.resize(dynamic_strands->strands.size() * 2);
+    Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+      const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
+      auto& segment = dynamic_strands->segments[segment_handle];
+
+      segment.inv_mass = 0;
+
+      dynamic_strands->particles[segment.particle1_handle].inv_mass = 0;
+
+      operator_position_update->commands[i * 2].particle_index = segment.particle0_handle;
+      operator_position_update->commands[i * 2].new_position = dynamic_strands->particles[segment.particle0_handle].x0;
+
+      operator_position_update->commands[i * 2 + 1].particle_index = segment.particle1_handle;
+      operator_position_update->commands[i * 2 + 1].new_position =
+          dynamic_strands->particles[segment.particle1_handle].x0;
+    });
+
+    operator_rotation_update->commands.resize(dynamic_strands->strands.size());
+    Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+      const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
+      const auto& segment = dynamic_strands->segments[segment_handle];
+      operator_rotation_update->commands[i].segment_index = segment_handle;
+      operator_rotation_update->commands[i].new_rotation = segment.q0;
+    });
   }
-  if (!scene->IsEntityValid(operator_entity)) operator_entity = scene->CreateEntity("Operator");
-  operator_entity_ref = operator_entity;
-
-  operator_root_transform = GlobalTransform();
-  operator_root_transform.SetPosition(glm::vec3(total_length, 0, 0));
-  scene->SetDataComponent(operator_entity, operator_root_transform);
-  scene->SetParent(operator_entity, GetOwner());
-  operator_position_update->commands.resize(dynamic_strands->strands.size() * 2);
-  Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
-    const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
-    const auto& segment = dynamic_strands->segments[segment_handle];
-    dynamic_strands->particles[segment.particle1_handle].inv_mass = 0;
-
-    operator_position_update->commands[i * 2].particle_index = segment.particle0_handle;
-    operator_position_update->commands[i * 2].new_position = dynamic_strands->particles[segment.particle0_handle].x0;
-
-    operator_position_update->commands[i * 2 + 1].particle_index = segment.particle1_handle;
-    operator_position_update->commands[i * 2 + 1].new_position = dynamic_strands->particles[segment.particle1_handle].x0;
-  });
-
-  operator_rotation_update->commands.resize(dynamic_strands->strands.size());
-  Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
-    const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
-    const auto& segment = dynamic_strands->segments[segment_handle];
-    operator_rotation_update->commands[i].segment_index = segment_handle;
-    operator_rotation_update->commands[i].new_rotation = segment.q0;
-  });
-
   dynamic_strands->Upload();
 }
 

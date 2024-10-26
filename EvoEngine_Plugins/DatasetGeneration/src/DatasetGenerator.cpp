@@ -547,6 +547,106 @@ void DatasetGenerator::GeneratePointCloudForSorghum(const std::shared_ptr<Sorghu
   Application::Loop();
 }
 
+void DatasetGenerator::GenerateMeshAndPointCloudForSorghum(
+    const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor, const SorghumPointCloudPointSettings& point_settings,
+    const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
+    const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings, bool avoid_occlusion,
+    const std::filesystem::path& mesh_output_path, const std::filesystem::path& point_cloud_output_path) {
+  if (!CheckApplication()) {
+    return;
+  }
+  const auto scene = Application::GetActiveScene();
+  std::shared_ptr<Soil> soil;
+  const std::vector<Entity>* soil_entities = scene->UnsafeGetPrivateComponentOwnersList<Soil>();
+  if (soil_entities && !soil_entities->empty()) {
+    soil = scene->GetOrSetPrivateComponent<Soil>(soil_entities->at(0)).lock();
+  }
+  if (!soil) {
+    EVOENGINE_ERROR("No soil in scene!");
+    return;
+  }
+  soil->RandomOffset(0, 99999);
+  soil->GenerateMesh(0.0f, 0.0f);
+  Application::Loop();
+  const auto sorghum_entity = scene->CreateEntity("Sorghum");
+  const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+  sorghum->sorghum_descriptor = sorghum_descriptor;
+  const auto scanner_entity = scene->CreateEntity("Scanner");
+  const auto scanner = scene->GetOrSetPrivateComponent<SorghumPointCloudScanner>(scanner_entity).lock();
+  scanner->left_random_offset = {0, 0, 0};
+  scanner->right_random_offset = {0, 0, 0};
+  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  sorghum_layer->GenerateMeshForAllSorghums(sorghum_mesh_generator_settings);
+  Application::Loop();
+  scanner->sorghum_point_cloud_point_settings = point_settings;
+  scanner->Capture(point_cloud_output_path, capture_settings);
+  Application::Loop();
+
+  if (avoid_occlusion) {
+    auto mesh_settings_copy = sorghum_mesh_generator_settings;
+    mesh_settings_copy.leaf_separated = true;
+    std::vector<glm::vec3> points;
+    std::vector<int> leaf_indices;
+    std::vector<int> instance_indices;
+    std::vector<int> type_indices;
+    for (int leaf_index = 0; leaf_index < sorghum_descriptor->leaves.size(); leaf_index++) {
+      mesh_settings_copy.single_leaf_index = leaf_index;
+      sorghum->GenerateGeometryEntities(mesh_settings_copy);
+      Application::Loop();
+      scanner->sorghum_point_cloud_point_settings = point_settings;
+      scanner->Scan(capture_settings, points, leaf_indices, instance_indices, type_indices);
+      if (leaf_index == 0) {
+        mesh_settings_copy.enable_stem = false;
+        const auto children = scene->GetChildren(soil->GetOwner());
+        for (const auto& child : children) {
+          scene->DeleteEntity(child);
+        }
+      }
+      sorghum->ClearGeometryEntities();
+      Application::Loop();
+    }
+    auto temp_path = point_cloud_output_path;
+    temp_path.replace_filename(temp_path.filename().stem().string() + "_nc.ply");
+    scanner->SavePointCloud(temp_path, points, leaf_indices, instance_indices, type_indices);
+  }
+  std::ofstream of;
+  of.open(mesh_output_path, std::ofstream::out | std::ofstream::trunc);
+  if (of.is_open()) {
+    unsigned start_index = 0;
+    sorghum_layer->ExportSorghum(sorghum_entity, of, start_index);
+    of.close();
+  }
+  scene->DeleteEntity(sorghum_entity);
+  scene->DeleteEntity(scanner_entity);
+  Application::Loop();
+}
+
+void DatasetGenerator::GenerateMeshForSorghum(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
+                                              const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
+                                              const std::filesystem::path& mesh_output_path) {
+  if (!CheckApplication()) {
+    return;
+  }
+  const auto scene = Application::GetActiveScene();
+  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  const auto sorghum_entity = scene->CreateEntity("Sorghum");
+  const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+  sorghum->sorghum_descriptor = sorghum_descriptor;
+
+  sorghum_layer->GenerateMeshForAllSorghums(sorghum_mesh_generator_settings);
+  Application::Loop();
+
+  std::ofstream of;
+  of.open(mesh_output_path, std::ofstream::out | std::ofstream::trunc);
+  if (of.is_open()) {
+    unsigned start_index = 0;
+    sorghum_layer->ExportSorghum(sorghum_entity, of, start_index);
+    of.close();
+  }
+  scene->DeleteEntity(sorghum_entity);
+  Application::Loop();
+}
+
 void DatasetGenerator::GeneratePointCloudForSorghumPatch(
     const SorghumFieldPatch& pattern, const std::shared_ptr<SorghumDescriptorGenerator>& sorghum_descriptor,
     const SorghumPointCloudPointSettings& point_settings,

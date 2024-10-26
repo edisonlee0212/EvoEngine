@@ -1,34 +1,33 @@
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
 
-#include "AnimationPlayer.hpp"
-#include "Application.hpp"
-#include "ClassRegistry.hpp"
-#include "Climate.hpp"
-#include "EditorLayer.hpp"
-#include "HeightField.hpp"
-#include "MeshRenderer.hpp"
-#include "ObjectRotator.hpp"
-#include "PlayerController.hpp"
-#include "PostProcessingStack.hpp"
-#include "Prefab.hpp"
-#include "ProjectManager.hpp"
-#include "RadialBoundingVolume.hpp"
-#include "RenderLayer.hpp"
-#include "Scene.hpp"
-#include "Soil.hpp"
-#include "SorghumLayer.hpp"
-#include "Times.hpp"
-#include "Tree.hpp"
-#include "TreeModel.hpp"
-#include "TreeStructor.hpp"
-#include "WindowLayer.hpp"
-#include "pybind11/pybind11.h"
-#include "pybind11/stl/filesystem.h"
-#ifdef OPTIX_RAY_TRACER_PLUGIN
-#  include <CUDAModule.hpp>
-#  include <RayTracerLayer.hpp>
-#endif
-
+#  include "AnimationPlayer.hpp"
+#  include "Application.hpp"
+#  include "ClassRegistry.hpp"
+#  include "Climate.hpp"
+#  include "EditorLayer.hpp"
+#  include "HeightField.hpp"
+#  include "MeshRenderer.hpp"
+#  include "ObjectRotator.hpp"
+#  include "PlayerController.hpp"
+#  include "PostProcessingStack.hpp"
+#  include "Prefab.hpp"
+#  include "ProjectManager.hpp"
+#  include "RadialBoundingVolume.hpp"
+#  include "RenderLayer.hpp"
+#  include "Scene.hpp"
+#  include "Soil.hpp"
+#  include "SorghumLayer.hpp"
+#  include "Times.hpp"
+#  include "Tree.hpp"
+#  include "TreeModel.hpp"
+#  include "TreeStructor.hpp"
+#  include "WindowLayer.hpp"
+#  include "pybind11/pybind11.h"
+#  include "pybind11/stl/filesystem.h"
+#  ifdef OPTIX_RAY_TRACER_PLUGIN
+#    include <CUDAModule.hpp>
+#    include <RayTracerLayer.hpp>
+#  endif
 
 #  if DATASET_GENERATION_PLUGIN
 #    include <SorghumPointCloudScanner.hpp>
@@ -43,6 +42,9 @@ namespace py = pybind11;
 
 void register_classes() {
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
+#  ifdef DATASET_GENERATION_PLUGIN
+  PrivateComponentRegistration<SorghumPointCloudScanner>("SorghumPointCloudScanner");
+#  endif
 }
 
 void push_layers(const bool enable_window_layer, const bool enable_editor_layer) {
@@ -52,9 +54,9 @@ void push_layers(const bool enable_window_layer, const bool enable_editor_layer)
     Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
   Application::PushLayer<SorghumLayer>();
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#  ifdef OPTIX_RAY_TRACER_PLUGIN
   Application::PushLayer<RayTracerLayer>();
-#endif
+#  endif
 }
 
 std::filesystem::path get_default_project_path() {
@@ -119,8 +121,8 @@ void engine_run_with_editor(const std::filesystem::path& project_path) {
   Application::Start();
 }
 
-void engine_loop() {
-  Application::Loop();
+bool engine_loop() {
+  return Application::Loop();
 }
 
 void engine_terminate() {
@@ -141,7 +143,7 @@ void generate_sorghum_mesh(const std::string& sorghum_descriptor_path,
     EVOENGINE_ERROR("Failed to import sorghum descriptor!")
     return;
   }
-  
+  DatasetGenerator::GenerateMeshForSorghum(sorghum_descriptor, sorghum_mesh_generator_settings, mesh_output_path);
 }
 
 void generate_sorghum_point_cloud(const std::string& sorghum_descriptor_path,
@@ -169,8 +171,55 @@ void generate_sorghum_point_cloud(const std::string& sorghum_descriptor_path,
                                                  point_cloud_output_path);
 }
 
+void generate_sorghum_mesh_and_point_cloud(const std::string& sorghum_descriptor_path,
+                                       const SorghumPointCloudPointSettings& point_settings,
+                                       const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
+                                       bool avoid_occlusion, const std::filesystem::path& mesh_output_path,
+                                       const std::filesystem::path& point_cloud_output_path) {
+  std::shared_ptr<SorghumDescriptor> sorghum_descriptor;
+  if (const auto path = std::filesystem::path(sorghum_descriptor_path); path.is_absolute()) {
+    sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+    sorghum_descriptor->Import(sorghum_descriptor_path);
+  } else {
+    sorghum_descriptor = std::dynamic_pointer_cast<SorghumDescriptor>(ProjectManager::GetOrCreateAsset(path));
+  }
+  if (!sorghum_descriptor) {
+    EVOENGINE_ERROR("Failed to import sorghum descriptor!")
+    return;
+  }
+  const auto capture_settings = std::make_shared<SorghumGantryCaptureSettings>();
+  capture_settings->step = glm::vec2(0.005f);  // Smaller -> more points.
+  capture_settings->scanner_angles = {30, 60};
+  capture_settings->output_spline_info = true;
+
+  DatasetGenerator::GenerateMeshAndPointCloudForSorghum(sorghum_descriptor, point_settings, capture_settings,
+                                                        sorghum_mesh_generator_settings, avoid_occlusion,
+                                                        mesh_output_path, point_cloud_output_path);
+}
+
 PYBIND11_MODULE(PyDigitalAgriculture, m) {
   m.doc() = "PyDigitalAgriculture";  // optional module docstring
+
+  py::class_<SorghumMeshGeneratorSettings>(m, "SorghumMeshGeneratorSettings")
+      .def(py::init<>())
+      .def_readwrite("enable_panicle", &SorghumMeshGeneratorSettings::enable_panicle)
+      .def_readwrite("enable_stem", &SorghumMeshGeneratorSettings::enable_stem)
+      .def_readwrite("enable_leaves", &SorghumMeshGeneratorSettings::enable_leaves)
+      .def_readwrite("enable_leaf_stem", &SorghumMeshGeneratorSettings::enable_leaf_stem)
+      .def_readwrite("single_leaf_index", &SorghumMeshGeneratorSettings::single_leaf_index)
+      .def_readwrite("bottom_face", &SorghumMeshGeneratorSettings::bottom_face)
+      .def_readwrite("leaf_separated", &SorghumMeshGeneratorSettings::leaf_separated)
+      .def_readwrite("leaf_thickness", &SorghumMeshGeneratorSettings::leaf_thickness);
+
+  py::class_<SorghumPointCloudPointSettings>(m, "SorghumPointCloudPointSettings")
+      .def(py::init<>())
+      .def_readwrite("variance", &SorghumPointCloudPointSettings::variance)
+      .def_readwrite("ball_rand_radius", &SorghumPointCloudPointSettings::ball_rand_radius)
+      .def_readwrite("type_index", &SorghumPointCloudPointSettings::type_index)
+      .def_readwrite("instance_index", &SorghumPointCloudPointSettings::instance_index)
+      .def_readwrite("leaf_index", &SorghumPointCloudPointSettings::leaf_index)
+      .def_readwrite("bounding_box_limit", &SorghumPointCloudPointSettings::bounding_box_limit);
+
   m.def("get_default_project_path", &get_default_project_path, "Get default project path");
   m.def("engine_run_windowless", &engine_run_windowless, "Start Project (Windowless)");
   m.def("engine_run", &engine_run, "Start Project (No Editor)");
@@ -178,6 +227,8 @@ PYBIND11_MODULE(PyDigitalAgriculture, m) {
   m.def("engine_loop", &engine_loop, "Loop Application");
   m.def("engine_terminate", &engine_terminate, "Terminate Application");
 
+  m.def("generate_sorghum_mesh", &generate_sorghum_mesh, "Create a sorghum and generate mesh");
   m.def("generate_sorghum_point_cloud", &generate_sorghum_point_cloud, "Create a sorghum and generate point cloud");
+  m.def("generate_sorghum_mesh_and_point_cloud", &generate_sorghum_mesh_and_point_cloud, "Create a sorghum and generate mesh and point cloud");
 }
 #endif

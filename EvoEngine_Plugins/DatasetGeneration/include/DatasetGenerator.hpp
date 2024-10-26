@@ -29,7 +29,8 @@ class DatasetGenerator {
   static void GeneratePointCloudForTree(const TreePointCloudPointSettings& point_settings,
                                         const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                         const std::string& tree_parameters_path, float delta_time, int max_iterations,
-                                        int max_tree_node_count, const TreeMeshGeneratorSettings& mesh_generator_settings,
+                                        int max_tree_node_count,
+                                        const TreeMeshGeneratorSettings& mesh_generator_settings,
                                         const std::string& point_cloud_output_path, bool export_tree_mesh,
                                         const std::string& tree_mesh_output_path);
   static void GeneratePointCloudForForest(int grid_size, float grid_distance, float random_shift,
@@ -56,6 +57,17 @@ class DatasetGenerator {
                                            const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                            const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
                                            bool avoid_occlusion, const std::filesystem::path& point_cloud_output_path);
+
+  static void GenerateMeshAndPointCloudForSorghum(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
+                                                  const SorghumPointCloudPointSettings& point_settings,
+                                                  const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
+                                                  const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
+                                                  bool avoid_occlusion, const std::filesystem::path& mesh_output_path,
+                                                  const std::filesystem::path& point_cloud_output_path);
+
+  static void GenerateMeshForSorghum(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
+                                     const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
+                                     const std::filesystem::path& mesh_output_path);
 
   static void GeneratePointCloudForSorghumPatch(const SorghumFieldPatch& pattern,
                                                 const std::shared_ptr<SorghumDescriptorGenerator>& sorghum_descriptor,
