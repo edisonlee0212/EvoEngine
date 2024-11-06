@@ -4,7 +4,7 @@ using namespace evo_engine;
 
 bool Json::SaveInternal(const std::filesystem::path& path) const {
   std::ofstream o(path);
-  o << std::setw(4) << m_json << std::endl;
+  o << std::setw(4) << m_json << '\n';
   return true;
 }
 
@@ -14,7 +14,7 @@ bool Json::LoadInternal(const std::filesystem::path& path) {
   return true;
 }
 
-bool Json::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
+bool Json::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   return changed;

@@ -45,7 +45,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   void OnDestroy() override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
   void SingleRodExperimentSetup(float total_length, float segment_length);
-  void MultipleRodExperimentSetup(float total_length, float segment_length, float radius, const glm::vec2 &intersection);
+  void MultipleRodExperimentSetup(float total_length, float segment_length, float radius, const glm::vec2 &intersection, bool add_operator);
   void Subdivide(float segment_length, const StrandModelStrandGroup& src);
   void InitializeStrandParticles(const StrandModelStrandGroup& strand_group) const;
   void ClearStrandParticles() const;

@@ -4,6 +4,9 @@
 using namespace eco_sys_lab_plugin;
 
 void DynamicStrands::Physics(const PhysicsParameters& physics_parameters) const {
+
+    
+
   if (pre_step)
     pre_step->Execute(physics_parameters, *this);
 
@@ -11,14 +14,15 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters) const 
     if (op->enabled)
       op->Execute(physics_parameters, *this);
   }
-  if (prediction)
-    prediction->Execute(physics_parameters, *this);
-
-  for (const auto& c : constraints) {
-    if (c->enabled)
-      for (int iteration_i = 0; iteration_i < physics_parameters.constraint_iteration; iteration_i++) {
-        c->Project(physics_parameters, *this);
-      }
+  for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
+    if (prediction)
+      prediction->Execute(physics_parameters, *this);
+    for (const auto& c : constraints) {
+      if (c->enabled)
+        for (int iteration_i = 0; iteration_i < physics_parameters.constraint_iteration; iteration_i++) {
+          c->Project(physics_parameters, *this);
+        }
+    }
   }
 }
 
@@ -141,7 +145,7 @@ void DynamicStrandsPrediction::Execute(const DynamicStrands::PhysicsParameters& 
 
   ParticlePredictionPushConstant particle_push_constant;
   particle_push_constant.particle_size = target_dynamic_strands.particles.size();
-  particle_push_constant.time_step = physics_parameters.time_step;
+  particle_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   particle_push_constant.inv_time_step = 1.f / particle_push_constant.time_step;
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;

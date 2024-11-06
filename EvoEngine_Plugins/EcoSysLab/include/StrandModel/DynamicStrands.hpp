@@ -15,13 +15,13 @@ class DynamicStrands {
   DynamicStrands();
 #pragma region Initialization
   struct InitializeParameters {
-    bool static_root = true;
+    bool static_root = false;
     float wood_density = 1.f;
-    float shear_stiffness = 1.f;
-    float stretch_stiffness = 1.f;
+    float shear_stiffness = 0.97f;
+    float stretch_stiffness = 0.95f;
 
-    float bending_stiffness = 1.f;
-    float twisting_stiffness = 1.f;
+    float bending_stiffness = 0.85f;
+    float twisting_stiffness = 0.9f;
 
     float velocity_damping = 0.01f;
     float angular_velocity_damping = 0.01f;
@@ -38,7 +38,8 @@ class DynamicStrands {
 #pragma region Step
   struct PhysicsParameters {
     float time_step = 0.01f;
-    int constraint_iteration = 50;
+    int sub_step = 5;
+    int constraint_iteration = 5;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 

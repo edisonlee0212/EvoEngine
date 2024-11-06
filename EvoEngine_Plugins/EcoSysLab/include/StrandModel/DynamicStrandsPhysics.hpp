@@ -209,7 +209,7 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
     Balanced
   };
 
-  uint32_t project_mode = static_cast<uint32_t>(ProjectMode::Forward);
+  uint32_t project_mode = static_cast<uint32_t>(ProjectMode::Bilateral);
 
   int sub_iteration = 1;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;

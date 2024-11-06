@@ -1,6 +1,7 @@
 #include "JoeScanScanner.hpp"
 #include "Json.hpp"
 #include "Scene.hpp"
+#include "Prefab.hpp"
 using namespace log_scanning_plugin;
 
 void logger(const jsError err, const std::string msg) {
@@ -13,6 +14,7 @@ void logger(const jsError err, const std::string msg) {
     EVOENGINE_ERROR("JoeScan Error (" + std::to_string(err) + "): " + err_str)
   }
 }
+
 
 void JoeScanScanner::StopScanningProcess() {
   if (scan_enabled_) {

@@ -1,13 +1,13 @@
 message("=========Checking Apps=========")
 
-add_custom_target(ResourceCopy)
-evoengine_copy_resources(ResourceCopy ${CMAKE_CURRENT_BINARY_DIR})
-evoengine_clear_shader_binaries(ResourceCopy)
-add_custom_command(TARGET ResourceCopy POST_BUILD
+add_custom_target(AppResourceCopy)
+evoengine_copy_resources(AppResourceCopy ${CMAKE_CURRENT_BINARY_DIR})
+evoengine_clear_shader_binaries(AppResourceCopy)
+add_custom_command(TARGET AppResourceCopy POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy 
 			${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini ${CMAKE_CURRENT_BINARY_DIR} VERBATIM)
 
-set_property(TARGET ResourceCopy PROPERTY FOLDER PostBuildActions)
+set_property(TARGET AppResourceCopy PROPERTY FOLDER PostBuildActions)
 
 function(register_evoengine_app app_name default_enable)
 	if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
@@ -35,7 +35,7 @@ function(register_evoengine_app app_name default_enable)
 				EvoEngine_SDK
 				${EvoEngine_Plugins}
 				)
-			add_dependencies(${app_name} ResourceCopy)
+			add_dependencies(${app_name} AppResourceCopy)
 			set_property(TARGET ${app_name} PROPERTY FOLDER Executables)
 			message("Enabled [${app_name}] application.")
 		endif ()
