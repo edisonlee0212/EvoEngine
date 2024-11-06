@@ -11,11 +11,13 @@ class IDynamicStrandsOperator;
 class IDynamicStrandsConstraint;
 class DynamicStrandsPrediction;
 class DynamicStrands {
+  bool wait_for_upload = false;
+
  public:
   DynamicStrands();
+  [[nodiscard]] bool WaitForUpload() const;
 #pragma region Initialization
   struct InitializeParameters {
-    bool static_root = false;
     float wood_density = 1.f;
     float shear_stiffness = 0.97f;
     float stretch_stiffness = 0.95f;
@@ -44,31 +46,41 @@ class DynamicStrands {
   };
 
   struct VisualizationParameters {
-    enum class RenderMode { Default, BendTwistStrain, StretchShearStrain, ConnectivityStrain };
+    enum class ParticleRenderMode { Default, SegmentColor, ConnectivityStrain };
+    enum class SegmentRenderMode { Default, SegmentColor, StretchShearStrain };
+    enum class ConnectionRenderMode { Default, BendTwistStrain };
+    bool render_particles = true;
+    bool render_segments = true;
+    bool render_connections = true;
+    uint32_t particle_render_mode = 0;
+    uint32_t segment_render_mode = 0;
+    uint32_t connection_render_mode = 0;
 
-    uint32_t render_mode = 1;
-    glm::vec4 min_color = glm::vec4(0.2f);
-    glm::vec4 max_color = glm::vec4(1.f);
-    float multiplier = 1.0f;
+    glm::vec4 particle_color0 = glm::vec4(0, 0, 1, 1);
+    glm::vec4 particle_color1 = glm::vec4(1, 0, 0, 1);
+    glm::vec4 particle_color2 = glm::vec4(0.2, 1, 1, 0.8);
+    float particle_multiplier = 1.0f;
+
+    glm::vec4 segment_color0 = glm::vec4(0, 0, 1, 1);
+    glm::vec4 segment_color1 = glm::vec4(1, 0, 0, 1);
+    glm::vec4 segment_color2 = glm::vec4(0.6, 0.3, 0.0, 0.5);
+    float segment_multiplier = 1.0f;
+
+    glm::vec4 connection_color0 = glm::vec4(0, 0, 1, 1);
+    glm::vec4 connection_color1 = glm::vec4(1, 0, 0, 1);
+    glm::vec4 connection_color2 = glm::vec4(1, 1, 1, 0.8);
+    float connection_multiplier = 1.0f;
+
     std::shared_ptr<Camera> target_visualization_camera{};
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
-  struct StepParameters {
-    bool physics = false;
-    PhysicsParameters physics_parameters{};
-
-    bool visualization = false;
-    VisualizationParameters visualization_parameters;
-  };
   std::shared_ptr<DynamicStrandsPreStep> pre_step;
-
-  std::vector<std::shared_ptr<IDynamicStrandsOperator>> operators;
   std::shared_ptr<DynamicStrandsPrediction> prediction;
   std::vector<std::shared_ptr<IDynamicStrandsConstraint>> constraints;
 
-  void Step(const StepParameters& target_step_parameters) const;
+  void UpdateBindings() const;
 #pragma endregion
 #pragma region Shared Data
   struct GpuStrand {
@@ -83,7 +95,7 @@ class DynamicStrands {
     int prev_handle = -1;
     int next_handle = -1;
     int strand_handle = -1;
-    float inv_mass = 0.0f;
+    float inv_mass;
 
     glm::vec4 color;
 
@@ -111,10 +123,8 @@ class DynamicStrands {
     glm::mat4 inertia_w;
     glm::mat4 inv_inertia_w;
 
-    float bend_twist_strain0 = 0.0;
-    float bend_twist_strain1 = 0.0;
-    float stretch_shear_strain = 0.0;
-    float padding;
+    glm::vec3 stretch_shear_strain = glm::vec3(0.f);
+    float original_inv_mass = 0.0f;
   };
   struct GpuParticle {
     // Initial position
@@ -122,20 +132,15 @@ class DynamicStrands {
     float damping;
     // Current position
     glm::vec3 x;
-    int padding0 = -1;
+    int node_handle = -1;
     // Last frame position
     glm::vec3 last_x;
-    int padding1 = -1;
+    int strand_handle = -1;
     glm::vec3 old_x;
-    int padding2 = -1;
+    int segment_handle = -1;
 
     glm::vec3 acceleration = glm::vec3(0.f);
-    float inv_mass;
-
-    int node_handle;
-    int strand_handle;
-    int segment_handle;
-    float connectivity_strain = 0.0;
+    float connectivity_strain;
   };
 
   struct GpuConnection {
@@ -150,6 +155,8 @@ class DynamicStrands {
 
     int prev_handle = -1;
     int next_handle = -1;
+
+    glm::vec4 bend_twist_strain_valid = glm::vec4(0.f);
   };
 
   inline static std::shared_ptr<DescriptorSetLayout> strands_layout{};
@@ -164,17 +171,17 @@ class DynamicStrands {
   std::vector<GpuConnection> connections;
 #pragma endregion
 
-  void Upload() const;
+  void Upload();
   void Download();
 
   void Clear();
 
   std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets;
+  void Visualization(const VisualizationParameters& render_parameters) const;
+  void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& operators_action) const;
 
  private:
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
   static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
-  void Visualization(const VisualizationParameters& render_parameters) const;
-  void Physics(const PhysicsParameters& physics_parameters) const;
 };
 }  // namespace eco_sys_lab_plugin

@@ -34,23 +34,15 @@ struct Segment {
   mat4 inertia_w;
   mat4 inv_inertia_w;
 
-  float bend_twist_strain0;
-  float bend_twist_strain1;
-  float stretch_shear_strain;
-  float padding;
+  vec4 stretch_shear_strain_original_inv_mass;
 };
 
 struct Particle {
   vec4 x0_damping;
-  vec4 x;
-  vec4 last_x;
-  vec4 old_x;
-  vec4 acceleration_inv_mass;
-
-  int node_handle;
-  int strand_handle;
-  int segment_handle;
-  float connectivity_strain;
+  vec4 x_node_handle;
+  vec4 last_x_strand_handle;
+  vec4 old_x_segment_handle;
+  vec4 acceleration_connectivity_strain;
 };
 
 struct Connection {
@@ -64,6 +56,8 @@ struct Connection {
   float twisting_stiffness;
   int prev_handle;
   int next_handle;
+
+  vec4 bend_twist_strain_valid;
 };
 
 

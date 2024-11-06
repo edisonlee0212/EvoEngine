@@ -66,14 +66,13 @@ uvec3 triangles[] = {
 };
 
 layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
+	vec4 color0;
+	vec4 color1;
+
 	uint camera_index;
-	uint padding0;
 	uint segments_size;
-
 	uint color_mode;
-
-	vec4 min_color;
-	vec4 max_color;
+	uint multiplier;
 };
 
 taskPayloadSharedEXT Task ts_in;
@@ -93,8 +92,8 @@ void main(){
 	Particle particle0 = particles[floatBitsToInt(segment.inertia_tensor_particle_0_handle.w)];
 	Particle particle1 = particles[floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w)];
 
-	vec3 start_position = particle0.x.xyz;
-	vec3 end_position = particle1.x.xyz;
+	vec3 start_position = particle0.x_node_handle.xyz;
+	vec3 end_position = particle1.x_node_handle.xyz;
 
 	vec3 center_position = (start_position + end_position) * 0.5;
 	float center_thickness = segment.radius * 2.0;
@@ -108,14 +107,12 @@ void main(){
 	
 	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 	
-	vec4 color = segment.color;
-	
+	vec4 color = color0;
 	if(color_mode == 1){
-		color = mix(min_color, max_color, clamp(max(segment.bend_twist_strain0, segment.bend_twist_strain1), 0.0, 1.0));
-	}else if(color_mode == 2){
-		color = mix(min_color, max_color, clamp(segment.stretch_shear_strain, 0.0, 1.0));
-	}else if(color_mode == 3){
-		color = mix(min_color, max_color, clamp(max(particle0.connectivity_strain, particle0.connectivity_strain), 0.0, 1.0));
+		color = segment.color;
+	}
+	else if(color_mode == 2){
+		color = mix(color0, color1, clamp(length(segment.stretch_shear_strain_original_inv_mass.xyz) * uintBitsToFloat(multiplier), 0.0, 1.0));
 	}
 	
 	[[unroll]]

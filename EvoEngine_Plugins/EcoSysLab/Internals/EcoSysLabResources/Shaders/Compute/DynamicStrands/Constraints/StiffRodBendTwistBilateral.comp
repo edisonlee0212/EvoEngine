@@ -23,8 +23,9 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 };
 
 #define DYNAMIC_STRANDS_SET 0
-#define DYNAMIC_STRANDS_PHYSICS_SET 1
+#define DYNAMIC_STRANDS_PER_STRAND_DATA_SET 1
 #include "DynamicStrandsPhysics.glsl"
+#include "DynamicStrandsPerStrandData.glsl"
 
 
 void main(){

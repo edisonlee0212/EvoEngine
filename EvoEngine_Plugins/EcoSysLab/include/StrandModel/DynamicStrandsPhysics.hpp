@@ -19,9 +19,15 @@ class DynamicStrandsPreStep {
     float inv_time_step = 100.f;
   };
 
+  struct ConnectionPreStepPushConstant {
+    uint32_t connection_size = 0;
+    float time_step = 0.01f;
+    float inv_time_step = 100.f;
+  };
+
   inline static std::shared_ptr<ComputePipeline> particle_pre_step_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_pre_step_pipeline;
-
+  inline static std::shared_ptr<ComputePipeline> connection_pre_step_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };
@@ -41,25 +47,24 @@ class DynamicStrandsPrediction {
     float inv_time_step = 100.f;
   };
 
+  struct ConnectionPredictionPushConstant {
+    uint32_t connection_size = 0;
+    float time_step = 0.01f;
+    float inv_time_step = 100.f;
+  };
+
   inline static std::shared_ptr<ComputePipeline> particle_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_prediction_pipeline;
-
+  inline static std::shared_ptr<ComputePipeline> connection_prediction_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };
 class IDynamicStrandsOperator {
  public:
   virtual ~IDynamicStrandsOperator() = default;
-  virtual void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
-                              const StrandModelSkeleton& strand_model_skeleton,
-                              const DynamicStrands& target_dynamic_strands) {
-  }
+
   virtual void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-                       const DynamicStrands& target_dynamic_strands) = 0;
-  virtual void DownloadData() {
-  }
-  virtual void UploadData() {
-  }
+                       const std::shared_ptr<DynamicStrands>& target_dynamic_strands) = 0;
   virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     return false;
   }
@@ -85,34 +90,24 @@ class IDynamicStrandsConstraint {
 };
 
 #pragma region Operators
-class DsPositionUpdate final : public IDynamicStrandsOperator {
+class DsTransform final : public IDynamicStrandsOperator {
  public:
-  DsPositionUpdate();
-
+  GlobalTransform inverse_base_global_transform{};
+  GlobalTransform base_global_transform{};
+  // Position
   struct PositionUpdate {
     glm::vec3 new_position = glm::vec3(0.f);
     uint32_t particle_index = 0;
   };
-
-  inline static std::shared_ptr<DescriptorSetLayout> layout{};
-
-  std::vector<PositionUpdate> commands;
-  std::vector<std::shared_ptr<Buffer>> commands_buffer;
-
+  inline static std::shared_ptr<DescriptorSetLayout> position_layout{};
+  std::vector<PositionUpdate> position_commands;
+  std::vector<std::shared_ptr<Buffer>> position_commands_buffer;
   struct PositionUpdatePushConstant {
     uint32_t commands_size = 0;
   };
-
   inline static std::shared_ptr<ComputePipeline> position_update_pipeline;
-  std::vector<std::shared_ptr<DescriptorSet>> commands_descriptor_sets;
-
-  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands) override;
-};
-class DsRotationUpdate final : public IDynamicStrandsOperator {
- public:
-  DsRotationUpdate();
-
+  std::vector<std::shared_ptr<DescriptorSet>> position_commands_descriptor_sets;
+  // Rotation
   struct RotationUpdate {
     glm::quat new_rotation = glm::vec3(0.f);
     uint32_t segment_index = 0;
@@ -120,25 +115,30 @@ class DsRotationUpdate final : public IDynamicStrandsOperator {
     uint32_t padding1 = 0;
     uint32_t padding2 = 0;
   };
-
-  inline static std::shared_ptr<DescriptorSetLayout> layout{};
-
-  std::vector<RotationUpdate> commands;
-  std::vector<std::shared_ptr<Buffer>> commands_buffer;
+  inline static std::shared_ptr<DescriptorSetLayout> rotation_layout{};
+  std::vector<RotationUpdate> rotation_commands;
+  std::vector<std::shared_ptr<Buffer>> rotation_commands_buffer;
 
   struct RotationUpdatePushConstant {
     uint32_t commands_size = 0;
   };
 
   inline static std::shared_ptr<ComputePipeline> rotation_update_pipeline;
-  std::vector<std::shared_ptr<DescriptorSet>> commands_descriptor_sets;
+  std::vector<std::shared_ptr<DescriptorSet>> rotation_commands_descriptor_sets;
 
+  DsTransform();
+  void Initialize(const GlobalTransform& target_base_global_transform,
+                  const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
+                  const std::vector<uint32_t>& segment_handles);
+  void Update(const GlobalTransform& new_global_transform,
+              const std::shared_ptr<DynamicStrands>& target_dynamic_strands);
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands) override;
+               const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
 };
-class DsGravityForce final : public IDynamicStrandsOperator {
+
+class DsGravity final : public IDynamicStrandsOperator {
  public:
-  struct GravityForcePushConstant {
+  struct GravityPushConstant {
     glm::vec3 acceleration;
     uint32_t particle_size = 0;
   };
@@ -146,33 +146,35 @@ class DsGravityForce final : public IDynamicStrandsOperator {
   glm::vec3 gravity = glm::vec3(0, -9.81, 0);
   inline static std::shared_ptr<ComputePipeline> gravity_force_pipeline{};
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands) override;
+               const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  DsGravityForce();
+  DsGravity();
 };
-class DsExternalForce final : public IDynamicStrandsOperator {
+class DsDragForce final : public IDynamicStrandsOperator {
  public:
-  DsExternalForce();
-
-  struct ExternalForce {
-    glm::vec3 force = glm::vec3(0.f);
-    uint32_t particle_index = 0;
-  };
+  glm::vec3 target_position;
+  float distance_multiplier = 0.5f;
+  DsDragForce();
 
   inline static std::shared_ptr<DescriptorSetLayout> layout{};
 
-  std::vector<ExternalForce> commands;
+  std::vector<int> commands;
   std::vector<std::shared_ptr<Buffer>> commands_buffer;
 
-  struct ExternalForcePushConstant {
+  struct DragForcePushConstant {
+    glm::vec3 target_position;
+    float distance_multiplier;
+    float time_step = 0.0f;
     uint32_t commands_size = 0;
   };
 
-  inline static std::shared_ptr<ComputePipeline> external_force_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> drag_force_pipeline{};
   std::vector<std::shared_ptr<DescriptorSet>> commands_descriptor_sets{};
-
+  void Initialize(const std::vector<int>& particle_handles);
+  void Update(const glm::vec3& new_position);
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands) override;
+               const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 #pragma endregion
@@ -202,12 +204,7 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
     uint32_t strand_size = 0;
   };
 
-  enum class ProjectMode {
-    Bilateral,
-    Forward,
-    Backward,
-    Balanced
-  };
+  enum class ProjectMode { Bilateral, Forward, Backward, Balanced };
 
   uint32_t project_mode = static_cast<uint32_t>(ProjectMode::Bilateral);
 

@@ -6,8 +6,7 @@
 #extension GL_EXT_control_flow_attributes : require
 
 #define DYNAMIC_STRANDS_SET 0
-#include "DynamicStrands.glsl"
-#include "Math.glsl"
+#include "DynamicStrandsPhysics.glsl"
 
 const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
 
@@ -90,11 +89,12 @@ void main(){
 
 		//Update w
 		update_inertia_w(segment);
-		segment.bend_twist_strain0 = 0.0;
-		segment.bend_twist_strain1 = 0.0;
-		segment.stretch_shear_strain = 0.0;
-		
 
+		segment.stretch_shear_strain_original_inv_mass.xyz = 
+			stretch_shear_strain(
+			particles[floatBitsToInt(segment.inertia_tensor_particle_0_handle.w)].x_node_handle.xyz, 
+			particles[floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w)].x_node_handle.xyz, 
+			segment.q, segment.torque_rest_length.w);
 		segments[segment_index] = segment;
 	}
 }

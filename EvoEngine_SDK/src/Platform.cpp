@@ -250,6 +250,23 @@ void SelectStageFlagsAccessMask(const VkImageLayout image_layout, VkAccessFlags&
   }
 }
 
+void Platform::AddTemporaryBufferSyncAction(const std::function<void()>& action) {
+  auto& graphics = GetInstance();
+  graphics.temporary_buffer_sync_actions.emplace_back(action);
+}
+
+void Platform::AddBufferSyncAction(const std::string& action_name, const std::function<void()>& action) {
+  auto& graphics = GetInstance();
+  graphics.buffer_sync_actions[action_name] = action;
+}
+
+void Platform::RemoveBufferSyncAction(const std::string& action_name) {
+  if (auto& graphics = GetInstance();
+      graphics.buffer_sync_actions.find(action_name) != graphics.buffer_sync_actions.end()) {
+    graphics.buffer_sync_actions.erase(action_name);
+  }
+}
+
 void Platform::RecordCommandsMainQueue(const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
   auto& graphics = GetInstance();
   const unsigned vk_command_buffer_index = graphics.used_command_buffer_size_;
@@ -872,7 +889,8 @@ void Platform::PhysicalDevice::QueryInformation() {
     i++;
   }
 
-  if(window_layer) QuerySwapChainSupport();
+  if (window_layer)
+    QuerySwapChainSupport();
 
   score = 0;
   // Discrete GPUs have a significant performance advantage
@@ -1502,13 +1520,18 @@ void Platform::PreUpdate() {
   const auto window_layer = Application::GetLayer<WindowLayer>();
   const auto render_layer = Application::GetLayer<RenderLayer>();
 
-  const auto vulkan_update = [&](const std::function<void()>& action) {
+  const auto vulkan_update = [&](const std::function<void()>& swap_chain_action) {
     vkDeviceWaitIdle(graphics.vk_device_);
+    for (auto& i : graphics.buffer_sync_actions)
+      i.second();
+    for (auto& i : graphics.temporary_buffer_sync_actions)
+      i();
+    graphics.temporary_buffer_sync_actions.clear();
     GeometryStorage::DeviceSync();
     TextureStorage::DeviceSync();
     const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
     vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX);
-    action();
+    swap_chain_action();
     vkResetFences(graphics.vk_device_, 1, in_flight_fences);
   };
 
@@ -1540,7 +1563,8 @@ void Platform::PreUpdate() {
       }
     }
   } else {
-    vulkan_update([]{});
+    vulkan_update([] {
+    });
   }
 
   graphics.ResetCommandBuffers();

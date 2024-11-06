@@ -22,8 +22,15 @@ layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 memoryBarrierShared(); \
 barrier();
 
+
+layout(std430, set = 1, binding = 0) readonly buffer EXTERNAL_FORCE_BLOCK {
+  int particle_indices[];
+};
+
 layout(push_constant) uniform PUSH_CONSTANTS {
-	vec4 acceleration_particle_size;
+	vec4 target_position_multiplier;
+	float time_step;
+	uint command_size;
 };
 
 void main(){
@@ -31,11 +38,16 @@ void main(){
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint particle_index = baseID + local_index;
+		uint global_index = baseID + local_index;
 
-		if(particle_index >= floatBitsToUint(acceleration_particle_size.w)) break;
-		vec3 acceleration = acceleration_particle_size.xyz;
+		if(global_index >= command_size) break;
+		int particle_index = particle_indices[global_index];
 		Particle particle = particles[particle_index];
-		particles[particle_index].acceleration_inv_mass.xyz += acceleration;
+		Segment segment = segments[floatBitsToInt(particle.old_x_segment_handle.w)];
+
+		vec3 diff = target_position_multiplier.xyz - particle.x_node_handle.xyz;
+		vec3 force = diff * target_position_multiplier.w * time_step;
+
+		particles[particle_index].acceleration_connectivity_strain.xyz += force * segment.inv_mass;
 	}
 }

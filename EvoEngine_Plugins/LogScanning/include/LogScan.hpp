@@ -61,19 +61,17 @@ struct LogScanProfile {
   float encoder_value = 0.f;
   std::vector<glm::vec2> points;
   std::vector<int> brightness;
-
-  std::vector<glm::vec2> BuildBoundary(const JoeScanConfig& joe_scan_config, int target_scan_head) const;
+  std::vector<glm::vec2> BuildBoundary(const JoeScanConfig& joe_scan_config) const;
 };
 
 class LogScan : public IAsset {
  public:
-  AssetRef config;
-  AssetRef scanner_prefab;
   std::vector<LogScanProfile> profiles;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Regularize();
+  void Recenter();
 };
 }  // namespace log_scanning_plugin
