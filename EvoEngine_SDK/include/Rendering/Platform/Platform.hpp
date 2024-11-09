@@ -175,8 +175,13 @@ class Platform final {
   int used_command_buffer_size_ = 0;
   std::vector<std::vector<std::shared_ptr<CommandBuffer>>> command_buffer_pool_ = {};
   std::shared_ptr<CommandBuffer> immediate_submit_command_buffer;
+  std::unordered_map<std::string, std::function<void()>> buffer_sync_actions;
+  std::vector<std::function<void()>> temporary_buffer_sync_actions;
 
  public:
+  static void AddTemporaryBufferSyncAction(const std::function<void()>& action);
+  static void AddBufferSyncAction(const std::string& action_name, const std::function<void()>& action);
+  static void RemoveBufferSyncAction(const std::string& action_name);
   static void RecordCommandsMainQueue(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
 
   double cpu_wait_time = 0.0f;

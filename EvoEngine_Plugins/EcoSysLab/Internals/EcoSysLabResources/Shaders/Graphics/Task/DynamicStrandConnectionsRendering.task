@@ -27,7 +27,7 @@ struct Task{
 taskPayloadSharedEXT Task ts_out;
 
 #if EXT_TASK_SUBGROUP_COUNT > 1
-	shared uint s_out_strand_segments_count;
+	shared uint s_out_connections_count;
 #endif
 
 #define BARRIER() \
@@ -35,52 +35,56 @@ taskPayloadSharedEXT Task ts_out;
 	barrier();
 
 layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
-  uint camera_index;
-  uint strands_size;
-  uint strand_segments_size;
+	vec4 min_color;
+	vec4 max_color;
+
+	uint camera_index;
+	uint connections_size;
+	uint color_mode;
+	uint multiplier;
 };
 
 void main(){
 	
 #if EXT_TASK_SUBGROUP_COUNT > 1
 	if (laneID == 0) {
-		s_out_strand_segments_count = 0;
+		s_out_connections_count = 0;
 	}
 	BARRIER();
 #endif
-	uint out_strand_segments_count = 0;
+	uint out_connections_count = 0;
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
-		uint strand_segment_index_local  = laneID + i * WORKGROUP_SIZE;
-		uint strand_segment_index_global = baseID + strand_segment_index_local;
+		uint connection_index_local  = laneID + i * WORKGROUP_SIZE;
+		uint connection_index_global = baseID + connection_index_local;
 
-		bool render = !(strand_segment_index_global > strand_segments_size - 1);
+		bool render = !(connection_index_global > connections_size - 1) && floatBitsToInt(connections[connection_index_global].bend_twist_strain_valid.w) != 0;
 
-		uvec4 vote_strand_segments = subgroupBallot(render);
-		uint num_strand_segments  = subgroupBallotBitCount(vote_strand_segments);
+		uvec4 vote_connections = subgroupBallot(render);
+		uint num_connections  = subgroupBallotBitCount(vote_connections);
 
 #if EXT_TASK_SUBGROUP_COUNT > 1
 		if (gl_SubgroupInvocationID == 0) {
-			out_strand_segments_count = atomicAdd(s_out_strand_segments_count, num_strand_segments);
+			out_connections_count = atomicAdd(s_out_connections_count, num_connections);
 		}
-		out_strand_segments_count = subgroupBroadcastFirst(out_strand_segments_count);
+		out_connections_count = subgroupBroadcastFirst(out_connections_count);
 #endif
-		uint idx_offset  = subgroupBallotExclusiveBitCount(vote_strand_segments) + out_strand_segments_count;
+		uint idx_offset  = subgroupBallotExclusiveBitCount(vote_connections) + out_connections_count;
 		if (render) 
 		{
-			ts_out.deltaIDs[idx_offset] = uint8_t(strand_segment_index_local);
+			ts_out.deltaIDs[idx_offset] = uint8_t(connection_index_local);
 		}
 #if EXT_TASK_SUBGROUP_COUNT == 1
-		out_strand_segments_count += num_strand_segments;
+		out_connections_count += num_connections;
 #endif
 	}
 
 #if EXT_TASK_SUBGROUP_COUNT > 1
 	BARRIER();
-	out_strand_segments_count = s_out_strand_segments_count;
+	out_connections_count = s_out_connections_count;
 #endif
 	if (laneID == 0) {
 		ts_out.baseID = baseID;
 	}
-	EmitMeshTasksEXT(out_strand_segments_count, 1, 1);
+	EmitMeshTasksEXT(out_connections_count, 1, 1);
 }

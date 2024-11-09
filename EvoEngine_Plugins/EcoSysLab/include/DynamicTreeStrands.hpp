@@ -7,10 +7,9 @@ using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
 class DsParticleNeighbor;
-class DsGravityForce;
-class DsRotationUpdate;
-class DsPositionUpdate;
-class DsExternalForce;
+class DsGravity;
+class DsTransform;
+class DsDragForce;
 class DynamicTreeStrands : public IPrivateComponent {
  public:
   bool enable_simulation = true;
@@ -20,20 +19,23 @@ class DynamicTreeStrands : public IPrivateComponent {
   StrandModelStrandGroup subdivided_strand_group{};
 
   DynamicStrands::InitializeParameters initialize_parameters{};
-  DynamicStrands::StepParameters step_parameters{};
+  bool enable_physics = false;
+  bool enable_visualization = false;
+  DynamicStrands::PhysicsParameters physics_parameters{};
+  DynamicStrands::VisualizationParameters visualization_parameters{};
   std::shared_ptr<DynamicStrands> dynamic_strands{};
 
-  GlobalTransform previous_global_transform;
-  std::shared_ptr<DsPositionUpdate> base_position_update;
-  std::shared_ptr<DsRotationUpdate> base_rotation_update;
-
-  EntityRef operator_entity_ref{};
-  GlobalTransform operator_root_transform{};
-  std::shared_ptr<DsPositionUpdate> operator_position_update;
-  std::shared_ptr<DsRotationUpdate> operator_rotation_update;
-
-  std::shared_ptr<DsExternalForce> external_force;
-  std::shared_ptr<DsGravityForce> gravity_force;
+  struct TransformOperator {
+    Entity target_entity;
+    std::shared_ptr<DsTransform> ds_transform;
+  };
+  struct DragForceOperator {
+    Entity target_entity;
+    std::shared_ptr<DsDragForce> ds_drag_force;
+  };
+  std::vector<TransformOperator> transform_operators;
+  std::vector<DragForceOperator> drag_force_operators;
+  std::shared_ptr<DsGravity> gravity;
   std::shared_ptr<DsParticleNeighbor> connectivity;
   void UpdateDynamicStrands();
   void Serialize(YAML::Emitter& out) const override;
@@ -45,7 +47,8 @@ class DynamicTreeStrands : public IPrivateComponent {
   void OnDestroy() override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
   void SingleRodExperimentSetup(float total_length, float segment_length);
-  void MultipleRodExperimentSetup(float total_length, float segment_length, float radius, const glm::vec2 &intersection, bool add_operator);
+  void MultipleRodExperimentSetup(float total_length, float segment_length, float radius, const glm::vec2& intersection,
+                                  bool add_operator);
   void Subdivide(float segment_length, const StrandModelStrandGroup& src);
   void InitializeStrandParticles(const StrandModelStrandGroup& strand_group) const;
   void ClearStrandParticles() const;

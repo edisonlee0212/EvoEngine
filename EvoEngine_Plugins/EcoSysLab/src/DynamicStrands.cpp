@@ -41,10 +41,12 @@ DynamicStrands::DynamicStrands() {
   prediction = std::make_shared<DynamicStrandsPrediction>();
 }
 
+bool DynamicStrands::WaitForUpload() const {
+  return wait_for_upload;
+}
+
 bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (ImGui::Checkbox("Static root", &static_root))
-    changed = true;
   if (ImGui::DragFloat("Wood Density", &wood_density, 0.01f, 0.01f, 3.0f))
     changed = true;
   if (ImGui::DragFloat("Shear stiffness", &shear_stiffness, 0.01f, 0.01f, 1.0f))
@@ -110,7 +112,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
         segment.radius * segment.radius * glm::pi<float>() * initialize_parameters.wood_density * segment.rest_length;
     segment.inertia_tensor = ComputeInertiaTensorRod(mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
-    segment.inv_mass = 1.f / mass;
+    segment.original_inv_mass = 1.f / mass;
 
     /*
     const float youngs_modulus = initialize_parameters.youngs_modulus * 1000000000.f;
@@ -148,9 +150,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     particle0.acceleration = particle1.acceleration = glm::vec3(0.0);
     particle0.strand_handle = particle1.strand_handle = segment.strand_handle;
     particle0.node_handle = particle1.node_handle = strand_segment_data.node_handle;
-    const float mass =
-        segment.radius * segment.radius * glm::pi<float>() * initialize_parameters.wood_density * segment.rest_length;
-    particle0.inv_mass = particle1.inv_mass = 1.f / mass;
     particle0.segment_handle = particle1.segment_handle = static_cast<int>(segment_handle);
   });
 
@@ -194,16 +193,10 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       const auto& q1 = segment1.q0;
 
       connection.rest_darboux_vector = glm::conjugate(q0) * q1;
-    }
-    if (initialize_parameters.static_root) {
-      auto& first_segment = segments[strand.begin_segment_handle];
-      first_segment.inv_mass = 0;
-      auto& first_particle = particles[first_segment.particle0_handle];
-      first_particle.inv_mass = 0;
+      connection.bend_twist_strain_valid.w = glm::uintBitsToFloat(1);
     }
   }
-  for (const auto& i : operators)
-    i->InitializeData(initialize_parameters, strand_model_skeleton, *this);
+  Upload();
   for (const auto& i : constraints)
     i->InitializeData(initialize_parameters, strand_model_skeleton, *this);
 }
@@ -220,8 +213,7 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     changed = true;
   return changed;
 }
-
-void DynamicStrands::Step(const StepParameters& target_step_parameters) const {
+void DynamicStrands::UpdateBindings() const {
   if (segments.empty())
     return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -230,42 +222,34 @@ void DynamicStrands::Step(const StepParameters& target_step_parameters) const {
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_segments_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(2, device_particles_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_connections_buffer, 0);
-
-  if (target_step_parameters.physics) {
-    Physics(target_step_parameters.physics_parameters);
-  }
-
-  if (target_step_parameters.visualization) {
-    Visualization(target_step_parameters.visualization_parameters);
-  }
 }
 
-void DynamicStrands::Upload() const {
-  device_strands_buffer->UploadVector(strands);
-  device_segments_buffer->UploadVector(segments);
-  device_particles_buffer->UploadVector(particles);
-  device_connections_buffer->UploadVector(connections);
+void DynamicStrands::Upload() {
+  wait_for_upload = true;
+  Platform::AddTemporaryBufferSyncAction([&]() {
+    device_strands_buffer->UploadVector(strands);
+    device_segments_buffer->UploadVector(segments);
+    device_particles_buffer->UploadVector(particles);
+    device_connections_buffer->UploadVector(connections);
 
-  for (const auto& op : operators) {
-    op->UploadData();
-  }
-  for (const auto& c : constraints) {
-    c->UploadData();
-  }
+    for (const auto& c : constraints) {
+      c->UploadData();
+    }
+    wait_for_upload = false;
+  });
 }
 
 void DynamicStrands::Download() {
-  device_strands_buffer->DownloadVector(strands, strands.size());
-  device_segments_buffer->DownloadVector(segments, segments.size());
-  device_particles_buffer->DownloadVector(particles, particles.size());
-  device_connections_buffer->DownloadVector(connections, connections.size());
+  Platform::AddTemporaryBufferSyncAction([&]() {
+    device_strands_buffer->DownloadVector(strands, strands.size());
+    device_segments_buffer->DownloadVector(segments, segments.size());
+    device_particles_buffer->DownloadVector(particles, particles.size());
+    device_connections_buffer->DownloadVector(connections, connections.size());
 
-  for (const auto& op : operators) {
-    op->DownloadData();
-  }
-  for (const auto& c : constraints) {
-    c->DownloadData();
-  }
+    for (const auto& c : constraints) {
+      c->DownloadData();
+    }
+  });
 }
 
 void DynamicStrands::Clear() {

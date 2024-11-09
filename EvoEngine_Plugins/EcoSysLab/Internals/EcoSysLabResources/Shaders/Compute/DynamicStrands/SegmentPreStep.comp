@@ -39,6 +39,10 @@ void main(){
 
 		Segment segment = segments[segment_index];
 		segment.torque_rest_length.xyz = vec3(0.0, 0.0, 0.0);
+		segment.inv_mass = segment.stretch_shear_strain_original_inv_mass.w;
+
+		segment.stretch_shear_strain_original_inv_mass.xyz = vec3(0.0, 0.0, 0.0);
+
 		segments[segment_index] = segment;
 	}
 }

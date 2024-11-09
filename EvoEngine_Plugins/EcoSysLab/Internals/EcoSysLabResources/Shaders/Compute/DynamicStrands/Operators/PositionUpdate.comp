@@ -48,9 +48,12 @@ void main(){
 		uint particle_index = floatBitsToUint(position_update.new_position_index.w);
 
 		vec3 new_position = position_update.new_position_index.xyz;
-		//vec3 old_position = particles[particle_index].x.xyz;
+		//vec3 old_position = particles[particle_index].x_node_handle.xyz;
 		//vec3 delta_position = new_position - old_position;
+		Particle particle = particles[particle_index];
+		particle.x_node_handle.xyz = particle.last_x_strand_handle.xyz = particle.old_x_segment_handle.xyz = new_position;
+		particle.acceleration_connectivity_strain.xyz = vec3(0, 0, 0);
 
-		particles[particle_index].x.xyz = particles[particle_index].last_x.xyz = particles[particle_index].old_x.xyz = new_position;
+		particles[particle_index] = particle;
 	}
 }

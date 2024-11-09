@@ -8,8 +8,6 @@
 using namespace log_scanning_plugin;
 using namespace eco_sys_lab_plugin;
 void LogScan::Serialize(YAML::Emitter& out) const {
-  config.Save("config", out);
-  scanner_prefab.Save("scanner_prefab", out);
   out << YAML::Key << "profiles" << YAML::Value << YAML::BeginSeq;
   for (const auto& profile : profiles) {
     out << YAML::BeginMap;
@@ -27,8 +25,6 @@ void LogScan::Serialize(YAML::Emitter& out) const {
 }
 
 void LogScan::Deserialize(const YAML::Node& in) {
-  config.Load("config", in);
-  scanner_prefab.Load("scanner_prefab", in);
   if (in["profiles"]) {
     profiles.clear();
     for (const auto& in_profile : in["profiles"]) {
@@ -51,13 +47,12 @@ void LogScan::Deserialize(const YAML::Node& in) {
 }
 
 void LogScan::CollectAssetRef(std::vector<AssetRef>& list) {
-  list.emplace_back(config);
-  list.emplace_back(scanner_prefab);
 }
 
 bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-
+  static AssetRef config;
+  static AssetRef scanner_prefab;
   editor_layer->DragAndDropButton<Json>(config, "JsConfig");
   editor_layer->DragAndDropButton<Prefab>(scanner_prefab, "Scanner Model");
   const auto config_asset = config.Get<Json>();
@@ -81,6 +76,9 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     profile_points_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
   if (ImGui::Button("Regularize")) {
     Regularize();
+  }
+  if (ImGui::Button("Recenter")) {
+    Recenter();
   }
 
   static bool enable_joe_scan_rendering = true;
@@ -127,7 +125,7 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       const auto& profile = profiles[profile_index];
       JoeScanConfig joe_scan_config;
       joe_scan_config.Import(config_asset);
-      const auto boundary_points = profile.BuildBoundary(joe_scan_config, scan_head_index);
+      const auto boundary_points = profile.BuildBoundary(joe_scan_config);
       profile_data.resize(boundary_points.size());
       Jobs::RunParallelFor(boundary_points.size(), [&](unsigned i) {
         profile_data[i].instance_matrix.SetPosition(
@@ -181,7 +179,6 @@ void LogScan::Regularize() {
     profiles.emplace_back(copy[i.second]);
   }
 
-  glm::vec2 offset = glm::vec2(0.0f);
   float min_encoder = FLT_MAX;
   float max_encoder = -FLT_MAX;
   for (const auto& i : profiles) {
@@ -194,21 +191,31 @@ void LogScan::Regularize() {
     profile.encoder_value -= center;
     profile.encoder_value *= 2.4384f / distance;
   }
-
-  if (const auto center_profile_index = profiles.size() * .5f; center_profile_index < profiles.size()) {
-    const auto& profile = profiles[center_profile_index];
-    for (const auto& point : profile.points) {
-      offset += point;
-    }
-    offset /= profiles[center_profile_index].points.size();
-  }
-
   for (auto& profile : profiles) {
     for (auto& point : profile.points) {
-      point -= offset;
       point *= 0.0001f;
       point *= 0.254f;
     }
+  }
+}
+
+void LogScan::Recenter() {
+  auto center = glm::vec2(0.f);
+  for (const auto& profile : profiles) {
+    auto points_min = glm::vec2(FLT_MAX, FLT_MAX);
+    auto points_max = glm::vec2(-FLT_MAX, -FLT_MAX);
+
+    const auto centered_points = profile.points;
+    for (const auto& i : centered_points) {
+      points_min = glm::min(points_min, i);
+      points_max = glm::max(points_max, i);
+    }
+    center += (points_min + points_max) * .5f;
+  }
+  center /= profiles.size();
+  for (auto& profile : profiles) {
+    for (auto& point : profile.points)
+      point -= center;
   }
 }
 
@@ -255,90 +262,188 @@ void JoeScanConfig::PlacePrefabs(const std::shared_ptr<Prefab>& prefab) const {
   }
 }
 
-std::vector<glm::vec2> LogScanProfile::BuildBoundary(const JoeScanConfig& joe_scan_config, int target_scan_head) const {
-  const auto get_radians = [&](const glm::vec2& a, const glm::vec2& b) {
+std::vector<glm::vec2> LogScanProfile::BuildBoundary(const JoeScanConfig& joe_scan_config) const {
+  const auto get_radians = [](const glm::vec2& a, const glm::vec2& b) {
     const auto radians = glm::acos(glm::clamp(glm::dot(a, b) / (glm::length(a) * glm::length(b)), -1.0f, 1.0f));
     if (const auto det = a.x * b.y - a.y * b.x; det < 0)
-      return -radians;
-    return radians;
+      return -glm::degrees(radians);
+    return glm::degrees(radians);
+  };
+
+  const auto ray_intersects_aabb = [](const glm::vec2& ray_origin, const glm::vec2& ray_dir, const glm::vec2& min_bound,
+                                      const glm::vec2& max_bound, float& t) {
+    float t_min = (min_bound.x - ray_origin.x) / ray_dir.x;
+    float t_max = (max_bound.x - ray_origin.x) / ray_dir.x;
+
+    if (t_min > t_max)
+      std::swap(t_min, t_max);
+
+    float ty_min = (min_bound.y - ray_origin.y) / ray_dir.y;
+    float ty_max = (max_bound.y - ray_origin.y) / ray_dir.y;
+
+    if (ty_min > ty_max)
+      std::swap(ty_min, ty_max);
+
+    // Check for overlap between the intervals on the x and y axes
+    if (t_min > ty_max || ty_min > t_max)
+      return false;
+
+    // Update tMin and tMax to ensure the intersection occurs within both intervals
+    if (ty_min > t_min)
+      t_min = ty_min;
+    if (ty_max < t_max)
+      t_max = ty_max;
+
+    // Set the first intersection point distance and calculate the intersection point
+    t = t_min;
+    return true;
   };
 
   auto points_min = glm::vec2(FLT_MAX, FLT_MAX);
   auto points_max = glm::vec2(-FLT_MAX, -FLT_MAX);
+
+  auto centered_points = points;
+  //constexpr auto x_bound = 0.0943f;
+  //constexpr auto y_bound = 0.0689f;
   for (const auto& i : points) {
     points_min = glm::min(points_min, i);
     points_max = glm::max(points_max, i);
   }
+
+  // const auto center = (points_min + points_max) * .5f;
+  constexpr auto center = glm::vec2(0.0f);
+  for (auto& i : centered_points)
+    i -= center;
+  points_max -= center;
+  points_min -= center;
   std::vector<ProfileGrid> grids(1);
-  // grids.resize(joe_scan_config.scan_heads.size());
+  grids.resize(joe_scan_config.scan_heads.size());
+  constexpr auto x_limit = 0.0635f;
+  constexpr auto y_limit = 0.0381f;
+  for (uint32_t grid_i = 0; grid_i < grids.size(); grid_i++) {
+    constexpr float rotation_factor = 5.f;
+    auto& grid = grids[grid_i];
+    grid.Reset(0.001f, points_min - glm::vec2(0.005f), points_max + glm::vec2(0.005f));
+    grid.Clear();
 
-  // for (uint32_t i = 0; i < grids.size(); i++) {
-  auto& grid = grids[0];
-  grid.Reset(0.001f, points_min - glm::vec2(0.1f), points_max + glm::vec2(0.1f));
-  grid.Clear();
-  const float rotation_factor = 180.f;
-  const auto& scan_head = joe_scan_config.scan_heads[target_scan_head];
-  const auto scan_head_position = scan_head.shift * 0.0254f;
-  // float head_center_distance = glm::length(scan_head_position);
-  const auto scan_head_direction = glm::normalize(-scan_head_position);
-  std::map<int, float> rotation_depth{};
-  
-  for (const auto& point : points) {
-    const auto v = point - scan_head_position;
-    const auto radians = get_radians(v, scan_head_direction);
-    const int rotation = static_cast<int>(radians * rotation_factor);
-    const auto depth = glm::length(v);
-    if (const auto search = rotation_depth.find(rotation); search != rotation_depth.end() && search->second < depth) {
-      search->second = depth;
-    } else {
-      rotation_depth[rotation] = depth;
-    }
-  }
+    const auto& scan_head = joe_scan_config.scan_heads[grid_i];
+    const auto scan_head_position = scan_head.shift * 0.0254f;
+    const auto scan_head_direction = glm::normalize(-scan_head_position);
+    std::map<int, float> rotation_depth{};
 
-  std::vector<std::pair<int, float>> rotation_depth_list;
-  rotation_depth_list.reserve(rotation_depth.size());
-  for (const auto& it : rotation_depth) {
-    rotation_depth_list.emplace_back(it.first, it.second);
-  }
-  Jobs::RunParallelFor(grid.RefCells().size(), [&](const size_t cell_i) {
-    const auto pixel_position = grid.GetPosition(static_cast<unsigned>(cell_i));
-    const auto v = pixel_position - scan_head_position;
-    const auto radians = get_radians(v, scan_head_direction);
-    const int rotation = static_cast<int>(radians * rotation_factor);
-    const auto depth = glm::length(v);
-     if (rotation < rotation_depth_list.front().first)
-       return;
-     if (rotation > rotation_depth_list.back().first)
-       return;
-    for (uint32_t list_i = 0; list_i < rotation_depth_list.size() - 1; list_i++) {
-      const auto& left = rotation_depth_list[list_i];
-      const auto& right = rotation_depth_list[list_i + 1];
-      if (rotation < left.first || rotation > right.first)
+    bool top_valid = glm::dot(scan_head_direction, glm::vec2(0, 1)) < -0.5f;
+    bool left_valid = glm::dot(scan_head_direction, glm::vec2(1, 0)) < -0.5f;
+    bool right_valid = glm::dot(scan_head_direction, glm::vec2(-1, 0)) < -0.5f;
+    bool bottom_valid = glm::dot(scan_head_direction, glm::vec2(0, -1)) < -0.5f;
+
+    for (const auto& point : centered_points) {
+      if (glm::abs(point.x) > 0.125f)
         continue;
-      const auto a = (rotation - left.first) / static_cast<float>(right.first - left.first);
-      if (const auto interpolated_depth = glm::mix(left.second, right.second, a); depth > interpolated_depth) {
-        grid.RefCell(static_cast<unsigned>(cell_i)).occluded = true;
+      if (glm::abs(point.y) > 0.1f)
+        continue;
+      bool point_top = point.y > 0.f && glm::abs(point.x / point.y) < 9.f / 7.f;
+      bool point_bottom = point.y < 0.f && glm::abs(point.x / point.y) < 9.f / 7.f;
+      bool point_left = point.x > 0.f && glm::abs(point.x / point.y) >= 9.f / 7.f;
+      bool point_right = point.x < 0.f && glm::abs(point.x / point.y) >= 9.f / 7.f;
+
+      if (top_valid) {
+        if (left_valid) {
+          if (point_bottom || point_right)
+            continue;
+        } else if (right_valid) {
+          if (point_bottom || point_left)
+            continue;
+        } else {
+          if (point.y < 0.f)
+            continue;
+        }
+      } else if (bottom_valid) {
+        if (left_valid) {
+          if (point_top || point_right)
+            continue;
+        } else if (right_valid) {
+          if (point_top || point_left)
+            continue;
+        } else {
+          if (point.y > 0.f)
+            continue;
+        }
+      } else {
+        if (left_valid) {
+          if (point.x < 0.f)
+            continue;
+        } else if (right_valid) {
+          if (point.x > 0.f)
+            continue;
+        }
+      }
+      const auto v = point - scan_head_position;
+      const auto v_dir = glm::normalize(v);
+      const auto radians = get_radians(v, scan_head_direction);
+      const int rotation = static_cast<int>(radians * rotation_factor);
+      auto depth = glm::length(v);
+
+      if (float t; ray_intersects_aabb(scan_head_position, v_dir, glm::vec2(-x_limit, -y_limit),
+                                       glm::vec2(x_limit, y_limit), t)) {
+        depth = glm::min(t, depth);
+      }
+      if (const auto search = rotation_depth.find(rotation); search == rotation_depth.end()) {
+        rotation_depth[rotation] = depth;
+      } else if (depth < search->second) {
+        rotation_depth.at(rotation) = depth;
       }
     }
-  });
-  //}
+
+    std::vector<std::pair<int, float>> rotation_depth_list;
+    rotation_depth_list.reserve(rotation_depth.size());
+    for (const auto& it : rotation_depth) {
+      rotation_depth_list.emplace_back(it.first, it.second);
+    }
+    if (rotation_depth_list.size() < 2)
+      continue;
+    Jobs::RunParallelFor(grid.RefCells().size(), [&](const size_t cell_i) {
+      const auto pixel_position = grid.GetPosition(static_cast<unsigned>(cell_i));
+      const auto v = pixel_position - scan_head_position;
+      const auto radians = get_radians(v, scan_head_direction);
+      const int rotation = static_cast<int>(radians * rotation_factor);
+      const auto depth = glm::length(v);
+      if (rotation < rotation_depth_list.front().first)
+        return;
+      if (rotation > rotation_depth_list.back().first)
+        return;
+      for (uint32_t list_i = 0; list_i < rotation_depth_list.size() - 1; list_i++) {
+        const auto& left = rotation_depth_list[list_i];
+        const auto& right = rotation_depth_list[list_i + 1];
+        if (rotation < left.first || rotation > right.first)
+          continue;
+        const auto a = static_cast<float>(rotation - left.first) / static_cast<float>(right.first - left.first);
+        if (const auto interpolated_depth = glm::mix(left.second, right.second, a); depth >= interpolated_depth) {
+          grid.RefCell(static_cast<unsigned>(cell_i)).occluded = true;
+          return;
+        }
+      }
+    });
+  }
 
   ProfileGrid final_grid;
-  final_grid.Reset(0.001f, points_min - glm::vec2(0.1f), points_max + glm::vec2(0.1f));
+  final_grid.Reset(0.001f, points_min - glm::vec2(0.005f), points_max + glm::vec2(0.005f));
   final_grid.Clear();
   std::vector<glm::vec2> ret_val;
-  for (uint32_t i = 0; i < final_grid.RefCells().size(); i++) {
+  for (uint32_t cell_i = 0; cell_i < final_grid.RefCells().size(); cell_i++) {
+    const auto cell_position = final_grid.GetPosition(cell_i);
+    if (glm::abs(cell_position.x) < x_limit && glm::abs(cell_position.y) < y_limit)
+      continue;
+
     bool occluded = true;
-    // for (uint32_t grid_i = 1; grid_i < grids.size(); grid_i++) {
-    const auto& grid = grids[0];
-    if (!grid.PeekCells()[i].occluded) {
-      occluded = false;
-      // break;
+    for (const auto& grid : grids) {
+      if (!grid.PeekCells()[cell_i].occluded) {
+        occluded = false;
+        break;
+      }
     }
-    //}
-    final_grid.RefCells()[i].occluded = occluded;
+    final_grid.RefCells()[cell_i].occluded = occluded;
     if (occluded) {
-      ret_val.emplace_back(final_grid.GetPosition(i));
+      ret_val.emplace_back(final_grid.GetPosition(cell_i) + center);
     }
   }
   return ret_val;

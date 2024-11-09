@@ -4,15 +4,73 @@ using namespace eco_sys_lab_plugin;
 
 bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (ImGui::Combo("Visualization Mode",
-                   {"Default", "Bend/twist strain", "Stretch/shear strain", "Connectivity strain"}, render_mode))
+  if (ImGui::Checkbox("Particles", &render_particles))
     changed = true;
-  if (ImGui::ColorEdit4("Min Color", &min_color.x))
+  if (render_particles) {
+    if (ImGui::Combo("Particle mode", {"Default", "Segment color", "Connectivity strain"}, particle_render_mode))
+      changed = true;
+    switch (particle_render_mode) {
+      case 0: {
+        if (ImGui::ColorEdit4("Particle color", &particle_color2.x))
+          changed = true;
+        break;
+      }
+      case 2: {
+        if (ImGui::ColorEdit4("Particle min color", &particle_color0.x))
+          changed = true;
+        if (ImGui::ColorEdit4("Particle max color", &particle_color1.x))
+          changed = true;
+        if (ImGui::DragFloat("Particle multiplier", &particle_multiplier, 0.1f, 0.1f, 1000.f))
+          changed = true;
+        break;
+      }
+    }
+  }
+  if (ImGui::Checkbox("Segments", &render_segments))
     changed = true;
-  if (ImGui::ColorEdit4("Max Color", &max_color.x))
+  if (render_segments) {
+    if (ImGui::Combo("Segment mode", {"Default", "Segment color", "Stretch/shear strain"}, segment_render_mode))
+      changed = true;
+    switch (segment_render_mode) {
+      case 0: {
+        if (ImGui::ColorEdit4("Segment color", &segment_color2.x))
+          changed = true;
+        break;
+      }
+      case 2: {
+        if (ImGui::ColorEdit4("Segment min color", &segment_color0.x))
+          changed = true;
+        if (ImGui::ColorEdit4("Segment max color", &segment_color1.x))
+          changed = true;
+        if (ImGui::DragFloat("Segment multiplier", &segment_multiplier, 0.1f, 0.1f, 1000.f))
+          changed = true;
+        break;
+      }
+    }
+  }
+  if (ImGui::Checkbox("Connections", &render_connections))
     changed = true;
-  if (ImGui::DragFloat("Multiplier", &multiplier, 0.1f, 0.1f, 1000.f))
-    changed = true;
+  if (render_connections) {
+    if (ImGui::Combo("Connection mode", {"Default", "Bend/twist strain"}, connection_render_mode))
+      changed = true;
+
+    switch (segment_render_mode) {
+      case 0: {
+        if (ImGui::ColorEdit4("Connection color", &connection_color2.x))
+          changed = true;
+        break;
+      }
+      case 1: {
+        if (ImGui::ColorEdit4("Connection min color", &connection_color0.x))
+          changed = true;
+        if (ImGui::ColorEdit4("Connection max color", &connection_color1.x))
+          changed = true;
+        if (ImGui::DragFloat("Connection multiplier", &connection_multiplier, 0.1f, 0.1f, 1000.f))
+          changed = true;
+        break;
+      }
+    }
+  }
   return changed;
 }
 
@@ -28,17 +86,18 @@ void DynamicStrands::Visualization(const VisualizationParameters& render_paramet
   }
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
-  static std::shared_ptr<GraphicsPipeline> render_pipeline{};
-  struct RenderPushConstant {
-    uint32_t camera_index = 0;
-    uint32_t padding = 0;
-    uint32_t strand_segment_size = 0;
-    uint32_t render_mode = 2;
-
+  static std::shared_ptr<GraphicsPipeline> particle_render_pipeline{};
+  struct ParticleRenderPushConstant {
     glm::vec4 min_color = glm::vec4(0.2f);
     glm::vec4 max_color = glm::vec4(1.f);
+
+    uint32_t camera_index = 0;
+    uint32_t strand_particle_size = 0;
+    uint32_t render_mode = 2;
+    float multiplier = 10.0f;
   };
-  if (!render_pipeline) {
+
+  if (!particle_render_pipeline) {
     static std::shared_ptr<Shader> task_shader{};
     static std::shared_ptr<Shader> mesh_shader{};
     static std::shared_ptr<Shader> frag_shader{};
@@ -46,49 +105,175 @@ void DynamicStrands::Visualization(const VisualizationParameters& render_paramet
     task_shader = std::make_shared<Shader>();
     task_shader->Set(
         ShaderType::Task, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsRendering.task");
-
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandParticlesRendering.task");
     mesh_shader = std::make_shared<Shader>();
     mesh_shader->Set(
         ShaderType::Mesh, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandsRendering.mesh");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandParticlesRendering.mesh");
 
     frag_shader = std::make_shared<Shader>();
     frag_shader->Set(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsRendering.frag");
     // Descriptor set layout
-    render_pipeline = std::make_shared<GraphicsPipeline>();
-    render_pipeline->task_shader = task_shader;
-    render_pipeline->mesh_shader = mesh_shader;
+    particle_render_pipeline = std::make_shared<GraphicsPipeline>();
+    particle_render_pipeline->task_shader = task_shader;
+    particle_render_pipeline->mesh_shader = mesh_shader;
 
-    render_pipeline->fragment_shader = frag_shader;
-    render_pipeline->geometry_type = GeometryType::Mesh;
+    particle_render_pipeline->fragment_shader = frag_shader;
+    particle_render_pipeline->geometry_type = GeometryType::Mesh;
 
     auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
-    render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
-    render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    particle_render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
+    particle_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    particle_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+    particle_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    particle_render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
 
-    auto& push_constant_range = render_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RenderPushConstant);
+    auto& push_constant_range = particle_render_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(ParticleRenderPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    render_pipeline->Initialize();
+    particle_render_pipeline->Initialize();
+  }
+
+  static std::shared_ptr<GraphicsPipeline> segment_render_pipeline{};
+  struct SegmentRenderPushConstant {
+    glm::vec4 min_color = glm::vec4(0.2f);
+    glm::vec4 max_color = glm::vec4(1.f);
+
+    uint32_t camera_index = 0;
+    uint32_t strand_segment_size = 0;
+    uint32_t render_mode = 2;
+    float multiplier = 10.0f;
+  };
+  if (!segment_render_pipeline) {
+    static std::shared_ptr<Shader> task_shader{};
+    static std::shared_ptr<Shader> mesh_shader{};
+    static std::shared_ptr<Shader> frag_shader{};
+    // Load shader
+    task_shader = std::make_shared<Shader>();
+    task_shader->Set(
+        ShaderType::Task, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandSegmentsRendering.task");
+    mesh_shader = std::make_shared<Shader>();
+    mesh_shader->Set(
+        ShaderType::Mesh, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandSegmentsRendering.mesh");
+
+    frag_shader = std::make_shared<Shader>();
+    frag_shader->Set(
+        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsRendering.frag");
+    // Descriptor set layout
+    segment_render_pipeline = std::make_shared<GraphicsPipeline>();
+    segment_render_pipeline->task_shader = task_shader;
+    segment_render_pipeline->mesh_shader = mesh_shader;
+
+    segment_render_pipeline->fragment_shader = frag_shader;
+    segment_render_pipeline->geometry_type = GeometryType::Mesh;
+
+    auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
+    segment_render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
+    segment_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    segment_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+    segment_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    segment_render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+
+    auto& push_constant_range = segment_render_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentRenderPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+
+    segment_render_pipeline->Initialize();
+  }
+
+  static std::shared_ptr<GraphicsPipeline> connection_render_pipeline{};
+  struct ConnectionRenderPushConstant {
+    glm::vec4 min_color = glm::vec4(0.2f);
+    glm::vec4 max_color = glm::vec4(1.f);
+
+    uint32_t camera_index = 0;
+    uint32_t strand_connection_size = 0;
+    uint32_t render_mode = 2;
+    float multiplier = 10.0f;
+  };
+  if (!connection_render_pipeline) {
+    static std::shared_ptr<Shader> task_shader{};
+    static std::shared_ptr<Shader> mesh_shader{};
+    static std::shared_ptr<Shader> frag_shader{};
+    // Load shader
+    task_shader = std::make_shared<Shader>();
+    task_shader->Set(
+        ShaderType::Task, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandConnectionsRendering.task");
+    mesh_shader = std::make_shared<Shader>();
+
+    mesh_shader->Set(
+        ShaderType::Mesh, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandConnectionsRendering.mesh");
+
+    frag_shader = std::make_shared<Shader>();
+    frag_shader->Set(
+        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsRendering.frag");
+    // Descriptor set layout
+    connection_render_pipeline = std::make_shared<GraphicsPipeline>();
+    connection_render_pipeline->task_shader = task_shader;
+    connection_render_pipeline->mesh_shader = mesh_shader;
+
+    connection_render_pipeline->fragment_shader = frag_shader;
+    connection_render_pipeline->geometry_type = GeometryType::Mesh;
+
+    auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
+    connection_render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
+    connection_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    connection_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+    connection_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    connection_render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+
+    auto& push_constant_range = connection_render_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(ConnectionRenderPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+
+    connection_render_pipeline->Initialize();
   }
 
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  RenderPushConstant push_constant;
-  push_constant.render_mode = render_parameters.render_mode;
-  push_constant.min_color = render_parameters.min_color;
-  push_constant.max_color = render_parameters.max_color;
-  push_constant.camera_index = render_layer->GetCameraIndex(render_parameters.target_visualization_camera->GetHandle());
-  // push_constant.multiplier = visualization_parameters.multiplier;
-  push_constant.strand_segment_size = segments.size();
+
+  ParticleRenderPushConstant particle_push_constant;
+  particle_push_constant.render_mode = render_parameters.particle_render_mode;
+  particle_push_constant.min_color = render_parameters.particle_render_mode == 0 ? render_parameters.particle_color2
+                                                                                 : render_parameters.particle_color0;
+  particle_push_constant.max_color = render_parameters.particle_color1;
+  particle_push_constant.camera_index =
+      render_layer->GetCameraIndex(render_parameters.target_visualization_camera->GetHandle());
+  particle_push_constant.multiplier = render_parameters.particle_multiplier;
+  particle_push_constant.strand_particle_size = particles.size();
+
+  SegmentRenderPushConstant segment_push_constant;
+  segment_push_constant.render_mode = render_parameters.segment_render_mode;
+  segment_push_constant.min_color =
+      render_parameters.segment_render_mode == 0 ? render_parameters.segment_color2 : render_parameters.segment_color0;
+  segment_push_constant.max_color = render_parameters.segment_color1;
+  segment_push_constant.camera_index =
+      render_layer->GetCameraIndex(render_parameters.target_visualization_camera->GetHandle());
+  segment_push_constant.multiplier = render_parameters.segment_multiplier;
+  segment_push_constant.strand_segment_size = segments.size();
+
+  ConnectionRenderPushConstant connection_push_constant;
+  connection_push_constant.render_mode = render_parameters.connection_render_mode;
+  connection_push_constant.min_color = render_parameters.connection_render_mode == 0
+                                           ? render_parameters.connection_color2
+                                           : render_parameters.connection_color0;
+  connection_push_constant.max_color = render_parameters.connection_color1;
+  connection_push_constant.camera_index =
+      render_layer->GetCameraIndex(render_parameters.target_visualization_camera->GetHandle());
+  connection_push_constant.multiplier = render_parameters.connection_multiplier;
+  connection_push_constant.strand_connection_size = connections.size();
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
@@ -106,23 +291,65 @@ void DynamicStrands::Visualization(const VisualizationParameters& render_paramet
 #pragma endregion
     // 1 here means we only have 1 color attachment. (For deferred shading we will have multiple attachments for
     // GBuffer)
-    render_pipeline->states.ResetAllStates(1);
-    render_pipeline->states.view_port = viewport;
-    render_pipeline->states.scissor = scissor;
-    render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
-    render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
+    if (render_parameters.render_connections) {
+      connection_render_pipeline->states.ResetAllStates(1);
+      connection_render_pipeline->states.view_port = viewport;
+      connection_render_pipeline->states.scissor = scissor;
+      connection_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+      connection_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
 
-    render_pipeline->states.ApplyAllStates(vk_command_buffer);
-    render_parameters.target_visualization_camera->GetRenderTexture()->Render(
-        vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
-          render_pipeline->Bind(vk_command_buffer);
-          render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                             render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-          render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                             strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-          render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-          const uint32_t count = Platform::DivUp(segments.size(), task_work_group_invocations);
-          vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
-        });
+      connection_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+      render_parameters.target_visualization_camera->GetRenderTexture()->Render(
+          vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
+            connection_render_pipeline->Bind(vk_command_buffer);
+            connection_render_pipeline->BindDescriptorSet(
+                vk_command_buffer, 0, render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+            connection_render_pipeline->BindDescriptorSet(
+                vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+            connection_render_pipeline->PushConstant(vk_command_buffer, 0, connection_push_constant);
+            const uint32_t count = Platform::DivUp(connections.size(), task_work_group_invocations);
+            vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+          });
+    }
+    if (render_parameters.render_segments) {
+      segment_render_pipeline->states.ResetAllStates(1);
+      segment_render_pipeline->states.view_port = viewport;
+      segment_render_pipeline->states.scissor = scissor;
+      segment_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+      segment_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
+
+      segment_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+      render_parameters.target_visualization_camera->GetRenderTexture()->Render(
+          vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
+            segment_render_pipeline->Bind(vk_command_buffer);
+            segment_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                       render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+            segment_render_pipeline->BindDescriptorSet(
+                vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+            segment_render_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
+            const uint32_t count = Platform::DivUp(segments.size(), task_work_group_invocations);
+            vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+          });
+    }
+    if (render_parameters.render_particles) {
+      particle_render_pipeline->states.ResetAllStates(1);
+      particle_render_pipeline->states.view_port = viewport;
+      particle_render_pipeline->states.scissor = scissor;
+      particle_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+      particle_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
+
+      particle_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+      render_parameters.target_visualization_camera->GetRenderTexture()->Render(
+          vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
+            particle_render_pipeline->Bind(vk_command_buffer);
+            particle_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                        render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+            particle_render_pipeline->BindDescriptorSet(
+                vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+            particle_render_pipeline->PushConstant(vk_command_buffer, 0, particle_push_constant);
+            const uint32_t count = Platform::DivUp(particles.size(), task_work_group_invocations);
+            vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+          });
+    }
   });
 }
