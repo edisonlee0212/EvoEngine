@@ -56,11 +56,13 @@ void project_stretch_shear_constraint(in int segment_handle) {
 
   if (segment.prev_handle != -1) {
     int copy_particle_handle = floatBitsToInt(segments[segment.prev_handle].inv_inertia_tensor_particle_1_handle.w);
-    particles[copy_particle_handle].x_node_handle.xyz = particle0_new_position;
+    if (connections[particle0.connection_handle].bend_twist_strain_valid.w != 0.0)
+      particles[copy_particle_handle].x_node_handle.xyz = particle0_new_position;
   }
   if (segment.next_handle != -1) {
     int copy_particle_handle = floatBitsToInt(segments[segment.next_handle].inertia_tensor_particle_0_handle.w);
-    particles[copy_particle_handle].x_node_handle.xyz = particle1_new_position;
+    if (connections[particle1.connection_handle].bend_twist_strain_valid.w != 0.0)
+      particles[copy_particle_handle].x_node_handle.xyz = particle1_new_position;
   }
 }
 
@@ -135,10 +137,12 @@ void project_stretch_shear_constraint(in vec3 p0, in vec3 p1, in vec4 q, in floa
   q_correction *= 2.0 * inv_mass_q * rest_length;
 }
 
-void project_bend_twist_constraint(in int connection_handle) {  
-  vec4 q0_correction, q1_correction;
-
+void project_bend_twist_constraint(in int connection_handle) {
   Connection connection = connections[connection_handle];
+  if (connections[connection_handle].bend_twist_strain_valid.w == 0.0)
+    return;
+
+  vec4 q0_correction, q1_correction;
   int segment0_handle = connection.segment0_handle;
   int segment1_handle = connection.segment1_handle;
   Segment segment0 = segments[segment0_handle];

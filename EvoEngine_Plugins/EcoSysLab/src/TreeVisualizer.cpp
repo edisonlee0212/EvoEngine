@@ -18,7 +18,7 @@ bool TreeVisualizer::ScreenCurveSelection(const std::function<void(SkeletonNodeH
   const auto cameraPosition = editorLayer->GetSceneCameraPosition();
   const glm::vec3 cameraFront = cameraRotation * glm::vec3(0, 0, -1);
   const glm::vec3 cameraUp = cameraRotation * glm::vec3(0, 1, 0);
-  glm::mat4 projectionView = ecoSysLabLayer->m_visualizationCamera->GetProjection() *
+  glm::mat4 projectionView = ecoSysLabLayer->visualization_camera_->GetProjection() *
                              glm::lookAt(cameraPosition, cameraPosition + cameraFront, cameraUp);
 
   const auto& sortedInternodeList = skeleton.PeekSortedNodeList();
@@ -463,7 +463,7 @@ void TreeVisualizer::Visualize(const TreeModel& treeModel, const GlobalTransform
     gizmoSettings.depth_write = true;
     if (!m_internodeMatrices->PeekParticleInfoList().empty()) {
       editorLayer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CYLINDER"),
-                                                 ecoSysLabLayer->m_visualizationCamera, m_internodeMatrices,
+                                                 ecoSysLabLayer->visualization_camera_, m_internodeMatrices,
                                                  globalTransform.value, 1.0f, gizmoSettings);
       if (m_selectedInternodeHandle != -1) {
         const auto& node = treeSkeleton.PeekNode(m_selectedInternodeHandle);
@@ -478,7 +478,7 @@ void TreeVisualizer::Visualize(const TreeModel& treeModel, const GlobalTransform
                                                  2.0f * node.info.thickness + 0.01f));
         const auto color = glm::vec4(1.0f);
         editorLayer->DrawGizmoMesh(Resources::GetResource<Mesh>("PRIMITIVE_CYLINDER"),
-                                   ecoSysLabLayer->m_visualizationCamera, color, matrix, 1, gizmoSettings);
+                                   ecoSysLabLayer->visualization_camera_, color, matrix, 1, gizmoSettings);
       }
     }
   }

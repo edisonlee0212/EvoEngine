@@ -7,170 +7,169 @@
 #include "Tree.hpp"
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {
-struct Fruit {
-  GlobalTransform m_globalTransform;
-  float m_maturity = 0.0f;
-  float m_health = 1.0f;
-};
-
-enum class OperatorMode { Select, Rotate, Prune, Invigorate, Reduce };
-
-struct Leaf {
-  GlobalTransform m_globalTransform;
-  float m_maturity = 0.0f;
-  float m_health = 1.0f;
-};
-
 class EcoSysLabLayer : public ILayer {
-  unsigned m_operatorMode = static_cast<unsigned>(OperatorMode::Select);
-  float m_reduceRate = 0.1f;
-  bool m_autoGenerateMeshAfterEditing = false;
-  bool m_autoGenerateSkeletalGraphEveryFrame = false;
-  bool m_autoGenerateStrandsAfterEditing = false;
-  bool m_autoGenerateStrandMeshAfterEditing = false;
-
-  friend class TreeVisualizer;
-  friend class Tree;
-  bool m_displayShootStem = true;
-  bool m_displayFoliage = true;
-  bool m_displayFruit = true;
-  bool m_displayBoundingBox = false;
-  bool m_displaySoil = false;
-  bool m_displayGroundFruit = true;
-  bool m_displayGroundLeaves = true;
-
-  bool m_visualization = true;
-  std::vector<int> m_shootVersions;
-  std::vector<glm::vec3> m_randomColors;
-
-  std::vector<glm::uint> m_shootStemSegments;
-  std::vector<StrandPoint> m_shootStemPoints;
-
-  AssetRef m_shootStemStrands;
-
-  std::shared_ptr<ParticleInfoList> m_boundingBoxMatrices;
-
-  std::shared_ptr<ParticleInfoList> m_foliageMatrices;
-  std::shared_ptr<ParticleInfoList> m_fruitMatrices;
-
-  std::shared_ptr<ParticleInfoList> m_groundFruitMatrices;
-  std::shared_ptr<ParticleInfoList> m_groundLeafMatrices;
-
-  float m_lastUsedTime = 0.0f;
-  float m_totalTime = 0.0f;
-  int m_internodeSize = 0;
-  int m_leafSize = 0;
-  int m_fruitSize = 0;
-  int m_shootStemSize = 0;
-  int m_rootNodeSize = 0;
-  int m_rootStemSize = 0;
-
-  bool m_needFlowUpdateForSelection = false;
-  int m_lastSelectedTreeIndex = -1;
-
-  int m_soilVersion = -1;
-  bool m_vectorEnable = false;
-  bool m_scalarEnable = true;
-  bool m_updateVectorMatrices = false;
-  bool m_updateScalarMatrices = false;
-  float m_vectorMultiplier = 50.0f;
-  glm::vec4 m_vectorBaseColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.8f);
-  unsigned m_vectorSoilProperty = 4;
-  float m_vectorLineWidthFactor = 0.1f;
-  float m_vectorLineMaxWidth = 0.1f;
-  std::shared_ptr<ParticleInfoList> m_vectorMatrices;
-
-  float m_scalarMultiplier = 1.0f;
-  float m_scalarBoxSize = 1.0f;
-  float m_scalarMinAlpha = 0.00f;
-
-  std::vector<glm::vec4> m_soilLayerColors;
-
-  friend class Soil;
-
-  float m_soilCutoutXDepth = 0.0f;
-  float m_soilCutoutZDepth = 0.0f;
-
-  glm::vec3 m_scalarBaseColor = glm::vec3(0.0f, 0.0f, 1.0f);
-  unsigned m_scalarSoilProperty = 1;
-  std::shared_ptr<ParticleInfoList> m_scalarMatrices;
-
-  bool m_showShadowGrid = false;
-  bool m_showLightingGrid = false;
-  std::shared_ptr<ParticleInfoList> m_shadowGridParticleInfoList;
-  std::shared_ptr<ParticleInfoList> m_lightingGridParticleInfoList;
-
-  void PreUpdate() override;
-
-  void OnCreate() override;
-
-  void Visualization();
-
-  void OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
-
-  void OnSoilVisualizationMenu();
-
-  void UpdateFlows(const std::vector<Entity>* treeEntities, const std::shared_ptr<Strands>& branchStrands);
-
-  void ClearGroundFruitAndLeaf();
-
-  void UpdateGroundFruitAndLeaves() const;
-
-  // helper functions to structure code a bit
-  void SoilVisualization();
-
-  void SoilVisualizationScalar(VoxelSoilModel& soilModel);  // called during LateUpdate()
-  void SoilVisualizationVector(VoxelSoilModel& soilModel);  // called during LateUpdate()
-
-  float m_simulatedTime;
-
-  std::vector<Fruit> m_fruits;
-  std::vector<Leaf> m_leaves;
-
-  std::shared_ptr<Camera> m_visualizationCamera;
-
-  glm::vec2 m_visualizationCameraMousePosition;
-  bool m_visualizationCameraWindowFocused = false;
-
  public:
   [[nodiscard]] float GetSimulatedTime() const;
   void ExportAllTrees(const std::filesystem::path& path) const;
 
-  SimulationSettings m_simulationSettings{};
+  SimulationSettings simulation_settings{};
 
-  bool m_needFullFlowUpdate = false;
+  bool need_full_flow_update = false;
 
-  int m_visualizationCameraResolutionX = 1;
-  int m_visualizationCameraResolutionY = 1;
+  int visualization_camera_resolution_x = 1;
+  int visualization_camera_resolution_y = 1;
+  glm::vec2 visualization_camera_mouse_position;
 
-  TreeMeshGeneratorSettings m_meshGeneratorSettings;
-  StrandModelMeshGeneratorSettings m_strandMeshGeneratorSettings{};
-  SkeletalGraphSettings m_skeletalGraphSettings{};
+  TreeMeshGeneratorSettings mesh_generator_settings;
+  StrandModelMeshGeneratorSettings strand_mesh_generator_settings{};
+  SkeletalGraphSettings skeletal_graph_settings{};
 
-  Entity m_selectedTree = {};
+  Entity selected_tree = {};
 
   [[nodiscard]] glm::vec2 GetMouseSceneCameraPosition() const;
 
-  void Simulate(const SimulationSettings& simulationSettings);
+  void Simulate(const SimulationSettings& target_simulation_settings);
   void Simulate();
 
-  void GenerateMeshes(const TreeMeshGeneratorSettings& meshGeneratorSettings) const;
-  void GenerateSkeletalGraphs(const SkeletalGraphSettings& skeletalGraphSettings) const;
+  void GenerateMeshes(const TreeMeshGeneratorSettings& target_mesh_generator_settings) const;
+  void GenerateSkeletalGraphs(const SkeletalGraphSettings& target_skeletal_graph_settings) const;
   void ClearMeshes() const;
   void ClearSkeletalGraphs() const;
   void GenerateStrandModelProfiles() const;
-  void GenerateStrandModelMeshes(const StrandModelMeshGeneratorSettings& strandModelMeshGeneratorSettings) const;
+  void GenerateStrandModelMeshes(
+      const StrandModelMeshGeneratorSettings& target_strand_model_mesh_generator_settings) const;
   void ClearStrandModelMeshes() const;
 
   void GenerateStrandRenderers() const;
   void ClearStrandRenderers() const;
 
-  void ResetAllTrees(const std::vector<Entity>* treeEntities);
+  void ResetAllTrees(const std::vector<Entity>* tree_entities);
 
   static std::weak_ptr<Climate> FindClimate();
   static std::weak_ptr<Soil> FindSoil();
 
   const std::vector<glm::vec3>& RandomColors();
-};
 
+ private:
+  struct Fruit {
+    GlobalTransform global_transform;
+    float m_maturity = 0.0f;
+    float m_health = 1.0f;
+  };
+
+  struct Leaf {
+    GlobalTransform global_transform;
+    float m_maturity = 0.0f;
+    float m_health = 1.0f;
+  };
+
+  enum class TreeOperatorMode { Select, Rotate, Prune, Invigorate, Reduce };
+  unsigned tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::Select);
+  float tree_reduce_rate = 0.1f;
+  struct TreeVisualizerSettings {
+    bool display_shoot_stem = true;
+    bool display_foliage = true;
+    bool display_fruit = true;
+    bool display_bounding_box = false;
+    bool display_soil = false;
+    bool display_ground_fruit = true;
+    bool display_ground_leaves = true;
+    bool show_shadow_grid = false;
+    bool show_lighting_grid = false;
+    void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  };
+  struct StrandVisualizerSettings {
+    float drag_force_multiplier = 0.01f;
+    void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  };
+  TreeVisualizerSettings tree_visualizer_settings_;
+  StrandVisualizerSettings strand_visualizer_settings_;
+  bool auto_generate_mesh_after_editing_ = false;
+  bool auto_generate_skeletal_graph_every_frame_ = false;
+  bool auto_generate_strands_after_editing_ = false;
+  bool auto_generate_strand_mesh_after_editing_ = false;
+
+  friend class TreeVisualizer;
+  friend class Tree;
+  bool show_trees = true;
+  bool show_strands = true;
+  std::vector<int> shoot_versions_;
+  std::vector<glm::vec3> random_colors_;
+
+  std::vector<glm::uint> shoot_stem_segments_;
+  std::vector<StrandPoint> shoot_stem_points_;
+
+  AssetRef shoot_stem_strands_;
+
+  std::shared_ptr<ParticleInfoList> bounding_box_matrices_;
+
+  std::shared_ptr<ParticleInfoList> foliage_matrices_;
+  std::shared_ptr<ParticleInfoList> fruit_matrices_;
+
+  std::shared_ptr<ParticleInfoList> ground_fruit_matrices_;
+  std::shared_ptr<ParticleInfoList> ground_leaf_matrices_;
+
+  float last_used_time_ = 0.0f;
+  float total_time_ = 0.0f;
+  int internode_size_ = 0;
+  int leaf_size_ = 0;
+  int fruit_size_ = 0;
+  int shoot_stem_size_ = 0;
+  int root_node_size_ = 0;
+  int root_stem_size_ = 0;
+
+  bool need_flow_update_for_selection_ = false;
+  int last_selected_tree_index_ = -1;
+
+  int soil_version_ = -1;
+  bool vector_enable_ = false;
+  bool scalar_enable_ = true;
+  bool update_vector_matrices_ = false;
+  bool update_scalar_matrices_ = false;
+  float vector_multiplier_ = 50.0f;
+  glm::vec4 vector_base_color_ = glm::vec4(1.0f, 1.0f, 1.0f, 0.8f);
+  unsigned vector_soil_property_ = 4;
+  float vector_line_width_factor_ = 0.1f;
+  float vector_line_max_width_ = 0.1f;
+  std::shared_ptr<ParticleInfoList> vector_matrices_;
+
+  float scalar_multiplier_ = 1.0f;
+  float scalar_box_size_ = 1.0f;
+  float scalar_min_alpha_ = 0.00f;
+
+  std::vector<glm::vec4> soil_layer_colors_;
+
+  friend class Soil;
+
+  float soil_cutout_x_depth_ = 0.0f;
+  float soil_cutout_z_depth_ = 0.0f;
+
+  glm::vec3 scalar_base_color_ = glm::vec3(0.0f, 0.0f, 1.0f);
+  unsigned scalar_soil_property_ = 1;
+  std::shared_ptr<ParticleInfoList> scalar_matrices_;
+
+  std::shared_ptr<ParticleInfoList> shadow_grid_particle_info_list_;
+  std::shared_ptr<ParticleInfoList> lighting_grid_particle_info_list_;
+
+  float simulated_time_;
+  std::vector<Fruit> fruits_;
+  std::vector<Leaf> leaves_;
+  std::shared_ptr<Camera> visualization_camera_;
+
+  bool visualization_camera_window_focused_ = false;
+
+  void PreUpdate() override;
+  void OnCreate() override;
+  void TreeVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
+  void StrandVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
+  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  void OnSoilVisualizationMenu();
+  void UpdateFlows(const std::vector<Entity>* tree_entities, const std::shared_ptr<Strands>& branch_strands);
+  void ClearGroundFruitAndLeaf();
+  void UpdateGroundFruitAndLeaves() const;
+  // helper functions to structure code a bit
+  void SoilVisualization();
+  void SoilVisualizationScalar(const VoxelSoilModel& soil_model);  // called during LateUpdate()
+  void SoilVisualizationVector(const VoxelSoilModel& soil_model);  // called during LateUpdate()
+};
 }  // namespace eco_sys_lab_plugin

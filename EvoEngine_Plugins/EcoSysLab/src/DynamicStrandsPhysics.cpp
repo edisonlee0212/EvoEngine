@@ -185,7 +185,6 @@ DynamicStrandsPrediction::DynamicStrandsPrediction() {
 void DynamicStrandsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                                        const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-
   ParticlePredictionPushConstant particle_push_constant;
   particle_push_constant.particle_size = target_dynamic_strands.particles.size();
   particle_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
@@ -200,8 +199,7 @@ void DynamicStrandsPrediction::Execute(const DynamicStrands::PhysicsParameters& 
 
   ConnectionPredictionPushConstant connection_push_constant;
   connection_push_constant.connection_size = target_dynamic_strands.connections.size();
-  connection_push_constant.time_step = physics_parameters.time_step;
-  connection_push_constant.inv_time_step = 1.f / connection_push_constant.time_step;
+  connection_push_constant.max_bend_twist_strain = physics_parameters.max_bend_twist_strain;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     particle_prediction_pipeline->Bind(vk_command_buffer);
@@ -236,341 +234,12 @@ void DynamicStrandsPrediction::Execute(const DynamicStrands::PhysicsParameters& 
   });
 }
 
-DsTransform::DsTransform() {
-  if (!position_layout) {
-    position_layout = std::make_shared<DescriptorSetLayout>();
-    position_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    position_layout->Initialize();
-  }
-  VkBufferCreateInfo buffer_create_info{};
-  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  buffer_create_info.size = 1;
-  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
-  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
-
-  position_commands_buffer.resize(max_frame_in_flight);
-
-  for (int frame_index = 0; frame_index < max_frame_in_flight; frame_index++) {
-    position_commands_buffer[frame_index] =
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  }
-
-  if (!position_update_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->Set(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/PositionUpdate.comp");
-
-    position_update_pipeline = std::make_shared<ComputePipeline>();
-    position_update_pipeline->compute_shader = shader;
-
-    position_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    position_update_pipeline->descriptor_set_layouts.emplace_back(position_layout);
-
-    auto& push_constant_range = position_update_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(PositionUpdatePushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    position_update_pipeline->Initialize();
-  }
-  position_commands_descriptor_sets.resize(max_frame_in_flight);
-  for (auto& i : position_commands_descriptor_sets) {
-    i = std::make_shared<DescriptorSet>(position_layout);
-  }
-
-  if (!rotation_layout) {
-    rotation_layout = std::make_shared<DescriptorSetLayout>();
-    rotation_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    rotation_layout->Initialize();
-  }
-  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  buffer_create_info.size = 1;
-  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-  rotation_commands_buffer.resize(max_frame_in_flight);
-
-  for (int frame_index = 0; frame_index < max_frame_in_flight; frame_index++) {
-    rotation_commands_buffer[frame_index] =
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  }
-
-  if (!rotation_update_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->Set(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/RotationUpdate.comp");
-
-    rotation_update_pipeline = std::make_shared<ComputePipeline>();
-    rotation_update_pipeline->compute_shader = shader;
-
-    rotation_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    rotation_update_pipeline->descriptor_set_layouts.emplace_back(rotation_layout);
-
-    auto& push_constant_range = rotation_update_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RotationUpdatePushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    rotation_update_pipeline->Initialize();
-  }
-
-  rotation_commands_descriptor_sets.resize(max_frame_in_flight);
-  for (auto& i : rotation_commands_descriptor_sets) {
-    i = std::make_shared<DescriptorSet>(rotation_layout);
-  }
-}
-
-void DsTransform::Initialize(const GlobalTransform& target_base_global_transform,
-                             const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
-                             const std::vector<uint32_t>& segment_handles) {
-  base_global_transform = target_base_global_transform;
-  inverse_base_global_transform.value = glm::inverse(base_global_transform.value);
-  position_commands.resize(segment_handles.size() * 2);
-  rotation_commands.resize(segment_handles.size());
-
-  Jobs::RunParallelFor(segment_handles.size(), [&](const size_t i) {
-    const auto& segment_handle = segment_handles[i];
-    const auto& segment = target_dynamic_strands->segments[segment_handle];
-    position_commands[i * 2].particle_index = segment.particle0_handle;
-    position_commands[i * 2].new_position = target_dynamic_strands->particles[segment.particle0_handle].x0;
-    position_commands[i * 2 + 1].particle_index = segment.particle1_handle;
-    position_commands[i * 2 + 1].new_position = target_dynamic_strands->particles[segment.particle1_handle].x0;
-
-    rotation_commands[i].segment_index = segment_handle;
-    rotation_commands[i].new_rotation = segment.q0;
-  });
-}
-
-void DsTransform::Update(const GlobalTransform& new_global_transform,
-                         const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  const glm::quat rotation = new_global_transform.GetRotation() * inverse_base_global_transform.GetRotation();
-  Jobs::RunParallelFor(rotation_commands.size(), [&](const size_t i) {
-    auto& position_command0 = position_commands[2 * i];
-    auto& position_command1 = position_commands[2 * i + 1];
-    auto& rotation_command = rotation_commands[i];
-    position_command0.new_position = new_global_transform.TransformPoint(inverse_base_global_transform.TransformPoint(
-        target_dynamic_strands->particles[position_command0.particle_index].x0));
-    position_command1.new_position = new_global_transform.TransformPoint(inverse_base_global_transform.TransformPoint(
-        target_dynamic_strands->particles[position_command1.particle_index].x0));
-    rotation_command.new_rotation = rotation * target_dynamic_strands->segments[rotation_command.segment_index].q0;
-  });
-}
-
-void DsTransform::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-                          const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  if (!position_commands.empty()) {
-    const auto current_frame_index = Platform::GetCurrentFrameIndex();
-    position_commands_buffer[current_frame_index]->UploadVector(position_commands);
-    position_commands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-        0, position_commands_buffer[current_frame_index]);
-
-    PositionUpdatePushConstant push_constant;
-    push_constant.commands_size = position_commands.size();
-    const uint32_t task_work_group_invocations =
-        Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-
-    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-      position_update_pipeline->Bind(vk_command_buffer);
-      position_update_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0,
-          target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      position_update_pipeline->BindDescriptorSet(
-          vk_command_buffer, 1, position_commands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      position_update_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.commands_size, task_work_group_invocations), 1, 1);
-      Platform::EverythingBarrier(vk_command_buffer);
-    });
-  }
-  if (!rotation_commands.empty()) {
-    const auto current_frame_index = Platform::GetCurrentFrameIndex();
-    rotation_commands_buffer[current_frame_index]->UploadVector(rotation_commands);
-    rotation_commands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-        0, rotation_commands_buffer[current_frame_index]);
-
-    RotationUpdatePushConstant push_constant;
-    push_constant.commands_size = rotation_commands.size();
-    const uint32_t task_work_group_invocations =
-        Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-
-    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-      rotation_update_pipeline->Bind(vk_command_buffer);
-      rotation_update_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0,
-          target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      rotation_update_pipeline->BindDescriptorSet(
-          vk_command_buffer, 1, rotation_commands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      rotation_update_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.commands_size, task_work_group_invocations), 1, 1);
-      Platform::EverythingBarrier(vk_command_buffer);
-    });
-  }
-}
-
-void DsGravity::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-                        const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  GravityPushConstant push_constant;
-  push_constant.acceleration = gravity;
-  push_constant.particle_size = target_dynamic_strands->particles.size();
-  const uint32_t task_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    gravity_force_pipeline->Bind(vk_command_buffer);
-    gravity_force_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
-    gravity_force_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.particle_size, task_work_group_invocations), 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
-  });
-}
-
-bool DsGravity::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::TreeNode("ExternalForce")) {
-    if (ImGui::Checkbox("Enable", &enabled))
-      changed = true;
-    if (ImGui::DragFloat3("Gravity", &gravity.x, 0.01f, -100.0f, 100.0f))
-      changed = true;
-    ImGui::TreePop();
-  }
-  return changed;
-}
-
-DsGravity::DsGravity() {
-  if (!gravity_force_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->Set(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Gravity.comp");
-    gravity_force_pipeline = std::make_shared<ComputePipeline>();
-    gravity_force_pipeline->compute_shader = shader;
-    gravity_force_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-
-    auto& push_constant_range = gravity_force_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GravityPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    gravity_force_pipeline->Initialize();
-  }
-}
-
-DsDragForce::DsDragForce() {
-  if (!layout) {
-    layout = std::make_shared<DescriptorSetLayout>();
-    layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-
-    layout->Initialize();
-  }
-
-  VkBufferCreateInfo buffer_create_info{};
-  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  buffer_create_info.size = 1;
-  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
-  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
-
-  commands_buffer.resize(max_frame_in_flight);
-
-  for (int frame_index = 0; frame_index < max_frame_in_flight; frame_index++) {
-    commands_buffer[frame_index] = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  }
-
-  if (!drag_force_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->Set(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/DragForce.comp");
-    drag_force_pipeline = std::make_shared<ComputePipeline>();
-    drag_force_pipeline->compute_shader = shader;
-
-    drag_force_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    drag_force_pipeline->descriptor_set_layouts.emplace_back(layout);
-
-    auto& push_constant_range = drag_force_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(DragForcePushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    drag_force_pipeline->Initialize();
-  }
-  commands_descriptor_sets.resize(max_frame_in_flight);
-  for (auto& i : commands_descriptor_sets) {
-    i = std::make_shared<DescriptorSet>(layout);
-  }
-}
-
-void DsDragForce::Initialize(const std::vector<int>& particle_handles) {
-  commands = particle_handles;
-}
-
-void DsDragForce::Update(const glm::vec3& new_position) {
-  target_position = new_position;
-}
-
-void DsDragForce::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-                          const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  if (commands.empty())
-    return;
-
-  const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  commands_buffer[current_frame_index]->UploadVector(commands);
-
-  commands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, commands_buffer[current_frame_index]);
-
-  DragForcePushConstant push_constant;
-  push_constant.target_position = target_position;
-  push_constant.distance_multiplier = distance_multiplier;
-  push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
-  push_constant.commands_size = commands.size();
-  const uint32_t task_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    drag_force_pipeline->Bind(vk_command_buffer);
-    drag_force_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    drag_force_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                           commands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
-    drag_force_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.commands_size, task_work_group_invocations), 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
-  });
-}
-
-bool DsDragForce::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::DragFloat("Multiplier", &distance_multiplier, 0.01f, 0.0f, 1.0f)) {
-    changed = true;
-  }
-  return changed;
-}
-
 DsStiffRod::DsStiffRod() {
   if (!layout) {
     layout = std::make_shared<DescriptorSetLayout>();
     layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     layout->Initialize();
   }
-
   VkBufferCreateInfo storage_buffer_create_info{};
   storage_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   storage_buffer_create_info.usage =
@@ -714,7 +383,7 @@ bool DsStiffRod::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       changed = true;
     if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100))
       changed = true;
-    if (ImGui::Combo("Project Mode", {"Bilateral", "Forward", "Backward", "Balanced"}, project_mode))
+    if (ImGui::Combo("Project Mode", {"Forward", "Backward", "Bilateral"}, project_mode))
       changed = true;
     ImGui::TreePop();
   }
@@ -777,7 +446,6 @@ void DsStiffRod::Project(const DynamicStrands::PhysicsParameters& physics_parame
 
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {
       switch (static_cast<ProjectMode>(project_mode)) {
@@ -861,8 +529,6 @@ void DsStiffRod::Project(const DynamicStrands::PhysicsParameters& physics_parame
           vkCmdDispatch(vk_command_buffer,
                         Platform::DivUp(bend_twist_constraint_constant.strand_size, task_work_group_invocations), 1, 1);
           Platform::EverythingBarrier(vk_command_buffer);
-          break;
-        case ProjectMode::Balanced:
           break;
       }
     }
@@ -975,6 +641,7 @@ void DsParticleNeighbor::InitializeData(const DynamicStrands::InitializeParamete
     int node_handle;
     int strand_handle;
     int particle_handle;
+    bool start_particle = false;
   };
   VoxelGrid<std::vector<ParticleInfo>> voxel_grid;
   voxel_grid.Initialize(glm::max(0.05f, initialize_parameters.neighbor_range), min_bound - glm::vec3(0.1f),
@@ -986,17 +653,32 @@ void DsParticleNeighbor::InitializeData(const DynamicStrands::InitializeParamete
     s_d.node_handle = particle.node_handle;
     s_d.strand_handle = particle.strand_handle;
     s_d.particle_handle = particle_index;
+    s_d.start_particle =
+        target_dynamic_strands.connections[particle.connection_handle].segment0_particle_handle == particle_index;
     voxel_grid.Ref(particle.x0).emplace_back(s_d);
   }
 
   Jobs::RunParallelFor(particle_neighbors.size(), [&](const auto i) {
-    auto& connectivity = particle_neighbors[i];
-    const DynamicStrands::GpuParticle& particle = target_dynamic_strands.particles[i];
+    auto& neighbor = particle_neighbors[i];
+    neighbor.valid = 1.0;
+    const auto& particle = target_dynamic_strands.particles[i];
+    const auto& segment = target_dynamic_strands.segments[particle.segment_handle];
+    const auto front = glm::normalize(segment.q0 * glm::vec3(0, 0, -1));
     std::multimap<float, int> candidates;
     voxel_grid.ForEach(particle.x0, initialize_parameters.neighbor_range, [&](const std::vector<ParticleInfo>& list) {
       for (const auto& info : list) {
         if (info.strand_handle == particle.strand_handle)
           continue;
+
+        float plane_distance = glm::dot(front, info.position - particle.x0);
+        if (plane_distance > segment.rest_length * 0.5f) {
+          continue;
+        }
+
+        if (const bool start_particle =
+            target_dynamic_strands.connections[particle.connection_handle].segment0_particle_handle == i; start_particle != info.start_particle)
+          continue;
+
         bool node_check = false;
         if (info.node_handle == particle.node_handle)
           node_check = true;
@@ -1022,14 +704,15 @@ void DsParticleNeighbor::InitializeData(const DynamicStrands::InitializeParamete
 
     int neighbor_index = 0;
     for (const auto& candidate : candidates) {
-      connectivity.distances[neighbor_index] = candidate.first;
-      connectivity.neighbors[neighbor_index] = candidate.second;
+      neighbor.offset[neighbor_index] =
+          glm::vec4(particle.x0 - target_dynamic_strands.particles[candidate.second].x0, candidate.first);
+      neighbor.neighbors[neighbor_index] = candidate.second;
       neighbor_index++;
       if (neighbor_index >= 8)
         break;
     }
     while (neighbor_index < 8) {
-      connectivity.neighbors[neighbor_index] = -1;
+      neighbor.neighbors[neighbor_index] = -1;
       neighbor_index++;
     }
   });

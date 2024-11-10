@@ -91,19 +91,35 @@ void main(){
 	Segment segment = segments[floatBitsToInt(particle.old_x_segment_handle.w)];
 	vec3 center_position = particle.x_node_handle.xyz;
 	float center_thickness = segment.radius * 3.0;
-	
-	mat4 instance_matrix = translate(center_position) * scale(vec3(center_thickness, center_thickness, segment.radius * 3.0));
-	
-	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
-	
+	vec3 particle_size = vec3(center_thickness, center_thickness, segment.radius * 3.0);
 	vec4 color = color0;
-	if(color_mode == 1){
+	if(color_mode == 0){
+		if(particle.highlighted == 1){
+			color = vec4(0, 1, 0, 1);
+		}else if(particle.highlighted == 2){
+			color = vec4(1, 0, 0, 1);
+		}else if(particle.selected == 1){
+			color = vec4(1, 1, 1, 1);
+		}
+	}
+
+	if(particle.highlighted == 1 || particle.highlighted == 2){
+		particle_size = vec3(center_thickness * 6.0, center_thickness * 6.0, segment.radius * 18.0);
+	}else if(particle.selected == 1){
+		particle_size = vec3(center_thickness * 3.0, center_thickness * 3.0, segment.radius * 9.0);
+	}
+
+	else if(color_mode == 1){
 		color = segment.color;
 	}
 	else if(color_mode == 2){
 		color = mix(color0, color1, clamp(particle.acceleration_connectivity_strain.w * uintBitsToFloat(multiplier), 0.0, 1.0));
 	}
+
+	mat4 instance_matrix = translate(center_position) * scale(particle_size);
+	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 	
+
 	[[unroll]]
 	for (uint i = 0; i < uint(PARTICLE_VERTEX_ITERATIONS); ++i)
 	{

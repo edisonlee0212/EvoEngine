@@ -43,6 +43,12 @@ struct Particle {
   vec4 last_x_strand_handle;
   vec4 old_x_segment_handle;
   vec4 acceleration_connectivity_strain;
+
+  int selected;
+  int highlighted;
+  int connection_handle;
+  int padding2;
+
 };
 
 struct Connection {

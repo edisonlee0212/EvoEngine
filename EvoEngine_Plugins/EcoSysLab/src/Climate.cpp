@@ -74,7 +74,7 @@ void Climate::PrepareForGrowth() {
       boundChanged = true;
       // EVOENGINE_LOG("Shadow grid resized!");
     }
-    tree->crown_shyness_distance = ecoSysLabLayer->m_simulationSettings.crown_shyness_distance;
+    tree->crown_shyness_distance = ecoSysLabLayer->simulation_settings.crown_shyness_distance;
   }
   if (boundChanged)
     estimator.voxel_grid.Initialize(estimator.voxel_size, minBound, maxBound);
@@ -84,7 +84,7 @@ void Climate::PrepareForGrowth() {
     tree->RegisterVoxel();
   }
 
-  estimator.LightPropagation(ecoSysLabLayer->m_simulationSettings);
+  estimator.LightPropagation(ecoSysLabLayer->simulation_settings);
 }
 
 void Climate::Deserialize(const YAML::Node& in) {
