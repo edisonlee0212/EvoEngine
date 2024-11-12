@@ -10,10 +10,11 @@
 #include "Times.hpp"
 
 #include "BillboardCloudsConverter.hpp"
-#include "DynamicTreeStrands.hpp"
 #include "ClassRegistry.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
+#include "DynamicStrandsOperators.hpp"
+#include "DynamicTreeStrands.hpp"
 #include "FlowerDescriptor.hpp"
 #include "FoliageDescriptor.hpp"
 #include "ForestDescriptor.hpp"
@@ -26,7 +27,6 @@
 #include "Tree.hpp"
 #include "TreeStructor.hpp"
 using namespace eco_sys_lab_plugin;
-
 PrivateComponentRegistration<Tree> tree_registry("Tree");
 PrivateComponentRegistration<TreeStructor> tree_structor_registry("TreeStructor");
 PrivateComponentRegistration<Soil> soil_registry("Soil");
@@ -58,1119 +58,1119 @@ PrivateComponentRegistration<BillboardCloudsConverter> billboard_clouds_converte
 
 void EcoSysLabLayer::OnCreate() {
   Shader::RegisterShaderIncludePath(std::filesystem::path("./EcoSysLabResources/Shaders/Includes"));
-  if (m_randomColors.empty()) {
+  if (random_colors_.empty()) {
     for (int i = 0; i < 20000; i++) {
-      m_randomColors.emplace_back(glm::linearRand(glm::vec3(0.0f), glm::vec3(1.0f)));
+      random_colors_.emplace_back(glm::linearRand(glm::vec3(0.0f), glm::vec3(1.0f)));
     }
   }
 
-  if (m_soilLayerColors.empty()) {
+  if (soil_layer_colors_.empty()) {
     for (int i = 0; i < 10; i++) {
       glm::vec4 color = {glm::linearRand(glm::vec3(0.0f), glm::vec3(1.0f)), 1.0f};
-      m_soilLayerColors.emplace_back(color);
+      soil_layer_colors_.emplace_back(color);
     }
   }
-  m_shootStemStrands = ProjectManager::CreateTemporaryAsset<Strands>();
+  shoot_stem_strands_ = ProjectManager::CreateTemporaryAsset<Strands>();
 
-  m_boundingBoxMatrices = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  m_foliageMatrices = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  m_fruitMatrices = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  bounding_box_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  foliage_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  fruit_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
 
-  m_groundFruitMatrices = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  m_groundLeafMatrices = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  m_vectorMatrices = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  m_scalarMatrices = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  m_shadowGridParticleInfoList = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  m_lightingGridParticleInfoList = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  ground_fruit_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  ground_leaf_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  vector_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  scalar_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  shadow_grid_particle_info_list_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  lighting_grid_particle_info_list_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
 #pragma region Internode camera
-  m_visualizationCamera = Serialization::ProduceSerializable<Camera>();
+  visualization_camera_ = Serialization::ProduceSerializable<Camera>();
 
-  m_visualizationCamera->OnCreate();
-  m_visualizationCamera->use_clear_color = true;
-  m_visualizationCamera->clear_color = glm::vec3(0.5f, 0.5f, 0.5f);
+  visualization_camera_->OnCreate();
+  visualization_camera_->use_clear_color = true;
+  visualization_camera_->clear_color = glm::vec3(0.5f, 0.5f, 0.5f);
 #pragma endregion
 
-  if (const auto editorLayer = Application::GetLayer<EditorLayer>()) {
-    editorLayer->RegisterEditorCamera(m_visualizationCamera);
+  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+    editor_layer->RegisterEditorCamera(visualization_camera_);
   }
 }
 
-void EcoSysLabLayer::Visualization() {
+void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = GetScene();
-  const auto editorLayer = Application::GetLayer<EditorLayer>();
-
-  const auto selectedEntity = editorLayer->GetSelectedEntity();
-  if (selectedEntity != m_selectedTree) {
-    if (scene->IsEntityValid(selectedEntity) && scene->HasPrivateComponent<Tree>(selectedEntity)) {
-      m_selectedTree = selectedEntity;
-      m_lastSelectedTreeIndex = m_selectedTree.GetIndex();
-      m_needFlowUpdateForSelection = true;
-      m_operatorMode = static_cast<unsigned>(OperatorMode::Select);
-    } else if (m_selectedTree.GetIndex() != 0) {
-      m_selectedTree = Entity();
-      m_needFlowUpdateForSelection = true;
+  const auto selected_entity = editor_layer->GetSelectedEntity();
+  if (selected_entity != selected_tree) {
+    if (scene->IsEntityValid(selected_entity) && scene->HasPrivateComponent<Tree>(selected_entity)) {
+      selected_tree = selected_entity;
+      last_selected_tree_index_ = selected_tree.GetIndex();
+      need_flow_update_for_selection_ = true;
+      tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::Select);
+    } else if (selected_tree.GetIndex() != 0) {
+      selected_tree = Entity();
+      need_flow_update_for_selection_ = true;
     }
-    if (scene->IsEntityValid(m_selectedTree)) {
-      const auto& tree = scene->GetOrSetPrivateComponent<Tree>(m_selectedTree).lock();
-      auto& treeVisualizer = tree->tree_visualizer;
-      treeVisualizer.m_selectedInternodeHandle = -1;
-      treeVisualizer.m_selectedInternodeHierarchyList.clear();
-      m_operatorMode = static_cast<unsigned>(OperatorMode::Select);
-    }
-  }
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-
-  const auto branchStrands = m_shootStemStrands.Get<Strands>();
-  if (treeEntities && !treeEntities->empty()) {
-    bool flowUpdated = false;
-    // Tree selection
-    if (m_shootVersions.size() != treeEntities->size()) {
-      m_internodeSize = 0;
-      m_rootNodeSize = 0;
-      m_totalTime = 0.0f;
-      m_shootVersions.clear();
-      for (int i = 0; i < treeEntities->size(); i++) {
-        m_shootVersions.emplace_back(-1);
-      }
-      m_needFullFlowUpdate = true;
-    }
-    for (int i = 0; i < treeEntities->size(); i++) {
-      auto treeEntity = treeEntities->at(i);
-      auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-      auto& treeModel = tree->tree_model;
-      if (m_shootVersions[i] != treeModel.RefShootSkeleton().GetVersion()) {
-        m_shootVersions[i] = treeModel.RefShootSkeleton().GetVersion();
-        m_needFullFlowUpdate = true;
-      }
-    }
-
-    if (m_visualization) {
-      if (m_needFullFlowUpdate) {
-        UpdateFlows(treeEntities, branchStrands);
-        UpdateGroundFruitAndLeaves();
-        m_needFullFlowUpdate = false;
-        flowUpdated = true;
-      }
-      if (m_needFlowUpdateForSelection) {
-        UpdateFlows(treeEntities, branchStrands);
-        m_needFlowUpdateForSelection = false;
-        flowUpdated = true;
-      }
-    }
-    if (flowUpdated) {
-      const auto climateCandidate = FindClimate();
-      if (!climateCandidate.expired()) {
-        const auto climate = climateCandidate.lock();
-        const auto& voxelGrid = climate->climate_model.environment_grid.voxel_grid;
-        const auto numVoxels = voxelGrid.GetVoxelCount();
-        {
-          std::vector<ParticleInfo> particleInfos;
-          particleInfos.resize(numVoxels);
-
-          Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
-            const auto coordinate = voxelGrid.GetCoordinate(i);
-            particleInfos[i].instance_matrix.value =
-                glm::translate(voxelGrid.GetPosition(coordinate) +
-                               glm::linearRand(-glm::vec3(0.5f * voxelGrid.GetVoxelSize()),
-                                               glm::vec3(0.5f * voxelGrid.GetVoxelSize()))) *
-                glm::mat4_cast(glm::quat(glm::vec3(0.0f))) * glm::scale(glm::vec3(0.25f * voxelGrid.GetVoxelSize()));
-            particleInfos[i].instance_color = glm::vec4(
-                1.f, 1.f, 1.f, 1.f - glm::clamp(voxelGrid.Peek(static_cast<int>(i)).light_intensity, 0.0f, 1.0f));
-          });
-          m_shadowGridParticleInfoList->SetParticleInfos(particleInfos);
-        }
-        {
-          std::vector<ParticleInfo> particleInfos;
-          particleInfos.resize(numVoxels);
-
-          Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
-            const auto coordinate = voxelGrid.GetCoordinate(i);
-            const auto& voxel = voxelGrid.Peek(coordinate);
-            const auto direction = voxel.light_direction;
-            auto rotation = glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x));
-            rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
-            const glm::mat4 rotationTransform = glm::mat4_cast(rotation);
-            const auto voxelSize = voxelGrid.GetVoxelSize();
-            particleInfos[i].instance_matrix.value =
-                glm::translate(voxelGrid.GetPosition(coordinate) +
-                               glm::linearRand(-glm::vec3(0.5f * voxelGrid.GetVoxelSize()),
-                                               glm::vec3(0.5f * voxelGrid.GetVoxelSize()))) *
-                rotationTransform * glm::scale(glm::vec3(0.05f * voxelSize, voxelSize * 0.5f, 0.05f * voxelSize));
-            if (voxelGrid.Peek(static_cast<int>(i)).light_intensity == 0.0f)
-              particleInfos[i].instance_color = glm::vec4(0.0f);
-            else
-              particleInfos[i].instance_color = glm::vec4(
-                  1.f, 1.f, 1.f, 1.f - glm::clamp(voxelGrid.Peek(static_cast<int>(i)).light_intensity, 0.0f, 1.0f));
-          });
-          m_lightingGridParticleInfoList->SetParticleInfos(particleInfos);
-        }
-      }
-    }
-  }
-  if (m_visualization) {
-    GizmoSettings gizmoSettings;
-    gizmoSettings.draw_settings.blending = true;
-
-    gizmoSettings.draw_settings.blending_src_factor = VK_BLEND_FACTOR_SRC_ALPHA;
-    gizmoSettings.draw_settings.blending_dst_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    gizmoSettings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
-
-    if (editorLayer && scene->IsEntityValid(m_selectedTree)) {
-      const auto& tree = scene->GetOrSetPrivateComponent<Tree>(m_selectedTree).lock();
-      auto& tree_model = tree->tree_model;
+    if (scene->IsEntityValid(selected_tree)) {
+      const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
       auto& tree_visualizer = tree->tree_visualizer;
-      const auto global_transform = scene->GetDataComponent<GlobalTransform>(m_selectedTree);
-#ifdef OPTIX_RAY_TRACER_PLUGIN
-      const auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
-#endif
-      if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Release &&
-          tree_visualizer.m_checkpointIteration == tree_model.CurrentIteration()) {
-        static bool may_need_geometry_generation = false;
-        static std::vector<glm::vec2> mouse_positions{};
-        auto& tree_skeleton = tree_model.PeekShootSkeleton(tree->tree_visualizer.m_checkpointIteration);
-        switch (static_cast<OperatorMode>(m_operatorMode)) {
-          case OperatorMode::Select: {
-            if (m_visualizationCameraWindowFocused) {
-              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
-                if (tree_visualizer.RayCastSelection(m_visualizationCamera, m_visualizationCameraMousePosition,
-                                                     tree_skeleton, global_transform)) {
-                  tree_visualizer.m_needUpdate = true;
-                }
-              } else if (editorLayer->GetKey(GLFW_KEY_R) == Input::KeyActionType::Press) {
-                if (tree_visualizer.m_selectedInternodeHandle > 0) {
-                  tree_model.Step();
-                  auto& pruning_internode =
-                      tree_model.RefShootSkeleton().RefNode(tree_visualizer.m_selectedInternodeHandle);
-                  tree_model.RefShootSkeleton().RemoveNodes(pruning_internode.PeekChildHandles());
-                  pruning_internode.data.internode_length *= tree_visualizer.m_selectedInternodeLengthFactor;
-                  tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
-                  tree_visualizer.m_selectedInternodeLengthFactor = 1.0f;
-                  pruning_internode.data.buds.clear();
-                  tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
-                  tree_visualizer.m_needUpdate = true;
-                  if (m_autoGenerateMeshAfterEditing) {
-                    tree->GenerateGeometryEntities(m_meshGeneratorSettings, -1);
-                  }
-                  if (m_autoGenerateStrandsAfterEditing || m_autoGenerateStrandMeshAfterEditing) {
-                    if (m_autoGenerateStrandsAfterEditing) {
-                      tree->InitializeStrandRenderer();
-                    }
-                    if (m_autoGenerateStrandMeshAfterEditing) {
-                      tree->InitializeStrandModelMeshRenderer(m_strandMeshGeneratorSettings);
-                    }
-                  }
-                }
-              } else if (editorLayer->GetKey(GLFW_KEY_T) == Input::KeyActionType::Press) {
-                if (tree_visualizer.m_selectedInternodeHandle > 0) {
-                  tree_model.Step();
-                  tree_model.RefShootSkeleton().RemoveNodes({tree_visualizer.m_selectedInternodeHandle});
-                  tree_visualizer.m_selectedInternodeHandle = -1;
-                  tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
-                  tree_visualizer.m_needUpdate = true;
-                  if (m_autoGenerateMeshAfterEditing) {
-                    tree->GenerateGeometryEntities(m_meshGeneratorSettings, -1);
-                  }
-                  if (m_autoGenerateStrandsAfterEditing || m_autoGenerateStrandMeshAfterEditing) {
-                    if (m_autoGenerateStrandsAfterEditing) {
-                      tree->InitializeStrandRenderer();
-                    }
-                    if (m_autoGenerateStrandMeshAfterEditing) {
-                      tree->InitializeStrandModelMeshRenderer(m_strandMeshGeneratorSettings);
-                    }
-                  }
-                }
-              } else if (editorLayer->GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
-                tree_visualizer.SetSelectedNode(tree_skeleton, -1);
-              }
-            }
-          } break;
-          case OperatorMode::Rotate: {
-            if (tree_visualizer.m_selectedInternodeHandle > 0) {
-              if (m_visualizationCameraWindowFocused) {
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
-                if (ImGui::Begin("Plant Visual")) {
-                  if (ImGui::BeginChild("InternodeCameraRenderer", ImVec2(0, 0), false)) {
-                    ImGuizmo::SetOrthographic(false);
-                    ImGuizmo::SetDrawlist();
-                    ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
-                                      m_visualizationCameraResolutionX, m_visualizationCameraResolutionY);
-                    glm::mat4 cameraView = glm::inverse(glm::translate(editorLayer->GetSceneCameraPosition()) *
-                                                        glm::mat4_cast(editorLayer->GetSceneCameraRotation()));
-                    glm::mat4 cameraProjection = m_visualizationCamera->GetProjection();
-                    const auto op = ImGuizmo::OPERATION::ROTATE;
-                    auto& currentSkeleton = tree->tree_model.RefShootSkeleton();
-                    auto& internode = currentSkeleton.RefNode(tree_visualizer.m_selectedInternodeHandle);
+      tree_visualizer.m_selectedInternodeHandle = -1;
+      tree_visualizer.m_selectedInternodeHierarchyList.clear();
+      tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::Select);
+    }
+  }
+  const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+  const auto branch_strands = shoot_stem_strands_.Get<Strands>();
+  if (tree_entities && !tree_entities->empty()) {
+    // Tree selection
+    if (shoot_versions_.size() != tree_entities->size()) {
+      internode_size_ = 0;
+      root_node_size_ = 0;
+      total_time_ = 0.0f;
+      shoot_versions_.clear();
+      for (int i = 0; i < tree_entities->size(); i++) {
+        shoot_versions_.emplace_back(-1);
+      }
+      need_full_flow_update = true;
+    }
+    for (int i = 0; i < tree_entities->size(); i++) {
+      auto tree_entity = tree_entities->at(i);
+      auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      if (auto& tree_model = tree->tree_model; shoot_versions_[i] != tree_model.RefShootSkeleton().GetVersion()) {
+        shoot_versions_[i] = tree_model.RefShootSkeleton().GetVersion();
+        need_full_flow_update = true;
+      }
+    }
 
-                    auto transform = glm::translate(internode.info.global_position) *
-                                     glm::mat4_cast(internode.data.desired_global_rotation) *
-                                     glm::scale(glm::vec3(1.0f));
-                    const auto treeGlobalTransform = scene->GetDataComponent<GlobalTransform>(m_selectedTree);
-                    auto internodeGlobalTransform = treeGlobalTransform.value * transform;
-                    ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection), op,
-                                         ImGuizmo::LOCAL, glm::value_ptr(internodeGlobalTransform));
-                    static bool lastGizmosUsed = false;
-                    if (ImGuizmo::IsUsing()) {
-                      if (!lastGizmosUsed) {
-                        tree_model.Step();
-                        tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
-                      }
-                      tree_visualizer.m_needUpdate = true;
-                      Transform newInternodeTransform{};
-                      newInternodeTransform.value = glm::inverse(treeGlobalTransform.value) * internodeGlobalTransform;
-                      auto scaleHolder = glm::vec3(1.0f);
-                      newInternodeTransform.Decompose(internode.info.global_position,
-                                                      internode.data.desired_global_rotation, scaleHolder);
-                      auto parentHandle = internode.GetParentHandle();
-                      if (parentHandle != -1) {
-                        internode.data.desired_local_rotation =
-                            glm::inverse(currentSkeleton.PeekNode(parentHandle).data.desired_global_rotation) *
-                            internode.data.desired_global_rotation;
-                      }
-                      tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
-                      lastGizmosUsed = true;
-                    } else if (lastGizmosUsed) {
-                      tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
-                      may_need_geometry_generation = true;
-                      lastGizmosUsed = false;
-                      tree_visualizer.m_needUpdate = true;
-                      tree_model.RefShootSkeleton().CalculateRegulatedGlobalRotation();
-                    }
-                  }
-                  ImGui::EndChild();
-                }
-                ImGui::End();
-                ImGui::PopStyleVar();
-              }
-#ifdef OPTIX_RAY_TRACER_PLUGIN
-              else if (ray_tracer_layer) {
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
-                if (ImGui::Begin("Scene (RT)")) {
-                  if (ImGui::BeginChild("RaySceneRenderer", ImVec2(0, 0), false)) {
-                    ImGuizmo::SetOrthographic(false);
-                    ImGuizmo::SetDrawlist();
-                    ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
-                                      ray_tracer_layer->GetSceneCameraResolution().x,
-                                      ray_tracer_layer->GetSceneCameraResolution().y);
-                    glm::mat4 cameraView = glm::inverse(glm::translate(editorLayer->GetSceneCameraPosition()) *
-                                                        glm::mat4_cast(editorLayer->GetSceneCameraRotation()));
-                    glm::mat4 cameraProjection = m_visualizationCamera->GetProjection();
-                    const auto op = ImGuizmo::OPERATION::ROTATE;
-                    auto& currentSkeleton = tree->tree_model.RefShootSkeleton();
-                    auto& internode = currentSkeleton.RefNode(tree_visualizer.m_selectedInternodeHandle);
+    if (show_trees) {
+      bool flow_updated = false;
+      if (need_full_flow_update) {
+        UpdateFlows(tree_entities, branch_strands);
+        UpdateGroundFruitAndLeaves();
+        need_full_flow_update = false;
+        flow_updated = true;
+      }
+      if (need_flow_update_for_selection_) {
+        UpdateFlows(tree_entities, branch_strands);
+        need_flow_update_for_selection_ = false;
+        flow_updated = true;
+      }
+      if (flow_updated) {
+        if (const auto climate_candidate = FindClimate(); !climate_candidate.expired()) {
+          const auto climate = climate_candidate.lock();
+          const auto& voxel_grid = climate->climate_model.environment_grid.voxel_grid;
+          const auto num_voxels = voxel_grid.GetVoxelCount();
+          {
+            std::vector<ParticleInfo> particle_infos;
+            particle_infos.resize(num_voxels);
 
-                    auto transform = glm::translate(internode.info.global_position) *
-                                     glm::mat4_cast(internode.data.desired_global_rotation) *
-                                     glm::scale(glm::vec3(1.0f));
-                    const auto treeGlobalTransform = scene->GetDataComponent<GlobalTransform>(m_selectedTree);
-                    auto internodeGlobalTransform = treeGlobalTransform.value * transform;
-                    ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection), op,
-                                         ImGuizmo::LOCAL, glm::value_ptr(internodeGlobalTransform));
-                    static bool lastGizmosUsed = false;
-                    if (ImGuizmo::IsUsing()) {
-                      if (!lastGizmosUsed) {
-                        tree_model.Step();
-                        tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
-                      }
-                      tree_visualizer.m_needUpdate = true;
-                      Transform newInternodeTransform{};
-                      newInternodeTransform.value = glm::inverse(treeGlobalTransform.value) * internodeGlobalTransform;
-                      auto scaleHolder = glm::vec3(1.0f);
-                      newInternodeTransform.Decompose(internode.info.global_position,
-                                                      internode.data.desired_global_rotation, scaleHolder);
-                      auto parentHandle = internode.GetParentHandle();
-                      if (parentHandle != -1) {
-                        internode.data.desired_local_rotation =
-                            glm::inverse(currentSkeleton.PeekNode(parentHandle).data.desired_global_rotation) *
-                            internode.data.desired_global_rotation;
-                      }
-                      tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
-                      lastGizmosUsed = true;
-                    } else if (lastGizmosUsed) {
-                      tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
-                      may_need_geometry_generation = true;
-                      lastGizmosUsed = false;
-                      tree_visualizer.m_needUpdate = true;
-                      tree_model.RefShootSkeleton().CalculateRegulatedGlobalRotation();
-                    }
-                  }
-                  ImGui::EndChild();
-                }
-                ImGui::End();
-                ImGui::PopStyleVar();
-              }
+            Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+              const auto coordinate = voxel_grid.GetCoordinate(i);
+              particle_infos[i].instance_matrix.value =
+                  glm::translate(voxel_grid.GetPosition(coordinate) +
+                                 glm::linearRand(-glm::vec3(0.5f * voxel_grid.GetVoxelSize()),
+                                                 glm::vec3(0.5f * voxel_grid.GetVoxelSize()))) *
+                  glm::mat4_cast(glm::quat(glm::vec3(0.0f))) * glm::scale(glm::vec3(0.25f * voxel_grid.GetVoxelSize()));
+              particle_infos[i].instance_color = glm::vec4(
+                  1.f, 1.f, 1.f, 1.f - glm::clamp(voxel_grid.Peek(static_cast<int>(i)).light_intensity, 0.0f, 1.0f));
+            });
+            shadow_grid_particle_info_list_->SetParticleInfos(particle_infos);
+          }
+          {
+            std::vector<ParticleInfo> particle_infos;
+            particle_infos.resize(num_voxels);
+
+            Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+              const auto coordinate = voxel_grid.GetCoordinate(i);
+              const auto& voxel = voxel_grid.Peek(coordinate);
+              const auto direction = voxel.light_direction;
+              auto rotation = glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x));
+              rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
+              const glm::mat4 rotation_transform = glm::mat4_cast(rotation);
+              const auto voxel_size = voxel_grid.GetVoxelSize();
+              particle_infos[i].instance_matrix.value =
+                  glm::translate(voxel_grid.GetPosition(coordinate) +
+                                 glm::linearRand(-glm::vec3(0.5f * voxel_grid.GetVoxelSize()),
+                                                 glm::vec3(0.5f * voxel_grid.GetVoxelSize()))) *
+                  rotation_transform * glm::scale(glm::vec3(0.05f * voxel_size, voxel_size * 0.5f, 0.05f * voxel_size));
+              if (voxel_grid.Peek(static_cast<int>(i)).light_intensity == 0.0f)
+                particle_infos[i].instance_color = glm::vec4(0.0f);
+              else
+                particle_infos[i].instance_color = glm::vec4(
+                    1.f, 1.f, 1.f, 1.f - glm::clamp(voxel_grid.Peek(static_cast<int>(i)).light_intensity, 0.0f, 1.0f));
+            });
+            lighting_grid_particle_info_list_->SetParticleInfos(particle_infos);
+          }
+        }
+      }
+
+      GizmoSettings gizmo_settings;
+      gizmo_settings.draw_settings.blending = true;
+      gizmo_settings.draw_settings.blending_src_factor = VK_BLEND_FACTOR_SRC_ALPHA;
+      gizmo_settings.draw_settings.blending_dst_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
+
+      if (editor_layer && scene->IsEntityValid(selected_tree)) {
+        const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
+        auto& tree_model = tree->tree_model;
+        auto& tree_visualizer = tree->tree_visualizer;
+        const auto global_transform = scene->GetDataComponent<GlobalTransform>(selected_tree);
+#ifdef OPTIX_RAY_TRACER_PLUGIN
+        const auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
 #endif
-            }
-            if (m_visualizationCameraWindowFocused) {
-              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
-                if (tree_visualizer.m_selectedInternodeHandle <= 0) {
-                  if (tree_visualizer.RayCastSelection(m_visualizationCamera, m_visualizationCameraMousePosition,
+        if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Release &&
+            tree_visualizer.m_checkpointIteration == tree_model.CurrentIteration()) {
+          static bool may_need_geometry_generation = false;
+          static std::vector<glm::vec2> mouse_positions{};
+          auto& tree_skeleton = tree_model.PeekShootSkeleton(tree->tree_visualizer.m_checkpointIteration);
+          switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
+            case TreeOperatorMode::Select: {
+              if (visualization_camera_window_focused_) {
+                if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
+                  if (tree_visualizer.RayCastSelection(visualization_camera_, visualization_camera_mouse_position,
                                                        tree_skeleton, global_transform)) {
                     tree_visualizer.m_needUpdate = true;
                   }
-                }
-              } else if (editorLayer->GetKey(GLFW_KEY_T) == Input::KeyActionType::Press) {
-                if (tree_visualizer.m_selectedInternodeHandle > 0) {
-                  tree_model.Step();
-                  tree_model.RefShootSkeleton().RemoveNodes({tree_visualizer.m_selectedInternodeHandle});
-                  tree_visualizer.m_selectedInternodeHandle = -1;
-                  tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
-                  tree_visualizer.m_needUpdate = true;
-                  if (m_autoGenerateMeshAfterEditing) {
-                    tree->GenerateGeometryEntities(m_meshGeneratorSettings, -1);
-                  }
-                  if (m_autoGenerateStrandsAfterEditing || m_autoGenerateStrandMeshAfterEditing) {
-                    if (m_autoGenerateStrandsAfterEditing) {
-                      tree->InitializeStrandRenderer();
-                    }
-                    if (m_autoGenerateStrandMeshAfterEditing) {
-                      tree->InitializeStrandModelMeshRenderer(m_strandMeshGeneratorSettings);
-                    }
-                  }
-                }
-              } else if (editorLayer->GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
-                tree_visualizer.SetSelectedNode(tree_skeleton, -1);
-              }
-            }
-          } break;
-          case OperatorMode::Prune: {
-            if (m_visualizationCameraWindowFocused) {
-              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
-                mouse_positions.clear();
-                glm::vec2 mousePosition = m_visualizationCameraMousePosition;
-                const float halfX = m_visualizationCamera->GetSize().x / 2.0f;
-                const float halfY = m_visualizationCamera->GetSize().y / 2.0f;
-                mousePosition = {-1.0f * (mousePosition.x - halfX) / halfX, -1.0f * (mousePosition.y - halfY) / halfY};
-                if (mousePosition.x > -1.0f && mousePosition.x < 1.0f && mousePosition.y > -1.0f &&
-                    mousePosition.y < 1.0f) {
-                  mouse_positions.emplace_back(mousePosition);
-                }
-              } else if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
-                glm::vec2 mousePosition = m_visualizationCameraMousePosition;
-                const float halfX = m_visualizationCamera->GetSize().x / 2.0f;
-                const float halfY = m_visualizationCamera->GetSize().y / 2.0f;
-                mousePosition = {-1.0f * (mousePosition.x - halfX) / halfX, -1.0f * (mousePosition.y - halfY) / halfY};
-                if (mousePosition.x > -1.0f && mousePosition.x < 1.0f && mousePosition.y > -1.0f &&
-                    mousePosition.y < 1.0f && (!mouse_positions.empty() && mousePosition != mouse_positions.back())) {
-                  mouse_positions.emplace_back(mousePosition);
-                }
-              } else if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release) {
-                // Once released, check if empty.
-                if (!mouse_positions.empty()) {
-                  tree_model.Step();
-                  auto& skeleton = tree_model.RefShootSkeleton();
-                  std::vector<SkeletonNodeHandle> pruning_node_handles;
-                  if (tree_visualizer.ScreenCurveSelection(
-                          [&](const SkeletonNodeHandle node_handle) {
-                            pruning_node_handles.emplace_back(node_handle);
-                          },
-                          mouse_positions, skeleton, global_transform)) {
-                    tree_model.RefShootSkeleton().RemoveNodes(pruning_node_handles);
+                } else if (editor_layer->GetKey(GLFW_KEY_R) == Input::KeyActionType::Press) {
+                  if (tree_visualizer.m_selectedInternodeHandle > 0) {
+                    tree_model.Step();
+                    auto& pruning_internode =
+                        tree_model.RefShootSkeleton().RefNode(tree_visualizer.m_selectedInternodeHandle);
+                    tree_model.RefShootSkeleton().RemoveNodes(pruning_internode.PeekChildHandles());
+                    pruning_internode.data.internode_length *= tree_visualizer.m_selectedInternodeLengthFactor;
+                    tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
+                    tree_visualizer.m_selectedInternodeLengthFactor = 1.0f;
+                    pruning_internode.data.buds.clear();
                     tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
                     tree_visualizer.m_needUpdate = true;
-                    may_need_geometry_generation = true;
-                  } else {
-                    tree_model.Pop();
+                    if (auto_generate_mesh_after_editing_) {
+                      tree->GenerateGeometryEntities(mesh_generator_settings, -1);
+                    }
+                    if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {
+                      if (auto_generate_strands_after_editing_) {
+                        tree->InitializeStrandRenderer();
+                      }
+                      if (auto_generate_strand_mesh_after_editing_) {
+                        tree->InitializeStrandModelMeshRenderer(strand_mesh_generator_settings);
+                      }
+                    }
                   }
-                  mouse_positions.clear();
+                } else if (editor_layer->GetKey(GLFW_KEY_T) == Input::KeyActionType::Press) {
+                  if (tree_visualizer.m_selectedInternodeHandle > 0) {
+                    tree_model.Step();
+                    tree_model.RefShootSkeleton().RemoveNodes({tree_visualizer.m_selectedInternodeHandle});
+                    tree_visualizer.m_selectedInternodeHandle = -1;
+                    tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
+                    tree_visualizer.m_needUpdate = true;
+                    if (auto_generate_mesh_after_editing_) {
+                      tree->GenerateGeometryEntities(mesh_generator_settings, -1);
+                    }
+                    if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {
+                      if (auto_generate_strands_after_editing_) {
+                        tree->InitializeStrandRenderer();
+                      }
+                      if (auto_generate_strand_mesh_after_editing_) {
+                        tree->InitializeStrandModelMeshRenderer(strand_mesh_generator_settings);
+                      }
+                    }
+                  }
+                } else if (editor_layer->GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
+                  tree_visualizer.SetSelectedNode(tree_skeleton, -1);
                 }
               }
-            }
-          } break;
-          case OperatorMode::Invigorate: {
-            if (m_visualizationCameraWindowFocused) {
-              static bool lastFrameInvigorate = false;
-              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
-                if (tree_visualizer.RayCastSelection(m_visualizationCamera, m_visualizationCameraMousePosition,
-                                                     tree_skeleton, global_transform)) {
-                  if (!tree->enable_history)
+            } break;
+            case TreeOperatorMode::Rotate: {
+              if (tree_visualizer.m_selectedInternodeHandle > 0) {
+                if (visualization_camera_window_focused_) {
+                  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
+                  if (ImGui::Begin("Plant Visual")) {
+                    if (ImGui::BeginChild("InternodeCameraRenderer", ImVec2(0, 0), false)) {
+                      ImGuizmo::SetOrthographic(false);
+                      ImGuizmo::SetDrawlist();
+                      ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                                        visualization_camera_resolution_x, visualization_camera_resolution_y);
+                      glm::mat4 camera_view = glm::inverse(glm::translate(editor_layer->GetSceneCameraPosition()) *
+                                                           glm::mat4_cast(editor_layer->GetSceneCameraRotation()));
+                      glm::mat4 camera_projection = visualization_camera_->GetProjection();
+                      constexpr auto op = ImGuizmo::OPERATION::ROTATE;
+                      auto& current_skeleton = tree->tree_model.RefShootSkeleton();
+                      auto& internode = current_skeleton.RefNode(tree_visualizer.m_selectedInternodeHandle);
+
+                      auto transform = glm::translate(internode.info.global_position) *
+                                       glm::mat4_cast(internode.data.desired_global_rotation) *
+                                       glm::scale(glm::vec3(1.0f));
+                      const auto tree_global_transform = scene->GetDataComponent<GlobalTransform>(selected_tree);
+                      auto internode_global_transform = tree_global_transform.value * transform;
+                      ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op,
+                                           ImGuizmo::LOCAL, glm::value_ptr(internode_global_transform));
+                      static bool last_gizmos_used = false;
+                      if (ImGuizmo::IsUsing()) {
+                        if (!last_gizmos_used) {
+                          tree_model.Step();
+                          tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
+                        }
+                        tree_visualizer.m_needUpdate = true;
+                        Transform new_internode_transform{};
+                        new_internode_transform.value =
+                            glm::inverse(tree_global_transform.value) * internode_global_transform;
+                        auto scale_holder = glm::vec3(1.0f);
+                        new_internode_transform.Decompose(internode.info.global_position,
+                                                          internode.data.desired_global_rotation, scale_holder);
+                        if (auto parent_handle = internode.GetParentHandle(); parent_handle != -1) {
+                          internode.data.desired_local_rotation =
+                              glm::inverse(current_skeleton.PeekNode(parent_handle).data.desired_global_rotation) *
+                              internode.data.desired_global_rotation;
+                        }
+                        tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
+                        last_gizmos_used = true;
+                      } else if (last_gizmos_used) {
+                        tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
+                        may_need_geometry_generation = true;
+                        last_gizmos_used = false;
+                        tree_visualizer.m_needUpdate = true;
+                        tree_model.RefShootSkeleton().CalculateRegulatedGlobalRotation();
+                      }
+                    }
+                    ImGui::EndChild();
+                  }
+                  ImGui::End();
+                  ImGui::PopStyleVar();
+                }
+#ifdef OPTIX_RAY_TRACER_PLUGIN
+                else if (ray_tracer_layer) {
+                  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
+                  if (ImGui::Begin("Scene (RT)")) {
+                    if (ImGui::BeginChild("RaySceneRenderer", ImVec2(0, 0), false)) {
+                      ImGuizmo::SetOrthographic(false);
+                      ImGuizmo::SetDrawlist();
+                      ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                                        ray_tracer_layer->GetSceneCameraResolution().x,
+                                        ray_tracer_layer->GetSceneCameraResolution().y);
+                      glm::mat4 camera_view = glm::inverse(glm::translate(editor_layer->GetSceneCameraPosition()) *
+                                                           glm::mat4_cast(editor_layer->GetSceneCameraRotation()));
+                      glm::mat4 camera_projection = visualization_camera_->GetProjection();
+                      const auto op = ImGuizmo::OPERATION::ROTATE;
+                      auto& current_skeleton = tree->tree_model.RefShootSkeleton();
+                      auto& internode = current_skeleton.RefNode(tree_visualizer.m_selectedInternodeHandle);
+
+                      auto transform = glm::translate(internode.info.global_position) *
+                                       glm::mat4_cast(internode.data.desired_global_rotation) *
+                                       glm::scale(glm::vec3(1.0f));
+                      const auto tree_global_transform = scene->GetDataComponent<GlobalTransform>(selected_tree);
+                      auto internode_global_transform = tree_global_transform.value * transform;
+                      ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op,
+                                           ImGuizmo::LOCAL, glm::value_ptr(internode_global_transform));
+                      static bool last_gizmos_used = false;
+                      if (ImGuizmo::IsUsing()) {
+                        if (!last_gizmos_used) {
+                          tree_model.Step();
+                          tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
+                        }
+                        tree_visualizer.m_needUpdate = true;
+                        Transform new_internode_transform{};
+                        new_internode_transform.value =
+                            glm::inverse(tree_global_transform.value) * internode_global_transform;
+                        auto scale_holder = glm::vec3(1.0f);
+                        new_internode_transform.Decompose(internode.info.global_position,
+                                                          internode.data.desired_global_rotation, scale_holder);
+                        if (auto parent_handle = internode.GetParentHandle(); parent_handle != -1) {
+                          internode.data.desired_local_rotation =
+                              glm::inverse(current_skeleton.PeekNode(parent_handle).data.desired_global_rotation) *
+                              internode.data.desired_global_rotation;
+                        }
+                        tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
+                        last_gizmos_used = true;
+                      } else if (last_gizmos_used) {
+                        tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
+                        may_need_geometry_generation = true;
+                        last_gizmos_used = false;
+                        tree_visualizer.m_needUpdate = true;
+                        tree_model.RefShootSkeleton().CalculateRegulatedGlobalRotation();
+                      }
+                    }
+                    ImGui::EndChild();
+                  }
+                  ImGui::End();
+                  ImGui::PopStyleVar();
+                }
+#endif
+              }
+              if (visualization_camera_window_focused_) {
+                if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
+                  if (tree_visualizer.m_selectedInternodeHandle <= 0) {
+                    if (tree_visualizer.RayCastSelection(visualization_camera_, visualization_camera_mouse_position,
+                                                         tree_skeleton, global_transform)) {
+                      tree_visualizer.m_needUpdate = true;
+                    }
+                  }
+                } else if (editor_layer->GetKey(GLFW_KEY_T) == Input::KeyActionType::Press) {
+                  if (tree_visualizer.m_selectedInternodeHandle > 0) {
                     tree_model.Step();
-                  tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
+                    tree_model.RefShootSkeleton().RemoveNodes({tree_visualizer.m_selectedInternodeHandle});
+                    tree_visualizer.m_selectedInternodeHandle = -1;
+                    tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
+                    tree_visualizer.m_needUpdate = true;
+                    if (auto_generate_mesh_after_editing_) {
+                      tree->GenerateGeometryEntities(mesh_generator_settings, -1);
+                    }
+                    if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {
+                      if (auto_generate_strands_after_editing_) {
+                        tree->InitializeStrandRenderer();
+                      }
+                      if (auto_generate_strand_mesh_after_editing_) {
+                        tree->InitializeStrandModelMeshRenderer(strand_mesh_generator_settings);
+                      }
+                    }
+                  }
+                } else if (editor_layer->GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
+                  tree_visualizer.SetSelectedNode(tree_skeleton, -1);
+                }
+              }
+            } break;
+            case TreeOperatorMode::Prune: {
+              if (visualization_camera_window_focused_) {
+                if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
+                  mouse_positions.clear();
+                  glm::vec2 mouse_position = visualization_camera_mouse_position;
+                  const float half_x = visualization_camera_->GetSize().x / 2.0f;
+                  const float half_y = visualization_camera_->GetSize().y / 2.0f;
+                  mouse_position = {-1.0f * (mouse_position.x - half_x) / half_x,
+                                    -1.0f * (mouse_position.y - half_y) / half_y};
+                  if (mouse_position.x > -1.0f && mouse_position.x < 1.0f && mouse_position.y > -1.0f &&
+                      mouse_position.y < 1.0f) {
+                    mouse_positions.emplace_back(mouse_position);
+                  }
+                } else if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
+                  glm::vec2 mouse_position = visualization_camera_mouse_position;
+                  const float half_x = visualization_camera_->GetSize().x / 2.0f;
+                  const float half_y = visualization_camera_->GetSize().y / 2.0f;
+                  mouse_position = {-1.0f * (mouse_position.x - half_x) / half_x,
+                                    -1.0f * (mouse_position.y - half_y) / half_y};
+                  if (mouse_position.x > -1.0f && mouse_position.x < 1.0f && mouse_position.y > -1.0f &&
+                      mouse_position.y < 1.0f &&
+                      (!mouse_positions.empty() && mouse_position != mouse_positions.back())) {
+                    mouse_positions.emplace_back(mouse_position);
+                  }
+                } else if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release) {
+                  // Once released, check if empty.
+                  if (!mouse_positions.empty()) {
+                    tree_model.Step();
+                    auto& skeleton = tree_model.RefShootSkeleton();
+                    std::vector<SkeletonNodeHandle> pruning_node_handles;
+                    if (tree_visualizer.ScreenCurveSelection(
+                            [&](const SkeletonNodeHandle node_handle) {
+                              pruning_node_handles.emplace_back(node_handle);
+                            },
+                            mouse_positions, skeleton, global_transform)) {
+                      tree_model.RefShootSkeleton().RemoveNodes(pruning_node_handles);
+                      tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
+                      tree_visualizer.m_needUpdate = true;
+                      may_need_geometry_generation = true;
+                    } else {
+                      tree_model.Pop();
+                    }
+                    mouse_positions.clear();
+                  }
+                }
+              }
+            } break;
+            case TreeOperatorMode::Invigorate: {
+              if (visualization_camera_window_focused_) {
+                static bool last_frame_invigorate = false;
+                if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
+                  if (tree_visualizer.RayCastSelection(visualization_camera_, visualization_camera_mouse_position,
+                                                       tree_skeleton, global_transform)) {
+                    if (!tree->enable_history)
+                      tree_model.Step();
+                    tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
+                    tree_visualizer.m_needUpdate = true;
+                  }
+                } else if (tree_visualizer.m_selectedInternodeHandle >= 0 &&
+                           editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
+                  const auto climate_candidate = FindClimate();
+                  if (!climate_candidate.expired()) {
+                    climate_candidate.lock()->PrepareForGrowth();
+                    if (tree->TryGrowSubTree(simulation_settings.delta_time, tree_visualizer.m_selectedInternodeHandle,
+                                             false)) {
+                      tree_visualizer.m_needUpdate = true;
+                      may_need_geometry_generation = true;
+                    }
+                  }
+                  last_frame_invigorate = true;
+                } else if (last_frame_invigorate &&
+                           editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release) {
+                  tree_visualizer.SetSelectedNode(tree_skeleton, -1);
+                  last_frame_invigorate = false;
                   tree_visualizer.m_needUpdate = true;
                 }
-              } else if (tree_visualizer.m_selectedInternodeHandle >= 0 &&
-                         editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
-                const auto climateCandidate = FindClimate();
-                if (!climateCandidate.expired()) {
-                  climateCandidate.lock()->PrepareForGrowth();
-                  if (tree->TryGrowSubTree(m_simulationSettings.delta_time, tree_visualizer.m_selectedInternodeHandle,
-                                           false)) {
+              }
+            } break;
+            case TreeOperatorMode::Reduce: {
+              if (visualization_camera_window_focused_) {
+                static bool last_frame_reduce = false;
+                static float target_age = 0.0f;
+                if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
+                  if (tree_visualizer.RayCastSelection(visualization_camera_, visualization_camera_mouse_position,
+                                                       tree_skeleton, global_transform)) {
+                    if (!tree->enable_history)
+                      tree_model.Step();
+                    tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
+                    tree_visualizer.m_needUpdate = true;
+                    if (tree_visualizer.m_selectedInternodeHandle >= 0) {
+                      target_age = tree->tree_model.GetSubTreeMaxAge(tree_visualizer.m_selectedInternodeHandle);
+                    }
+                  }
+                } else if (tree_visualizer.m_selectedInternodeHandle >= 0 &&
+                           editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
+                  if (tree->tree_model.Reduce(tree->shoot_growth_controller_, tree_visualizer.m_selectedInternodeHandle,
+                                              target_age)) {
                     tree_visualizer.m_needUpdate = true;
                     may_need_geometry_generation = true;
                   }
-                }
-                lastFrameInvigorate = true;
-              } else if (lastFrameInvigorate &&
-                         editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release) {
-                tree_visualizer.SetSelectedNode(tree_skeleton, -1);
-                lastFrameInvigorate = false;
-                tree_visualizer.m_needUpdate = true;
-              }
-            }
-          } break;
-          case OperatorMode::Reduce: {
-            if (m_visualizationCameraWindowFocused) {
-              static bool lastFrameReduce = false;
-              static float targetAge = 0.0f;
-              if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
-                if (tree_visualizer.RayCastSelection(m_visualizationCamera, m_visualizationCameraMousePosition,
-                                                     tree_skeleton, global_transform)) {
-                  if (!tree->enable_history)
-                    tree_model.Step();
-                  tree_visualizer.m_checkpointIteration = tree_model.CurrentIteration();
+                  target_age -= tree_reduce_rate;
+                  last_frame_reduce = true;
+                } else if (last_frame_reduce &&
+                           editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release) {
+                  tree_visualizer.SetSelectedNode(tree_skeleton, -1);
+                  last_frame_reduce = false;
                   tree_visualizer.m_needUpdate = true;
-                  if (tree_visualizer.m_selectedInternodeHandle >= 0) {
-                    targetAge = tree->tree_model.GetSubTreeMaxAge(tree_visualizer.m_selectedInternodeHandle);
-                  }
                 }
-              } else if (tree_visualizer.m_selectedInternodeHandle >= 0 &&
-                         editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
-                if (tree->tree_model.Reduce(tree->shoot_growth_controller_, tree_visualizer.m_selectedInternodeHandle,
-                                            targetAge)) {
-                  tree_visualizer.m_needUpdate = true;
-                  may_need_geometry_generation = true;
-                }
-                targetAge -= m_reduceRate;
-                lastFrameReduce = true;
-              } else if (lastFrameReduce &&
-                         editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release) {
-                tree_visualizer.SetSelectedNode(tree_skeleton, -1);
-                lastFrameReduce = false;
-                tree_visualizer.m_needUpdate = true;
               }
-            }
-          } break;
-        }
+            } break;
+          }
 
-        if (editorLayer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release &&
-            may_need_geometry_generation) {
-          if (m_autoGenerateMeshAfterEditing) {
-            tree->GenerateGeometryEntities(m_meshGeneratorSettings, -1);
-          }
-          if (m_autoGenerateStrandsAfterEditing || m_autoGenerateStrandMeshAfterEditing) {
-            tree->BuildStrandModel();
-            if (m_autoGenerateStrandsAfterEditing) {
-              auto strands = tree->GenerateStrands();
-              tree->InitializeStrandRenderer(strands);
+          if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release &&
+              may_need_geometry_generation) {
+            if (auto_generate_mesh_after_editing_) {
+              tree->GenerateGeometryEntities(mesh_generator_settings, -1);
             }
-            if (m_autoGenerateStrandMeshAfterEditing) {
-              tree->InitializeStrandModelMeshRenderer(m_strandMeshGeneratorSettings);
+            if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {
+              tree->BuildStrandModel();
+              if (auto_generate_strands_after_editing_) {
+                auto strands = tree->GenerateStrands();
+                tree->InitializeStrandRenderer(strands);
+              }
+              if (auto_generate_strand_mesh_after_editing_) {
+                tree->InitializeStrandModelMeshRenderer(strand_mesh_generator_settings);
+              }
             }
+          } else if (tree_visualizer.m_needUpdate && auto_generate_skeletal_graph_every_frame_) {
+            tree->GenerateSkeletalGraph(skeletal_graph_settings, tree_visualizer.m_selectedInternodeHandle,
+                                        Resources::GetResource<Mesh>("PRIMITIVE_SPHERE"),
+                                        Resources::GetResource<Mesh>("PRIMITIVE_CUBE"));
           }
-        } else if (tree_visualizer.m_needUpdate && m_autoGenerateSkeletalGraphEveryFrame) {
-          tree->GenerateSkeletalGraph(m_skeletalGraphSettings, tree_visualizer.m_selectedInternodeHandle,
-                                      Resources::GetResource<Mesh>("PRIMITIVE_SPHERE"),
-                                      Resources::GetResource<Mesh>("PRIMITIVE_CUBE"));
+          may_need_geometry_generation = false;
         }
-        may_need_geometry_generation = false;
+        tree_visualizer.Visualize(tree_model, global_transform);
       }
-      tree_visualizer.Visualize(tree_model, global_transform);
-    }
 
-    if (m_showShadowGrid) {
-      editorLayer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"), m_visualizationCamera,
-                                                 m_shadowGridParticleInfoList, glm::mat4(1.0f), 1.0f, gizmoSettings);
-    }
-    if (m_showLightingGrid) {
-      editorLayer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"), m_visualizationCamera,
-                                                 m_lightingGridParticleInfoList, glm::mat4(1.0f), 1.0f, gizmoSettings);
-    }
-    if (m_displayShootStem && !m_shootStemPoints.empty()) {
-      gizmoSettings.color_mode = GizmoSettings::ColorMode::Default;
-      editorLayer->DrawGizmoStrands(branchStrands, m_visualizationCamera, glm::vec4(1.0f, 1.0f, 1.0f, 0.75f),
-                                    glm::mat4(1.0f), 1, gizmoSettings);
-    }
-    if (m_displayFruit && !m_fruitMatrices->PeekParticleInfoList().empty()) {
-      editorLayer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"), m_visualizationCamera,
-                                                 m_fruitMatrices, glm::mat4(1.0f), 1.0f, gizmoSettings);
-    }
-    gizmoSettings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
-    if (m_displayFoliage && !m_foliageMatrices->PeekParticleInfoList().empty()) {
-      editorLayer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_QUAD"), m_visualizationCamera,
-                                                 m_foliageMatrices, glm::mat4(1.0f), 1.0f, gizmoSettings);
-    }
-    if (m_displayGroundLeaves && !m_groundLeafMatrices->PeekParticleInfoList().empty()) {
-      editorLayer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_QUAD"), m_visualizationCamera,
-                                                 m_groundLeafMatrices, glm::mat4(1.0f), 1.0f, gizmoSettings);
-    }
-    gizmoSettings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
+      if (tree_visualizer_settings_.show_shadow_grid) {
+        editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"),
+                                                    visualization_camera_, shadow_grid_particle_info_list_,
+                                                    glm::mat4(1.0f), 1.0f, gizmo_settings);
+      }
+      if (tree_visualizer_settings_.show_lighting_grid) {
+        editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"),
+                                                    visualization_camera_, lighting_grid_particle_info_list_,
+                                                    glm::mat4(1.0f), 1.0f, gizmo_settings);
+      }
+      if (tree_visualizer_settings_.display_shoot_stem && !shoot_stem_points_.empty()) {
+        gizmo_settings.color_mode = GizmoSettings::ColorMode::Default;
+        editor_layer->DrawGizmoStrands(branch_strands, visualization_camera_, glm::vec4(1.0f, 1.0f, 1.0f, 0.75f),
+                                       glm::mat4(1.0f), 1, gizmo_settings);
+      }
+      if (tree_visualizer_settings_.display_fruit && !fruit_matrices_->PeekParticleInfoList().empty()) {
+        editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"),
+                                                    visualization_camera_, fruit_matrices_, glm::mat4(1.0f), 1.0f,
+                                                    gizmo_settings);
+      }
+      gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
+      if (tree_visualizer_settings_.display_foliage && !foliage_matrices_->PeekParticleInfoList().empty()) {
+        editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_QUAD"),
+                                                    visualization_camera_, foliage_matrices_, glm::mat4(1.0f), 1.0f,
+                                                    gizmo_settings);
+      }
+      if (tree_visualizer_settings_.display_ground_leaves && !ground_leaf_matrices_->PeekParticleInfoList().empty()) {
+        editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_QUAD"),
+                                                    visualization_camera_, ground_leaf_matrices_, glm::mat4(1.0f), 1.0f,
+                                                    gizmo_settings);
+      }
+      gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
 
-    if (m_displayGroundFruit && !m_groundFruitMatrices->PeekParticleInfoList().empty()) {
-      editorLayer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"), m_visualizationCamera,
-                                                 m_groundFruitMatrices, glm::mat4(1.0f), 1.0f, gizmoSettings);
-    }
+      if (tree_visualizer_settings_.display_ground_fruit && !ground_fruit_matrices_->PeekParticleInfoList().empty()) {
+        editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"),
+                                                    visualization_camera_, ground_fruit_matrices_, glm::mat4(1.0f),
+                                                    1.0f, gizmo_settings);
+      }
 
-    if (m_displayBoundingBox && !m_boundingBoxMatrices->PeekParticleInfoList().empty()) {
-      editorLayer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"), m_visualizationCamera,
-                                                 m_boundingBoxMatrices, glm::mat4(1.0f), 1.0f, gizmoSettings);
-    }
+      if (tree_visualizer_settings_.display_bounding_box && !bounding_box_matrices_->PeekParticleInfoList().empty()) {
+        editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"),
+                                                    visualization_camera_, bounding_box_matrices_, glm::mat4(1.0f),
+                                                    1.0f, gizmo_settings);
+      }
 
-    gizmoSettings.color_mode = GizmoSettings::ColorMode::Default;
-    if (m_displaySoil) {
-      SoilVisualization();
+      gizmo_settings.color_mode = GizmoSettings::ColorMode::Default;
+      if (tree_visualizer_settings_.display_soil) {
+        SoilVisualization();
+      }
     }
   }
 }
 
-void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* treeEntities) {
+void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
   const auto scene = Application::GetActiveScene();
-  m_simulatedTime = 0;
-  if (treeEntities) {
-    for (const auto& i : *treeEntities) {
+  simulated_time_ = 0;
+  if (tree_entities) {
+    for (const auto& i : *tree_entities) {
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(i).lock();
       tree->Reset();
     }
   }
-  m_needFullFlowUpdate = true;
-  m_totalTime = 0;
-  m_internodeSize = 0;
-  m_leafSize = 0;
-  m_fruitSize = 0;
-  m_shootStemSize = 0;
-  m_rootNodeSize = 0;
-  m_rootStemSize = 0;
 
-  m_shootStemSegments.clear();
-  m_shootStemPoints.clear();
+  need_full_flow_update = true;
+  total_time_ = 0;
+  internode_size_ = 0;
+  leaf_size_ = 0;
+  fruit_size_ = 0;
+  shoot_stem_size_ = 0;
+  root_node_size_ = 0;
+  root_stem_size_ = 0;
 
-  m_shootStemStrands = ProjectManager::CreateTemporaryAsset<Strands>();
+  shoot_stem_segments_.clear();
+  shoot_stem_points_.clear();
 
-  m_boundingBoxMatrices->SetParticleInfos({});
-  m_foliageMatrices->SetParticleInfos({});
-  m_fruitMatrices->SetParticleInfos({});
+  shoot_stem_strands_ = ProjectManager::CreateTemporaryAsset<Strands>();
 
-  const auto climateCandidate = FindClimate();
-  if (!climateCandidate.expired()) {
-    const auto climate = climateCandidate.lock();
+  bounding_box_matrices_->SetParticleInfos({});
+  foliage_matrices_->SetParticleInfos({});
+  fruit_matrices_->SetParticleInfos({});
+
+  const auto climate_candidate = FindClimate();
+  if (!climate_candidate.expired()) {
+    const auto climate = climate_candidate.lock();
     climate->climate_model.environment_grid = {};
   }
 }
 
 std::weak_ptr<Climate> EcoSysLabLayer::FindClimate() {
   const auto scene = Application::GetActiveScene();
-  const std::vector<Entity>* climateEntities = scene->UnsafeGetPrivateComponentOwnersList<Climate>();
-  if (climateEntities && !climateEntities->empty()) {
-    return scene->GetOrSetPrivateComponent<Climate>(climateEntities->at(0));
+  const std::vector<Entity>* climate_entities = scene->UnsafeGetPrivateComponentOwnersList<Climate>();
+  if (climate_entities && !climate_entities->empty()) {
+    return scene->GetOrSetPrivateComponent<Climate>(climate_entities->at(0));
   }
   return {};
 }
 
 std::weak_ptr<Soil> EcoSysLabLayer::FindSoil() {
   const auto scene = Application::GetActiveScene();
-  const std::vector<Entity>* soilEntities = scene->UnsafeGetPrivateComponentOwnersList<Soil>();
-  if (soilEntities && !soilEntities->empty()) {
-    return scene->GetOrSetPrivateComponent<Soil>(soilEntities->at(0));
+  const std::vector<Entity>* soil_entities = scene->UnsafeGetPrivateComponentOwnersList<Soil>();
+  if (soil_entities && !soil_entities->empty()) {
+    return scene->GetOrSetPrivateComponent<Soil>(soil_entities->at(0));
   }
   return {};
 }
 
 const std::vector<glm::vec3>& EcoSysLabLayer::RandomColors() {
-  return m_randomColors;
+  return random_colors_;
 }
 
-void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
+void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto scene = GetScene();
   bool simulate = false;
-  static bool autoTimeGrow = false;
-  static float targetTime = 0.0f;
-  static float extraTime = 4.f;
+  static bool auto_time_grow = false;
+  static float target_time = 0.0f;
+  static float extra_time = 4.f;
   if (ImGui::Begin("EcoSysLab Layer")) {
-    const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-    if (treeEntities && !treeEntities->empty()) {
-      ImGui::Text("Editing");
-      if (scene->IsEntityValid(m_selectedTree)) {
-        const auto& tree = scene->GetOrSetPrivateComponent<Tree>(m_selectedTree).lock();
-        auto& treeVisualizer = tree->tree_visualizer;
-        if (treeVisualizer.m_checkpointIteration == tree->tree_model.CurrentIteration()) {
-          if (ImGui::TreeNodeEx("Tree Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (ImGui::Combo("Mode", {"Select", "Rotate", "Prune", "Invigorate", "Reduce"}, m_operatorMode)) {
-              treeVisualizer.m_selectedInternodeHandle = -1;
-              treeVisualizer.m_selectedInternodeHierarchyList.clear();
-            }
-            switch (static_cast<OperatorMode>(m_operatorMode)) {
-              case OperatorMode::Select:
-                ImGui::Text("Press T to cut off entire node, press R to cut at point of selection.");
-                break;
-              case OperatorMode::Rotate:
-                ImGui::Text("Press T to cut off entire node.");
-                break;
-              case OperatorMode::Prune:
-                break;
-              case OperatorMode::Invigorate:
-                break;
-              case OperatorMode::Reduce:
-                break;
-            }
-            if (m_operatorMode == static_cast<unsigned>(OperatorMode::Invigorate)) {
-              ImGui::DragFloat("Invigorate speed", &m_simulationSettings.delta_time, 0.01f, 0.01f, 1.0f);
-            }
-            if (m_operatorMode == static_cast<unsigned>(OperatorMode::Reduce)) {
-              ImGui::DragFloat("Reduce speed", &m_reduceRate, 0.001f, 0.001f, 1.0f);
-            }
+    ImGui::Checkbox("Show Trees", &show_trees);
+    ImGui::Checkbox("Show Strands", &show_strands);
+    if (show_trees) {
+      const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      if (tree_entities && !tree_entities->empty()) {
+        if (scene->IsEntityValid(selected_tree)) {
+          const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
+          auto& tree_visualizer = tree->tree_visualizer;
+          if (tree_visualizer.m_checkpointIteration == tree->tree_model.CurrentIteration()) {
+            if (ImGui::TreeNodeEx("Tree Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
+              if (ImGui::Combo("Mode", {"Select", "Rotate", "Prune", "Invigorate", "Reduce"}, tree_operator_mode)) {
+                tree_visualizer.m_selectedInternodeHandle = -1;
+                tree_visualizer.m_selectedInternodeHierarchyList.clear();
+              }
+              switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
+                case TreeOperatorMode::Select:
+                  ImGui::Text("Press T to cut off entire node, press R to cut at point of selection.");
+                  break;
+                case TreeOperatorMode::Rotate:
+                  ImGui::Text("Press T to cut off entire node.");
+                  break;
+                case TreeOperatorMode::Prune:
+                  break;
+                case TreeOperatorMode::Invigorate:
+                  break;
+                case TreeOperatorMode::Reduce:
+                  break;
+              }
+              if (tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Reduce)) {
+                ImGui::DragFloat("Reduce speed", &tree_reduce_rate, 0.001f, 0.001f, 1.0f);
+              }
 
+              ImGui::TreePop();
+            }
+          } else {
+            ImGui::Text("Go to current skeleton to enable operator!");
+          }
+          ImGui::Separator();
+          if (ImGui::TreeNodeEx("Tree Visualizer")) {
+            tree_visualizer.OnInspect(tree->tree_model);
             ImGui::TreePop();
           }
         } else {
-          ImGui::Text("Go to current skeleton to enable operator!");
+          ImGui::Text("Select a tree entity to enable editing & visualization!");
         }
-        ImGui::Separator();
-        if (ImGui::TreeNodeEx("Tree Visualizer", ImGuiTreeNodeFlags_DefaultOpen)) {
-          treeVisualizer.OnInspect(tree->tree_model);
+        if (ImGui::TreeNodeEx("Tree Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
+          if (ImGui::TreeNode("Simulation Settings")) {
+            simulation_settings.OnInspect(editor_layer);
+            ImGui::TreePop();
+          }
+          if (ImGui::Button("Reset all trees")) {
+            ResetAllTrees(tree_entities);
+            ClearMeshes();
+            ClearGroundFruitAndLeaf();
+            target_time = 0.0f;
+          }
+          ImGui::Text(("Simulated time: " + std::to_string(simulated_time_) + " years").c_str());
+          ImGui::DragInt("target nodes", &simulation_settings.max_node_count, 500, 0, INT_MAX);
+          ImGui::DragFloat("target years", &extra_time, 0.1f, simulated_time_, 999);
+          if (auto_time_grow) {
+            if (ImGui::Button("Force stop")) {
+              auto_time_grow = false;
+              target_time = simulated_time_;
+            }
+          } else {
+            if (ImGui::Button(("Grow " + std::to_string(extra_time) + " years").c_str())) {
+              auto_time_grow = true;
+              target_time += extra_time;
+            }
+          }
+          if (ImGui::Button("Grow 1 iteration")) {
+            simulate = true;
+          }
+          ImGui::TreePop();
+        }
+        if (!simulation_settings.auto_clear_fruit_and_leaves && ImGui::Button("Clear ground leaves and fruits")) {
+          ClearGroundFruitAndLeaf();
+        }
+        if (ImGui::TreeNode("Tree Geometries")) {
+          if (ImGui::TreeNode("Skeletal graph")) {
+            skeletal_graph_settings.OnInspect();
+            ImGui::TreePop();
+          }
+          if (ImGui::Button("Generate Skeletal graphs")) {
+            GenerateSkeletalGraphs(skeletal_graph_settings);
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("Clear Skeletal graphs")) {
+            ClearSkeletalGraphs();
+          }
+          ImGui::Separator();
+          if (ImGui::TreeNodeEx("Mesh generation")) {
+            mesh_generator_settings.OnInspect(editor_layer);
+            ImGui::TreePop();
+          }
+          if (ImGui::Button("Generate Meshes")) {
+            GenerateMeshes(mesh_generator_settings);
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("Clear Meshes")) {
+            ClearMeshes();
+          }
+          ImGui::Separator();
+          if (ImGui::TreeNodeEx("Strand Model Mesh generation")) {
+            strand_mesh_generator_settings.OnInspect(editor_layer);
+            ImGui::TreePop();
+          }
+          if (ImGui::Button("Build Strand Renderer")) {
+            GenerateStrandRenderers();
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("Clear Strand Renderer")) {
+            ClearStrandRenderers();
+          }
+          if (ImGui::Button("Generate Strand Model Meshes")) {
+            GenerateStrandModelMeshes(strand_mesh_generator_settings);
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("Clear Strand Model Meshes")) {
+            ClearStrandModelMeshes();
+          }
+          ImGui::Separator();
+
+          if (ImGui::TreeNode("Auto geometry generation")) {
+            ImGui::Checkbox("Auto generate mesh", &auto_generate_mesh_after_editing_);
+            ImGui::Checkbox("Auto generate Skeletal Graph Per Frame", &auto_generate_skeletal_graph_every_frame_);
+            ImGui::Checkbox("Auto generate strands", &auto_generate_strands_after_editing_);
+            ImGui::Checkbox("Auto generate strands mesh", &auto_generate_strand_mesh_after_editing_);
+
+            ImGui::TreePop();
+          }
+          FileUtils::SaveFile(
+              "Export all trees as OBJ", "OBJ", {".obj"},
+              [&](const std::filesystem::path& path) {
+                ExportAllTrees(path);
+              },
+              false);
+          ImGui::TreePop();
+        }
+
+        if (ImGui::TreeNodeEx("Stats")) {
+          ImGui::Text("Growth time: %.4f", last_used_time_);
+          ImGui::Text("Total time: %.4f", total_time_);
+          ImGui::Text("Tree count: %d", tree_entities->size());
+          ImGui::Text("Total internode size: %d", internode_size_);
+          ImGui::Text("Total shoot branch size: %d", shoot_stem_size_);
+          ImGui::Text("Total fruit size: %d", fruit_size_);
+          ImGui::Text("Total leaf size: %d", leaf_size_);
+          ImGui::Text("Total root node size: %d", root_node_size_);
+          ImGui::Text("Total root branch size: %d", root_stem_size_);
+          ImGui::Text("Total ground leaf size: %d", leaves_.size());
+          ImGui::Text("Total ground fruit size: %d", fruits_.size());
           ImGui::TreePop();
         }
       } else {
-        ImGui::Text("Select a tree entity to enable editing & visualization!");
+        ImGui::Text("No trees in the scene!");
+        ResetAllTrees(nullptr);
+        target_time = 0.0f;
       }
-      ImGui::Separator();
-      ImGui::Text("Growth simulation");
-      if (ImGui::TreeNode("Simulation Settings")) {
-        m_simulationSettings.OnInspect(editorLayer);
-        ImGui::TreePop();
-      }
-      if (ImGui::Button("Reset all trees")) {
-        ResetAllTrees(treeEntities);
-        ClearMeshes();
-        ClearGroundFruitAndLeaf();
-        targetTime = 0.0f;
-      }
-      ImGui::Text(("Simulated time: " + std::to_string(m_simulatedTime) + " years").c_str());
-      ImGui::DragInt("target nodes", &m_simulationSettings.max_node_count, 500, 0, INT_MAX);
-      ImGui::DragFloat("target years", &extraTime, 0.1f, m_simulatedTime, 999);
-      if (autoTimeGrow) {
-        if (ImGui::Button("Force stop")) {
-          autoTimeGrow = false;
-          targetTime = m_simulatedTime;
+      if (ImGui::TreeNodeEx("Tree Visualization settings")) {
+        if (ImGui::Button("Update")) {
+          need_full_flow_update = true;
         }
-      } else {
-        if (ImGui::Button(("Grow " + std::to_string(extraTime) + " years").c_str())) {
-          autoTimeGrow = true;
-          targetTime += extraTime;
+        tree_visualizer_settings_.OnInspect(editor_layer);
+        if (tree_visualizer_settings_.display_soil &&
+            ImGui::TreeNodeEx("Soil visualization settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+          OnSoilVisualizationMenu();
+          ImGui::TreePop();
         }
-      }
-      if (ImGui::Button("Grow 1 iteration")) {
-        simulate = true;
-      }
-
-      if (!m_simulationSettings.auto_clear_fruit_and_leaves && ImGui::Button("Clear ground leaves and fruits")) {
-        ClearGroundFruitAndLeaf();
-      }
-      ImGui::Separator();
-      if (ImGui::TreeNode("Skeletal graph")) {
-        m_skeletalGraphSettings.OnInspect();
         ImGui::TreePop();
       }
-      if (ImGui::Button("Generate Skeletal graphs")) {
-        GenerateSkeletalGraphs(m_skeletalGraphSettings);
-      }
-      ImGui::SameLine();
-      if (ImGui::Button("Clear Skeletal graphs")) {
-        ClearSkeletalGraphs();
-      }
-      ImGui::Separator();
-      if (ImGui::TreeNodeEx("Mesh generation")) {
-        m_meshGeneratorSettings.OnInspect(editorLayer);
-        ImGui::TreePop();
-      }
-      if (ImGui::Button("Generate Meshes")) {
-        GenerateMeshes(m_meshGeneratorSettings);
-      }
-      ImGui::SameLine();
-      if (ImGui::Button("Clear Meshes")) {
-        ClearMeshes();
-      }
-      ImGui::Separator();
-      if (ImGui::TreeNodeEx("Strand Model Mesh generation")) {
-        m_strandMeshGeneratorSettings.OnInspect(editorLayer);
-        ImGui::TreePop();
-      }
-      if (ImGui::Button("Build Strand Renderer")) {
-        GenerateStrandRenderers();
-      }
-      ImGui::SameLine();
-      if (ImGui::Button("Clear Strand Renderer")) {
-        ClearStrandRenderers();
-      }
-      if (ImGui::Button("Generate Strand Model Meshes")) {
-        GenerateStrandModelMeshes(m_strandMeshGeneratorSettings);
-      }
-      ImGui::SameLine();
-      if (ImGui::Button("Clear Strand Model Meshes")) {
-        ClearStrandModelMeshes();
-      }
-      ImGui::Separator();
-
-      if (ImGui::TreeNode("Auto geometry generation")) {
-        ImGui::Checkbox("Auto generate mesh", &m_autoGenerateMeshAfterEditing);
-        ImGui::Checkbox("Auto generate Skeletal Graph Per Frame", &m_autoGenerateSkeletalGraphEveryFrame);
-        ImGui::Checkbox("Auto generate strands", &m_autoGenerateStrandsAfterEditing);
-        ImGui::Checkbox("Auto generate strands mesh", &m_autoGenerateStrandMeshAfterEditing);
-
-        ImGui::TreePop();
-      }
-      FileUtils::SaveFile(
-          "Export all trees as OBJ", "OBJ", {".obj"},
-          [&](const std::filesystem::path& path) {
-            ExportAllTrees(path);
-          },
-          false);
-      if (ImGui::TreeNodeEx("Stats")) {
-        ImGui::Text("Growth time: %.4f", m_lastUsedTime);
-        ImGui::Text("Total time: %.4f", m_totalTime);
-        ImGui::Text("Tree count: %d", treeEntities->size());
-        ImGui::Text("Total internode size: %d", m_internodeSize);
-        ImGui::Text("Total shoot branch size: %d", m_shootStemSize);
-        ImGui::Text("Total fruit size: %d", m_fruitSize);
-        ImGui::Text("Total leaf size: %d", m_leafSize);
-        ImGui::Text("Total root node size: %d", m_rootNodeSize);
-        ImGui::Text("Total root branch size: %d", m_rootStemSize);
-        ImGui::Text("Total ground leaf size: %d", m_leaves.size());
-        ImGui::Text("Total ground fruit size: %d", m_fruits.size());
-        ImGui::TreePop();
-      }
-    } else {
-      ImGui::Text("No trees in the scene!");
-      ResetAllTrees(nullptr);
-      targetTime = 0.0f;
     }
-    ImGui::Checkbox("Visualization", &m_visualization);
-    if (m_visualization && ImGui::TreeNodeEx("Visualization settings")) {
-      if (ImGui::Button("Update")) {
-        m_needFullFlowUpdate = true;
-      }
-
-      ImGui::Checkbox("Display shoot stem", &m_displayShootStem);
-      ImGui::Checkbox("Display fruits", &m_displayFruit);
-      ImGui::Checkbox("Display foliage", &m_displayFoliage);
-
-      ImGui::Checkbox("Display ground fruit", &m_displayGroundFruit);
-      ImGui::Checkbox("Display ground leaves", &m_displayGroundLeaves);
-
-      ImGui::Checkbox("Display Soil", &m_displaySoil);
-      if (m_displaySoil && ImGui::TreeNodeEx("Soil visualization settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-        OnSoilVisualizationMenu();
+    if (show_strands) {
+      if (ImGui::TreeNodeEx("Strand Visualization settings")) {
+        strand_visualizer_settings_.OnInspect(editor_layer);
         ImGui::TreePop();
       }
-      ImGui::Checkbox("Display Bounding Box", &m_displayBoundingBox);
-      ImGui::Checkbox("Show Shadow Grid", &m_showShadowGrid);
-      ImGui::Checkbox("Show Lighting Direction Grid", &m_showLightingGrid);
-      ImGui::TreePop();
     }
   }
   ImGui::End();
-  if (simulate || autoTimeGrow) {
-    Simulate(m_simulationSettings);
-    if (m_simulationSettings.auto_clear_fruit_and_leaves) {
+  if (simulate || auto_time_grow) {
+    Simulate(simulation_settings);
+    if (simulation_settings.auto_clear_fruit_and_leaves) {
       ClearGroundFruitAndLeaf();
     }
-    if (scene->IsEntityValid(m_selectedTree)) {
-      auto tree = scene->GetOrSetPrivateComponent<Tree>(m_selectedTree).lock();
+    if (scene->IsEntityValid(selected_tree)) {
+      auto tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
       tree->tree_visualizer.m_checkpointIteration = tree->tree_model.CurrentIteration();
       tree->tree_visualizer.m_needUpdate = true;
-      if (m_autoGenerateSkeletalGraphEveryFrame) {
-        tree->GenerateSkeletalGraph(m_skeletalGraphSettings, -1, Resources::GetResource<Mesh>("PRIMITIVE_SPHERE"),
+      if (auto_generate_skeletal_graph_every_frame_) {
+        tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::GetResource<Mesh>("PRIMITIVE_SPHERE"),
                                     Resources::GetResource<Mesh>("PRIMITIVE_CUBE"));
       }
     }
   }
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  if (treeEntities && !treeEntities->empty()) {
-    if (targetTime <= m_simulatedTime && autoTimeGrow) {
-      autoTimeGrow = false;
-      for (const auto& treeEntity : *treeEntities) {
-        auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-        if (m_autoGenerateMeshAfterEditing) {
-          tree->GenerateGeometryEntities(m_meshGeneratorSettings, -1);
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    if (target_time <= simulated_time_ && auto_time_grow) {
+      auto_time_grow = false;
+      for (const auto& tree_entity : *tree_entities) {
+        auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+        if (auto_generate_mesh_after_editing_) {
+          tree->GenerateGeometryEntities(mesh_generator_settings, -1);
         }
-        if (m_autoGenerateStrandsAfterEditing || m_autoGenerateStrandMeshAfterEditing) {
+        if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {
           tree->BuildStrandModel();
-          if (m_autoGenerateStrandsAfterEditing) {
+          if (auto_generate_strands_after_editing_) {
             auto strands = tree->GenerateStrands();
             tree->InitializeStrandRenderer(strands);
           }
-          if (m_autoGenerateStrandMeshAfterEditing) {
-            tree->InitializeStrandModelMeshRenderer(m_strandMeshGeneratorSettings);
+          if (auto_generate_strand_mesh_after_editing_) {
+            tree->InitializeStrandModelMeshRenderer(strand_mesh_generator_settings);
           }
         }
       }
     }
   }
 #pragma region Internode debugging camera
-  if (m_visualization) {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
-    if (ImGui::Begin("Plant Visual")) {
-      if (ImGui::BeginChild("InternodeCameraRenderer", ImVec2(0, 0), false)) {
-        ImVec2 viewPortSize;
-        viewPortSize = ImGui::GetWindowSize();
-        m_visualizationCameraResolutionX = viewPortSize.x;
-        m_visualizationCameraResolutionY = viewPortSize.y;
-        ImGui::Image(m_visualizationCamera->GetRenderTexture()->GetColorImTextureId(),
-                     ImVec2(viewPortSize.x, viewPortSize.y), ImVec2(0, 1), ImVec2(1, 0));
-        m_visualizationCameraMousePosition = glm::vec2(FLT_MAX, -FLT_MAX);
-        auto sceneCameraRotation = editorLayer->GetSceneCameraRotation();
-        auto sceneCameraPosition = editorLayer->GetSceneCameraPosition();
-        if (ImGui::IsWindowFocused()) {
-          m_visualizationCameraWindowFocused = true;
-          bool valid = true;
-          auto mp = ImGui::GetMousePos();
-          auto wp = ImGui::GetWindowPos();
-          m_visualizationCameraMousePosition = glm::vec2(mp.x - wp.x, mp.y - wp.y);
-          if (valid) {
-            static bool isDraggingPreviously = false;
-            bool mouseDrag = true;
-            if (m_visualizationCameraMousePosition.x < 0 || m_visualizationCameraMousePosition.y < 0 ||
-                m_visualizationCameraMousePosition.x > viewPortSize.x ||
-                m_visualizationCameraMousePosition.y > viewPortSize.y ||
-                editorLayer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
-              mouseDrag = false;
-            }
-            static float prevX = 0;
-            static float prevY = 0;
-            if (mouseDrag && !isDraggingPreviously) {
-              prevX = m_visualizationCameraMousePosition.x;
-              prevY = m_visualizationCameraMousePosition.y;
-            }
-            const float xOffset = m_visualizationCameraMousePosition.x - prevX;
-            const float yOffset = m_visualizationCameraMousePosition.y - prevY;
-            prevX = m_visualizationCameraMousePosition.x;
-            prevY = m_visualizationCameraMousePosition.y;
-            isDraggingPreviously = mouseDrag;
-#pragma region Scene Camera Controller
-
-            if (mouseDrag && !editorLayer->lock_camera) {
-              glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
-              glm::vec3 right = sceneCameraRotation * glm::vec3(1, 0, 0);
-              if (editorLayer->GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
-                sceneCameraPosition += front * static_cast<float>(Times::DeltaTime()) * editorLayer->velocity;
-              }
-              if (editorLayer->GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
-                sceneCameraPosition -= front * static_cast<float>(Times::DeltaTime()) * editorLayer->velocity;
-              }
-              if (editorLayer->GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
-                sceneCameraPosition -= right * static_cast<float>(Times::DeltaTime()) * editorLayer->velocity;
-              }
-              if (editorLayer->GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
-                sceneCameraPosition += right * static_cast<float>(Times::DeltaTime()) * editorLayer->velocity;
-              }
-              if (editorLayer->GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
-                sceneCameraPosition.y += editorLayer->velocity * static_cast<float>(Times::DeltaTime());
-              }
-              if (editorLayer->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
-                sceneCameraPosition.y -= editorLayer->velocity * static_cast<float>(Times::DeltaTime());
-              }
-              if (xOffset != 0.0f || yOffset != 0.0f) {
-                front = glm::rotate(front, glm::radians(-xOffset * editorLayer->sensitivity), glm::vec3(0, 1, 0));
-                const glm::vec3 right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
-                if ((front.y < 0.99f && yOffset < 0.0f) || (front.y > -0.99f && yOffset > 0.0f)) {
-                  front = glm::rotate(front, glm::radians(-yOffset * editorLayer->sensitivity), right);
-                }
-                const glm::vec3 up = glm::normalize(glm::cross(right, front));
-                sceneCameraRotation = glm::quatLookAt(front, up);
-              }
-              editorLayer->SetCameraRotation(editorLayer->GetSceneCamera(), sceneCameraRotation);
-              editorLayer->SetCameraPosition(editorLayer->GetSceneCamera(), sceneCameraPosition);
-            }
-#pragma endregion
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
+  if (ImGui::Begin("Plant Visual")) {
+    if (ImGui::BeginChild("InternodeCameraRenderer", ImVec2(0, 0), false)) {
+      ImVec2 view_port_size;
+      view_port_size = ImGui::GetWindowSize();
+      visualization_camera_resolution_x = view_port_size.x;
+      visualization_camera_resolution_y = view_port_size.y;
+      ImGui::Image(visualization_camera_->GetRenderTexture()->GetColorImTextureId(),
+                   ImVec2(view_port_size.x, view_port_size.y), ImVec2(0, 1), ImVec2(1, 0));
+      visualization_camera_mouse_position = glm::vec2(FLT_MAX, -FLT_MAX);
+      auto scene_camera_rotation = editor_layer->GetSceneCameraRotation();
+      auto scene_camera_position = editor_layer->GetSceneCameraPosition();
+      if (ImGui::IsWindowFocused()) {
+        visualization_camera_window_focused_ = true;
+        bool valid = true;
+        auto mp = ImGui::GetMousePos();
+        auto wp = ImGui::GetWindowPos();
+        visualization_camera_mouse_position = glm::vec2(mp.x - wp.x, mp.y - wp.y);
+        if (valid) {
+          static bool is_dragging_previously = false;
+          bool mouse_drag = true;
+          if (visualization_camera_mouse_position.x < 0 || visualization_camera_mouse_position.y < 0 ||
+              visualization_camera_mouse_position.x > view_port_size.x ||
+              visualization_camera_mouse_position.y > view_port_size.y ||
+              editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
+            mouse_drag = false;
           }
-        } else {
-          m_visualizationCameraWindowFocused = false;
+          static float prev_x = 0;
+          static float prev_y = 0;
+          if (mouse_drag && !is_dragging_previously) {
+            prev_x = visualization_camera_mouse_position.x;
+            prev_y = visualization_camera_mouse_position.y;
+          }
+          const float x_offset = visualization_camera_mouse_position.x - prev_x;
+          const float y_offset = visualization_camera_mouse_position.y - prev_y;
+          prev_x = visualization_camera_mouse_position.x;
+          prev_y = visualization_camera_mouse_position.y;
+          is_dragging_previously = mouse_drag;
+#pragma region Scene Camera Controller
+          if (mouse_drag && !editor_layer->lock_camera) {
+            glm::vec3 front = scene_camera_rotation * glm::vec3(0, 0, -1);
+            glm::vec3 right = scene_camera_rotation * glm::vec3(1, 0, 0);
+            if (editor_layer->GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
+              scene_camera_position += front * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
+            }
+            if (editor_layer->GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
+              scene_camera_position -= front * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
+            }
+            if (editor_layer->GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
+              scene_camera_position -= right * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
+            }
+            if (editor_layer->GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
+              scene_camera_position += right * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
+            }
+            if (editor_layer->GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
+              scene_camera_position.y += editor_layer->velocity * static_cast<float>(Times::DeltaTime());
+            }
+            if (editor_layer->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
+              scene_camera_position.y -= editor_layer->velocity * static_cast<float>(Times::DeltaTime());
+            }
+            if (x_offset != 0.0f || y_offset != 0.0f) {
+              front = glm::rotate(front, glm::radians(-x_offset * editor_layer->sensitivity), glm::vec3(0, 1, 0));
+              const glm::vec3 right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
+              if ((front.y < 0.99f && y_offset < 0.0f) || (front.y > -0.99f && y_offset > 0.0f)) {
+                front = glm::rotate(front, glm::radians(-y_offset * editor_layer->sensitivity), right);
+              }
+              const glm::vec3 up = glm::normalize(glm::cross(right, front));
+              scene_camera_rotation = glm::quatLookAt(front, up);
+            }
+            editor_layer->SetCameraRotation(editor_layer->GetSceneCamera(), scene_camera_rotation);
+            editor_layer->SetCameraPosition(editor_layer->GetSceneCamera(), scene_camera_position);
+          }
+#pragma endregion
         }
-        editorLayer->SetCameraRotation(m_visualizationCamera, sceneCameraRotation);
-        editorLayer->SetCameraPosition(m_visualizationCamera, sceneCameraPosition);
+      } else {
+        visualization_camera_window_focused_ = false;
       }
-      ImGui::EndChild();
-      auto* window = ImGui::FindWindowByName("Plant Visual");
-      m_visualizationCamera->SetEnabled(!(window->Hidden && !window->Collapsed));
+      editor_layer->SetCameraRotation(visualization_camera_, scene_camera_rotation);
+      editor_layer->SetCameraPosition(visualization_camera_, scene_camera_position);
     }
-    ImGui::End();
-    ImGui::PopStyleVar();
-    Visualization();
+    ImGui::EndChild();
+    auto* window = ImGui::FindWindowByName("Plant Visual");
+    visualization_camera_->SetEnabled(!(window->Hidden && !window->Collapsed));
   }
+  ImGui::End();
+  ImGui::PopStyleVar();
+  TreeVisualization(editor_layer);
+  StrandVisualization(editor_layer);
 #pragma endregion
 }
 
 void EcoSysLabLayer::OnSoilVisualizationMenu() {
-  static bool forceUpdate;
-  ImGui::Checkbox("Force Update", &forceUpdate);
+  static bool force_update;
+  ImGui::Checkbox("Force Update", &force_update);
 
-  if (ImGui::Checkbox("Vector Visualization", &m_vectorEnable)) {
-    if (m_vectorEnable)
-      m_updateVectorMatrices = true;
+  if (ImGui::Checkbox("Vector Visualization", &vector_enable_)) {
+    if (vector_enable_)
+      update_vector_matrices_ = true;
   }
 
-  if (ImGui::Checkbox("Scalar Visualization", &m_scalarEnable)) {
-    if (m_scalarEnable)
-      m_updateScalarMatrices = true;
+  if (ImGui::Checkbox("Scalar Visualization", &scalar_enable_)) {
+    if (scalar_enable_)
+      update_scalar_matrices_ = true;
   }
 
-  if (m_vectorEnable) {
-    m_updateVectorMatrices = m_updateVectorMatrices || forceUpdate;
+  if (vector_enable_) {
+    update_vector_matrices_ = update_vector_matrices_ || force_update;
 
     if (ImGui::TreeNodeEx("Vector", ImGuiTreeNodeFlags_DefaultOpen)) {
       if (ImGui::Button("Reset")) {
-        m_vectorMultiplier = 50.0f;
-        m_vectorBaseColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.8f);
-        m_vectorSoilProperty = 4;
-        m_vectorLineWidthFactor = 0.1f;
-        m_vectorLineMaxWidth = 0.1f;
-        m_updateVectorMatrices = true;
+        vector_multiplier_ = 50.0f;
+        vector_base_color_ = glm::vec4(1.0f, 1.0f, 1.0f, 0.8f);
+        vector_soil_property_ = 4;
+        vector_line_width_factor_ = 0.1f;
+        vector_line_max_width_ = 0.1f;
+        update_vector_matrices_ = true;
       }
-      if (ImGui::ColorEdit4("Vector Base Color", &m_vectorBaseColor.x)) {
-        m_updateVectorMatrices = true;
+      if (ImGui::ColorEdit4("Vector Base Color", &vector_base_color_.x)) {
+        update_vector_matrices_ = true;
       }
-      if (ImGui::DragFloat("Multiplier", &m_vectorMultiplier, 0.1f, 0.0f, 100.0f, "%.3f")) {
-        m_updateVectorMatrices = true;
+      if (ImGui::DragFloat("Multiplier", &vector_multiplier_, 0.1f, 0.0f, 100.0f, "%.3f")) {
+        update_vector_matrices_ = true;
       }
-      if (ImGui::DragFloat("Line Width Factor", &m_vectorLineWidthFactor, 0.01f, 0.0f, 5.0f)) {
-        m_updateVectorMatrices = true;
+      if (ImGui::DragFloat("Line Width Factor", &vector_line_width_factor_, 0.01f, 0.0f, 5.0f)) {
+        update_vector_matrices_ = true;
       }
-      if (ImGui::DragFloat("Max Line Width", &m_vectorLineMaxWidth, 0.01f, 0.0f, 5.0f)) {
-        m_updateVectorMatrices = true;
+      if (ImGui::DragFloat("Max Line Width", &vector_line_max_width_, 0.01f, 0.0f, 5.0f)) {
+        update_vector_matrices_ = true;
       }
       if (ImGui::Combo("Vector Mode",
                        {"N/A", "N/A", "Water Density Gradient", "Flux", "Divergence", "N/A", "N/A", "N/A"},
-                       m_vectorSoilProperty)) {
-        m_updateVectorMatrices = true;
+                       vector_soil_property_)) {
+        update_vector_matrices_ = true;
       }
       ImGui::TreePop();
     }
   }
-  if (m_scalarEnable) {
-    m_updateScalarMatrices = m_updateScalarMatrices || forceUpdate;
+  if (scalar_enable_) {
+    update_scalar_matrices_ = update_scalar_matrices_ || force_update;
 
-    if (m_scalarEnable && ImGui::TreeNodeEx("Scalar", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (scalar_enable_ && ImGui::TreeNodeEx("Scalar", ImGuiTreeNodeFlags_DefaultOpen)) {
       if (ImGui::Button("Reset")) {
-        m_scalarMultiplier = 1.0f;
-        m_scalarBoxSize = 0.5f;
-        m_scalarMinAlpha = 0.00f;
-        m_scalarBaseColor = glm::vec3(0.0f, 0.0f, 1.0f);
-        m_scalarSoilProperty = 1;
-        m_updateScalarMatrices = true;
+        scalar_multiplier_ = 1.0f;
+        scalar_box_size_ = 0.5f;
+        scalar_min_alpha_ = 0.00f;
+        scalar_base_color_ = glm::vec3(0.0f, 0.0f, 1.0f);
+        scalar_soil_property_ = 1;
+        update_scalar_matrices_ = true;
       }
-      if (ImGui::SliderFloat("X Depth", &m_soilCutoutXDepth, 0.0f, 1.0f)) {
-        m_updateScalarMatrices = true;
+      if (ImGui::SliderFloat("X Depth", &soil_cutout_x_depth_, 0.0f, 1.0f)) {
+        update_scalar_matrices_ = true;
       }
-      if (ImGui::SliderFloat("Z Depth", &m_soilCutoutZDepth, 0.0f, 1.0f)) {
-        m_updateScalarMatrices = true;
+      if (ImGui::SliderFloat("Z Depth", &soil_cutout_z_depth_, 0.0f, 1.0f)) {
+        update_scalar_matrices_ = true;
       }
 
       if (ImGui::TreeNodeEx("Layer colors", ImGuiTreeNodeFlags_DefaultOpen)) {
         for (int i = 0; i < 10; i++) {
-          ImGui::ColorEdit4(("Layer " + std::to_string(i)).c_str(), &m_soilLayerColors[i].x);
+          ImGui::ColorEdit4(("Layer " + std::to_string(i)).c_str(), &soil_layer_colors_[i].x);
         }
         ImGui::TreePop();
       }
 
-      if (ImGui::ColorEdit3("Scalar Base Color", &m_scalarBaseColor.x)) {
-        m_updateScalarMatrices = true;
+      if (ImGui::ColorEdit3("Scalar Base Color", &scalar_base_color_.x)) {
+        update_scalar_matrices_ = true;
       }
-      if (ImGui::SliderFloat("Multiplier", &m_scalarMultiplier, 0.001, 10000, "%.4f", ImGuiSliderFlags_Logarithmic)) {
-        m_updateScalarMatrices = true;
+      if (ImGui::SliderFloat("Multiplier", &scalar_multiplier_, 0.001, 10000, "%.4f", ImGuiSliderFlags_Logarithmic)) {
+        update_scalar_matrices_ = true;
       }
-      if (ImGui::DragFloat("Min alpha", &m_scalarMinAlpha, 0.001f, 0.0f, 1.0f)) {
-        m_updateScalarMatrices = true;
+      if (ImGui::DragFloat("Min alpha", &scalar_min_alpha_, 0.001f, 0.0f, 1.0f)) {
+        update_scalar_matrices_ = true;
       }
-      if (ImGui::DragFloat("Box size", &m_scalarBoxSize, 0.001f, 0.0f, 1.0f)) {
-        m_updateScalarMatrices = true;
+      if (ImGui::DragFloat("Box size", &scalar_box_size_, 0.001f, 0.0f, 1.0f)) {
+        update_scalar_matrices_ = true;
       }
       // disable less useful visualizations to avoid clutter in the gui
       if (ImGui::Combo(
               "Scalar Mode",
               {"Blank", "Water Density", "N/A", "N/A", "N/A", "Nutrient Density", "Soil Density", "Soil Layer"},
-              m_scalarSoilProperty)) {
-        m_updateScalarMatrices = true;
+              scalar_soil_property_)) {
+        update_scalar_matrices_ = true;
       }
       ImGui::TreePop();
     }
   }
 }
 
-void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* treeEntities,
-                                 const std::shared_ptr<Strands>& branchStrands) {
+void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
+                                 const std::shared_ptr<Strands>& branch_strands) {
   {
     const auto scene = Application::GetActiveScene();
 
-    m_boundingBoxMatrices->SetParticleInfos({});
+    bounding_box_matrices_->SetParticleInfos({});
 
-    std::vector<int> branchStartIndices;
-    int branchLastStartIndex = 0;
-    branchStartIndices.emplace_back(branchLastStartIndex);
+    std::vector<int> branch_start_indices;
+    int branch_last_start_index = 0;
+    branch_start_indices.emplace_back(branch_last_start_index);
 
-    std::vector<int> fruitStartIndices;
-    int fruitLastStartIndex = 0;
-    fruitStartIndices.emplace_back(fruitLastStartIndex);
+    std::vector<int> fruit_start_indices;
+    int fruit_last_start_index = 0;
+    fruit_start_indices.emplace_back(fruit_last_start_index);
 
-    std::vector<int> leafStartIndices;
-    int leafLastStartIndex = 0;
-    leafStartIndices.emplace_back(leafLastStartIndex);
+    std::vector<int> leaf_start_indices;
+    int leaf_last_start_index = 0;
+    leaf_start_indices.emplace_back(leaf_last_start_index);
 
-    if (treeEntities->empty()) {
-      m_shootStemSegments.clear();
-      m_shootStemPoints.clear();
+    if (tree_entities->empty()) {
+      shoot_stem_segments_.clear();
+      shoot_stem_points_.clear();
 
-      m_foliageMatrices->SetParticleInfos({});
-      m_fruitMatrices->SetParticleInfos({});
+      foliage_matrices_->SetParticleInfos({});
+      fruit_matrices_->SetParticleInfos({});
     }
-    std::vector<ParticleInfo> boundingBoxMatrices;
-    for (int listIndex = 0; listIndex < treeEntities->size(); listIndex++) {
-      auto treeEntity = treeEntities->at(listIndex);
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-      auto& treeModel = tree->tree_model;
-      const auto& branchSkeleton = treeModel.RefShootSkeleton();
-      const auto& branchList = branchSkeleton.PeekSortedFlowList();
+    std::vector<ParticleInfo> bounding_box_matrices;
+    for (int list_index = 0; list_index < tree_entities->size(); list_index++) {
+      auto tree_entity = tree_entities->at(list_index);
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      auto& tree_model = tree->tree_model;
+      const auto& branch_skeleton = tree_model.RefShootSkeleton();
+      const auto& branch_list = branch_skeleton.PeekSortedFlowList();
 
-      auto entityGlobalTransform = scene->GetDataComponent<GlobalTransform>(treeEntity);
-      auto& [instanceMatrix, instanceColor] = boundingBoxMatrices.emplace_back();
+      auto entity_global_transform = scene->GetDataComponent<GlobalTransform>(tree_entity);
+      auto& [instanceMatrix, instanceColor] = bounding_box_matrices.emplace_back();
       instanceMatrix.value =
-          entityGlobalTransform.value * (glm::translate((branchSkeleton.max + branchSkeleton.min) / 2.0f) *
-                                         glm::scale(branchSkeleton.max - branchSkeleton.min));
-      instanceColor = glm::vec4(m_randomColors[listIndex], 0.05f);
-      if (treeEntity != m_selectedTree) {
-        branchLastStartIndex += branchList.size();
-        branchStartIndices.emplace_back(branchLastStartIndex);
+          entity_global_transform.value * (glm::translate((branch_skeleton.max + branch_skeleton.min) / 2.0f) *
+                                           glm::scale(branch_skeleton.max - branch_skeleton.min));
+      instanceColor = glm::vec4(random_colors_[list_index], 0.05f);
+      if (tree_entity != selected_tree) {
+        branch_last_start_index += branch_list.size();
+        branch_start_indices.emplace_back(branch_last_start_index);
 
-        fruitLastStartIndex += treeModel.GetFruitCount();
-        fruitStartIndices.emplace_back(fruitLastStartIndex);
+        fruit_last_start_index += tree_model.GetFruitCount();
+        fruit_start_indices.emplace_back(fruit_last_start_index);
 
-        leafLastStartIndex += treeModel.GetLeafCount();
-        leafStartIndices.emplace_back(leafLastStartIndex);
+        leaf_last_start_index += tree_model.GetLeafCount();
+        leaf_start_indices.emplace_back(leaf_last_start_index);
       } else {
-        branchStartIndices.emplace_back(branchLastStartIndex);
-        fruitStartIndices.emplace_back(fruitLastStartIndex);
-        leafStartIndices.emplace_back(leafLastStartIndex);
+        branch_start_indices.emplace_back(branch_last_start_index);
+        fruit_start_indices.emplace_back(fruit_last_start_index);
+        leaf_start_indices.emplace_back(leaf_last_start_index);
       }
     }
 
-    m_boundingBoxMatrices->SetParticleInfos(boundingBoxMatrices);
+    bounding_box_matrices_->SetParticleInfos(bounding_box_matrices);
 
-    m_shootStemSegments.resize(branchLastStartIndex * 3);
-    m_shootStemPoints.resize(branchLastStartIndex * 6);
+    shoot_stem_segments_.resize(3 * branch_last_start_index);
+    shoot_stem_points_.resize(6 * branch_last_start_index);
 
     {
-      std::vector<ParticleInfo> foliageMatrices;
-      std::vector<ParticleInfo> fruitMatrices;
-      foliageMatrices.resize(leafLastStartIndex);
-      fruitMatrices.resize(fruitLastStartIndex);
-      Jobs::RunParallelFor(treeEntities->size(), [&](unsigned treeIndex) {
-        auto treeEntity = treeEntities->at(treeIndex);
-        if (treeEntity == m_selectedTree)
+      std::vector<ParticleInfo> foliage_matrices;
+      std::vector<ParticleInfo> fruit_matrices;
+      foliage_matrices.resize(leaf_last_start_index);
+      fruit_matrices.resize(fruit_last_start_index);
+      Jobs::RunParallelFor(tree_entities->size(), [&](unsigned tree_index) {
+        auto tree_entity = tree_entities->at(tree_index);
+        if (tree_entity == selected_tree)
           return;
-        auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-        auto& treeModel = tree->tree_model;
-        const auto& branchSkeleton = treeModel.RefShootSkeleton();
-        const auto& branchFlowList = branchSkeleton.PeekSortedFlowList();
-        const auto& internodeList = branchSkeleton.PeekSortedNodeList();
-        auto entityGlobalTransform = scene->GetDataComponent<GlobalTransform>(treeEntity);
-        auto branchStartIndex = branchStartIndices[treeIndex];
-        for (int i = 0; i < branchFlowList.size(); i++) {
-          auto& flow = branchSkeleton.PeekFlow(branchFlowList[i]);
+        auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+        auto& tree_model = tree->tree_model;
+        const auto& branch_skeleton = tree_model.RefShootSkeleton();
+        const auto& branch_flow_list = branch_skeleton.PeekSortedFlowList();
+        const auto& internode_list = branch_skeleton.PeekSortedNodeList();
+        auto entity_global_transform = scene->GetDataComponent<GlobalTransform>(tree_entity);
+        auto branch_start_index = branch_start_indices[tree_index];
+        for (int i = 0; i < branch_flow_list.size(); i++) {
+          auto& flow = branch_skeleton.PeekFlow(branch_flow_list[i]);
           auto cp1 = flow.info.global_start_position;
           auto cp4 = flow.info.global_end_position;
           float distance = glm::distance(cp1, cp4);
           glm::vec3 cp0, cp2;
           if (flow.GetParentHandle() > 0) {
-            cp0 = cp1 + branchSkeleton.PeekFlow(flow.GetParentHandle()).info.global_end_rotation * glm::vec3(0, 0, 1) *
+            cp0 = cp1 + branch_skeleton.PeekFlow(flow.GetParentHandle()).info.global_end_rotation * glm::vec3(0, 0, 1) *
                             distance / 3.0f;
-            cp2 = cp1 + branchSkeleton.PeekFlow(flow.GetParentHandle()).info.global_end_rotation * glm::vec3(0, 0, -1) *
-                            distance / 3.0f;
+            cp2 = cp1 + branch_skeleton.PeekFlow(flow.GetParentHandle()).info.global_end_rotation *
+                            glm::vec3(0, 0, -1) * distance / 3.0f;
           } else {
             cp0 = cp1 + flow.info.global_start_rotation * glm::vec3(0, 0, 1) * distance / 3.0f;
             cp2 = cp1 + flow.info.global_start_rotation * glm::vec3(0, 0, -1) * distance / 3.0f;
@@ -1178,20 +1178,20 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* treeEntities,
           auto cp3 = cp4 + flow.info.global_end_rotation * glm::vec3(0, 0, 1) * distance / 3.0f;
           auto cp5 = cp4 + flow.info.global_end_rotation * glm::vec3(0, 0, -1) * distance / 3.0f;
 
-          auto& p0 = m_shootStemPoints[branchStartIndex * 6 + i * 6];
-          auto& p1 = m_shootStemPoints[branchStartIndex * 6 + i * 6 + 1];
-          auto& p2 = m_shootStemPoints[branchStartIndex * 6 + i * 6 + 2];
-          auto& p3 = m_shootStemPoints[branchStartIndex * 6 + i * 6 + 3];
-          auto& p4 = m_shootStemPoints[branchStartIndex * 6 + i * 6 + 4];
-          auto& p5 = m_shootStemPoints[branchStartIndex * 6 + i * 6 + 5];
-          p0.position = (entityGlobalTransform.value * glm::translate(cp0))[3];
-          p1.position = (entityGlobalTransform.value * glm::translate(cp1))[3];
-          p2.position = (entityGlobalTransform.value * glm::translate(cp2))[3];
-          p3.position = (entityGlobalTransform.value * glm::translate(cp3))[3];
-          p4.position = (entityGlobalTransform.value * glm::translate(cp4))[3];
-          p5.position = (entityGlobalTransform.value * glm::translate(cp5))[3];
+          auto& p0 = shoot_stem_points_[branch_start_index * 6 + i * 6];
+          auto& p1 = shoot_stem_points_[branch_start_index * 6 + i * 6 + 1];
+          auto& p2 = shoot_stem_points_[branch_start_index * 6 + i * 6 + 2];
+          auto& p3 = shoot_stem_points_[branch_start_index * 6 + i * 6 + 3];
+          auto& p4 = shoot_stem_points_[branch_start_index * 6 + i * 6 + 4];
+          auto& p5 = shoot_stem_points_[branch_start_index * 6 + i * 6 + 5];
+          p0.position = (entity_global_transform.value * glm::translate(cp0))[3];
+          p1.position = (entity_global_transform.value * glm::translate(cp1))[3];
+          p2.position = (entity_global_transform.value * glm::translate(cp2))[3];
+          p3.position = (entity_global_transform.value * glm::translate(cp3))[3];
+          p4.position = (entity_global_transform.value * glm::translate(cp4))[3];
+          p5.position = (entity_global_transform.value * glm::translate(cp5))[3];
           if (flow.GetParentHandle() > 0) {
-            p1.thickness = branchSkeleton.PeekFlow(flow.GetParentHandle()).info.end_thickness * 0.5f;
+            p1.thickness = branch_skeleton.PeekFlow(flow.GetParentHandle()).info.end_thickness * 0.5f;
           } else {
             p1.thickness = flow.info.start_thickness * 0.5f;
           }
@@ -1201,167 +1201,166 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* treeEntities,
           p0.thickness = 2.0f * p1.thickness - p2.thickness;
           p5.thickness = 2.0f * p4.thickness - p3.thickness;
 
-          p0.color = glm::vec4(m_randomColors[flow.data.order], 1.0f);
-          p1.color = glm::vec4(m_randomColors[flow.data.order], 1.0f);
-          p2.color = glm::vec4(m_randomColors[flow.data.order], 1.0f);
-          p3.color = glm::vec4(m_randomColors[flow.data.order], 1.0f);
-          p4.color = glm::vec4(m_randomColors[flow.data.order], 1.0f);
-          p5.color = glm::vec4(m_randomColors[flow.data.order], 1.0f);
+          p0.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
+          p1.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
+          p2.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
+          p3.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
+          p4.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
+          p5.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
 
-          m_shootStemSegments[branchStartIndex * 3 + i * 3] = branchStartIndex * 6 + i * 6;
-          m_shootStemSegments[branchStartIndex * 3 + i * 3 + 1] = branchStartIndex * 6 + i * 6 + 1;
-          m_shootStemSegments[branchStartIndex * 3 + i * 3 + 2] = branchStartIndex * 6 + i * 6 + 2;
+          shoot_stem_segments_[branch_start_index * 3 + i * 3] = branch_start_index * 6 + i * 6;
+          shoot_stem_segments_[branch_start_index * 3 + i * 3 + 1] = branch_start_index * 6 + i * 6 + 1;
+          shoot_stem_segments_[branch_start_index * 3 + i * 3 + 2] = branch_start_index * 6 + i * 6 + 2;
         }
-        auto leafStartIndex = leafStartIndices[treeIndex];
-        auto fruitStartIndex = fruitStartIndices[treeIndex];
+        auto leaf_start_index = leaf_start_indices[tree_index];
+        auto fruit_start_index = fruit_start_indices[tree_index];
 
-        int leafIndex = 0;
-        int fruitIndex = 0;
+        int leaf_index = 0;
+        int fruit_index = 0;
 
-        for (const auto& internodeHandle : internodeList) {
-          const auto& internode = branchSkeleton.PeekNode(internodeHandle);
-          const auto& internodeData = internode.data;
+        for (const auto& internode_handle : internode_list) {
+          const auto& internode = branch_skeleton.PeekNode(internode_handle);
+          const auto& internode_data = internode.data;
 
-          for (const auto& bud : internodeData.buds) {
+          for (const auto& bud : internode_data.buds) {
             if (bud.status != BudStatus::Died)
               continue;
             if (bud.reproductive_module.maturity <= 0.0f)
               continue;
 
             if (bud.type == BudType::Leaf) {
-              foliageMatrices[leafStartIndex + leafIndex].instance_matrix.value =
-                  entityGlobalTransform.value * bud.reproductive_module.transform;
-              foliageMatrices[leafStartIndex + leafIndex].instance_color = glm::vec4(
+              foliage_matrices[leaf_start_index + leaf_index].instance_matrix.value =
+                  entity_global_transform.value * bud.reproductive_module.transform;
+              foliage_matrices[leaf_start_index + leaf_index].instance_color = glm::vec4(
                   glm::mix(glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f),
                            glm::vec3(159 / 255.0f, 100 / 255.0f, 66 / 255.0f), 1.0f - bud.reproductive_module.health),
                   1.0f);
 
-              leafIndex++;
+              leaf_index++;
             } else if (bud.type == BudType::Fruit) {
-              fruitMatrices[fruitStartIndex + fruitIndex].instance_matrix.value =
-                  entityGlobalTransform.value * bud.reproductive_module.transform;
-              fruitMatrices[fruitStartIndex + fruitIndex].instance_color =
+              fruit_matrices[fruit_start_index + fruit_index].instance_matrix.value =
+                  entity_global_transform.value * bud.reproductive_module.transform;
+              fruit_matrices[fruit_start_index + fruit_index].instance_color =
                   glm::vec4(255 / 255.0f, 165 / 255.0f, 0 / 255.0f, 1.0f);
 
-              fruitIndex++;
+              fruit_index++;
             }
           }
         }
       });
-      StrandPointAttributes strandPointAttributes{};
-      strandPointAttributes.normal = false;
-      branchStrands->SetSegments(strandPointAttributes, m_shootStemSegments, m_shootStemPoints);
-      m_foliageMatrices->SetParticleInfos(foliageMatrices);
-      m_fruitMatrices->SetParticleInfos(fruitMatrices);
+      StrandPointAttributes strand_point_attributes{};
+      strand_point_attributes.normal = false;
+      branch_strands->SetSegments(strand_point_attributes, shoot_stem_segments_, shoot_stem_points_);
+      foliage_matrices_->SetParticleInfos(foliage_matrices);
+      fruit_matrices_->SetParticleInfos(fruit_matrices);
     }
   }
 }
 
 void EcoSysLabLayer::ClearGroundFruitAndLeaf() {
-  m_fruits.clear();
-  m_leaves.clear();
+  fruits_.clear();
+  leaves_.clear();
   UpdateGroundFruitAndLeaves();
 }
 
 void EcoSysLabLayer::UpdateGroundFruitAndLeaves() const {
-  std::vector<ParticleInfo> fruitMatrices;
-  fruitMatrices.resize(m_fruits.size());
-  for (int i = 0; i < m_fruits.size(); i++) {
-    fruitMatrices[i].instance_matrix.value = m_fruits[i].m_globalTransform.value;
-    fruitMatrices[i].instance_color = glm::vec4(255 / 255.0f, 165 / 255.0f, 0 / 255.0f, 1.0f);
+  std::vector<ParticleInfo> fruit_matrices;
+  fruit_matrices.resize(fruits_.size());
+  for (int i = 0; i < fruits_.size(); i++) {
+    fruit_matrices[i].instance_matrix.value = fruits_[i].global_transform.value;
+    fruit_matrices[i].instance_color = glm::vec4(255 / 255.0f, 165 / 255.0f, 0 / 255.0f, 1.0f);
   }
 
-  std::vector<ParticleInfo> leafMatrices;
-  leafMatrices.resize(m_leaves.size());
-  for (int i = 0; i < m_leaves.size(); i++) {
-    leafMatrices[i].instance_matrix.value = m_leaves[i].m_globalTransform.value;
-    leafMatrices[i].instance_color =
+  std::vector<ParticleInfo> leaf_matrices;
+  leaf_matrices.resize(leaves_.size());
+  for (int i = 0; i < leaves_.size(); i++) {
+    leaf_matrices[i].instance_matrix.value = leaves_[i].global_transform.value;
+    leaf_matrices[i].instance_color =
         glm::vec4(glm::mix(glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f),
-                           glm::vec3(159 / 255.0f, 100 / 255.0f, 66 / 255.0f), 1.0f - m_leaves[i].m_health),
+                           glm::vec3(159 / 255.0f, 100 / 255.0f, 66 / 255.0f), 1.0f - leaves_[i].m_health),
                   1.0f);
   }
-  m_groundFruitMatrices->SetParticleInfos(fruitMatrices);
-  m_groundLeafMatrices->SetParticleInfos(leafMatrices);
+  ground_fruit_matrices_->SetParticleInfos(fruit_matrices);
+  ground_leaf_matrices_->SetParticleInfos(leaf_matrices);
 }
 
 void EcoSysLabLayer::SoilVisualization() {
   std::shared_ptr<Soil> soil;
-  const auto soilCandidate = FindSoil();
-  if (!soilCandidate.expired())
-    soil = soilCandidate.lock();
+  if (const auto soil_candidate = FindSoil(); !soil_candidate.expired())
+    soil = soil_candidate.lock();
 
   if (!soil)
     return;
 
-  auto& soilModel = soil->soil_model;
-  if (m_soilVersion != soilModel.m_version) {
-    m_updateVectorMatrices = true;
-    m_updateScalarMatrices = true;
-    m_soilVersion = soilModel.m_version;
+  const auto& soil_model = soil->soil_model;
+  if (soil_version_ != soil_model.m_version) {
+    update_vector_matrices_ = true;
+    update_scalar_matrices_ = true;
+    soil_version_ = soil_model.m_version;
   }
 
-  if (m_vectorEnable) {
-    SoilVisualizationVector(soilModel);
+  if (vector_enable_) {
+    SoilVisualizationVector(soil_model);
   }
-  if (m_scalarEnable) {
-    SoilVisualizationScalar(soilModel);
+  if (scalar_enable_) {
+    SoilVisualizationScalar(soil_model);
   }
 }
 
-void EcoSysLabLayer::SoilVisualizationScalar(VoxelSoilModel& soilModel) {
-  const auto numVoxels = soilModel.m_resolution.x * soilModel.m_resolution.y * soilModel.m_resolution.z;
-  if (m_updateScalarMatrices) {
-    std::vector<ParticleInfo> particleInfos;
-    particleInfos.resize(numVoxels);
-    Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
-      const auto coordinate = soilModel.GetCoordinateFromIndex(i);
-      if (static_cast<float>(coordinate.x) / soilModel.m_resolution.x < m_soilCutoutXDepth ||
-          static_cast<float>(coordinate.z) / soilModel.m_resolution.z > (1.0f - m_soilCutoutZDepth)) {
-        particleInfos[i].instance_matrix.value = glm::mat4(0.0f);
+void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
+  const auto num_voxels = soil_model.m_resolution.x * soil_model.m_resolution.y * soil_model.m_resolution.z;
+  if (update_scalar_matrices_) {
+    std::vector<ParticleInfo> particle_infos;
+    particle_infos.resize(num_voxels);
+    Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+      const auto coordinate = soil_model.GetCoordinateFromIndex(i);
+      if (static_cast<float>(coordinate.x) / soil_model.m_resolution.x < soil_cutout_x_depth_ ||
+          static_cast<float>(coordinate.z) / soil_model.m_resolution.z > (1.0f - soil_cutout_z_depth_)) {
+        particle_infos[i].instance_matrix.value = glm::mat4(0.0f);
       } else {
-        particleInfos[i].instance_matrix.value = glm::translate(soilModel.GetPositionFromCoordinate(coordinate)) *
-                                                 glm::mat4_cast(glm::quat(glm::vec3(0.0f))) *
-                                                 glm::scale(glm::vec3(soilModel.GetVoxelSize() * m_scalarBoxSize));
+        particle_infos[i].instance_matrix.value = glm::translate(soil_model.GetPositionFromCoordinate(coordinate)) *
+                                                  glm::mat4_cast(glm::quat(glm::vec3(0.0f))) *
+                                                  glm::scale(glm::vec3(soil_model.GetVoxelSize() * scalar_box_size_));
       }
     });
     auto visualize_vec3 = [&](const Field& x, const Field& y, const Field& z) {
-      Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
+      Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
         const auto value = glm::vec3(x[i], y[i], z[i]);
-        particleInfos[i].instance_color = {glm::normalize(value),
-                                           glm::clamp(glm::length(value) * m_scalarMultiplier, m_scalarMinAlpha, 1.0f)};
+        particle_infos[i].instance_color = {
+            glm::normalize(value), glm::clamp(glm::length(value) * scalar_multiplier_, scalar_min_alpha_, 1.0f)};
       });
     };
 
     auto visualize_float = [&](const Field& v) {
-      Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
+      Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
         const auto value = glm::vec3(v[i]);
-        particleInfos[i].instance_color = {m_scalarBaseColor,
-                                           glm::clamp(glm::length(value) * m_scalarMultiplier, m_scalarMinAlpha, 1.0f)};
+        particle_infos[i].instance_color = {
+            scalar_base_color_, glm::clamp(glm::length(value) * scalar_multiplier_, scalar_min_alpha_, 1.0f)};
       });
     };
 
-    switch (static_cast<SoilProperty>(m_scalarSoilProperty)) {
+    switch (static_cast<SoilProperty>(scalar_soil_property_)) {
       case SoilProperty::Blank: {
-        Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
-          particleInfos[i].instance_color = {m_scalarBaseColor, 0.01f};
+        Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+          particle_infos[i].instance_color = {scalar_base_color_, 0.01f};
         });
       } break;
       case SoilProperty::WaterDensity: {
-        visualize_float(soilModel.m_w);
+        visualize_float(soil_model.m_w);
       } break;
       case SoilProperty::NutrientDensity: {
-        visualize_float(soilModel.m_n);
+        visualize_float(soil_model.m_n);
       } break;
       case SoilProperty::SoilDensity: {
-        visualize_float(soilModel.m_d);
+        visualize_float(soil_model.m_d);
       } break;
       case SoilProperty::SoilLayer: {
-        Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
-          const auto layerIndex = soilModel.m_material_id[i];
+        Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+          const auto layerIndex = soil_model.m_material_id[i];
           if (layerIndex == 0)
-            particleInfos[i].instance_color = glm::vec4(0.0f);
+            particle_infos[i].instance_color = glm::vec4(0.0f);
           else {
-            particleInfos[i].instance_color = m_soilLayerColors[layerIndex - 1];
+            particle_infos[i].instance_color = soil_layer_colors_[layerIndex - 1];
           }
         });
       } break;
@@ -1370,33 +1369,33 @@ void EcoSysLabLayer::SoilVisualizationScalar(VoxelSoilModel& soilModel) {
                 visualize_vec3(soilModel.m_div_diff_x, soilModel.m_div_diff_y, soilModel.m_div_diff_z);
         }break;*/
       default: {
-        Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
-          particleInfos[i].instance_color = {m_scalarBaseColor, 0.01f};
+        Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+          particle_infos[i].instance_color = {scalar_base_color_, 0.01f};
         });
       } break;
     }
-    m_groundFruitMatrices->SetParticleInfos(particleInfos);
+    ground_fruit_matrices_->SetParticleInfos(particle_infos);
   }
-  m_updateScalarMatrices = false;
-  const auto editorLayer = Application::GetLayer<EditorLayer>();
-  GizmoSettings gizmoSettings;
-  gizmoSettings.draw_settings.blending = true;
-  gizmoSettings.draw_settings.blending_src_factor = VK_BLEND_FACTOR_SRC_ALPHA;
-  gizmoSettings.draw_settings.blending_dst_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-  gizmoSettings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
-  editorLayer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"), m_scalarMatrices,
-                                             glm::mat4(1.0f), 1.0f, gizmoSettings);
+  update_scalar_matrices_ = false;
+  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  GizmoSettings gizmo_settings;
+  gizmo_settings.draw_settings.blending = true;
+  gizmo_settings.draw_settings.blending_src_factor = VK_BLEND_FACTOR_SRC_ALPHA;
+  gizmo_settings.draw_settings.blending_dst_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
+  editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"), scalar_matrices_,
+                                              glm::mat4(1.0f), 1.0f, gizmo_settings);
 }
 
-void EcoSysLabLayer::SoilVisualizationVector(VoxelSoilModel& soilModel) {
-  const auto numVoxels = soilModel.m_resolution.x * soilModel.m_resolution.y * soilModel.m_resolution.z;
+void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
+  const auto num_voxels = soil_model.m_resolution.x * soil_model.m_resolution.y * soil_model.m_resolution.z;
 
-  if (m_updateVectorMatrices) {
-    std::vector<ParticleInfo> particleInfos;
-    particleInfos.resize(numVoxels);
+  if (update_vector_matrices_) {
+    std::vector<ParticleInfo> particle_infos;
+    particle_infos.resize(num_voxels);
 
-    const auto actualVectorMultiplier = m_vectorMultiplier * soilModel.m_dx;
-    switch (static_cast<SoilProperty>(m_vectorSoilProperty)) {
+    const auto actual_vector_multiplier = vector_multiplier_ * soil_model.m_dx;
+    switch (static_cast<SoilProperty>(vector_soil_property_)) {
         /*
         case SoilProperty::WaterDensityGradient:
         {
@@ -1408,7 +1407,7 @@ void EcoSysLabLayer::SoilVisualizationVector(VoxelSoilModel& soilModel) {
         * actualVectorMultiplier; const auto direction = glm::normalize(end - start); glm::quat rotation =
         glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x)); rotation *=
         glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f)); const auto length = glm::distance(end, start) / 2.0f;
-                                const auto width = glm::min(m_vectorLineMaxWidth, length * m_vectorLineWidthFactor);
+                                const auto width = glm::min(vector_line_max_width_, length * vector_line_width_factor_);
                                 const auto model = glm::translate((start + end) / 2.0f) * glm::mat4_cast(rotation) *
                                         glm::scale(glm::vec3(width, length, width));
                                 particleInfos[i] = model;
@@ -1425,7 +1424,7 @@ void EcoSysLabLayer::SoilVisualizationVector(VoxelSoilModel& soilModel) {
         * actualVectorMultiplier; const auto direction = glm::normalize(end - start); glm::quat rotation =
         glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x)); rotation *=
         glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f)); const auto length = glm::distance(end, start) / 2.0f;
-                                const auto width = glm::min(m_vectorLineMaxWidth, length * m_vectorLineWidthFactor);
+                                const auto width = glm::min(vector_line_max_width_, length * vector_line_width_factor_);
                                 const auto model = glm::translate((start + end) / 2.0f) * glm::mat4_cast(rotation) *
                                         glm::scale(glm::vec3(width, length, width));
                                 particleInfos[i] = model;
@@ -1433,40 +1432,40 @@ void EcoSysLabLayer::SoilVisualizationVector(VoxelSoilModel& soilModel) {
         }break;
         */
       default: {
-        Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
-          particleInfos[i].instance_matrix.value =
-              glm::translate(soilModel.GetPositionFromCoordinate(soilModel.GetCoordinateFromIndex(i))) *
+        Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+          particle_infos[i].instance_matrix.value =
+              glm::translate(soil_model.GetPositionFromCoordinate(soil_model.GetCoordinateFromIndex(i))) *
               glm::mat4_cast(glm::quat(glm::vec3(0.0f))) * glm::scale(glm::vec3(0.0f));
         });
       } break;
     }
-    Jobs::RunParallelFor(numVoxels, [&](unsigned i) {
-      particleInfos[i].instance_color = m_vectorBaseColor;
+    Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+      particle_infos[i].instance_color = vector_base_color_;
     });
 
-    m_groundFruitMatrices->SetParticleInfos(particleInfos);
-    m_updateVectorMatrices = false;
+    ground_fruit_matrices_->SetParticleInfos(particle_infos);
+    update_vector_matrices_ = false;
   }
 
-  const auto editorLayer = Application::GetLayer<EditorLayer>();
-  GizmoSettings gizmoSettings;
-  gizmoSettings.draw_settings.blending = true;
-  gizmoSettings.draw_settings.blending_src_factor = VK_BLEND_FACTOR_SRC_ALPHA;
-  gizmoSettings.draw_settings.blending_dst_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-  gizmoSettings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
+  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  GizmoSettings gizmo_settings;
+  gizmo_settings.draw_settings.blending = true;
+  gizmo_settings.draw_settings.blending_src_factor = VK_BLEND_FACTOR_SRC_ALPHA;
+  gizmo_settings.draw_settings.blending_dst_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
 
-  editorLayer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CYLINDER"), m_vectorMatrices,
-                                             glm::mat4(1.0f), 1.0f, gizmoSettings);
+  editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CYLINDER"), vector_matrices_,
+                                              glm::mat4(1.0f), 1.0f, gizmo_settings);
 }
 
 float EcoSysLabLayer::GetSimulatedTime() const {
-  return m_simulatedTime;
+  return simulated_time_;
 }
 
 void EcoSysLabLayer::ExportAllTrees(const std::filesystem::path& path) const {
   const auto scene = GetScene();
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  if (treeEntities && !treeEntities->empty()) {
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
     if (path.extension() == ".obj") {
       std::ofstream of;
       of.open(path.string(), std::ofstream::out | std::ofstream::trunc);
@@ -1475,12 +1474,12 @@ void EcoSysLabLayer::ExportAllTrees(const std::filesystem::path& path) const {
         start += "\n";
         of.write(start.c_str(), start.size());
         of.flush();
-        unsigned startIndex = 1;
-        if (m_meshGeneratorSettings.enable_branch) {
-          unsigned treeIndex = 0;
-          for (const auto& entity : *treeEntities) {
+        unsigned start_index = 1;
+        if (mesh_generator_settings.enable_branch) {
+          unsigned tree_index = 0;
+          for (const auto& entity : *tree_entities) {
             const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
-            const auto mesh = tree->GenerateBranchMesh(m_meshGeneratorSettings);
+            const auto mesh = tree->GenerateBranchMesh(mesh_generator_settings);
             auto& vertices = mesh->UnsafeGetVertices();
             auto& triangles = mesh->UnsafeGetTriangles();
             const auto gt = scene->GetDataComponent<GlobalTransform>(entity);
@@ -1491,14 +1490,14 @@ void EcoSysLabLayer::ExportAllTrees(const std::filesystem::path& path) const {
               of.write(header.c_str(), header.size());
               of.flush();
               std::stringstream data;
-              data << "o branch " + std::to_string(treeIndex) + "\n";
+              data << "o branch " + std::to_string(tree_index) + "\n";
 #pragma region Data collection
-              for (auto i = 0; i < vertices.size(); i++) {
-                auto vertexPosition = glm::vec4(vertices.at(i).position, 1.0f);
-                vertexPosition = gt.value * vertexPosition;
-                auto& color = vertices.at(i).color;
-                data << "v " + std::to_string(vertexPosition.x) + " " + std::to_string(vertexPosition.y) + " " +
-                            std::to_string(vertexPosition.z) + " " + std::to_string(color.x) + " " +
+              for (auto& vertex : vertices) {
+                auto vertex_position = glm::vec4(vertex.position, 1.0f);
+                vertex_position = gt.value * vertex_position;
+                auto& color = vertex.color;
+                data << "v " + std::to_string(vertex_position.x) + " " + std::to_string(vertex_position.y) + " " +
+                            std::to_string(vertex_position.z) + " " + std::to_string(color.x) + " " +
                             std::to_string(color.y) + " " + std::to_string(color.z) + "\n";
               }
               for (const auto& vertex : vertices) {
@@ -1506,11 +1505,10 @@ void EcoSysLabLayer::ExportAllTrees(const std::filesystem::path& path) const {
               }
               // data += "s off\n";
               data << "# List of indices for faces vertices, with (x, y, z).\n";
-              for (auto i = 0; i < triangles.size(); i++) {
-                const auto triangle = triangles[i];
-                const auto f1 = triangle.x + startIndex;
-                const auto f2 = triangle.y + startIndex;
-                const auto f3 = triangle.z + startIndex;
+              for (auto triangle : triangles) {
+                const auto f1 = triangle.x + start_index;
+                const auto f2 = triangle.y + start_index;
+                const auto f3 = triangle.z + start_index;
                 data << "f " + std::to_string(f1) + "/" + std::to_string(f1) + "/" + std::to_string(f1) + " " +
                             std::to_string(f2) + "/" + std::to_string(f2) + "/" + std::to_string(f2) + " " +
                             std::to_string(f3) + "/" + std::to_string(f3) + "/" + std::to_string(f3) + "\n";
@@ -1519,16 +1517,16 @@ void EcoSysLabLayer::ExportAllTrees(const std::filesystem::path& path) const {
               const auto result = data.str();
               of.write(result.c_str(), result.size());
               of.flush();
-              startIndex += vertices.size();
+              start_index += vertices.size();
             }
-            treeIndex++;
+            tree_index++;
           }
         }
-        if (m_meshGeneratorSettings.enable_foliage) {
-          unsigned treeIndex = 0;
-          for (const auto& entity : *treeEntities) {
+        if (mesh_generator_settings.enable_foliage) {
+          unsigned tree_index = 0;
+          for (const auto& entity : *tree_entities) {
             const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
-            const auto mesh = tree->GenerateFoliageMesh(m_meshGeneratorSettings);
+            const auto mesh = tree->GenerateFoliageMesh(mesh_generator_settings);
             auto& vertices = mesh->UnsafeGetVertices();
             auto& triangles = mesh->UnsafeGetTriangles();
             const auto gt = scene->GetDataComponent<GlobalTransform>(entity);
@@ -1539,14 +1537,14 @@ void EcoSysLabLayer::ExportAllTrees(const std::filesystem::path& path) const {
               of.write(header.c_str(), header.size());
               of.flush();
               std::stringstream data;
-              data << "o foliage " + std::to_string(treeIndex) + "\n";
+              data << "o foliage " + std::to_string(tree_index) + "\n";
 #pragma region Data collection
-              for (auto i = 0; i < vertices.size(); i++) {
-                auto vertexPosition = glm::vec4(vertices.at(i).position, 1.0f);
-                vertexPosition = gt.value * vertexPosition;
-                auto& color = vertices.at(i).color;
-                data << "v " + std::to_string(vertexPosition.x) + " " + std::to_string(vertexPosition.y) + " " +
-                            std::to_string(vertexPosition.z) + " " + std::to_string(color.x) + " " +
+              for (auto& vertex : vertices) {
+                auto vertex_position = glm::vec4(vertex.position, 1.0f);
+                vertex_position = gt.value * vertex_position;
+                auto& color = vertex.color;
+                data << "v " + std::to_string(vertex_position.x) + " " + std::to_string(vertex_position.y) + " " +
+                            std::to_string(vertex_position.z) + " " + std::to_string(color.x) + " " +
                             std::to_string(color.y) + " " + std::to_string(color.z) + "\n";
               }
               for (const auto& vertex : vertices) {
@@ -1554,11 +1552,10 @@ void EcoSysLabLayer::ExportAllTrees(const std::filesystem::path& path) const {
               }
               // data += "s off\n";
               data << "# List of indices for faces vertices, with (x, y, z).\n";
-              for (auto i = 0; i < triangles.size(); i++) {
-                const auto triangle = triangles[i];
-                const auto f1 = triangle.x + startIndex;
-                const auto f2 = triangle.y + startIndex;
-                const auto f3 = triangle.z + startIndex;
+              for (auto triangle : triangles) {
+                const auto f1 = triangle.x + start_index;
+                const auto f2 = triangle.y + start_index;
+                const auto f3 = triangle.z + start_index;
                 data << "f " + std::to_string(f1) + "/" + std::to_string(f1) + "/" + std::to_string(f1) + " " +
                             std::to_string(f2) + "/" + std::to_string(f2) + "/" + std::to_string(f2) + " " +
                             std::to_string(f3) + "/" + std::to_string(f3) + "/" + std::to_string(f3) + "\n";
@@ -1567,9 +1564,9 @@ void EcoSysLabLayer::ExportAllTrees(const std::filesystem::path& path) const {
               const auto result = data.str();
               of.write(result.c_str(), result.size());
               of.flush();
-              startIndex += vertices.size();
+              start_index += vertices.size();
             }
-            treeIndex++;
+            tree_index++;
           }
         }
         of.close();
@@ -1579,24 +1576,22 @@ void EcoSysLabLayer::ExportAllTrees(const std::filesystem::path& path) const {
 }
 
 glm::vec2 EcoSysLabLayer::GetMouseSceneCameraPosition() const {
-  return m_visualizationCameraMousePosition;
+  return visualization_camera_mouse_position;
 }
 
-void EcoSysLabLayer::Simulate(const SimulationSettings& simulationSettings) {
+void EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settings) {
   const auto scene = GetScene();
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  m_simulatedTime += simulationSettings.delta_time;
-  if (treeEntities && !treeEntities->empty()) {
+  const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+  simulated_time_ += target_simulation_settings.delta_time;
+  if (tree_entities && !tree_entities->empty()) {
     float time = Times::Now();
 
     std::shared_ptr<Climate> climate;
     std::shared_ptr<Soil> soil;
-    const auto climateCandidate = FindClimate();
-    if (!climateCandidate.expired())
-      climate = climateCandidate.lock();
-    const auto soilCandidate = FindSoil();
-    if (!soilCandidate.expired())
-      soil = soilCandidate.lock();
+    if (const auto climate_candidate = FindClimate(); !climate_candidate.expired())
+      climate = climate_candidate.lock();
+    if (const auto soil_candidate = FindSoil(); !soil_candidate.expired())
+      soil = soil_candidate.lock();
     if (!soil) {
       EVOENGINE_ERROR("Simulation Failed! No soil in scene!");
       return;
@@ -1605,145 +1600,143 @@ void EcoSysLabLayer::Simulate(const SimulationSettings& simulationSettings) {
       EVOENGINE_ERROR("Simulation Failed! No climate in scene!");
       return;
     }
-    climate->climate_model.time = m_simulatedTime;
+    climate->climate_model.time = simulated_time_;
 
-    if (simulationSettings.soil_simulation) {
+    if (target_simulation_settings.soil_simulation) {
       soil->soil_model.Irrigation();
       soil->soil_model.Step();
     }
-    for (const auto& treeEntity : *treeEntities) {
-      auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
+    for (const auto& tree_entity : *tree_entities) {
+      auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       tree->climate = climate;
       tree->soil = soil;
-      tree->crown_shyness_distance = simulationSettings.crown_shyness_distance;
+      tree->crown_shyness_distance = target_simulation_settings.crown_shyness_distance;
     }
     climate->PrepareForGrowth();
-    std::vector<bool> grownStat{};
-    grownStat.resize(Jobs::GetWorkerSize());
-    Jobs::RunParallelFor(treeEntities->size(), [&](unsigned i, unsigned threadIndex) {
-      const auto treeEntity = treeEntities->at(i);
-      if (!scene->IsEntityEnabled(treeEntity))
+    std::vector<bool> grown_stat{};
+    grown_stat.resize(Jobs::GetWorkerSize());
+    Jobs::RunParallelFor(tree_entities->size(), [&](unsigned i, unsigned thread_index) {
+      const auto tree_entity = tree_entities->at(i);
+      if (!scene->IsEntityEnabled(tree_entity))
         return;
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       if (!tree->IsEnabled())
         return;
-      if (tree->start_time > m_simulatedTime)
+      if (tree->start_time > simulated_time_)
         return;
-      if (simulationSettings.max_node_count > 0 &&
-          tree->tree_model.RefShootSkeleton().PeekSortedNodeList().size() >= simulationSettings.max_node_count)
+      if (target_simulation_settings.max_node_count > 0 &&
+          tree->tree_model.RefShootSkeleton().PeekSortedNodeList().size() >= target_simulation_settings.max_node_count)
         return;
-      grownStat[threadIndex] = tree->TryGrow(simulationSettings.delta_time, true);
+      grown_stat[thread_index] = tree->TryGrow(target_simulation_settings.delta_time, true);
     });
 
-    auto heightField = soil->soil_descriptor.Get<SoilDescriptor>()->height_field.Get<HeightField>();
-    for (const auto& treeEntity : *treeEntities) {
-      if (!scene->IsEntityEnabled(treeEntity))
+    auto height_field = soil->soil_descriptor.Get<SoilDescriptor>()->height_field.Get<HeightField>();
+    for (const auto& tree_entity : *tree_entities) {
+      if (!scene->IsEntityEnabled(tree_entity))
         continue;
-      auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-      auto treeGlobalTransform = scene->GetDataComponent<GlobalTransform>(treeEntity);
+      auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      auto tree_global_transform = scene->GetDataComponent<GlobalTransform>(tree_entity);
       if (!tree->IsEnabled())
         continue;
       // Collect fruit and leaves here.
-      if (!simulationSettings.auto_clear_fruit_and_leaves) {
+      if (!target_simulation_settings.auto_clear_fruit_and_leaves) {
         for (const auto& fruit : tree->tree_model.RefShootSkeleton().data.dropped_fruits) {
-          Fruit newFruit;
-          newFruit.m_globalTransform.value = treeGlobalTransform.value * fruit.transform;
+          Fruit new_fruit;
+          new_fruit.global_transform.value = tree_global_transform.value * fruit.transform;
 
-          auto position = newFruit.m_globalTransform.GetPosition();
-          const auto groundHeight = heightField->GetValue({position.x, position.z});
-          const auto height = position.y - groundHeight;
+          auto position = new_fruit.global_transform.GetPosition();
+          const auto ground_height = height_field->GetValue({position.x, position.z});
+          const auto height = position.y - ground_height;
           position.x += glm::gaussRand(0.0f, height * 0.1f);
           position.z += glm::gaussRand(0.0f, height * 0.1f);
-          position.y = groundHeight + 0.1f;
-          newFruit.m_globalTransform.SetPosition(position);
+          position.y = ground_height + 0.1f;
+          new_fruit.global_transform.SetPosition(position);
 
-          newFruit.m_maturity = fruit.maturity;
-          newFruit.m_health = fruit.health;
-          m_fruits.emplace_back(newFruit);
+          new_fruit.m_maturity = fruit.maturity;
+          new_fruit.m_health = fruit.health;
+          fruits_.emplace_back(new_fruit);
         }
 
         for (const auto& leaf : tree->tree_model.RefShootSkeleton().data.dropped_leaves) {
-          Leaf newLeaf;
-          newLeaf.m_globalTransform.value = treeGlobalTransform.value * leaf.transform;
+          Leaf new_leaf;
+          new_leaf.global_transform.value = tree_global_transform.value * leaf.transform;
 
-          auto position = newLeaf.m_globalTransform.GetPosition();
-          const auto groundHeight = heightField ? heightField->GetValue({position.x, position.z}) : 0.0f;
-          const auto height = position.y - groundHeight;
+          auto position = new_leaf.global_transform.GetPosition();
+          const auto ground_height = height_field ? height_field->GetValue({position.x, position.z}) : 0.0f;
+          const auto height = position.y - ground_height;
           position.x += glm::gaussRand(0.0f, height * 0.1f);
           position.z += glm::gaussRand(0.0f, height * 0.1f);
-          position.y = groundHeight + 0.1f;
-          newLeaf.m_globalTransform.SetPosition(position);
+          position.y = ground_height + 0.1f;
+          new_leaf.global_transform.SetPosition(position);
 
-          newLeaf.m_maturity = leaf.maturity;
-          newLeaf.m_health = leaf.health;
-          m_leaves.emplace_back(newLeaf);
+          new_leaf.m_maturity = leaf.maturity;
+          new_leaf.m_health = leaf.health;
+          leaves_.emplace_back(new_leaf);
         }
         tree->tree_visualizer.m_needUpdate = true;
       }
       tree->tree_model.RefShootSkeleton().data.dropped_fruits.clear();
       tree->tree_model.RefShootSkeleton().data.dropped_leaves.clear();
     }
-    m_lastUsedTime = Times::Now() - time;
-    m_totalTime += m_lastUsedTime;
-    bool treeGrown = false;
-    for (int i = 0; i < grownStat.size(); i++) {
-      if (grownStat[i]) {
-        treeGrown = true;
+    last_used_time_ = Times::Now() - time;
+    total_time_ += last_used_time_;
+    bool tree_grown = false;
+    for (auto&& i : grown_stat) {
+      if (i) {
+        tree_grown = true;
       }
     }
-    if (treeGrown) {
-      m_needFullFlowUpdate = true;
+    if (tree_grown) {
+      need_full_flow_update = true;
 
-      int totalInternodeSize = 0;
-      int totalFlowSize = 0;
-      int totalRootNodeSize = 0;
-      int totalRootFlowSize = 0;
-      int totalLeafSize = 0;
-      int totalFruitSize = 0;
-      for (auto treeEntity : *treeEntities) {
-        auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-        auto& treeModel = tree->tree_model;
-        totalInternodeSize += treeModel.RefShootSkeleton().PeekSortedNodeList().size();
-        totalFlowSize += treeModel.RefShootSkeleton().PeekSortedFlowList().size();
-        totalLeafSize += treeModel.GetLeafCount();
-        totalFruitSize += treeModel.GetFruitCount();
+      int total_internode_size = 0;
+      int total_flow_size = 0;
+      int total_root_node_size = 0;
+      int total_root_flow_size = 0;
+      int total_leaf_size = 0;
+      int total_fruit_size = 0;
+      for (auto tree_entity : *tree_entities) {
+        auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+        auto& tree_model = tree->tree_model;
+        total_internode_size += tree_model.RefShootSkeleton().PeekSortedNodeList().size();
+        total_flow_size += tree_model.RefShootSkeleton().PeekSortedFlowList().size();
+        total_leaf_size += tree_model.GetLeafCount();
+        total_fruit_size += tree_model.GetFruitCount();
       }
-      m_internodeSize = totalInternodeSize;
-      m_shootStemSize = totalFlowSize;
-      m_rootNodeSize = totalRootNodeSize;
-      m_rootStemSize = totalRootFlowSize;
-      m_leafSize = totalLeafSize;
-      m_fruitSize = totalFruitSize;
+      internode_size_ = total_internode_size;
+      shoot_stem_size_ = total_flow_size;
+      root_node_size_ = total_root_node_size;
+      root_stem_size_ = total_root_flow_size;
+      leaf_size_ = total_leaf_size;
+      fruit_size_ = total_fruit_size;
     }
   }
 }
 
 void EcoSysLabLayer::Simulate() {
-  Simulate(m_simulationSettings);
+  Simulate(simulation_settings);
 }
 
-void EcoSysLabLayer::GenerateMeshes(const TreeMeshGeneratorSettings& meshGeneratorSettings) const {
+void EcoSysLabLayer::GenerateMeshes(const TreeMeshGeneratorSettings& target_mesh_generator_settings) const {
   const auto scene = GetScene();
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  if (treeEntities && !treeEntities->empty()) {
-    const auto copiedEntities = *treeEntities;
-    for (auto treeEntity : copiedEntities) {
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-      if (tree->generate_mesh)
-        tree->GenerateGeometryEntities(meshGeneratorSettings);
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      if (const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock(); tree->generate_mesh)
+        tree->GenerateGeometryEntities(target_mesh_generator_settings);
     }
   }
 }
 
-void EcoSysLabLayer::GenerateSkeletalGraphs(const SkeletalGraphSettings& skeletalGraphSettings) const {
+void EcoSysLabLayer::GenerateSkeletalGraphs(const SkeletalGraphSettings& target_skeletal_graph_settings) const {
   const auto scene = GetScene();
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  if (treeEntities && !treeEntities->empty()) {
-    const auto copiedEntities = *treeEntities;
-    for (auto treeEntity : copiedEntities) {
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-      if (tree->generate_mesh)
-        tree->GenerateSkeletalGraph(m_skeletalGraphSettings, -1, Resources::GetResource<Mesh>("PRIMITIVE_SPHERE"),
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      if (const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock(); tree->generate_mesh)
+        tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::GetResource<Mesh>("PRIMITIVE_SPHERE"),
                                     Resources::GetResource<Mesh>("PRIMITIVE_CUBE"));
     }
   }
@@ -1751,39 +1744,36 @@ void EcoSysLabLayer::GenerateSkeletalGraphs(const SkeletalGraphSettings& skeleta
 
 void EcoSysLabLayer::GenerateStrandModelProfiles() const {
   const auto scene = GetScene();
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  if (treeEntities && !treeEntities->empty()) {
-    const auto copiedEntities = *treeEntities;
-    for (auto treeEntity : copiedEntities) {
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-      if (tree->generate_mesh)
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      if (const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock(); tree->generate_mesh)
         tree->BuildStrandModel();
     }
   }
 }
 
 void EcoSysLabLayer::GenerateStrandModelMeshes(
-    const StrandModelMeshGeneratorSettings& strandModelMeshGeneratorSettings) const {
+    const StrandModelMeshGeneratorSettings& target_strand_model_mesh_generator_settings) const {
   const auto scene = GetScene();
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  if (treeEntities && !treeEntities->empty()) {
-    const auto copiedEntities = *treeEntities;
-    for (auto treeEntity : copiedEntities) {
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-      if (tree->generate_mesh)
-        tree->InitializeStrandModelMeshRenderer(strandModelMeshGeneratorSettings);
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      if (const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock(); tree->generate_mesh)
+        tree->InitializeStrandModelMeshRenderer(target_strand_model_mesh_generator_settings);
     }
   }
 }
 
 void EcoSysLabLayer::GenerateStrandRenderers() const {
   const auto scene = GetScene();
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  if (treeEntities && !treeEntities->empty()) {
-    const auto copiedEntities = *treeEntities;
-    for (auto treeEntity : copiedEntities) {
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-      if (tree->generate_mesh)
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      if (const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock(); tree->generate_mesh)
         tree->InitializeStrandRenderer();
     }
   }
@@ -1791,11 +1781,11 @@ void EcoSysLabLayer::GenerateStrandRenderers() const {
 
 void EcoSysLabLayer::ClearStrandRenderers() const {
   const auto scene = GetScene();
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  if (treeEntities && !treeEntities->empty()) {
-    const auto copiedEntities = *treeEntities;
-    for (auto treeEntity : copiedEntities) {
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       tree->ClearStrandRenderer();
     }
   }
@@ -1803,11 +1793,11 @@ void EcoSysLabLayer::ClearStrandRenderers() const {
 
 void EcoSysLabLayer::ClearStrandModelMeshes() const {
   const auto scene = GetScene();
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  if (treeEntities && !treeEntities->empty()) {
-    const auto copiedEntities = *treeEntities;
-    for (auto treeEntity : copiedEntities) {
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       tree->ClearStrandModelMeshRenderer();
     }
   }
@@ -1815,11 +1805,11 @@ void EcoSysLabLayer::ClearStrandModelMeshes() const {
 
 void EcoSysLabLayer::ClearMeshes() const {
   const auto scene = GetScene();
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  if (treeEntities && !treeEntities->empty()) {
-    const auto copiedEntities = *treeEntities;
-    for (auto treeEntity : copiedEntities) {
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       tree->ClearGeometryEntities();
     }
   }
@@ -1827,18 +1817,177 @@ void EcoSysLabLayer::ClearMeshes() const {
 
 void EcoSysLabLayer::ClearSkeletalGraphs() const {
   const auto scene = GetScene();
-  const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  if (treeEntities && !treeEntities->empty()) {
-    const auto copiedEntities = *treeEntities;
-    for (auto treeEntity : copiedEntities) {
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       tree->ClearSkeletalGraph();
     }
   }
 }
 
+void EcoSysLabLayer::TreeVisualizerSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::Checkbox("Display shoot stem", &display_shoot_stem);
+  ImGui::Checkbox("Display fruits", &display_fruit);
+  ImGui::Checkbox("Display foliage", &display_foliage);
+
+  ImGui::Checkbox("Display ground fruit", &display_ground_fruit);
+  ImGui::Checkbox("Display ground leaves", &display_ground_leaves);
+
+  ImGui::Checkbox("Display Soil", &display_soil);
+
+  ImGui::Checkbox("Display Bounding Box", &display_bounding_box);
+  ImGui::Checkbox("Show Shadow Grid", &show_shadow_grid);
+  ImGui::Checkbox("Show Lighting Direction Grid", &show_lighting_grid);
+}
+
+void EcoSysLabLayer::StrandVisualizerSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::DragFloat("Drag force multiplier", &drag_force_multiplier, 0.001f, 0.0f, 1.0f);
+}
+
 void EcoSysLabLayer::PreUpdate() {
-  if (const auto editorLayer = Application::GetLayer<EditorLayer>(); !editorLayer)
+  if (const auto editor_layer = Application::GetLayer<EditorLayer>(); !editor_layer)
     return;
-  m_visualizationCamera->Resize({m_visualizationCameraResolutionX, m_visualizationCameraResolutionY});
+  visualization_camera_->Resize({visualization_camera_resolution_x, visualization_camera_resolution_y});
+
+  const auto scene = GetScene();
+  const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+
+  const auto for_each_dts_entity =
+      [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {
+        if (dts_entities && !dts_entities->empty()) {
+          for (const auto& i : *dts_entities) {
+            const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(i).lock();
+            action(dts);
+          }
+        }
+      };
+  for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+    if (dts->enable_physics)
+      dts->PhysicsStep();
+  });
+}
+
+void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& editor_layer) {
+  if (!show_strands)
+    return;
+  const auto scene = GetScene();
+  const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+
+  const auto for_each_dts_entity =
+      [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {
+        if (dts_entities && !dts_entities->empty()) {
+          for (const auto& i : *dts_entities) {
+            const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(i).lock();
+            action(dts);
+          }
+        }
+      };
+  for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+    dts->box_selection_operator->enabled = false;
+    dts->drag_operator->enabled = false;
+  });
+  static glm::vec2 strands_operator_start;
+  static glm::vec2 strands_operator_current;
+
+  enum MouseOperatorMode { Idle, Selecting, ConfirmSelection, Dragging };
+
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
+  if (ImGui::Begin("Plant Visual")) {
+    if (ImGui::BeginChild("InternodeCameraRenderer", ImVec2(0, 0), false)) {
+      const ImVec2 canvas_p0 = ImGui::GetWindowPos() + ImVec2(1, 0);  // ImDrawList API uses screen coordinates!
+      const ImVec2 canvas_size = ImGui::GetWindowSize();              // Resize canvas to what's available
+      const ImVec2 canvas_p1 = ImVec2(canvas_p0.x + canvas_size.x - 2, canvas_p0.y + canvas_size.y - 1);
+      ImDrawList* draw_list = ImGui::GetWindowDrawList();
+      // Draw border and background color
+      // draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
+      draw_list->PushClipRect(canvas_p0, canvas_p1, true);
+      if (visualization_camera_window_focused_ &&
+          editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold &&
+          editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Press) {
+        static bool is_dragging_previously = false;
+        bool mouse_drag = true;
+        glm::vec2 mouse_valid_position =
+            glm::clamp(visualization_camera_mouse_position, {0, 0},
+                       {visualization_camera_resolution_x - 1, visualization_camera_resolution_y - 1});
+        if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) != Input::KeyActionType::Hold) {
+          mouse_drag = false;
+        }
+        const auto camera_rotation = editor_layer->GetSceneCameraRotation();
+        const auto camera_position = editor_layer->GetSceneCameraPosition();
+        const glm::vec3 camera_front = camera_rotation * glm::vec3(0, 0, -1);
+        const glm::vec3 camera_up = camera_rotation * glm::vec3(0, 1, 0);
+        const glm::vec3 camera_right = camera_rotation * glm::vec3(1, 0, 0);
+        if (mouse_drag && !is_dragging_previously) {
+          strands_operator_start = mouse_valid_position;
+        }
+        if (editor_layer->GetKey(GLFW_KEY_E) == Input::KeyActionType::Hold) {
+          if (mouse_drag) {
+            strands_operator_current = mouse_valid_position;
+            draw_list->AddLine(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y),
+                               canvas_p0 + ImVec2(strands_operator_current.x, strands_operator_current.y),
+                               IM_COL32(255, 255, 255, 255));
+            const auto screen_vector = strands_operator_current - strands_operator_start;
+            const float line_distance = glm::length(screen_vector);
+            draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_current.x, strands_operator_current.y),
+                                 line_distance * 0.05f,
+                                 IM_COL32(255, 255, 255, 255));
+            draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y),
+                                 5.0f, IM_COL32(255, 255, 255, 255));
+            
+            const glm::vec3 force = strand_visualizer_settings_.drag_force_multiplier * 0.001f *
+                                    (camera_right * screen_vector.x - camera_up * screen_vector.y);
+            for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+              dts->drag_operator->enabled = true;
+              dts->drag_operator->Update(force);
+            });
+          }
+        } else {
+          const auto camera_projection_view = visualization_camera_->GetProjection() *
+                                              glm::lookAt(camera_position, camera_position + camera_front, camera_up);
+          if (mouse_drag) {
+            strands_operator_current = mouse_valid_position;
+            draw_list->AddQuad(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y),
+                               canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_current.y),
+                               canvas_p0 + ImVec2(strands_operator_current.x, strands_operator_current.y),
+                               canvas_p0 + ImVec2(strands_operator_current.x, strands_operator_start.y),
+                               IM_COL32(255, 255, 255, 255));
+            for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+              dts->box_selection_operator->enabled = true;
+              dts->box_selection_operator->Update(
+                  strands_operator_start / glm::vec2(canvas_size.x, canvas_size.y),
+                  strands_operator_current / glm::vec2(canvas_size.x, canvas_size.y), camera_projection_view,
+                  editor_layer->GetKey(GLFW_KEY_R) != Input::KeyActionType::Hold ? 0 : 1);
+            });
+          } else if (is_dragging_previously) {
+            for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+              dts->box_selection_operator->enabled = true;
+              dts->box_selection_operator->Update(
+                  strands_operator_start / glm::vec2(canvas_size.x, canvas_size.y),
+                  strands_operator_current / glm::vec2(canvas_size.x, canvas_size.y), camera_projection_view,
+                  editor_layer->GetKey(GLFW_KEY_R) != Input::KeyActionType::Hold ? 2 : 3);
+            });
+          }
+          if (editor_layer->GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
+            for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+              dts->box_selection_operator->enabled = true;
+              dts->box_selection_operator->Update(strands_operator_start / glm::vec2(canvas_size.x, canvas_size.y),
+                                                  strands_operator_current / glm::vec2(canvas_size.x, canvas_size.y),
+                                                  {}, 4);
+            });
+          }
+        }
+        is_dragging_previously = mouse_drag;
+      }
+
+      draw_list->PopClipRect();
+    }
+    ImGui::EndChild();
+  }
+  ImGui::End();
+  ImGui::PopStyleVar();
+  for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+    dts->Visualization(visualization_camera_);
+  });
 }

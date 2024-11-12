@@ -24,6 +24,7 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	vec4 acceleration_particle_size;
+	float ground_height;
 };
 
 void main(){
@@ -37,7 +38,7 @@ void main(){
 		vec3 acceleration = acceleration_particle_size.xyz;
 		Particle particle = particles[particle_index];
 		Segment segment = segments[floatBitsToInt(particle.old_x_segment_handle.w)];
-		if(segment.inv_mass == 0.0) acceleration = vec3(0.0);
+		if(segment.inv_mass == 0.0 || particle.x_node_handle.y < ground_height) acceleration = vec3(0.0);
 		particles[particle_index].acceleration_connectivity_strain.xyz += acceleration;
 	}
 }

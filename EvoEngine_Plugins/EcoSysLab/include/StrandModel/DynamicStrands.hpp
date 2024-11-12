@@ -7,7 +7,7 @@ using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
 class DynamicStrandsPreStep;
-class IDynamicStrandsOperator;
+class IDsPhysicsOperator;
 class IDynamicStrandsConstraint;
 class DynamicStrandsPrediction;
 class DynamicStrands {
@@ -18,15 +18,15 @@ class DynamicStrands {
   [[nodiscard]] bool WaitForUpload() const;
 #pragma region Initialization
   struct InitializeParameters {
-    float wood_density = 1.f;
+    float wood_density = 500.f; //kg/m^3
     float shear_stiffness = 0.97f;
     float stretch_stiffness = 0.95f;
 
     float bending_stiffness = 0.85f;
     float twisting_stiffness = 0.9f;
 
-    float velocity_damping = 0.01f;
-    float angular_velocity_damping = 0.01f;
+    float velocity_damping = 0.001f;
+    float angular_velocity_damping = 0.001f;
 
     float neighbor_range = 0.05f;
     GlobalTransform root_transform{};
@@ -42,6 +42,8 @@ class DynamicStrands {
     float time_step = 0.01f;
     int sub_step = 5;
     int constraint_iteration = 5;
+
+    float max_bend_twist_strain = 0.01f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -70,8 +72,6 @@ class DynamicStrands {
     glm::vec4 connection_color1 = glm::vec4(1, 0, 0, 1);
     glm::vec4 connection_color2 = glm::vec4(1, 1, 1, 0.8);
     float connection_multiplier = 1.0f;
-
-    std::shared_ptr<Camera> target_visualization_camera{};
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -141,6 +141,11 @@ class DynamicStrands {
 
     glm::vec3 acceleration = glm::vec3(0.f);
     float connectivity_strain;
+
+    int selected = 0;
+    int highlighted = 0;
+    int connection_handle = 0;
+    int padding2 = 0;
   };
 
   struct GpuConnection {
@@ -177,7 +182,7 @@ class DynamicStrands {
   void Clear();
 
   std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets;
-  void Visualization(const VisualizationParameters& render_parameters) const;
+  void Visualization(const std::shared_ptr<Camera>& target_camera, const VisualizationParameters& render_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& operators_action) const;
 
  private:

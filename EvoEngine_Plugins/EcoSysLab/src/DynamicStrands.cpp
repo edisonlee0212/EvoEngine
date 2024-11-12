@@ -168,7 +168,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
     connections.resize(connections.size() + handles.size() - 1);
     for (int handle_index = 0; handle_index < static_cast<int>(handles.size()) - 1; handle_index++) {
-      auto& connection = connections[handle_index + handle_index_offset];
+      const auto connection_handle = handle_index + handle_index_offset;
+      auto& connection = connections[connection_handle];
       connection.segment0_handle = handles[handle_index];
       connection.segment1_handle = handles[handle_index + 1];
       const auto& segment0 = segments[connection.segment0_handle];
@@ -177,23 +178,24 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       connection.segment1_particle_handle = segment1.particle0_handle;
 
       if (handle_index > 0) {
-        connection.prev_handle = handle_index + handle_index_offset - 1;
+        connection.prev_handle = connection_handle - 1;
       } else {
         connection.prev_handle = -1;
       }
       if (handle_index < static_cast<int>(handles.size()) - 2) {
-        connection.next_handle = handle_index + handle_index_offset + 1;
+        connection.next_handle = connection_handle + 1;
       } else {
         connection.next_handle = -1;
       }
-
+      particles[connection.segment0_particle_handle].connection_handle = connection_handle;
+      particles[connection.segment1_particle_handle].connection_handle = connection_handle;
       connection.bending_stiffness = initialize_parameters.bending_stiffness;
       connection.twisting_stiffness = initialize_parameters.twisting_stiffness;
       const auto& q0 = segment0.q0;
       const auto& q1 = segment1.q0;
 
       connection.rest_darboux_vector = glm::conjugate(q0) * q1;
-      connection.bend_twist_strain_valid.w = glm::uintBitsToFloat(1);
+      connection.bend_twist_strain_valid.w = 1.0;
     }
   }
   Upload();
@@ -208,7 +210,8 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::DragInt("Sub step", &sub_step, 1, 1, 100)) {
     changed = true;
   }
-
+  if (ImGui::DragFloat("Max bend twist strain", &max_bend_twist_strain, 0.001f, 0.001f, 1.0f))
+    changed = true;
   if (ImGui::DragInt("Constraint Iteration", &constraint_iteration, 1, 1, 500))
     changed = true;
   return changed;

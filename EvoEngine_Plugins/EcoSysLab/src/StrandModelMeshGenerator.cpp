@@ -138,7 +138,7 @@ void StrandModelMeshGenerator::CylindricalMeshing(const StrandModel& strand_mode
   const auto current_vertices_size = vertices.size();
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
   CylindricalMeshGenerator<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData>::GeneratePartially(
-      node_handles, skeleton, vertices, indices, eco_sys_lab_layer->m_meshGeneratorSettings,
+      node_handles, skeleton, vertices, indices, eco_sys_lab_layer->mesh_generator_settings,
       [&](glm::vec3&, const glm::vec3&, const float, const float) {
       },
       [&](glm::vec2& tex_coords, const float, const float) {

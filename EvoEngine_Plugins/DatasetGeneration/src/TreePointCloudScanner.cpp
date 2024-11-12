@@ -511,7 +511,7 @@ bool TreePointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor
     FileUtils::SaveFile(
         "Capture", "Point Cloud", {".ply"},
         [&](const std::filesystem::path& path) {
-          Capture(ecoSysLabLayer->m_meshGeneratorSettings, path, captureSettings);
+          Capture(ecoSysLabLayer->mesh_generator_settings, path, captureSettings);
         },
         false);
     ImGui::TreePop();
@@ -523,7 +523,7 @@ bool TreePointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor
     FileUtils::SaveFile(
         "Capture", "Point Cloud", {".ply"},
         [&](const std::filesystem::path& path) {
-          Capture(ecoSysLabLayer->m_meshGeneratorSettings, path, captureSettings);
+          Capture(ecoSysLabLayer->mesh_generator_settings, path, captureSettings);
         },
         false);
     ImGui::TreePop();

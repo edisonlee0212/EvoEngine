@@ -907,7 +907,7 @@ void Soil::InitializeSoilModel() {
                                                                     sd->texture_resolution.y);
           std::fill(soil_layer.m_mat.m_soilMaterialTexture->m_color_map.begin(),
                     soil_layer.m_mat.m_soilMaterialTexture->m_color_map.end(),
-                    Application::GetLayer<EcoSysLabLayer>()->m_soilLayerColors[material_index]);
+                    Application::GetLayer<EcoSysLabLayer>()->soil_layer_colors_[material_index]);
         }
         if (height) {
           height->GetRedChannelData(soil_layer.m_mat.m_soilMaterialTexture->m_height_map,

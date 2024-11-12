@@ -728,7 +728,7 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
     FileUtils::SaveFile(
         "Export all forest as OBJ", "OBJ", {".obj"},
         [&](const std::filesystem::path& path) {
-          ExportForestOBJ(ecoSysLabLayer->m_meshGeneratorSettings, path);
+          ExportForestOBJ(ecoSysLabLayer->mesh_generator_settings, path);
         },
         false);
   }

@@ -76,7 +76,7 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
 
   if (setSimulationSettings) {
     const auto lab = Application::GetLayer<EcoSysLabLayer>();
-    lab->m_simulationSettings = simulation_settings;
+    lab->simulation_settings = simulation_settings;
   }
 
   return retVal;
@@ -151,7 +151,7 @@ Entity ForestPatch::InstantiatePatch(
 
   if (setSimulationSettings) {
     const auto lab = Application::GetLayer<EcoSysLabLayer>();
-    lab->m_simulationSettings = simulation_settings;
+    lab->simulation_settings = simulation_settings;
   }
 
   return retVal;

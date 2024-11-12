@@ -53,8 +53,7 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (render_connections) {
     if (ImGui::Combo("Connection mode", {"Default", "Bend/twist strain"}, connection_render_mode))
       changed = true;
-
-    switch (segment_render_mode) {
+    switch (connection_render_mode) {
       case 0: {
         if (ImGui::ColorEdit4("Connection color", &connection_color2.x))
           changed = true;
@@ -74,7 +73,8 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   return changed;
 }
 
-void DynamicStrands::Visualization(const VisualizationParameters& render_parameters) const {
+void DynamicStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
+                                   const VisualizationParameters& render_parameters) const {
   if (!Platform::Constants::support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return;
@@ -249,8 +249,7 @@ void DynamicStrands::Visualization(const VisualizationParameters& render_paramet
   particle_push_constant.min_color = render_parameters.particle_render_mode == 0 ? render_parameters.particle_color2
                                                                                  : render_parameters.particle_color0;
   particle_push_constant.max_color = render_parameters.particle_color1;
-  particle_push_constant.camera_index =
-      render_layer->GetCameraIndex(render_parameters.target_visualization_camera->GetHandle());
+  particle_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   particle_push_constant.multiplier = render_parameters.particle_multiplier;
   particle_push_constant.strand_particle_size = particles.size();
 
@@ -259,8 +258,7 @@ void DynamicStrands::Visualization(const VisualizationParameters& render_paramet
   segment_push_constant.min_color =
       render_parameters.segment_render_mode == 0 ? render_parameters.segment_color2 : render_parameters.segment_color0;
   segment_push_constant.max_color = render_parameters.segment_color1;
-  segment_push_constant.camera_index =
-      render_layer->GetCameraIndex(render_parameters.target_visualization_camera->GetHandle());
+  segment_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   segment_push_constant.multiplier = render_parameters.segment_multiplier;
   segment_push_constant.strand_segment_size = segments.size();
 
@@ -270,8 +268,7 @@ void DynamicStrands::Visualization(const VisualizationParameters& render_paramet
                                            ? render_parameters.connection_color2
                                            : render_parameters.connection_color0;
   connection_push_constant.max_color = render_parameters.connection_color1;
-  connection_push_constant.camera_index =
-      render_layer->GetCameraIndex(render_parameters.target_visualization_camera->GetHandle());
+  connection_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   connection_push_constant.multiplier = render_parameters.connection_multiplier;
   connection_push_constant.strand_connection_size = connections.size();
 
@@ -280,14 +277,14 @@ void DynamicStrands::Visualization(const VisualizationParameters& render_paramet
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = render_parameters.target_visualization_camera->GetSize().x;
-    viewport.height = render_parameters.target_visualization_camera->GetSize().y;
+    viewport.width = target_camera->GetSize().x;
+    viewport.height = target_camera->GetSize().y;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     VkRect2D scissor;
     scissor.offset = {0, 0};
-    scissor.extent.width = render_parameters.target_visualization_camera->GetSize().x;
-    scissor.extent.height = render_parameters.target_visualization_camera->GetSize().y;
+    scissor.extent.width = target_camera->GetSize().x;
+    scissor.extent.height = target_camera->GetSize().y;
 #pragma endregion
     // 1 here means we only have 1 color attachment. (For deferred shading we will have multiple attachments for
     // GBuffer)
@@ -299,7 +296,7 @@ void DynamicStrands::Visualization(const VisualizationParameters& render_paramet
       connection_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
 
       connection_render_pipeline->states.ApplyAllStates(vk_command_buffer);
-      render_parameters.target_visualization_camera->GetRenderTexture()->Render(
+      target_camera->GetRenderTexture()->Render(
           vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
             connection_render_pipeline->Bind(vk_command_buffer);
             connection_render_pipeline->BindDescriptorSet(
@@ -319,7 +316,7 @@ void DynamicStrands::Visualization(const VisualizationParameters& render_paramet
       segment_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
 
       segment_render_pipeline->states.ApplyAllStates(vk_command_buffer);
-      render_parameters.target_visualization_camera->GetRenderTexture()->Render(
+      target_camera->GetRenderTexture()->Render(
           vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
             segment_render_pipeline->Bind(vk_command_buffer);
             segment_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
@@ -339,7 +336,7 @@ void DynamicStrands::Visualization(const VisualizationParameters& render_paramet
       particle_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
 
       particle_render_pipeline->states.ApplyAllStates(vk_command_buffer);
-      render_parameters.target_visualization_camera->GetRenderTexture()->Render(
+      target_camera->GetRenderTexture()->Render(
           vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
             particle_render_pipeline->Bind(vk_command_buffer);
             particle_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
