@@ -64,6 +64,8 @@ struct Connection {
   int next_handle;
 
   vec4 bend_twist_strain_valid;
+
+  vec4 max_bend_twist_strain;
 };
 
 

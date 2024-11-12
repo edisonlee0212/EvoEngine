@@ -49,7 +49,6 @@ class DynamicStrandsPrediction {
 
   struct ConnectionPredictionPushConstant {
     uint32_t connection_size = 0;
-    float max_bend_twist_strain;
   };
 
   inline static std::shared_ptr<ComputePipeline> particle_prediction_pipeline;

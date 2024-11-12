@@ -47,6 +47,9 @@ void main(){
 		if(particle_index >= particle_size) break;
 
 		Particle particle = particles[particle_index];
+
+		Segment segment = segments[floatBitsToInt(particle.old_x_segment_handle.w)];
+
 		ParticleNeighbor particle_neighbor = particle_neighbors[particle_index];
 		vec3 movement = vec3(0.0, 0.0, 0.0);
 		int sum = 0;
@@ -56,16 +59,12 @@ void main(){
 			int neighbor_particle_index = particle_neighbor.neighbors[n_i];
 			if(neighbor_particle_index == -1) continue;
 			vec3 neighbor_position = particles[neighbor_particle_index].x_node_handle.xyz;
-			//float current_distance = distance(neighbor_position, particle.x_node_handle.xyz);
-			//vec3 direction = normalize(neighbor_position - particle.x_node_handle.xyz);
-			//distance_diff_sum += abs(current_distance - particle_neighbor.offset[n_i].w);
-			//movement += direction * (current_distance - particle_neighbor.offset[n_i].w) * 0.5;
-			vec3 current_offset = particle.x_node_handle.xyz - neighbor_position;
-			vec3 diff = particle_neighbor.offset[n_i].xyz - current_offset;
+			vec3 target_neighbor_position = particle.x_node_handle.xyz + rotate_vec3(segment.q, particle_neighbor.offset[n_i].xyz);
+			vec3 diff = target_neighbor_position - neighbor_position;
 			float local_connectivity_strain = abs(length(diff));
-			if(local_connectivity_strain < 1.0){
+			if(local_connectivity_strain < particle_neighbor.offset[n_i].w){
 				distance_diff_sum += local_connectivity_strain;
-				movement += diff;
+				movement -= diff * 0.5;
 				sum += 1;
 			}else{
 				particle_neighbor.neighbors[n_i] = -1;

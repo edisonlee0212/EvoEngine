@@ -67,6 +67,11 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
   if (ImGui::DragFloat("Neighbor range", &neighbor_range, 0.01f, 0.01f, 1.0f))
     changed = true;
 
+  if (ImGui::DragFloat3("Max neighbor strain", &neighbor_strain, 0.001f, 0.001f, 1.0f))
+    changed = true;
+
+  if (ImGui::DragFloat3("Max bend twist strain", &max_bend_twist_strain.x, 0.001f, 0.001f, 1.0f))
+    changed = true;
   return changed;
 }
 
@@ -196,6 +201,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
       connection.rest_darboux_vector = glm::conjugate(q0) * q1;
       connection.bend_twist_strain_valid.w = 1.0;
+      connection.max_bend_twist_strain = initialize_parameters.max_bend_twist_strain;
     }
   }
   Upload();
@@ -210,8 +216,7 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::DragInt("Sub step", &sub_step, 1, 1, 100)) {
     changed = true;
   }
-  if (ImGui::DragFloat("Max bend twist strain", &max_bend_twist_strain, 0.001f, 0.001f, 1.0f))
-    changed = true;
+  
   if (ImGui::DragInt("Constraint Iteration", &constraint_iteration, 1, 1, 500))
     changed = true;
   return changed;
