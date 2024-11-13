@@ -129,3 +129,9 @@ vec3 compute_darboux_vector(in vec4 q0, in vec4 q1, float length) {
 float squared_norm(in vec4 q) {
   return q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
 }
+
+vec3 rotate_vec3(in vec4 q, in vec3 v) {
+  vec3 q_vec = q.xyz;
+  vec3 t = cross(q_vec, v) * 2.0;
+  return v + t * q.w + cross(q_vec, t);
+}

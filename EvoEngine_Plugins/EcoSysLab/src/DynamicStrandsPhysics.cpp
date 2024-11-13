@@ -199,7 +199,6 @@ void DynamicStrandsPrediction::Execute(const DynamicStrands::PhysicsParameters& 
 
   ConnectionPredictionPushConstant connection_push_constant;
   connection_push_constant.connection_size = target_dynamic_strands.connections.size();
-  connection_push_constant.max_bend_twist_strain = physics_parameters.max_bend_twist_strain;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     particle_prediction_pipeline->Bind(vk_command_buffer);
@@ -657,7 +656,6 @@ void DsParticleNeighbor::InitializeData(const DynamicStrands::InitializeParamete
         target_dynamic_strands.connections[particle.connection_handle].segment0_particle_handle == particle_index;
     voxel_grid.Ref(particle.x0).emplace_back(s_d);
   }
-
   Jobs::RunParallelFor(particle_neighbors.size(), [&](const auto i) {
     auto& neighbor = particle_neighbors[i];
     neighbor.valid = 1.0;
@@ -676,7 +674,8 @@ void DsParticleNeighbor::InitializeData(const DynamicStrands::InitializeParamete
         }
 
         if (const bool start_particle =
-            target_dynamic_strands.connections[particle.connection_handle].segment0_particle_handle == i; start_particle != info.start_particle)
+                target_dynamic_strands.connections[particle.connection_handle].segment0_particle_handle == i;
+            start_particle != info.start_particle)
           continue;
 
         bool node_check = false;
@@ -701,11 +700,11 @@ void DsParticleNeighbor::InitializeData(const DynamicStrands::InitializeParamete
         candidates.emplace(distance, info.particle_handle);
       }
     });
-
     int neighbor_index = 0;
     for (const auto& candidate : candidates) {
-      neighbor.offset[neighbor_index] =
-          glm::vec4(particle.x0 - target_dynamic_strands.particles[candidate.second].x0, candidate.first);
+      glm::vec3 offset =
+          glm::inverse(segment.q0) * (target_dynamic_strands.particles[candidate.second].x0 - particle.x0);
+      neighbor.offset[neighbor_index] = glm::vec4(offset, initialize_parameters.neighbor_strain);
       neighbor.neighbors[neighbor_index] = candidate.second;
       neighbor_index++;
       if (neighbor_index >= 8)

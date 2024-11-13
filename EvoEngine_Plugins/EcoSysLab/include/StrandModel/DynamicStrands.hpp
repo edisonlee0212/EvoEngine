@@ -25,10 +25,13 @@ class DynamicStrands {
     float bending_stiffness = 0.85f;
     float twisting_stiffness = 0.9f;
 
-    float velocity_damping = 0.001f;
-    float angular_velocity_damping = 0.001f;
+    float velocity_damping = 0.005f;
+    float angular_velocity_damping = 0.005f;
 
     float neighbor_range = 0.05f;
+
+    float neighbor_strain = 0.02f;
+    glm::vec3 max_bend_twist_strain = glm::vec3(0.02f);
     GlobalTransform root_transform{};
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
@@ -43,7 +46,6 @@ class DynamicStrands {
     int sub_step = 5;
     int constraint_iteration = 5;
 
-    float max_bend_twist_strain = 0.01f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -125,6 +127,7 @@ class DynamicStrands {
 
     glm::vec3 stretch_shear_strain = glm::vec3(0.f);
     float original_inv_mass = 0.0f;
+
   };
   struct GpuParticle {
     // Initial position
@@ -162,6 +165,9 @@ class DynamicStrands {
     int next_handle = -1;
 
     glm::vec4 bend_twist_strain_valid = glm::vec4(0.f);
+
+    glm::vec3 max_bend_twist_strain;
+    float padding;
   };
 
   inline static std::shared_ptr<DescriptorSetLayout> strands_layout{};
