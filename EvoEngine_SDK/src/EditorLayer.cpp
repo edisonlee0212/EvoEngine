@@ -614,7 +614,7 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   Resources::OnInspect(editor_layer);
 }
 
-void EditorLayer::LateUpdate() {
+void EditorLayer::RenderGui() {
   if (lock_camera) {
     auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
     const float elapsed_time = static_cast<float>(Times::Now()) - transition_timer_;

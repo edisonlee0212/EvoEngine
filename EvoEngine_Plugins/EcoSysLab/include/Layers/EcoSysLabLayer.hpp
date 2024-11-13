@@ -160,6 +160,8 @@ class EcoSysLabLayer : public ILayer {
 
   void PreUpdate() override;
   void OnCreate() override;
+
+  void LateUpdate() override;
   void TreeVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
   void StrandVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;

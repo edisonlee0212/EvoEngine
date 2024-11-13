@@ -69,13 +69,15 @@ class RenderLayer final : public ILayer {
   void PrepareEnvironmentalBrdfLut();
   void RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera);
   void RenderToCameraRayTracing(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera);
-  
+
   void CollectCameras(const std::shared_ptr<Scene>& scene,
                       std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
   void ClearAllCameras();
   void RenderAllCameras();
 
  public:
+  void ForEachCollectedCamera(const std::function<void(const std::shared_ptr<Camera>& camera)>& action);
+
   std::vector<std::shared_ptr<RenderInstances>> render_instances_list;
 
   bool wire_frame = false;
@@ -103,9 +105,8 @@ class RenderLayer final : public ILayer {
 #pragma region Render procedure
   bool UpdateRenderInfo(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
   bool UpdateEnvironmentInfo(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
-  bool UpdateCameras(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
-                     std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
-  
+  bool UpdateCameras(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
+
   bool UpdateRenderInstances(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
   bool UpdateLighting(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
                       const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
@@ -138,6 +139,7 @@ class RenderLayer final : public ILayer {
 
   void CreateStandardDescriptorBuffers();
   void CreateDescriptorSets();
+  std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> collected_cameras_;
   std::unordered_map<Handle, uint32_t> camera_indices_;
 
   std::vector<CameraInfoBlock> camera_info_blocks_{};

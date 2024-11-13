@@ -54,6 +54,7 @@ void RenderLayer::ClearAllCameras() {
   const auto scene = GetScene();
   if (!scene)
     return;
+  collected_cameras_.clear();
 
   std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
   CollectCameras(scene, cameras);
@@ -85,8 +86,7 @@ void RenderLayer::RenderAllCameras() {
         1, environment_info_descriptor_buffers_[current_frame_index]);
   }
 
-  std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
-  if (UpdateCameras(scene, current_frame_index, cameras)) {
+  if (UpdateCameras(scene, current_frame_index)) {
     per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
         2, camera_info_descriptor_buffers_[current_frame_index]);
   }
@@ -110,7 +110,7 @@ void RenderLayer::RenderAllCameras() {
     }
   }
 
-  if (UpdateLighting(scene, current_frame_index, cameras)) {
+  if (UpdateLighting(scene, current_frame_index, collected_cameras_)) {
     per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
         5, kernel_descriptor_buffers_[current_frame_index]);
     per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
@@ -126,7 +126,7 @@ void RenderLayer::RenderAllCameras() {
 
   PreparePointAndSpotLightShadowMap();
 
-  for (const auto& [cameraGlobalTransform, camera] : cameras) {
+  for (const auto& [cameraGlobalTransform, camera] : collected_cameras_) {
     camera->rendered_ = false;
     if (camera->require_rendering_) {
       RenderToCamera(cameraGlobalTransform, camera);
@@ -134,7 +134,7 @@ void RenderLayer::RenderAllCameras() {
   }
   if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing &&
       render_instances_list[current_frame_index]->mesh_top_level_acceleration_structure) {
-    for (const auto& [cameraGlobalTransform, camera] : cameras) {
+    for (const auto& [cameraGlobalTransform, camera] : collected_cameras_) {
       if (camera->require_rendering_) {
         RenderToCameraRayTracing(cameraGlobalTransform, camera);
       }
@@ -259,8 +259,11 @@ void RenderLayer::RenderAllCameras() {
   directional_light_info_blocks_.clear();
   point_light_info_blocks_.clear();
   spot_light_info_blocks_.clear();
+}
 
-  cameras.clear();
+void RenderLayer::ForEachCollectedCamera(const std::function<void(const std::shared_ptr<Camera>& camera)>& action) {
+  for (const auto& camera : collected_cameras_)
+    action(camera.second);
 }
 
 void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -397,12 +400,11 @@ void RenderLayer::CollectCameras(const std::shared_ptr<Scene>& scene,
     }
   }
 }
-bool RenderLayer::UpdateCameras(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
-                                std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
+bool RenderLayer::UpdateCameras(const std::shared_ptr<Scene>& scene, const uint32_t current_frame_index) {
   camera_indices_.clear();
   camera_info_blocks_.clear();
 
-  CollectCameras(scene, cameras);
+  CollectCameras(scene, collected_cameras_);
 
   camera_info_descriptor_buffers_[current_frame_index]->UploadVector(camera_info_blocks_);
   return true;

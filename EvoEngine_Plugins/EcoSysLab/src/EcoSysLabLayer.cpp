@@ -1931,11 +1931,10 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
             const auto screen_vector = strands_operator_current - strands_operator_start;
             const float line_distance = glm::length(screen_vector);
             draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_current.x, strands_operator_current.y),
-                                 line_distance * 0.05f,
+                                 line_distance * 0.05f, IM_COL32(255, 255, 255, 255));
+            draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y), 5.0f,
                                  IM_COL32(255, 255, 255, 255));
-            draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y),
-                                 5.0f, IM_COL32(255, 255, 255, 255));
-            
+
             const glm::vec3 force = strand_visualizer_settings_.drag_force_multiplier * 0.001f *
                                     (camera_right * screen_vector.x - camera_up * screen_vector.y);
             for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
@@ -1990,4 +1989,26 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
   for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
     dts->Visualization(visualization_camera_);
   });
+}
+
+void EcoSysLabLayer::LateUpdate() {
+  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+    const auto scene = GetScene();
+    const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+
+    const auto for_each_dts_entity =
+        [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {
+          if (dts_entities && !dts_entities->empty()) {
+            for (const auto& i : *dts_entities) {
+              const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(i).lock();
+              action(dts);
+            }
+          }
+        };
+    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+      render_layer->ForEachCollectedCamera([&](const auto& camera) {
+        dts->Render(camera);
+      });
+    });
+  }
 }

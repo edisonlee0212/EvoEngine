@@ -18,7 +18,7 @@ class DynamicStrands {
   [[nodiscard]] bool WaitForUpload() const;
 #pragma region Initialization
   struct InitializeParameters {
-    float wood_density = 500.f; //kg/m^3
+    float wood_density = 500.f;  // kg/m^3
     float shear_stiffness = 0.97f;
     float stretch_stiffness = 0.95f;
 
@@ -78,6 +78,10 @@ class DynamicStrands {
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
+  struct RenderParameters {
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  };
+
   std::shared_ptr<DynamicStrandsPreStep> pre_step;
   std::shared_ptr<DynamicStrandsPrediction> prediction;
   std::vector<std::shared_ptr<IDynamicStrandsConstraint>> constraints;
@@ -127,7 +131,6 @@ class DynamicStrands {
 
     glm::vec3 stretch_shear_strain = glm::vec3(0.f);
     float original_inv_mass = 0.0f;
-
   };
   struct GpuParticle {
     // Initial position
@@ -170,6 +173,18 @@ class DynamicStrands {
     float padding;
   };
 
+  struct GpuDelaunayTetrahedron {
+    int indices[4];
+    int neighbors[4];
+    int render_neighbor[4];
+    float neighbor_circumference[4];
+    glm::vec4 color;  // for debugging
+    unsigned int task_looked_at = 0;
+    unsigned int mesh_looked_at = 0;
+    int inside = -1;
+    int triangles_accepted = 0;
+  };
+
   inline static std::shared_ptr<DescriptorSetLayout> strands_layout{};
 
   std::shared_ptr<Buffer> device_strands_buffer;
@@ -180,6 +195,9 @@ class DynamicStrands {
   std::vector<GpuSegment> segments;
   std::vector<GpuParticle> particles;
   std::vector<GpuConnection> connections;
+
+  std::shared_ptr<Buffer> device_delaunay_tetrahedrons_buffer;
+  std::vector<GpuDelaunayTetrahedron> delaunay_tetrahedrons;
 #pragma endregion
 
   void Upload();
@@ -188,10 +206,15 @@ class DynamicStrands {
   void Clear();
 
   std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets;
-  void Visualization(const std::shared_ptr<Camera>& target_camera, const VisualizationParameters& render_parameters) const;
+
+  void Render(const std::shared_ptr<Camera>& target_camera, const RenderParameters& render_parameters) const;
+  void Visualize(const std::shared_ptr<Camera>& target_camera,
+                 const VisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& operators_action) const;
 
  private:
+  static void ComputeDelaunay(const std::vector<GpuParticle>& particles,
+                              std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
   static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
 };
