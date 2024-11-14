@@ -183,7 +183,10 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     visualization_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
   }
-
+  if (ImGui::TreeNode("Render settings")) {
+    render_parameters.OnInspect(editor_layer);
+    ImGui::TreePop();
+  }
   if (ImGui::Button("Download strands")) {
     dynamic_strands->Download();
     EVOENGINE_LOG("Downloaded data from GPU")
@@ -381,6 +384,12 @@ void DynamicTreeStrands::PhysicsStep() const {
 
 void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_camera) const {
   if (!dynamic_strands->segments.empty()) {
-    dynamic_strands->Visualization(target_camera, visualization_parameters);
+    dynamic_strands->Visualize(target_camera, visualization_parameters);
+  }
+}
+
+void DynamicTreeStrands::Render(const std::shared_ptr<Camera>& target_camera) const {
+  if (!dynamic_strands->segments.empty()) {
+    dynamic_strands->Render(target_camera, render_parameters);
   }
 }

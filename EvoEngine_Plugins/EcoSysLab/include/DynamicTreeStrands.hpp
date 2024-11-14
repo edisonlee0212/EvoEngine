@@ -4,7 +4,6 @@
 #include "StrandModelData.hpp"
 #include "TreeGrowthData.hpp"
 
-
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
@@ -26,6 +25,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   bool enable_physics = true;
   DynamicStrands::PhysicsParameters physics_parameters{};
   DynamicStrands::VisualizationParameters visualization_parameters{};
+  DynamicStrands::RenderParameters render_parameters{};
   std::shared_ptr<DynamicStrands> dynamic_strands{};
 
   struct EntityTransform {
@@ -59,5 +59,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   void PhysicsStep() const;
 
   void Visualization(const std::shared_ptr<Camera>& target_camera) const;
+
+  void Render(const std::shared_ptr<Camera>& target_camera) const;
 };
 }  // namespace eco_sys_lab_plugin

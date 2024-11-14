@@ -1,0 +1,115 @@
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shader_draw_parameters : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+
+#define DYNAMIC_STRANDS_SET 1
+#include "DynamicStrands.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+
+struct Task{
+	uint	baseID;
+	uint8_t	deltaIDs[EXT_INVOCATIONS_PER_TASK];
+};
+
+taskPayloadSharedEXT Task ts_out;
+
+#if EXT_TASK_SUBGROUP_COUNT > 1
+	shared uint s_out_tetrahedron_count;
+#endif
+
+#define BARRIER() \
+	memoryBarrierShared(); \
+	barrier();
+
+layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
+  uint camera_index;
+  uint tetrahedrons_size;
+  float alpha;
+};
+
+#include "AlphaShape.glsl"
+
+void main(){
+	
+#if EXT_TASK_SUBGROUP_COUNT > 1
+	if (laneID == 0) {
+		s_out_tetrahedron_count = 0;
+	}
+	BARRIER();
+#endif
+	uint out_tetrahedron_count = 0;
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint tetrahedron_index_local = laneID + i * WORKGROUP_SIZE;
+		uint tetrahedron_index_global = baseID + tetrahedron_index_local;
+
+		delaunay_tetrahedrons[tetrahedron_index_global].mesh_looked_at = 0;
+		delaunay_tetrahedrons[tetrahedron_index_global].task_looked_at = 0;
+		delaunay_tetrahedrons[tetrahedron_index_global].triangles_accepted = 0;
+
+		bool render = !(tetrahedron_index_global > tetrahedrons_size - 1);
+
+		if(render)
+		{
+			atomicAdd(delaunay_tetrahedrons[tetrahedron_index_global].task_looked_at, 1);
+			DelaunayTetrahedron tet = delaunay_tetrahedrons[tetrahedron_index_global];
+			float min_distance_squared = 1.0 / 0.0; // + infinity
+
+			if(!InsideAlpha(tet, -1, min_distance_squared))
+			{
+				render = false;
+				delaunay_tetrahedrons[tetrahedron_index_global].color = vec4(1.0, 0.0, min_distance_squared, 1.0);
+				delaunay_tetrahedrons[tetrahedron_index_global].inside = 0;
+				
+			}
+			else
+			{
+				delaunay_tetrahedrons[tetrahedron_index_global].color = vec4(0.0, 1.0, min_distance_squared, 1.0);
+				delaunay_tetrahedrons[tetrahedron_index_global].inside = 1;
+			}
+
+			// should be gray if it works
+			//delaunay_tetrahedrons[tetrahedron_index_global].color = vec4(sqrt(distance_squared), sqrt(distance_squared_1), sqrt(distance_squared_2), 0.4);
+		}		
+
+		uvec4 vote_tetrahedrons = subgroupBallot(render);
+		uint num_tetrahedrons  = subgroupBallotBitCount(vote_tetrahedrons);
+
+#if EXT_TASK_SUBGROUP_COUNT > 1
+		if (gl_SubgroupInvocationID == 0) {
+			out_tetrahedron_count = atomicAdd(s_out_tetrahedron_count, num_tetrahedrons);
+		}
+		out_tetrahedron_count = subgroupBroadcastFirst(out_tetrahedron_count);
+#endif
+		uint idx_offset  = subgroupBallotExclusiveBitCount(vote_tetrahedrons) + out_tetrahedron_count;
+		if (render) 
+		{
+			// what happens here? Do I need to change it?
+			ts_out.deltaIDs[idx_offset] = uint8_t(tetrahedron_index_local);
+		}
+#if EXT_TASK_SUBGROUP_COUNT == 1
+		out_tetrahedron_count += num_tetrahedrons;
+#endif
+	}
+
+#if EXT_TASK_SUBGROUP_COUNT > 1
+	BARRIER();
+	out_tetrahedron_count = s_out_tetrahedron_count;
+#endif
+	if (laneID == 0) {
+		ts_out.baseID = baseID;
+	}
+	EmitMeshTasksEXT(out_tetrahedron_count, 1, 1);
+}

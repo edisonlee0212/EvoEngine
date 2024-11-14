@@ -68,6 +68,17 @@ struct Connection {
   vec4 max_bend_twist_strain;
 };
 
+struct DelaunayTetrahedron {
+  int indices[4];
+  int neighbors[4];
+  int render_neighbor[4];
+  float neighbor_circumference[4];
+  vec4 color;  // for debugging
+  uint task_looked_at;
+  uint mesh_looked_at;
+  int inside;
+  int triangles_accepted;
+};
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 0) buffer STRANDS_BLOCK {
   Strand strands[];
@@ -83,4 +94,8 @@ layout(std430, set = DYNAMIC_STRANDS_SET, binding = 2) buffer PARTICLES_BLOCK {
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 3) buffer CONNECTIONS_BLOCK {
   Connection connections[];
+};
+
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 4) buffer DELAUNAY_TETRAHEDRON_BLOCK {
+  DelaunayTetrahedron delaunay_tetrahedrons[];
 };

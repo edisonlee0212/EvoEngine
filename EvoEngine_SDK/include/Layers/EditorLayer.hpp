@@ -74,7 +74,7 @@ class EditorLayer : public ILayer {
   void OnDestroy() override;
   void PreUpdate() override;
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void LateUpdate() override;
+  void RenderGui();
 
   void SceneCameraWindow();
   void MainCameraWindow();

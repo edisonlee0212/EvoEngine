@@ -299,6 +299,9 @@ void Application::LateUpdateInternal() {
     for (auto i = application.layers_.rbegin(); i != application.layers_.rend(); ++i) {
       (*i)->LateUpdate();
     }
+    if (const auto editor_layer = GetLayer<EditorLayer>()) {
+      editor_layer->RenderGui();
+    }
     if (const auto render_layer = GetLayer<RenderLayer>()) {
       render_layer->ClearAllCameras();
     }

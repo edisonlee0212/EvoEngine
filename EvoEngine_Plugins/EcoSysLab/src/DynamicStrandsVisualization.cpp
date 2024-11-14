@@ -73,8 +73,8 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   return changed;
 }
 
-void DynamicStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
-                                   const VisualizationParameters& render_parameters) const {
+void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
+                               const VisualizationParameters& visualization_parameters) const {
   if (!Platform::Constants::support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return;
@@ -103,18 +103,18 @@ void DynamicStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
     static std::shared_ptr<Shader> frag_shader{};
     // Load shader
     task_shader = std::make_shared<Shader>();
-    task_shader->Set(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandParticlesRendering.task");
+    task_shader->Set(ShaderType::Task, Platform::Constants::shader_global_defines,
+                     std::filesystem::path("./EcoSysLabResources") /
+                         "Shaders/Graphics/Task/DynamicStrandParticlesVisualization.task");
     mesh_shader = std::make_shared<Shader>();
-    mesh_shader->Set(
-        ShaderType::Mesh, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandParticlesRendering.mesh");
+    mesh_shader->Set(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+                     std::filesystem::path("./EcoSysLabResources") /
+                         "Shaders/Graphics/Mesh/DynamicStrandParticlesVisualization.mesh");
 
     frag_shader = std::make_shared<Shader>();
     frag_shader->Set(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsRendering.frag");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsVisualization.frag");
     // Descriptor set layout
     particle_render_pipeline = std::make_shared<GraphicsPipeline>();
     particle_render_pipeline->task_shader = task_shader;
@@ -154,18 +154,18 @@ void DynamicStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
     static std::shared_ptr<Shader> frag_shader{};
     // Load shader
     task_shader = std::make_shared<Shader>();
-    task_shader->Set(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandSegmentsRendering.task");
+    task_shader->Set(ShaderType::Task, Platform::Constants::shader_global_defines,
+                     std::filesystem::path("./EcoSysLabResources") /
+                         "Shaders/Graphics/Task/DynamicStrandSegmentsVisualization.task");
     mesh_shader = std::make_shared<Shader>();
-    mesh_shader->Set(
-        ShaderType::Mesh, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandSegmentsRendering.mesh");
+    mesh_shader->Set(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+                     std::filesystem::path("./EcoSysLabResources") /
+                         "Shaders/Graphics/Mesh/DynamicStrandSegmentsVisualization.mesh");
 
     frag_shader = std::make_shared<Shader>();
     frag_shader->Set(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsRendering.frag");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsVisualization.frag");
     // Descriptor set layout
     segment_render_pipeline = std::make_shared<GraphicsPipeline>();
     segment_render_pipeline->task_shader = task_shader;
@@ -205,19 +205,19 @@ void DynamicStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
     static std::shared_ptr<Shader> frag_shader{};
     // Load shader
     task_shader = std::make_shared<Shader>();
-    task_shader->Set(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandConnectionsRendering.task");
+    task_shader->Set(ShaderType::Task, Platform::Constants::shader_global_defines,
+                     std::filesystem::path("./EcoSysLabResources") /
+                         "Shaders/Graphics/Task/DynamicStrandConnectionsVisualization.task");
     mesh_shader = std::make_shared<Shader>();
 
-    mesh_shader->Set(
-        ShaderType::Mesh, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandConnectionsRendering.mesh");
+    mesh_shader->Set(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+                     std::filesystem::path("./EcoSysLabResources") /
+                         "Shaders/Graphics/Mesh/DynamicStrandConnectionsVisualization.mesh");
 
     frag_shader = std::make_shared<Shader>();
     frag_shader->Set(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsRendering.frag");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsVisualization.frag");
     // Descriptor set layout
     connection_render_pipeline = std::make_shared<GraphicsPipeline>();
     connection_render_pipeline->task_shader = task_shader;
@@ -245,31 +245,33 @@ void DynamicStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
 
   ParticleRenderPushConstant particle_push_constant;
-  particle_push_constant.render_mode = render_parameters.particle_render_mode;
-  particle_push_constant.min_color = render_parameters.particle_render_mode == 0 ? render_parameters.particle_color2
-                                                                                 : render_parameters.particle_color0;
-  particle_push_constant.max_color = render_parameters.particle_color1;
+  particle_push_constant.render_mode = visualization_parameters.particle_render_mode;
+  particle_push_constant.min_color = visualization_parameters.particle_render_mode == 0
+                                         ? visualization_parameters.particle_color2
+                                         : visualization_parameters.particle_color0;
+  particle_push_constant.max_color = visualization_parameters.particle_color1;
   particle_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
-  particle_push_constant.multiplier = render_parameters.particle_multiplier;
+  particle_push_constant.multiplier = visualization_parameters.particle_multiplier;
   particle_push_constant.strand_particle_size = particles.size();
 
   SegmentRenderPushConstant segment_push_constant;
-  segment_push_constant.render_mode = render_parameters.segment_render_mode;
-  segment_push_constant.min_color =
-      render_parameters.segment_render_mode == 0 ? render_parameters.segment_color2 : render_parameters.segment_color0;
-  segment_push_constant.max_color = render_parameters.segment_color1;
+  segment_push_constant.render_mode = visualization_parameters.segment_render_mode;
+  segment_push_constant.min_color = visualization_parameters.segment_render_mode == 0
+                                        ? visualization_parameters.segment_color2
+                                        : visualization_parameters.segment_color0;
+  segment_push_constant.max_color = visualization_parameters.segment_color1;
   segment_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
-  segment_push_constant.multiplier = render_parameters.segment_multiplier;
+  segment_push_constant.multiplier = visualization_parameters.segment_multiplier;
   segment_push_constant.strand_segment_size = segments.size();
 
   ConnectionRenderPushConstant connection_push_constant;
-  connection_push_constant.render_mode = render_parameters.connection_render_mode;
-  connection_push_constant.min_color = render_parameters.connection_render_mode == 0
-                                           ? render_parameters.connection_color2
-                                           : render_parameters.connection_color0;
-  connection_push_constant.max_color = render_parameters.connection_color1;
+  connection_push_constant.render_mode = visualization_parameters.connection_render_mode;
+  connection_push_constant.min_color = visualization_parameters.connection_render_mode == 0
+                                           ? visualization_parameters.connection_color2
+                                           : visualization_parameters.connection_color0;
+  connection_push_constant.max_color = visualization_parameters.connection_color1;
   connection_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
-  connection_push_constant.multiplier = render_parameters.connection_multiplier;
+  connection_push_constant.multiplier = visualization_parameters.connection_multiplier;
   connection_push_constant.strand_connection_size = connections.size();
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -288,7 +290,7 @@ void DynamicStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
 #pragma endregion
     // 1 here means we only have 1 color attachment. (For deferred shading we will have multiple attachments for
     // GBuffer)
-    if (render_parameters.render_connections) {
+    if (visualization_parameters.render_connections) {
       connection_render_pipeline->states.ResetAllStates(1);
       connection_render_pipeline->states.view_port = viewport;
       connection_render_pipeline->states.scissor = scissor;
@@ -308,7 +310,7 @@ void DynamicStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
             vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
           });
     }
-    if (render_parameters.render_segments) {
+    if (visualization_parameters.render_segments) {
       segment_render_pipeline->states.ResetAllStates(1);
       segment_render_pipeline->states.view_port = viewport;
       segment_render_pipeline->states.scissor = scissor;
@@ -328,7 +330,7 @@ void DynamicStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
             vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
           });
     }
-    if (render_parameters.render_particles) {
+    if (visualization_parameters.render_particles) {
       particle_render_pipeline->states.ResetAllStates(1);
       particle_render_pipeline->states.view_port = viewport;
       particle_render_pipeline->states.scissor = scissor;

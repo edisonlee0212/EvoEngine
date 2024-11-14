@@ -10,12 +10,6 @@ layout (location = 0) in VS_OUT {
 	vec4 color;
 } fs_in;
 
-layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
-  uint camera_index;
-  uint strands_size;
-  uint strand_segments_size;
-};
-
 layout (location = 0) out vec4 out_color;
 
 void main(){
