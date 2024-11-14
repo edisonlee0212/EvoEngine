@@ -213,7 +213,7 @@ class DynamicStrands {
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& operators_action) const;
 
  private:
-  static void ComputeDelaunay(const std::vector<GpuParticle>& particles,
+  static void ComputeDelaunay(const std::vector<GpuParticle>& particles, const std::vector<GpuConnection>& connections,
                               std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
   static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);

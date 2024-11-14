@@ -5,7 +5,8 @@ namespace evo_engine {
 class Delaunay3D {
  public:
   struct Tetrahedron {
-    uint32_t v[4]{};
+    int v[4]{};
+    int neighbor_tet_indices[4]{};
     float circumradius = 0.f;
     float volume = 0.f;
   };
