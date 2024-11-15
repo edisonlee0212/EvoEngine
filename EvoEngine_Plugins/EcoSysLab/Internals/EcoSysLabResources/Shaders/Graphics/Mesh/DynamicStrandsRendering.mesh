@@ -46,14 +46,6 @@ uvec3 triangles[] = {
 	memoryBarrierShared(); \
 	barrier();
 
-layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
-  uint camera_index;
-  uint tetrahedrons_size;
-  uint padding0;
-  uint padding1;
-  float alpha;
-};
-
 taskPayloadSharedEXT Task ts_in;
 
 // gl_WorkGroupID.x runs from [0 .. parentTask.groupCountX - 1]
@@ -66,37 +58,34 @@ void main(){
 
 	BARRIER();
 	DelaunayTetrahedron tet = delaunay_tetrahedrons[tet_id];
-	atomicAdd(delaunay_tetrahedrons[tet_id].mesh_looked_at, 1);
-	// first determine how many triangles we need to render
-	bool render_triangle[TETRAHEDRON_TRIANGLE_SIZE];
-	//uint render_triangle_count = 0;
 
+	// first determine how many triangles we need to render
 	[[unroll]]
 	for (uint i = 0; i < uint(TETRAHEDRON_PRIMITIVE_ITERATIONS); ++i)
 	{
 		uint triangle_index = laneID + i * WORKGROUP_SIZE;
 		if(triangle_index < TETRAHEDRON_TRIANGLE_SIZE){
-			float min_distance_squared = 1.0 / 0.0; // + infinity
+			float min_distance_squared = 200000.0f; // 
 			// check if we are at the boundary of the alpha shape
-			delaunay_tetrahedrons[tet_id].render_neighbor[triangle_index] = InsideAlpha(tet, int(triangle_index % 4), min_distance_squared) ? 0 : 1;
+			if(render_complex == 0){
+				delaunay_tetrahedrons[tet_id].render_neighbor[triangle_index] = InsideAlpha(tet, int(triangle_index % 4), min_distance_squared) ? 0 : 1;
+			}
+			else {
+				delaunay_tetrahedrons[tet_id].render_neighbor[triangle_index] = 1;
+			}
 			delaunay_tetrahedrons[tet_id].neighbor_circumference[triangle_index] = min_distance_squared;
 			if(delaunay_tetrahedrons[tet_id].render_neighbor[triangle_index] == 1){
-				//render_triangle_count++;
 				atomicAdd(delaunay_tetrahedrons[tet_id].triangles_accepted, 1);
 			}
 		}
 	}
 
 	BARRIER();
-	SetMeshOutputsEXT(TETRAHEDRON_VERTICES_SIZE, 4);//delaunay_tetrahedrons[tet_id].triangles_accepted);
+	// report amount of accepted triangles
+	SetMeshOutputsEXT(TETRAHEDRON_VERTICES_SIZE, delaunay_tetrahedrons[tet_id].triangles_accepted);
 	BARRIER();
 
-	// fill in unused triangles
-	for(uint i = delaunay_tetrahedrons[tet_id].triangles_accepted; i < 4; i++)
-	{
-		gl_PrimitiveTriangleIndicesEXT[i] = uvec3(0, 0, 0);
-	}
-
+	// set up vertex properties
 	mat4 transform = EE_CAMERAS[camera_index].projection_view;
 	
 	[[unroll]]
@@ -104,7 +93,7 @@ void main(){
 	{
 		uint vertex_index = laneID + i * WORKGROUP_SIZE;
 		if (vertex_index >= TETRAHEDRON_VERTICES_SIZE) break;
-		vec3 vertex_position = particles[tet.indices[vertex_index]].x_node_handle.xyz;
+		vec3 vertex_position = uniform_particles[tet.indices[vertex_index]].position_t.xyz;
 
 		ms_v_out[vertex_index].frag_pos = vertex_position;
 		ms_v_out[vertex_index].normal = vec3(0, 1, 0);
@@ -113,27 +102,18 @@ void main(){
 		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
 	}
 
+	// assign all accepted triangles
 	[[unroll]]
 	for (uint i = 0; i < uint(TETRAHEDRON_PRIMITIVE_ITERATIONS); ++i)
 	{
 		uint triangle_index = laneID + i * WORKGROUP_SIZE;
 		if(triangle_index < TETRAHEDRON_TRIANGLE_SIZE){
-			float min_distance_squared;
+
 			if(delaunay_tetrahedrons[tet_id].render_neighbor[triangle_index] == 1){
-				/*for(uint j = 0; j < 4; j++)
-				{
-					if(triangle_index != j)
-					{
-						ms_v_out[j].color = vec4(0.0, 1.0, 0.0, 1.0);
-					}
-				}*/
+				
+				// count triangles downwards
 				int index = atomicAdd(delaunay_tetrahedrons[tet_id].triangles_accepted, -1);
-				delaunay_tetrahedrons[tet_id].render_neighbor[triangle_index] = index;
-				gl_PrimitiveTriangleIndicesEXT[index] = triangles[triangle_index];
-			}
-			else{ // for debugging
-				//gl_PrimitiveTriangleIndicesEXT[triangle_index] = uvec3(0, 0, 0);
-				delaunay_tetrahedrons[tet_id].render_neighbor[triangle_index] = -2;
+				gl_PrimitiveTriangleIndicesEXT[index - 1] = triangles[triangle_index];
 			}
 		}
 	}

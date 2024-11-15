@@ -20,7 +20,7 @@ typedef CGAL::Alpha_shape_cell_base_3<K> Fb;
 typedef CGAL::Triangulation_data_structure_3<Vb, Fb> Tds;
 typedef CGAL::Delaunay_triangulation_3<K, Tds, CGAL::Fast_location> Delaunay_CGAL;
 typedef CGAL::Alpha_shape_3<Delaunay_CGAL> Alpha_shape_3;
-typedef K::Point_3 Point;
+typedef K::Point_3 Point_CGAL;
 typedef Alpha_shape_3::Alpha_iterator Alpha_iterator;
 typedef Alpha_shape_3::NT NT;
 #endif
@@ -94,7 +94,7 @@ void AlphaShapeMeshGenerator::ComputeAlphaShape(std::vector<glm::vec3> points, s
   Delaunay_CGAL dt;
 
   for (glm::vec3& point : points) {
-    Point p_cgal(point[0], point[1], point[2]);
+    Point_CGAL p_cgal(point[0], point[1], point[2]);
     dt.insert(p_cgal);
   }
 
@@ -127,7 +127,7 @@ void AlphaShapeMeshGenerator::ComputeAlphaShape(std::vector<glm::vec3> points, s
       std::swap(triangle[0], triangle[1]);
 
     for (size_t j = 0; j < 3; j++) {
-      const Point& p = facets[i].first->vertex(triangle[j])->point();
+      const Point_CGAL& p = facets[i].first->vertex(triangle[j])->point();
       Vertex v;
       v.position = glm::vec3(p.x(), p.y(), p.z());
       vertices.emplace_back(v);

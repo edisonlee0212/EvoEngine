@@ -33,14 +33,6 @@ taskPayloadSharedEXT Task ts_out;
 	memoryBarrierShared(); \
 	barrier();
 
-layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
-  uint camera_index;
-  uint tetrahedrons_size;
-  uint padding0;
-  uint padding1;
-  float alpha;
-};
-
 #include "AlphaShape.glsl"
 
 void main(){
