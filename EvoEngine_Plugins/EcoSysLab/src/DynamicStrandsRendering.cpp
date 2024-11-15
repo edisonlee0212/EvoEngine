@@ -25,7 +25,6 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
   static std::shared_ptr<GraphicsPipeline> render_pipeline{};
-  static std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets{};
   struct RenderPushConstant {
     uint32_t camera_index = 0;
     uint32_t tetrahedrons_size = 0;
@@ -38,12 +37,6 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
     static std::shared_ptr<Shader> task_shader{};
     static std::shared_ptr<Shader> mesh_shader{};
     static std::shared_ptr<Shader> frag_shader{};
-    const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
-    strands_descriptor_sets.resize(max_frame_in_flight);
-    for (auto& i : strands_descriptor_sets) {
-      i = std::make_shared<DescriptorSet>(strands_layout);
-    }
-
     // Load shader
     task_shader = std::make_shared<Shader>();
     task_shader->Set(
