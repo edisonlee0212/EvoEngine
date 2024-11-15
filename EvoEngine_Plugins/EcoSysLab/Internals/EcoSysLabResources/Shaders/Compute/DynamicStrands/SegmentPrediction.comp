@@ -89,12 +89,11 @@ void main(){
 
 		//Update w
 		update_inertia_w(segment);
-
-		segment.stretch_shear_strain_original_inv_mass.xyz = 
-			stretch_shear_strain(
+		vec3 stretch_shear_strain = stretch_shear_strain(
 			particles[floatBitsToInt(segment.inertia_tensor_particle_0_handle.w)].x_node_handle.xyz, 
 			particles[floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w)].x_node_handle.xyz, 
 			segment.q, segment.torque_rest_length.w);
+		segment.stretch_shear_strain_original_inv_mass.xyz = stretch_shear_strain;
 		segments[segment_index] = segment;
 	}
 }

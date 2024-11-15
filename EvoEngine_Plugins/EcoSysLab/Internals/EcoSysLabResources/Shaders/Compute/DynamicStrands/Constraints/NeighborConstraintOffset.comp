@@ -27,7 +27,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 };
 
 struct ParticleNeighbor{
-	vec4 new_position;
+	vec4 new_position_stiffness;
 	int neighbors[8];
 	vec4 offset[8];
 };
@@ -64,18 +64,18 @@ void main(){
 			float local_connectivity_strain = abs(length(diff));
 			if(local_connectivity_strain < particle_neighbor.offset[n_i].w){
 				distance_diff_sum += local_connectivity_strain;
-				movement -= diff * 0.5;
+				movement -= diff * particle_neighbor.new_position_stiffness.w;
 				sum += 1;
 			}else{
-				particle_neighbor.neighbors[n_i] = -1;
+				particle_neighbors[particle_index].neighbors[n_i] = -1;
 			}
 		}
 		if(sum != 0){ 
-			particle_neighbors[particle_index].new_position.xyz = particle.x_node_handle.xyz + movement / sum;
+			particle_neighbors[particle_index].new_position_stiffness.xyz = particle.x_node_handle.xyz + movement / sum;
 			particles[particle_index].acceleration_connectivity_strain.w = distance_diff_sum / sum;
 		}
 		else{ 
-			particle_neighbors[particle_index].new_position.xyz = particle.x_node_handle.xyz;
+			particle_neighbors[particle_index].new_position_stiffness.xyz = particle.x_node_handle.xyz;
 			particles[particle_index].acceleration_connectivity_strain.w = 0.0;
 		}
 	}

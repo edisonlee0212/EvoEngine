@@ -656,9 +656,9 @@ void DsParticleNeighbor::InitializeData(const DynamicStrands::InitializeParamete
         target_dynamic_strands.connections[particle.connection_handle].segment0_particle_handle == particle_index;
     voxel_grid.Ref(particle.x0).emplace_back(s_d);
   }
+
   Jobs::RunParallelFor(particle_neighbors.size(), [&](const auto i) {
     auto& neighbor = particle_neighbors[i];
-    neighbor.valid = 1.0;
     const auto& particle = target_dynamic_strands.particles[i];
     const auto& segment = target_dynamic_strands.segments[particle.segment_handle];
     const auto front = glm::normalize(segment.q0 * glm::vec3(0, 0, -1));
@@ -714,6 +714,7 @@ void DsParticleNeighbor::InitializeData(const DynamicStrands::InitializeParamete
       neighbor.neighbors[neighbor_index] = -1;
       neighbor_index++;
     }
+    neighbor.stiffness = glm::clamp(initialize_parameters.neighbor_stiffness.GetValue(), 0.0f, 1.0f);
   });
 
   UploadData();
