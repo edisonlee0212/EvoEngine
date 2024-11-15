@@ -199,6 +199,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     uint32_t render_mode = 2;
     float multiplier = 10.0f;
   };
+
   if (!connection_render_pipeline) {
     static std::shared_ptr<Shader> task_shader{};
     static std::shared_ptr<Shader> mesh_shader{};

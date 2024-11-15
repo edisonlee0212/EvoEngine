@@ -29,6 +29,8 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   struct RenderPushConstant {
     uint32_t camera_index = 0;
     uint32_t tetrahedrons_size = 0;
+    uint32_t padding0;
+    uint32_t padding1;
     float alpha = 0.0f;
   };
 
@@ -110,6 +112,8 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
     render_pipeline->states.view_port = viewport;
     render_pipeline->states.scissor = scissor;
     render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+    render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
+
     render_pipeline->states.ApplyAllStates(vk_command_buffer);
     target_camera->GetRenderTexture()->Render(
         vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
