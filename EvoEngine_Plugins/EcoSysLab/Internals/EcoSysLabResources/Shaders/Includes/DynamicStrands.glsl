@@ -35,6 +35,8 @@ struct Segment {
   mat4 inv_inertia_w;
 
   vec4 stretch_shear_strain_original_inv_mass;
+
+  vec4 max_stretch_shear_strain;
 };
 
 struct Particle {

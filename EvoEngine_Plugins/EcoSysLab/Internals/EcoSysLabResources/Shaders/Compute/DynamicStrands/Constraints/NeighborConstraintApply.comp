@@ -27,7 +27,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 };
 
 struct ParticleNeighbor{
-	vec4 new_position;
+	vec4 new_position_stiffness;
 	int neighbors[8];
 	vec4 offset[8];
 };
@@ -46,6 +46,6 @@ void main(){
 
 		if(particle_index >= particle_size) break;
 
-		particles[particle_index].x_node_handle.xyz = particle_neighbors[particle_index].new_position.xyz;
+		particles[particle_index].x_node_handle.xyz = particle_neighbors[particle_index].new_position_stiffness.xyz;
 	}
 }

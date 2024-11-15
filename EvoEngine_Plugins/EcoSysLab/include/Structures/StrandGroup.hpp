@@ -343,7 +343,11 @@ class StrandGroup {
 
   template <typename OSgd, typename OSd, typename OSsd>
   void UniformlySubdivide(StrandGroup<OSgd, OSd, OSsd>& target_strand_group, float target_segment_length,
-                          float tolerance = 0.0001f) const;
+                          float tolerance) const;
+
+  template <typename OSgd, typename OSd, typename OSsd>
+  void Subdivide(StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const std::function<float()>& target_segment_length,
+                          float tolerance) const;
 
   void RandomAssignColor();
   void Clear();
@@ -1010,6 +1014,75 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::UniformlySubdi
           break;
         }
       }
+    }
+    if (remaining_length != 0.f && !strand.strand_segment_handles_.empty()) {
+      const auto segment_handle = strand.strand_segment_handles_.back();
+      const auto& segment = strand_segments_[segment_handle];
+      const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
+      auto& new_strand_segment = target_strand_group.strand_segments_[new_strand_segment_handle];
+      new_strand_segment.end_position = segment.end_position;
+      new_strand_segment.end_thickness = segment.end_thickness;
+      new_strand_segment.end_color = segment.end_color;
+      target_strand_group.strand_segments_data_list[new_strand_segment_handle] =
+          strand_segments_data_list[segment_handle];
+    }
+  }
+  target_strand_group.CalculateRotations();
+}
+
+template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
+template <typename OSgd, typename OSd, typename OSsd>
+void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
+    StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const std::function<float()>& target_segment_length,
+    float tolerance) const {
+  target_strand_group.Clear();
+  for (int strand_handle = 0; strand_handle < strands_.size(); strand_handle++) {
+    const auto& strand = strands_[strand_handle];
+    const auto new_strand_handle = target_strand_group.AllocateStrand();
+    auto& new_strand = target_strand_group.strands_[new_strand_handle];
+    new_strand.start_color = strand.start_color;
+    new_strand.start_thickness = strand.start_thickness;
+    new_strand.start_position = strand.start_position;
+    target_strand_group.strands_data_list[new_strand_handle] = strands_data_list[strand_handle];
+    float t = 0.f;
+    float remaining_length = target_segment_length();
+    for (const auto& segment_handle : strand.strand_segment_handles_) {
+      glm::vec3 p0, p1, p2, p3;
+      float t0, t1, t2, t3;
+      glm::vec4 c0, c1, c2, c3;
+      GetPositionControlPoints(segment_handle, p0, p1, p2, p3);
+      GetThicknessControlPoints(segment_handle, t0, t1, t2, t3);
+      GetColorControlPoints(segment_handle, c0, c1, c2, c3);
+      while (true) {
+        if (const float t_next = Strands::FindTAdaptive(p0, p1, p2, p3, t, remaining_length, tolerance);
+            t_next != 1.f) {
+          // Add a new segment.
+          t = t_next;
+          remaining_length = target_segment_length();
+          const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
+          auto& new_strand_segment = target_strand_group.strand_segments_[new_strand_segment_handle];
+          new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t);
+          new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t);
+          new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t);
+          target_strand_group.strand_segments_data_list[new_strand_segment_handle] =
+              strand_segments_data_list[segment_handle];
+        } else {
+          remaining_length -= Strands::CalculateLengthAdaptive(p0, p1, p2, p3, t, 1.f, tolerance);
+          t = 0.f;
+          break;
+        }
+      }
+    }
+    if (remaining_length != 0.f && !strand.strand_segment_handles_.empty()) {
+      const auto segment_handle = strand.strand_segment_handles_.back();
+      const auto& segment = strand_segments_[segment_handle];
+      const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
+      auto& new_strand_segment = target_strand_group.strand_segments_[new_strand_segment_handle];
+      new_strand_segment.end_position = segment.end_position;
+      new_strand_segment.end_thickness = segment.end_thickness;
+      new_strand_segment.end_color = segment.end_color;
+      target_strand_group.strand_segments_data_list[new_strand_segment_handle] =
+          strand_segments_data_list[segment_handle];
     }
   }
   target_strand_group.CalculateRotations();

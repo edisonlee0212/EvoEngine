@@ -135,7 +135,7 @@ class DsParticleNeighbor : public IDynamicStrandsConstraint {
  public:
   struct ParticleNeighbor {
     glm::vec3 new_position;
-    float valid = 1.0f;
+    float stiffness;
     int neighbors[8];
     glm::vec4 offset[8];
   };

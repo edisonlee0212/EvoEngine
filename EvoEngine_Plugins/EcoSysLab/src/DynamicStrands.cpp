@@ -20,7 +20,6 @@ typedef CGAL::Triangulation_data_structure_3<Vb> Tds;
 typedef CGAL::Delaunay_triangulation_3<K, Tds> Delaunay_CGAL;
 typedef K::Point_3 Point;
 #endif
-
 using namespace eco_sys_lab_plugin;
 
 #ifdef USE_CGAL
@@ -76,16 +75,17 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
   bool changed = false;
   if (ImGui::DragFloat("Wood Density", &wood_density, 0.01f, 0.01f, 3.0f))
     changed = true;
-  if (ImGui::DragFloat("Shear stiffness", &shear_stiffness, 0.01f, 0.01f, 1.0f))
+  if (shear_stiffness.OnInspect("Shear stiffness"))
     changed = true;
-  if (ImGui::DragFloat("Stretch stiffness", &stretch_stiffness, 0.01f, 0.01f, 1.0f))
+  if (stretch_stiffness.OnInspect("Stretch stiffness"))
     changed = true;
-
-  if (ImGui::DragFloat("Bending stiffness", &bending_stiffness, 0.01f, 0.01f, 1.0f))
+  if (bending_stiffness.OnInspect("Bending stiffness"))
     changed = true;
-  if (ImGui::DragFloat("Twisting stiffness", &twisting_stiffness, 0.01f, 0.01f, 1.0f))
+  if (twisting_stiffness.OnInspect("Twisting stiffness"))
     changed = true;
-
+  if (neighbor_stiffness.OnInspect("Neighbor stiffness"))
+    changed = true;
+  
   if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
     changed = true;
   if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.01f, 0.01f, 1.0f))
@@ -97,7 +97,10 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
   if (ImGui::DragFloat3("Max neighbor strain", &neighbor_strain, 0.001f, 0.001f, 1.0f))
     changed = true;
 
-  if (ImGui::DragFloat3("Max bend twist strain", &max_bend_twist_strain.x, 0.001f, 0.001f, 1.0f))
+  if (ImGui::DragFloat3("Max stretch/shear strain", &max_stretch_shear_strain.x, 0.001f, 0.001f, 1.0f))
+    changed = true;
+
+  if (ImGui::DragFloat3("Max bend/twist strain", &max_bend_twist_strain.x, 0.001f, 0.001f, 1.0f))
     changed = true;
   return changed;
 }
@@ -157,8 +160,10 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.bending_stiffness = youngs_modulus * second_moment_of_area / glm::pow(segment.rest_length, 3.f);
     segment.twisting_stiffness = shear_modulus * polar_moment_of_inertia / segment.rest_length;*/
 
-    segment.stretching_stiffness = initialize_parameters.stretch_stiffness;
-    segment.shearing_stiffness = initialize_parameters.shear_stiffness;
+    segment.stretching_stiffness = glm::clamp(initialize_parameters.stretch_stiffness.GetValue(), 0.0f, 1.0f);
+    segment.shearing_stiffness = glm::clamp(initialize_parameters.shear_stiffness.GetValue(), 0.0f, 1.0f);
+    segment.max_stretch_shear_strain = initialize_parameters.max_stretch_shear_strain;
+
   });
 
   particles.resize(segments.size() * 2);
@@ -221,8 +226,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       }
       particles[connection.segment0_particle_handle].connection_handle = connection_handle;
       particles[connection.segment1_particle_handle].connection_handle = connection_handle;
-      connection.bending_stiffness = initialize_parameters.bending_stiffness;
-      connection.twisting_stiffness = initialize_parameters.twisting_stiffness;
+      connection.bending_stiffness = glm::clamp(initialize_parameters.bending_stiffness.GetValue(), 0.0f, 1.0f);
+      connection.twisting_stiffness = glm::clamp(initialize_parameters.twisting_stiffness.GetValue(), 0.0f, 1.0f);
       const auto& q0 = segment0.q0;
       const auto& q1 = segment1.q0;
 
@@ -378,7 +383,7 @@ void DynamicStrands::ComputeDelaunay(const std::vector<GpuParticle>& particles,
   const auto is_valid = [&](const int target_indices[4], const std::vector<int>& particle_indices) {
     for (size_t i = 0; i < 4; i++) {
       if (static_cast<unsigned>(target_indices[i]) >= particle_indices.size()) {
-        EVOENGINE_ERROR("tetrahedron vertex index out of range, will be discarded: " << target_indices[i]);
+        //EVOENGINE_ERROR("tetrahedron vertex index out of range, will be discarded: " << target_indices[i]);
         return false;
       }
     }
