@@ -43,7 +43,6 @@ tetgenio TetGenProcessDelaunay3D(tetgenbehavior behavior, const std::vector<glm:
   tetgenio in, out;
   in.numberofpoints = points.size();
   in.pointlist = new double[in.numberofpoints * 3]; 
-
   Jobs::RunParallelFor(points.size(), [&](const auto i) {
     in.pointlist[i * 3] = points[i].x;
     in.pointlist[i * 3 + 1] = points[i].y;
@@ -104,6 +103,7 @@ std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedrons(const std:
 #else
   tetgenbehavior behavior{};  // Default behavior (Delaunay tetrahedralization)
   behavior.zeroindex = 1;
+  behavior.neighout = 1;
   const auto out = TetGenProcessDelaunay3D(behavior, points);
 
   tetrahedrons.resize(out.numberoftetrahedra);
@@ -113,6 +113,10 @@ std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedrons(const std:
     tetrahedron.v[1] = out.tetrahedronlist[i * 4 + 1];
     tetrahedron.v[2] = out.tetrahedronlist[i * 4 + 2];
     tetrahedron.v[3] = out.tetrahedronlist[i * 4 + 3];
+    tetrahedron.neighbor_tet_indices[0] = out.neighborlist[i * 4];
+    tetrahedron.neighbor_tet_indices[1] = out.neighborlist[i * 4 + 1];
+    tetrahedron.neighbor_tet_indices[2] = out.neighborlist[i * 4 + 2];
+    tetrahedron.neighbor_tet_indices[3] = out.neighborlist[i * 4 + 3];
     tetrahedron.volume = CalculateTetrahedronVolume(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
                                                     points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
     tetrahedron.circumradius = CalculateTetrahedronCircumradius(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
