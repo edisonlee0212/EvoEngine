@@ -82,6 +82,16 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
 }
 
 DynamicStrands::DynamicStrands() {
+  #ifdef USE_RENDERDOC
+    if (rdoc_api == nullptr) {
+      if (HMODULE mod = GetModuleHandleA("renderdoc.dll")) {
+        pRENDERDOC_GetAPI RENDERDOC_GetAPI = (pRENDERDOC_GetAPI)GetProcAddress(mod, "RENDERDOC_GetAPI");
+        int ret = RENDERDOC_GetAPI(eRENDERDOC_API_Version_1_1_2, (void**)&rdoc_api);
+        assert(ret == 1);
+      }
+    }
+  #endif
+
   if (!strands_layout) {
     strands_layout = std::make_shared<DescriptorSetLayout>();
     strands_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
@@ -745,7 +755,7 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
     glm::vec3 particle_pos = particle.x0;
     if (particle.connection_handle) {
       auto& segment = segments[particle.segment_handle];
-      auto& connection = connections[particle.connection_handle];
+      auto& connection = connections[particle.connection_handle]; 
       glm::vec3 front = segment.q * glm::vec3(0, 0, -1);
       if (connection.segment0_particle_handle == i) {
         particle_pos -= front * segment.rest_length * 0.25f;

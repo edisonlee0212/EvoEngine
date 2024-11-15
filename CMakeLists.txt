@@ -27,6 +27,8 @@ elseif (CMAKE_BUILD_TYPE MATCHES "[Dd]ebug")
 	set(DEBUG_STATUS _DEBUG)
 endif ()
 
+add_compile_definitions(USE_RENDERDOC) # RenderDoc Support
+
 # We need a CMAKE_DIR with some code to find external dependencies
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 

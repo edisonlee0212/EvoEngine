@@ -40,13 +40,13 @@ void SortFourElements(inout uint a[4]) {
   }
 }
 
-bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float min_distance_squared) {
+bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float max_dist_squared) {
   // check if neighbor is invalid
   if (neighbor_index != -1 && tet.neighbors[neighbor_index] == -1) {
     return false;
   }
   // prepare indices
-  uint indices[4];
+  /* uint indices[4];
   for (uint i = 0; i < 4; i++) {
     if (i != neighbor_index) {
       indices[i] = tet.indices[i];
@@ -90,7 +90,26 @@ bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float min_dist
   float distance_squared_2 = dot(center_to_vertex_2, center_to_vertex_2);
 
   float max_distance_squared = max(distance_squared, max(distance_squared_1, distance_squared_2));
-  min_distance_squared = min(distance_squared, min(distance_squared_1, distance_squared_2));
+  min_distance_squared = min(distance_squared, min(distance_squared_1, distance_squared_2));*/
 
-  return min_distance_squared <= alpha;
+  vec3 v[4];
+
+  for (uint i = 0; i < 4; i++) {
+    v[i] = particles[tet.indices[i]].x_node_handle.xyz;
+  }
+  max_dist_squared = 0.0;
+
+  // just compare all sidelengths
+  for (uint i = 1; i < 4; i++) {
+    for (uint j = i + 1; j < 4; j++)
+    {
+      vec3 vij = v[j] - v[i];
+      float tmp = dot(vij, vij);
+      if (tmp > max_dist_squared) {
+        max_dist_squared = tmp;
+      }
+    }
+  }
+
+  return max_dist_squared <= alpha;
 }

@@ -107,6 +107,10 @@ void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
     vkCmdDispatch(vk_command_buffer,
                   Platform::DivUp(connection_push_constant.connection_size, task_work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
+#ifdef USE_RENDERDOC
+    if (rdoc_api)
+      rdoc_api->EndFrameCapture(NULL, NULL);
+#endif
   });
 }
 

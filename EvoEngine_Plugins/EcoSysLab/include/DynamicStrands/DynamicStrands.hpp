@@ -6,6 +6,10 @@
 namespace eco_sys_lab_plugin {
 class DsVelocityUpdate;
 }
+#ifdef USE_RENDERDOC
+#include "C:\Program Files\RenderDoc\renderdoc_app.h"
+static RENDERDOC_API_1_1_2* rdoc_api = NULL;
+#endif
 
 using namespace evo_engine;
 
@@ -126,6 +130,7 @@ class DynamicStrands {
   };
 
   struct RenderParameters {
+    bool render_alpha_shape_mesh = false;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 

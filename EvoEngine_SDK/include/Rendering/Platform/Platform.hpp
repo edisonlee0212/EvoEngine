@@ -6,7 +6,11 @@
 #include "RayTracingPipeline.hpp"
 #define ENABLE_EXTERNAL_MEMORY true
 #define ENABLE_NV_RAY_TRACING_VALIDATION false
-#define USE_NSIGHT_AFTERMATH true
+#ifndef USE_RENDERDOC
+#  define USE_NSIGHT_AFTERMATH true
+#else
+#  define USE_NSIGHT_AFTERMATH false
+#endif  // !USE_RENDERDOC
 // Enables the Nsight Aftermath code instrumentation for GPU crash dump creation.
 
 #if USE_NSIGHT_AFTERMATH

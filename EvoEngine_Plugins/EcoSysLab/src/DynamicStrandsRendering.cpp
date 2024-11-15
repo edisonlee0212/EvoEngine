@@ -8,6 +8,7 @@
 using namespace eco_sys_lab_plugin;
 
 bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::Checkbox("Render alpha shape mesh", &render_alpha_shape_mesh);
   return false;
 }
 
@@ -83,6 +84,13 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
   push_constant.alpha = 1.0f / 1000.0f;
 
+  #ifdef USE_RENDERDOC
+  if (rdoc_api) {
+    rdoc_api->StartFrameCapture(NULL, NULL);
+    EVOENGINE_LOG("RDOC API detected!");
+  }
+  #endif  //  USERENDERDOC
+
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
     VkViewport viewport;
@@ -118,6 +126,11 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
           render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
           const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
           vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+          Platform::EverythingBarrier(vk_command_buffer);
+          #ifdef USE_RENDERDOC
+                    if (rdoc_api)
+                      rdoc_api->EndFrameCapture(NULL, NULL);
+          #endif
         });
   });
 }
