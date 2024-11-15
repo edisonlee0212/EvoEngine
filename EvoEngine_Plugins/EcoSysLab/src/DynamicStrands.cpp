@@ -85,7 +85,7 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     changed = true;
   if (neighbor_stiffness.OnInspect("Neighbor stiffness"))
     changed = true;
-  
+
   if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
     changed = true;
   if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.01f, 0.01f, 1.0f))
@@ -163,7 +163,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.stretching_stiffness = glm::clamp(initialize_parameters.stretch_stiffness.GetValue(), 0.0f, 1.0f);
     segment.shearing_stiffness = glm::clamp(initialize_parameters.shear_stiffness.GetValue(), 0.0f, 1.0f);
     segment.max_stretch_shear_strain = initialize_parameters.max_stretch_shear_strain;
-
   });
 
   particles.resize(segments.size() * 2);
@@ -236,7 +235,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       connection.max_bend_twist_strain = initialize_parameters.max_bend_twist_strain;
     }
   }
-  ComputeDelaunay(particles, connections, delaunay_tetrahedrons);
+  ComputeDelaunay(delaunay_tetrahedrons);
 
   Upload();
   for (const auto& i : constraints)
@@ -325,9 +324,7 @@ glm::vec3 DynamicStrands::ComputeInertiaTensorRod(const float mass, const float 
   };
 }
 
-void DynamicStrands::ComputeDelaunay(const std::vector<GpuParticle>& particles,
-                                     const std::vector<GpuConnection>& connections,
-                                     std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
+void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
   const auto point_plane_distance = [&](const glm::vec3& target_point, const glm::vec3& target_a,
                                         const glm::vec3& target_b, const glm::vec3& target_c) {
     // Compute the normal of the triangle
@@ -383,7 +380,7 @@ void DynamicStrands::ComputeDelaunay(const std::vector<GpuParticle>& particles,
   const auto is_valid = [&](const int target_indices[4], const std::vector<int>& particle_indices) {
     for (size_t i = 0; i < 4; i++) {
       if (static_cast<unsigned>(target_indices[i]) >= particle_indices.size()) {
-        //EVOENGINE_ERROR("tetrahedron vertex index out of range, will be discarded: " << target_indices[i]);
+        // EVOENGINE_ERROR("tetrahedron vertex index out of range, will be discarded: " << target_indices[i]);
         return false;
       }
     }
@@ -423,10 +420,22 @@ void DynamicStrands::ComputeDelaunay(const std::vector<GpuParticle>& particles,
   std::vector<int> particle_indices;
   for (int i = 0; i < particles.size(); i++) {
     // For duplicate particles we only use one of them.
-    if (particles[i].connection_handle >= 0 &&
-        connections[particles[i].connection_handle].segment0_particle_handle == i)
-      continue;
-    Point p_cgal(particles[i].x0[0], particles[i].x0[1], particles[i].x0[2]);
+    // if (particles[i].connection_handle >= 0 &&
+    //    connections[particles[i].connection_handle].segment0_particle_handle == i)
+    //  continue;
+    auto& particle = particles[i];
+    glm::vec3 particle_pos = particle.x0;
+    if (particle.connection_handle) {
+      auto& segment = segments[particle.segment_handle];
+      auto& connection = connections[particle.connection_handle];
+      glm::vec3 front = segment.q * glm::vec3(0, 0, -1);
+      if (connection.segment0_particle_handle == i) {
+        particle_pos -= front * segment.rest_length * 0.25f;
+      } else {
+        particle_pos += front * segment.rest_length * 0.25f;
+      }
+    }
+    Point p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);
     points.emplace_back(p_cgal, points.size());
     particle_indices.emplace_back(i);
   }
