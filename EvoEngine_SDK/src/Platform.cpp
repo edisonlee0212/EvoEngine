@@ -250,12 +250,12 @@ void SelectStageFlagsAccessMask(const VkImageLayout image_layout, VkAccessFlags&
   }
 }
 
-void Platform::AddTemporaryBufferSyncAction(const std::function<void()>& action) {
+void Platform::AddTemporaryBufferSyncAction(std::function<void()>&& action) {
   auto& graphics = GetInstance();
   graphics.temporary_buffer_sync_actions.emplace_back(action);
 }
 
-void Platform::AddBufferSyncAction(const std::string& action_name, const std::function<void()>& action) {
+void Platform::AddBufferSyncAction(const std::string& action_name, std::function<void()>&& action) {
   auto& graphics = GetInstance();
   graphics.buffer_sync_actions[action_name] = action;
 }

@@ -4,6 +4,7 @@
 #include "TreeGrowthData.hpp"
 
 using namespace evo_engine;
+#define USE_XPBD
 
 namespace eco_sys_lab_plugin {
 class DynamicStrandsPreStep;
@@ -11,30 +12,35 @@ class IDsPhysicsOperator;
 class IDynamicStrandsConstraint;
 class DynamicStrandsPrediction;
 class DynamicStrands {
-  bool wait_for_upload = false;
+  bool wait_for_upload = true;
 
  public:
   DynamicStrands();
   [[nodiscard]] bool WaitForUpload() const;
 #pragma region Initialization
   struct InitializeParameters {
-    float wood_density = 500.f;  // kg/m^3
+    float wood_density = 400.f;  // kg/m^3
+
+#ifdef USE_XPBD
+    SingleDistribution<float> wood_young_modulus = {12.f, 0.1f};  // GPa
+    SingleDistribution<float> wood_torsion_modulus = {1.5f, 0.1f};  // GPa
+#else
     SingleDistribution<float> shear_stiffness = {0.97f, 0.0f};
     SingleDistribution<float> stretch_stiffness = {0.97f, 0.0f};
-
     SingleDistribution<float> bending_stiffness = {0.9f, 0.2f};
     SingleDistribution<float> twisting_stiffness = {0.9f, 0.2f};
+#endif
 
-    SingleDistribution<float> neighbor_stiffness = {0.9f, 0.1f};
+    SingleDistribution<float> neighbor_stiffness = {0.5f, 0.1f};
 
     float velocity_damping = 0.005f;
     float angular_velocity_damping = 0.005f;
 
     float neighbor_range = 0.05f;
 
-    float neighbor_strain = 0.02f;
+    float max_neighbor_strain = 0.1f;
     glm::vec3 max_stretch_shear_strain = glm::vec3(0.1f);
-    glm::vec3 max_bend_twist_strain = glm::vec3(0.02f);
+    glm::vec3 max_bend_twist_strain = glm::vec3(0.1f);
     GlobalTransform root_transform{};
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
