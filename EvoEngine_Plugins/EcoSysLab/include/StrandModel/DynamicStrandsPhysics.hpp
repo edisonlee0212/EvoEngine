@@ -71,6 +71,8 @@ class IDynamicStrandsConstraint {
   }
   virtual void UploadData() {
   }
+  virtual void UpdateBindings() {
+  }
   virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     return false;
   }
@@ -96,10 +98,12 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
 
   struct StretchShearConstraintConstant {
     uint32_t strand_size = 0;
+    float inv_time_step;
   };
 
   struct BendTwistConstraintConstant {
     uint32_t strand_size = 0;
+    float inv_time_step;
   };
 
   enum class ProjectMode { Forward, Backward, Bilateral };
@@ -107,6 +111,8 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
   uint32_t project_mode = static_cast<uint32_t>(ProjectMode::Backward);
 
   int sub_iteration = 1;
+  bool bend_twist = true;
+  bool stretch_shear = true;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   inline static std::shared_ptr<ComputePipeline> bilateral_stretch_shear_constraint_pipeline{};
@@ -128,36 +134,70 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
                const DynamicStrands& target_dynamic_strands) override;
   void DownloadData() override;
   void UploadData() override;
+  void UpdateBindings() override;
   static glm::vec3 ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1, float average_segment_length);
 };
 
-class DsParticleNeighbor : public IDynamicStrandsConstraint {
+#define BUNDLE_MAX_CONNECTION 8
+class DsBundle : public IDynamicStrandsConstraint {
  public:
-  struct ParticleNeighbor {
-    glm::vec3 new_position;
-    float stiffness;
-    int neighbors[8];
-    glm::vec4 offset[8];
+  struct BundleUpdateConstant {
+    uint32_t pair_size = 0;
   };
-  DsParticleNeighbor();
+
+  struct BundleConstant {
+    uint32_t segment_size = 0;
+    float inv_time_step = 0.0f;
+  };
+
+  struct Pair {
+    int handle0;
+    int handle1;
+    int valid;
+    int padding;
+    glm::vec4 stiffness;
+  };
+  struct SegmentData {
+    glm::vec3 particle0_position_correction;
+    float particle0_max_strain;
+    glm::vec3 particle1_position_correction;
+    float particle1_max_strain;
+
+    glm::quat q_correction;
+
+    int pair_handles[BUNDLE_MAX_CONNECTION];
+
+    glm::vec4 particle0_offset[BUNDLE_MAX_CONNECTION];
+    glm::vec4 particle1_offset[BUNDLE_MAX_CONNECTION];
+
+    glm::quat rest_darboux_vectors[BUNDLE_MAX_CONNECTION];
+  };
+
+  std::vector<Pair> pairs;
+  std::vector<SegmentData> segment_data_list;
 
   inline static std::shared_ptr<DescriptorSetLayout> layout{};
-  struct ParticleNeighborConstraintConstant {
-    uint32_t particle_size = 0;
-  };
-  std::vector<ParticleNeighbor> particle_neighbors;
-  std::shared_ptr<Buffer> particle_neighbors_buffer;
-  inline static std::shared_ptr<ComputePipeline> particle_neighbor_offset_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> particle_neighbor_apply_pipeline{};
-  std::vector<std::shared_ptr<DescriptorSet>> particle_neighbors_descriptor_sets{};
+  std::shared_ptr<Buffer> pairs_buffer;
+  std::shared_ptr<Buffer> segment_data_list_buffer;
+
+  std::vector<std::shared_ptr<DescriptorSet>> bundle_descriptor_sets{};
+
+  inline static std::shared_ptr<ComputePipeline> bundle_update_pipeline{};
+
+  inline static std::shared_ptr<ComputePipeline> bundle_offset_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> bundle_apply_pipeline{};
+
+  DsBundle();
+  int sub_iteration = 5;
+  void Project(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const DynamicStrands& target_dynamic_strands) override;
   void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
                       const StrandModelSkeleton& strand_model_skeleton,
                       const DynamicStrands& target_dynamic_strands) override;
-  int sub_iteration = 1;
-  void Project(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands) override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+
   void UploadData() override;
+  void UpdateBindings() override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 #pragma endregion
 }  // namespace eco_sys_lab_plugin

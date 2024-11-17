@@ -682,160 +682,163 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     ImGui::Checkbox("Show Strands", &show_strands);
     if (show_trees) {
       const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-      if (tree_entities && !tree_entities->empty()) {
-        if (scene->IsEntityValid(selected_tree)) {
-          const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
-          auto& tree_visualizer = tree->tree_visualizer;
-          if (tree_visualizer.m_checkpointIteration == tree->tree_model.CurrentIteration()) {
-            if (ImGui::TreeNodeEx("Tree Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
-              if (ImGui::Combo("Mode", {"Select", "Rotate", "Prune", "Invigorate", "Reduce"}, tree_operator_mode)) {
-                tree_visualizer.m_selectedInternodeHandle = -1;
-                tree_visualizer.m_selectedInternodeHierarchyList.clear();
-              }
-              switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
-                case TreeOperatorMode::Select:
-                  ImGui::Text("Press T to cut off entire node, press R to cut at point of selection.");
-                  break;
-                case TreeOperatorMode::Rotate:
-                  ImGui::Text("Press T to cut off entire node.");
-                  break;
-                case TreeOperatorMode::Prune:
-                  break;
-                case TreeOperatorMode::Invigorate:
-                  break;
-                case TreeOperatorMode::Reduce:
-                  break;
-              }
-              if (tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Reduce)) {
-                ImGui::DragFloat("Reduce speed", &tree_reduce_rate, 0.001f, 0.001f, 1.0f);
-              }
+      if (ImGui::TreeNodeEx("Tree settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (tree_entities && !tree_entities->empty()) {
+          if (scene->IsEntityValid(selected_tree)) {
+            const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
+            auto& tree_visualizer = tree->tree_visualizer;
+            if (tree_visualizer.m_checkpointIteration == tree->tree_model.CurrentIteration()) {
+              if (ImGui::TreeNodeEx("Tree Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
+                if (ImGui::Combo("Mode", {"Select", "Rotate", "Prune", "Invigorate", "Reduce"}, tree_operator_mode)) {
+                  tree_visualizer.m_selectedInternodeHandle = -1;
+                  tree_visualizer.m_selectedInternodeHierarchyList.clear();
+                }
+                switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
+                  case TreeOperatorMode::Select:
+                    ImGui::Text("Press T to cut off entire node, press R to cut at point of selection.");
+                    break;
+                  case TreeOperatorMode::Rotate:
+                    ImGui::Text("Press T to cut off entire node.");
+                    break;
+                  case TreeOperatorMode::Prune:
+                    break;
+                  case TreeOperatorMode::Invigorate:
+                    break;
+                  case TreeOperatorMode::Reduce:
+                    break;
+                }
+                if (tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Reduce)) {
+                  ImGui::DragFloat("Reduce speed", &tree_reduce_rate, 0.001f, 0.001f, 1.0f);
+                }
 
+                ImGui::TreePop();
+              }
+            } else {
+              ImGui::Text("Go to current skeleton to enable operator!");
+            }
+            ImGui::Separator();
+            if (ImGui::TreeNodeEx("Tree Visualizer")) {
+              tree_visualizer.OnInspect(tree->tree_model);
               ImGui::TreePop();
             }
           } else {
-            ImGui::Text("Go to current skeleton to enable operator!");
+            ImGui::Text("Select a tree entity to enable editing & visualization!");
           }
-          ImGui::Separator();
-          if (ImGui::TreeNodeEx("Tree Visualizer")) {
-            tree_visualizer.OnInspect(tree->tree_model);
+          if (ImGui::TreeNodeEx("Tree Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::TreeNode("Simulation Settings")) {
+              simulation_settings.OnInspect(editor_layer);
+              ImGui::TreePop();
+            }
+            if (ImGui::Button("Reset all trees")) {
+              ResetAllTrees(tree_entities);
+              ClearMeshes();
+              ClearGroundFruitAndLeaf();
+              target_time = 0.0f;
+            }
+            ImGui::Text(("Simulated time: " + std::to_string(simulated_time_) + " years").c_str());
+            ImGui::DragInt("target nodes", &simulation_settings.max_node_count, 500, 0, INT_MAX);
+            ImGui::DragFloat("target years", &extra_time, 0.1f, simulated_time_, 999);
+            if (auto_time_grow) {
+              if (ImGui::Button("Force stop")) {
+                auto_time_grow = false;
+                target_time = simulated_time_;
+              }
+            } else {
+              if (ImGui::Button(("Grow " + std::to_string(extra_time) + " years").c_str())) {
+                auto_time_grow = true;
+                target_time += extra_time;
+              }
+            }
+            if (ImGui::Button("Grow 1 iteration")) {
+              simulate = true;
+            }
+            ImGui::TreePop();
+          }
+          if (!simulation_settings.auto_clear_fruit_and_leaves && ImGui::Button("Clear ground leaves and fruits")) {
+            ClearGroundFruitAndLeaf();
+          }
+          if (ImGui::TreeNode("Tree Geometries")) {
+            if (ImGui::TreeNode("Skeletal graph")) {
+              skeletal_graph_settings.OnInspect();
+              ImGui::TreePop();
+            }
+            if (ImGui::Button("Generate Skeletal graphs")) {
+              GenerateSkeletalGraphs(skeletal_graph_settings);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Skeletal graphs")) {
+              ClearSkeletalGraphs();
+            }
+            ImGui::Separator();
+            if (ImGui::TreeNodeEx("Mesh generation")) {
+              mesh_generator_settings.OnInspect(editor_layer);
+              ImGui::TreePop();
+            }
+            if (ImGui::Button("Generate Meshes")) {
+              GenerateMeshes(mesh_generator_settings);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Meshes")) {
+              ClearMeshes();
+            }
+            ImGui::Separator();
+            if (ImGui::TreeNodeEx("Strand Model Mesh generation")) {
+              strand_mesh_generator_settings.OnInspect(editor_layer);
+              ImGui::TreePop();
+            }
+            if (ImGui::Button("Build Strand Renderer")) {
+              GenerateStrandRenderers();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Strand Renderer")) {
+              ClearStrandRenderers();
+            }
+            if (ImGui::Button("Generate Strand Model Meshes")) {
+              GenerateStrandModelMeshes(strand_mesh_generator_settings);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Strand Model Meshes")) {
+              ClearStrandModelMeshes();
+            }
+            ImGui::Separator();
+
+            if (ImGui::TreeNode("Auto geometry generation")) {
+              ImGui::Checkbox("Auto generate mesh", &auto_generate_mesh_after_editing_);
+              ImGui::Checkbox("Auto generate Skeletal Graph Per Frame", &auto_generate_skeletal_graph_every_frame_);
+              ImGui::Checkbox("Auto generate strands", &auto_generate_strands_after_editing_);
+              ImGui::Checkbox("Auto generate strands mesh", &auto_generate_strand_mesh_after_editing_);
+
+              ImGui::TreePop();
+            }
+            FileUtils::SaveFile(
+                "Export all trees as OBJ", "OBJ", {".obj"},
+                [&](const std::filesystem::path& path) {
+                  ExportAllTrees(path);
+                },
+                false);
+            ImGui::TreePop();
+          }
+
+          if (ImGui::TreeNodeEx("Stats")) {
+            ImGui::Text("Growth time: %.4f", last_used_time_);
+            ImGui::Text("Total time: %.4f", total_time_);
+            ImGui::Text("Tree count: %d", tree_entities->size());
+            ImGui::Text("Total internode size: %d", internode_size_);
+            ImGui::Text("Total shoot branch size: %d", shoot_stem_size_);
+            ImGui::Text("Total fruit size: %d", fruit_size_);
+            ImGui::Text("Total leaf size: %d", leaf_size_);
+            ImGui::Text("Total root node size: %d", root_node_size_);
+            ImGui::Text("Total root branch size: %d", root_stem_size_);
+            ImGui::Text("Total ground leaf size: %d", leaves_.size());
+            ImGui::Text("Total ground fruit size: %d", fruits_.size());
             ImGui::TreePop();
           }
         } else {
-          ImGui::Text("Select a tree entity to enable editing & visualization!");
+          ImGui::Text("No trees in the scene!");
+          ResetAllTrees(nullptr);
+          target_time = 0.0f;
         }
-        if (ImGui::TreeNodeEx("Tree Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
-          if (ImGui::TreeNode("Simulation Settings")) {
-            simulation_settings.OnInspect(editor_layer);
-            ImGui::TreePop();
-          }
-          if (ImGui::Button("Reset all trees")) {
-            ResetAllTrees(tree_entities);
-            ClearMeshes();
-            ClearGroundFruitAndLeaf();
-            target_time = 0.0f;
-          }
-          ImGui::Text(("Simulated time: " + std::to_string(simulated_time_) + " years").c_str());
-          ImGui::DragInt("target nodes", &simulation_settings.max_node_count, 500, 0, INT_MAX);
-          ImGui::DragFloat("target years", &extra_time, 0.1f, simulated_time_, 999);
-          if (auto_time_grow) {
-            if (ImGui::Button("Force stop")) {
-              auto_time_grow = false;
-              target_time = simulated_time_;
-            }
-          } else {
-            if (ImGui::Button(("Grow " + std::to_string(extra_time) + " years").c_str())) {
-              auto_time_grow = true;
-              target_time += extra_time;
-            }
-          }
-          if (ImGui::Button("Grow 1 iteration")) {
-            simulate = true;
-          }
-          ImGui::TreePop();
-        }
-        if (!simulation_settings.auto_clear_fruit_and_leaves && ImGui::Button("Clear ground leaves and fruits")) {
-          ClearGroundFruitAndLeaf();
-        }
-        if (ImGui::TreeNode("Tree Geometries")) {
-          if (ImGui::TreeNode("Skeletal graph")) {
-            skeletal_graph_settings.OnInspect();
-            ImGui::TreePop();
-          }
-          if (ImGui::Button("Generate Skeletal graphs")) {
-            GenerateSkeletalGraphs(skeletal_graph_settings);
-          }
-          ImGui::SameLine();
-          if (ImGui::Button("Clear Skeletal graphs")) {
-            ClearSkeletalGraphs();
-          }
-          ImGui::Separator();
-          if (ImGui::TreeNodeEx("Mesh generation")) {
-            mesh_generator_settings.OnInspect(editor_layer);
-            ImGui::TreePop();
-          }
-          if (ImGui::Button("Generate Meshes")) {
-            GenerateMeshes(mesh_generator_settings);
-          }
-          ImGui::SameLine();
-          if (ImGui::Button("Clear Meshes")) {
-            ClearMeshes();
-          }
-          ImGui::Separator();
-          if (ImGui::TreeNodeEx("Strand Model Mesh generation")) {
-            strand_mesh_generator_settings.OnInspect(editor_layer);
-            ImGui::TreePop();
-          }
-          if (ImGui::Button("Build Strand Renderer")) {
-            GenerateStrandRenderers();
-          }
-          ImGui::SameLine();
-          if (ImGui::Button("Clear Strand Renderer")) {
-            ClearStrandRenderers();
-          }
-          if (ImGui::Button("Generate Strand Model Meshes")) {
-            GenerateStrandModelMeshes(strand_mesh_generator_settings);
-          }
-          ImGui::SameLine();
-          if (ImGui::Button("Clear Strand Model Meshes")) {
-            ClearStrandModelMeshes();
-          }
-          ImGui::Separator();
-
-          if (ImGui::TreeNode("Auto geometry generation")) {
-            ImGui::Checkbox("Auto generate mesh", &auto_generate_mesh_after_editing_);
-            ImGui::Checkbox("Auto generate Skeletal Graph Per Frame", &auto_generate_skeletal_graph_every_frame_);
-            ImGui::Checkbox("Auto generate strands", &auto_generate_strands_after_editing_);
-            ImGui::Checkbox("Auto generate strands mesh", &auto_generate_strand_mesh_after_editing_);
-
-            ImGui::TreePop();
-          }
-          FileUtils::SaveFile(
-              "Export all trees as OBJ", "OBJ", {".obj"},
-              [&](const std::filesystem::path& path) {
-                ExportAllTrees(path);
-              },
-              false);
-          ImGui::TreePop();
-        }
-
-        if (ImGui::TreeNodeEx("Stats")) {
-          ImGui::Text("Growth time: %.4f", last_used_time_);
-          ImGui::Text("Total time: %.4f", total_time_);
-          ImGui::Text("Tree count: %d", tree_entities->size());
-          ImGui::Text("Total internode size: %d", internode_size_);
-          ImGui::Text("Total shoot branch size: %d", shoot_stem_size_);
-          ImGui::Text("Total fruit size: %d", fruit_size_);
-          ImGui::Text("Total leaf size: %d", leaf_size_);
-          ImGui::Text("Total root node size: %d", root_node_size_);
-          ImGui::Text("Total root branch size: %d", root_stem_size_);
-          ImGui::Text("Total ground leaf size: %d", leaves_.size());
-          ImGui::Text("Total ground fruit size: %d", fruits_.size());
-          ImGui::TreePop();
-        }
-      } else {
-        ImGui::Text("No trees in the scene!");
-        ResetAllTrees(nullptr);
-        target_time = 0.0f;
+        ImGui::TreePop();
       }
       if (ImGui::TreeNodeEx("Tree Visualization settings")) {
         if (ImGui::Button("Update")) {
@@ -851,7 +854,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       }
     }
     if (show_strands) {
-      if (ImGui::TreeNodeEx("Strand Visualization settings")) {
+      if (ImGui::TreeNodeEx("Strand Visualization settings", ImGuiTreeNodeFlags_DefaultOpen)) {
         strand_visualizer_settings_.OnInspect(editor_layer);
         ImGui::TreePop();
       }
@@ -1843,30 +1846,13 @@ void EcoSysLabLayer::TreeVisualizerSettings::OnInspect(const std::shared_ptr<Edi
 }
 
 void EcoSysLabLayer::StrandVisualizerSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::DragFloat("Drag force multiplier", &drag_force_multiplier, 0.001f, 0.0f, 1.0f);
+  ImGui::DragFloat("Drag acceleration multiplier", &drag_multiplier, 0.001f, 0.0f, 1.0f);
 }
 
 void EcoSysLabLayer::PreUpdate() {
   if (const auto editor_layer = Application::GetLayer<EditorLayer>(); !editor_layer)
     return;
   visualization_camera_->Resize({visualization_camera_resolution_x, visualization_camera_resolution_y});
-
-  const auto scene = GetScene();
-  const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
-
-  const auto for_each_dts_entity =
-      [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {
-        if (dts_entities && !dts_entities->empty()) {
-          for (const auto& i : *dts_entities) {
-            const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(i).lock();
-            action(dts);
-          }
-        }
-      };
-  for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-    if (dts->enable_physics)
-      dts->PhysicsStep();
-  });
 }
 
 void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -1935,11 +1921,11 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
             draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y), 5.0f,
                                  IM_COL32(255, 255, 255, 255));
 
-            const glm::vec3 force = strand_visualizer_settings_.drag_force_multiplier * 0.001f *
+            const glm::vec3 acceleration = strand_visualizer_settings_.drag_multiplier *
                                     (camera_right * screen_vector.x - camera_up * screen_vector.y);
             for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
               dts->drag_operator->enabled = true;
-              dts->drag_operator->Update(force);
+              dts->drag_operator->Update(acceleration);
             });
           }
         } else {
@@ -1986,9 +1972,6 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
   }
   ImGui::End();
   ImGui::PopStyleVar();
-  for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-    dts->Visualization(visualization_camera_);
-  });
 }
 
 void EcoSysLabLayer::LateUpdate() {
@@ -2005,9 +1988,29 @@ void EcoSysLabLayer::LateUpdate() {
             }
           }
         };
+
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-      render_layer->ForEachCollectedCamera([&](const auto& camera) {
-        dts->Render(camera);
+      if (!dts->dynamic_strands->WaitForUpload())
+        dts->dynamic_strands->UpdateBindings();
+    });
+
+    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+      if (dts->enable_physics)
+        dts->PhysicsStep();
+    });
+
+    if (show_strands) {
+      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+        dts->Visualization(visualization_camera_);
+      });
+    }
+
+    const auto editor_layer = Application::GetLayer<EditorLayer>();
+    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+      render_layer->ForEachCollectedCamera([&](const std::shared_ptr<Camera>& camera) {
+        if (camera == editor_layer->GetSceneCamera() || scene->IsEntityValid(camera->GetOwner())) {
+          dts->Render(camera);
+        }
       });
     });
   }

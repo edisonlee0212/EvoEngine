@@ -20,6 +20,7 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint strand_size;
+	float inv_time_step;
 };
 
 #define DYNAMIC_STRANDS_SET 0
@@ -42,12 +43,12 @@ void main(){
 		int back_propagate_handle = strand_data.back_propagate_begin_segment_handle;
 		while(front_propagate_handle != -1 || back_propagate_handle != -1){
 			if(front_propagate_handle != -1) {
-				project_stretch_shear_constraint(front_propagate_handle);
+				project_stretch_shear_constraint(inv_time_step, front_propagate_handle);
 				front_propagate_handle = segments[front_propagate_handle].next_handle;
 				if(front_propagate_handle != -1) front_propagate_handle = segments[front_propagate_handle].next_handle;
 			}
 			if(back_propagate_handle != -1) {
-				project_stretch_shear_constraint(back_propagate_handle);
+				project_stretch_shear_constraint(inv_time_step, back_propagate_handle);
 				back_propagate_handle = segments[back_propagate_handle].prev_handle;
 				if(back_propagate_handle != -1) back_propagate_handle = segments[back_propagate_handle].prev_handle;
 			}

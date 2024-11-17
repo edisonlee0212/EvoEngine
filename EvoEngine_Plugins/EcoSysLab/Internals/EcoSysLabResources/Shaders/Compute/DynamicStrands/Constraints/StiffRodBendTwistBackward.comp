@@ -20,6 +20,7 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint strand_size;
+	float inv_time_step;
 };
 
 #define DYNAMIC_STRANDS_SET 0
@@ -42,7 +43,7 @@ void main(){
 		int back_propagate_handle = strand.end_connection_handle;
 		while(back_propagate_handle != -1){
 			if(back_propagate_handle != -1) {
-				project_bend_twist_constraint(back_propagate_handle);
+				project_bend_twist_constraint(inv_time_step, back_propagate_handle);
 				back_propagate_handle = connections[back_propagate_handle].prev_handle;
 			}
 		}

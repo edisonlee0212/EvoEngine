@@ -27,7 +27,6 @@ inline glm::vec3 cgal_to_glm(const CGAL::Point_3<CGAL::Epick>& p) {
   return {p.x(), p.y(), p.z()};
 }
 #endif
-
 DynamicStrands::DynamicStrands() {
   if (!strands_layout) {
     strands_layout = std::make_shared<DescriptorSetLayout>();
@@ -40,7 +39,7 @@ DynamicStrands::DynamicStrands() {
 
     strands_layout->Initialize();
   }
-
+  wait_for_upload = true;
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_create_info.usage =
@@ -75,6 +74,12 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
   bool changed = false;
   if (ImGui::DragFloat("Wood Density", &wood_density, 0.01f, 0.01f, 3.0f))
     changed = true;
+#ifdef USE_XPBD
+  if (wood_young_modulus.OnInspect("Wood Young's modulus"))
+    changed = true;
+  if (wood_torsion_modulus.OnInspect("Wood Torsion modulus"))
+    changed = true;
+#else
   if (shear_stiffness.OnInspect("Shear stiffness"))
     changed = true;
   if (stretch_stiffness.OnInspect("Stretch stiffness"))
@@ -83,7 +88,10 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     changed = true;
   if (twisting_stiffness.OnInspect("Twisting stiffness"))
     changed = true;
-  if (neighbor_stiffness.OnInspect("Neighbor stiffness"))
+#endif
+  if (neighbor_rotation_stiffness.OnInspect("Neighbor rotation stiffness"))
+    changed = true;
+  if (neighbor_position_stiffness.OnInspect("Neighbor position stiffness"))
     changed = true;
 
   if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
@@ -91,15 +99,14 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
   if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.01f, 0.01f, 1.0f))
     changed = true;
 
-  if (ImGui::DragFloat("Neighbor range", &neighbor_range, 0.01f, 0.01f, 1.0f))
+  if (ImGui::DragFloat("Neighbor range", &neighbor_range, 0.01f, 0.01f, 10.0f))
     changed = true;
 
-  if (ImGui::DragFloat3("Max neighbor strain", &neighbor_strain, 0.001f, 0.001f, 1.0f))
+  if (ImGui::DragFloat("Max neighbor strain", &max_neighbor_strain, 0.001f, 0.001f, 1.0f))
     changed = true;
 
   if (ImGui::DragFloat3("Max stretch/shear strain", &max_stretch_shear_strain.x, 0.001f, 0.001f, 1.0f))
     changed = true;
-
   if (ImGui::DragFloat3("Max bend/twist strain", &max_bend_twist_strain.x, 0.001f, 0.001f, 1.0f))
     changed = true;
   return changed;
@@ -126,7 +133,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       strand.end_segment_handle = -1;
     }
   });
-
   segments.resize(target_strand_segments.size());
   Jobs::RunParallelFor(target_strand_segments.size(), [&](const size_t i) {
     auto& segment = segments[i];
@@ -142,26 +148,22 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.q0 = segment.q = segment.last_q = segment.old_q =
         initialize_parameters.root_transform.GetRotation() * target_strand_segment.rotation;
     segment.torque = glm::vec3(0.f);
-
-    const float mass =
-        segment.radius * segment.radius * glm::pi<float>() * initialize_parameters.wood_density * segment.rest_length;
+    // 0.6046 = area radio of the circle within its bounding equilateral triangle.
+    const float mass = segment.radius * segment.radius * glm::pi<float>() * initialize_parameters.wood_density *
+                       segment.rest_length * 0.6046;
     segment.inertia_tensor = ComputeInertiaTensorRod(mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     segment.original_inv_mass = 1.f / mass;
-
-    /*
-    const float youngs_modulus = initialize_parameters.youngs_modulus * 1000000000.f;
-    const float shear_modulus = initialize_parameters.torsion_modulus * 1000000000.f;
-    const auto second_moment_of_area = glm::pi<float>() * std::pow(segment.radius * .5f, 4.f);
-    const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(segment.radius, 4.f) / 2.f;
-
-    segment.stretching_stiffness = segment.shearing_stiffness =
-        youngs_modulus * glm::pi<float>() * segment.radius * segment.radius / segment.rest_length;
-    segment.bending_stiffness = youngs_modulus * second_moment_of_area / glm::pow(segment.rest_length, 3.f);
-    segment.twisting_stiffness = shear_modulus * polar_moment_of_inertia / segment.rest_length;*/
-
+#ifdef USE_XPBD
+    const float area = glm::pi<float>() * segment.radius * segment.radius;
+    const float youngs_modulus = initialize_parameters.wood_young_modulus.GetValue() * 1e9f;
+    const float torsion_modulus = initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f;
+    segment.stretching_stiffness = youngs_modulus * area / segment.rest_length;
+    segment.shearing_stiffness = torsion_modulus * area / segment.rest_length;
+#else
     segment.stretching_stiffness = glm::clamp(initialize_parameters.stretch_stiffness.GetValue(), 0.0f, 1.0f);
     segment.shearing_stiffness = glm::clamp(initialize_parameters.shear_stiffness.GetValue(), 0.0f, 1.0f);
+#endif
     segment.max_stretch_shear_strain = initialize_parameters.max_stretch_shear_strain;
   });
 
@@ -212,7 +214,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       const auto& segment1 = segments[connection.segment1_handle];
       connection.segment0_particle_handle = segment0.particle1_handle;
       connection.segment1_particle_handle = segment1.particle0_handle;
-
       if (handle_index > 0) {
         connection.prev_handle = connection_handle - 1;
       } else {
@@ -225,8 +226,22 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       }
       particles[connection.segment0_particle_handle].connection_handle = connection_handle;
       particles[connection.segment1_particle_handle].connection_handle = connection_handle;
+#ifdef USE_XPBD
+      const float youngs_modulus = initialize_parameters.wood_young_modulus.GetValue() * 1e9f;
+      const float shear_modulus = initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f;
+
+      const float average_segment_radius = (segment0.radius + segment1.radius) * .5f;
+      const float average_segment_length = (segment0.rest_length + segment1.rest_length) * .5f;
+
+      const auto second_moment_of_area = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.25f;
+      const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.5f;
+
+      connection.bending_stiffness = youngs_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f);
+      connection.twisting_stiffness = shear_modulus * polar_moment_of_inertia / average_segment_length;
+#else
       connection.bending_stiffness = glm::clamp(initialize_parameters.bending_stiffness.GetValue(), 0.0f, 1.0f);
       connection.twisting_stiffness = glm::clamp(initialize_parameters.twisting_stiffness.GetValue(), 0.0f, 1.0f);
+#endif
       const auto& q0 = segment0.q0;
       const auto& q1 = segment1.q0;
 
@@ -236,10 +251,10 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     }
   }
   ComputeDelaunay(delaunay_tetrahedrons);
-
-  Upload();
   for (const auto& i : constraints)
     i->InitializeData(initialize_parameters, strand_model_skeleton, *this);
+
+  Upload();
 }
 
 bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -266,6 +281,9 @@ void DynamicStrands::UpdateBindings() const {
 
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(4, device_delaunay_tetrahedrons_buffer,
                                                                               0);
+  for (const auto& c : constraints) {
+    c->UpdateBindings();
+  }
 }
 
 void DynamicStrands::Upload() {
@@ -286,12 +304,20 @@ void DynamicStrands::Upload() {
 
 void DynamicStrands::Download() {
   Platform::AddTemporaryBufferSyncAction([&]() {
-    device_strands_buffer->DownloadVector(strands, strands.size());
-    device_segments_buffer->DownloadVector(segments, segments.size());
-    device_particles_buffer->DownloadVector(particles, particles.size());
-    device_connections_buffer->DownloadVector(connections, connections.size());
+    if (!strands.empty())
+      device_strands_buffer->DownloadVector(strands, strands.size());
 
-    device_delaunay_tetrahedrons_buffer->DownloadVector(delaunay_tetrahedrons, delaunay_tetrahedrons.size());
+    if (!segments.empty())
+      device_segments_buffer->DownloadVector(segments, segments.size());
+
+    if (!particles.empty())
+      device_particles_buffer->DownloadVector(particles, particles.size());
+
+    if (!connections.empty())
+      device_connections_buffer->DownloadVector(connections, connections.size());
+
+    if (!delaunay_tetrahedrons.empty())
+      device_delaunay_tetrahedrons_buffer->DownloadVector(delaunay_tetrahedrons, delaunay_tetrahedrons.size());
     for (const auto& c : constraints) {
       c->DownloadData();
     }
@@ -397,9 +423,9 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
     return true;
   };
 #else
-  const auto is_valid = [&](const int tet_vertices[4], const std::vector<uint32_t>& particle_indices) {
+  const auto is_valid = [&](const int tet_vertices[4], const std::vector<glm::vec3>& points) {
     for (size_t i = 0; i < 4; i++) {
-      if (tet_vertices[i] >= static_cast<int>(particle_indices.size())) {
+      if (tet_vertices[i] >= static_cast<int>(points.size())) {
         EVOENGINE_ERROR("tetrahedron vertex index out of range, will be discarded: " << tet_vertices[i]);
         return false;
       }
@@ -505,25 +531,32 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
 
 #else
   std::vector<glm::vec3> points;
-  std::vector<uint32_t> particle_indices;
 
   for (uint32_t i = 0; i < particles.size(); i++) {
-    if (particles[i].connection_handle >= 0 &&
-        connections[particles[i].connection_handle].segment0_particle_handle == i)
-      continue;
-    points.emplace_back(particles[i].x0);
-    particle_indices.emplace_back(i);
+    auto& particle = particles[i];
+    glm::vec3 particle_pos = particle.x0;
+    if (particle.connection_handle) {
+      auto& segment = segments[particle.segment_handle];
+      auto& connection = connections[particle.connection_handle];
+      glm::vec3 front = segment.q * glm::vec3(0, 0, -1);
+      if (connection.segment0_particle_handle == i) {
+        particle_pos -= front * segment.rest_length * 0.25f;
+      } else {
+        particle_pos += front * segment.rest_length * 0.25f;
+      }
+    }
+    points.emplace_back(particle_pos);
   }
   const auto tets = Delaunay3D::GenerateTetrahedrons(points);
 
   tetrahedrons.reserve(tets.size());
   for (const auto& tet : tets) {
-    if (!is_valid(tet.v, particle_indices)) {
+    if (!is_valid(tet.v, points)) {
       continue;  // discard this tetrahedron
     }
     auto& gpu_tet = tetrahedrons.emplace_back();
     for (size_t i = 0; i < 4; i++) {
-      gpu_tet.indices[i] = static_cast<int>(particle_indices[tet.v[i]]);
+      gpu_tet.indices[i] = tet.v[i];
       gpu_tet.neighbors[i] = -1;
     }
     // set up debugging members
@@ -549,7 +582,7 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
       if (neighbor_index < 0 || neighbor_index >= tets.size())
         continue;
       const auto& neighbor = tets[neighbor_index];
-      if (!is_valid(neighbor.v, particle_indices)) {
+      if (!is_valid(neighbor.v, points)) {
         continue;
       }
       const auto mismatch_indices = compare_indices(gpu_tet.indices, neighbor.v);

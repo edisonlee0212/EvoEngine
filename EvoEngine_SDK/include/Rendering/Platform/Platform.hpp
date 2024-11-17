@@ -179,8 +179,8 @@ class Platform final {
   std::vector<std::function<void()>> temporary_buffer_sync_actions;
 
  public:
-  static void AddTemporaryBufferSyncAction(const std::function<void()>& action);
-  static void AddBufferSyncAction(const std::string& action_name, const std::function<void()>& action);
+  static void AddTemporaryBufferSyncAction(std::function<void()>&& action);
+  static void AddBufferSyncAction(const std::string& action_name, std::function<void()>&& action);
   static void RemoveBufferSyncAction(const std::string& action_name);
   static void RecordCommandsMainQueue(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
 

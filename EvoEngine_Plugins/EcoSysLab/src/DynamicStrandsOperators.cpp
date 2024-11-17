@@ -395,8 +395,8 @@ DsDrag::DsDrag() {
   }
 }
 
-void DsDrag::Update(const glm::vec3& force) {
-  target_force = force;
+void DsDrag::Update(const glm::vec3& acceleration) {
+  target_acceleration = acceleration;
 }
 
 void DsDrag::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -405,7 +405,7 @@ void DsDrag::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   DragPushConstant push_constant;
-  push_constant.force = target_force;
+  push_constant.acceleration = target_acceleration;
   push_constant.particle_size = target_dynamic_strands->particles.size();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     pipeline->Bind(vk_command_buffer);

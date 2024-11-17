@@ -5,11 +5,11 @@
 #include "glm/gtx/hash.hpp"
 #define USE_GEOGRAM false
 #if USE_GEOGRAM
-#include "geogram/basic/psm.h"
-#include "geogram/delaunay/parallel_delaunay_3d.h"
-#include "geogram/basic/common.h"
+#  include "geogram/basic/common.h"
+#  include "geogram/basic/psm.h"
+#  include "geogram/delaunay/parallel_delaunay_3d.h"
 #else
-#include "tetgen.h"
+#  include "tetgen.h"
 
 #endif
 using namespace evo_engine;
@@ -39,23 +39,6 @@ GEO::Delaunay_var GeogramProcessDelaunay3D(const bool keeps_infinite, const std:
   return delaunay;
 }
 #else
-tetgenio TetGenProcessDelaunay3D(tetgenbehavior behavior, const std::vector<glm::vec3>& points) {
-  tetgenio in, out;
-  in.numberofpoints = points.size();
-  in.pointlist = new double[in.numberofpoints * 3]; 
-  Jobs::RunParallelFor(points.size(), [&](const auto i) {
-    in.pointlist[i * 3] = points[i].x;
-    in.pointlist[i * 3 + 1] = points[i].y;
-    in.pointlist[i * 3 + 2] = points[i].z;
-  });
-
-  try {
-    tetrahedralize(&behavior, &in, &out);  // Perform the mesh generation
-  } catch (const int err) {
-    EVOENGINE_ERROR("Error during tetrahedralization: " + std::to_string(err));
-  }
-  return out;
-}
 
 #endif
 
@@ -83,7 +66,6 @@ std::shared_ptr<Mesh> GenerateMesh(std::vector<glm::uvec3>& triangles, const std
   return mesh;
 }
 
-
 std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedrons(const std::vector<glm::vec3>& points) {
   std::vector<Tetrahedron> tetrahedrons{};
 #if USE_GEOGRAM
@@ -104,10 +86,25 @@ std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedrons(const std:
   tetgenbehavior behavior{};  // Default behavior (Delaunay tetrahedralization)
   behavior.zeroindex = 1;
   behavior.neighout = 1;
-  const auto out = TetGenProcessDelaunay3D(behavior, points);
+  behavior.quiet = 1;
+  tetgenio in, out;
+  in.numberofpoints = points.size();
+  in.pointlist = new double[in.numberofpoints * 3];
+  Jobs::RunParallelFor(points.size(), [&](const auto i) {
+    in.pointlist[i * 3] = points[i].x;
+    in.pointlist[i * 3 + 1] = points[i].y;
+    in.pointlist[i * 3 + 2] = points[i].z;
+  });
+
+  try {
+    tetrahedralize(&behavior, &in, &out);  // Perform the mesh generation
+  } catch (const int err) {
+    EVOENGINE_ERROR("Error during tetrahedralization: " + std::to_string(err));
+  }
 
   tetrahedrons.resize(out.numberoftetrahedra);
   Jobs::RunParallelFor(out.numberoftetrahedra, [&](const auto i) {
+    // for (int i = 0; i < out.numberoftetrahedra; i++) {
     auto& tetrahedron = tetrahedrons[i];
     tetrahedron.v[0] = out.tetrahedronlist[i * 4];
     tetrahedron.v[1] = out.tetrahedronlist[i * 4 + 1];
@@ -121,11 +118,11 @@ std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedrons(const std:
                                                     points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
     tetrahedron.circumradius = CalculateTetrahedronCircumradius(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
                                                                 points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
+    //}
   });
 #endif
   return tetrahedrons;
 }
-
 
 std::vector<glm::uvec3> Delaunay3D::GenerateConvexHullTriangles(const std::vector<glm::vec3>& points) {
   std::vector<glm::uvec3> triangles{};
@@ -147,16 +144,29 @@ std::vector<glm::uvec3> Delaunay3D::GenerateConvexHullTriangles(const std::vecto
   tetgenbehavior behavior{};  // Default behavior (Delaunay tetrahedralization)
   behavior.quality = 1;
   behavior.quiet = 1;
-  behavior.convex = 1;        // Convex hull generation
-  behavior.nobisect = 1;      // Do not add Steiner points
-  behavior.facesout = 1;      // Output boundary faces (convex hull)
+  behavior.convex = 1;    // Convex hull generation
+  behavior.nobisect = 1;  // Do not add Steiner points
+  behavior.facesout = 1;  // Output boundary faces (convex hull)
   behavior.zeroindex = 1;
-  const auto out = TetGenProcessDelaunay3D(behavior, points);
+
+  tetgenio in, out;
+  in.numberofpoints = points.size();
+  in.pointlist = new double[in.numberofpoints * 3];
+  Jobs::RunParallelFor(points.size(), [&](const auto i) {
+    in.pointlist[i * 3] = points[i].x;
+    in.pointlist[i * 3 + 1] = points[i].y;
+    in.pointlist[i * 3 + 2] = points[i].z;
+  });
+
+  try {
+    tetrahedralize(&behavior, &in, &out);  // Perform the mesh generation
+  } catch (const int err) {
+    EVOENGINE_ERROR("Error during tetrahedralization: " + std::to_string(err));
+  }
 
   triangles.resize(out.numberoftrifaces);
   Jobs::RunParallelFor(out.numberoftrifaces, [&](const auto i) {
-    triangles[i] = glm::uvec3(out.trifacelist[i * 3], out.trifacelist[i * 3 + 1], out.trifacelist[i * 3 + 2]
-    );
+    triangles[i] = glm::uvec3(out.trifacelist[i * 3], out.trifacelist[i * 3 + 1], out.trifacelist[i * 3 + 2]);
   });
 
 #endif
@@ -187,7 +197,7 @@ std::vector<glm::uvec3> Delaunay3D::FindOuterShell(const std::vector<Tetrahedron
   const auto register_map = [&](const glm::uvec3& triangle) {
     if (const auto search = face_map.find(triangle); search == face_map.end()) {
       face_map.insert({triangle, 1});
-    }else {
+    } else {
       search->second++;
     }
   };
@@ -245,28 +255,27 @@ float Delaunay3D::CalculateTetrahedronCircumradius(const glm::vec3& p0, const gl
 
   const float v = CalculateTetrahedronVolume(p0, p1, p2, p3);
   return glm::sqrt(a * a * b * b * c * c + a * a * x * x + b * b * y * y + c * c * z * z - a * a * b * b * z * z -
-              a * a * c * c * y * y - b * b * c * c * x * x) /
+                   a * a * c * c * y * y - b * b * c * c * x * x) /
          (6.f * v);
 }
 
 float Delaunay3D::CalculateTetrahedronVolume(const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2,
                                              const glm::vec3& p3) {
   return 0.1666666f *
-         glm::abs((p0[0] * (p1[1] * p2[2] + p3[1] * p2[2] + p1[2] * p3[1] - p1[2] * p2[1] - p3[2] * p2[1] - p1[1] * p3[2])) -
-                  p1[0] * (p0[1] * p2[2] + p3[1] * p2[2] + p0[2] * p3[1] - p0[2] * p2[1] - p3[2] * p2[1] - p0[1] * p3[2]) +
-                  p2[0] * (p0[1] * p1[2] + p3[1] * p1[2] + p0[2] * p3[1] - p0[2] * p1[1] - p3[2] * p1[1] - p0[1] * p3[2]) -
-                  p3[0] * (p0[1] * p1[2] + p2[1] * p1[2] + p0[2] * p2[1] - p0[2] * p1[1] - p2[2] * p1[1] - p0[1] * p2[2]));
+         glm::abs(
+             (p0[0] * (p1[1] * p2[2] + p3[1] * p2[2] + p1[2] * p3[1] - p1[2] * p2[1] - p3[2] * p2[1] - p1[1] * p3[2])) -
+             p1[0] * (p0[1] * p2[2] + p3[1] * p2[2] + p0[2] * p3[1] - p0[2] * p2[1] - p3[2] * p2[1] - p0[1] * p3[2]) +
+             p2[0] * (p0[1] * p1[2] + p3[1] * p1[2] + p0[2] * p3[1] - p0[2] * p1[1] - p3[2] * p1[1] - p0[1] * p3[2]) -
+             p3[0] * (p0[1] * p1[2] + p2[1] * p1[2] + p0[2] * p2[1] - p0[2] * p1[1] - p2[2] * p1[1] - p0[1] * p2[2]));
 }
-
-
-
 
 std::shared_ptr<Mesh> Delaunay3D::GenerateConvexHullMesh(const std::vector<glm::vec3>& points) {
   auto triangles = GenerateConvexHullTriangles(points);
   return GenerateMesh(triangles, points);
 }
 
-std::shared_ptr<Mesh> Delaunay3D::GenerateAlphaShapeMesh(const std::vector<glm::vec3>& points, const float max_circumradius) {
+std::shared_ptr<Mesh> Delaunay3D::GenerateAlphaShapeMesh(const std::vector<glm::vec3>& points,
+                                                         const float max_circumradius) {
   auto triangles = GenerateAlphaShapeTriangles(points, max_circumradius);
   return GenerateMesh(triangles, points);
 }

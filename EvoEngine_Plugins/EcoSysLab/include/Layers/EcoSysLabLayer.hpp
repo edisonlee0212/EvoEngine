@@ -78,8 +78,9 @@ class EcoSysLabLayer : public ILayer {
     bool show_lighting_grid = false;
     void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
+
   struct StrandVisualizerSettings {
-    float drag_force_multiplier = 0.01f;
+    float drag_multiplier = 1.f;
     void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   TreeVisualizerSettings tree_visualizer_settings_;

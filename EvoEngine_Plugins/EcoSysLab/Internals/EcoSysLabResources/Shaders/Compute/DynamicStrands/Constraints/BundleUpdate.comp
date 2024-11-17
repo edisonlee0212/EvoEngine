@@ -1,0 +1,64 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+#include "Math.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint pair_size;
+};
+
+#include "Bundle.glsl"
+
+void main(){
+
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint pair_index = baseID + local_index;
+		if(pair_index >= pair_size) break;
+		SegmentPair segment_pair = segment_pairs[pair_index];
+
+		Segment segment0 = segments[segment_pair.handle0];
+		Segment segment1 = segments[segment_pair.handle1];
+
+		SegmentData segment_data0 = segment_data_list[segment_pair.handle0];
+		SegmentData segment_data1 = segment_data_list[segment_pair.handle1];
+
+		Particle segment0_particle0 = particles[floatBitsToInt(segment0.inertia_tensor_particle_0_handle.w)];
+		Particle segment0_particle1 = particles[floatBitsToInt(segment0.inv_inertia_tensor_particle_1_handle.w)];
+		Particle segment1_particle0 = particles[floatBitsToInt(segment1.inertia_tensor_particle_0_handle.w)];
+		Particle segment1_particle1 = particles[floatBitsToInt(segment1.inv_inertia_tensor_particle_1_handle.w)];
+
+		float original_distance0 = distance(segment0_particle0.x0_damping.xyz, segment1_particle0.x0_damping.xyz);
+		float current_distance0 = distance(segment0_particle0.x_node_handle.xyz, segment1_particle0.x_node_handle.xyz);
+		float strain0 = abs(current_distance0 - original_distance0) / (segment0.torque_rest_length.w + segment1.torque_rest_length.w) * 2.0;
+		float original_distance1 = distance(segment0_particle1.x0_damping.xyz, segment1_particle1.x0_damping.xyz);
+		float current_distance1 = distance(segment0_particle1.x_node_handle.xyz, segment1_particle1.x_node_handle.xyz);
+		float strain1 = abs(current_distance1 - original_distance1) / (segment0.torque_rest_length.w + segment1.torque_rest_length.w) * 2.0;
+
+		if(strain0 > segment_data0.particle0_position_correction_max_strain.w || strain0 > segment_data1.particle0_position_correction_max_strain.w
+			|| strain1 > segment_data0.particle1_position_correction_max_strain.w || strain1 > segment_data1.particle1_position_correction_max_strain.w){
+			segment_pairs[pair_index].valid = 0;
+		}
+	}
+}
