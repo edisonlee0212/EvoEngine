@@ -71,6 +71,8 @@ class IDynamicStrandsConstraint {
   }
   virtual void UploadData() {
   }
+  virtual void UpdateBindings() {
+  }
   virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     return false;
   }
@@ -96,10 +98,12 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
 
   struct StretchShearConstraintConstant {
     uint32_t strand_size = 0;
+    float inv_time_step;
   };
 
   struct BendTwistConstraintConstant {
     uint32_t strand_size = 0;
+    float inv_time_step;
   };
 
   enum class ProjectMode { Forward, Backward, Bilateral };
@@ -128,6 +132,7 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
                const DynamicStrands& target_dynamic_strands) override;
   void DownloadData() override;
   void UploadData() override;
+  void UpdateBindings() override;
   static glm::vec3 ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1, float average_segment_length);
 };
 
@@ -158,6 +163,7 @@ class DsParticleNeighbor : public IDynamicStrandsConstraint {
                const DynamicStrands& target_dynamic_strands) override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void UploadData() override;
+  void UpdateBindings() override;
 };
 #pragma endregion
 }  // namespace eco_sys_lab_plugin

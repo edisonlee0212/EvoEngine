@@ -104,6 +104,7 @@ std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedrons(const std:
   tetgenbehavior behavior{};  // Default behavior (Delaunay tetrahedralization)
   behavior.zeroindex = 1;
   behavior.neighout = 1;
+  behavior.quiet = 1;
   const auto out = TetGenProcessDelaunay3D(behavior, points);
 
   tetrahedrons.resize(out.numberoftetrahedra);

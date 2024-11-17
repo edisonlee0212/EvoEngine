@@ -61,15 +61,14 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (ImGui::TreeNodeEx("Experiments", ImGuiTreeNodeFlags_DefaultOpen)) {
     static float rod_length = 1.0f;
     ImGui::DragFloat("Rod length", &rod_length, 0.01f, 0.01f, 10.0f);
-    if (ImGui::Button("Single Rod Experiment")) {
-      SingleRodExperimentSetup(rod_length, min_segment_length, max_segment_length);
-    }
+
     static glm::ivec2 rod_dimension = {10, 10};
     ImGui::DragInt2("Rod dimension", &rod_dimension.x, 1, 1, 1000);
     static bool add_operator = false;
     ImGui::Checkbox("Operator", &add_operator);
     if (ImGui::Button("Multiple Rod Experiment")) {
-      MultipleRodExperimentSetup(rod_length, min_segment_length, max_segment_length, 0.002f, rod_dimension, add_operator);
+      MultipleRodExperimentSetup(rod_length, min_segment_length, max_segment_length, 0.002f, rod_dimension,
+                                 add_operator);
     }
     ImGui::TreePop();
   }
@@ -220,23 +219,6 @@ void DynamicTreeStrands::OnDestroy() {
 void DynamicTreeStrands::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
-void DynamicTreeStrands::SingleRodExperimentSetup(const float total_length, const float min_segment_length,
-                                                  const float max_segment_length) {
-  strand_model_skeleton = {1};
-  auto& strand_group = strand_model_skeleton.data.strand_group;
-  const auto strand1_handle = strand_group.AllocateStrand();
-  const auto base_segment_handle = strand_group.Extend(strand1_handle);
-  auto& segment1 = strand_group.RefStrandSegment(base_segment_handle);
-  auto& strand1 = strand_group.RefStrand(strand1_handle);
-  segment1.end_position = glm::vec3(0, total_length, 0.);
-  strand1.start_color = segment1.end_color = glm::vec4(1, 0, 0, 0);
-  strand1.start_thickness = segment1.end_thickness = 0.1f;
-  strand_group.RefStrandSegmentData(base_segment_handle).node_handle = 0;
-  strand_group.CalculateRotations();
-
-  Subdivide(min_segment_length, max_segment_length, strand_group);
-}
-
 void DynamicTreeStrands::MultipleRodExperimentSetup(const float total_length, const float min_segment_length,
                                                     const float max_segment_length, const float radius,
                                                     const glm::ivec2& rod_dimension, const bool add_operator) {
@@ -254,8 +236,7 @@ void DynamicTreeStrands::MultipleRodExperimentSetup(const float total_length, co
       const auto segment_handle = strand_group.Extend(strand_handle);
       auto& segment = strand_group.RefStrandSegment(segment_handle);
       segment.end_position =
-          glm::vec3(total_length,
-                    radius * (static_cast<float>(y) - static_cast<float>(rod_dimension.y) / 2.f) * 2.f,
+          glm::vec3(total_length, radius * (static_cast<float>(y) - static_cast<float>(rod_dimension.y) / 2.f) * 2.f,
                     radius * (static_cast<float>(x) - static_cast<float>(rod_dimension.x) / 2.f) * 2.f);
       segment.end_color = glm::vec4(1, 1, 1, 1);
       segment.end_thickness = radius;
@@ -281,8 +262,8 @@ void DynamicTreeStrands::MultipleRodExperimentSetup(const float total_length, co
     auto& transform_operator = transform_operators.back();
 
     auto operator_root_transform = GlobalTransform();
-    operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
-        glm::vec3(total_length, 0, 0)));
+    operator_root_transform.SetPosition(
+        initialize_parameters.root_transform.TransformPoint(glm::vec3(total_length, 0, 0)));
     scene->SetDataComponent(operator_entity, operator_root_transform);
     scene->SetParent(operator_entity, GetOwner());
 
@@ -297,8 +278,7 @@ void DynamicTreeStrands::MultipleRodExperimentSetup(const float total_length, co
   }
 }
 
-void DynamicTreeStrands::UniformMultipleRodExperimentSetup(const float segment_length,
-                                                           const float radius,
+void DynamicTreeStrands::UniformMultipleRodExperimentSetup(const float segment_length, const float radius,
                                                            const glm::ivec3& rod_dimension, const bool add_operator) {
   strand_model_skeleton = {1};
   auto& strand_group = strand_model_skeleton.data.strand_group;
@@ -366,8 +346,8 @@ void DynamicTreeStrands::Subdivide(const float min_segment_length, const float m
   src.Subdivide(
       subdivided_strand_group,
       [&]() {
-          return glm::linearRand(min_segment_length, max_segment_length);
-  },
+        return glm::linearRand(min_segment_length, max_segment_length);
+      },
       (min_segment_length + max_segment_length) * .5f * .01f);
   subdivided_strand_group.RandomAssignColor();
   UpdateDynamicStrands();
@@ -414,7 +394,6 @@ void DynamicTreeStrands::PhysicsStep() const {
   if (!dynamic_strands->segments.empty()) {
     const auto scene = GetScene();
     const auto editor_layer = Application::GetLayer<EditorLayer>();
-    dynamic_strands->UpdateBindings();
     if (!dynamic_strands->WaitForUpload()) {
       for (const auto& transform_operator : transform_operators) {
         if (scene->IsEntityValid(transform_operator.target_entity)) {
@@ -455,12 +434,16 @@ void DynamicTreeStrands::PhysicsStep() const {
 
 void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_camera) const {
   if (!dynamic_strands->segments.empty()) {
-    dynamic_strands->Visualize(target_camera, visualization_parameters);
+    if (!dynamic_strands->WaitForUpload()) {
+      dynamic_strands->Visualize(target_camera, visualization_parameters);
+    }
   }
 }
 
 void DynamicTreeStrands::Render(const std::shared_ptr<Camera>& target_camera) const {
   if (!dynamic_strands->segments.empty()) {
-    dynamic_strands->Render(target_camera, render_parameters);
+    if (!dynamic_strands->WaitForUpload()) {
+      dynamic_strands->Render(target_camera, render_parameters);
+    }
   }
 }

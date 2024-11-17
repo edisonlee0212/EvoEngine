@@ -249,10 +249,15 @@ DsStiffRod::DsStiffRod() {
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
   per_strand_data_list_buffer = std::make_shared<Buffer>(storage_buffer_create_info, buffer_vma_allocation_create_info);
+#ifdef USE_XPBD
+  std::string xpbd_prefix = "\n#define USE_XPBD\n";
+#else
+  std::string xpbd_prefix = "";
+#endif
   if (!bilateral_stretch_shear_constraint_pipeline) {
     static std::shared_ptr<Shader> stretch_shear_shader{};
     stretch_shear_shader = std::make_shared<Shader>();
-    stretch_shear_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    stretch_shear_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Compute/DynamicStrands/Constraints/StiffRodStretchShearBilateral.comp");
     bilateral_stretch_shear_constraint_pipeline = std::make_shared<ComputePipeline>();
@@ -271,7 +276,7 @@ DsStiffRod::DsStiffRod() {
 
     static std::shared_ptr<Shader> bend_twist_constraint_shader{};
     bend_twist_constraint_shader = std::make_shared<Shader>();
-    bend_twist_constraint_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    bend_twist_constraint_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
                                       std::filesystem::path("./EcoSysLabResources") /
                                           "Shaders/Compute/DynamicStrands/Constraints/StiffRodBendTwistBilateral.comp");
 
@@ -292,7 +297,8 @@ DsStiffRod::DsStiffRod() {
   if (!forward_stretch_shear_constraint_pipeline) {
     static std::shared_ptr<Shader> stretch_shear_shader{};
     stretch_shear_shader = std::make_shared<Shader>();
-    stretch_shear_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+
+    stretch_shear_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Compute/DynamicStrands/Constraints/StiffRodStretchShearForward.comp");
     forward_stretch_shear_constraint_pipeline = std::make_shared<ComputePipeline>();
@@ -311,7 +317,7 @@ DsStiffRod::DsStiffRod() {
 
     static std::shared_ptr<Shader> bend_twist_constraint_shader{};
     bend_twist_constraint_shader = std::make_shared<Shader>();
-    bend_twist_constraint_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    bend_twist_constraint_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
                                       std::filesystem::path("./EcoSysLabResources") /
                                           "Shaders/Compute/DynamicStrands/Constraints/StiffRodBendTwistForward.comp");
 
@@ -331,7 +337,7 @@ DsStiffRod::DsStiffRod() {
   if (!backward_stretch_shear_constraint_pipeline) {
     static std::shared_ptr<Shader> stretch_shear_shader{};
     stretch_shear_shader = std::make_shared<Shader>();
-    stretch_shear_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    stretch_shear_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Compute/DynamicStrands/Constraints/StiffRodStretchShearBackward.comp");
     backward_stretch_shear_constraint_pipeline = std::make_shared<ComputePipeline>();
@@ -350,7 +356,7 @@ DsStiffRod::DsStiffRod() {
 
     static std::shared_ptr<Shader> bend_twist_constraint_shader{};
     bend_twist_constraint_shader = std::make_shared<Shader>();
-    bend_twist_constraint_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    bend_twist_constraint_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
                                       std::filesystem::path("./EcoSysLabResources") /
                                           "Shaders/Compute/DynamicStrands/Constraints/StiffRodBendTwistBackward.comp");
 
@@ -426,12 +432,6 @@ void DsStiffRod::InitializeData(const DynamicStrands::InitializeParameters& init
         connection_size % 2 == 1 ? gpu_strand.end_segment_handle
                                  : target_dynamic_strands.segments[gpu_strand.end_segment_handle].prev_handle;
   }
-
-  UploadData();
-
-  for (int i = 0; i < Platform::GetMaxFramesInFlight(); i++) {
-    strands_physics_descriptor_sets[i]->UpdateBufferDescriptorBinding(0, per_strand_data_list_buffer);
-  }
 }
 
 void DsStiffRod::Project(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -439,10 +439,10 @@ void DsStiffRod::Project(const DynamicStrands::PhysicsParameters& physics_parame
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   StretchShearConstraintConstant stretch_shear_constraint_constant;
   stretch_shear_constraint_constant.strand_size = per_strand_data_list.size();
-
+  stretch_shear_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   BendTwistConstraintConstant bend_twist_constraint_constant;
   bend_twist_constraint_constant.strand_size = per_strand_data_list.size();
-
+  bend_twist_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -540,6 +540,11 @@ void DsStiffRod::DownloadData() {
 
 void DsStiffRod::UploadData() {
   per_strand_data_list_buffer->UploadVector(per_strand_data_list);
+}
+
+void DsStiffRod::UpdateBindings() {
+  strands_physics_descriptor_sets[Platform::GetCurrentFrameIndex()]->UpdateBufferDescriptorBinding(
+      0, per_strand_data_list_buffer);
 }
 
 glm::vec3 DsStiffRod::ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1,
@@ -704,7 +709,7 @@ void DsParticleNeighbor::InitializeData(const DynamicStrands::InitializeParamete
     for (const auto& candidate : candidates) {
       glm::vec3 offset =
           glm::inverse(segment.q0) * (target_dynamic_strands.particles[candidate.second].x0 - particle.x0);
-      neighbor.offset[neighbor_index] = glm::vec4(offset, initialize_parameters.neighbor_strain);
+      neighbor.offset[neighbor_index] = glm::vec4(offset, initialize_parameters.max_neighbor_strain);
       neighbor.neighbors[neighbor_index] = candidate.second;
       neighbor_index++;
       if (neighbor_index >= 8)
@@ -716,11 +721,6 @@ void DsParticleNeighbor::InitializeData(const DynamicStrands::InitializeParamete
     }
     neighbor.stiffness = glm::clamp(initialize_parameters.neighbor_stiffness.GetValue(), 0.0f, 1.0f);
   });
-
-  UploadData();
-  for (int i = 0; i < Platform::GetMaxFramesInFlight(); i++) {
-    particle_neighbors_descriptor_sets[i]->UpdateBufferDescriptorBinding(0, particle_neighbors_buffer);
-  }
 }
 
 void DsParticleNeighbor::Project(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -776,5 +776,10 @@ bool DsParticleNeighbor::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 }
 
 void DsParticleNeighbor::UploadData() {
-  particle_neighbors_buffer->UploadVector(particle_neighbors);
+    particle_neighbors_buffer->UploadVector(particle_neighbors);
+}
+
+void DsParticleNeighbor::UpdateBindings() {
+  particle_neighbors_descriptor_sets[Platform::GetCurrentFrameIndex()]->UpdateBufferDescriptorBinding(
+      0, particle_neighbors_buffer, 0);
 }
