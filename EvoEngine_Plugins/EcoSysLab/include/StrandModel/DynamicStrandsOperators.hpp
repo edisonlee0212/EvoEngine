@@ -65,10 +65,10 @@ class DsGravity final : public IDsPhysicsOperator {
   struct GravityPushConstant {
     glm::vec3 acceleration;
     uint32_t particle_size = 0;
-    float ground_height = -10.0f;
+    float ground_height = 0.0f;
   };
 
-  float ground_height = -10.0f;
+  float ground_height = 0.0f;
   glm::vec3 gravity = glm::vec3(0, -9.81, 0);
   inline static std::shared_ptr<ComputePipeline> gravity_force_pipeline{};
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -133,16 +133,16 @@ class DsBoxSelection : public IDsOperator {
 
 class DsDrag : public IDsPhysicsOperator {
  public:
-  glm::vec3 target_force;
+  glm::vec3 target_acceleration;
   struct DragPushConstant {
-    glm::vec3 force;
+    glm::vec3 acceleration;
     float padding;
     uint32_t particle_size;
   };
   inline static std::shared_ptr<ComputePipeline> pipeline{};
 
   DsDrag();
-  void Update(const glm::vec3& force);
+  void Update(const glm::vec3& acceleration);
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
 };

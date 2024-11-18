@@ -682,7 +682,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     ImGui::Checkbox("Show Strands", &show_strands);
     if (show_trees) {
       const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-      if (ImGui::TreeNodeEx("Tree settings")) {
+      if (ImGui::TreeNodeEx("Tree settings", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (tree_entities && !tree_entities->empty()) {
           if (scene->IsEntityValid(selected_tree)) {
             const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
@@ -854,7 +854,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       }
     }
     if (show_strands) {
-      if (ImGui::TreeNodeEx("Strand Visualization settings")) {
+      if (ImGui::TreeNodeEx("Strand Visualization settings", ImGuiTreeNodeFlags_DefaultOpen)) {
         strand_visualizer_settings_.OnInspect(editor_layer);
         ImGui::TreePop();
       }
@@ -1846,7 +1846,7 @@ void EcoSysLabLayer::TreeVisualizerSettings::OnInspect(const std::shared_ptr<Edi
 }
 
 void EcoSysLabLayer::StrandVisualizerSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::DragFloat("Drag force multiplier", &drag_force_multiplier, 0.001f, 0.0f, 1.0f);
+  ImGui::DragFloat("Drag acceleration multiplier", &drag_multiplier, 0.001f, 0.0f, 1.0f);
 }
 
 void EcoSysLabLayer::PreUpdate() {
@@ -1921,11 +1921,11 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
             draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y), 5.0f,
                                  IM_COL32(255, 255, 255, 255));
 
-            const glm::vec3 force = strand_visualizer_settings_.drag_force_multiplier * 0.001f *
+            const glm::vec3 acceleration = strand_visualizer_settings_.drag_multiplier *
                                     (camera_right * screen_vector.x - camera_up * screen_vector.y);
             for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
               dts->drag_operator->enabled = true;
-              dts->drag_operator->Update(force);
+              dts->drag_operator->Update(acceleration);
             });
           }
         } else {

@@ -213,8 +213,6 @@ void project_bend_twist_constraint(in float inv_time_step, in vec4 q0, in float 
 
 
 
-
-
 vec3 stretch_shear_strain(in vec3 p0, in vec3 p1, in vec4 q, in float rest_length) {
   vec3 d3;
   d3[0] = -2.0 * (q.x * q.z + q.w * q.y);

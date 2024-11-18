@@ -89,7 +89,9 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
   if (twisting_stiffness.OnInspect("Twisting stiffness"))
     changed = true;
 #endif
-  if (neighbor_stiffness.OnInspect("Neighbor stiffness"))
+  if (neighbor_rotation_stiffness.OnInspect("Neighbor rotation stiffness"))
+    changed = true;
+  if (neighbor_position_stiffness.OnInspect("Neighbor position stiffness"))
     changed = true;
 
   if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
@@ -97,7 +99,7 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
   if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.01f, 0.01f, 1.0f))
     changed = true;
 
-  if (ImGui::DragFloat("Neighbor range", &neighbor_range, 0.01f, 0.01f, 1.0f))
+  if (ImGui::DragFloat("Neighbor range", &neighbor_range, 0.01f, 0.01f, 10.0f))
     changed = true;
 
   if (ImGui::DragFloat("Max neighbor strain", &max_neighbor_strain, 0.001f, 0.001f, 1.0f))
@@ -248,7 +250,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       connection.max_bend_twist_strain = initialize_parameters.max_bend_twist_strain;
     }
   }
-  ComputeDelaunay(delaunay_tetrahedrons);
+  //ComputeDelaunay(delaunay_tetrahedrons);
   for (const auto& i : constraints)
     i->InitializeData(initialize_parameters, strand_model_skeleton, *this);
 
