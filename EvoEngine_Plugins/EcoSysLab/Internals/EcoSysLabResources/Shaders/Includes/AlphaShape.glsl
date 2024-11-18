@@ -43,10 +43,12 @@ void SortFourElements(inout uint a[4]) {
 bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float max_dist_squared) {
   // check if neighbor is invalid
   if (neighbor_index != -1 && tet.neighbors[neighbor_index] == -1) {
+    max_dist_squared = 100000.0f;  // marker for this condition
     return false;
   }
+  //return true; // debug: should give us the convex hull
   // prepare indices
-  /* uint indices[4];
+  uint indices[4];
   for (uint i = 0; i < 4; i++) {
     if (i != neighbor_index) {
       indices[i] = tet.indices[i];
@@ -58,6 +60,8 @@ bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float max_dist
   // We sort the indices because a different order can lead to a different result due to numerical instability
   // This is important because the order varies depending on which neighbor calls this function, but it must be
   // consistent for a valid alpha-shape
+
+  /*
   SortFourElements(indices);
 
   // first compute circumcenter
@@ -95,12 +99,12 @@ bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float max_dist
   vec3 v[4];
 
   for (uint i = 0; i < 4; i++) {
-    v[i] = particles[tet.indices[i]].x_node_handle.xyz;
+    v[i] = particles[indices[i]].x_node_handle.xyz;
   }
   max_dist_squared = 0.0;
 
   // just compare all sidelengths
-  for (uint i = 1; i < 4; i++) {
+  for (uint i = 0; i < 4; i++) {
     for (uint j = i + 1; j < 4; j++)
     {
       vec3 vij = v[j] - v[i];
