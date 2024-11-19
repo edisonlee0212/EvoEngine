@@ -1,37 +1,39 @@
 #pragma once
 #include "Plot2D.hpp"
-
+#include "SorghumDescriptor.hpp"
 #include "Curve.hpp"
 using namespace evo_engine;
 namespace digital_agriculture_plugin {
 #pragma region States
 enum class StateMode { Default, CubicBezier };
 
-struct SorghumPanicleGrowthStage {
+struct SorghumPanicleState {
   glm::vec3 panicle_size = glm::vec3(0, 0, 0);
   int seed_amount = 0;
   float seed_radius = 0.002f;
 
   bool saved = false;
-  SorghumPanicleGrowthStage();
-  bool OnInspect();
+  SorghumPanicleState();
+  bool OnInspectImpl();
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
+  void Apply(SorghumPanicleDescriptor &target_sorghum_panicle_descriptor) const;
 };
-struct SorghumStemGrowthStage {
+struct SorghumStemState {
   BezierSpline spline;
   glm::vec3 direction = {0, 1, 0};
   Plot2D<float> width_along_stem;
   float length = 0;
 
   bool saved = false;
-  SorghumStemGrowthStage();
+  SorghumStemState();
   [[nodiscard]] glm::vec3 GetPoint(float point) const;
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
-  bool OnInspect(int mode);
+  bool OnInspectImpl(int mode);
+  void Apply(SorghumStemDescriptor& target_sorghum_stem_descriptor) const;
 };
-struct SorghumLeafGrowthStage {
+struct SorghumLeafState {
   bool dead = false;
   BezierSpline spline;
   int index = 0;
@@ -48,28 +50,29 @@ struct SorghumLeafGrowthStage {
   float waviness_frequency = 0.0f;
 
   bool saved = false;
-  SorghumLeafGrowthStage();
-  void CopyShape(const SorghumLeafGrowthStage& another);
+  SorghumLeafState();
+  void CopyShape(const SorghumLeafState& another);
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
-  bool OnInspect(int mode);
+  bool OnInspectImpl(int mode);
+  void Apply(const SorghumStemState& stem_state, SorghumLeafDescriptor& target_sorghum_leaf_descriptor) const;
 };
 #pragma endregion
 
-class SorghumGrowthStage {
+class SorghumState : public IAsset {
   friend class SorghumGrowthStages;
   unsigned version_ = 0;
 
  public:
-  SorghumGrowthStage();
+  SorghumState();
   bool saved = false;
   std::string name = "Unnamed";
-  SorghumPanicleGrowthStage panicle;
-  SorghumStemGrowthStage stem;
-  std::vector<SorghumLeafGrowthStage> leaves;
-  bool OnInspect(int mode);
-
-  void Serialize(YAML::Emitter& out) const;
-  void Deserialize(const YAML::Node& in);
+  SorghumPanicleState panicle;
+  SorghumStemState stem;
+  std::vector<SorghumLeafState> leaves;
+  bool OnInspectImpl(int mode);
+  void Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor) const;
+  void Serialize(YAML::Emitter& out) const override;
+  void Deserialize(const YAML::Node& in) override;
 };
 }  // namespace digital_agriculture_plugin

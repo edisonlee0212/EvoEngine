@@ -5,6 +5,7 @@
 #include "Application.hpp"
 #include "EditorLayer.hpp"
 #include "Scene.hpp"
+#include "Sorghum.hpp"
 #include "SorghumGrowthStages.hpp"
 #include "SorghumLayer.hpp"
 #include "Times.hpp"
@@ -12,7 +13,8 @@
 #include "rapidcsv.h"
 using namespace digital_agriculture_plugin;
 
-void SorghumGrowthStages::Apply(const std::shared_ptr<SorghumDescriptor>& target_state, const float time) const {
+void SorghumGrowthStages::Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor,
+                                const float time) const {
   if (sorghum_growth_stages.empty())
     return;
   const auto actual_time = glm::clamp(time, 0.0f, 99999.0f);
@@ -23,7 +25,7 @@ void SorghumGrowthStages::Apply(const std::shared_ptr<SorghumDescriptor>& target
 
   if (actual_time < previous_time) {
     // Get from zero state to first state.
-    state_pair.Apply(target_state, 0.0f);
+    state_pair.Apply(target_sorghum_descriptor, 0.0f);
     return;
   }
 
@@ -37,23 +39,26 @@ void SorghumGrowthStages::Apply(const std::shared_ptr<SorghumDescriptor>& target
     }
     previous_time = it->first;
   }
-  state_pair.Apply(target_state, a);
-}
-void SorghumGrowthStagePair::Apply(const std::shared_ptr<SorghumDescriptor>& target_state, const float a) const {
-  ApplyPanicle(target_state, a);
-  ApplyStem(target_state, a);
-  ApplyLeaves(target_state, a);
+  state_pair.Apply(target_sorghum_descriptor, a);
 }
 
-void SorghumGrowthStagePair::ApplyLeaves(const std::shared_ptr<SorghumDescriptor>& target_state, const float a) const {
+void SorghumGrowthStagePair::Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor,
+                                   const float a) const {
+  ApplyPanicle(target_sorghum_descriptor, a);
+  ApplyStem(target_sorghum_descriptor, a);
+  ApplyLeaves(target_sorghum_descriptor, a);
+}
+
+void SorghumGrowthStagePair::ApplyLeaves(const std::shared_ptr<SorghumDescriptor>& target_descriptor,
+                                         const float a) const {
   const auto leaf_size = GetLeafSize(a);
-  target_state->leaves.resize(leaf_size);
+  target_descriptor->leaves.resize(leaf_size);
   for (int i = 0; i < leaf_size; i++) {
-    ApplyLeaf(target_state, a, i);
+    ApplyLeaf(target_descriptor, a, i);
   }
 }
 
-void SorghumGrowthStagePair::ApplyLeaf(const std::shared_ptr<SorghumDescriptor>& target_state, float a,
+void SorghumGrowthStagePair::ApplyLeaf(const std::shared_ptr<SorghumDescriptor>& target_descriptor, float a,
                                        int leaf_index) const {
   constexpr auto up_direction = glm::vec3(0, 1, 0);
   auto front_direction = glm::vec3(0, 0, -1);
@@ -63,13 +68,13 @@ void SorghumGrowthStagePair::ApplyLeaf(const std::shared_ptr<SorghumDescriptor>&
   const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
 
   const float preserved_a = a;
-  SorghumLeafGrowthStage actual_left, actual_right;
+  SorghumLeafState actual_left, actual_right;
   LeafStateHelper(actual_left, actual_right, a, leaf_index);
 
   float stem_width = glm::mix(left_stage.stem.width_along_stem.GetValue(actual_left.starting_point),
                               right_stage.stem.width_along_stem.GetValue(actual_right.starting_point), preserved_a);
 
-  auto& leaf_state = target_state->leaves[leaf_index];
+  auto& leaf_state = target_descriptor->leaves[leaf_index];
   leaf_state.spline.segments.clear();
   leaf_state.index = leaf_index;
 
@@ -128,7 +133,7 @@ void SorghumGrowthStagePair::ApplyLeaf(const std::shared_ptr<SorghumDescriptor>&
 
   int node_to_full_expand = 0.1f * leaf_length / sorghum_layer->vertical_subdivision_length;
 
-  float height_offset = glm::linearRand(0.f, 100.f);
+  auto period_start = glm::mix(actual_left.waviness_period_start, actual_right.waviness_period_start, a);
   const float waviness_frequency = glm::mix(actual_left.waviness_frequency, actual_right.waviness_frequency, a);
   glm::vec3 node_position = stem_front * starting_point_ratio * stem_length + stem_offset;
   for (int i = 1; i <= node_amount; i++) {
@@ -147,7 +152,7 @@ void SorghumGrowthStagePair::ApplyLeaf(const std::shared_ptr<SorghumDescriptor>&
 
     float waviness = glm::mix(actual_left.waviness_along_leaf.GetValue(factor),
                               actual_right.waviness_along_leaf.GetValue(factor), a);
-    height_offset += waviness_frequency;
+    period_start += glm::vec2(waviness_frequency);
 
     float width = glm::mix(
         stem_width + 0.002f,
@@ -157,13 +162,13 @@ void SorghumGrowthStagePair::ApplyLeaf(const std::shared_ptr<SorghumDescriptor>&
 
     const auto up = glm::normalize(glm::cross(current_direction, leaf_left));
     leaf_state.spline.segments.emplace_back(node_position, up, current_direction, width, angle,
-                                              waviness * glm::simplex(glm::vec2(height_offset, 0.f)),
-                                              waviness * glm::simplex(glm::vec2(0.f, height_offset)));
+                                            waviness * glm::simplex(glm::vec2(period_start.x, 0.f)),
+                                            waviness * glm::simplex(glm::vec2(0.f, period_start.y)));
   }
 }
 
-void SorghumGrowthStagePair::LeafStateHelper(SorghumLeafGrowthStage& left, SorghumLeafGrowthStage& right, float& a,
-                                             int leaf_index) const {
+void SorghumGrowthStagePair::LeafStateHelper(SorghumLeafState& left, SorghumLeafState& right, float& a,
+                                             const int leaf_index) const {
   const int previous_leaf_size = left_stage.leaves.size();
   const int next_leaf_size = right_stage.leaves.size();
   if (leaf_index < previous_leaf_size) {
@@ -204,7 +209,7 @@ int SorghumGrowthStagePair::GetLeafSize(const float a) const {
   }
   return left_stage.leaves.size();
 }
-float SorghumGrowthStagePair::GetStemLength(float a) const {
+float SorghumGrowthStagePair::GetStemLength(const float a) const {
   float left_length, right_length;
   switch (static_cast<StateMode>(state_mode)) {
     case StateMode::Default:
@@ -227,7 +232,7 @@ float SorghumGrowthStagePair::GetStemLength(float a) const {
   }
   return glm::mix(left_length, right_length, a);
 }
-glm::vec3 SorghumGrowthStagePair::GetStemDirection(float a) const {
+glm::vec3 SorghumGrowthStagePair::GetStemDirection(const float a) const {
   glm::vec3 left_dir, right_dir;
   switch (static_cast<StateMode>(state_mode)) {
     case StateMode::Default:
@@ -250,7 +255,7 @@ glm::vec3 SorghumGrowthStagePair::GetStemDirection(float a) const {
 
   return glm::normalize(glm::mix(left_dir, right_dir, a));
 }
-glm::vec3 SorghumGrowthStagePair::GetStemPoint(float a, float point) const {
+glm::vec3 SorghumGrowthStagePair::GetStemPoint(const float a, const float point) const {
   glm::vec3 left_point, right_point;
   switch (static_cast<StateMode>(state_mode)) {
     case StateMode::Default:
@@ -275,8 +280,7 @@ glm::vec3 SorghumGrowthStagePair::GetStemPoint(float a, float point) const {
 }
 
 void SorghumGrowthStagePair::ApplyPanicle(const std::shared_ptr<SorghumDescriptor>& target_state, const float a) const {
-  target_state->panicle.panicle_size =
-      glm::mix(left_stage.panicle.panicle_size, right_stage.panicle.panicle_size, a);
+  target_state->panicle.panicle_size = glm::mix(left_stage.panicle.panicle_size, right_stage.panicle.panicle_size, a);
   target_state->panicle.seed_amount = glm::mix(left_stage.panicle.seed_amount, right_stage.panicle.seed_amount, a);
   target_state->panicle.seed_radius = glm::mix(left_stage.panicle.seed_radius, right_stage.panicle.seed_radius, a);
 }
@@ -306,388 +310,323 @@ void SorghumGrowthStagePair::ApplyStem(const std::shared_ptr<SorghumDescriptor>&
   }
 }
 
-bool SorghumPanicleGrowthStage::OnInspect() {
-  bool changed = false;
-  if (ImGui::DragFloat("Panicle width", &panicle_size.x, 0.001f)) {
-    changed = true;
-    panicle_size.z = panicle_size.x;
+bool SorghumGrowthStages::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  if (ImGui::Button("Instantiate")) {
+    auto entity = CreateEntity();
   }
-  if (ImGui::DragFloat("Panicle height", &panicle_size.y, 0.001f))
-    changed = true;
-  if (ImGui::DragInt("Num of seeds", &seed_amount, 1.0f))
-    changed = true;
-  if (ImGui::DragFloat("Seed radius", &seed_radius, 0.0001f))
-    changed = true;
-  if (changed)
-    saved = false;
-  return changed;
-}
-void SorghumPanicleGrowthStage::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "panicle_size" << YAML::Value << panicle_size;
-  out << YAML::Key << "seed_amount" << YAML::Value << seed_amount;
-  out << YAML::Key << "seed_radius" << YAML::Value << seed_radius;
-}
-void SorghumPanicleGrowthStage::Deserialize(const YAML::Node& in) {
-  if (in["panicle_size"])
-    panicle_size = in["panicle_size"].as<glm::vec3>();
-  if (in["seed_amount"])
-    seed_amount = in["seed_amount"].as<int>();
-  if (in["seed_radius"])
-    seed_radius = in["seed_radius"].as<float>();
-  saved = true;
-}
-
-SorghumPanicleGrowthStage::SorghumPanicleGrowthStage() {
-  panicle_size = glm::vec3(0, 0, 0);
-  seed_amount = 0;
-  seed_radius = 0.002f;
-  saved = false;
-}
-void SorghumStemGrowthStage::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "direction" << YAML::Value << direction;
-  width_along_stem.Save("width_along_stem", out);
-  out << YAML::Key << "length" << YAML::Value << length;
-  out << YAML::Key << "spline" << YAML::Value << YAML::BeginMap;
-  spline.Serialize(out);
-  out << YAML::EndMap;
-}
-void SorghumStemGrowthStage::Deserialize(const YAML::Node& in) {
-  if (in["spline"]) {
-    spline.Deserialize(in["spline"]);
-  }
-
-  if (in["direction"])
-    direction = in["direction"].as<glm::vec3>();
-  if (in["length"])
-    length = in["length"].as<float>();
-  width_along_stem.Load("width_along_stem", in);
-
-  saved = true;
-}
-bool SorghumStemGrowthStage::OnInspect(int mode) {
-  bool changed = false;
-  switch ((StateMode)mode) {
-    case StateMode::Default:
-      // ImGui::DragFloat3("Direction", &direction.x, 0.01f);
-      if (ImGui::DragFloat("Length", &length, 0.01f))
-        changed = true;
-      break;
-    case StateMode::CubicBezier:
-      if (ImGui::TreeNode("Spline")) {
-        spline.OnInspect();
-        ImGui::TreePop();
+  static bool auto_save = false;
+  ImGui::Checkbox("Auto save", &auto_save);
+  if (!auto_save) {
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
+    ImGui::Text("[Auto save disabled!]");
+    ImGui::PopStyleColor();
+  } else {
+    static double last_auto_save_time = 0;
+    static float auto_save_interval = 10;
+    if (ImGui::TreeNodeEx("Auto save settings")) {
+      if (ImGui::DragFloat("Time interval", &auto_save_interval, 1.0f, 2.0f, 300.0f)) {
+        auto_save_interval = glm::clamp(auto_save_interval, 5.0f, 300.0f);
       }
-      break;
-  }
-  if (width_along_stem.OnInspect("Width along stem"))
-    changed = true;
-
-  if (changed)
-    saved = false;
-  return changed;
-}
-bool SorghumLeafGrowthStage::OnInspect(int mode) {
-  bool changed = false;
-  if (ImGui::Checkbox("Dead", &dead)) {
-    changed = true;
-    if (!dead && length == 0.0f)
-      length = 0.35f;
-  }
-  if (!dead) {
-    if (ImGui::InputFloat("Starting point", &starting_point)) {
-      starting_point = glm::clamp(starting_point, 0.0f, 1.0f);
-      changed = true;
-    }
-    switch ((StateMode)mode) {
-      case StateMode::Default:
-        if (ImGui::TreeNodeEx("Geometric", ImGuiTreeNodeFlags_DefaultOpen)) {
-          if (ImGui::DragFloat("Length", &length, 0.01f, 0.0f, 999.0f))
-            changed = true;
-          if (ImGui::TreeNodeEx("Angles", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (ImGui::DragFloat("Roll angle", &roll_angle, 1.0f, -999.0f, 999.0f))
-              changed = true;
-            if (ImGui::InputFloat("Branching angle", &branching_angle)) {
-              branching_angle = glm::clamp(branching_angle, 0.0f, 180.0f);
-              changed = true;
-            }
-            ImGui::TreePop();
-          }
-          ImGui::TreePop();
-        }
-        break;
-      case StateMode::CubicBezier:
-        if (ImGui::TreeNodeEx("Geometric", ImGuiTreeNodeFlags_DefaultOpen)) {
-          spline.OnInspect();
-          ImGui::TreePop();
-        }
-        break;
-    }
-
-    if (ImGui::TreeNodeEx("Others")) {
-      if (width_along_leaf.OnInspect("Width"))
-        changed = true;
-      if (curling_along_leaf.OnInspect("Rolling"))
-        changed = true;
-
-      static CurveDescriptorSettings leaf_bending = {1.0f, false, true,
-                                                     "The bending of the leaf, controls how leaves bend because of "
-                                                     "gravity. Positive value results in leaf bending towards the "
-                                                     "ground, negative value results in leaf bend towards the sky"};
-
-      if (bending_along_leaf.OnInspect("Bending along leaf", leaf_bending)) {
-        changed = true;
-        bending_along_leaf.curve.UnsafeGetValues()[1].y = 0.5f;
-      }
-      if (waviness_along_leaf.OnInspect("Waviness along leaf"))
-        changed = true;
-
-      if (ImGui::DragFloat("Waviness frequency", &waviness_frequency, 0.01f, 0.0f, 999.0f))
-        changed = true;
-      if (ImGui::DragFloat2("Waviness start period", &waviness_period_start.x, 0.01f, 0.0f, 999.0f))
-        changed = true;
       ImGui::TreePop();
     }
+    if (last_auto_save_time == 0) {
+      last_auto_save_time = Times::Now();
+    } else if (last_auto_save_time + auto_save_interval < Times::Now()) {
+      last_auto_save_time = Times::Now();
+      if (!saved_) {
+        Save();
+        EVOENGINE_LOG(GetTypeName() + " autosaved!");
+      }
+    }
   }
-  if (changed)
-    saved = false;
-  return changed;
-}
-void SorghumLeafGrowthStage::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "dead" << YAML::Value << dead;
-  out << YAML::Key << "index" << YAML::Value << index;
-  if (!dead) {
-    out << YAML::Key << "spline" << YAML::Value << YAML::BeginMap;
-    spline.Serialize(out);
-    out << YAML::EndMap;
-
-    out << YAML::Key << "starting_point" << YAML::Value << starting_point;
-    out << YAML::Key << "length" << YAML::Value << length;
-    curling_along_leaf.Save("curling_along_leaf", out);
-    width_along_leaf.Save("width_along_leaf", out);
-    out << YAML::Key << "roll_angle" << YAML::Value << roll_angle;
-    out << YAML::Key << "branching_angle" << YAML::Value << branching_angle;
-    bending_along_leaf.Save("bending_along_leaf", out);
-    waviness_along_leaf.Save("waviness_along_leaf", out);
-    out << YAML::Key << "waviness_frequency" << YAML::Value << waviness_frequency;
-    out << YAML::Key << "waviness_period_start" << YAML::Value << waviness_period_start;
+  if (!saved_) {
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
+    ImGui::Text("[Changed unsaved!]");
+    ImGui::PopStyleColor();
   }
-}
-
-void SorghumLeafGrowthStage::Deserialize(const YAML::Node& in) {
-  if (in["index"])
-    index = in["index"].as<int>();
-  if (in["dead"])
-    dead = in["dead"].as<bool>();
-  if (!dead) {
-    if (in["spline"]) {
-      spline.Deserialize(in["spline"]);
+  bool changed = false;
+  FileUtils::OpenFile(
+      "Import CSV", "CSV", {".csv", ".CSV"},
+      [&](const std::filesystem::path& path) {
+        changed = ImportCsv(path);
+      },
+      false);
+  static const char* state_modes[]{"Default", "Cubic-Bezier"};
+  if (ImGui::Combo("Mode", &state_mode, state_modes, IM_ARRAYSIZE(state_modes))) {
+    changed = false;
+  }
+  if (ImGui::TreeNodeEx("States", ImGuiTreeNodeFlags_DefaultOpen)) {
+    const float start_time = sorghum_growth_stages.empty() ? 1.0f : sorghum_growth_stages.begin()->first;
+    if (start_time >= 0.01f) {
+      if (ImGui::Button("New start state")) {
+        changed = true;
+        if (sorghum_growth_stages.empty()) {
+          Add(0.0f, SorghumState());
+        } else {
+          Add(0.0f, sorghum_growth_stages.begin()->second);
+        }
+      }
     }
 
-    if (in["starting_point"])
-      starting_point = in["starting_point"].as<float>();
-    if (in["length"])
-      length = in["length"].as<float>();
-    if (in["roll_angle"])
-      roll_angle = in["roll_angle"].as<float>();
-    if (in["branching_angle"])
-      branching_angle = in["branching_angle"].as<float>();
-    if (in["waviness_frequency"])
-      waviness_frequency = in["waviness_frequency"].as<float>();
-    if (in["waviness_period_start"])
-      waviness_period_start = in["waviness_period_start"].as<glm::vec2>();
-
-    curling_along_leaf.Load("curling_along_leaf", in);
-    bending_along_leaf.Load("bending_along_leaf", in);
-    width_along_leaf.Load("width_along_leaf", in);
-    waviness_along_leaf.Load("waviness_along_leaf", in);
-  }
-
-  saved = true;
-}
-SorghumStemGrowthStage::SorghumStemGrowthStage() {
-  length = 0.35f;
-  width_along_stem = {0.0f, 0.015f, {0.6f, 0.4f, {0, 0}, {1, 1}}};
-
-  saved = false;
-}
-
-SorghumLeafGrowthStage::SorghumLeafGrowthStage() {
-  dead = false;
-  waviness_along_leaf = {0.0f, 5.0f, {0.0f, 0.5f, {0, 0}, {1, 1}}};
-  waviness_frequency = 0.03f;
-  waviness_period_start = {0.0f, 0.0f};
-  width_along_leaf = {0.0f, 0.02f, {0.5f, 0.1f, {0, 0}, {1, 1}}};
-  auto& pairs = width_along_leaf.curve.UnsafeGetValues();
-  pairs.clear();
-  pairs.emplace_back(-0.1, 0.0f);
-  pairs.emplace_back(0, 0.5);
-  pairs.emplace_back(0.11196319, 0.111996889);
-
-  pairs.emplace_back(-0.0687116608, 0);
-  pairs.emplace_back(0.268404901, 0.92331290);
-  pairs.emplace_back(0.100000001, 0.0f);
-
-  pairs.emplace_back(-0.100000001, 0);
-  pairs.emplace_back(0.519368708, 1);
-  pairs.emplace_back(0.100000001, 0);
-
-  pairs.emplace_back(-0.100000001, 0.0f);
-  pairs.emplace_back(1, 0.1);
-  pairs.emplace_back(0.1, 0.0f);
-
-  bending_along_leaf = {-180.0f, 180.0f, {0.5f, 0.5, {0, 0}, {1, 1}}};
-  curling_along_leaf = {0.0f, 90.0f, {0.3f, 0.3f, {0, 0}, {1, 1}}};
-  length = 0.35f;
-  branching_angle = 30.0f;
-
-  saved = false;
-}
-void SorghumLeafGrowthStage::CopyShape(const SorghumLeafGrowthStage& another) {
-  spline = another.spline;
-  width_along_leaf.curve = another.width_along_leaf.curve;
-  curling_along_leaf = another.curling_along_leaf;
-  bending_along_leaf = another.bending_along_leaf;
-  waviness_along_leaf = another.waviness_along_leaf;
-  waviness_period_start = another.waviness_period_start;
-  waviness_frequency = another.waviness_frequency;
-
-  saved = false;
-}
-
-bool SorghumGrowthStage::OnInspect(int mode) {
-  bool changed = false;
-  if (ImGui::TreeNodeEx((std::string("Stem")).c_str())) {
-    if (stem.OnInspect(mode))
-      changed = true;
-    ImGui::TreePop();
-  }
-
-  if (ImGui::TreeNodeEx("Leaves")) {
-    int leaf_size = leaves.size();
-    if (ImGui::InputInt("Number of leaves", &leaf_size)) {
-      changed = true;
-      leaf_size = glm::clamp(leaf_size, 0, 999);
-      const auto previous_size = leaves.size();
-      leaves.resize(leaf_size);
-      for (int i = 0; i < leaf_size; i++) {
-        if (i >= previous_size) {
-          if (i - 1 >= 0) {
-            leaves[i] = leaves[i - 1];
-            leaves[i].roll_angle = glm::mod(leaves[i - 1].roll_angle + 180.0f, 360.0f);
-            leaves[i].starting_point = leaves[i - 1].starting_point + 0.1f;
-          } else {
-            leaves[i] = SorghumLeafGrowthStage();
-            leaves[i].roll_angle = 0;
-            leaves[i].starting_point = 0.1f;
+    float previous_time = 0.0f;
+    int state_index = 1;
+    for (auto it = sorghum_growth_stages.begin(); it != sorghum_growth_stages.end(); ++it) {
+      if (ImGui::TreeNodeEx(("State " + std::to_string(state_index) + ": " + it->second.name).c_str())) {
+        const std::string tag = "##SorghumState" + std::to_string(state_index);
+        if (ImGui::BeginPopupContextItem(tag.c_str())) {
+          if (ImGui::BeginMenu(("Rename" + tag).c_str())) {
+            static char new_name[256];
+            ImGui::InputText(("New name" + tag).c_str(), new_name, 256);
+            if (ImGui::Button(("Confirm" + tag).c_str())) {
+              it->second.name = new_name;
+              memset(new_name, 0, 256);
+            }
+            ImGui::EndMenu();
+          }
+          ImGui::EndPopup();
+        }
+        if (state_index != 1) {
+          if (ImGui::Button("Copy prev leaves shape")) {
+            for (int i = 0; i < (it - 1)->second.leaves.size() && i < it->second.leaves.size(); i++) {
+              it->second.leaves[i].CopyShape((it - 1)->second.leaves[i]);
+              it->second.saved = false;
+              changed = true;
+            }
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("Duplicate prev")) {
+            it->second = (it - 1)->second;
+            it->second.saved = false;
+            for (auto& leaf_state : it->second.leaves)
+              leaf_state.saved = false;
+            it->second.panicle.saved = false;
+            it->second.stem.saved = false;
+            changed = true;
           }
         }
-        leaves[i].index = i;
-      }
-    }
-    for (auto& leaf : leaves) {
-      if (ImGui::TreeNode(
-              ("Leaf No." + std::to_string(leaf.index + 1) + (leaf.length == 0.0f || leaf.dead ? " (Dead)" : ""))
-                  .c_str())) {
-        if (leaf.OnInspect(mode))
+        if (it != (--sorghum_growth_stages.end())) {
+          auto tit = it;
+          ++tit;
+          const float next_time = tit->first - 0.01f;
+          float current_time = it->first;
+          if (ImGui::InputFloat("Time", &current_time)) {
+            it->first = glm::clamp(current_time, previous_time, next_time);
+            changed = true;
+          }
+
+        } else {
+          float current_time = it->first;
+          if (ImGui::InputFloat("Time", &current_time)) {
+            it->first = glm::clamp(current_time, previous_time, 99999.0f);
+            changed = true;
+          }
+        }
+
+        if (it->second.OnInspectImpl(state_mode)) {
           changed = true;
+        }
+
         ImGui::TreePop();
       }
+      previous_time = it->first + 0.01f;
+      state_index++;
+    }
+
+    if (!sorghum_growth_stages.empty()) {
+      if (ImGui::Button("New end state")) {
+        changed = true;
+        const float end_time = (--sorghum_growth_stages.end())->first;
+        Add(end_time + 0.01f, (--sorghum_growth_stages.end())->second);
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Remove end state")) {
+        changed = true;
+        sorghum_growth_stages.erase(--sorghum_growth_stages.end());
+      }
     }
     ImGui::TreePop();
   }
-
-  if (ImGui::TreeNodeEx((std::string("Panicle")).c_str())) {
-    if (panicle.OnInspect())
-      changed = true;
-    ImGui::TreePop();
+  /*
+  if (ImGui::TreeNode("Import state...")) {
+          static int seed = 0;
+          ImGui::DragInt("Using seed", &seed);
+          static AssetRef descriptor;
+          editorLayer->DragAndDropButton<SorghumDescriptorGenerator>(
+                  descriptor, "Drag SPD here to add end state");
+          auto temp = descriptor.Get<SorghumDescriptorGenerator>();
+          if (temp) {
+                  float endTime =
+                          sorghum_growth_stages.empty() ? -0.01f : (--sorghum_growth_stages.end())->first;
+                  SorghumState stage;
+                  temp->Apply(stage, seed);
+                  Add(endTime + 0.01f, stage);
+                  descriptor.Clear();
+                  changed = true;
+          }
+          ImGui::TreePop();
   }
-  if (mode == static_cast<int>(StateMode::CubicBezier)) {
-    FileUtils::OpenFile(
-        "Import...", "TXT", {".txt"},
-        [&](const std::filesystem::path& path) {
-          std::ifstream file(path, std::fstream::in);
-          if (!file.is_open()) {
-            EVOENGINE_LOG("Failed to open file!");
-            return;
-          }
-          changed = true;
-          // Number of leaves in the file
-          int leaf_count;
-          file >> leaf_count;
-          stem = SorghumStemGrowthStage();
-          stem.spline.Import(file);
-          /*
-          // Recenter plant:
-          glm::vec3 posSum = stem.spline.curves.front().p0;
-          for (auto &curve : stem.spline.curves) {
-            curve.p0 -= posSum;
-            curve.m_p1 -= posSum;
-            curve.m_p2 -= posSum;
-            curve.m_p3 -= posSum;
-          }
-          */
-          leaves.resize(leaf_count);
-          for (int i = 0; i < leaf_count; i++) {
-            float starting_point;
-            file >> starting_point;
-            leaves[i] = SorghumLeafGrowthStage();
-            leaves[i].starting_point = starting_point;
-            leaves[i].spline.Import(file);
-            leaves[i].spline.curves[0].p0 = stem.spline.EvaluatePointFromCurves(starting_point);
-          }
-
-          for (int i = 0; i < leaf_count; i++) {
-            leaves[i].index = i;
-          }
-        },
-        false);
-  }
-  if (changed)
-    saved = false;
+  */
   return changed;
 }
 
-void SorghumGrowthStage::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "version_" << YAML::Value << version_;
-  out << YAML::Key << "name" << YAML::Value << name;
-  out << YAML::Key << "panicle" << YAML::Value << YAML::BeginMap;
-  panicle.Serialize(out);
-  out << YAML::EndMap;
-  out << YAML::Key << "stem" << YAML::Value << YAML::BeginMap;
-  stem.Serialize(out);
-  out << YAML::EndMap;
-
-  if (!leaves.empty()) {
-    out << YAML::Key << "leaves" << YAML::Value << YAML::BeginSeq;
-    for (auto& i : leaves) {
-      out << YAML::BeginMap;
-      i.Serialize(out);
-      out << YAML::EndMap;
-    }
-    out << YAML::EndSeq;
+void SorghumGrowthStages::Serialize(YAML::Emitter& out) const {
+  out << YAML::Key << "state_mode" << YAML::Value << state_mode;
+  out << YAML::Key << "sorghum_growth_stages" << YAML::Value << YAML::BeginSeq;
+  for (auto& state : sorghum_growth_stages) {
+    out << YAML::BeginMap;
+    out << YAML::Key << "Time" << YAML::Value << state.first;
+    state.second.Serialize(out);
+    out << YAML::EndMap;
   }
+  out << YAML::EndSeq;
 }
 
-void SorghumGrowthStage::Deserialize(const YAML::Node& in) {
-  if (in["version_"])
-    version_ = in["version_"].as<unsigned>();
-  if (in["name"])
-    name = in["name"].as<std::string>();
-  if (in["panicle"])
-    panicle.Deserialize(in["panicle"]);
-
-  if (in["stem"])
-    stem.Deserialize(in["stem"]);
-
-  if (in["leaves"]) {
-    for (const auto& i : in["leaves"]) {
-      SorghumLeafGrowthStage leaf;
-      leaf.Deserialize(i);
-      leaves.push_back(leaf);
+void SorghumGrowthStages::Deserialize(const YAML::Node& in) {
+  if (in["state_mode"])
+    state_mode = in["state_mode"].as<int>();
+  if (in["sorghum_growth_stages"]) {
+    sorghum_growth_stages.clear();
+    for (const auto& in_state : in["sorghum_growth_stages"]) {
+      SorghumState state;
+      state.Deserialize(in_state);
+      sorghum_growth_stages.emplace_back(in_state["Time"].as<float>(), state);
     }
   }
 }
-SorghumGrowthStage::SorghumGrowthStage() {
-  saved = false;
-  name = "Unnamed";
+
+Entity SorghumGrowthStages::CreateEntity(const float time) const {
+  const auto scene = Application::GetActiveScene();
+  const auto entity = scene->CreateEntity(GetTitle());
+  const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(entity).lock();
+  const auto sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+  Apply(sorghum_state, time);
+  sorghum->sorghum_descriptor = sorghum_state;
+  sorghum->sorghum_growth_stages = GetSelf();
+  sorghum->GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
+  return entity;
+}
+
+void SorghumGrowthStages::Add(float time, const SorghumState& state) {
+  for (auto it = sorghum_growth_stages.begin(); it != sorghum_growth_stages.end(); ++it) {
+    if (it->first == time) {
+      it->second = state;
+      return;
+    }
+    if (it->first > time) {
+      sorghum_growth_stages.insert(it, {time, state});
+      return;
+    }
+  }
+  sorghum_growth_stages.emplace_back(time, state);
+  sorghum_growth_stages.back().second.name = "Unnamed";
+}
+
+void SorghumGrowthStages::ResetTime(const float previous_time, const float new_time) {
+  for (auto& i : sorghum_growth_stages) {
+    if (i.first == previous_time) {
+      i.first = new_time;
+      return;
+    }
+  }
+  EVOENGINE_ERROR("Failed: State at previous time not exists!");
+}
+void SorghumGrowthStages::Remove(const float time) {
+  for (auto it = sorghum_growth_stages.begin(); it != sorghum_growth_stages.end(); ++it) {
+    if (it->first == time) {
+      sorghum_growth_stages.erase(it);
+      return;
+    }
+  }
+}
+float SorghumGrowthStages::GetCurrentStartTime() const {
+  if (sorghum_growth_stages.empty()) {
+    return 0.0f;
+  }
+  return sorghum_growth_stages.begin()->first;
+}
+float SorghumGrowthStages::GetCurrentEndTime() const {
+  if (sorghum_growth_stages.empty()) {
+    return 0.0f;
+  }
+  return (--sorghum_growth_stages.end())->first;
+}
+
+bool SorghumGrowthStages::ImportCsv(const std::filesystem::path& file_path) {
+  try {
+    rapidcsv::Document doc(file_path.string());
+    std::vector<std::string> time_points = doc.GetColumn<std::string>("Time Point");
+    std::vector<float> stem_heights = doc.GetColumn<float>("Stem Height");
+    std::vector<float> stem_width = doc.GetColumn<float>("Stem Width");
+    std::vector<float> leaf_index = doc.GetColumn<float>("Leaf Number");
+    std::vector<float> leaf_length = doc.GetColumn<float>("Leaf Length");
+    std::vector<float> leaf_width = doc.GetColumn<float>("Leaf Width");
+    std::vector<float> leaf_height = doc.GetColumn<float>("Leaf Height");
+    std::vector<float> starting_point = doc.GetColumn<float>("Start Point");
+    std::vector<float> branching_angle = doc.GetColumn<float>("Branching Angle");
+    std::vector<float> panicle_length = doc.GetColumn<float>("Panicle Height");
+    std::vector<float> panicle_width = doc.GetColumn<float>("Panicle Width");
+
+    sorghum_growth_stages.clear();
+
+    std::map<std::string, std::pair<int, int>> column_indices;
+    int current_index = 0;
+    for (int row = 0; row < time_points.size(); row++) {
+      auto& time_point = time_points[row];
+      if (column_indices.find(time_point) == column_indices.end()) {
+        column_indices[time_point].first = current_index;
+        current_index++;
+      }
+      if (column_indices[time_point].second < leaf_index[row])
+        column_indices[time_point].second = leaf_index[row];
+    }
+
+    sorghum_growth_stages.resize(current_index);
+    for (int row = 0; row < time_points.size(); row++) {
+      int state_index = column_indices.at(time_points[row]).first;
+      auto& state_pair = sorghum_growth_stages[state_index];
+      auto& state = state_pair.second;
+      if (state.leaves.empty()) {
+        state_pair.first = state_index;
+        state.name = time_points[row];
+        state.leaves.resize(column_indices.at(time_points[row]).second);
+        for (auto& leaf : state.leaves)
+          leaf.dead = true;
+        state.stem.length = stem_heights[row] / 100.0f;
+        state.stem.width_along_stem.min_value = 0.0f;
+        state.stem.width_along_stem.max_value = stem_width[row] * 2.0f;
+        state.panicle.panicle_size.x = state.panicle.panicle_size.z = panicle_width[row] / 100.0f;
+        state.panicle.panicle_size.y = panicle_length[row] / 100.0f;
+        state.panicle.seed_amount =
+            state.panicle.panicle_size.x * state.panicle.panicle_size.y * state.panicle.panicle_size.z / 0.001f;
+      }
+      auto& leaf = state.leaves[leaf_index[row] - 1];
+      leaf.index = leaf_index[row] - 1;
+      leaf.length = leaf_length[row] / 100.0f;
+      if (leaf.length == 0)
+        leaf.dead = true;
+      else {
+        leaf.dead = false;
+        leaf.roll_angle = leaf.index % 2 * 180.0f;
+        leaf.width_along_leaf.max_value = leaf_width[row] / 100.0f;
+        leaf.starting_point = leaf_height[row] / stem_heights[row];
+        leaf.branching_angle = branching_angle[row];
+      }
+    }
+
+    for (auto& sorghum_state : sorghum_growth_stages) {
+      sorghum_state.second.saved = false;
+      int current_leaf_index = 0;
+      for (auto& leaf_state : sorghum_state.second.leaves) {
+        leaf_state.saved = false;
+        leaf_state.index = current_leaf_index;
+        current_leaf_index++;
+      }
+      sorghum_state.second.stem.saved = false;
+      sorghum_state.second.panicle.saved = false;
+    }
+    saved_ = false;
+  } catch (const std::exception& e) {
+    return false;
+  }
+  return true;
 }

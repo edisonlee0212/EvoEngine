@@ -18,17 +18,17 @@ bool SorghumMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLayer>&
   return false;
 }
 
-bool SorghumPanicleState::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SorghumPanicleDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   return false;
 }
 
-void SorghumPanicleState::Serialize(YAML::Emitter& out) const {
+void SorghumPanicleDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "panicle_size" << YAML::Value << panicle_size;
   out << YAML::Key << "seed_amount" << YAML::Value << seed_amount;
   out << YAML::Key << "seed_radius" << YAML::Value << seed_radius;
 }
 
-void SorghumPanicleState::Deserialize(const YAML::Node& in) {
+void SorghumPanicleDescriptor::Deserialize(const YAML::Node& in) {
   if (in["panicle_size"])
     panicle_size = in["panicle_size"].as<glm::vec3>();
   if (in["seed_amount"])
@@ -37,7 +37,7 @@ void SorghumPanicleState::Deserialize(const YAML::Node& in) {
     seed_radius = in["seed_radius"].as<float>();
 }
 
-void SorghumPanicleState::GenerateGeometry(const glm::vec3& stem_tip, std::vector<Vertex>& vertices,
+void SorghumPanicleDescriptor::GenerateGeometry(const glm::vec3& stem_tip, std::vector<Vertex>& vertices,
                                            std::vector<unsigned>& indices) const {
   std::vector<glm::vec3> icosahedron_vertices;
   std::vector<glm::uvec3> icosahedron_triangles;
@@ -62,7 +62,7 @@ void SorghumPanicleState::GenerateGeometry(const glm::vec3& stem_tip, std::vecto
   }
 }
 
-void SorghumPanicleState::GenerateGeometry(const glm::vec3& stem_tip, std::vector<Vertex>& vertices,
+void SorghumPanicleDescriptor::GenerateGeometry(const glm::vec3& stem_tip, std::vector<Vertex>& vertices,
                                            std::vector<unsigned>& indices,
                                            const std::shared_ptr<ParticleInfoList>& particle_info_list) const {
   std::vector<glm::vec3> icosahedron_vertices;
@@ -94,19 +94,19 @@ void SorghumPanicleState::GenerateGeometry(const glm::vec3& stem_tip, std::vecto
   particle_info_list->SetParticleInfos(infos);
 }
 
-bool SorghumStemState::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SorghumStemDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   return false;
 }
 
-void SorghumStemState::Serialize(YAML::Emitter& out) const {
+void SorghumStemDescriptor::Serialize(YAML::Emitter& out) const {
   spline.Serialize("spline", out);
 }
 
-void SorghumStemState::Deserialize(const YAML::Node& in) {
+void SorghumStemDescriptor::Deserialize(const YAML::Node& in) {
   spline.Deserialize("spline", in);
 }
 
-void SorghumStemState::GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned>& indices) const {
+void SorghumStemDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned>& indices) const {
   if (spline.segments.empty())
     return;
   auto sorghum_layer = Application::GetLayer<SorghumLayer>();
@@ -156,23 +156,23 @@ void SorghumStemState::GenerateGeometry(std::vector<Vertex>& vertices, std::vect
   }
 }
 
-bool SorghumLeafState::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SorghumLeafDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   
   return false;
 }
 
-void SorghumLeafState::Serialize(YAML::Emitter& out) const {
+void SorghumLeafDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "index" << YAML::Value << index;
   spline.Serialize("spline", out);
 }
 
-void SorghumLeafState::Deserialize(const YAML::Node& in) {
+void SorghumLeafDescriptor::Deserialize(const YAML::Node& in) {
   if (in["index"])
     index = in["index"].as<int>();
   spline.Deserialize("spline", in);
 }
 
-void SorghumLeafState::GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned>& indices,
+void SorghumLeafDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned>& indices,
                                         const SorghumMeshGeneratorSettings& mesh_generator_settings, bool current_bottom_face) const {
   if (spline.segments.empty())
     return;
@@ -327,7 +327,7 @@ void SorghumDescriptor::Deserialize(const YAML::Node& in) {
 
   if (in["leaves"]) {
     for (const auto& i : in["leaves"]) {
-      SorghumLeafState leaf_state{};
+      SorghumLeafDescriptor leaf_state{};
       leaf_state.Deserialize(i);
       leaves.push_back(leaf_state);
     }

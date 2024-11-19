@@ -14,7 +14,7 @@ struct SorghumMeshGeneratorSettings {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
-class SorghumPanicleState {
+class SorghumPanicleDescriptor {
  public:
   glm::vec3 panicle_size = glm::vec3(0, 0, 0);
   int seed_amount = 0;
@@ -29,7 +29,7 @@ class SorghumPanicleState {
                         const std::shared_ptr<ParticleInfoList>& particle_info_list) const;
 };
 
-class SorghumStemState {
+class SorghumStemDescriptor {
  public:
   SorghumSpline spline;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
@@ -39,7 +39,7 @@ class SorghumStemState {
   void GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned int>& indices) const;
 };
 
-class SorghumLeafState {
+class SorghumLeafDescriptor {
  public:
   int index = 0;
   SorghumSpline spline;
@@ -53,9 +53,9 @@ class SorghumLeafState {
 
 class SorghumDescriptor : public IAsset {
  public:
-  SorghumPanicleState panicle;
-  SorghumStemState stem;
-  std::vector<SorghumLeafState> leaves;
+  SorghumPanicleDescriptor panicle;
+  SorghumStemDescriptor stem;
+  std::vector<SorghumLeafDescriptor> leaves;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
