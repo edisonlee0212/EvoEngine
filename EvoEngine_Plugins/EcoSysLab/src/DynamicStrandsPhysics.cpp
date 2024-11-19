@@ -780,7 +780,7 @@ void DsBundle::InitializeData(const DynamicStrands::InitializeParameters& initia
         //   continue;
         //  Function to check if a point is inside a cylinder
         const auto cylinder_check = [](const glm::vec3& p0, const glm::vec3& p1, const float radius,
-                                       const glm::vec3& point, float& distance) {
+                                       const glm::vec3& point, bool& check) {
           // Calculate the direction vector of the cylinder's axis
           const glm::vec3 d_v = p1 - p0;
           const float height = glm::length(d_v);
@@ -794,23 +794,25 @@ void DsBundle::InitializeData(const DynamicStrands::InitializeParameters& initia
 
           // Check if projection is within the cylinder's height
           if (t < 0.0f || t > height) {
-            return false;  // Outside the cylinder height
+            check = false;
+            return 0.0f;  // Outside the cylinder height
           }
 
           // Closest point on the cylinder's axis
           const glm::vec3 closest_point = p0 + t * direction;
 
           // Distance from point to the axis
-          distance = glm::length(point - closest_point);
-
+          const float distance = glm::length(point - closest_point);
+          check = distance <= radius;
           // Check if the distance is within the radius
-          return distance <= radius;
+          return distance;
         };
-        float distance1, distance2;
-        if (!cylinder_check(particle0.x0, particle1.x0, segment.radius * initialize_parameters.neighbor_range, info.p0,
-                            distance1) &&
-            !cylinder_check(particle0.x0, particle1.x0, segment.radius * initialize_parameters.neighbor_range, info.p1,
-                            distance2))
+        bool check1, check2;
+        const auto distance1 = cylinder_check(particle0.x0, particle1.x0,
+                                              segment.radius * initialize_parameters.neighbor_range, info.p0, check1);
+        const auto distance2 = cylinder_check(particle0.x0, particle1.x0,
+                                              segment.radius * initialize_parameters.neighbor_range, info.p1, check2);
+        if (!check1 && !check2)
           continue;
 
         bool node_check = false;

@@ -250,7 +250,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       connection.max_bend_twist_strain = initialize_parameters.max_bend_twist_strain;
     }
   }
-  //ComputeDelaunay(delaunay_tetrahedrons);
+  ComputeDelaunay(delaunay_tetrahedrons);
   for (const auto& i : constraints)
     i->InitializeData(initialize_parameters, strand_model_skeleton, *this);
 
