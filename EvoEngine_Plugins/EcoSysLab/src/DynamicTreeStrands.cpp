@@ -24,6 +24,7 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
   transform_operator.target_entity = owner;
   transform_operator.ds_transform = std::make_shared<DsTransform>();
   transform_operator.ds_transform->Initialize(initialize_parameters.root_transform, dynamic_strands, segment_handles);
+
 }
 
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
@@ -210,7 +211,8 @@ void DynamicTreeStrands::OnCreate() {
   drag_operator = std::make_shared<DsDrag>();
 
   dynamic_strands->constraints.emplace_back(std::make_shared<DsStiffRod>());
-  dynamic_strands->constraints.emplace_back(std::make_shared<DsParticleNeighbor>());
+  dynamic_strands->constraints.emplace_back(std::make_shared<DsBundle>());
+
 }
 
 void DynamicTreeStrands::OnDestroy() {

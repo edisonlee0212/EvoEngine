@@ -23,18 +23,11 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint particle_size;
+	uint segment_size;
+	float inv_time_step;
 };
 
-struct ParticleNeighbor{
-	vec4 new_position_stiffness;
-	int neighbors[8];
-	vec4 offset[8];
-};
-
-layout(std430, set = 1, binding = 0) buffer CONNECTIVITY_BLOCK {
-  ParticleNeighbor particle_neighbors[];
-};
+#include "Bundle.glsl"
 
 void main(){
 
@@ -42,10 +35,18 @@ void main(){
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint particle_index = baseID + local_index;
+		uint segment_index = baseID + local_index;
 
-		if(particle_index >= particle_size) break;
+		if(segment_index >= segment_size) break;
 
-		particles[particle_index].x_node_handle.xyz = particle_neighbors[particle_index].new_position_stiffness.xyz;
+		Segment segment = segments[segment_index];
+		int particle0_handle = floatBitsToInt(segment.inertia_tensor_particle_0_handle.w);
+		int particle1_handle = floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w);
+		
+		SegmentData segment_data = segment_data_list[segment_index];
+		particles[particle0_handle].x_node_handle.xyz += segment_data.particle0_position_correction_max_strain.xyz;
+		particles[particle1_handle].x_node_handle.xyz += segment_data.particle1_position_correction_max_strain.xyz;
+
+		segments[segment_index].q = normalize(segment_data.q_correction + segments[segment_index].q);
 	}
 }
