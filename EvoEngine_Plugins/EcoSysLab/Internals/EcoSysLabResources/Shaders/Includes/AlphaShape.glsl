@@ -1,3 +1,5 @@
+#extension GL_EXT_control_flow_attributes : require
+
 void SortFourElements(inout uint a[4]) {
   uint min1, min2, max1, max2;
 
@@ -40,28 +42,11 @@ void SortFourElements(inout uint a[4]) {
   }
 }
 
-bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float max_dist_squared) {
-  // check if neighbor is invalid
-  if (neighbor_index != -1 && tet.neighbors[neighbor_index] == -1) {
-    max_dist_squared = 100000.0f;  // marker for this condition
-    return false;
-  }
-  //return true; // debug: should give us the convex hull
-  // prepare indices
-  uint indices[4];
-  for (uint i = 0; i < 4; i++) {
-    if (i != neighbor_index) {
-      indices[i] = tet.indices[i];
-    } else {
-      indices[i] = tet.neighbors[i];
-    }
-  }
-
+// Note: seems to be unstable with a physics simulation
+float CircumsphereRadius(uint indices[4]) {
   // We sort the indices because a different order can lead to a different result due to numerical instability
   // This is important because the order varies depending on which neighbor calls this function, but it must be
   // consistent for a valid alpha-shape
-
-  /*
   SortFourElements(indices);
 
   // first compute circumcenter
@@ -75,7 +60,7 @@ bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float max_dist
   mat3 A;
 
   for (uint i = 1; i < 4; i++) {
-    A[i - 1] = v[i] - v[0]; 
+    A[i - 1] = v[i] - v[0];
   }
 
   // TODO: could be problematic in degenerate or nearly degenerate cases
@@ -94,26 +79,53 @@ bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float max_dist
   float distance_squared_2 = dot(center_to_vertex_2, center_to_vertex_2);
 
   float max_distance_squared = max(distance_squared, max(distance_squared_1, distance_squared_2));
-  min_distance_squared = min(distance_squared, min(distance_squared_1, distance_squared_2));*/
+  float min_distance_squared = min(distance_squared, min(distance_squared_1, distance_squared_2));
+  return min_distance_squared;
+}
 
+float LongestSide(uint indices[4]) {
   vec3 v[4];
 
   for (uint i = 0; i < 4; i++) {
     v[i] = particles[indices[i]].x_node_handle.xyz;
   }
-  max_dist_squared = 0.0;
+ float  d = 0.0;
 
   // just compare all sidelengths
+  [[unroll]]
   for (uint i = 0; i < 4; i++) {
-    for (uint j = i + 1; j < 4; j++)
-    {
+    [[unroll]]
+    for (uint j = i + 1; j < 4; j++) {
       vec3 vij = v[j] - v[i];
       float tmp = dot(vij, vij);
-      if (tmp > max_dist_squared) {
-        max_dist_squared = tmp;
+      if (tmp > d) {
+        d = tmp;
       }
     }
   }
+  return d;
+}
 
-  return max_dist_squared <= alpha;
+bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float d) {
+  // check if neighbor is invalid
+  if (neighbor_index != -1 && tet.neighbors[neighbor_index] == -1) {
+    d = 100000.0f;  // marker for this condition
+    return false;
+  }
+  //return true; // debug: should give us the convex hull
+  // prepare indices
+  uint indices[4];
+
+  [[unroll]]
+  for (uint i = 0; i < 4; i++) {
+    if (i != neighbor_index) {
+      indices[i] = tet.indices[i];
+    } else {
+      indices[i] = tet.neighbors[i];
+    }
+  }
+
+  d = LongestSide(indices);
+
+  return d <= alpha;
 }
