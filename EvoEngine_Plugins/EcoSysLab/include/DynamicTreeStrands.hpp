@@ -57,6 +57,8 @@ class DynamicTreeStrands : public IPrivateComponent {
                                   bool add_operator);
 
   void Subdivide(float min_segment_length, float max_segment_length, const StrandModelStrandGroup& src);
+
+  void UniformSubdivide(uint32_t subdivision, const StrandModelStrandGroup& src);
   void InitializeStrandParticles(const StrandModelStrandGroup& target_strand_group) const;
   void ClearStrandParticles() const;
   void PhysicsStep() const;
