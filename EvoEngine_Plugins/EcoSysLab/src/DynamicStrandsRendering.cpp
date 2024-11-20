@@ -112,7 +112,7 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
     render_pipeline->states.ResetAllStates(color_attachment_infos.size());
     render_pipeline->states.view_port = viewport;
     render_pipeline->states.scissor = scissor;
-    render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+    render_pipeline->states.polygon_mode = VK_POLYGON_MODE_LINE;
     render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
 
     render_pipeline->states.ApplyAllStates(vk_command_buffer);
@@ -128,8 +128,8 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
           vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
           Platform::EverythingBarrier(vk_command_buffer);
           #ifdef USE_RENDERDOC
-                    if (rdoc_api)
-                      rdoc_api->EndFrameCapture(NULL, NULL);
+          if (rdoc_api)
+            rdoc_api->EndFrameCapture(NULL, NULL);
           #endif
         });
   });
