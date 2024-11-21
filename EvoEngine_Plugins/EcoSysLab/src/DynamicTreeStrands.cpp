@@ -78,13 +78,22 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     static float rod_length = 1.0f;
     ImGui::DragFloat("Rod length", &rod_length, 0.01f, 0.01f, 10.0f);
 
-    static glm::ivec2 rod_dimension = {10, 10};
-    ImGui::DragInt2("Rod dimension", &rod_dimension.x, 1, 1, 1000);
+    static glm::ivec3 rod_dimension = {10, 10, 100};
+    if (uniformly_subdivide) {
+      ImGui::DragInt3("Rod dimension (3D)", &rod_dimension.x, 1, 1, 1000);
+    }else {
+      ImGui::DragInt2("Rod dimension (2D)", &rod_dimension.x, 1, 1, 1000);
+    }
     static bool add_operator = false;
     ImGui::Checkbox("Operator", &add_operator);
     if (ImGui::Button("Multiple Rod Experiment")) {
-      MultipleRodExperimentSetup(rod_length, min_segment_length, max_segment_length, 0.002f, rod_dimension,
-                                 add_operator);
+      if (!uniformly_subdivide) {
+        MultipleRodExperimentSetup(rod_length, min_segment_length, max_segment_length, 0.002f, rod_dimension,
+                                   add_operator);
+      }else {
+        UniformMultipleRodExperimentSetup((min_segment_length + max_segment_length) * 0.5f, sub_segment_count, 0.002f,
+                                          rod_dimension, add_operator);
+      }
     }
     ImGui::TreePop();
   }
@@ -298,7 +307,8 @@ void DynamicTreeStrands::MultipleRodExperimentSetup(const float total_length, co
   }
 }
 
-void DynamicTreeStrands::UniformMultipleRodExperimentSetup(const float segment_length, const float radius,
+void DynamicTreeStrands::UniformMultipleRodExperimentSetup(const float segment_length,
+                                                           const uint32_t sub_segment_count, const float radius,
                                                            const glm::ivec3& rod_dimension, const bool add_operator) {
   strand_model_skeleton = {1};
   auto& strand_group = strand_model_skeleton.data.strand_group;
@@ -325,7 +335,7 @@ void DynamicTreeStrands::UniformMultipleRodExperimentSetup(const float segment_l
     }
   }
   strand_group.CalculateRotations();
-  subdivided_strand_group = strand_group;
+  strand_group.UniformlySubdivide(subdivided_strand_group, sub_segment_count);
   subdivided_strand_group.RandomAssignColor();
   UpdateDynamicStrands();
 
