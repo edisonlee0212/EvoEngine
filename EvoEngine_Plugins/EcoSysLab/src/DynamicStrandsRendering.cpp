@@ -9,11 +9,18 @@ using namespace eco_sys_lab_plugin;
 
 bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Render alpha shape mesh", &render_alpha_shape_mesh);
+  ImGui::Checkbox("Wireframe", &wireframe);
+  ImGui::InputFloat("alpha", &alpha, 0.00001, 0.0f, "%.5f");
   return false;
 }
 
 void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
                             const RenderParameters& render_parameters) const {
+  if (!render_parameters.render_alpha_shape_mesh)
+  {
+    return;
+  }
+
   if (!Platform::Constants::support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return;
@@ -82,7 +89,7 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   RenderPushConstant push_constant;
   push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
-  push_constant.alpha = 1.0f / 1000.0f;
+  push_constant.alpha = render_parameters.alpha;
 
   #ifdef USE_RENDERDOC
   if (rdoc_api) {
@@ -112,7 +119,7 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
     render_pipeline->states.ResetAllStates(color_attachment_infos.size());
     render_pipeline->states.view_port = viewport;
     render_pipeline->states.scissor = scissor;
-    render_pipeline->states.polygon_mode = VK_POLYGON_MODE_LINE;
+    render_pipeline->states.polygon_mode = render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
     render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
 
     render_pipeline->states.ApplyAllStates(vk_command_buffer);

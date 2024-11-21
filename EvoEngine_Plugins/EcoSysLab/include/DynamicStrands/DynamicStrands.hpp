@@ -130,7 +130,9 @@ class DynamicStrands {
   };
 
   struct RenderParameters {
-    bool render_alpha_shape_mesh = false;
+    bool render_alpha_shape_mesh = true;
+    bool wireframe = false;
+    float alpha = 1.0 / 10000.0f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
