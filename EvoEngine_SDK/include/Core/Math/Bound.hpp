@@ -28,6 +28,7 @@ struct Ray : IDataComponent {
 struct Plane {
   explicit Plane(const glm::vec4& param);
   Plane(const glm::vec3& normal, float distance);
+  Plane(const glm::vec3& normal, const glm::vec3& point);
   float a, b, c, d;
   Plane();
   void Normalize();
@@ -39,5 +40,10 @@ struct Plane {
   [[nodiscard]] glm::vec3 GetNormal() const;
   [[nodiscard]] float GetDistance() const;
   [[nodiscard]] float CalculatePointDistance(const glm::vec3& point) const;
+
+  [[nodiscard]] glm::vec3 Project(const glm::vec3& point) const;
+
+  static glm::vec2 ProjectPointToPlane(const glm::vec3& point, const glm::vec3& plane_origin, const glm::vec3& plane_dir_x,
+                                       const glm::vec3& plane_dir_y);
 };
 }  // namespace evo_engine

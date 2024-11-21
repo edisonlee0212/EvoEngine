@@ -210,6 +210,14 @@ Plane::Plane(const glm::vec3& normal, const float distance) {
   d = -(n.x * (n * distance).x + n.y * (n * distance).y + n.z * (n * distance).z);
 }
 
+Plane::Plane(const glm::vec3& normal, const glm::vec3& point) {
+  const auto n = glm::normalize(normal);
+  a = n.x;
+  b = n.y;
+  c = n.z;
+  d = -(a * point.x + b * point.y + c * point.z);
+}
+
 Plane::Plane() : a(0), b(0), c(0), d(0) {
 }
 
@@ -244,6 +252,35 @@ float Plane::CalculateTriangleMaxDistance(const std::vector<Vertex>& vertices, c
 
 float Plane::CalculatePointDistance(const glm::vec3& point) const {
   return glm::abs(a * point.x + b * point.y + c * point.z + d) / glm::sqrt(a * a + b * b + c * c);
+}
+
+glm::vec3 Plane::Project(const glm::vec3& point) const {
+  // Calculate the normal vector of the plane
+  const glm::vec3 normal(a, b, c);
+
+  // Calculate the signed distance from the point to the plane
+  const float distance = (a * point.x + b * point.y + c * point.z + d) / glm::length(normal);
+
+  // Compute the projected point
+  return point - distance * glm::normalize(normal);
+}
+
+glm::vec2 Plane::ProjectPointToPlane(const glm::vec3& point, const glm::vec3& plane_origin, const glm::vec3& plane_dir_x,
+    const glm::vec3& plane_dir_y) {
+  // Calculate the relative position of the point to the plane origin
+  const glm::vec3 p_rel = point - plane_origin;
+
+  // Compute the plane normal (assumes planeDirX and planeDirY are not parallel)
+  const glm::vec3 plane_normal = glm::normalize(glm::cross(plane_dir_x, plane_dir_y));
+
+  // Project the relative point onto the plane
+  const glm::vec3 p_proj = p_rel - glm::dot(p_rel, plane_normal) * plane_normal;
+
+  // Calculate the 2D coordinates in the plane's local system
+  const float u = glm::dot(p_proj, plane_dir_x);
+  const float v = glm::dot(p_proj, plane_dir_y);
+
+  return {u, v};
 }
 
 float Plane::CalculateTriangleMinDistance(const std::vector<Vertex>& vertices, const glm::uvec3& triangle) const {

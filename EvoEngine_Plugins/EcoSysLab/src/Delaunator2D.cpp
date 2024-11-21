@@ -203,7 +203,8 @@ Delaunator2D::Delaunator2D(std::vector<float> const& inCoords)
   }
 
   if (!(min_radius < std::numeric_limits<float>::max())) {
-    throw std::runtime_error("not triangulation");
+    EVOENGINE_ERROR("not triangulation");
+    return;
   }
 
   float i2x = coords[2 * i2];

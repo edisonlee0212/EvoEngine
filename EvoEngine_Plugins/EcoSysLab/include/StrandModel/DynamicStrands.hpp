@@ -11,6 +11,23 @@ class DynamicStrandsPreStep;
 class IDsPhysicsOperator;
 class IDynamicStrandsConstraint;
 class DynamicStrandsPrediction;
+
+struct DtsStrandGroupData {};
+
+struct DtsStrandData {};
+
+struct DtsStrandSegmentData {
+  /**
+   * \brief The handle of the internode this pipe segment belongs to. Pipe -> PipeSegment <-> Cell <- Profile <-
+   * Internode
+   */
+  SkeletonNodeHandle node_handle = -1;
+  StrandSegmentHandle original_segment_handle;
+  uint32_t root_distance = 0;
+};
+
+typedef StrandGroup<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData> DtsStrandGroup;
+
 class DynamicStrands {
   bool wait_for_upload = true;
 
@@ -19,6 +36,7 @@ class DynamicStrands {
   [[nodiscard]] bool WaitForUpload() const;
 #pragma region Initialization
   struct InitializeParameters {
+    int sub_segment = 1;
 #ifdef USE_XPBD
     float wood_density = 10.f;  // kg/m^3
 #else
@@ -41,23 +59,23 @@ class DynamicStrands {
     float angular_velocity_damping = 0.005f;
 
     float neighbor_range = 6.0f;
+    SingleDistribution<float> max_neighbor_strain = {0.4f, 0.1f};
 
-    float max_neighbor_strain = 0.5f;
-    glm::vec3 max_stretch_shear_strain = glm::vec3(0.05f);
-    glm::vec3 max_bend_twist_strain = glm::vec3(0.05f);
+    SingleDistribution<glm::vec3> max_stretch_shear_strain = {glm::vec3(0.3f), 0.1f};
+    SingleDistribution<glm::vec3> max_bend_twist_strain = {glm::vec3(0.3f), 0.1f};
     GlobalTransform root_transform{};
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   void Initialize(const InitializeParameters& initialize_parameters, const StrandModelSkeleton& strand_model_skeleton,
-                  const StrandModelStrandGroup& strand_group);
+                  const DtsStrandGroup& strand_group);
 
 #pragma endregion
 #pragma region Step
   struct PhysicsParameters {
     float time_step = 0.01f;
     int sub_step = 5;
-    int constraint_iteration = 5;
+    int constraint_iteration = 1;
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -73,19 +91,21 @@ class DynamicStrands {
     uint32_t segment_render_mode = 0;
     uint32_t connection_render_mode = 0;
 
-    glm::vec4 particle_color0 = glm::vec4(0, 0, 1, 1);
-    glm::vec4 particle_color1 = glm::vec4(1, 0, 0, 1);
-    glm::vec4 particle_color2 = glm::vec4(0.2, 1, 1, 0.8);
+    glm::vec4 particle_color_min = glm::vec4(0, 0, 1, 1);
+    glm::vec4 particle_color_max = glm::vec4(1, 0, 0, 1);
+    glm::vec4 particle_color_main = glm::vec4(0.2, 1, 1, 0.5);
     float particle_multiplier = 1.0f;
 
-    glm::vec4 segment_color0 = glm::vec4(0, 0, 1, 1);
-    glm::vec4 segment_color1 = glm::vec4(1, 0, 0, 1);
-    glm::vec4 segment_color2 = glm::vec4(0.6, 0.3, 0.0, 0.5);
+    glm::vec4 segment_color_min = glm::vec4(0, 0, 1, 1);
+    glm::vec4 segment_color_max = glm::vec4(1, 0, 0, 1);
+    glm::vec4 segment_color_main = glm::vec4(0.6, 0.3, 0.0, 0.4);
+    glm::vec4 segment_color_sub = glm::vec4(0.6, 0.3, 0.0, 0.1);
     float segment_multiplier = 1.0f;
 
-    glm::vec4 connection_color0 = glm::vec4(0, 0, 1, 1);
-    glm::vec4 connection_color1 = glm::vec4(1, 0, 0, 1);
-    glm::vec4 connection_color2 = glm::vec4(1, 1, 1, 0.8);
+    glm::vec4 connection_color_min = glm::vec4(0, 0, 1, 1);
+    glm::vec4 connection_color_max = glm::vec4(1, 0, 0, 1);
+    glm::vec4 connection_color_main = glm::vec4(1, 1, 1, 0.8);
+    glm::vec4 connection_color_sub = glm::vec4(1, 1, 1, 0.2);
     float connection_multiplier = 1.0f;
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
@@ -108,6 +128,12 @@ class DynamicStrands {
 
     int begin_connection_handle = -1;
     int end_connection_handle = -1;
+
+    int begin_jump_segment_handle = -1;
+    int end_jump_segment_handle = -1;
+
+    int begin_jump_connection_handle = -1;
+    int end_jump_connection_handle = -1;
   };
 
   struct GpuSegment {
@@ -145,8 +171,12 @@ class DynamicStrands {
     glm::vec3 stretch_shear_strain = glm::vec3(0.f);
     float original_inv_mass = 0.0f;
 
-    glm::vec3 max_stretch_shear_strain;
-    float padding;
+    glm::vec4 max_stretch_shear_strain;
+
+    int prev_jump_handle;
+    int next_jump_handle;
+    int padding0;
+    int padding1;
   };
   struct GpuParticle {
     // Initial position
@@ -185,8 +215,12 @@ class DynamicStrands {
 
     glm::vec4 bend_twist_strain_valid = glm::vec4(0.f);
 
-    glm::vec3 max_bend_twist_strain;
-    float padding;
+    glm::vec4 max_bend_twist_strain;
+
+    int prev_jump_handle;
+    int next_jump_handle;
+    int padding0;
+    int padding1;
   };
 
   struct GpuDelaunayTetrahedron {

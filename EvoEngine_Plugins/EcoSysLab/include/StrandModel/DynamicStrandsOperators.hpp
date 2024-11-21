@@ -65,10 +65,10 @@ class DsGravity final : public IDsPhysicsOperator {
   struct GravityPushConstant {
     glm::vec3 acceleration;
     uint32_t particle_size = 0;
-    float ground_height = 0.0f;
+    float ground_height = -1.0f;
   };
 
-  float ground_height = 0.0f;
+  float ground_height = -1.0f;
   glm::vec3 gravity = glm::vec3(0, -9.81, 0);
   inline static std::shared_ptr<ComputePipeline> gravity_force_pipeline{};
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,

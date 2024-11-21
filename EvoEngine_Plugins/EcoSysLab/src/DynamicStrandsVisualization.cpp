@@ -11,14 +11,15 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       changed = true;
     switch (particle_render_mode) {
       case 0: {
-        if (ImGui::ColorEdit4("Particle color", &particle_color2.x))
+        if (ImGui::ColorEdit4("Particle color", &particle_color_main.x))
           changed = true;
+
         break;
       }
       case 2: {
-        if (ImGui::ColorEdit4("Particle min color", &particle_color0.x))
+        if (ImGui::ColorEdit4("Particle min color", &particle_color_min.x))
           changed = true;
-        if (ImGui::ColorEdit4("Particle max color", &particle_color1.x))
+        if (ImGui::ColorEdit4("Particle max color", &particle_color_max.x))
           changed = true;
         if (ImGui::DragFloat("Particle multiplier", &particle_multiplier, 0.1f, 0.1f, 1000.f))
           changed = true;
@@ -33,14 +34,16 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       changed = true;
     switch (segment_render_mode) {
       case 0: {
-        if (ImGui::ColorEdit4("Segment color", &segment_color2.x))
+        if (ImGui::ColorEdit4("Main segment color", &segment_color_main.x))
+          changed = true;
+        if (ImGui::ColorEdit4("Sub segment color", &segment_color_sub.x))
           changed = true;
         break;
       }
       case 2: {
-        if (ImGui::ColorEdit4("Segment min color", &segment_color0.x))
+        if (ImGui::ColorEdit4("Segment min color", &segment_color_min.x))
           changed = true;
-        if (ImGui::ColorEdit4("Segment max color", &segment_color1.x))
+        if (ImGui::ColorEdit4("Segment max color", &segment_color_max.x))
           changed = true;
         if (ImGui::DragFloat("Segment multiplier", &segment_multiplier, 0.1f, 0.1f, 1000.f))
           changed = true;
@@ -55,14 +58,16 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       changed = true;
     switch (connection_render_mode) {
       case 0: {
-        if (ImGui::ColorEdit4("Connection color", &connection_color2.x))
+        if (ImGui::ColorEdit4("Main connection color", &connection_color_main.x))
+          changed = true;
+        if (ImGui::ColorEdit4("Sub connection color", &connection_color_sub.x))
           changed = true;
         break;
       }
       case 1: {
-        if (ImGui::ColorEdit4("Connection min color", &connection_color0.x))
+        if (ImGui::ColorEdit4("Connection min color", &connection_color_min.x))
           changed = true;
-        if (ImGui::ColorEdit4("Connection max color", &connection_color1.x))
+        if (ImGui::ColorEdit4("Connection max color", &connection_color_max.x))
           changed = true;
         if (ImGui::DragFloat("Connection multiplier", &connection_multiplier, 0.1f, 0.1f, 1000.f))
           changed = true;
@@ -248,9 +253,9 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   ParticleRenderPushConstant particle_push_constant;
   particle_push_constant.render_mode = visualization_parameters.particle_render_mode;
   particle_push_constant.min_color = visualization_parameters.particle_render_mode == 0
-                                         ? visualization_parameters.particle_color2
-                                         : visualization_parameters.particle_color0;
-  particle_push_constant.max_color = visualization_parameters.particle_color1;
+                                         ? visualization_parameters.particle_color_main
+                                         : visualization_parameters.particle_color_min;
+  particle_push_constant.max_color = visualization_parameters.particle_color_max;
   particle_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   particle_push_constant.multiplier = visualization_parameters.particle_multiplier;
   particle_push_constant.strand_particle_size = particles.size();
@@ -258,9 +263,11 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   SegmentRenderPushConstant segment_push_constant;
   segment_push_constant.render_mode = visualization_parameters.segment_render_mode;
   segment_push_constant.min_color = visualization_parameters.segment_render_mode == 0
-                                        ? visualization_parameters.segment_color2
-                                        : visualization_parameters.segment_color0;
-  segment_push_constant.max_color = visualization_parameters.segment_color1;
+                                        ? visualization_parameters.segment_color_main
+                                        : visualization_parameters.segment_color_min;
+  segment_push_constant.max_color = visualization_parameters.segment_render_mode == 0
+                                        ? visualization_parameters.segment_color_sub
+                                        : visualization_parameters.segment_color_max;
   segment_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   segment_push_constant.multiplier = visualization_parameters.segment_multiplier;
   segment_push_constant.strand_segment_size = segments.size();
@@ -268,9 +275,11 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   ConnectionRenderPushConstant connection_push_constant;
   connection_push_constant.render_mode = visualization_parameters.connection_render_mode;
   connection_push_constant.min_color = visualization_parameters.connection_render_mode == 0
-                                           ? visualization_parameters.connection_color2
-                                           : visualization_parameters.connection_color0;
-  connection_push_constant.max_color = visualization_parameters.connection_color1;
+                                           ? visualization_parameters.connection_color_main
+                                           : visualization_parameters.connection_color_min;
+  connection_push_constant.max_color = visualization_parameters.connection_render_mode == 0
+                                           ? visualization_parameters.connection_color_sub
+                                           : visualization_parameters.connection_color_max;
   connection_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   connection_push_constant.multiplier = visualization_parameters.connection_multiplier;
   connection_push_constant.strand_connection_size = connections.size();
