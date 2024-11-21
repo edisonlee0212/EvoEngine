@@ -52,11 +52,14 @@ class DynamicTreeStrands : public IPrivateComponent {
   void CollectAssetRef(std::vector<AssetRef>& list) override;
   void MultipleRodExperimentSetup(float total_length, float min_segment_length, float max_segment_length, float radius,
                                   const glm::ivec2& rod_dimension, bool add_operator);
-  void UniformMultipleRodExperimentSetup(float segment_length, float radius,
+
+  void UniformMultipleRodExperimentSetup(float segment_length, uint32_t sub_segment_count, float radius,
                                   const glm::ivec3& rod_dimension,
                                   bool add_operator);
 
   void Subdivide(float min_segment_length, float max_segment_length, const StrandModelStrandGroup& src);
+
+  void UniformSubdivide(uint32_t subdivision, const StrandModelStrandGroup& src);
   void InitializeStrandParticles(const StrandModelStrandGroup& target_strand_group) const;
   void ClearStrandParticles() const;
   void PhysicsStep() const;
