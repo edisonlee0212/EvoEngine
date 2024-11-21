@@ -24,7 +24,6 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
   transform_operator.target_entity = owner;
   transform_operator.ds_transform = std::make_shared<DsTransform>();
   transform_operator.ds_transform->Initialize(initialize_parameters.root_transform, dynamic_strands, segment_handles);
-
 }
 
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
@@ -35,12 +34,20 @@ void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   static bool auto_subdivide = true;
+  static bool uniformly_subdivide = true;
   static float min_segment_length = 0.03f;
   static float max_segment_length = 0.06f;
+  static int sub_segment_count = 1;
+
   if (ImGui::TreeNode("Initialization settings")) {
     ImGui::DragFloat("Min subdivision length", &min_segment_length, .0001f, 0.0001f, max_segment_length, "%.5f");
     ImGui::DragFloat("Max subdivision length", &max_segment_length, .0001f, min_segment_length, 1.f, "%.5f");
     ImGui::Checkbox("Auto subdivide", &auto_subdivide);
+    ImGui::Checkbox("Uniformly subdivide", &uniformly_subdivide);
+    if (uniformly_subdivide) {
+      ImGui::DragInt("Sub segment count", &sub_segment_count, 1, 1, 100);
+      sub_segment_count = glm::clamp(sub_segment_count, 1, 100);
+    }
     initialize_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
   }
@@ -49,7 +56,11 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       tree->BuildStrandModel();
       strand_model_skeleton = tree->strand_model.strand_model_skeleton;
       if (auto_subdivide) {
-        Subdivide(min_segment_length, max_segment_length, strand_model_skeleton.data.strand_group);
+        if (!uniformly_subdivide) {
+          Subdivide(min_segment_length, max_segment_length, strand_model_skeleton.data.strand_group);
+        }else {
+          UniformSubdivide(static_cast<uint32_t>(sub_segment_count), strand_model_skeleton.data.strand_group);
+        }
       }
       tree_ref.Clear();
     }
@@ -57,7 +68,11 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
   auto& strand_group = strand_model_skeleton.data.strand_group;
   if (ImGui::Button("Re-subdivide")) {
-    Subdivide(min_segment_length, max_segment_length, strand_group);
+    if (!uniformly_subdivide) {
+      Subdivide(min_segment_length, max_segment_length, strand_group);
+    } else {
+      UniformSubdivide(static_cast<uint32_t>(sub_segment_count), strand_group);
+    }
   }
   if (ImGui::TreeNodeEx("Experiments", ImGuiTreeNodeFlags_DefaultOpen)) {
     static float rod_length = 1.0f;
@@ -124,7 +139,11 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
           temp_strand_group.RemoveStrand(new_strand_handle);
         }
       }
-      Subdivide(min_segment_length, max_segment_length, temp_strand_group);
+      if (!uniformly_subdivide) {
+        Subdivide(min_segment_length, max_segment_length, temp_strand_group);
+      } else {
+        UniformSubdivide(static_cast<uint32_t>(sub_segment_count), temp_strand_group);
+      }
     }
     ImGui::TreePop();
   }
@@ -212,7 +231,6 @@ void DynamicTreeStrands::OnCreate() {
 
   dynamic_strands->constraints.emplace_back(std::make_shared<DsStiffRod>());
   dynamic_strands->constraints.emplace_back(std::make_shared<DsBundle>());
-
 }
 
 void DynamicTreeStrands::OnDestroy() {
@@ -351,6 +369,12 @@ void DynamicTreeStrands::Subdivide(const float min_segment_length, const float m
         return glm::linearRand(min_segment_length, max_segment_length);
       },
       (min_segment_length + max_segment_length) * .5f * .01f);
+  subdivided_strand_group.RandomAssignColor();
+  UpdateDynamicStrands();
+}
+
+void DynamicTreeStrands::UniformSubdivide(const uint32_t subdivision, const StrandModelStrandGroup& src) {
+  src.UniformlySubdivide(subdivided_strand_group, subdivision);
   subdivided_strand_group.RandomAssignColor();
   UpdateDynamicStrands();
 }

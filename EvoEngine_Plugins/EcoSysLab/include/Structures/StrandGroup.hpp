@@ -342,12 +342,11 @@ class StrandGroup {
   [[nodiscard]] float GetStrandArcLength(StrandHandle strand_handle, float tolerance = 0.0001f) const;
 
   template <typename OSgd, typename OSd, typename OSsd>
-  void UniformlySubdivide(StrandGroup<OSgd, OSd, OSsd>& target_strand_group, float target_segment_length,
-                          float tolerance) const;
+  void UniformlySubdivide(StrandGroup<OSgd, OSd, OSsd>& target_strand_group, uint32_t subdivision) const;
 
   template <typename OSgd, typename OSd, typename OSsd>
   void Subdivide(StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const std::function<float()>& target_segment_length,
-                          float tolerance) const;
+                 float tolerance) const;
 
   void RandomAssignColor();
   void Clear();
@@ -441,11 +440,13 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RegulateRotati
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::CalculateRotations() {
   for (const auto& strand : strands_) {
-    if (strand.strand_segment_handles_.empty()) continue;
+    if (strand.strand_segment_handles_.empty())
+      continue;
     glm::vec3 prev_position = strand.start_position;
     const auto& end_position = strand_segments_[strand.strand_segment_handles_[0]].end_position;
     glm::vec3 front = glm::normalize(end_position - prev_position);
-    strand_segments_[strand.strand_segment_handles_[0]].rotation = glm::quatLookAt(front, glm::vec3(front.y, front.z, front.x));
+    strand_segments_[strand.strand_segment_handles_[0]].rotation =
+        glm::quatLookAt(front, glm::vec3(front.y, front.z, front.x));
 
     prev_position = end_position;
     for (uint32_t i = 0; i < strand.strand_segment_handles_.size() - 1; i++) {
@@ -492,8 +493,8 @@ StrandSegmentHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>:
   auto prev_handle = -1;
   if (!strand.strand_segment_handles_.empty())
     prev_handle = strand.strand_segment_handles_.back();
-  const auto new_segment_handle =
-      AllocateStrandSegment(target_handle, prev_handle, static_cast<StrandSegmentHandle>(strand.strand_segment_handles_.size()));
+  const auto new_segment_handle = AllocateStrandSegment(
+      target_handle, prev_handle, static_cast<StrandSegmentHandle>(strand.strand_segment_handles_.size()));
   strand.strand_segment_handles_.emplace_back(new_segment_handle);
   version_++;
   return new_segment_handle;
@@ -527,15 +528,14 @@ StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Cut(
     const StrandSegmentHandle target_segment_handle) {
   if (target_segment_handle == -1)
     return -1;
-  if (const auto& handles = strands_[strand_segments_[target_segment_handle].strand_handle_].strand_segment_handles_; handles.front() ==
-      target_segment_handle || handles.size() == 1)
+  if (const auto& handles = strands_[strand_segments_[target_segment_handle].strand_handle_].strand_segment_handles_;
+      handles.front() == target_segment_handle || handles.size() == 1)
     return -1;
   const auto new_strand_handle = AllocateStrand();
   auto& target_segment = strand_segments_[target_segment_handle];
   auto& strand = strands_[target_segment.GetStrandHandle()];
   auto& new_strand = strands_[new_strand_handle];
-  
-  
+
   new_strand.strand_segment_handles_.insert(new_strand.strand_segment_handles_.end(),
                                             strand.strand_segment_handles_.begin() + target_segment.index_,
                                             strand.strand_segment_handles_.end());
@@ -566,7 +566,7 @@ StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Cut(St
   if (t == 1.f) {
     return Cut(next_handle);
   }
-  
+
   glm::vec3 p0, p1, p2, p3;
   float t0, t1, t2, t3;
   glm::vec4 c0, c1, c2, c3;
@@ -580,10 +580,11 @@ StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Cut(St
   const auto new_strand_first_segment_handle = Extend(new_strand_handle);
   auto& original_strand_last_segment = strand_segments_[target_segment_handle];
   auto& original_strand = strands_[original_strand_last_segment.GetStrandHandle()];
-    
 
-  new_strand.start_position = original_strand_last_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t);
-  new_strand.start_thickness = original_strand_last_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t);
+  new_strand.start_position = original_strand_last_segment.end_position =
+      Strands::CubicInterpolation(p0, p1, p2, p3, t);
+  new_strand.start_thickness = original_strand_last_segment.end_thickness =
+      Strands::CubicInterpolation(t0, t1, t2, t3, t);
   new_strand.start_color = original_strand_last_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t);
 
   auto& new_strand_first_segment = strand_segments_[new_strand_first_segment_handle];
@@ -591,9 +592,10 @@ StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Cut(St
   new_strand_first_segment = original_strand_last_segment;
   original_strand_last_segment.next_handle_ = -1;
 
-  new_strand.strand_segment_handles_.insert(new_strand.strand_segment_handles_.end(),
+  new_strand.strand_segment_handles_.insert(
+      new_strand.strand_segment_handles_.end(),
       original_strand.strand_segment_handles_.begin() + original_strand_last_segment.index_ + 1,
-                                            original_strand.strand_segment_handles_.end());
+      original_strand.strand_segment_handles_.end());
 
   original_strand.strand_segment_handles_.erase(
       original_strand.strand_segment_handles_.begin() + original_strand_last_segment.index_ + 1,
@@ -606,7 +608,7 @@ StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Cut(St
     new_segment.index_ = i;
     if (i > 0) {
       new_segment.prev_handle_ = new_strand.strand_segment_handles_[i - 1];
-    }else {
+    } else {
       new_segment.prev_handle_ = -1;
     }
     if (i < new_strand.strand_segment_handles_.size() - 1) {
@@ -626,7 +628,7 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RemoveSingleSt
     auto& segment = strand_segments_[target_segment_handle];
     segment = strand_segments_.back();
     strand_segments_data_list[target_segment_handle] = strand_segments_data_list.back();
-    //Repair relationships.
+    // Repair relationships.
     if (segment.prev_handle_ != -1) {
       strand_segments_[segment.prev_handle_].next_handle_ = target_segment_handle;
     }
@@ -634,14 +636,14 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RemoveSingleSt
       strand_segments_[segment.next_handle_].prev_handle_ = target_segment_handle;
     }
     strands_[segment.strand_handle_].strand_segment_handles_[segment.index_] = target_segment_handle;
-    
   }
   strand_segments_.pop_back();
   strand_segments_data_list.pop_back();
 }
 
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
-void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::CutLatter(const StrandSegmentHandle target_segment_handle) {
+void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::CutLatter(
+    const StrandSegmentHandle target_segment_handle) {
   // Recycle subsequent segments from strand.
   const auto& segment = strand_segments_[target_segment_handle];
   auto& strand = strands_[segment.strand_handle_];
@@ -663,7 +665,8 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::CutLatter(cons
 }
 
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
-void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RemoveStrand(const StrandHandle target_strand_handle) {
+void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RemoveStrand(
+    const StrandHandle target_strand_handle) {
   // Recycle all segments;
   if (target_strand_handle == -1)
     return;
@@ -955,8 +958,7 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::FindStrandT(
     const auto current_segment_length = GetStrandSegmentArcLength(segment_handle, 0, 1, tolerance);
     if (length_sum + current_segment_length > target_length) {
       result_strand_segment_handle = segment_handle;
-      t = FindStrandSegmentT(result_strand_segment_handle, 0.f, target_length - length_sum,
-                             tolerance);
+      t = FindStrandSegmentT(result_strand_segment_handle, 0.f, target_length - length_sum, tolerance);
       return;
     }
     length_sum += current_segment_length;
@@ -976,7 +978,7 @@ float StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::GetStrandArcL
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 template <typename OSgd, typename OSd, typename OSsd>
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::UniformlySubdivide(
-    StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const float target_segment_length, const float tolerance) const {
+    StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const uint32_t subdivision) const {
   target_strand_group.Clear();
   for (int strand_handle = 0; strand_handle < strands_.size(); strand_handle++) {
     const auto& strand = strands_[strand_handle];
@@ -986,8 +988,7 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::UniformlySubdi
     new_strand.start_thickness = strand.start_thickness;
     new_strand.start_position = strand.start_position;
     target_strand_group.strands_data_list[new_strand_handle] = strands_data_list[strand_handle];
-    float t = 0.f;
-    float remaining_length = target_segment_length;
+
     for (const auto& segment_handle : strand.strand_segment_handles_) {
       glm::vec3 p0, p1, p2, p3;
       float t0, t1, t2, t3;
@@ -995,36 +996,16 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::UniformlySubdi
       GetPositionControlPoints(segment_handle, p0, p1, p2, p3);
       GetThicknessControlPoints(segment_handle, t0, t1, t2, t3);
       GetColorControlPoints(segment_handle, c0, c1, c2, c3);
-      while (true) {
-        if (const float t_next = Strands::FindTAdaptive(p0, p1, p2, p3, t, remaining_length, tolerance);
-            t_next != 1.f) {
-          // Add a new segment.
-          t = t_next;
-          remaining_length = target_segment_length;
-          const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
-          auto& new_strand_segment = target_strand_group.strand_segments_[new_strand_segment_handle];
-          new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t);
-          new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t);
-          new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t);
-          target_strand_group.strand_segments_data_list[new_strand_segment_handle] =
-              strand_segments_data_list[segment_handle];
-        } else {
-          remaining_length -= Strands::CalculateLengthAdaptive(p0, p1, p2, p3, t, 1.f, tolerance);
-          t = 0.f;
-          break;
-        }
+      for (uint32_t sub_segment_index = 0; sub_segment_index < subdivision; sub_segment_index++) {
+        const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
+        auto& new_strand_segment = target_strand_group.strand_segments_[new_strand_segment_handle];
+        const float t = (sub_segment_index + 1) / static_cast<float>(subdivision);
+        new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t);
+        new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t);
+        new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t);
+        target_strand_group.strand_segments_data_list[new_strand_segment_handle] =
+            strand_segments_data_list[segment_handle];
       }
-    }
-    if (remaining_length != 0.f && !strand.strand_segment_handles_.empty()) {
-      const auto segment_handle = strand.strand_segment_handles_.back();
-      const auto& segment = strand_segments_[segment_handle];
-      const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
-      auto& new_strand_segment = target_strand_group.strand_segments_[new_strand_segment_handle];
-      new_strand_segment.end_position = segment.end_position;
-      new_strand_segment.end_thickness = segment.end_thickness;
-      new_strand_segment.end_color = segment.end_color;
-      target_strand_group.strand_segments_data_list[new_strand_segment_handle] =
-          strand_segments_data_list[segment_handle];
     }
   }
   target_strand_group.CalculateRotations();
