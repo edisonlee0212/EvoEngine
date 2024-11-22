@@ -121,6 +121,7 @@ DynamicStrands::DynamicStrands() {
   device_connections_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   device_delaunay_tetrahedrons_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_nodes_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
   strands_descriptor_sets.resize(max_frame_in_flight);
@@ -281,6 +282,11 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     particle0.strand_handle = particle1.strand_handle = segment.strand_handle;
     particle0.node_handle = particle1.node_handle = strand_segment_data.node_handle;
     particle0.segment_handle = particle1.segment_handle = static_cast<int>(segment_handle);
+
+    // set them again at the end of struct
+    particle0.strand_handle2 = particle1.strand_handle2 = segment.strand_handle;
+    particle0.node_handle2 = particle1.node_handle2 = strand_segment_data.node_handle;
+    particle0.segment_handle2 = particle1.segment_handle2 = static_cast<int>(segment_handle);
   });
 
   DtsStrandGroup uniformly_subdivided_strand_group;
@@ -544,6 +550,15 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
           0.0f);
     }
   }
+
+  // set up nodes
+  auto& skeleton_nodes = strand_model_skeleton.PeekRawNodes();
+  nodes.resize(skeleton_nodes.size());
+
+  for (size_t i = 0; i < skeleton_nodes.size(); i++) {
+    nodes[i].prev_handle = skeleton_nodes[i].GetParentHandle();
+  }
+
   ComputeDelaunay(delaunay_tetrahedrons);
   for (const auto& i : constraints)
     i->InitializeData(initialize_parameters, strand_model_skeleton, strand_group, *this);
@@ -579,6 +594,8 @@ void DynamicStrands::UpdateBindings() const {
 
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_delaunay_tetrahedrons_buffer,
                                                                               0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_nodes_buffer, 0);
+
   for (const auto& c : constraints) {
     c->UpdateBindings();
   }
@@ -594,6 +611,7 @@ void DynamicStrands::Upload() {
     device_connections_buffer->UploadVector(connections);
 
     device_delaunay_tetrahedrons_buffer->UploadVector(delaunay_tetrahedrons);
+    device_nodes_buffer->UploadVector(nodes);
     for (const auto& c : constraints) {
       c->UploadData();
     }
@@ -620,6 +638,10 @@ void DynamicStrands::Download() {
 
     if (!delaunay_tetrahedrons.empty())
       device_delaunay_tetrahedrons_buffer->DownloadVector(delaunay_tetrahedrons, delaunay_tetrahedrons.size());
+
+    if (!nodes.empty())
+      device_nodes_buffer->DownloadVector(nodes, nodes.size());
+
     for (const auto& c : constraints) {
       c->DownloadData();
     }
@@ -634,6 +656,7 @@ void DynamicStrands::Clear() {
   connections.clear();
 
   delaunay_tetrahedrons.clear();
+  nodes.clear();
 }
 
 glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height,

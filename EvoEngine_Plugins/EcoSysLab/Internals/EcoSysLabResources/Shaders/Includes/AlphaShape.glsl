@@ -106,6 +106,45 @@ float LongestSide(uint indices[4]) {
   return d;
 }
 
+bool AreNeighbors(uint index0, uint index1)
+{
+  // horizontal neighbors
+  if (particles[index0].node_handle == particles[index1].node_handle &&
+      particles[index0].hop_distance_to_root == particles[index1].hop_distance_to_root) {
+    return true;
+  }
+
+  // vertical and diagonal neighbors
+  int node_handle0 = particles[index0].node_handle;
+  int node_handle1 = particles[index1].node_handle;
+
+  // index0 is higher
+  if (particles[index0].hop_distance_to_root == particles[index1].hop_distance_to_root - 1)
+  {
+
+  }
+
+}
+
+float SkeletonStructure(uint indices[4]) {
+  vec3 v[4];
+
+  for (uint i = 0; i < 4; i++) {
+    v[i] = particles[indices[i]].x_node_handle.xyz;
+    particles[indices[i]].node_handle = floatBitsToInt(particles[indices[i]].x_node_handle.w);
+  }
+  float d = 0.0;
+
+  [[unroll]] for (uint i = 0; i < 4; i++) {
+    [[unroll]] for (uint j = i + 1; j < 4; j++) {
+      // TODO
+
+    }
+  }
+
+  return d;
+}
+
 bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float d) {
   // check if neighbor is invalid
   if (neighbor_index != -1 && tet.neighbors[neighbor_index] == -1) {

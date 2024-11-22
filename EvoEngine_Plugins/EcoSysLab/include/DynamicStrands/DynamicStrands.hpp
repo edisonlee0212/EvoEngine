@@ -152,6 +152,10 @@ class DynamicStrands {
     int end_connection_handle = -1;
   };
 
+  struct GpuNode {
+    int prev_handle = -1;
+  };
+
   struct GpuSegment {
     int prev_handle = -1;
     int next_handle = -1;
@@ -212,7 +216,12 @@ class DynamicStrands {
     int selected = 0;
     int highlighted = 0;
     int connection_handle = 0;
-    int padding2 = 0;
+    int hop_distance_to_root = -1;
+
+    int node_handle2 = -1;
+    int strand_handle2 = -1;
+    int segment_handle2 = -1;
+    int padding3 = 0;
   };
 
   struct GpuConnection {
@@ -269,6 +278,8 @@ class DynamicStrands {
 
   std::shared_ptr<Buffer> device_delaunay_tetrahedrons_buffer;
   std::vector<GpuDelaunayTetrahedron> delaunay_tetrahedrons;
+  std::shared_ptr<Buffer> device_nodes_buffer;
+  std::vector<GpuNode> nodes;
 #pragma endregion
 
   void Upload();

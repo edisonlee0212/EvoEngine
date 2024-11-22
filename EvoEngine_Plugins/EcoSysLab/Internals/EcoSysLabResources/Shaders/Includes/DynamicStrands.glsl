@@ -9,6 +9,10 @@ struct Strand {
   int end_connection_handle;
 };
 
+ struct Node {
+  int prev_handle;
+};
+
 struct Segment {
   int prev_handle;
   int next_handle;
@@ -50,8 +54,12 @@ struct Particle {
   int selected;
   int highlighted;
   int connection_handle;
-  int padding2;
+  int hop_distance_to_root;
 
+  int node_handle;
+  int strand_handle;
+  int segment_handle;
+  int padding3;
 };
 
 struct UniformParticle {
@@ -113,4 +121,8 @@ layout(std430, set = DYNAMIC_STRANDS_SET, binding = 4) buffer CONNECTIONS_BLOCK 
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 5) buffer DELAUNAY_TETRAHEDRON_BLOCK {
   DelaunayTetrahedron delaunay_tetrahedrons[];
+};
+
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 5) buffer NODES_BLOCK {
+  Node nodes[];
 };
