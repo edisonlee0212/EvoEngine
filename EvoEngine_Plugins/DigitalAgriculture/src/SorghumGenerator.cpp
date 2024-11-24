@@ -1,4 +1,4 @@
-#include "SorghumDescriptorGenerator.hpp"
+#include "SorghumGenerator.hpp"
 #include "ProjectManager.hpp"
 #include "SorghumLayer.hpp"
 
@@ -18,7 +18,7 @@ void TipMenu(const std::string& content) {
   }
 }
 
-bool SorghumDescriptorGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SorghumGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::Button("Instantiate")) {
     auto entity = CreateEntity();
   }
@@ -181,7 +181,7 @@ bool SorghumDescriptorGenerator::OnInspect(const std::shared_ptr<EditorLayer>& e
 
   return changed;
 }
-void SorghumDescriptorGenerator::Serialize(YAML::Emitter& out) const {
+void SorghumGenerator::Serialize(YAML::Emitter& out) const {
   panicle_size.Save("panicle_size", out);
   panicle_seed_amount.Save("panicle_seed_amount", out);
   panicle_seed_radius.Save("panicle_seed_radius", out);
@@ -209,7 +209,7 @@ void SorghumDescriptorGenerator::Serialize(YAML::Emitter& out) const {
   width_along_leaf.Save("width_along_leaf", out);
   waviness_along_leaf.Save("waviness_along_leaf", out);
 }
-void SorghumDescriptorGenerator::Deserialize(const YAML::Node& in) {
+void SorghumGenerator::Deserialize(const YAML::Node& in) {
   panicle_size.Load("panicle_size", in);
   panicle_seed_amount.Load("panicle_seed_amount", in);
   panicle_seed_radius.Load("panicle_seed_radius", in);
@@ -238,75 +238,71 @@ void SorghumDescriptorGenerator::Deserialize(const YAML::Node& in) {
   waviness_along_leaf.Load("waviness_along_leaf", in);
 }
 
-Entity SorghumDescriptorGenerator::CreateEntity(const unsigned int seed) const {
+Entity SorghumGenerator::CreateEntity(const unsigned int seed) const {
   const auto scene = Application::GetActiveScene();
   const auto entity = scene->CreateEntity(GetTitle());
   const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(entity).lock();
-  const auto sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+  const auto sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
   Apply(sorghum_state, seed);
-  sorghum->sorghum_descriptor = sorghum_state;
-  sorghum->sorghum_state_generator = GetSelf();
+  sorghum->sorghum_state = sorghum_state;
+  sorghum->sorghum_generator = GetSelf();
   sorghum->GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
   return entity;
 }
 
-void SorghumDescriptorGenerator::Apply(const std::shared_ptr<SorghumDescriptor>& target_state, const unsigned int seed) const {
+void SorghumGenerator::Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor, const unsigned int seed) const {
+  const auto sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
+  Apply(sorghum_state, seed);
+  sorghum_state->Apply(target_sorghum_descriptor);
+}
+
+void SorghumGenerator::Apply(const std::shared_ptr<SorghumState>& target_sorghum_state, const unsigned seed) const {
   if (seed > 0)
     srand(seed);
-
+  //Panicle
+  target_sorghum_state->panicle.seed_amount = static_cast<int>(panicle_seed_amount.GetValue());
+  const auto current_panicle_size = this->panicle_size.GetValue();
+  target_sorghum_state->panicle.panicle_size =
+      glm::vec3(current_panicle_size.x, current_panicle_size.y, current_panicle_size.x);
+  target_sorghum_state->panicle.seed_radius = panicle_seed_radius.GetValue();
+  //Stem
   constexpr auto up_direction = glm::vec3(0, 1, 0);
   auto front_direction = glm::vec3(0, 0, -1);
   front_direction = glm::rotate(front_direction, glm::radians(glm::linearRand(0.0f, 360.0f)), up_direction);
 
-  glm::vec3 stem_front = glm::normalize(glm::rotate(
+  target_sorghum_state->stem.direction = glm::normalize(glm::rotate(
       up_direction, glm::radians(glm::gaussRand(stem_tilt_angle.mean, stem_tilt_angle.deviation)), front_direction));
-  const int leaf_size = glm::clamp(leaf_amount.GetValue(), 2.0f, 128.0f);
-  float stem_length = internode_length.GetValue() * leaf_size / (1.f - leaf_starting_point.GetValue(0));
-  Plot2D width_along_stem = {0.0f, stem_width.GetValue(), this->width_along_stem};
-  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
-  // Build stem...
-  target_state->stem.spline.segments.clear();
-  int stem_node_amount = static_cast<int>(glm::max(4.0f, stem_length / sorghum_layer->vertical_subdivision_length));
-  float stem_unit_length = stem_length / stem_node_amount;
-  glm::vec3 stem_left =
-      glm::normalize(glm::rotate(glm::vec3(1, 0, 0), glm::radians(glm::linearRand(0.0f, 0.0f)), stem_front));
-  for (int i = 0; i <= stem_node_amount; i++) {
-    float stem_width = width_along_stem.GetValue(static_cast<float>(i) / stem_node_amount);
-    glm::vec3 stem_node_position;
-    stem_node_position = stem_front * stem_unit_length * static_cast<float>(i);
-
-    const auto up = glm::normalize(glm::cross(stem_front, stem_left));
-    target_state->stem.spline.segments.emplace_back(stem_node_position, up, stem_front, stem_width, 180.f, 0, 0);
-  }
-
-  target_state->leaves.resize(leaf_size);
+  const int leaf_size = static_cast<int>(glm::clamp(leaf_amount.GetValue(), 2.0f, 128.0f));
+  target_sorghum_state->stem.length =
+      internode_length.GetValue() * static_cast<float>(leaf_size) / (1.f - leaf_starting_point.GetValue(0));
+  target_sorghum_state->stem.width_along_stem = {0.0f, stem_width.GetValue(), width_along_stem};
+  //Leaves
+  target_sorghum_state->leaves.resize(leaf_size);
   for (int leaf_index = 0; leaf_index < leaf_size; leaf_index++) {
     const float step = static_cast<float>(leaf_index) / (static_cast<float>(leaf_size) - 1.0f);
-    auto& leaf_state = target_state->leaves[leaf_index];
-    leaf_state.spline.segments.clear();
+    auto& leaf_state = target_sorghum_state->leaves[leaf_index];
     leaf_state.index = leaf_index;
+    leaf_state.starting_point = leaf_starting_point.GetValue(step);
+    leaf_state.length = leaf_length.GetValue(step);
+    if (leaf_state.length == 0.0f)
+      continue;
 
-    float starting_point_ratio = leaf_starting_point.GetValue(step);
-    float leaf_length = this->leaf_length.GetValue(step);
-    if (leaf_length == 0.0f)
-      return;
-
-    Plot2D waviness_along_leaf = {0.0f, leaf_waviness.GetValue(step) * 2.0f, this->waviness_along_leaf};
-    Plot2D width_along_leaf = {0.0f, leaf_width.GetValue(step) * 2.0f, this->width_along_leaf};
+    leaf_state.waviness_along_leaf = {0.0f, leaf_waviness.GetValue(step) * 2.0f, waviness_along_leaf};
+    leaf_state.width_along_leaf = {0.0f, leaf_width.GetValue(step) * 2.0f, width_along_leaf};
     auto curling = glm::clamp(leaf_curling.GetValue(step), 0.0f, 90.0f) / 90.0f;
-    Plot2D curling_along_leaf = {0.0f, 90.0f, {curling, curling}};
+    leaf_state.curling_along_leaf = {0.0f, 90.0f, {curling, curling}};
     // auto curling = glm::clamp(leaf_curling.GetValue(step), 0.0f, 90.0f) / 90.0f;
     // Plot2D curlingAlongLeaf = {0.0f, curling * 90.0f, curling_along_leaf };
-    float branching_angle = leaf_branching_angle.GetValue(step);
-    float roll_angle = glm::mod((leaf_index % 2) * 180.0f + leaf_roll_angle.GetValue(step), 360.0f);
+    leaf_state.branching_angle = leaf_branching_angle.GetValue(step);
+    leaf_state.roll_angle = glm::mod((leaf_index % 2) * 180.0f + leaf_roll_angle.GetValue(step), 360.0f);
     auto bending = leaf_bending.GetValue(step);
     bending = (bending + 180) / 360.0f;
     const auto bending_acceleration = leaf_bending_acceleration.GetValue(step);
     const auto bending_smoothness = leaf_bending_smoothness.GetValue(step);
 
-    Plot2D bending_along_leaf = {-180.0f, 180.0f, {0.5f, bending}};
+    leaf_state.bending_along_leaf = {-180.0f, 180.0f, {0.5f, bending}};
     const glm::vec2 middle = glm::mix(glm::vec2(0, bending), glm::vec2(1, 0.5f), bending_acceleration);
-    auto& bending_along_leaf_curve = bending_along_leaf.curve.UnsafeGetValues();
+    auto& bending_along_leaf_curve = leaf_state.bending_along_leaf.curve.UnsafeGetValues();
     bending_along_leaf_curve.clear();
     bending_along_leaf_curve.emplace_back(-0.1, 0.0f);
     bending_along_leaf_curve.emplace_back(0, 0.5f);
@@ -317,89 +313,12 @@ void SorghumDescriptorGenerator::Apply(const std::shared_ptr<SorghumDescriptor>&
     bending_along_leaf_curve.emplace_back(1.0, bending);
     bending_along_leaf_curve.emplace_back(0.1, 0.0f);
 
-    // Build nodes...
-    float stem_width = width_along_stem.GetValue(starting_point_ratio);
-    float back_track_ratio = 0.05f;
-    if (starting_point_ratio < back_track_ratio)
-      back_track_ratio = starting_point_ratio;
-
-    glm::vec3 leaf_left =
-        glm::normalize(glm::rotate(glm::vec3(0, 0, -1), glm::radians(roll_angle), glm::vec3(0, 1, 0)));
-    auto leaf_up = glm::normalize(glm::cross(stem_front, leaf_left));
-    glm::vec3 stem_offset = stem_width * -leaf_up;
-
-    auto direction = glm::rotate(glm::vec3(0, 1, 0), glm::radians(branching_angle), leaf_left);
-    float sheath_ratio = starting_point_ratio - back_track_ratio;
-
-    if (sheath_ratio > 0) {
-      int root_to_sheath_node_count =
-          glm::min(2.0f, stem_length * sheath_ratio / sorghum_layer->vertical_subdivision_length);
-      for (int i = 0; i < root_to_sheath_node_count; i++) {
-        float factor = static_cast<float>(i) / root_to_sheath_node_count;
-        float current_root_to_sheath_point = glm::mix(0.f, sheath_ratio, factor);
-
-        const auto up = glm::normalize(glm::cross(stem_front, leaf_left));
-        leaf_state.spline.segments.emplace_back(
-            glm::normalize(stem_front) * current_root_to_sheath_point * stem_length + stem_offset, up, stem_front,
-            stem_width, 180.f, 0, 0);
-      }
-    }
-
-    int sheath_node_count = glm::max(2.0f, stem_length * back_track_ratio / sorghum_layer->vertical_subdivision_length);
-    for (int i = 0; i <= sheath_node_count; i++) {
-      float factor = static_cast<float>(i) / sheath_node_count;
-      float current_sheath_point =
-          glm::mix(sheath_ratio, starting_point_ratio,
-                   factor);  // sheathRatio + static_cast<float>(i) / sheathNodeCount * backTrackRatio;
-      glm::vec3 actual_direction = glm::normalize(glm::mix(stem_front, direction, factor));
-
-      const auto up = glm::normalize(glm::cross(actual_direction, leaf_left));
-      leaf_state.spline.segments.emplace_back(
-          glm::normalize(stem_front) * current_sheath_point * stem_length + stem_offset, up, actual_direction,
-          stem_width + 0.002f * static_cast<float>(i) / sheath_node_count,
-          180.0f - 90.0f * static_cast<float>(i) / sheath_node_count, 0, 0);
-    }
-
-    int node_amount = glm::max(4.0f, leaf_length / sorghum_layer->vertical_subdivision_length);
-    float unit_length = leaf_length / node_amount;
-
-    int node_to_full_expand = 0.1f * leaf_length / sorghum_layer->vertical_subdivision_length;
-
-    float height_offset = glm::linearRand(0.f, 100.f);
-    const float waviness_frequency = leaf_waviness_frequency.GetValue(step);
-    glm::vec3 node_position = stem_front * starting_point_ratio * stem_length + stem_offset;
-    for (int i = 1; i <= node_amount; i++) {
-      const float factor = static_cast<float>(i) / node_amount;
-      glm::vec3 current_direction;
-
-      float rotate_angle = bending_along_leaf.GetValue(factor);
-      current_direction = glm::rotate(direction, glm::radians(rotate_angle), leaf_left);
-      node_position += current_direction * unit_length;
-
-      float expand_angle = curling_along_leaf.GetValue(factor);
-
-      float collar_factor = glm::min(1.0f, static_cast<float>(i) / node_to_full_expand);
-
-      float waviness = waviness_along_leaf.GetValue(factor);
-      height_offset += waviness_frequency;
-
-      float width = glm::mix(stem_width + 0.002f, width_along_leaf.GetValue(factor), collar_factor);
-      float angle = 90.0f - (90.0f - expand_angle) * glm::pow(collar_factor, 2.0f);
-
-      const auto up = glm::normalize(glm::cross(current_direction, leaf_left));
-      leaf_state.spline.segments.emplace_back(node_position, up, current_direction, width, angle,
-                                                  waviness * glm::simplex(glm::vec2(height_offset, 0.f)),
-                                                  waviness * glm::simplex(glm::vec2(0.f, height_offset)));
-    }
+    leaf_state.waviness_frequency = leaf_waviness_frequency.GetValue(step);
+    leaf_state.waviness_period_start = glm::vec2(glm::linearRand(0.f, 100.f), glm::linearRand(0.f, 100.f));
   }
-
-  target_state->panicle.seed_amount = panicle_seed_amount.GetValue();
-  const auto panicle_size = this->panicle_size.GetValue();
-  target_state->panicle.panicle_size = glm::vec3(panicle_size.x, panicle_size.y, panicle_size.x);
-  target_state->panicle.seed_radius = panicle_seed_radius.GetValue();
 }
 
-void SorghumDescriptorGenerator::OnCreate() {
+void SorghumGenerator::OnCreate() {
   panicle_size.mean = glm::vec3(0.0, 0.0, 0.0);
   panicle_seed_amount.mean = 0;
   panicle_seed_radius.mean = 0.002f;

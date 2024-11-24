@@ -313,14 +313,23 @@ void SorghumPointCloudScanner::WriteSplineInfo(const std::filesystem::path& save
             for (const auto& leaf : sorghum_descriptor->leaves) {
               out << YAML::BeginMap;
               std::vector<glm::vec3> points(capture_settings->spline_subdivision_count);
+
+              std::vector<glm::vec3> left_points(capture_settings->spline_subdivision_count);
+              std::vector<glm::vec3> right_points(capture_settings->spline_subdivision_count);
+
               SorghumSpline leaf_part;
               leaf_part.segments = leaf.spline.GetLeafPart();
               const auto segments = leaf_part.RebuildFixedSizeSegments(capture_settings->spline_subdivision_count);
               for (uint32_t node_index = 0; node_index < capture_settings->spline_subdivision_count; node_index++) {
-                points[node_index] = segments[node_index].position;
+                const auto& segment = segments[node_index];
+                points[node_index] = segment.position;
+                left_points[node_index] = segment.GetLeafPoint(-segment.theta);
+                right_points[node_index] = segment.GetLeafPoint(segment.theta);
               }
               out << YAML::Key << "Leaf Index" << YAML::Value << leaf.index + 1;
               Serialization::SerializeVector("Center Points", points, out);
+              Serialization::SerializeVector("Left Points", left_points, out);
+              Serialization::SerializeVector("Right Points", right_points, out);
               out << YAML::EndMap;
             }
             out << YAML::EndSeq;

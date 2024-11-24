@@ -6,7 +6,7 @@
 using namespace evo_engine;
 namespace digital_agriculture_plugin {
 
-class SorghumDescriptorGenerator : public IAsset {
+class SorghumGenerator : public IAsset {
  public:
   // Panicle
   SingleDistribution<glm::vec2> panicle_size;
@@ -48,6 +48,7 @@ class SorghumDescriptorGenerator : public IAsset {
   void Deserialize(const YAML::Node& in) override;
 
   [[nodiscard]] Entity CreateEntity(unsigned int seed = 0) const;
-  void Apply(const std::shared_ptr<SorghumDescriptor>& target_state, unsigned int seed = 0) const;
+  void Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor, unsigned int seed = 0) const;
+  void Apply(const std::shared_ptr<SorghumState>& target_sorghum_state, unsigned int seed = 0) const;
 };
 }  // namespace digital_agriculture_plugin

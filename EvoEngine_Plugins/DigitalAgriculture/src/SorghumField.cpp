@@ -10,7 +10,7 @@
 #include "Soil.hpp"
 #include "Sorghum.hpp"
 #include "SorghumLayer.hpp"
-#include "SorghumDescriptorGenerator.hpp"
+#include "SorghumGenerator.hpp"
 #include "TransformGraph.hpp"
 using namespace digital_agriculture_plugin;
 using namespace eco_sys_lab_plugin;
@@ -111,7 +111,7 @@ Entity SorghumField::InstantiateField() const {
     // Create sorghums here.
     int size = 0;
     for (auto& new_sorghum : field_asset->matrices) {
-      const auto sorghum_descriptor = new_sorghum.first.Get<SorghumDescriptorGenerator>();
+      const auto sorghum_descriptor = new_sorghum.first.Get<SorghumGenerator>();
       if (!sorghum_descriptor)
         continue;
       Entity sorghum_entity = sorghum_descriptor->CreateEntity(size);
@@ -122,7 +122,7 @@ Entity SorghumField::InstantiateField() const {
       scene->SetParent(sorghum_entity, field);
 
       const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
-      sorghum->sorghum_state_generator = sorghum_descriptor;
+      sorghum->sorghum_generator = sorghum_descriptor;
       const auto sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
       sorghum_descriptor->Apply(sorghum_state, 0);
       sorghum->sorghum_descriptor = sorghum_state;

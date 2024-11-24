@@ -7,7 +7,7 @@
 #include "ClassRegistry.hpp"
 #include "Platform.hpp"
 #include "SkyIlluminance.hpp"
-#include "SorghumDescriptorGenerator.hpp"
+#include "SorghumGenerator.hpp"
 #include "Times.hpp"
 
 #include "Material.hpp"
@@ -26,7 +26,9 @@ AssetRegistration<SorghumDescriptor> sorghum_descriptor_registry("SorghumDescrip
 PrivateComponentRegistration<Sorghum> sorghum_registry("Sorghum");
 
 AssetRegistration<SorghumGrowthStages> sgt_registry("SorghumGrowthStages", {".sgs"});
-AssetRegistration<SorghumDescriptorGenerator> sdg_registry("SorghumDescriptorGenerator", {".sdg"});
+AssetRegistration<SorghumState> ss_registry("SorghumState", {".ss"});
+
+AssetRegistration<SorghumGenerator> sdg_registry("SorghumGenerator", {".sg"});
 AssetRegistration<SorghumField> sf_registry("SorghumField", {".sorghumfield"});
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 AssetRegistration<PARSensorGroup> parssg_registry("PARSensorGroup", {".parsensorgroup"});
@@ -45,7 +47,7 @@ void SorghumLayer::OnCreate() {
     texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
     texture_2d->Import(
         std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") / "SorghumDescriptor.png"));
-    editor_layer->AssetIcons()["SorghumDescriptorGenerator"] = texture_2d;
+    editor_layer->AssetIcons()["SorghumGenerator"] = texture_2d;
     texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
     texture_2d->Import(
         std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") / "PositionsField.png"));

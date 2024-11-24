@@ -1,7 +1,7 @@
 #pragma once
 #include "ForestDescriptor.hpp"
 #include "SorghumDescriptor.hpp"
-#include "SorghumDescriptorGenerator.hpp"
+#include "SorghumGenerator.hpp"
 #include "SorghumField.hpp"
 #include "SorghumPointCloudScanner.hpp"
 #include "TreeMeshGenerator.hpp"
@@ -70,7 +70,7 @@ class DatasetGenerator {
                                      const std::filesystem::path& mesh_output_path);
 
   static void GeneratePointCloudForSorghumPatch(const SorghumFieldPatch& pattern,
-                                                const std::shared_ptr<SorghumDescriptorGenerator>& sorghum_descriptor,
+                                                const std::shared_ptr<SorghumGenerator>& sorghum_descriptor,
                                                 const SorghumPointCloudPointSettings& point_settings,
                                                 const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                                 const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,

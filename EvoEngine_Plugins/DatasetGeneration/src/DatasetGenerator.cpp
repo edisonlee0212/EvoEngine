@@ -648,7 +648,7 @@ void DatasetGenerator::GenerateMeshForSorghum(const std::shared_ptr<SorghumDescr
 }
 
 void DatasetGenerator::GeneratePointCloudForSorghumPatch(
-    const SorghumFieldPatch& pattern, const std::shared_ptr<SorghumDescriptorGenerator>& sorghum_descriptor,
+    const SorghumFieldPatch& pattern, const std::shared_ptr<SorghumGenerator>& sorghum_descriptor,
     const SorghumPointCloudPointSettings& point_settings,
     const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
     const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
