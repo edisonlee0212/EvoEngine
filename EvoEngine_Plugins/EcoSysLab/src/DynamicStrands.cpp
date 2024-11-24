@@ -72,6 +72,10 @@ bool DynamicStrands::WaitForUpload() const {
 
 bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
+  if (ImGui::DragInt("Sub segment count", &sub_segment, 1, 1, 100)) {
+    sub_segment = glm::clamp(sub_segment, 1, 100);
+    changed = true;
+  }
   if (ImGui::DragFloat("Wood Density", &wood_density, 0.01f, 0.01f, 3.0f))
     changed = true;
 #ifdef USE_XPBD
@@ -101,20 +105,18 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
 
   if (ImGui::DragFloat("Neighbor range", &neighbor_range, 0.01f, 0.01f, 10.0f))
     changed = true;
-
-  if (ImGui::DragFloat("Max neighbor strain", &max_neighbor_strain, 0.001f, 0.001f, 1.0f))
+  if (max_neighbor_strain.OnInspect("Max neighbor strain", 0.01f))
+    changed = true;
+  if (max_stretch_shear_strain.OnInspect("Max stretch/shear strain", 0.01f))
+    changed = true;
+  if (max_bend_twist_strain.OnInspect("Max bend/twist strain", 0.01f))
     changed = true;
 
-  if (ImGui::DragFloat3("Max stretch/shear strain", &max_stretch_shear_strain.x, 0.001f, 0.001f, 1.0f))
-    changed = true;
-  if (ImGui::DragFloat3("Max bend/twist strain", &max_bend_twist_strain.x, 0.001f, 0.001f, 1.0f))
-    changed = true;
   return changed;
 }
 
 void DynamicStrands::Initialize(const InitializeParameters& initialize_parameters,
-                                const StrandModelSkeleton& strand_model_skeleton,
-                                const StrandModelStrandGroup& strand_group) {
+                                const StrandModelSkeleton& strand_model_skeleton, const DtsStrandGroup& strand_group) {
   Clear();
   assert(initialize_parameters.root_transform.GetScale() == glm::vec3(1.0f));
   const auto& target_strands = strand_group.PeekStrands();
@@ -164,7 +166,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.stretching_stiffness = glm::clamp(initialize_parameters.stretch_stiffness.GetValue(), 0.0f, 1.0f);
     segment.shearing_stiffness = glm::clamp(initialize_parameters.shear_stiffness.GetValue(), 0.0f, 1.0f);
 #endif
-    segment.max_stretch_shear_strain = initialize_parameters.max_stretch_shear_strain;
+    segment.max_stretch_shear_strain = glm::vec4(glm::max(glm::vec3(0.0f), initialize_parameters.max_stretch_shear_strain.GetValue()), 0.0f);
   });
 
   particles.resize(segments.size() * 2);
@@ -193,39 +195,109 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
   for (uint32_t strand_index = 0; strand_index < target_strands.size(); strand_index++) {
     auto& target_strand = target_strands[strand_index];
-    const auto& handles = target_strand.PeekStrandSegmentHandles();
-    if (handles.size() < 2)
+    const auto& segment_handles = target_strand.PeekStrandSegmentHandles();
+    if (segment_handles.size() < 2)
       continue;
 
     auto& strand = strands[strand_index];
-    strand.begin_segment_handle = handles.front();
-    strand.end_segment_handle = handles.back();
+    strand.begin_segment_handle = segment_handles.front();
+    strand.end_segment_handle = segment_handles.back();
     const int handle_index_offset = static_cast<int>(connections.size());
     strand.begin_connection_handle = handle_index_offset;
-    strand.end_connection_handle = handle_index_offset + static_cast<int>(handles.size()) - 2;
+    strand.end_connection_handle = handle_index_offset + static_cast<int>(segment_handles.size()) - 2;
+    connections.resize(connections.size() + segment_handles.size() - 1);
+    for (int segment_handle_index = 0; segment_handle_index < static_cast<int>(segment_handles.size());
+         segment_handle_index++) {
+      const auto segment0_handle = segment_handles[segment_handle_index];
+      auto& segment0 = segments[segment0_handle];
 
-    connections.resize(connections.size() + handles.size() - 1);
-    for (int handle_index = 0; handle_index < static_cast<int>(handles.size()) - 1; handle_index++) {
-      const auto connection_handle = handle_index + handle_index_offset;
+      if (initialize_parameters.sub_segment == 1) {
+        segment0.prev_jump_handle = segment0.prev_handle;
+        segment0.next_jump_handle = segment0.next_handle;
+
+        strand.begin_jump_segment_handle = strand.begin_segment_handle;
+        strand.end_jump_segment_handle = strand.end_segment_handle;
+        strand.begin_jump_connection_handle = strand.begin_connection_handle;
+        strand.end_jump_connection_handle = strand.end_connection_handle;
+
+      } else if (segment_handle_index % initialize_parameters.sub_segment == initialize_parameters.sub_segment - 1) {
+        if (segment_handle_index / initialize_parameters.sub_segment == 0) {
+          strand.begin_jump_segment_handle = segment0_handle;
+        }
+        if (segment_handle_index == initialize_parameters.sub_segment - 1) {
+          segment0.prev_jump_handle = -1;
+
+        } else {
+          int jump = initialize_parameters.sub_segment - 1;
+          segment0.prev_jump_handle = segment0.prev_handle;
+          while (jump > 0) {
+            segment0.prev_jump_handle = segments[segment0.prev_jump_handle].prev_handle;
+            jump--;
+          }
+        }
+        if (segment_handle_index == static_cast<int>(segment_handles.size()) - 1) {
+          segment0.next_jump_handle = -1;
+          strand.end_jump_segment_handle = segment0_handle;
+        } else {
+          int jump = initialize_parameters.sub_segment - 1;
+          segment0.next_jump_handle = segment0.next_handle;
+          while (jump > 0) {
+            segment0.next_jump_handle = segments[segment0.next_jump_handle].next_handle;
+            jump--;
+          }
+        }
+      } else {
+        segment0.prev_jump_handle = -1;
+        segment0.next_jump_handle = -1;
+      }
+
+      if (segment_handle_index == static_cast<int>(segment_handles.size()) - 1)
+        break;
+      const auto connection_handle = segment_handle_index + handle_index_offset;
       auto& connection = connections[connection_handle];
-      connection.segment0_handle = handles[handle_index];
-      connection.segment1_handle = handles[handle_index + 1];
-      const auto& segment0 = segments[connection.segment0_handle];
+
+      connection.segment0_handle = segment0_handle;
+      connection.segment1_handle = segment_handles[segment_handle_index + 1];
+
       const auto& segment1 = segments[connection.segment1_handle];
       connection.segment0_particle_handle = segment0.particle1_handle;
       connection.segment1_particle_handle = segment1.particle0_handle;
-      if (handle_index > 0) {
+      if (segment_handle_index > 0) {
         connection.prev_handle = connection_handle - 1;
       } else {
         connection.prev_handle = -1;
       }
-      if (handle_index < static_cast<int>(handles.size()) - 2) {
+      if (segment_handle_index < static_cast<int>(segment_handles.size()) - 2) {
         connection.next_handle = connection_handle + 1;
       } else {
         connection.next_handle = -1;
       }
       particles[connection.segment0_particle_handle].connection_handle = connection_handle;
       particles[connection.segment1_particle_handle].connection_handle = connection_handle;
+
+      if (initialize_parameters.sub_segment == 1) {
+        connection.prev_jump_handle = connection.prev_handle;
+        connection.next_jump_handle = connection.next_handle;
+      } else if (segment_handle_index % initialize_parameters.sub_segment == initialize_parameters.sub_segment - 1) {
+        if (segment_handle_index / initialize_parameters.sub_segment == 0) {
+          strand.begin_jump_connection_handle = connection_handle;
+        }
+        if (segment_handle_index == initialize_parameters.sub_segment - 1) {
+          connection.prev_jump_handle = -1;
+        } else {
+          connection.prev_jump_handle = connection_handle - initialize_parameters.sub_segment;
+        }
+        if (segment_handle_index == static_cast<int>(segment_handles.size()) - 1 - initialize_parameters.sub_segment) {
+          connection.next_jump_handle = -1;
+          strand.end_jump_connection_handle = connection_handle;
+        } else {
+          connection.next_jump_handle = connection_handle + initialize_parameters.sub_segment;
+        }
+      } else {
+        connection.prev_jump_handle = -1;
+        connection.next_jump_handle = -1;
+      }
+
 #ifdef USE_XPBD
       const float youngs_modulus = initialize_parameters.wood_young_modulus.GetValue() * 1e9f;
       const float shear_modulus = initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f;
@@ -247,12 +319,12 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
       connection.rest_darboux_vector = glm::conjugate(q0) * q1;
       connection.bend_twist_strain_valid.w = 1.0;
-      connection.max_bend_twist_strain = initialize_parameters.max_bend_twist_strain;
+      connection.max_bend_twist_strain = glm::vec4(glm::max(initialize_parameters.max_bend_twist_strain.GetValue(), glm::vec3(0.0f)), 0.0f);
     }
   }
   ComputeDelaunay(delaunay_tetrahedrons);
   for (const auto& i : constraints)
-    i->InitializeData(initialize_parameters, strand_model_skeleton, *this);
+    i->InitializeData(initialize_parameters, strand_model_skeleton, strand_group, *this);
 
   Upload();
 }

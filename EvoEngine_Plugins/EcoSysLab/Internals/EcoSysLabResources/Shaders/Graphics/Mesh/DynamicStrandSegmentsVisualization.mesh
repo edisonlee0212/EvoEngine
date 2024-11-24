@@ -107,8 +107,14 @@ void main(){
 	
 	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 	
-	vec4 color = color0;
-	if(color_mode == 1){
+	vec4 color;
+	if(color_mode == 0){
+		if(segment.prev_jump_handle != -1 || segment.next_jump_handle != -1 ){
+			color = color0;
+		}else{
+			color = color1;
+		}
+	}else if(color_mode == 1){
 		color = segment.color;
 	}
 	else if(color_mode == 2){

@@ -1,0 +1,52 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+#include "Math.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint segment_size;
+	float inv_time_step;
+};
+
+#include "RandomBundle.glsl"
+
+void main(){
+
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint segment_index = baseID + local_index;
+
+		if(segment_index >= segment_size) break;
+
+		Segment segment = segments[segment_index];
+		int particle0_handle = floatBitsToInt(segment.inertia_tensor_particle_0_handle.w);
+		int particle1_handle = floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w);
+		
+		SegmentData segment_data = segment_data_list[segment_index];
+		particles[particle0_handle].x_node_handle.xyz += segment_data.particle0_position_correction_max_strain.xyz;
+		particles[particle1_handle].x_node_handle.xyz += segment_data.particle1_position_correction_max_strain.xyz;
+
+		segments[segment_index].q = normalize(segment_data.q_correction + segments[segment_index].q);
+	}
+}

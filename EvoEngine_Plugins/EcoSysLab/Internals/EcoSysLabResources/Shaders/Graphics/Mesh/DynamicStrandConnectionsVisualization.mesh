@@ -102,8 +102,14 @@ void main(){
 	mat4 instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, distance(start_position, end_position)));
 	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 
-	vec4 color = color0;
-	if(color_mode == 1){
+	vec4 color;
+	if(color_mode == 0){
+		if(connection.prev_jump_handle != -1 || connection.next_jump_handle != -1 ){
+			color = color0;
+		}else{
+			color = color1;
+		}
+	}else if(color_mode == 1){
 		color = mix(color0, color1, clamp(length(connection.bend_twist_strain_valid.xyz) * uintBitsToFloat(multiplier), 0.0, 1.0));
 	}
 	
