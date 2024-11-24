@@ -226,9 +226,10 @@ void SorghumLeafState::Apply(const SorghumStemState& stem_state,
           stem_width, 180.f, 0, 0);
     }
   }
-
+  /*
   int sheath_node_count =
       static_cast<int>(glm::max(2.0f, stem_state.length * back_track_ratio / sorghum_layer->vertical_subdivision_length));
+
   for (int i = 0; i <= sheath_node_count; i++) {
     float factor = static_cast<float>(i) / static_cast<float>(sheath_node_count);
     float current_sheath_point =
@@ -241,7 +242,7 @@ void SorghumLeafState::Apply(const SorghumStemState& stem_state,
         glm::normalize(stem_state.direction) * current_sheath_point * stem_state.length + stem_offset, up, actual_direction, stem_width + 0.002f * static_cast<float>(i) / static_cast<float>(sheath_node_count),
         180.0f - 90.0f * static_cast<float>(i) / static_cast<float>(sheath_node_count), 0, 0);
   }
-
+  */
   int node_amount = static_cast<int>(glm::max(4.0f, length / sorghum_layer->vertical_subdivision_length));
   float unit_length = length / static_cast<float>(node_amount);
 
@@ -263,7 +264,7 @@ void SorghumLeafState::Apply(const SorghumStemState& stem_state,
     float collar_factor = glm::min(1.0f, static_cast<float>(i) / static_cast<float>(node_to_full_expand));
 
     float waviness = waviness_along_leaf.GetValue(factor);
-    current_period += glm::vec2(waviness_frequency);
+    current_period += glm::vec2(waviness_frequency, waviness_frequency);
 
     float width = glm::mix(stem_width + 0.002f, width_along_leaf.GetValue(factor), collar_factor);
     float angle = 90.0f - (90.0f - expand_angle) * glm::pow(collar_factor, 2.0f);

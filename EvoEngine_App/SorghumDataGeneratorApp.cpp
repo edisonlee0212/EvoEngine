@@ -220,7 +220,7 @@ int main() {
   capture_settings->output_spline_info = true;
   //capture_settings->spline_subdivision_count = 32;
 
-  const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Season12.sg";
+  const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Random.sg";
   //sorghum_field_point_cloud(1, 0.75f, 0, 0, 128, capture_settings, sdg_relative_path, "D:\\SorghumPointCloudData\\");
 
   sorghum_point_cloud(128, true, capture_settings, sg_relative_path, "D:\\SorghumPointCloudData\\");

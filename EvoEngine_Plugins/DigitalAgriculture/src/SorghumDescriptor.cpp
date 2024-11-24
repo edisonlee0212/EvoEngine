@@ -204,8 +204,8 @@ void SorghumLeafDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std:
     const float angle_step = segment.theta / static_cast<float>(sorghum_layer->horizontal_subdivision_step);
     const int verts_count = sorghum_layer->horizontal_subdivision_step * 2 + 1;
     for (int j = 0; j < verts_count; j++) {
-      auto position = segment.GetLeafPoint((j - sorghum_layer->horizontal_subdivision_step) * angle_step);
-      auto normal = segment.GetNormal((j - sorghum_layer->horizontal_subdivision_step) * angle_step);
+      auto position = segment.GetLeafPoint((j - static_cast<float>(sorghum_layer->horizontal_subdivision_step)) * angle_step);
+      auto normal = segment.GetNormal((j - static_cast<float>(sorghum_layer->horizontal_subdivision_step)) * angle_step);
       if (i != 0 && j != 0 && j != verts_count - 1) {
         position -= normal * mesh_generator_settings.leaf_thickness;
       }

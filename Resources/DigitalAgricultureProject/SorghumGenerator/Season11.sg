@@ -318,7 +318,7 @@ leaf_length:
 leaf_width:
   mean:
     min_value: 0
-    max_value: 0
+    max_value: 0.100000001
     curve:
       tangent_: true
       min_: [0, 0]
