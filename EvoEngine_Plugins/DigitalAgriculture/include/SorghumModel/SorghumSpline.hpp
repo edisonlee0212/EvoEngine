@@ -1,6 +1,5 @@
 #pragma once
 #include <Curve.hpp>
-#include "SorghumGrowthStages.hpp"
 using namespace evo_engine;
 namespace digital_agriculture_plugin {
 class SorghumSplineSegment {

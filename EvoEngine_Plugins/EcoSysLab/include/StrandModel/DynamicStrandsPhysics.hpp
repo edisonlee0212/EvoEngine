@@ -62,6 +62,7 @@ class IDynamicStrandsConstraint {
  public:
   virtual void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
                               const StrandModelSkeleton& strand_model_skeleton,
+                              const DtsStrandGroup& subdivided_strand_group,
                               const DynamicStrands& target_dynamic_strands) {
   }
   virtual void Project(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -110,7 +111,7 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
 
   uint32_t project_mode = static_cast<uint32_t>(ProjectMode::Backward);
 
-  int sub_iteration = 1;
+  int sub_iteration = 5;
   bool bend_twist = true;
   bool stretch_shear = true;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
@@ -127,7 +128,7 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
   std::vector<std::shared_ptr<DescriptorSet>> strands_physics_descriptor_sets{};
 
   void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
-                      const StrandModelSkeleton& strand_model_skeleton,
+                      const StrandModelSkeleton& strand_model_skeleton, const DtsStrandGroup& subdivided_strand_group,
                       const DynamicStrands& target_dynamic_strands) override;
 
   void Project(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -138,14 +139,14 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
   static glm::vec3 ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1, float average_segment_length);
 };
 
-#define BUNDLE_MAX_CONNECTION 8
-class DsBundle : public IDynamicStrandsConstraint {
+#define BUNDLE_MAX_CONNECTION 16
+class DsRandomBundle : public IDynamicStrandsConstraint {
  public:
-  struct BundleUpdateConstant {
+  struct RandomBundleUpdateConstant {
     uint32_t pair_size = 0;
   };
 
-  struct BundleConstant {
+  struct RandomBundleConstant {
     uint32_t segment_size = 0;
     float inv_time_step = 0.0f;
   };
@@ -187,17 +188,78 @@ class DsBundle : public IDynamicStrandsConstraint {
   inline static std::shared_ptr<ComputePipeline> bundle_offset_pipeline{};
   inline static std::shared_ptr<ComputePipeline> bundle_apply_pipeline{};
 
-  DsBundle();
+  DsRandomBundle();
   int sub_iteration = 5;
   void Project(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands) override;
   void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
-                      const StrandModelSkeleton& strand_model_skeleton,
+                      const StrandModelSkeleton& strand_model_skeleton, const DtsStrandGroup& subdivided_strand_group,
                       const DynamicStrands& target_dynamic_strands) override;
 
   void UploadData() override;
   void UpdateBindings() override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
+
+class DsUniformBundle : public IDynamicStrandsConstraint {
+ public:
+  struct UniformBundleUpdateConstant {
+    uint32_t pair_size = 0;
+    float inv_time_step = 0.0f;
+  };
+
+  struct UniformBundleConstant {
+    uint32_t profile_size = 0;
+    float inv_time_step = 0.0f;
+  };
+  struct SegmentPair {
+    int segment0_handle;
+    int segment1_handle;
+    int valid;
+    float max_strain;
+    glm::vec4 stiffness;
+
+    glm::vec4 segment0_particle0_offset;
+    glm::vec4 segment0_particle1_offset;
+
+    glm::vec4 segment1_particle0_offset;
+    glm::vec4 segment1_particle1_offset;
+
+    glm::quat rest_darboux_vector;
+  };
+  
+  struct PerProfileData {
+    int start_pair_handle;
+    int end_pair_handle;
+  };
+
+  std::vector<SegmentPair> segment_pairs;
+  
+  std::vector<PerProfileData> front_profiles;
+  std::vector<PerProfileData> back_profiles;
+
+  inline static std::shared_ptr<DescriptorSetLayout> layout{};
+  std::shared_ptr<Buffer> segment_pairs_buffer;
+  
+  std::shared_ptr<Buffer> front_profiles_buffer;
+  std::shared_ptr<Buffer> back_profiles_buffer;
+
+  std::vector<std::shared_ptr<DescriptorSet>> descriptor_sets{};
+  inline static std::shared_ptr<ComputePipeline> uniform_bundle_front_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> uniform_bundle_back_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> uniform_bundle_update_pipeline{};
+  DsUniformBundle();
+  int sub_iteration = 1;
+  void Project(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const DynamicStrands& target_dynamic_strands) override;
+  void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
+                      const StrandModelSkeleton& strand_model_skeleton, const DtsStrandGroup& subdivided_strand_group,
+                      const DynamicStrands& target_dynamic_strands) override;
+
+  void UploadData() override;
+  void UpdateBindings() override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+};
+
 #pragma endregion
 }  // namespace eco_sys_lab_plugin

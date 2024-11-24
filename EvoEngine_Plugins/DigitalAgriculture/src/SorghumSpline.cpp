@@ -22,7 +22,8 @@ glm::vec3 SorghumSplineSegment::GetLeafPoint(const float angle) const {
     const auto direction = glm::normalize(glm::rotate(up, glm::radians(angle), front));
     const auto point = center - arc_radius * direction;
     const auto distance_to_center = glm::sin(glm::radians(angle)) * arc_radius / radius;
-    return point - (angle < 0 ? left_height_offset : right_height_offset) * glm::pow(distance_to_center, 2.f) * up;
+    const auto offset = angle < 0 ? left_height_offset : right_height_offset;
+    return point - offset * glm::pow(distance_to_center, 2.f) * up;
   }
   const auto center = position + radius * up;
   const auto direction = glm::rotate(up, glm::radians(angle), front);
@@ -248,7 +249,7 @@ SorghumSplineSegment SorghumSpline::InterpolateSegment(const uint32_t segment_in
     r[3] = segments[segment_index + 2].right_height_offset;
   }
 
-  ret_val.right_height_offset = Strands::CubicInterpolation(radius[0], radius[1], radius[2], radius[3], t);
+  ret_val.right_height_offset = Strands::CubicInterpolation(r[0], r[1], r[2], r[3], t);
   return ret_val;
 }
 

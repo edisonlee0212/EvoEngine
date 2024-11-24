@@ -128,8 +128,8 @@ void sorghum_field_point_cloud(int grid_size, float grid_distance,
   int index = 0;
   for (int i = 0; i < size; i++) {
     std::filesystem::path target_descriptor_folder_path =
-        resource_folder_path / "DigitalAgricultureProject" / "SorghumDescriptorGenerator";
-    const auto sorghum_descriptor = std::dynamic_pointer_cast<SorghumDescriptorGenerator>(
+        resource_folder_path / "DigitalAgricultureProject" / "SorghumGenerator";
+    const auto sorghum_descriptor = std::dynamic_pointer_cast<SorghumGenerator>(
         ProjectManager::GetOrCreateAsset(sorghum_descriptor_generator_relative_path));
     std::string name = "Sorghum_" + std::to_string(i);
     std::filesystem::path target_tree_point_cloud_path = output_folder / (name + ".ply");
@@ -182,8 +182,8 @@ void sorghum_point_cloud(const uint32_t size, const bool avoid_occlusion,
   int index = 0;
   for (int i = 0; i < size; i++) {
     std::filesystem::path target_descriptor_folder_path =
-        resource_folder_path / "DigitalAgricultureProject" / "SorghumDescriptorGenerator";
-    const auto sorghum_descriptor_generator = std::dynamic_pointer_cast<SorghumDescriptorGenerator>(
+        resource_folder_path / "DigitalAgricultureProject" / "SorghumGenerator";
+    const auto sorghum_descriptor_generator = std::dynamic_pointer_cast<SorghumGenerator>(
         ProjectManager::GetOrCreateAsset(sorghum_descriptor_generator_relative_path));
     const auto sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
     sorghum_descriptor_generator->Apply(sorghum_descriptor,  i + 1);
@@ -220,10 +220,10 @@ int main() {
   capture_settings->output_spline_info = true;
   //capture_settings->spline_subdivision_count = 32;
 
-  const auto sdg_relative_path = std::filesystem::path("SorghumDescriptorGenerator") / "Season12.sdg";
+  const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Random.sg";
   //sorghum_field_point_cloud(1, 0.75f, 0, 0, 128, capture_settings, sdg_relative_path, "D:\\SorghumPointCloudData\\");
 
-  sorghum_point_cloud(128, true, capture_settings, sdg_relative_path, "D:\\SorghumPointCloudData\\");
+  sorghum_point_cloud(128, true, capture_settings, sg_relative_path, "D:\\SorghumPointCloudData\\");
   
   Application::Run();
 }

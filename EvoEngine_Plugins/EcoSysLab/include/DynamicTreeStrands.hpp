@@ -13,13 +13,14 @@ class DsTransform;
 class DsAttraction;
 class DsBoxSelection;
 
+
 class DynamicTreeStrands : public IPrivateComponent {
  public:
   bool enable_simulation = true;
 
   PrivateComponentRef tree_ref{};
   StrandModelSkeleton strand_model_skeleton{};
-  StrandModelStrandGroup subdivided_strand_group{};
+  DtsStrandGroup subdivided_strand_group{};
 
   DynamicStrands::InitializeParameters initialize_parameters{};
   bool enable_physics = true;
@@ -50,17 +51,11 @@ class DynamicTreeStrands : public IPrivateComponent {
   void OnCreate() override;
   void OnDestroy() override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
-  void MultipleRodExperimentSetup(float total_length, float min_segment_length, float max_segment_length, float radius,
-                                  const glm::ivec2& rod_dimension, bool add_operator);
-
-  void UniformMultipleRodExperimentSetup(float segment_length, uint32_t sub_segment_count, float radius,
-                                  const glm::ivec3& rod_dimension,
-                                  bool add_operator);
-
+  void UniformMultipleRodExperimentSetup(float segment_length, float radius,
+                                         const glm::ivec3& rod_dimension, bool add_operator);
+  void UniformSubdivide(const StrandModelStrandGroup& src);
   void Subdivide(float min_segment_length, float max_segment_length, const StrandModelStrandGroup& src);
-
-  void UniformSubdivide(uint32_t subdivision, const StrandModelStrandGroup& src);
-  void InitializeStrandParticles(const StrandModelStrandGroup& target_strand_group) const;
+  void InitializeStrandParticles(const DtsStrandGroup& target_strand_group) const;
   void ClearStrandParticles() const;
   void PhysicsStep() const;
 

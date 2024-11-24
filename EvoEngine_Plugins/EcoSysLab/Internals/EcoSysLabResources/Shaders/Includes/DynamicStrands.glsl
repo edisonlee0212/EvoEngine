@@ -7,6 +7,12 @@ struct Strand {
 
   int begin_connection_handle;
   int end_connection_handle;
+
+  int begin_jump_segment_handle;
+  int end_jump_segment_handle;
+
+  int begin_jump_connection_handle;
+  int end_jump_connection_handle;
 };
 
 struct Segment {
@@ -37,6 +43,11 @@ struct Segment {
   vec4 stretch_shear_strain_original_inv_mass;
 
   vec4 max_stretch_shear_strain;
+
+  int prev_jump_handle;
+  int next_jump_handle;
+  int padding0;
+  int padding1;
 };
 
 struct Particle {
@@ -68,6 +79,11 @@ struct Connection {
   vec4 bend_twist_strain_valid;
 
   vec4 max_bend_twist_strain;
+
+  int prev_jump_handle;
+  int next_jump_handle;
+  int padding0;
+  int padding1;
 };
 
 struct DelaunayTetrahedron {

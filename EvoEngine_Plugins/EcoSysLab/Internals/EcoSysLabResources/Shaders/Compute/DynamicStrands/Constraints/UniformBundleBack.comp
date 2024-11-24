@@ -6,9 +6,7 @@
 #extension GL_EXT_control_flow_attributes : require
 
 #define DYNAMIC_STRANDS_SET 0
-#include "DynamicStrands.glsl"
-#include "Math.glsl"
-
+#include "DynamicStrandsPhysics.glsl"
 const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
 
 const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
@@ -23,30 +21,39 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint segment_size;
+	uint profile_size;
 	float inv_time_step;
 };
 
-#include "Bundle.glsl"
+#include "UniformBundle.glsl"
+
 
 void main(){
-
 	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint segment_index = baseID + local_index;
-
-		if(segment_index >= segment_size) break;
-
-		Segment segment = segments[segment_index];
-		int particle0_handle = floatBitsToInt(segment.inertia_tensor_particle_0_handle.w);
-		int particle1_handle = floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w);
+		uint profile_index = baseID + local_index;
+		if(profile_index >= profile_size) break;
 		
-		SegmentData segment_data = segment_data_list[segment_index];
-		particles[particle0_handle].x_node_handle.xyz += segment_data.particle0_position_correction_max_strain.xyz;
-		particles[particle1_handle].x_node_handle.xyz += segment_data.particle1_position_correction_max_strain.xyz;
+		ProfileData profile_data = profile_data_list_back[profile_index];
 
-		segments[segment_index].q = normalize(segment_data.q_correction + segments[segment_index].q);
+		BundleProfile(profile_data, inv_time_step);
+
+		/*
+				//max_strain0 = max(max_strain0, length(diff0) / (segment.torque_rest_length.w + neighbor_segment.torque_rest_length.w) * 2.0);
+
+				
+				vec4 q0_correction, q1_correction;
+				vec4 rest_darboux_vector = is_segment0 ? segment_pair.segment0_rest_darboux_vector : segment_pair.segment1_rest_darboux_vector;
+				project_bend_twist_constraint(inv_time_step,
+					segment.q, segment.inv_mass, 
+					neighbor_segment.q, neighbor_segment.inv_mass, 
+					segment_pair.stiffness.xyz, rest_darboux_vector, q0_correction, q1_correction);
+
+				q_correction += q0_correction;
+				sum += 1;
+		}*/
 	}
+
 }

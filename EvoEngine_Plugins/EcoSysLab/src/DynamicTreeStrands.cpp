@@ -13,6 +13,16 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
   const auto owner = GetOwner();
   const auto scene = GetScene();
   initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
+
+  Jobs::RunParallelFor(subdivided_strand_group.PeekStrands().size(), [&](const size_t strand_index) {
+    const auto& strand = subdivided_strand_group.PeekStrands()[strand_index];
+    for (int root_distance = 0; root_distance < strand.PeekStrandSegmentHandles().size(); root_distance++) {
+      auto& segment_data =
+          subdivided_strand_group.RefStrandSegmentData(strand.PeekStrandSegmentHandles()[root_distance]);
+      segment_data.root_distance = root_distance;
+    }
+  });
+
   dynamic_strands->Initialize(initialize_parameters, strand_model_skeleton, subdivided_strand_group);
 
   auto& transform_operator = transform_operators.back();
@@ -34,20 +44,9 @@ void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   static bool auto_subdivide = true;
-  static bool uniformly_subdivide = true;
-  static float min_segment_length = 0.03f;
-  static float max_segment_length = 0.06f;
-  static int sub_segment_count = 1;
 
   if (ImGui::TreeNode("Initialization settings")) {
-    ImGui::DragFloat("Min subdivision length", &min_segment_length, .0001f, 0.0001f, max_segment_length, "%.5f");
-    ImGui::DragFloat("Max subdivision length", &max_segment_length, .0001f, min_segment_length, 1.f, "%.5f");
     ImGui::Checkbox("Auto subdivide", &auto_subdivide);
-    ImGui::Checkbox("Uniformly subdivide", &uniformly_subdivide);
-    if (uniformly_subdivide) {
-      ImGui::DragInt("Sub segment count", &sub_segment_count, 1, 1, 100);
-      sub_segment_count = glm::clamp(sub_segment_count, 1, 100);
-    }
     initialize_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
   }
@@ -56,11 +55,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       tree->BuildStrandModel();
       strand_model_skeleton = tree->strand_model.strand_model_skeleton;
       if (auto_subdivide) {
-        if (!uniformly_subdivide) {
-          Subdivide(min_segment_length, max_segment_length, strand_model_skeleton.data.strand_group);
-        }else {
-          UniformSubdivide(static_cast<uint32_t>(sub_segment_count), strand_model_skeleton.data.strand_group);
-        }
+        UniformSubdivide(strand_model_skeleton.data.strand_group);
       }
       tree_ref.Clear();
     }
@@ -68,32 +63,18 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
   auto& strand_group = strand_model_skeleton.data.strand_group;
   if (ImGui::Button("Re-subdivide")) {
-    if (!uniformly_subdivide) {
-      Subdivide(min_segment_length, max_segment_length, strand_group);
-    } else {
-      UniformSubdivide(static_cast<uint32_t>(sub_segment_count), strand_group);
-    }
+    UniformSubdivide(strand_group);
   }
   if (ImGui::TreeNodeEx("Experiments", ImGuiTreeNodeFlags_DefaultOpen)) {
-    static float rod_length = 1.0f;
-    ImGui::DragFloat("Rod length", &rod_length, 0.01f, 0.01f, 10.0f);
+    static float segment_length = 0.05f;
+    ImGui::DragFloat("Rod length", &segment_length, 0.01f, 0.01f, 10.0f);
+    static glm::ivec3 rod_dimension = {10, 10, 10};
+    ImGui::DragInt3("Rod dimension (3D)", &rod_dimension.x, 1, 1, 1000);
 
-    static glm::ivec3 rod_dimension = {10, 10, 100};
-    if (uniformly_subdivide) {
-      ImGui::DragInt3("Rod dimension (3D)", &rod_dimension.x, 1, 1, 1000);
-    }else {
-      ImGui::DragInt2("Rod dimension (2D)", &rod_dimension.x, 1, 1, 1000);
-    }
     static bool add_operator = false;
     ImGui::Checkbox("Operator", &add_operator);
     if (ImGui::Button("Multiple Rod Experiment")) {
-      if (!uniformly_subdivide) {
-        MultipleRodExperimentSetup(rod_length, min_segment_length, max_segment_length, 0.002f, rod_dimension,
-                                   add_operator);
-      }else {
-        UniformMultipleRodExperimentSetup((min_segment_length + max_segment_length) * 0.5f, sub_segment_count, 0.002f,
-                                          rod_dimension, add_operator);
-      }
+      UniformMultipleRodExperimentSetup(segment_length, 0.002f, rod_dimension, add_operator);
     }
     ImGui::TreePop();
   }
@@ -148,20 +129,12 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
           temp_strand_group.RemoveStrand(new_strand_handle);
         }
       }
-      if (!uniformly_subdivide) {
-        Subdivide(min_segment_length, max_segment_length, temp_strand_group);
-      } else {
-        UniformSubdivide(static_cast<uint32_t>(sub_segment_count), temp_strand_group);
-      }
+      UniformSubdivide(temp_strand_group);
     }
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Particles")) {
-    if (ImGui::Button("Build particles for original")) {
-      InitializeStrandParticles(strand_group);
-    }
-
-    if (ImGui::Button("Build particles for subdivided")) {
+    if (ImGui::Button("Build particles")) {
       InitializeStrandParticles(subdivided_strand_group);
     }
     if (ImGui::Button("Clear particles")) {
@@ -231,6 +204,21 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   return false;
 }
 
+void DynamicTreeStrands::UniformSubdivide(const StrandModelStrandGroup& src) {
+  src.UniformlySubdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
+      subdivided_strand_group, initialize_parameters.sub_segment,
+      [&](const StrandHandle src_handle, DtsStrandData& strand_data) {
+
+      },
+      [&](const StrandSegmentHandle src_handle, DtsStrandSegmentData& segment_data) {
+        const auto& src_segment_data = src.PeekStrandSegmentData(src_handle);
+        segment_data.node_handle = src_segment_data.node_handle;
+        segment_data.original_segment_handle = src_handle;
+      });
+  subdivided_strand_group.RandomAssignColor();
+  UpdateDynamicStrands();
+}
+
 void DynamicTreeStrands::OnCreate() {
   dynamic_strands = std::make_shared<DynamicStrands>();
   gravity = std::make_shared<DsGravity>();
@@ -239,7 +227,8 @@ void DynamicTreeStrands::OnCreate() {
   drag_operator = std::make_shared<DsDrag>();
 
   dynamic_strands->constraints.emplace_back(std::make_shared<DsStiffRod>());
-  dynamic_strands->constraints.emplace_back(std::make_shared<DsBundle>());
+  //dynamic_strands->constraints.emplace_back(std::make_shared<DsRandomBundle>());
+  dynamic_strands->constraints.emplace_back(std::make_shared<DsUniformBundle>());
 }
 
 void DynamicTreeStrands::OnDestroy() {
@@ -248,70 +237,22 @@ void DynamicTreeStrands::OnDestroy() {
 void DynamicTreeStrands::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
-void DynamicTreeStrands::MultipleRodExperimentSetup(const float total_length, const float min_segment_length,
-                                                    const float max_segment_length, const float radius,
-                                                    const glm::ivec2& rod_dimension, const bool add_operator) {
-  strand_model_skeleton = {1};
-  auto& strand_group = strand_model_skeleton.data.strand_group;
-  for (int x = 0; x < rod_dimension.x; x++) {
-    for (int y = 0; y < rod_dimension.y; y++) {
-      const auto strand_handle = strand_group.AllocateStrand();
-      auto& strand = strand_group.RefStrand(strand_handle);
-      strand.start_position =
-          glm::vec3(0.0f, radius * (y - rod_dimension.y / 2.f) * 2.f, radius * (x - rod_dimension.x / 2.f) * 2.f);
-      strand.start_color = glm::vec4(1, 1, 1, 1);
-      strand.start_thickness = radius;
-
-      const auto segment_handle = strand_group.Extend(strand_handle);
-      auto& segment = strand_group.RefStrandSegment(segment_handle);
-      segment.end_position =
-          glm::vec3(total_length, radius * (static_cast<float>(y) - static_cast<float>(rod_dimension.y) / 2.f) * 2.f,
-                    radius * (static_cast<float>(x) - static_cast<float>(rod_dimension.x) / 2.f) * 2.f);
-      segment.end_color = glm::vec4(1, 1, 1, 1);
-      segment.end_thickness = radius;
-      strand_group.RefStrandSegmentData(segment_handle).node_handle = 0;
-    }
-  }
-  strand_group.CalculateRotations();
-  Subdivide(min_segment_length, max_segment_length, strand_group);
-
-  if (add_operator) {
-    const auto scene = Application::GetActiveScene();
-    const auto children = scene->GetChildren(GetOwner());
-    Entity operator_entity{};
-    for (const auto& child : children) {
-      if (scene->GetEntityName(child) == "Operator") {
-        operator_entity = child;
-        break;
-      }
-    }
-    if (!scene->IsEntityValid(operator_entity))
-      operator_entity = scene->CreateEntity("Operator");
-    transform_operators.emplace_back();
-    auto& transform_operator = transform_operators.back();
-
-    auto operator_root_transform = GlobalTransform();
-    operator_root_transform.SetPosition(
-        initialize_parameters.root_transform.TransformPoint(glm::vec3(total_length, 0, 0)));
-    scene->SetDataComponent(operator_entity, operator_root_transform);
-    scene->SetParent(operator_entity, GetOwner());
-
-    std::vector<uint32_t> segment_handles(dynamic_strands->strands.size());
-    Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
-      const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
-      segment_handles[i] = segment_handle;
-    });
-    transform_operator.target_entity = operator_entity;
-    transform_operator.ds_transform = std::make_shared<DsTransform>();
-    transform_operator.ds_transform->Initialize(operator_root_transform, dynamic_strands, segment_handles);
-  }
-}
-
-void DynamicTreeStrands::UniformMultipleRodExperimentSetup(const float segment_length,
-                                                           const uint32_t sub_segment_count, const float radius,
+void DynamicTreeStrands::UniformMultipleRodExperimentSetup(const float segment_length, const float radius,
                                                            const glm::ivec3& rod_dimension, const bool add_operator) {
   strand_model_skeleton = {1};
   auto& strand_group = strand_model_skeleton.data.strand_group;
+
+  auto& root_node = strand_model_skeleton.RefNode(0);
+  root_node.info.global_position = glm::vec3(0.0f);
+  root_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
+  for (int z = 1; z < rod_dimension.z; z++) {
+    const auto new_node_handle = strand_model_skeleton.Extend(z - 1, false);
+    auto& new_node = strand_model_skeleton.RefNode(new_node_handle);
+    new_node.info.global_position = glm::vec3(segment_length * (static_cast<float>(z) + 1.f), 0.0f, 0.0f);
+    new_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
+  }
+  strand_model_skeleton.CalculateRegulatedGlobalRotation();
+  strand_model_skeleton.SortLists();
   for (int x = 0; x < rod_dimension.x; x++) {
     for (int y = 0; y < rod_dimension.y; y++) {
       const auto strand_handle = strand_group.AllocateStrand();
@@ -330,14 +271,12 @@ void DynamicTreeStrands::UniformMultipleRodExperimentSetup(const float segment_l
                       radius * (static_cast<float>(x) - static_cast<float>(rod_dimension.x) / 2.f) * 2.f);
         segment.end_color = glm::vec4(1, 1, 1, 1);
         segment.end_thickness = radius;
-        strand_group.RefStrandSegmentData(segment_handle).node_handle = 0;
+        strand_group.RefStrandSegmentData(segment_handle).node_handle = z;
       }
     }
   }
   strand_group.CalculateRotations();
-  strand_group.UniformlySubdivide(subdivided_strand_group, sub_segment_count);
-  subdivided_strand_group.RandomAssignColor();
-  UpdateDynamicStrands();
+  UniformSubdivide(strand_group);
 
   if (add_operator) {
     const auto scene = Application::GetActiveScene();
@@ -373,23 +312,25 @@ void DynamicTreeStrands::UniformMultipleRodExperimentSetup(const float segment_l
 
 void DynamicTreeStrands::Subdivide(const float min_segment_length, const float max_segment_length,
                                    const StrandModelStrandGroup& src) {
-  src.Subdivide(
+  src.Subdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
       subdivided_strand_group,
       [&]() {
         return glm::linearRand(min_segment_length, max_segment_length);
       },
+      [](StrandHandle src_handle, DtsStrandData& strand_data) {
+      },
+      [&](StrandSegmentHandle src_handle, DtsStrandSegmentData& segment_data) {
+        const auto& src_segment_data = src.PeekStrandSegmentData(src_handle);
+        segment_data.node_handle = src_segment_data.node_handle;
+        segment_data.original_segment_handle = src_handle;
+      }, 
       (min_segment_length + max_segment_length) * .5f * .01f);
   subdivided_strand_group.RandomAssignColor();
   UpdateDynamicStrands();
 }
 
-void DynamicTreeStrands::UniformSubdivide(const uint32_t subdivision, const StrandModelStrandGroup& src) {
-  src.UniformlySubdivide(subdivided_strand_group, subdivision);
-  subdivided_strand_group.RandomAssignColor();
-  UpdateDynamicStrands();
-}
 
-void DynamicTreeStrands::InitializeStrandParticles(const StrandModelStrandGroup& target_strand_group) const {
+void DynamicTreeStrands::InitializeStrandParticles(const DtsStrandGroup& target_strand_group) const {
   const auto scene = GetScene();
   const auto owner = GetOwner();
 

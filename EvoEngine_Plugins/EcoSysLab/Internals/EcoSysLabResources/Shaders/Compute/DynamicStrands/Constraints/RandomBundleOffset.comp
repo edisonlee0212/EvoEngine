@@ -25,7 +25,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	float inv_time_step;
 };
 
-#include "Bundle.glsl"
+#include "RandomBundle.glsl"
 
 
 void main(){
