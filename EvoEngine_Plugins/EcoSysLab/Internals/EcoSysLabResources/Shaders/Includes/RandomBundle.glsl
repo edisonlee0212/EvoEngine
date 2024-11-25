@@ -1,12 +1,20 @@
 
-#define BUNDLE_MAX_CONNECTION 16
+#define BUNDLE_MAX_CONNECTION 8
 
 struct SegmentPair {
-  int handle0;
-  int handle1;
+  int segment0_handle;
+  int segment1_handle;
   int valid;
-  int padding;
+  float max_strain;
   vec4 stiffness;
+
+  vec4 segment0_particle0_offset;
+  vec4 segment0_particle1_offset;
+
+  vec4 segment1_particle0_offset;
+  vec4 segment1_particle1_offset;
+
+  vec4 rest_darboux_vector;
 };
 
 layout(std430, set = 1, binding = 0) buffer SEGMENT_PAIR_BLOCK {
@@ -14,15 +22,87 @@ layout(std430, set = 1, binding = 0) buffer SEGMENT_PAIR_BLOCK {
 };
 
 struct SegmentData {
-  vec4 particle0_position_correction_max_strain;
-  vec4 particle1_position_correction_max_strain;
+  vec4 particle0_position_correction;
+  vec4 particle1_position_correction;
   vec4 q_correction;
   int pair_handles[BUNDLE_MAX_CONNECTION];
-  vec4 particle0_offset[BUNDLE_MAX_CONNECTION];
-  vec4 particle1_offset[BUNDLE_MAX_CONNECTION];
-  vec4 rest_darboux_vectors[BUNDLE_MAX_CONNECTION];
 };
 
 layout(std430, set = 1, binding = 1) buffer SEGMENT_DATA_BLOCK {
   SegmentData segment_data_list[];
 };
+
+void BundleSegment(in uint segment_index, in float inv_time_step) {
+  SegmentData segment_data = segment_data_list[segment_index];
+  vec3 movement0 = vec3(0.0, 0.0, 0.0);
+  vec3 movement1 = vec3(0.0, 0.0, 0.0);
+
+  vec4 q_correction = vec4(0.0, 0.0, 0.0, 0.0);
+
+  int sum = 0;
+
+  [[unroll]]
+  for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
+    int pair_handle = segment_data.pair_handles[i];
+    if (pair_handle < 0) break;
+    SegmentPair segment_pair = segment_pairs[pair_handle];
+    if (segment_pair.valid == 0)
+      continue;
+    bool is_segment0 = segment_index == segment_pair.segment0_handle;
+    Segment segment0 = segments[is_segment0 ? segment_pair.segment0_handle : segment_pair.segment1_handle];
+    Segment segment1 = segments[is_segment0 ? segment_pair.segment1_handle : segment_pair.segment0_handle];
+
+    int segment0_particle0_handle = floatBitsToInt(segment0.inertia_tensor_particle_0_handle.w);
+    int segment0_particle1_handle = floatBitsToInt(segment0.inv_inertia_tensor_particle_1_handle.w);
+
+    int segment1_particle0_handle = floatBitsToInt(segment1.inertia_tensor_particle_0_handle.w);
+    int segment1_particle1_handle = floatBitsToInt(segment1.inv_inertia_tensor_particle_1_handle.w);
+
+    Particle segment0_particle0 = particles[segment0_particle0_handle];
+    Particle segment0_particle1 = particles[segment0_particle1_handle];
+    Particle segment1_particle0 = particles[segment1_particle0_handle];
+    Particle segment1_particle1 = particles[segment1_particle1_handle];
+
+    vec3 segment1_center_position = (segment1_particle0.x_node_handle.xyz + segment1_particle1.x_node_handle.xyz) * 0.5;
+
+    vec3 target_segment0_particle0_position =
+        segment1_center_position + rotate_vec3(segment1.q, is_segment0 ? segment_pair.segment0_particle0_offset.xyz
+                                                                       : segment_pair.segment1_particle0_offset.xyz);
+    vec3 target_segment0_particle1_position =
+        segment1_center_position + rotate_vec3(segment1.q, is_segment0 ? segment_pair.segment0_particle1_offset.xyz
+                                                                       : segment_pair.segment1_particle1_offset.xyz);
+
+    float t2 = inv_time_step * inv_time_step;
+    float stiffness_factor = t2 / segment_pair.stiffness.w;
+    float lambda = (segment0.inv_mass + segment1.inv_mass + stiffness_factor);
+    float factor0 = segment0.inv_mass / lambda;
+
+    vec3 segment0_particle0_position_correction =
+        (target_segment0_particle0_position - segment0_particle0.x_node_handle.xyz) * factor0;
+    vec3 segment0_particle1_position_correction =
+        (target_segment0_particle1_position - segment0_particle1.x_node_handle.xyz) * factor0;
+    
+    sum++;
+    movement0 += segment0_particle0_position_correction;
+    movement1 += segment0_particle1_position_correction;
+
+    vec4 q0_correction, q1_correction;
+    project_bend_twist_constraint(inv_time_step, 
+                                    segments[segment_pair.segment0_handle].q, segments[segment_pair.segment0_handle].inv_mass,
+                                    segments[segment_pair.segment1_handle].q, segments[segment_pair.segment1_handle].inv_mass,
+                                    segment_pair.stiffness.xyz, segment_pair.rest_darboux_vector, q0_correction,
+                                    q1_correction);
+
+    q_correction += is_segment0 ? q0_correction : q1_correction;
+  }
+
+  if (sum != 0) {
+    segment_data_list[segment_index].particle0_position_correction.xyz = movement0 / sum;
+    segment_data_list[segment_index].particle1_position_correction.xyz = movement1 / sum;
+    segment_data_list[segment_index].q_correction = q_correction / sum;
+  } else {
+    segment_data_list[segment_index].particle0_position_correction.xyz = vec3(0.0, 0.0, 0.0);
+    segment_data_list[segment_index].particle1_position_correction.xyz = vec3(0.0, 0.0, 0.0);
+    segment_data_list[segment_index].q_correction = vec4(0.0, 0.0, 0.0, 0.0);
+  }
+}

@@ -17,12 +17,9 @@ class DatasetGenerator {
                                     const std::string& tree_mesh_output_path, const std::string& tree_trunk_output_path,
                                     const std::string& tree_info_path);
 
-  static auto GenerateTreeMesh(const std::string& tree_parameters_path, float delta_time, int max_iterations,
-                               int max_tree_node_count, const TreeMeshGeneratorSettings& mesh_generator_settings,
-                               const std::string& tree_mesh_output_path) -> void;
-
-  static void GenerateTreeMesh(const std::string& tree_parameters_path, float delta_time, int max_iterations,
-                               std::vector<int> target_tree_node_count,
+  static void GenerateTreeMesh(const std::filesystem::path& tree_parameters_path, float low_branch_pruning,
+                               float delta_time, int max_iterations,
+                               const std::vector<int> &target_tree_node_count,
                                const TreeMeshGeneratorSettings& mesh_generator_settings,
                                const std::string& tree_mesh_output_path);
 

@@ -5,15 +5,7 @@
 #include "TreeGrowthData.hpp"
 
 using namespace evo_engine;
-
 namespace eco_sys_lab_plugin {
-class DsParticleNeighbor;
-class DsGravity;
-class DsTransform;
-class DsAttraction;
-class DsBoxSelection;
-
-
 class DynamicTreeStrands : public IPrivateComponent {
  public:
   bool enable_simulation = true;
@@ -37,13 +29,19 @@ class DynamicTreeStrands : public IPrivateComponent {
     Entity target_entity;
     std::shared_ptr<DsAttraction> ds_attraction;
   };
+  bool random_subdivision = true;
+  float min_segment_length = 0.03f;
+  float max_segment_length = 0.06f;
+  bool limit_strand_length = true;
+  float max_strand_length = 1.f;
+
   std::vector<EntityTransform> transform_operators;
   std::vector<EntityAttraction> attraction_operators;
 
   std::shared_ptr<DsBoxSelection> box_selection_operator;
   std::shared_ptr<DsDrag> drag_operator;
   std::shared_ptr<DsGravity> gravity;
-  std::shared_ptr<DsParticleNeighbor> connectivity;
+  std::shared_ptr<DsGroundPlane> ground_plane;
   void UpdateDynamicStrands();
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
@@ -51,10 +49,15 @@ class DynamicTreeStrands : public IPrivateComponent {
   void OnCreate() override;
   void OnDestroy() override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
-  void UniformMultipleRodExperimentSetup(float segment_length, float radius,
-                                         const glm::ivec3& rod_dimension, bool add_operator);
-  void UniformSubdivide(const StrandModelStrandGroup& src);
-  void Subdivide(float min_segment_length, float max_segment_length, const StrandModelStrandGroup& src);
+
+  struct MultipleRodExperimentSetupSettings {
+    float segment_length = 0.05f;
+    float radius = 0.002f;
+    glm::ivec3 rod_dimension = {10, 10, 10};
+    bool add_operator = true;
+  };
+
+  void MultipleRodExperimentSetup(const MultipleRodExperimentSetupSettings& settings);
   void InitializeStrandParticles(const DtsStrandGroup& target_strand_group) const;
   void ClearStrandParticles() const;
   void PhysicsStep() const;

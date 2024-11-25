@@ -139,7 +139,7 @@ class DsStiffRod final : public IDynamicStrandsConstraint {
   static glm::vec3 ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1, float average_segment_length);
 };
 
-#define BUNDLE_MAX_CONNECTION 16
+#define BUNDLE_MAX_CONNECTION 8
 class DsRandomBundle : public IDynamicStrandsConstraint {
  public:
   struct RandomBundleUpdateConstant {
@@ -151,30 +151,34 @@ class DsRandomBundle : public IDynamicStrandsConstraint {
     float inv_time_step = 0.0f;
   };
 
-  struct Pair {
-    int handle0;
-    int handle1;
+  struct SegmentPair {
+    int segment0_handle;
+    int segment1_handle;
     int valid;
-    int padding;
+    float max_strain;
     glm::vec4 stiffness;
+
+    glm::vec4 segment0_particle0_offset;
+    glm::vec4 segment0_particle1_offset;
+
+    glm::vec4 segment1_particle0_offset;
+    glm::vec4 segment1_particle1_offset;
+
+    glm::quat rest_darboux_vector;
   };
+
   struct SegmentData {
     glm::vec3 particle0_position_correction;
-    float particle0_max_strain;
+    float padding0;
     glm::vec3 particle1_position_correction;
-    float particle1_max_strain;
+    float padding1;
 
     glm::quat q_correction;
 
     int pair_handles[BUNDLE_MAX_CONNECTION];
-
-    glm::vec4 particle0_offset[BUNDLE_MAX_CONNECTION];
-    glm::vec4 particle1_offset[BUNDLE_MAX_CONNECTION];
-
-    glm::quat rest_darboux_vectors[BUNDLE_MAX_CONNECTION];
   };
 
-  std::vector<Pair> pairs;
+  std::vector<SegmentPair> segment_pairs;
   std::vector<SegmentData> segment_data_list;
 
   inline static std::shared_ptr<DescriptorSetLayout> layout{};

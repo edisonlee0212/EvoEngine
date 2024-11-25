@@ -77,6 +77,23 @@ class DsGravity final : public IDsPhysicsOperator {
   DsGravity();
 };
 
+class DsGroundPlane final : public IDsPhysicsOperator {
+ public:
+  struct GroundPlanePushConstant {
+    uint32_t particle_size = 0;
+    float ground_height = -1.0f;
+    float ground_softness = 0.5f;
+  };
+
+  float ground_height = -0.5f;
+  float ground_softness = 0.5f;
+  inline static std::shared_ptr<ComputePipeline> pipeline{};
+  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  DsGroundPlane();
+};
+
 class DsAttraction final : public IDsPhysicsOperator {
  public:
   glm::vec3 target_position;
