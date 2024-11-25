@@ -75,6 +75,20 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       }
     }
   }
+
+  if (ImGui::Checkbox("Uniform Particle", &render_uniform_particles))
+    changed = true;
+  if (render_uniform_particles) {
+    if (ImGui::Combo("Uniform particle mode", {"Default", "Segment color"}, uniform_particle_render_mode))
+      changed = true;
+    switch (uniform_particle_render_mode) {
+      case 0: {
+        if (ImGui::ColorEdit4("Uniform particle color", &uniform_particle_main.x))
+          changed = true;
+        break;
+      }
+    }
+  }
   return changed;
 }
 
@@ -166,7 +180,6 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     mesh_shader->Set(ShaderType::Mesh, Platform::Constants::shader_global_defines,
                      std::filesystem::path("./EcoSysLabResources") /
                          "Shaders/Graphics/Mesh/DynamicStrandSegmentsVisualization.mesh");
-
     frag_shader = std::make_shared<Shader>();
     frag_shader->Set(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
@@ -247,6 +260,59 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     connection_render_pipeline->Initialize();
   }
 
+  static std::shared_ptr<GraphicsPipeline> uniform_particle_render_pipeline{};
+  struct UniformParticleRenderPushConstant {
+    glm::vec4 min_color = glm::vec4(0.2f);
+    glm::vec4 max_color = glm::vec4(1.f);
+
+    uint32_t camera_index = 0;
+    uint32_t strand_uniform_particle_size = 0;
+    uint32_t render_mode = 2;
+    float multiplier = 10.0f;
+  };
+
+  if (!uniform_particle_render_pipeline) {
+    static std::shared_ptr<Shader> task_shader{};
+    static std::shared_ptr<Shader> mesh_shader{};
+    static std::shared_ptr<Shader> frag_shader{};
+    // Load shader
+    task_shader = std::make_shared<Shader>();
+    task_shader->Set(ShaderType::Task, Platform::Constants::shader_global_defines,
+                     std::filesystem::path("./EcoSysLabResources") /
+                         "Shaders/Graphics/Task/DynamicStrandUniformParticlesVisualization.task");
+    mesh_shader = std::make_shared<Shader>();
+    mesh_shader->Set(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+                     std::filesystem::path("./EcoSysLabResources") /
+                         "Shaders/Graphics/Mesh/DynamicStrandUniformParticlesVisualization.mesh");
+
+    frag_shader = std::make_shared<Shader>();
+    frag_shader->Set(
+        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsVisualization.frag");
+    // Descriptor set layout
+    uniform_particle_render_pipeline = std::make_shared<GraphicsPipeline>();
+    uniform_particle_render_pipeline->task_shader = task_shader;
+    uniform_particle_render_pipeline->mesh_shader = mesh_shader;
+
+    uniform_particle_render_pipeline->fragment_shader = frag_shader;
+    uniform_particle_render_pipeline->geometry_type = GeometryType::Mesh;
+
+    auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
+    uniform_particle_render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
+    uniform_particle_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    uniform_particle_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+    uniform_particle_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    uniform_particle_render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+
+    auto& push_constant_range = uniform_particle_render_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(UniformParticleRenderPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+
+    uniform_particle_render_pipeline->Initialize();
+  }
+
+
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
 
@@ -259,6 +325,13 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   particle_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   particle_push_constant.multiplier = visualization_parameters.particle_multiplier;
   particle_push_constant.strand_particle_size = particles.size();
+
+  UniformParticleRenderPushConstant uniform_particle_push_constant;
+  uniform_particle_push_constant.render_mode = visualization_parameters.uniform_particle_render_mode;
+  uniform_particle_push_constant.min_color = visualization_parameters.uniform_particle_main;
+  uniform_particle_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
+  uniform_particle_push_constant.multiplier = 1.f;
+  uniform_particle_push_constant.strand_uniform_particle_size = uniform_particles.size();
 
   SegmentRenderPushConstant segment_push_constant;
   segment_push_constant.render_mode = visualization_parameters.segment_render_mode;
@@ -357,6 +430,26 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
                 vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
             particle_render_pipeline->PushConstant(vk_command_buffer, 0, particle_push_constant);
             const uint32_t count = Platform::DivUp(particles.size(), task_work_group_invocations);
+            vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+          });
+    }
+    if (visualization_parameters.render_uniform_particles) {
+      uniform_particle_render_pipeline->states.ResetAllStates(1);
+      uniform_particle_render_pipeline->states.view_port = viewport;
+      uniform_particle_render_pipeline->states.scissor = scissor;
+      uniform_particle_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+      uniform_particle_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
+
+      uniform_particle_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+      target_camera->GetRenderTexture()->Render(
+          vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
+            uniform_particle_render_pipeline->Bind(vk_command_buffer);
+            uniform_particle_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                        render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+            uniform_particle_render_pipeline->BindDescriptorSet(
+                vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+            uniform_particle_render_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
+            const uint32_t count = Platform::DivUp(uniform_particles.size(), task_work_group_invocations);
             vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
           });
     }

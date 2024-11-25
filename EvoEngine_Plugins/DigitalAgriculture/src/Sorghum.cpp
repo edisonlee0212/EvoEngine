@@ -182,6 +182,13 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
   }
 }
 
+void Sorghum::OnDestroy() {
+  sorghum_descriptor.Clear();
+  sorghum_generator.Clear();
+  sorghum_state.Clear();
+  sorghum_growth_stages.Clear();
+}
+
 void Sorghum::Serialize(YAML::Emitter& out) const {
   sorghum_descriptor.Save("sorghum_descriptor", out);
   sorghum_generator.Save("sorghum_generator", out);

@@ -23,6 +23,7 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint pair_size;
+	uint allow_breaking;
 };
 
 #include "RandomBundle.glsl"
@@ -59,13 +60,9 @@ void main(){
 		Connection segment1_particle1_connection = connections[segment1_particle1.connection_handle];
 
 		bool left_break = strain0 > segment_pair.max_strain;
-		//left_break = left_break || segment0_particle0_connection.bend_twist_strain_valid.w == 0
-		//	|| segment0_particle1_connection.bend_twist_strain_valid.w == 0;
-
 		bool right_break = strain1 > segment_pair.max_strain;
-		//right_break = segment1_particle0_connection.bend_twist_strain_valid.w == 0
-		//	|| segment1_particle1_connection.bend_twist_strain_valid.w == 0;
-		if(left_break && right_break){
+		
+		if(allow_breaking == 1 && left_break && right_break){
 			segment_pairs[pair_index].valid = 0;
 		}
 	}

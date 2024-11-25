@@ -236,59 +236,6 @@ DsGravity::DsGravity() {
   }
 }
 
-void DsGroundPlane::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-                            const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  GroundPlanePushConstant push_constant;
-  push_constant.ground_height = ground_height;
-  push_constant.particle_size = target_dynamic_strands->particles.size();
-  push_constant.ground_softness = ground_softness;
-  const uint32_t task_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    pipeline->Bind(vk_command_buffer);
-    pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
-    pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.particle_size, task_work_group_invocations), 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
-  });
-}
-
-bool DsGroundPlane::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Checkbox("Enable", &enabled))
-    changed = true;
-  if (ImGui::DragFloat("Ground height", &ground_height, 0.01f, -100.0f, 100.0f))
-    changed = true;
-  if (ImGui::DragFloat("Ground softness", &ground_softness, 0.01f, 0.f, 1.f))
-    changed = true;
-  return changed;
-}
-
-DsGroundPlane::DsGroundPlane() {
-  if (!pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->Set(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/GroundPlane.comp");
-    pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader = shader;
-    pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-
-    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GroundPlanePushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    pipeline->Initialize();
-  }
-}
-
 DsAttraction::DsAttraction() {
   if (!layout) {
     layout = std::make_shared<DescriptorSetLayout>();

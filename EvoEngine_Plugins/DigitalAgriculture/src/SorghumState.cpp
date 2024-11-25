@@ -11,6 +11,7 @@
 #include "Times.hpp"
 #include "Utilities.hpp"
 #include "rapidcsv.h"
+#include "Sorghum.hpp"
 using namespace digital_agriculture_plugin;
 
 
@@ -277,6 +278,7 @@ void SorghumLeafState::Apply(const SorghumStemState& stem_state,
   }
 }
 
+
 void SorghumLeafState::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "dead" << YAML::Value << dead;
   out << YAML::Key << "index" << YAML::Value << index;
@@ -474,6 +476,42 @@ bool SorghumState::OnInspectImpl(int mode) {
   return changed;
 }
 
+bool SorghumState::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
+  if (ImGui::Button("Instantiate")) {
+    const auto new_entity = CreateEntity("New Sorghum");
+  }
+
+  static float target_waviness_factor = 1.0f;
+  ImGui::DragFloat("Target leaf waviness", &target_waviness_factor, 0.01f, 0.01f, 3.0f);
+  if (ImGui::Button("Create sorghum with changed waviness")) {
+    const auto scene = Application::GetActiveScene();
+    const auto sorghum_entity = scene->CreateEntity(GetTitle());
+    const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+    const auto new_sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
+    SorghumMeshGeneratorSettings settings{};
+    settings.enable_leaf_sheath = false;
+    settings.bottom_face = false;
+    ChangeWaviness(target_waviness_factor, settings, *new_sorghum_state);
+
+    sorghum->sorghum_state = new_sorghum_state;
+    if (const auto sorghum_layer = Application::GetLayer<SorghumLayer>()) {
+      sorghum->GenerateGeometryEntities(sorghum_layer->sorghum_mesh_generator_settings);
+    } else {
+      sorghum->GenerateGeometryEntities({});
+    }
+  }
+
+
+  static int state_mode = static_cast<int>(StateMode::Default);
+  static const char* state_modes[]{"Default", "Cubic-Bezier"};
+  if (ImGui::Combo("Mode", &state_mode, state_modes, IM_ARRAYSIZE(state_modes))) {
+    changed = false;
+  }
+  OnInspectImpl(state_mode);
+  return changed;
+}
+
 void SorghumState::Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor) const {
   panicle.Apply(target_sorghum_descriptor->panicle);
   stem.Apply(target_sorghum_descriptor->stem);
@@ -520,6 +558,79 @@ void SorghumState::Deserialize(const YAML::Node& in) {
       SorghumLeafState leaf;
       leaf.Deserialize(i);
       leaves.push_back(leaf);
+    }
+  }
+}
+
+Entity SorghumState::CreateEntity(const std::string& name) const {
+  const auto scene = Application::GetActiveScene();
+  const auto sorghum_entity = scene->CreateEntity(name);
+  const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+  sorghum->sorghum_state = GetSelf();
+  if (const auto sorghum_layer = Application::GetLayer<SorghumLayer>()) {
+    sorghum->GenerateGeometryEntities(sorghum_layer->sorghum_mesh_generator_settings);
+  } else {
+    sorghum->GenerateGeometryEntities({});
+  }
+  return sorghum_entity;
+}
+
+void SorghumState::ChangeWaviness(const float factor, const SorghumMeshGeneratorSettings& mesh_generator_settings,
+                                  SorghumState& target_sorghum_state) const {
+  target_sorghum_state = *this;
+  for (int leaf_index = 0; leaf_index < target_sorghum_state.leaves.size(); leaf_index++) {
+    leaves[leaf_index].ChangeWaviness(factor, stem, mesh_generator_settings, target_sorghum_state.leaves[leaf_index]);
+  }
+}
+
+void SorghumLeafState::ChangeWaviness(const float factor, const SorghumStemState& stem_state,
+                                      const SorghumMeshGeneratorSettings& mesh_generator_settings,
+                                      SorghumLeafState& target_leaf_state) const {
+  std::vector<Vertex> vertices;
+  std::vector<unsigned int> indices;
+  const auto calculate_total_area = [&]() {
+    float ret_val = 0.0f;
+    for (int i = 0; i < indices.size() / 3; i++) {
+      const auto& v0 = vertices[indices[i * 3]];
+      const auto& v1 = vertices[indices[i * 3 + 1]];
+      const auto& v2 = vertices[indices[i * 3 + 2]];
+
+      const float a = glm::distance(v0.position, v1.position);
+      const float b = glm::distance(v1.position, v2.position);
+      const float c = glm::distance(v2.position, v0.position);
+      const float p = (a + b + c) * 0.5f;
+      ret_val += glm::sqrt(p * (p - a) * (p - b) * (p - c));
+    }
+    return ret_val;
+  };
+
+  SorghumLeafDescriptor sorghum_leaf_descriptor;
+
+  Apply(stem_state, sorghum_leaf_descriptor);
+  sorghum_leaf_descriptor.GenerateGeometry(vertices, indices, mesh_generator_settings);
+  
+  const float target_total_area = calculate_total_area();
+
+  float width_factor_upper_bound = 2.f;
+  float width_factor_lower_bound = 0.f;
+
+  for (int iteration = 0; iteration < 16; iteration++) {
+    const float mid_width_factor = (width_factor_lower_bound + width_factor_upper_bound) * .5f;
+    target_leaf_state = *this;
+    target_leaf_state.waviness_along_leaf.max_value = waviness_along_leaf.max_value * factor;
+    target_leaf_state.waviness_along_leaf.min_value = waviness_along_leaf.min_value * factor;
+    target_leaf_state.width_along_leaf.max_value = width_along_leaf.max_value * mid_width_factor;
+    target_leaf_state.width_along_leaf.min_value = width_along_leaf.min_value * mid_width_factor;
+    target_leaf_state.Apply(stem_state, sorghum_leaf_descriptor);
+
+    vertices.clear();
+    indices.clear();
+    sorghum_leaf_descriptor.GenerateGeometry(vertices, indices, mesh_generator_settings);
+
+    if (calculate_total_area() >= target_total_area) {
+      width_factor_upper_bound = mid_width_factor;
+    }else {
+      width_factor_lower_bound = mid_width_factor;
     }
   }
 }

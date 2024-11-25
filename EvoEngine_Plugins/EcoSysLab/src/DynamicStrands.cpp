@@ -35,8 +35,8 @@ DynamicStrands::DynamicStrands() {
     strands_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-
     strands_layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
 
     strands_layout->Initialize();
   }
@@ -53,6 +53,7 @@ DynamicStrands::DynamicStrands() {
   device_strands_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segments_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_uniform_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_connections_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   device_delaunay_tetrahedrons_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
@@ -73,25 +74,27 @@ bool DynamicStrands::WaitForUpload() const {
 
 bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
+  if (ImGui::DragFloat("Min segment length", &min_segment_length, 0.001f, 0.001f, max_segment_length))
+    changed = true;
+  if (ImGui::DragFloat("Max segment length", &max_segment_length, 0.001f, min_segment_length, 1.0f))
+    changed = true;
 
+  if (ImGui::DragInt("Uniform subdivision", &uniform_subdivision, 1, 1, 16)) {
+    uniform_subdivision = glm::clamp(uniform_subdivision, 1, 16);
+    changed = true;
+  }
   if (ImGui::DragFloat("Wood Density", &wood_density, 0.01f, 0.01f, 3.0f))
     changed = true;
-#ifdef USE_XPBD
-  if (wood_young_modulus.OnInspect("Wood Young's modulus"))
+  if (youngs_modulus.OnInspect("Wood Young's modulus"))
     changed = true;
-  if (wood_torsion_modulus.OnInspect("Wood Torsion modulus"))
+  if (shear_modulus.OnInspect("Wood Shear modulus"))
     changed = true;
-#else
-  if (shear_stiffness.OnInspect("Shear stiffness"))
+
+  if (bending_modulus.OnInspect("Wood Bending modulus"))
     changed = true;
-  if (stretch_stiffness.OnInspect("Stretch stiffness"))
+  if (torsion_modulus.OnInspect("Wood Torsion modulus"))
     changed = true;
-  if (bending_stiffness.OnInspect("Bending stiffness"))
-    changed = true;
-  if (twisting_stiffness.OnInspect("Twisting stiffness"))
-    changed = true;
-#endif
-  
+
   if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
     changed = true;
   if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.01f, 0.01f, 1.0f))
@@ -101,20 +104,28 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     changed = true;
   if (max_neighbor_strain.OnInspect("Max neighbor strain", 0.01f))
     changed = true;
+  if (ImGui::DragFloat("Min neighbor strain", &min_neighbor_strain, 0.001f, 0.00f, 1.0f))
+    changed = true;
   if (max_stretch_shear_strain.OnInspect("Max stretch/shear strain", 0.01f))
+    changed = true;
+  if (ImGui::DragFloat3("Min stretch/shear strain", &min_stretch_shear_strain.x, 0.001f, 0.00f, 1.0f))
     changed = true;
   if (max_bend_twist_strain.OnInspect("Max bend/twist strain", 0.01f))
     changed = true;
-
+  if (ImGui::DragFloat3("Min bend/twist strain", &min_bend_twist_strain.x, 0.001f, 0.00f, 1.0f))
+    changed = true;
   return changed;
 }
 
 void DynamicStrands::Initialize(const InitializeParameters& initialize_parameters,
-                                const StrandModelSkeleton& strand_model_skeleton, const DtsStrandGroup& strand_group) {
+                                const StrandModelSkeleton& strand_model_skeleton,
+                                const StrandModelStrandGroup& strand_model_strand_group,
+                                const DtsStrandGroup& strand_group) {
   Clear();
   assert(initialize_parameters.root_transform.GetScale() == glm::vec3(1.0f));
   const auto& target_strands = strand_group.PeekStrands();
   const auto& target_strand_segments = strand_group.PeekStrandSegments();
+  const auto& target_strand_segment_data_list = strand_group.PeekStrandSegmentDataList();
   strands.resize(target_strands.size());
 
   Jobs::RunParallelFor(target_strands.size(), [&](const size_t i) {
@@ -133,12 +144,24 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   Jobs::RunParallelFor(target_strand_segments.size(), [&](const size_t i) {
     auto& segment = segments[i];
     const auto& target_strand_segment = target_strand_segments[i];
+    const auto& target_strand_segment_data = target_strand_segment_data_list[i];
     segment.prev_handle = target_strand_segment.GetPrevHandle();
     segment.next_handle = target_strand_segment.GetNextHandle();
     segment.strand_handle = target_strand_segment.GetStrandHandle();
     segment.rest_length = strand_group.GetStrandSegmentLength(static_cast<int>(i));
 
-    segment.color = target_strand_segment.end_color;
+    if (target_strand_segment_data.initial_distance_to_boundary < 8.f) {
+      segment.color = glm::mix(glm::vec4(0.6, 0.3, 0, 1), glm::vec4(0, 0, 1, 1),
+                               glm::clamp(target_strand_segment_data.initial_distance_to_boundary / 8.f, 0.0f, 1.0f));
+    } else if (target_strand_segment_data.initial_distance_to_boundary < 24.f) {
+      segment.color =
+          glm::mix(glm::vec4(0, 0, 1, 1), glm::vec4(1, 0, 0, 1),
+                   glm::clamp((target_strand_segment_data.initial_distance_to_boundary - 8.f) / 16.f, 0.0f, 1.0f));
+    } else {
+      segment.color =
+          glm::mix(glm::vec4(1, 0, 0, 1), glm::vec4(0, 1, 0, 1),
+                   glm::clamp((target_strand_segment_data.initial_distance_to_boundary - 24.f) / 32.f, 0.0f, 1.0f));
+    }
     segment.radius = target_strand_segment.end_thickness * .5f;
     segment.damping = initialize_parameters.angular_velocity_damping;
     segment.q0 = segment.q = segment.last_q = segment.old_q =
@@ -150,18 +173,15 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.inertia_tensor = ComputeInertiaTensorRod(mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     segment.original_inv_mass = 1.f / mass;
-#ifdef USE_XPBD
     const float area = glm::pi<float>() * segment.radius * segment.radius;
-    const float youngs_modulus = initialize_parameters.wood_young_modulus.GetValue() * 1e9f;
-    const float torsion_modulus = initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f;
-    segment.stretching_stiffness = youngs_modulus * area / segment.rest_length;
-    segment.shearing_stiffness = torsion_modulus * area / segment.rest_length;
-#else
-    segment.stretching_stiffness = glm::clamp(initialize_parameters.stretch_stiffness.GetValue(), 0.0f, 1.0f);
-    segment.shearing_stiffness = glm::clamp(initialize_parameters.shear_stiffness.GetValue(), 0.0f, 1.0f);
-#endif
-    segment.max_stretch_shear_strain =
-        glm::vec4(glm::max(initialize_parameters.min_stretch_shear_strain, initialize_parameters.max_stretch_shear_strain.GetValue()), 0.0f);
+    const float youngs_modulus = initialize_parameters.youngs_modulus.GetValue() * 1e9f;
+    const float shear_modulus = initialize_parameters.shear_modulus.GetValue() * 1e9f;
+    segment.stretching_alpha = 1.f / (youngs_modulus * area / segment.rest_length);
+    segment.shearing_alpha = 1.f / (shear_modulus * area / segment.rest_length);
+
+    segment.max_stretch_shear_strain = glm::vec4(glm::max(initialize_parameters.min_stretch_shear_strain,
+                                                          initialize_parameters.max_stretch_shear_strain.GetValue()),
+                                                 0.0f);
   });
 
   particles.resize(segments.size() * 2);
@@ -188,6 +208,119 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     particle0.segment_handle = particle1.segment_handle = static_cast<int>(segment_handle);
   });
 
+  DtsStrandGroup uniformly_subdivided_strand_group;
+  strand_model_strand_group.UniformlySubdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
+      uniformly_subdivided_strand_group, initialize_parameters.uniform_subdivision,
+      [&](const StrandHandle src_handle, DtsStrandData& strand_data) {
+
+      },
+      [&](const float root_distance, const StrandSegmentHandle src_handle, const uint32_t original_segment_index,
+          const float segment_t, DtsStrandSegmentData& segment_data, const uint32_t sub_segment_index) {
+        const auto& src_segment_data = strand_model_strand_group.PeekStrandSegmentData(src_handle);
+        segment_data.node_handle = src_segment_data.node_handle;
+        segment_data.original_segment_handle = src_handle;
+        segment_data.original_segment_index = original_segment_index;
+        segment_data.segment_index = sub_segment_index;
+        segment_data.original_segment_t = segment_t;
+        segment_data.root_distance = root_distance;
+        const auto& strand_segment = strand_model_strand_group.PeekStrandSegment(src_handle);
+        const auto& strand = strand_model_strand_group.PeekStrand(strand_segment.GetStrandHandle());
+        const auto& strand_segment_handles = strand.PeekStrandSegmentHandles();
+        float d0, d1, d3;
+        const float d2 = src_segment_data.initial_distance_to_boundary;
+        if (src_handle == strand_segment_handles.front()) {
+          d1 = d2;
+          d0 = d1 * 2.0f - d2;
+        } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
+          const auto& prev_segment_data =
+              strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
+          d0 = d2;
+          d1 = prev_segment_data.initial_distance_to_boundary;
+        } else {
+          const auto& prev_segment = strand_model_strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
+          const auto& prev_segment_data =
+              strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
+          const auto& prev_prev_segment_data =
+              strand_model_strand_group.PeekStrandSegmentData(prev_segment.GetPrevHandle());
+          d0 = prev_prev_segment_data.initial_distance_to_boundary;
+          d1 = prev_segment_data.initial_distance_to_boundary;
+        }
+        if (src_handle == strand_segment_handles.back()) {
+          d3 = d2 * 2.0f - d1;
+        } else {
+          const auto& next_segment_data =
+              strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetNextHandle());
+          d3 = next_segment_data.initial_distance_to_boundary;
+        }
+        segment_data.initial_distance_to_boundary = Strands::CubicInterpolation(d0, d1, d2, d3, segment_t);
+      },
+      (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
+
+  uniform_particles.resize(uniformly_subdivided_strand_group.PeekStrandSegments().size() + target_strands.size());
+  std::vector<int> uniform_particle_offsets(target_strands.size());
+  uniform_particle_offsets[0] = 0;
+  for (uint32_t strand_index = 1; strand_index < target_strands.size(); strand_index++) {
+    uniform_particle_offsets[strand_index] =
+        uniform_particle_offsets[strand_index - 1] +
+        uniformly_subdivided_strand_group.PeekStrand(strand_index - 1).PeekStrandSegmentHandles().size() + 1;
+  }
+  Jobs::RunParallelFor(target_strands.size(), [&](const size_t strand_index) {
+    auto& random_subdivided_strand = target_strands[strand_index];
+    auto& uniformly_subdivided_strand = uniformly_subdivided_strand_group.PeekStrand(strand_index);
+    const auto uniform_particle_offset = uniform_particle_offsets[strand_index];
+
+    auto& first_uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(0);
+    auto& first_uniform_particle = uniform_particles[uniform_particle_offset];
+    int random_segment_walker_index = 0;
+    first_uniform_particle.segment_handle =
+        random_subdivided_strand.PeekStrandSegmentHandles()[random_segment_walker_index];
+    first_uniform_particle.node_index = first_uniform_segment_data.node_handle;
+    first_uniform_particle.t = 0.0f;
+    first_uniform_particle.segment_index = 0;
+
+    float previous_root_distance = 0.0f;
+    for (int uniform_segment_index = 0;
+         uniform_segment_index < uniformly_subdivided_strand.PeekStrandSegmentHandles().size();
+         uniform_segment_index++) {
+      const auto& uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(uniform_segment_index);
+      auto& uniform_particle = uniform_particles[uniform_particle_offset + 1 + uniform_segment_index];
+      uniform_particle.node_index = uniform_segment_data.node_handle;
+      uniform_particle.segment_index = uniform_segment_index + 1;
+      bool found = false;
+      while (random_segment_walker_index < random_subdivided_strand.PeekStrandSegmentHandles().size()) {
+        uniform_particle.segment_handle =
+            random_subdivided_strand.PeekStrandSegmentHandles()[random_segment_walker_index];
+        const auto& random_segment_data = strand_group.PeekStrandSegmentData(uniform_particle.segment_handle);
+        if (random_segment_data.root_distance >= uniform_segment_data.root_distance) {
+          // Get the start original_segment_t for random_segment.
+          if (glm::abs(random_segment_data.root_distance - previous_root_distance) < glm::epsilon<float>()) {
+            uniform_particle.t = 1.f;
+          } else {
+            uniform_particle.t = (uniform_segment_data.root_distance - previous_root_distance) /
+                                 (random_segment_data.root_distance - previous_root_distance);
+          }
+          
+          found = true;
+          break;
+        }
+        random_segment_walker_index++;
+        previous_root_distance = random_segment_data.root_distance;
+      }
+      if (!found) {
+        EVOENGINE_ERROR("Fault!");
+      }
+    }
+  });
+
+  Jobs::RunParallelFor(uniform_particles.size(), [&](const size_t uniform_particle_index) {
+    auto& uniform_particle = uniform_particles[uniform_particle_index];
+    const auto& segment = segments[uniform_particle.segment_handle];
+    const auto& particle0 = particles[segment.particle0_handle];
+    const auto& particle1 = particles[segment.particle1_handle];
+
+    uniform_particle.position = glm::mix(particle0.x0, particle1.x0, uniform_particle.t);
+  });
+
   for (uint32_t strand_index = 0; strand_index < target_strands.size(); strand_index++) {
     auto& target_strand = target_strands[strand_index];
     const auto& segment_handles = target_strand.PeekStrandSegmentHandles();
@@ -205,8 +338,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
          segment_handle_index++) {
       const auto segment0_handle = segment_handles[segment_handle_index];
       auto& segment0 = segments[segment0_handle];
-
-      if (initialize_parameters.sub_segment == 1) {
+      /*
+      if (initialize_parameters.uniform_subdivision == 1) {
         segment0.prev_jump_handle = segment0.prev_handle;
         segment0.next_jump_handle = segment0.next_handle;
 
@@ -215,15 +348,15 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
         strand.begin_jump_connection_handle = strand.begin_connection_handle;
         strand.end_jump_connection_handle = strand.end_connection_handle;
 
-      } else if (segment_handle_index % initialize_parameters.sub_segment == initialize_parameters.sub_segment - 1) {
-        if (segment_handle_index / initialize_parameters.sub_segment == 0) {
-          strand.begin_jump_segment_handle = segment0_handle;
+      } else if (segment_handle_index % initialize_parameters.uniform_subdivision ==
+      initialize_parameters.uniform_subdivision - 1) { if (segment_handle_index /
+      initialize_parameters.uniform_subdivision == 0) { strand.begin_jump_segment_handle = segment0_handle;
         }
-        if (segment_handle_index == initialize_parameters.sub_segment - 1) {
+        if (segment_handle_index == initialize_parameters.uniform_subdivision - 1) {
           segment0.prev_jump_handle = -1;
 
         } else {
-          int jump = initialize_parameters.sub_segment - 1;
+          int jump = initialize_parameters.uniform_subdivision - 1;
           segment0.prev_jump_handle = segment0.prev_handle;
           while (jump > 0) {
             segment0.prev_jump_handle = segments[segment0.prev_jump_handle].prev_handle;
@@ -234,7 +367,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
           segment0.next_jump_handle = -1;
           strand.end_jump_segment_handle = segment0_handle;
         } else {
-          int jump = initialize_parameters.sub_segment - 1;
+          int jump = initialize_parameters.uniform_subdivision - 1;
           segment0.next_jump_handle = segment0.next_handle;
           while (jump > 0) {
             segment0.next_jump_handle = segments[segment0.next_jump_handle].next_handle;
@@ -245,7 +378,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
         segment0.prev_jump_handle = -1;
         segment0.next_jump_handle = -1;
       }
-
+      */
       if (segment_handle_index == static_cast<int>(segment_handles.size()) - 1)
         break;
       const auto connection_handle = segment_handle_index + handle_index_offset;
@@ -269,33 +402,31 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       }
       particles[connection.segment0_particle_handle].connection_handle = connection_handle;
       particles[connection.segment1_particle_handle].connection_handle = connection_handle;
-
-      if (initialize_parameters.sub_segment == 1) {
+      /*
+      if (initialize_parameters.uniform_subdivision == 1) {
         connection.prev_jump_handle = connection.prev_handle;
         connection.next_jump_handle = connection.next_handle;
-      } else if (segment_handle_index % initialize_parameters.sub_segment == initialize_parameters.sub_segment - 1) {
-        if (segment_handle_index / initialize_parameters.sub_segment == 0) {
-          strand.begin_jump_connection_handle = connection_handle;
+      } else if (segment_handle_index % initialize_parameters.uniform_subdivision ==
+      initialize_parameters.uniform_subdivision - 1) { if (segment_handle_index /
+      initialize_parameters.uniform_subdivision == 0) { strand.begin_jump_connection_handle = connection_handle;
         }
-        if (segment_handle_index == initialize_parameters.sub_segment - 1) {
+        if (segment_handle_index == initialize_parameters.uniform_subdivision - 1) {
           connection.prev_jump_handle = -1;
         } else {
-          connection.prev_jump_handle = connection_handle - initialize_parameters.sub_segment;
+          connection.prev_jump_handle = connection_handle - initialize_parameters.uniform_subdivision;
         }
-        if (segment_handle_index == static_cast<int>(segment_handles.size()) - 1 - initialize_parameters.sub_segment) {
-          connection.next_jump_handle = -1;
-          strand.end_jump_connection_handle = connection_handle;
-        } else {
-          connection.next_jump_handle = connection_handle + initialize_parameters.sub_segment;
+        if (segment_handle_index == static_cast<int>(segment_handles.size()) - 1 -
+      initialize_parameters.uniform_subdivision) { connection.next_jump_handle = -1; strand.end_jump_connection_handle =
+      connection_handle; } else { connection.next_jump_handle = connection_handle +
+      initialize_parameters.uniform_subdivision;
         }
       } else {
         connection.prev_jump_handle = -1;
         connection.next_jump_handle = -1;
       }
-
-#ifdef USE_XPBD
-      const float youngs_modulus = initialize_parameters.wood_young_modulus.GetValue() * 1e9f;
-      const float shear_modulus = initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f;
+      */
+      const float torsion_modulus = initialize_parameters.torsion_modulus.GetValue() * 1e9f;
+      const float bending_modulus = initialize_parameters.bending_modulus.GetValue() * 1e9f;
 
       const float average_segment_radius = (segment0.radius + segment1.radius) * .5f;
       const float average_segment_length = (segment0.rest_length + segment1.rest_length) * .5f;
@@ -303,19 +434,17 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       const auto second_moment_of_area = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.25f;
       const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.5f;
 
-      connection.bending_stiffness = youngs_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f);
-      connection.twisting_stiffness = shear_modulus * polar_moment_of_inertia / average_segment_length;
-#else
-      connection.bending_stiffness = glm::clamp(initialize_parameters.bending_stiffness.GetValue(), 0.0f, 1.0f);
-      connection.twisting_stiffness = glm::clamp(initialize_parameters.twisting_stiffness.GetValue(), 0.0f, 1.0f);
-#endif
+      connection.bending_alpha =
+          1.f / (bending_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f));
+      connection.torsion_alpha = 1.f / (torsion_modulus * polar_moment_of_inertia / average_segment_length);
       const auto& q0 = segment0.q0;
       const auto& q1 = segment1.q0;
 
       connection.rest_darboux_vector = glm::conjugate(q0) * q1;
       connection.bend_twist_strain_valid.w = 1.0;
-      connection.max_bend_twist_strain =
-          glm::vec4(glm::max(initialize_parameters.max_bend_twist_strain.GetValue(), initialize_parameters.min_bend_twist_strain), 0.0f);
+      connection.max_bend_twist_strain = glm::vec4(
+          glm::max(initialize_parameters.max_bend_twist_strain.GetValue(), initialize_parameters.min_bend_twist_strain),
+          0.0f);
     }
   }
   ComputeDelaunay(delaunay_tetrahedrons);
@@ -332,7 +461,9 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::DragInt("Sub step", &sub_step, 1, 1, 100)) {
     changed = true;
   }
-
+  if (ImGui::Checkbox("Breaking", &allow_breaking)) {
+    changed = true;
+  }
   if (ImGui::DragInt("Constraint Iteration", &constraint_iteration, 1, 1, 500))
     changed = true;
   return changed;
@@ -345,9 +476,11 @@ void DynamicStrands::UpdateBindings() const {
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_strands_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_segments_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(2, device_particles_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_connections_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_uniform_particles_buffer, 0);
 
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(4, device_delaunay_tetrahedrons_buffer,
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(4, device_connections_buffer, 0);
+
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_delaunay_tetrahedrons_buffer,
                                                                               0);
   for (const auto& c : constraints) {
     c->UpdateBindings();
@@ -360,6 +493,7 @@ void DynamicStrands::Upload() {
     device_strands_buffer->UploadVector(strands);
     device_segments_buffer->UploadVector(segments);
     device_particles_buffer->UploadVector(particles);
+    device_uniform_particles_buffer->UploadVector(uniform_particles);
     device_connections_buffer->UploadVector(connections);
 
     device_delaunay_tetrahedrons_buffer->UploadVector(delaunay_tetrahedrons);
@@ -381,6 +515,9 @@ void DynamicStrands::Download() {
     if (!particles.empty())
       device_particles_buffer->DownloadVector(particles, particles.size());
 
+    if (!uniform_particles.empty())
+      device_uniform_particles_buffer->DownloadVector(uniform_particles, uniform_particles.size());
+
     if (!connections.empty())
       device_connections_buffer->DownloadVector(connections, connections.size());
 
@@ -396,6 +533,7 @@ void DynamicStrands::Clear() {
   strands.clear();
   segments.clear();
   particles.clear();
+  uniform_particles.clear();
   connections.clear();
 
   delaunay_tetrahedrons.clear();

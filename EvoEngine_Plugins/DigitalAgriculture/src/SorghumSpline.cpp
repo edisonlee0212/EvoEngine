@@ -311,7 +311,7 @@ std::vector<SorghumSplineSegment> SorghumSpline::RebuildFixedLengthSegments(cons
 std::vector<SorghumSplineSegment> SorghumSpline::GetStemPart() const {
   std::vector<SorghumSplineSegment> ret_val;
   for (const auto& i : segments) {
-    if (i.theta != 180.f)
+    if (i.theta >= 90.0f)
       break;
     ret_val.emplace_back(i);
   }
@@ -321,7 +321,7 @@ std::vector<SorghumSplineSegment> SorghumSpline::GetStemPart() const {
 std::vector<SorghumSplineSegment> SorghumSpline::GetLeafPart() const {
   std::vector<SorghumSplineSegment> ret_val;
   for (auto i = segments.begin(); i != segments.end(); ++i) {
-    if (i->theta != 180.f) {
+    if (i->theta <= 90.0f) {
       ret_val.insert(ret_val.end(), i, segments.end());
       break;
     }

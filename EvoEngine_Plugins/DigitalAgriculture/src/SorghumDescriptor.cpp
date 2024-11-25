@@ -10,6 +10,9 @@ bool SorghumMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLayer>&
     ImGui::Checkbox("Panicle", &enable_panicle);
     ImGui::Checkbox("Stem", &enable_stem);
     ImGui::Checkbox("Leaves", &enable_leaves);
+    if (enable_leaves) {
+      ImGui::Checkbox("Leaves sheath", &enable_leaf_sheath);
+    }
     ImGui::Checkbox("Bottom Face", &bottom_face);
     ImGui::Checkbox("Leaf separated", &leaf_separated);
     ImGui::DragFloat("Leaf thickness", &leaf_thickness, 0.0001f);
@@ -182,7 +185,7 @@ void SorghumLeafDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std:
   std::vector<SorghumSplineSegment> segments;  // = spline.segments;
   SorghumSpline temp_spline;
   spline.SubdivideByDistance(sorghum_layer->vertical_subdivision_length, temp_spline.segments);
-  if (mesh_generator_settings.enable_leaf_stem) {
+  if (mesh_generator_settings.enable_leaf_sheath) {
     segments = temp_spline.segments;
   }else {
     segments = temp_spline.GetLeafPart();
@@ -339,6 +342,11 @@ Entity SorghumDescriptor::CreateEntity(const std::string& name) const {
   const auto sorghum_entity = scene->CreateEntity(name);
   const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
   sorghum->sorghum_descriptor = GetSelf();
-  sorghum->GenerateGeometryEntities({});
+  if (const auto sorghum_layer = Application::GetLayer<SorghumLayer>()) {
+    sorghum->GenerateGeometryEntities(sorghum_layer->sorghum_mesh_generator_settings);
+  }else {
+    sorghum->GenerateGeometryEntities({});
+  }
+  
   return sorghum_entity;
 }

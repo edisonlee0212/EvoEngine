@@ -11,7 +11,7 @@ class Sorghum final : public IPrivateComponent {
   AssetRef sorghum_descriptor;
   void ClearGeometryEntities() const;
   void GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings);
-
+  void OnDestroy() override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
