@@ -30,8 +30,8 @@ struct Segment {
   vec4 torque_rest_length;
 
   float radius;
-  float shearing_stiffness;
-  float stretching_stiffness;
+  float shearing_alpha;
+  float stretching_alpha;
   float damping;
 
   vec4 inertia_tensor_particle_0_handle;
@@ -71,8 +71,8 @@ struct Connection {
   int segment1_particle_handle;
 
   vec4 rest_darboux_vector;
-  float bending_stiffness;
-  float twisting_stiffness;
+  float bending_alpha;
+  float twisting_alpha;
   int prev_handle;
   int next_handle;
 

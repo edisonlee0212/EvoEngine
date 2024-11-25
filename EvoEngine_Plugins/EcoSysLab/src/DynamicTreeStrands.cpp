@@ -24,8 +24,8 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
       }
     }
   }
+
   dynamic_strands->constraints.clear();
-  
   if (random_subdivision) {
     temp_strand_group.Subdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
         subdivided_strand_group,
@@ -34,10 +34,38 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
         },
         [](StrandHandle src_handle, DtsStrandData& strand_data) {
         },
-        [&](const StrandSegmentHandle src_handle, DtsStrandSegmentData& segment_data) {
+        [&](const StrandSegmentHandle src_handle, const float segment_t, DtsStrandSegmentData& segment_data) {
           const auto& src_segment_data = temp_strand_group.PeekStrandSegmentData(src_handle);
           segment_data.node_handle = src_segment_data.node_handle;
+          segment_data.segment_t = segment_t;
           segment_data.original_segment_handle = src_handle;
+
+          const auto& strand_segment = temp_strand_group.PeekStrandSegment(src_handle);
+          const auto& strand = temp_strand_group.PeekStrand(strand_segment.GetStrandHandle());
+          const auto& strand_segment_handles = strand.PeekStrandSegmentHandles();
+          float d0, d1, d3;
+          float d2 = src_segment_data.initial_distance_to_boundary;
+          if (src_handle == strand_segment_handles.front()) {
+            d1 = d2;
+            d0 = d1 * 2.0f - d2;
+          } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
+            const auto& prev_segment_data = temp_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
+            d0 = d2;
+            d1 = prev_segment_data.initial_distance_to_boundary;
+          } else {
+            const auto& prev_segment = temp_strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
+            const auto& prev_segment_data = temp_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
+            const auto& prev_prev_segment_data = temp_strand_group.PeekStrandSegmentData(prev_segment.GetPrevHandle());
+            d0 = prev_prev_segment_data.initial_distance_to_boundary;
+            d1 = prev_segment_data.initial_distance_to_boundary;
+          }
+          if (src_handle == strand_segment_handles.back()) {
+            d3 = d2 * 2.0f - d1;
+          } else {
+            const auto& next_segment_data = temp_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
+            d3 = next_segment_data.initial_distance_to_boundary;
+          }
+          segment_data.initial_distance_to_boundary = Strands::CubicInterpolation(d0, d1, d2, d3, segment_t);
         },
         (min_segment_length + max_segment_length) * .5f * .01f);
     dynamic_strands->constraints.emplace_back(std::make_shared<DsRandomBundle>());
@@ -51,13 +79,15 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
           const auto& src_segment_data = temp_strand_group.PeekStrandSegmentData(src_handle);
           segment_data.node_handle = src_segment_data.node_handle;
           segment_data.original_segment_handle = src_handle;
+
+          
         });
     dynamic_strands->constraints.emplace_back(std::make_shared<DsUniformBundle>());
   }
 
   dynamic_strands->constraints.emplace_back(std::make_shared<DsStiffRod>());
-
-  subdivided_strand_group.RandomAssignColor();
+  dynamic_strands->constraints.emplace_back(std::make_shared<DsGroundPlane>());
+  //subdivided_strand_group.RandomAssignColor();
 
   attraction_operators.clear();
   transform_operators.clear();
@@ -183,12 +213,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
           ImGui::TreePop();
         }
       }
-      if (ground_plane) {
-        if (ImGui::TreeNode("Ground plane")) {
-          ground_plane->OnInspect(editor_layer);
-          ImGui::TreePop();
-        }
-      }
+      
       ImGui::TreePop();
     }
     if (ImGui::TreeNode("Constraint")) {
@@ -222,7 +247,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 void DynamicTreeStrands::OnCreate() {
   dynamic_strands = std::make_shared<DynamicStrands>();
   gravity = std::make_shared<DsGravity>();
-  ground_plane = std::make_shared<DsGroundPlane>();
+  
   box_selection_operator = std::make_shared<DsBoxSelection>();
   drag_operator = std::make_shared<DsDrag>();
 }
@@ -271,8 +296,10 @@ void DynamicTreeStrands::MultipleRodExperimentSetup(const MultipleRodExperimentS
     }
   }
   strand_group.CalculateRotations();
+  const bool saved_strand_length_limit = limit_strand_length;
+  limit_strand_length = false;
   UpdateDynamicStrands();
-
+  limit_strand_length = saved_strand_length_limit;
   if (settings.add_operator) {
     const auto scene = Application::GetActiveScene();
     const auto children = scene->GetChildren(GetOwner());
@@ -361,27 +388,33 @@ void DynamicTreeStrands::PhysicsStep() const {
           attraction_operator.ds_attraction->Update(global_position);
         }
       }
-      dynamic_strands->Physics(physics_parameters, [&]() {
-        for (const auto& transform_operator : transform_operators) {
-          if (transform_operator.ds_transform->enabled && scene->IsEntityValid(transform_operator.target_entity))
-            transform_operator.ds_transform->Execute(physics_parameters, dynamic_strands);
-        }
-        if (gravity->enabled)
-          gravity->Execute(physics_parameters, dynamic_strands);
-        for (const auto& attraction_operator : attraction_operators) {
-          if (attraction_operator.ds_attraction->enabled && scene->IsEntityValid(attraction_operator.target_entity))
-            attraction_operator.ds_attraction->Execute(physics_parameters, dynamic_strands);
-        }
+      dynamic_strands->Physics(
+          physics_parameters,
+          [&]() {
+            for (const auto& transform_operator : transform_operators) {
+              if (transform_operator.ds_transform->enabled && scene->IsEntityValid(transform_operator.target_entity))
+                transform_operator.ds_transform->Execute(physics_parameters, dynamic_strands);
+            }
+            
+            if (gravity->enabled)
+              gravity->Execute(physics_parameters, dynamic_strands);
+            for (const auto& attraction_operator : attraction_operators) {
+              if (attraction_operator.ds_attraction->enabled && scene->IsEntityValid(attraction_operator.target_entity))
+                attraction_operator.ds_attraction->Execute(physics_parameters, dynamic_strands);
+            }
 
-        if (box_selection_operator->enabled) {
-          box_selection_operator->Execute(dynamic_strands);
-        }
-        if (drag_operator->enabled) {
-          drag_operator->Execute(physics_parameters, dynamic_strands);
-        }
-        if (ground_plane->enabled)
-          ground_plane->Execute(physics_parameters, dynamic_strands);
-      });
+            if (box_selection_operator->enabled) {
+              box_selection_operator->Execute(dynamic_strands);
+            }
+            if (drag_operator->enabled) {
+              drag_operator->Execute(physics_parameters, dynamic_strands);
+            }
+            
+          },
+          [&]() {
+            
+          });
+
     }
   }
 }

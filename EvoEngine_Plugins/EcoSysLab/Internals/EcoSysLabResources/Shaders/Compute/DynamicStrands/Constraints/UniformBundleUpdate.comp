@@ -23,7 +23,8 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint pair_size;
-	float inv_time_step;
+	uint allow_breaking;
+	float inv_time_step;	
 };
 
 #include "UniformBundle.glsl"
@@ -38,7 +39,6 @@ void main(){
 		if(pair_index >= pair_size) break;
 		SegmentPair segment_pair = segment_pairs[pair_index];
 		if(segment_pair.valid == 0) continue;
-
 		Segment segment0 = segments[segment_pair.segment0_handle];
 		Segment segment1 = segments[segment_pair.segment1_handle];
 
@@ -59,7 +59,7 @@ void main(){
 		Connection segment1_particle0_connection = connections[segment1_particle0.connection_handle];
 		Connection segment1_particle1_connection = connections[segment1_particle1.connection_handle];
 
-		if(strain0 > segment_pair.max_strain || strain1 > segment_pair.max_strain){
+		if(allow_breaking == 1 && (strain0 > segment_pair.max_strain || strain1 > segment_pair.max_strain)){
 			segment_pairs[pair_index].valid = 0;
 		}
 	}

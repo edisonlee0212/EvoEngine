@@ -41,8 +41,8 @@ void main(){
 		Segment segment = segments[floatBitsToInt(particle.old_x_segment_handle.w)];
 		//Calculate velocity and apply acceleration.
 		vec3 velocity = vec3(0, 0, 0);
-		if(segment.inv_mass != 0.0){
-			velocity = inv_time_step * (1.5 * particle.x_node_handle.xyz - 2.0 * particle.old_x_segment_handle.xyz + 0.5 * particle.last_x_strand_handle.xyz);
+		if(segment.inv_mass != 0.0f){
+			velocity = inv_time_step * (1.5f * particle.x_node_handle.xyz - 2.0f * particle.old_x_segment_handle.xyz + 0.5f * particle.last_x_strand_handle.xyz);
 			velocity += particle.acceleration_connectivity_strain.xyz * time_step;
 		}
 		velocity *= 1.0 - particle.x0_damping.w;

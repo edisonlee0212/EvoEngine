@@ -32,6 +32,9 @@ class StrandModelProfile {
   std::vector<std::pair<int, int>> boundary_edges_{};
   std::vector<glm::ivec3> triangles_{};
 
+  std::vector<std::pair<int, int>> initial_edges_{};
+  std::vector<std::pair<int, int>> initial_boundary_edges_{};
+  std::vector<glm::ivec3> initial_triangles_{};
  public:
   [[nodiscard]] const std::vector<std::pair<int, int>>& PeekBoundaryEdges() const;
   [[nodiscard]] const std::vector<glm::ivec3>& PeekTriangles() const;
@@ -39,6 +42,7 @@ class StrandModelProfile {
   void RenderEdges(ImVec2 origin, float zoom_factor, ImDrawList* draw_list, ImU32 color, float thickness);
   void RenderBoundary(ImVec2 origin, float zoom_factor, ImDrawList* draw_list, ImU32 color, float thickness);
   void CalculateBoundaries(bool calculate_boundary_distance, float removal_length = 8);
+  void CalculateInitialBoundaries(bool calculate_boundary_distance, float removal_length = 8);
   ParticleGrid2D particle_grid_2d{};
   bool force_reset_grid = false;
   [[nodiscard]] float GetDistanceToOrigin(const glm::vec2& direction, const glm::vec2& origin) const;
@@ -287,12 +291,79 @@ void StrandModelProfile<ParticleData>::CalculateBoundaries(const bool calculate_
         continue;
       }
       particle.distance_to_boundary_ = FLT_MAX;
-      const auto position = particle.GetPosition();
+      const auto position = particle.position_;
       for (const auto& boundary_particle_handle : boundary_vertices) {
         const auto& boundary_particle = particles_2d_[boundary_particle_handle];
-        const auto current_distance = glm::distance(position, boundary_particle.GetPosition());
+        const auto current_distance = glm::distance(position, boundary_particle.position_);
         if (particle.distance_to_boundary_ > current_distance) {
           particle.distance_to_boundary_ = current_distance;
+        }
+      }
+    }
+  }
+}
+
+template <typename ParticleData>
+void StrandModelProfile<ParticleData>::CalculateInitialBoundaries(const bool calculate_boundary_distance,
+                                                                  float removal_length) {
+  initial_edges_.clear();
+  initial_boundary_edges_.clear();
+  initial_triangles_.clear();
+
+  if (particles_2d_.size() < 3) {
+    for (int i = 0; i < particles_2d_.size(); i++) {
+      particles_2d_[i].initial_boundary_ = true;
+      particles_2d_[i].initial_distance_to_boundary_ = 0;
+    }
+    return;
+  }
+  std::vector<float> positions(particles_2d_.size() * 2);
+  for (int i = 0; i < particles_2d_.size(); i++) {
+    positions[2 * i] = particles_2d_[i].initial_position_.x;
+    positions[2 * i + 1] = particles_2d_[i].initial_position_.y;
+    particles_2d_[i].initial_boundary_ = false;
+    particles_2d_[i].initial_distance_to_boundary_ = 0;
+  }
+  const Delaunator::Delaunator2D d(positions);
+  std::map<std::pair<int, int>, int> edges;
+  for (std::size_t i = 0; i < d.triangles.size(); i += 3) {
+    const auto& v0 = d.triangles[i];
+    const auto& v1 = d.triangles[i + 1];
+    const auto& v2 = d.triangles[i + 2];
+    if (glm::distance(particles_2d_[v0].initial_position_, particles_2d_[v1].initial_position_) > removal_length ||
+        glm::distance(particles_2d_[v1].initial_position_, particles_2d_[v2].initial_position_) > removal_length ||
+        glm::distance(particles_2d_[v0].initial_position_, particles_2d_[v2].initial_position_) > removal_length)
+      continue;
+    ++edges[std::make_pair(glm::min(v0, v1), glm::max(v0, v1))];
+    ++edges[std::make_pair(glm::min(v1, v2), glm::max(v1, v2))];
+    ++edges[std::make_pair(glm::min(v0, v2), glm::max(v0, v2))];
+    initial_triangles_.emplace_back(glm::ivec3(v0, v1, v2));
+  }
+  std::set<int> boundary_vertices;
+  for (const auto& edge : edges) {
+    if (edge.second == 1) {
+      initial_boundary_edges_.emplace_back(edge.first);
+      particles_2d_[edge.first.first].initial_boundary_ = true;
+      particles_2d_[edge.first.second].initial_boundary_ = true;
+      boundary_vertices.emplace(edge.first.first);
+      boundary_vertices.emplace(edge.first.second);
+    }
+    initial_edges_.emplace_back(edge.first);
+  }
+
+  if (calculate_boundary_distance) {
+    for (auto& particle : particles_2d_) {
+      if (particle.initial_boundary_ || boundary_vertices.empty()) {
+        particle.initial_distance_to_boundary_ = 0.0f;
+        continue;
+      }
+      particle.initial_distance_to_boundary_ = FLT_MAX;
+      const auto position = particle.initial_position_;
+      for (const auto& boundary_particle_handle : boundary_vertices) {
+        const auto& boundary_particle = particles_2d_[boundary_particle_handle];
+        const auto current_distance = glm::distance(position, boundary_particle.initial_position_);
+        if (particle.initial_distance_to_boundary_ > current_distance) {
+          particle.initial_distance_to_boundary_ = current_distance;
         }
       }
     }

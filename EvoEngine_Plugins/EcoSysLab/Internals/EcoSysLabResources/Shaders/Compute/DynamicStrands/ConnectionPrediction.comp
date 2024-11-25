@@ -23,6 +23,7 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint connection_size;
+	uint allow_breaking;
 };
 
 
@@ -39,8 +40,10 @@ void main(){
 		Segment segment0 = segments[connection.segment0_handle];
 		Segment segment1 = segments[connection.segment1_handle];
 		vec3 bend_twist_strain = bend_twist_strain(segment0.q, segment1.q, connection.rest_darboux_vector);
-		bool valid = connection.bend_twist_strain_valid.w != 0.0 
-						&& bend_twist_strain.x < connection.max_bend_twist_strain.x
+		bool valid = connection.bend_twist_strain_valid.w != 0.0;
+		
+		if(allow_breaking == 1){
+			valid = valid && bend_twist_strain.x < connection.max_bend_twist_strain.x
 						&& bend_twist_strain.y < connection.max_bend_twist_strain.y
 						&& bend_twist_strain.z < connection.max_bend_twist_strain.z
 						
@@ -51,6 +54,7 @@ void main(){
 						&& segment1.stretch_shear_strain_original_inv_mass.x < segment1.max_stretch_shear_strain.x
 						&& segment1.stretch_shear_strain_original_inv_mass.y < segment1.max_stretch_shear_strain.y
 						&& segment1.stretch_shear_strain_original_inv_mass.z < segment1.max_stretch_shear_strain.z;
+		}
 		connections[connection_index].bend_twist_strain_valid = vec4(bend_twist_strain, valid ? 1.0 : 0.0);
 	}
 }

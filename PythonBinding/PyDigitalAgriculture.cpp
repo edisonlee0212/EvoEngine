@@ -205,7 +205,7 @@ PYBIND11_MODULE(PyDigitalAgriculture, m) {
       .def_readwrite("enable_panicle", &SorghumMeshGeneratorSettings::enable_panicle)
       .def_readwrite("enable_stem", &SorghumMeshGeneratorSettings::enable_stem)
       .def_readwrite("enable_leaves", &SorghumMeshGeneratorSettings::enable_leaves)
-      .def_readwrite("enable_leaf_stem", &SorghumMeshGeneratorSettings::enable_leaf_stem)
+      .def_readwrite("enable_leaf_sheath", &SorghumMeshGeneratorSettings::enable_leaf_sheath)
       .def_readwrite("single_leaf_index", &SorghumMeshGeneratorSettings::single_leaf_index)
       .def_readwrite("bottom_face", &SorghumMeshGeneratorSettings::bottom_face)
       .def_readwrite("leaf_separated", &SorghumMeshGeneratorSettings::leaf_separated)

@@ -142,11 +142,22 @@ bool SorghumGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
     if (leaf_width.OnInspect("Width"))
       changed = true;
 
-    if (ImGui::TreeNode("Leaf Details")) {
-      if (width_along_leaf.OnInspect("Width along leaf"))
-        changed = true;
-      if (waviness_along_leaf.OnInspect("Waviness along leaf"))
-        changed = true;
+    if (ImGui::TreeNode("Per leaf settings")) {
+      if (ImGui::TreeNode("Width along leaf")) {
+        if (width_along_leaf.OnInspect("Width along leaf"))
+          changed = true;
+        ImGui::TreePop();
+      }
+      if (ImGui::TreeNode("Waviness along leaf")) {
+        if (waviness_along_leaf.OnInspect("Waviness along leaf"))
+          changed = true;
+        ImGui::TreePop();
+      }
+      if (ImGui::TreeNode("Curling along leaf")) {
+        if (curling_along_leaf.OnInspect("Curling along leaf"))
+          changed = true;
+        ImGui::TreePop();
+      }
       ImGui::TreePop();
     }
     ImGui::TreePop();
@@ -208,6 +219,7 @@ void SorghumGenerator::Serialize(YAML::Emitter& out) const {
   width_along_stem.Save("width_along_stem", out);
   width_along_leaf.Save("width_along_leaf", out);
   waviness_along_leaf.Save("waviness_along_leaf", out);
+  curling_along_leaf.Save("curling_along_leaf", out);
 }
 void SorghumGenerator::Deserialize(const YAML::Node& in) {
   panicle_size.Load("panicle_size", in);
@@ -236,6 +248,7 @@ void SorghumGenerator::Deserialize(const YAML::Node& in) {
   width_along_stem.Load("width_along_stem", in);
   width_along_leaf.Load("width_along_leaf", in);
   waviness_along_leaf.Load("waviness_along_leaf", in);
+  curling_along_leaf.Load("curling_along_leaf", in);
 }
 
 Entity SorghumGenerator::CreateEntity(const unsigned int seed) const {
@@ -289,10 +302,9 @@ void SorghumGenerator::Apply(const std::shared_ptr<SorghumState>& target_sorghum
 
     leaf_state.waviness_along_leaf = {0.0f, leaf_waviness.GetValue(step) * 2.0f, waviness_along_leaf};
     leaf_state.width_along_leaf = {0.0f, leaf_width.GetValue(step) * 2.0f, width_along_leaf};
-    auto curling = glm::clamp(leaf_curling.GetValue(step), 0.0f, 90.0f) / 90.0f;
-    leaf_state.curling_along_leaf = {0.0f, 90.0f, {curling, curling}};
-    // auto curling = glm::clamp(leaf_curling.GetValue(step), 0.0f, 90.0f) / 90.0f;
-    // Plot2D curlingAlongLeaf = {0.0f, curling * 90.0f, curling_along_leaf };
+    const auto curling = glm::clamp(leaf_curling.GetValue(step), 0.0f, 90.0f) / 90.0f;
+    //leaf_state.curling_along_leaf = {0.0f, curling * 90.0f, curling_along_leaf};
+    leaf_state.curling_along_leaf = {0.0f, curling * 90.0f, {1.f, 1.f}};
     leaf_state.branching_angle = leaf_branching_angle.GetValue(step);
     leaf_state.roll_angle = glm::mod((leaf_index % 2) * 180.0f + leaf_roll_angle.GetValue(step), 360.0f);
     auto bending = leaf_bending.GetValue(step);

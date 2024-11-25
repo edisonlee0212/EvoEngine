@@ -76,21 +76,15 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
 
   if (ImGui::DragFloat("Wood Density", &wood_density, 0.01f, 0.01f, 3.0f))
     changed = true;
-#ifdef USE_XPBD
-  if (wood_young_modulus.OnInspect("Wood Young's modulus"))
+  if (youngs_modulus.OnInspect("Wood Young's modulus"))
     changed = true;
-  if (wood_torsion_modulus.OnInspect("Wood Torsion modulus"))
+  if (shear_modulus.OnInspect("Wood Shear modulus"))
     changed = true;
-#else
-  if (shear_stiffness.OnInspect("Shear stiffness"))
+
+  if (bending_modulus.OnInspect("Wood Bending modulus"))
     changed = true;
-  if (stretch_stiffness.OnInspect("Stretch stiffness"))
+  if (torsion_modulus.OnInspect("Wood Torsion modulus"))
     changed = true;
-  if (bending_stiffness.OnInspect("Bending stiffness"))
-    changed = true;
-  if (twisting_stiffness.OnInspect("Twisting stiffness"))
-    changed = true;
-#endif
   
   if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
     changed = true;
@@ -101,11 +95,16 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     changed = true;
   if (max_neighbor_strain.OnInspect("Max neighbor strain", 0.01f))
     changed = true;
+  if (ImGui::DragFloat("Min neighbor strain", &min_neighbor_strain, 0.001f, 0.00f, 1.0f))
+    changed = true;
   if (max_stretch_shear_strain.OnInspect("Max stretch/shear strain", 0.01f))
+    changed = true;
+  if (ImGui::DragFloat3("Min stretch/shear strain", &min_stretch_shear_strain.x, 0.001f, 0.00f, 1.0f))
     changed = true;
   if (max_bend_twist_strain.OnInspect("Max bend/twist strain", 0.01f))
     changed = true;
-
+  if (ImGui::DragFloat3("Min bend/twist strain", &min_bend_twist_strain.x, 0.001f, 0.00f, 1.0f))
+    changed = true;
   return changed;
 }
 
@@ -115,6 +114,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   assert(initialize_parameters.root_transform.GetScale() == glm::vec3(1.0f));
   const auto& target_strands = strand_group.PeekStrands();
   const auto& target_strand_segments = strand_group.PeekStrandSegments();
+  const auto& target_strand_segment_data_list = strand_group.PeekStrandSegmentDataList();
   strands.resize(target_strands.size());
 
   Jobs::RunParallelFor(target_strands.size(), [&](const size_t i) {
@@ -133,12 +133,24 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   Jobs::RunParallelFor(target_strand_segments.size(), [&](const size_t i) {
     auto& segment = segments[i];
     const auto& target_strand_segment = target_strand_segments[i];
+    const auto& target_strand_segment_data = target_strand_segment_data_list[i];
     segment.prev_handle = target_strand_segment.GetPrevHandle();
     segment.next_handle = target_strand_segment.GetNextHandle();
     segment.strand_handle = target_strand_segment.GetStrandHandle();
     segment.rest_length = strand_group.GetStrandSegmentLength(static_cast<int>(i));
 
-    segment.color = target_strand_segment.end_color;
+    
+    if (target_strand_segment_data.initial_distance_to_boundary < 8.f) {
+      segment.color = glm::mix(glm::vec4(0.6, 0.3, 0, 1), glm::vec4(0, 0, 1, 1),
+                               glm::clamp(target_strand_segment_data.initial_distance_to_boundary / 8.f, 0.0f, 1.0f));
+    } else if (target_strand_segment_data.initial_distance_to_boundary < 24.f) {
+      segment.color = glm::mix(glm::vec4(0, 0, 1, 1), glm::vec4(1, 0, 0, 1),
+                               glm::clamp((target_strand_segment_data.initial_distance_to_boundary - 8.f) / 16.f, 0.0f, 1.0f));
+    }else {
+      segment.color =
+          glm::mix(glm::vec4(1, 0, 0, 1), glm::vec4(0, 1, 0, 1),
+                   glm::clamp((target_strand_segment_data.initial_distance_to_boundary - 24.f) / 32.f, 0.0f, 1.0f));
+    }
     segment.radius = target_strand_segment.end_thickness * .5f;
     segment.damping = initialize_parameters.angular_velocity_damping;
     segment.q0 = segment.q = segment.last_q = segment.old_q =
@@ -150,16 +162,12 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.inertia_tensor = ComputeInertiaTensorRod(mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     segment.original_inv_mass = 1.f / mass;
-#ifdef USE_XPBD
     const float area = glm::pi<float>() * segment.radius * segment.radius;
-    const float youngs_modulus = initialize_parameters.wood_young_modulus.GetValue() * 1e9f;
-    const float torsion_modulus = initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f;
-    segment.stretching_stiffness = youngs_modulus * area / segment.rest_length;
-    segment.shearing_stiffness = torsion_modulus * area / segment.rest_length;
-#else
-    segment.stretching_stiffness = glm::clamp(initialize_parameters.stretch_stiffness.GetValue(), 0.0f, 1.0f);
-    segment.shearing_stiffness = glm::clamp(initialize_parameters.shear_stiffness.GetValue(), 0.0f, 1.0f);
-#endif
+    const float youngs_modulus = initialize_parameters.youngs_modulus.GetValue() * 1e9f;
+    const float shear_modulus = initialize_parameters.shear_modulus.GetValue() * 1e9f;
+    segment.stretching_alpha = 1.f / (youngs_modulus * area / segment.rest_length);
+    segment.shearing_alpha = 1.f / (shear_modulus * area / segment.rest_length);
+
     segment.max_stretch_shear_strain =
         glm::vec4(glm::max(initialize_parameters.min_stretch_shear_strain, initialize_parameters.max_stretch_shear_strain.GetValue()), 0.0f);
   });
@@ -178,7 +186,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
         glm::vec4(initialize_parameters.root_transform.TransformPoint(
                       strand_group.GetStrandSegmentStart(static_cast<int>(segment_handle))),
                   0.0);
-
+    
     particle1.x0 = particle1.x = particle1.last_x = particle1.old_x =
         glm::vec4(initialize_parameters.root_transform.TransformPoint(strand_segment.end_position), 0.0);
 
@@ -293,9 +301,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
         connection.next_jump_handle = -1;
       }
 
-#ifdef USE_XPBD
-      const float youngs_modulus = initialize_parameters.wood_young_modulus.GetValue() * 1e9f;
-      const float shear_modulus = initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f;
+      const float torsion_modulus = initialize_parameters.torsion_modulus.GetValue() * 1e9f;
+      const float bending_modulus = initialize_parameters.bending_modulus.GetValue() * 1e9f;
 
       const float average_segment_radius = (segment0.radius + segment1.radius) * .5f;
       const float average_segment_length = (segment0.rest_length + segment1.rest_length) * .5f;
@@ -303,12 +310,9 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       const auto second_moment_of_area = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.25f;
       const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.5f;
 
-      connection.bending_stiffness = youngs_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f);
-      connection.twisting_stiffness = shear_modulus * polar_moment_of_inertia / average_segment_length;
-#else
-      connection.bending_stiffness = glm::clamp(initialize_parameters.bending_stiffness.GetValue(), 0.0f, 1.0f);
-      connection.twisting_stiffness = glm::clamp(initialize_parameters.twisting_stiffness.GetValue(), 0.0f, 1.0f);
-#endif
+      connection.bending_alpha =
+          1.f / (bending_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f));
+      connection.torsion_alpha = 1.f / (torsion_modulus * polar_moment_of_inertia / average_segment_length);
       const auto& q0 = segment0.q0;
       const auto& q1 = segment1.q0;
 
@@ -332,7 +336,9 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::DragInt("Sub step", &sub_step, 1, 1, 100)) {
     changed = true;
   }
-
+  if (ImGui::Checkbox("Breaking", &allow_breaking)) {
+    changed = true;
+  }
   if (ImGui::DragInt("Constraint Iteration", &constraint_iteration, 1, 1, 500))
     changed = true;
   return changed;

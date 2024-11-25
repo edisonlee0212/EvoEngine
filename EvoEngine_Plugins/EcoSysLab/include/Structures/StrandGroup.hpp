@@ -350,7 +350,8 @@ class StrandGroup {
   template <typename OSgd, typename OSd, typename OSsd>
   void Subdivide(StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const std::function<float()>& target_segment_length,
                  const std::function<void(StrandHandle src_handle, OSd& tgt_data)>& strand_data_action,
-                 const std::function<void(StrandSegmentHandle src_handle, OSsd& tgt_data)>& segment_data_action,
+                 const std::function<void(StrandSegmentHandle src_handle, float segment_t, OSsd& tgt_data)>&
+                     segment_data_action,
                  float tolerance) const;
 
   void RandomAssignColor();
@@ -1021,7 +1022,7 @@ template <typename OSgd, typename OSd, typename OSsd>
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
     StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const std::function<float()>& target_segment_length,
     const std::function<void(StrandHandle src_handle, OSd& tgt_data)>& strand_data_action,
-    const std::function<void(StrandSegmentHandle src_handle, OSsd& tgt_data)>& segment_data_action,
+    const std::function<void(StrandSegmentHandle src_handle, float segment_t, OSsd& tgt_data)>& segment_data_action,
     float tolerance) const {
   target_strand_group.Clear();
   for (int strand_handle = 0; strand_handle < strands_.size(); strand_handle++) {
@@ -1052,7 +1053,7 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
           new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t);
           new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t);
           new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t);
-          segment_data_action(segment_handle, target_strand_group.RefStrandSegmentData(new_strand_segment_handle));
+          segment_data_action(segment_handle, t, target_strand_group.RefStrandSegmentData(new_strand_segment_handle));
         } else {
           remaining_length -= Strands::CalculateLengthAdaptive(p0, p1, p2, p3, t, 1.f, tolerance);
           t = 0.f;
@@ -1068,7 +1069,7 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
       new_strand_segment.end_position = segment.end_position;
       new_strand_segment.end_thickness = segment.end_thickness;
       new_strand_segment.end_color = segment.end_color;
-      segment_data_action(segment_handle, target_strand_group.RefStrandSegmentData(new_strand_segment_handle));
+      segment_data_action(segment_handle, 1.0f, target_strand_group.RefStrandSegmentData(new_strand_segment_handle));
     }
   }
   target_strand_group.CalculateRotations();

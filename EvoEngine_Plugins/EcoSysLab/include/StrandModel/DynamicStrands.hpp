@@ -4,7 +4,6 @@
 #include "TreeGrowthData.hpp"
 
 using namespace evo_engine;
-#define USE_XPBD
 
 namespace eco_sys_lab_plugin {
 class DynamicStrandsPreStep;
@@ -23,7 +22,10 @@ struct DtsStrandSegmentData {
    */
   SkeletonNodeHandle node_handle = -1;
   StrandSegmentHandle original_segment_handle;
+  float segment_t;
   uint32_t segment_index;
+
+  float initial_distance_to_boundary;
 };
 
 typedef StrandGroup<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData> DtsStrandGroup;
@@ -37,33 +39,25 @@ class DynamicStrands {
 #pragma region Initialization
   struct InitializeParameters {
     int sub_segment = 1;
-#ifdef USE_XPBD
     float wood_density = 400.f;  // kg/m^3
-#else
-    float wood_density = 400.f;  // kg/m^3
-#endif
-#ifdef USE_XPBD
-    SingleDistribution<float> wood_young_modulus = {12.f, 1.2f};  // GPa
-    SingleDistribution<float> wood_torsion_modulus = {1.5f, 0.15f};  // GPa
-#else
-    SingleDistribution<float> shear_stiffness = {0.97f, 0.0f};
-    SingleDistribution<float> stretch_stiffness = {0.97f, 0.0f};
-    SingleDistribution<float> bending_stiffness = {0.9f, 0.2f};
-    SingleDistribution<float> twisting_stiffness = {0.9f, 0.2f};
-#endif
+    SingleDistribution<float> youngs_modulus = {12.f, 1.2f};  // GPa
+    SingleDistribution<float> shear_modulus = {12.f, 0.15f};    // GPa
+    SingleDistribution<float> bending_modulus = {1.5f, 0.15f};  // GPa
+    SingleDistribution<float> torsion_modulus = {1.5f, 0.15f};  // GPa
+
     float velocity_damping = 0.005f;
     float angular_velocity_damping = 0.005f;
 
     float neighbor_range = 6.0f;
-    SingleDistribution<float> max_neighbor_strain = {0.2f, 0.1f};
+    SingleDistribution<float> max_neighbor_strain = {0.1f, 0.1f};
 
-    float min_neighbor_strain = 0.1f;
+    float min_neighbor_strain = 0.001f;
 
     SingleDistribution<glm::vec3> max_stretch_shear_strain = {glm::vec3(0.01f), 0.01f};
     SingleDistribution<glm::vec3> max_bend_twist_strain = {glm::vec3(0.05f), 0.05f};
 
-    glm::vec3 min_stretch_shear_strain = glm::vec3(0.01f);
-    glm::vec3 min_bend_twist_strain = glm::vec3(0.01f);
+    glm::vec3 min_stretch_shear_strain = glm::vec3(0.001f);
+    glm::vec3 min_bend_twist_strain = glm::vec3(0.001f);
 
     GlobalTransform root_transform{};
 
@@ -78,7 +72,7 @@ class DynamicStrands {
     float time_step = 0.01f;
     int sub_step = 5;
     int constraint_iteration = 1;
-
+    bool allow_breaking = true;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -157,8 +151,8 @@ class DynamicStrands {
     float rest_length;
 
     float radius;
-    float shearing_stiffness;
-    float stretching_stiffness;
+    float shearing_alpha;
+    float stretching_alpha;
     float damping;
 
     glm::vec3 inertia_tensor;
@@ -209,8 +203,8 @@ class DynamicStrands {
     int segment1_particle_handle;
 
     glm::quat rest_darboux_vector;
-    float bending_stiffness;
-    float twisting_stiffness;
+    float bending_alpha;
+    float torsion_alpha;
 
     int prev_handle = -1;
     int next_handle = -1;
@@ -262,7 +256,9 @@ class DynamicStrands {
   void Render(const std::shared_ptr<Camera>& target_camera, const RenderParameters& render_parameters) const;
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const VisualizationParameters& visualization_parameters) const;
-  void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& operators_action) const;
+  void Physics(const PhysicsParameters& physics_parameters, 
+      const std::function<void()>& operators_action,
+               const std::function<void()>& pre_constraint_action) const;
 
  private:
   void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);

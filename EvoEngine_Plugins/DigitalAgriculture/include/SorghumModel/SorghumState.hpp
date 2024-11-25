@@ -56,13 +56,15 @@ struct SorghumLeafState {
   void Deserialize(const YAML::Node& in);
   bool OnInspectImpl(int mode);
   void Apply(const SorghumStemState& stem_state, SorghumLeafDescriptor& target_sorghum_leaf_descriptor) const;
+
+  void ChangeWaviness(float factor,
+                      const SorghumStemState& stem_state,
+                      const SorghumMeshGeneratorSettings& mesh_generator_settings, SorghumLeafState& target_leaf_state) const;
 };
 #pragma endregion
 
 class SorghumState : public IAsset {
   friend class SorghumGrowthStages;
-  unsigned version_ = 0;
-
  public:
   SorghumState();
   bool saved = false;
@@ -71,8 +73,13 @@ class SorghumState : public IAsset {
   SorghumStemState stem;
   std::vector<SorghumLeafState> leaves;
   bool OnInspectImpl(int mode);
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor) const;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
+  [[maybe_unused]] Entity CreateEntity(const std::string& name) const;
+
+
+  void ChangeWaviness(float factor, const SorghumMeshGeneratorSettings& mesh_generator_settings, SorghumState& target_sorghum_state) const;
 };
 }  // namespace digital_agriculture_plugin

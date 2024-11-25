@@ -18,6 +18,8 @@ struct StrandModelStrandSegmentData {
   ParticleHandle profile_particle_handle = -1;
 
   bool is_boundary = false;
+
+  float initial_distance_to_boundary;
 };
 
 typedef StrandGroup<StrandModelStrandGroupData, StrandModelStrandData, StrandModelStrandSegmentData>
