@@ -25,6 +25,7 @@ barrier();
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint particle_size;
 	float ground_height;
+	float ground_softness;
 };
 
 void main(){
@@ -36,6 +37,11 @@ void main(){
 
 		if(particle_index >= particle_size) break;
 		Particle particle = particles[particle_index];
-		particles[particle_index].x_node_handle.y = max(ground_height, particle.x_node_handle.y);
+
+		Segment segment = segments[floatBitsToInt(particle.old_x_segment_handle.w)];
+		if(segment.inv_mass == 0.0) return;
+
+		float diff = max(0.0, ground_height - particle.x_node_handle.y);
+		particles[particle_index].x_node_handle.y += ground_softness * diff;
 	}
 }

@@ -23,7 +23,7 @@ using namespace digital_agriculture_plugin;
 using namespace dataset_generation_plugin;
 #endif
 
-#ifdef ECO_SYS_LAB_PLUGIN
+#ifdef ECOSYSLAB_PLUGIN
 #  include "Soil.hpp"
 #endif
 

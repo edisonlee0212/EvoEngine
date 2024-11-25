@@ -22,7 +22,7 @@ using namespace digital_agriculture_plugin;
 #  include "DatasetGenerator.hpp"
 using namespace dataset_generation_plugin;
 #endif
-#ifdef ECO_SYS_LAB_PLUGIN
+#ifdef ECOSYSLAB_PLUGIN
 #  include "EcoSysLabLayer.hpp"
 #  include "ObjectRotator.hpp"
 #  include "ParticlePhysics2DDemo.hpp"
@@ -36,7 +36,7 @@ using namespace eco_sys_lab_plugin;
 using namespace evo_engine;
 
 void register_classes() {
-#ifdef ECO_SYS_LAB_PLUGIN
+#ifdef ECOSYSLAB_PLUGIN
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
   PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
   PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
@@ -50,7 +50,7 @@ void push_layers(bool enable_window_layer, bool enable_editor_layer) {
   if (enable_window_layer && enable_editor_layer)
     Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
-#ifdef ECO_SYS_LAB_PLUGIN
+#ifdef ECOSYSLAB_PLUGIN
   Application::PushLayer<EcoSysLabLayer>();
 #endif
 #ifdef OPTIX_RAY_TRACER_PLUGIN
@@ -74,7 +74,7 @@ void run_windowless(const std::filesystem::path& project_path) {
 }
 
 void forest_patch_point_cloud() {
-#ifndef ECO_SYS_LAB_PLUGIN
+#ifndef ECOSYSLAB_PLUGIN
   throw std::runtime_error("EcoSysLab plugin missing!");
 #else
 #  ifndef OPTIX_RAY_TRACER_PLUGIN
@@ -148,9 +148,48 @@ void forest_patch_point_cloud() {
 #endif
 }
 
+void generate_tree_mesh(const int count, const std::filesystem::path& tree_parameters_path, const float low_branch_pruning, 
+                        const std::vector<int> &target_tree_node_count,
+                        const TreeMeshGeneratorSettings& mesh_generator_settings,
+                        const std::filesystem::path &folder_path) {
+#ifndef ECOSYSLAB_PLUGIN
+  throw std::runtime_error("EcoSysLab plugin missing!");
+#else
+#  ifndef OPTIX_RAY_TRACER_PLUGIN
+  throw std::runtime_error("OptixRayTracer plugin missing!");
+#  else
+#    ifndef DATASET_GENERATION_PLUGIN
+  throw std::runtime_error("DatasetGeneration plugin missing!");
+#    endif
+#  endif
+  std::filesystem::path resource_folder_path("../../../../../Resources");
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../Resources";
+  }
+  
+  std::filesystem::create_directories(folder_path);
+
+  for (int index = 0; index < count; index++) {
+    std::filesystem::path output_path = folder_path / (std::to_string(index) + ".obj");
+    DatasetGenerator::GenerateTreeMesh(tree_parameters_path, low_branch_pruning, 0.0822f, 999,
+                                       target_tree_node_count, mesh_generator_settings, output_path.string());
+  }
+#endif
+}
+
+
 void forest_patch_point_cloud_joined(const std::string& folder_name, const bool export_junction, const int count,
                                      const int grid_side_count) {
-#ifndef ECO_SYS_LAB_PLUGIN
+#ifndef ECOSYSLAB_PLUGIN
   throw std::runtime_error("EcoSysLab plugin missing!");
 #else
 #  ifndef OPTIX_RAY_TRACER_PLUGIN
@@ -229,7 +268,7 @@ void forest_patch_point_cloud_joined(const std::string& folder_name, const bool 
 }
 
 void tree_trunk_mesh() {
-#ifndef ECO_SYS_LAB_PLUGIN
+#ifndef ECOSYSLAB_PLUGIN
   throw std::runtime_error("EcoSysLab plugin missing!");
 #else
 #  ifndef DATASET_GENERATION_PLUGIN
@@ -279,7 +318,7 @@ void tree_trunk_mesh() {
 }
 
 void tree_growth_mesh() {
-#ifndef ECO_SYS_LAB_PLUGIN
+#ifndef ECOSYSLAB_PLUGIN
   throw std::runtime_error("EcoSysLab plugin missing!");
 #else
 #  ifndef DATASET_GENERATION_PLUGIN
@@ -319,7 +358,7 @@ void tree_growth_mesh() {
         std::filesystem::path target_tree_mesh_path = output_root / (name + ".obj");
         std::filesystem::path target_trunk_mesh_path = output_root / (trunk_name + ".obj");
         std::vector<int> nodes = {3000, 6000, 9000, 12000, 15000};
-        DatasetGenerator::GenerateTreeMesh(i.path().string(), 0.08220f, 999, nodes, tmgs,
+        DatasetGenerator::GenerateTreeMesh(i.path().string(), 0.0f, 0.08220f, 999, nodes, tmgs,
                                            target_tree_mesh_path.string());
       }
     }
@@ -345,9 +384,19 @@ int main() {
 
   const std::filesystem::path project_path = resource_folder_path / "EcoSysLabProject" / "test.eveproj";
   run_windowless(project_path);
-
+  /*
   constexpr bool export_junction = true;
   forest_patch_point_cloud_joined("TreeStructor", export_junction, 5, 8);
   forest_patch_point_cloud_joined("Coniferous", export_junction, 5, 8);
   forest_patch_point_cloud_joined("Broadleaf", export_junction, 5, 8);
+  */
+
+  TreeMeshGeneratorSettings tmgs{};
+  //tmgs.branch_y_subdivision = 0.05f;
+  //tmgs.trunk_y_subdivision = 0.05f;
+  tmgs.enable_foliage = false;
+  tmgs.vertex_color_mode = static_cast<unsigned>(TreeMeshGeneratorSettings::VertexColorMode::InternodeColor);
+
+  generate_tree_mesh(1024, std::filesystem::path("./TreeDescriptors/Oak.tree"), 0.2f, {10000}, tmgs,
+                     "D:\\TreeMeshData\\");
 }

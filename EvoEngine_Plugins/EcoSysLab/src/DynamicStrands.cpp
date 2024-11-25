@@ -27,6 +27,7 @@ inline glm::vec3 cgal_to_glm(const CGAL::Point_3<CGAL::Epick>& p) {
   return {p.x(), p.y(), p.z()};
 }
 #endif
+
 DynamicStrands::DynamicStrands() {
   if (!strands_layout) {
     strands_layout = std::make_shared<DescriptorSetLayout>();
@@ -72,10 +73,7 @@ bool DynamicStrands::WaitForUpload() const {
 
 bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (ImGui::DragInt("Sub segment count", &sub_segment, 1, 1, 100)) {
-    sub_segment = glm::clamp(sub_segment, 1, 100);
-    changed = true;
-  }
+
   if (ImGui::DragFloat("Wood Density", &wood_density, 0.01f, 0.01f, 3.0f))
     changed = true;
 #ifdef USE_XPBD
@@ -93,11 +91,7 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
   if (twisting_stiffness.OnInspect("Twisting stiffness"))
     changed = true;
 #endif
-  if (neighbor_rotation_stiffness.OnInspect("Neighbor rotation stiffness"))
-    changed = true;
-  if (neighbor_position_stiffness.OnInspect("Neighbor position stiffness"))
-    changed = true;
-
+  
   if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
     changed = true;
   if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.01f, 0.01f, 1.0f))
@@ -166,7 +160,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.stretching_stiffness = glm::clamp(initialize_parameters.stretch_stiffness.GetValue(), 0.0f, 1.0f);
     segment.shearing_stiffness = glm::clamp(initialize_parameters.shear_stiffness.GetValue(), 0.0f, 1.0f);
 #endif
-    segment.max_stretch_shear_strain = glm::vec4(glm::max(glm::vec3(0.0f), initialize_parameters.max_stretch_shear_strain.GetValue()), 0.0f);
+    segment.max_stretch_shear_strain =
+        glm::vec4(glm::max(initialize_parameters.min_stretch_shear_strain, initialize_parameters.max_stretch_shear_strain.GetValue()), 0.0f);
   });
 
   particles.resize(segments.size() * 2);
@@ -319,7 +314,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
       connection.rest_darboux_vector = glm::conjugate(q0) * q1;
       connection.bend_twist_strain_valid.w = 1.0;
-      connection.max_bend_twist_strain = glm::vec4(glm::max(initialize_parameters.max_bend_twist_strain.GetValue(), glm::vec3(0.0f)), 0.0f);
+      connection.max_bend_twist_strain =
+          glm::vec4(glm::max(initialize_parameters.max_bend_twist_strain.GetValue(), initialize_parameters.min_bend_twist_strain), 0.0f);
     }
   }
   ComputeDelaunay(delaunay_tetrahedrons);

@@ -59,12 +59,7 @@ void main(){
 		Connection segment1_particle0_connection = connections[segment1_particle0.connection_handle];
 		Connection segment1_particle1_connection = connections[segment1_particle1.connection_handle];
 
-		if(segment0_particle0_connection.bend_twist_strain_valid.w == 0
-			|| segment0_particle1_connection.bend_twist_strain_valid.w == 0
-			|| segment1_particle0_connection.bend_twist_strain_valid.w == 0
-			|| segment1_particle1_connection.bend_twist_strain_valid.w == 0
-		
-			|| strain0 > segment_pair.max_strain || strain1 > segment_pair.max_strain){
+		if(strain0 > segment_pair.max_strain || strain1 > segment_pair.max_strain){
 			segment_pairs[pair_index].valid = 0;
 		}
 	}

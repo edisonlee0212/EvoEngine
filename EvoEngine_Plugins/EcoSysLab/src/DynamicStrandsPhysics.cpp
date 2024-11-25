@@ -20,7 +20,6 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
   }
 }
 
-
 DynamicStrandsPreStep::DynamicStrandsPreStep() {
   if (!particle_pre_step_pipeline) {
     static std::shared_ptr<Shader> shader{};
@@ -596,7 +595,6 @@ DsRandomBundle::DsRandomBundle() {
 
   pairs_buffer = std::make_shared<Buffer>(storage_buffer_create_info, buffer_vma_allocation_create_info);
   segment_data_list_buffer = std::make_shared<Buffer>(storage_buffer_create_info, buffer_vma_allocation_create_info);
-
   if (!bundle_update_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -664,11 +662,11 @@ DsRandomBundle::DsRandomBundle() {
 
 void DsRandomBundle::Project(const DynamicStrands::PhysicsParameters& physics_parameters,
                              const DynamicStrands& target_dynamic_strands) {
-  if (pairs.empty())
+  if (segment_pairs.empty())
     return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   RandomBundleUpdateConstant update_constant;
-  update_constant.pair_size = static_cast<uint32_t>(pairs.size());
+  update_constant.pair_size = static_cast<uint32_t>(segment_pairs.size());
 
   RandomBundleConstant constraint_constant;
   constraint_constant.segment_size = static_cast<uint32_t>(segment_data_list.size());
@@ -738,8 +736,6 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
 
     for (int j = 0; j < BUNDLE_MAX_CONNECTION; j++) {
       segment_data_list[i].pair_handles[j] = -1;
-      segment_data_list[i].particle0_offset[j] = glm::vec4(0.0f);
-      segment_data_list[i].particle1_offset[j] = glm::vec4(0.0f);
     }
   });
   auto max_bound = glm::vec3(-FLT_MAX);
@@ -773,6 +769,19 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
     voxel_grid.Ref(s_d.center_position).emplace_back(s_d);
   }
   std::multimap<float, std::set<std::pair<int, int>>> candidates;
+
+  for (const auto& connection : target_dynamic_strands.connections) {
+    const auto& segment0_handle = connection.segment0_handle;
+    const auto& segment1_handle = connection.segment1_handle;
+    const auto pair =
+        std::make_pair(glm::min(segment0_handle, segment1_handle), glm::max(segment0_handle, segment1_handle));
+    if (const auto search = candidates.find(0.0f); search != candidates.end()) {
+      search->second.emplace(pair);
+    } else {
+      candidates.insert({0.0f, {pair}});
+    }
+  }
+
   for (int segment_handle = 0; segment_handle < target_dynamic_strands.segments.size(); segment_handle++) {
     const auto& segment = target_dynamic_strands.segments[segment_handle];
     const auto& particle0 = target_dynamic_strands.particles[segment.particle0_handle];
@@ -782,8 +791,8 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
       for (const auto& info : list) {
         if (info.segment_handle == segment_handle)
           continue;
-        // if (info.strand_handle == segment.strand_handle)
-        //   continue;
+        if (info.strand_handle == segment.strand_handle)
+          continue;
         //  Function to check if a point is inside a cylinder
         const auto cylinder_check = [](const glm::vec3& p0, const glm::vec3& p1, const float radius,
                                        const glm::vec3& point, bool& check) {
@@ -850,25 +859,28 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
       }
     });
   }
-
-  pairs.clear();
+  segment_pairs.clear();
   std::vector<uint32_t> counters(target_dynamic_strands.segments.size(), 0);
+
   for (const auto& candidate_set : candidates) {
     for (const auto& pair : candidate_set.second) {
       auto& first = counters[pair.first];
       auto& second = counters[pair.second];
       if (first >= BUNDLE_MAX_CONNECTION || second >= BUNDLE_MAX_CONNECTION)
         continue;
-      const auto pair_handle = static_cast<int>(pairs.size());
-      pairs.emplace_back();
-      auto& new_pair = pairs.back();
-      new_pair.handle0 = pair.first;
-      new_pair.handle1 = pair.second;
+      const auto pair_handle = static_cast<int>(segment_pairs.size());
+      segment_pairs.emplace_back();
+      auto& new_pair = segment_pairs.back();
+      new_pair.segment0_handle = pair.first;
+      new_pair.segment1_handle = pair.second;
 
-      new_pair.stiffness = glm::vec4(initialize_parameters.neighbor_rotation_stiffness.GetValue() * 1e9f,
-                                     initialize_parameters.neighbor_rotation_stiffness.GetValue() * 1e9f,
-                                     initialize_parameters.neighbor_rotation_stiffness.GetValue() * 1e9f,
-                                     initialize_parameters.neighbor_position_stiffness.GetValue() * 1e9f);
+      new_pair.stiffness = glm::vec4(initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f,
+                                     initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f,
+                                     initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f,
+                                     initialize_parameters.wood_young_modulus.GetValue() * 1e9f);
+
+      new_pair.max_strain =
+          glm::max(initialize_parameters.min_neighbor_strain, initialize_parameters.max_neighbor_strain.GetValue());
       new_pair.valid = 1;
       segment_data_list[pair.first].pair_handles[first] = pair_handle;
       segment_data_list[pair.second].pair_handles[second] = pair_handle;
@@ -877,43 +889,36 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
     }
   }
 
-  Jobs::RunParallelFor(segment_data_list.size(), [&](const auto segment_index) {
-    auto& segment_data = segment_data_list[segment_index];
 
-    const auto& segment = target_dynamic_strands.segments[segment_index];
-    const auto& particle0 = target_dynamic_strands.particles[segment.particle0_handle];
-    const auto& particle1 = target_dynamic_strands.particles[segment.particle1_handle];
-    const auto segment_center_position = (particle0.x0 + particle1.x0) * .5f;
+  Jobs::RunParallelFor(segment_pairs.size(), [&](const auto pair_index) {
+    auto& pair = segment_pairs[pair_index];
+    auto& segment0 = target_dynamic_strands.segments[pair.segment0_handle];
+    auto& segment1 = target_dynamic_strands.segments[pair.segment1_handle];
+    auto& segment0_particle0 = target_dynamic_strands.particles[segment0.particle0_handle];
+    auto& segment0_particle1 = target_dynamic_strands.particles[segment0.particle1_handle];
 
-    const auto front = glm::normalize(segment.q0 * glm::vec3(0, 0, -1));
+    auto& segment1_particle0 = target_dynamic_strands.particles[segment1.particle0_handle];
+    auto& segment1_particle1 = target_dynamic_strands.particles[segment1.particle1_handle];
 
-    for (int pair_index = 0; pair_index < BUNDLE_MAX_CONNECTION; pair_index++) {
-      const auto pair_handle = segment_data.pair_handles[pair_index];
-      if (pair_handle < 0 || pair_handle > pairs.size())
-        break;
-      auto& pair = pairs[pair_handle];
+    const auto segment0_center_position = (segment0_particle0.x0 + segment0_particle1.x0) * .5f;
+    const auto segment1_center_position = (segment1_particle0.x0 + segment1_particle1.x0) * .5f;
 
-      const auto neighbor_segment_handle =
-          pair.handle0 == static_cast<int>(segment_index) ? pair.handle1 : pair.handle0;
-      const auto& neighbor_segment = target_dynamic_strands.segments[neighbor_segment_handle];
-      const auto& neighbor_particle0 = target_dynamic_strands.particles[neighbor_segment.particle0_handle];
-      const auto& neighbor_particle1 = target_dynamic_strands.particles[neighbor_segment.particle1_handle];
-      const auto neighbor_segment_center_position = (neighbor_particle0.x0 + neighbor_particle1.x0) * .5f;
+    pair.segment0_particle0_offset =
+        glm::vec4(glm::inverse(segment1.q0) * (segment0_particle0.x0 - segment1_center_position), 0.0f);
+    pair.segment0_particle1_offset =
+        glm::vec4(glm::inverse(segment1.q0) * (segment0_particle1.x0 - segment1_center_position), 0.0f);
 
-      glm::vec3 offset0 = glm::inverse(neighbor_segment.q0) * (particle0.x0 - neighbor_segment_center_position);
-      glm::vec3 offset1 = glm::inverse(neighbor_segment.q0) * (particle1.x0 - neighbor_segment_center_position);
-      segment_data.particle0_max_strain = glm::max(0.0f, initialize_parameters.max_neighbor_strain.GetValue());
-      segment_data.particle1_max_strain = glm::max(0.0f, initialize_parameters.max_neighbor_strain.GetValue());
-      segment_data.particle0_offset[pair_index] = glm::vec4(offset0, 0.0f);
-      segment_data.particle1_offset[pair_index] = glm::vec4(offset1, 0.0f);
+    pair.segment1_particle0_offset =
+        glm::vec4(glm::inverse(segment0.q0) * (segment1_particle0.x0 - segment0_center_position), 0.0f);
+    pair.segment1_particle1_offset =
+        glm::vec4(glm::inverse(segment0.q0) * (segment1_particle1.x0 - segment0_center_position), 0.0f);
 
-      segment_data.rest_darboux_vectors[pair_index] = glm::conjugate(segment.q0) * neighbor_segment.q0;
-    }
+    pair.rest_darboux_vector = glm::conjugate(segment0.q0) * segment1.q0;
   });
 }
 
 void DsRandomBundle::UploadData() {
-  pairs_buffer->UploadVector(pairs);
+  pairs_buffer->UploadVector(segment_pairs);
   segment_data_list_buffer->UploadVector(segment_data_list);
 }
 
@@ -963,7 +968,7 @@ DsUniformBundle::DsUniformBundle() {
       i = std::make_shared<DescriptorSet>(layout);
     }
   }
-  
+
   if (!uniform_bundle_update_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -1020,7 +1025,6 @@ DsUniformBundle::DsUniformBundle() {
 
 void DsUniformBundle::Project(const DynamicStrands::PhysicsParameters& physics_parameters,
                               const DynamicStrands& target_dynamic_strands) {
-  
   if (front_profiles.empty() && back_profiles.empty())
     return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -1051,17 +1055,15 @@ void DsUniformBundle::Project(const DynamicStrands::PhysicsParameters& physics_p
       uniform_bundle_update_pipeline->PushConstant(vk_command_buffer, 0, update_constant);
       vkCmdDispatch(vk_command_buffer, Platform::DivUp(update_constant.pair_size, task_work_group_invocations), 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
-      
+
       uniform_bundle_front_pipeline->Bind(vk_command_buffer);
       uniform_bundle_front_pipeline->BindDescriptorSet(
           vk_command_buffer, 0,
           target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       uniform_bundle_front_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                                 descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+                                                       descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       uniform_bundle_front_pipeline->PushConstant(vk_command_buffer, 0, front_constraint_constant);
-      vkCmdDispatch(vk_command_buffer,
-                    Platform::DivUp(front_constraint_constant.profile_size, task_work_group_invocations),
-                    1, 1);
+      vkCmdDispatch(vk_command_buffer, front_constraint_constant.profile_size, 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
 
       uniform_bundle_back_pipeline->Bind(vk_command_buffer);
@@ -1069,16 +1071,13 @@ void DsUniformBundle::Project(const DynamicStrands::PhysicsParameters& physics_p
           vk_command_buffer, 0,
           target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       uniform_bundle_back_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                                       descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+                                                      descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       uniform_bundle_back_pipeline->PushConstant(vk_command_buffer, 0, back_constraint_constant);
-      vkCmdDispatch(vk_command_buffer,
-                    Platform::DivUp(back_constraint_constant.profile_size, task_work_group_invocations),
-                    1, 1);
+      vkCmdDispatch(vk_command_buffer, front_constraint_constant.profile_size, 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     }
   });
 }
-
 
 void DsUniformBundle::InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
                                      const StrandModelSkeleton& strand_model_skeleton,
@@ -1087,34 +1086,64 @@ void DsUniformBundle::InitializeData(const DynamicStrands::InitializeParameters&
   struct SegmentProfile {
     std::vector<int> segment_handles;
     std::vector<glm::vec2> projected_positions;
-    int root_distance;
+
+    std::vector<std::pair<int, int>> edges;
+    int segment_index;
     int node_handle;
+
+    void CalculateEdges(const float avg_segment_radius) {
+      std::vector<float> coords(segment_handles.size() * 2);
+      memcpy(coords.data(), projected_positions.data(),
+             sizeof(glm::vec2) * projected_positions.size());
+      const Delaunator::Delaunator2D d(coords);
+      std::set<std::pair<int, int>> edge_set;
+      const float removal_length = avg_segment_radius * 6;
+      for (std::size_t i = 0; i < d.triangles.size(); i += 3) {
+        const auto& v0 = d.triangles[i];
+        const auto& v1 = d.triangles[i + 1];
+        const auto& v2 = d.triangles[i + 2];
+        const auto& positions = projected_positions;
+        if (glm::distance(positions[v0], positions[v1]) > removal_length ||
+            glm::distance(positions[v1], positions[v2]) > removal_length ||
+            glm::distance(positions[v0], positions[v2]) > removal_length)
+          continue;
+        edge_set.emplace(std::make_pair(glm::min(v0, v1), glm::max(v0, v1)));
+        edge_set.emplace(std::make_pair(glm::min(v1, v2), glm::max(v1, v2)));
+        edge_set.emplace(std::make_pair(glm::min(v0, v2), glm::max(v0, v2)));
+      }
+      edges.resize(edge_set.size());
+      int index = 0;
+      for (const auto i : edge_set) {
+        edges[index] = i;
+        index++;
+      }
+    }
   };
 
   std::vector<std::vector<SegmentProfile>> segment_profiles_list;
-  std::vector<int> root_distance_offsets;
+  std::vector<int> sub_segment_index_offsets;
   const auto& sorted_node_list = strand_model_skeleton.PeekSortedNodeList();
   segment_profiles_list.resize(sorted_node_list.size());
-  root_distance_offsets.resize(sorted_node_list.size());
-  root_distance_offsets[0] = 0;
+  sub_segment_index_offsets.resize(sorted_node_list.size());
+  sub_segment_index_offsets[0] = 0;
   for (int node_handle : sorted_node_list) {
-    auto& root_distance_offset = root_distance_offsets[node_handle];
+    auto& sub_segment_offset = sub_segment_index_offsets[node_handle];
     if (node_handle != 0) {
       const auto parent_handle = strand_model_skeleton.PeekNode(node_handle).GetParentHandle();
-      root_distance_offset = root_distance_offsets[parent_handle] + initialize_parameters.sub_segment;
+      sub_segment_offset = sub_segment_index_offsets[parent_handle] + initialize_parameters.sub_segment;
     }
     segment_profiles_list[node_handle].resize(initialize_parameters.sub_segment);
     auto& segment_profiles = segment_profiles_list[node_handle];
     for (int distance = 0; distance < initialize_parameters.sub_segment; distance++) {
       auto& segment_profile = segment_profiles[distance];
       segment_profile.node_handle = node_handle;
-      segment_profile.root_distance = root_distance_offset + distance;
+      segment_profile.segment_index = sub_segment_offset + distance;
     }
   }
   for (int segment_handle = 0; segment_handle < target_dynamic_strands.segments.size(); segment_handle++) {
     const auto& strand_segment_data = subdivided_strand_group.PeekStrandSegmentData(segment_handle);
-    const auto& root_distance_offset = root_distance_offsets[strand_segment_data.node_handle];
-    segment_profiles_list[strand_segment_data.node_handle][strand_segment_data.root_distance - root_distance_offset]
+    const auto& root_distance_offset = sub_segment_index_offsets[strand_segment_data.node_handle];
+    segment_profiles_list[strand_segment_data.node_handle][strand_segment_data.segment_index - root_distance_offset]
         .segment_handles.emplace_back(segment_handle);
   }
   std::vector<SegmentProfile> valid_profiles;
@@ -1126,8 +1155,7 @@ void DsUniformBundle::InitializeData(const DynamicStrands::InitializeParameters&
     }
   }
   segment_pairs.clear();
-  for (int profile_index = 0; profile_index < valid_profiles.size(); profile_index++) {
-    auto& valid_profile = valid_profiles[profile_index];
+  for (auto& valid_profile : valid_profiles) {
     const auto& node = strand_model_skeleton.PeekNode(valid_profile.node_handle);
     const auto node_position = initialize_parameters.root_transform.TransformPoint(node.info.global_position);
     const auto node_rotation = initialize_parameters.root_transform.GetRotation() * node.info.global_rotation;
@@ -1146,8 +1174,7 @@ void DsUniformBundle::InitializeData(const DynamicStrands::InitializeParameters&
       position_sum += projected_position;
     }
     position_sum /= valid_profile.segment_handles.size();
-    segment_radius_sum /= valid_profile.segment_handles.size();
-    std::vector<float> coords(valid_profile.segment_handles.size() * 2);
+    
     Jobs::RunParallelFor(valid_profile.segment_handles.size(), [&](const auto local_segment_index) {
       auto& projected_position = valid_profile.projected_positions[local_segment_index];
       projected_position -= position_sum;
@@ -1155,45 +1182,25 @@ void DsUniformBundle::InitializeData(const DynamicStrands::InitializeParameters&
     PerProfileData profile;
     profile.start_pair_handle = static_cast<int>(segment_pairs.size());
 
-    
-
     if (valid_profile.segment_handles.size() > 2) {
-      memcpy(coords.data(), valid_profile.projected_positions.data(),
-             sizeof(glm::vec2) * valid_profile.projected_positions.size());
-      const Delaunator::Delaunator2D d(coords);
-      std::map<std::pair<int, int>, int> edges;
-      float removal_length = segment_radius_sum * 6;
-      for (std::size_t i = 0; i < d.triangles.size(); i += 3) {
-        const auto& v0 = d.triangles[i];
-        const auto& v1 = d.triangles[i + 1];
-        const auto& v2 = d.triangles[i + 2];
-        const auto& positions = valid_profile.projected_positions;
-        if (glm::distance(positions[v0], positions[v1]) > removal_length ||
-            glm::distance(positions[v1], positions[v2]) > removal_length ||
-            glm::distance(positions[v0], positions[v2]) > removal_length)
-          continue;
-        ++edges[std::make_pair(glm::min(v0, v1), glm::max(v0, v1))];
-        ++edges[std::make_pair(glm::min(v1, v2), glm::max(v1, v2))];
-        ++edges[std::make_pair(glm::min(v0, v2), glm::max(v0, v2))];
-      }
+      valid_profile.CalculateEdges(segment_radius_sum / valid_profile.segment_handles.size());
 
       std::multimap<float, SegmentPair> current_profile_pairs;
+      for (const auto& edge : valid_profile.edges) {
+        const auto& segment_handle0 = valid_profile.segment_handles[edge.first];
+        const auto& segment_handle1 = valid_profile.segment_handles[edge.second];
 
-      for (const auto& edge : edges) {
-        const auto& segment_handle0 = valid_profile.segment_handles[edge.first.first];
-        const auto& segment_handle1 = valid_profile.segment_handles[edge.first.second];
-
-        float edge_center_distance = glm::length(valid_profile.projected_positions[edge.first.first]) +
-                                     glm::length(valid_profile.projected_positions[edge.first.second]);
+        float edge_center_distance = glm::length(valid_profile.projected_positions[edge.first]) +
+                                     glm::length(valid_profile.projected_positions[edge.second]);
 
         SegmentPair new_pair;
         new_pair.segment0_handle = glm::min(segment_handle0, segment_handle1);
         new_pair.segment1_handle = glm::max(segment_handle0, segment_handle1);
         new_pair.valid = 1;
-        new_pair.stiffness = glm::vec4(initialize_parameters.neighbor_rotation_stiffness.GetValue() * 1e9f,
-                                       initialize_parameters.neighbor_rotation_stiffness.GetValue() * 1e9f,
-                                       initialize_parameters.neighbor_rotation_stiffness.GetValue() * 1e9f,
-                                       initialize_parameters.neighbor_position_stiffness.GetValue() * 1e9f);
+        new_pair.stiffness = glm::vec4(initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f,
+                                       initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f,
+                                       initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f,
+                                       initialize_parameters.wood_young_modulus.GetValue() * 1e9f);
         new_pair.max_strain = glm::max(0.0f, initialize_parameters.max_neighbor_strain.GetValue());
 
         current_profile_pairs.emplace(edge_center_distance, new_pair);
@@ -1208,17 +1215,19 @@ void DsUniformBundle::InitializeData(const DynamicStrands::InitializeParameters&
       new_pair.segment0_handle = glm::min(segment_handle0, segment_handle1);
       new_pair.segment1_handle = glm::max(segment_handle0, segment_handle1);
       new_pair.valid = 1;
-      new_pair.stiffness = glm::vec4(initialize_parameters.neighbor_rotation_stiffness.GetValue() * 1e9f,
-                                     initialize_parameters.neighbor_rotation_stiffness.GetValue() * 1e9f,
-                                     initialize_parameters.neighbor_rotation_stiffness.GetValue() * 1e9f,
-                                     initialize_parameters.neighbor_position_stiffness.GetValue() * 1e9f);
+      new_pair.stiffness = glm::vec4(initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f,
+                                     initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f,
+                                     initialize_parameters.wood_torsion_modulus.GetValue() * 1e9f,
+                                     initialize_parameters.wood_young_modulus.GetValue() * 1e9f);
       new_pair.max_strain = glm::max(0.0f, initialize_parameters.max_neighbor_strain.GetValue());
       segment_pairs.emplace_back(new_pair);
     }
 
+    std::shuffle(segment_pairs.begin(), segment_pairs.end(), std::default_random_engine());
+
     profile.end_pair_handle = static_cast<int>(segment_pairs.size()) - 1;
 
-    if (valid_profile.root_distance % 2 == 0)
+    if (valid_profile.segment_index % 2 == 0)
       front_profiles.emplace_back(profile);
     else
       back_profiles.emplace_back(profile);
@@ -1249,7 +1258,6 @@ void DsUniformBundle::InitializeData(const DynamicStrands::InitializeParameters&
 
     pair.rest_darboux_vector = glm::conjugate(segment0.q0) * segment1.q0;
   });
-
 }
 
 void DsUniformBundle::UploadData() {

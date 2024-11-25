@@ -7,14 +7,14 @@
 
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrandsPhysics.glsl"
-const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+//const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
 
-const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+//const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
-uint laneID = gl_LocalInvocationID.x;
+//uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+//uint laneID = gl_LocalInvocationID.x;
 
-layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 #define BARRIER() \
 memoryBarrierShared(); \
@@ -29,6 +29,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 
 
 void main(){
+	/*
 	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
@@ -39,21 +40,11 @@ void main(){
 		ProfileData profile_data = profile_data_list_back[profile_index];
 
 		BundleProfile(profile_data, inv_time_step);
+	}*/
+	uint profile_index = gl_GlobalInvocationID.x;
+	if(profile_index >= profile_size) return;
+		
+	ProfileData profile_data = profile_data_list_back[profile_index];
 
-		/*
-				//max_strain0 = max(max_strain0, length(diff0) / (segment.torque_rest_length.w + neighbor_segment.torque_rest_length.w) * 2.0);
-
-				
-				vec4 q0_correction, q1_correction;
-				vec4 rest_darboux_vector = is_segment0 ? segment_pair.segment0_rest_darboux_vector : segment_pair.segment1_rest_darboux_vector;
-				project_bend_twist_constraint(inv_time_step,
-					segment.q, segment.inv_mass, 
-					neighbor_segment.q, neighbor_segment.inv_mass, 
-					segment_pair.stiffness.xyz, rest_darboux_vector, q0_correction, q1_correction);
-
-				q_correction += q0_correction;
-				sum += 1;
-		}*/
-	}
-
+	BundleProfile(profile_data, inv_time_step);
 }

@@ -2006,12 +2006,14 @@ void EcoSysLabLayer::LateUpdate() {
     }
 
     const auto editor_layer = Application::GetLayer<EditorLayer>();
-    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-      render_layer->ForEachCollectedCamera([&](const std::shared_ptr<Camera>& camera) {
-        if (camera == editor_layer->GetSceneCamera() || scene->IsEntityValid(camera->GetOwner())) {
-          dts->Render(camera);
-        }
+    if (editor_layer) {
+      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+        render_layer->ForEachCollectedCamera([&](const std::shared_ptr<Camera>& camera) {
+          if (camera == editor_layer->GetSceneCamera() || scene->IsEntityValid(camera->GetOwner())) {
+            dts->Render(camera);
+          }
+        });
       });
-    });
+    }
   }
 }
