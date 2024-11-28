@@ -29,6 +29,9 @@ class Particle2D {
   bool boundary_ = false;
   float distance_to_boundary_ = 0.0f;
 
+  bool initial_boundary_ = false;
+  float initial_distance_to_boundary_ = 0.0f;
+
   glm::vec2 initial_position_ = glm::vec2(0.0f);
 
  public:
@@ -40,9 +43,11 @@ class Particle2D {
 
   void SetInitialPosition(const glm::vec2& initial_position);
   [[nodiscard]] glm::vec2 GetInitialPosition() const;
+  [[nodiscard]] float GetInitialDistanceToBoundary() const;
   [[nodiscard]] float GetDistanceToBoundary() const;
   bool enable = true;
   [[nodiscard]] bool IsBoundary() const;
+  [[nodiscard]] bool IsInitialBoundary() const;
   T data;
   void Update(const UpdateSettings& update_settings);
   void Stop();
@@ -77,6 +82,11 @@ glm::vec2 Particle2D<T>::GetInitialPosition() const {
 }
 
 template <typename T>
+float Particle2D<T>::GetInitialDistanceToBoundary() const {
+  return initial_distance_to_boundary_;
+}
+
+template <typename T>
 float Particle2D<T>::GetDistanceToBoundary() const {
   return distance_to_boundary_;
 }
@@ -84,6 +94,11 @@ float Particle2D<T>::GetDistanceToBoundary() const {
 template <typename T>
 bool Particle2D<T>::IsBoundary() const {
   return boundary_;
+}
+
+template <typename T>
+bool Particle2D<T>::IsInitialBoundary() const {
+  return initial_boundary_;
 }
 
 template <typename T>

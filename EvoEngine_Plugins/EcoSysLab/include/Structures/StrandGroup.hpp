@@ -345,13 +345,17 @@ class StrandGroup {
   void UniformlySubdivide(
       StrandGroup<OSgd, OSd, OSsd>& target_strand_group, uint32_t subdivision,
       const std::function<void(StrandHandle src_handle, OSd& tgt_data)>& strand_data_action,
-      const std::function<void(StrandSegmentHandle src_handle, OSsd& tgt_data)>& segment_data_action) const;
+      const std::function<void(float root_distance, StrandSegmentHandle src_handle, uint32_t segment_index,
+                               float segment_t, OSsd& tgt_data, uint32_t sub_segment_index)>& segment_data_action,
+      float tolerance) const;
 
   template <typename OSgd, typename OSd, typename OSsd>
-  void Subdivide(StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const std::function<float()>& target_segment_length,
-                 const std::function<void(StrandHandle src_handle, OSd& tgt_data)>& strand_data_action,
-                 const std::function<void(StrandSegmentHandle src_handle, OSsd& tgt_data)>& segment_data_action,
-                 float tolerance) const;
+  void Subdivide(
+      StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const std::function<float()>& target_segment_length,
+      const std::function<void(StrandHandle src_handle, OSd& tgt_data)>& strand_data_action,
+      const std::function<void(float root_distance, StrandSegmentHandle src_handle, uint32_t segment_index,
+                               float segment_t, OSsd& tgt_data, uint32_t sub_segment_index)>& segment_data_action,
+      float tolerance) const;
 
   void RandomAssignColor();
   void Clear();
@@ -985,7 +989,9 @@ template <typename OSgd, typename OSd, typename OSsd>
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::UniformlySubdivide(
     StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const uint32_t subdivision,
     const std::function<void(StrandHandle src_handle, OSd& tgt_data)>& strand_data_action,
-    const std::function<void(StrandSegmentHandle src_handle, OSsd& tgt_data)>& segment_data_action) const {
+    const std::function<void(float root_distance, StrandSegmentHandle src_handle, uint32_t segment_index,
+                             float segment_t, OSsd& tgt_data, uint32_t sub_segment_index)>& segment_data_action,
+    float tolerance) const {
   target_strand_group.Clear();
   for (int strand_handle = 0; strand_handle < strands_.size(); strand_handle++) {
     const auto& strand = strands_[strand_handle];
@@ -995,22 +1001,35 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::UniformlySubdi
     new_strand.start_thickness = strand.start_thickness;
     new_strand.start_position = strand.start_position;
     strand_data_action(strand_handle, target_strand_group.RefStrandData(new_strand_handle));
-    for (const auto& segment_handle : strand.strand_segment_handles_) {
+    uint32_t sub_segment_index = 0;
+    float root_distance = 0.0f;
+    for (uint32_t segment_index = 0; segment_index < strand.strand_segment_handles_.size(); segment_index++) {
+      const auto& segment_handle = strand.strand_segment_handles_[segment_index];
       glm::vec3 p0, p1, p2, p3;
       float t0, t1, t2, t3;
       glm::vec4 c0, c1, c2, c3;
       GetPositionControlPoints(segment_handle, p0, p1, p2, p3);
       GetThicknessControlPoints(segment_handle, t0, t1, t2, t3);
       GetColorControlPoints(segment_handle, c0, c1, c2, c3);
-      for (uint32_t sub_segment_index = 0; sub_segment_index < subdivision; sub_segment_index++) {
+      for (uint32_t subdivision_index = 0; subdivision_index < subdivision; subdivision_index++) {
         const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
         auto& new_strand_segment = target_strand_group.RefStrandSegment(new_strand_segment_handle);
-        const float t = (sub_segment_index + 1) / static_cast<float>(subdivision);
+        const float t = (subdivision_index + 1) / static_cast<float>(subdivision);
         new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t);
         new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t);
         new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t);
-        segment_data_action(segment_handle, target_strand_group.RefStrandSegmentData(new_strand_segment_handle));
+        float current_root_distance;
+        if (subdivision_index == subdivision - 1 && segment_index == strand.strand_segment_handles_.size() - 1) {
+          current_root_distance = GetStrandArcLength(strand_handle);
+        } else {
+          current_root_distance = root_distance + Strands::CalculateLengthAdaptive(p0, p1, p2, p3, 0.0f, t, tolerance);
+        }
+        segment_data_action(current_root_distance, segment_handle, segment_index, t,
+                            target_strand_group.RefStrandSegmentData(new_strand_segment_handle), sub_segment_index);
+        sub_segment_index++;
       }
+
+      root_distance += Strands::CalculateLengthAdaptive(p0, p1, p2, p3, 0.0f, 1.f, tolerance);
     }
   }
   target_strand_group.CalculateRotations();
@@ -1021,7 +1040,8 @@ template <typename OSgd, typename OSd, typename OSsd>
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
     StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const std::function<float()>& target_segment_length,
     const std::function<void(StrandHandle src_handle, OSd& tgt_data)>& strand_data_action,
-    const std::function<void(StrandSegmentHandle src_handle, OSsd& tgt_data)>& segment_data_action,
+    const std::function<void(float root_distance, StrandSegmentHandle src_handle, uint32_t segment_index,
+                             float segment_t, OSsd& tgt_data, uint32_t sub_segment_index)>& segment_data_action,
     float tolerance) const {
   target_strand_group.Clear();
   for (int strand_handle = 0; strand_handle < strands_.size(); strand_handle++) {
@@ -1033,8 +1053,11 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
     new_strand.start_position = strand.start_position;
     strand_data_action(strand_handle, target_strand_group.RefStrandData(new_strand_handle));
     float t = 0.f;
+    float root_distance = 0.0f;
     float remaining_length = target_segment_length();
-    for (const auto& segment_handle : strand.strand_segment_handles_) {
+    uint32_t sub_segment_index = 0;
+    for (uint32_t segment_index = 0; segment_index < strand.strand_segment_handles_.size(); segment_index++) {
+      const auto& segment_handle = strand.strand_segment_handles_[segment_index];
       glm::vec3 p0, p1, p2, p3;
       float t0, t1, t2, t3;
       glm::vec4 c0, c1, c2, c3;
@@ -1047,12 +1070,16 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
           // Add a new segment.
           t = t_next;
           remaining_length = target_segment_length();
+          root_distance += remaining_length;
           const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
           auto& new_strand_segment = target_strand_group.RefStrandSegment(new_strand_segment_handle);
           new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t);
           new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t);
           new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t);
-          segment_data_action(segment_handle, target_strand_group.RefStrandSegmentData(new_strand_segment_handle));
+
+          segment_data_action(root_distance, segment_handle, segment_index, t,
+                              target_strand_group.RefStrandSegmentData(new_strand_segment_handle), sub_segment_index);
+          sub_segment_index++;
         } else {
           remaining_length -= Strands::CalculateLengthAdaptive(p0, p1, p2, p3, t, 1.f, tolerance);
           t = 0.f;
@@ -1068,7 +1095,8 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
       new_strand_segment.end_position = segment.end_position;
       new_strand_segment.end_thickness = segment.end_thickness;
       new_strand_segment.end_color = segment.end_color;
-      segment_data_action(segment_handle, target_strand_group.RefStrandSegmentData(new_strand_segment_handle));
+      segment_data_action(GetStrandArcLength(strand_handle), segment_handle, strand.strand_segment_handles_.size() - 1,
+                          1.0f, target_strand_group.RefStrandSegmentData(new_strand_segment_handle), sub_segment_index);
     }
   }
   target_strand_group.CalculateRotations();

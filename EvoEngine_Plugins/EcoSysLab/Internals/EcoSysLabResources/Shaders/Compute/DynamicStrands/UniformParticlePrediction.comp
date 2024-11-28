@@ -23,9 +23,7 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint particle_size;
-	float time_step;
-	float inv_time_step;
+	uint uniform_particle_size;
 };
 
 void main(){
@@ -33,24 +31,18 @@ void main(){
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint particle_index = baseID + local_index;
+		uint uniform_particle_index = baseID + local_index;
 
-		if(particle_index >= particle_size) break;
+		if(uniform_particle_index >= uniform_particle_size) break;
+		UniformParticle uniform_particle = uniform_particles[uniform_particle_index];
 
-		Particle particle = particles[particle_index];
-		Segment segment = segments[floatBitsToInt(particle.old_x_segment_handle.w)];
-		//Calculate velocity and apply acceleration.
-		vec3 velocity = vec3(0, 0, 0);
-		if(segment.inv_mass != 0.0f){
-			velocity = inv_time_step * (1.5f * particle.x_node_handle.xyz - 2.0f * particle.old_x_segment_handle.xyz + 0.5f * particle.last_x_strand_handle.xyz);
-			velocity += particle.acceleration_connectivity_strain.xyz * time_step;
-		}
-		velocity *= 1.0 - particle.x0_damping.w;
-		//Shift position values
-		particle.last_x_strand_handle.xyz = particle.old_x_segment_handle.xyz;
-		particle.old_x_segment_handle.xyz = particle.x_node_handle.xyz;
-		//Apply velocity
-		particle.x_node_handle.xyz += time_step * velocity;
-		particles[particle_index] = particle;
+		Segment segment = segments[uniform_particle.segment_handle];
+
+		Particle particle0 = particles[floatBitsToInt(segment.inertia_tensor_particle_0_handle.w)];
+		Particle particle1 = particles[floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w)];
+
+		uniform_particles[uniform_particle_index].position_t.xyz = 
+			mix(particle0.x_node_handle.xyz, particle1.x_node_handle.xyz, uniform_particle.position_t.w);
+
 	}
 }

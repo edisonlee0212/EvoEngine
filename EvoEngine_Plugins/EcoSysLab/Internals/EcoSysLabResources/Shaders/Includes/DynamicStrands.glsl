@@ -7,12 +7,6 @@ struct Strand {
 
   int begin_connection_handle;
   int end_connection_handle;
-
-  int begin_jump_segment_handle;
-  int end_jump_segment_handle;
-
-  int begin_jump_connection_handle;
-  int end_jump_connection_handle;
 };
 
 struct Segment {
@@ -30,8 +24,8 @@ struct Segment {
   vec4 torque_rest_length;
 
   float radius;
-  float shearing_stiffness;
-  float stretching_stiffness;
+  float shearing_alpha;
+  float stretching_alpha;
   float damping;
 
   vec4 inertia_tensor_particle_0_handle;
@@ -43,11 +37,6 @@ struct Segment {
   vec4 stretch_shear_strain_original_inv_mass;
 
   vec4 max_stretch_shear_strain;
-
-  int prev_jump_handle;
-  int next_jump_handle;
-  int padding0;
-  int padding1;
 };
 
 struct Particle {
@@ -64,6 +53,14 @@ struct Particle {
 
 };
 
+struct UniformParticle {
+  vec4 position_t;
+  int segment_handle;
+  int node_index;
+  int segment_index;
+  int padding;
+};
+
 struct Connection {
   int segment0_handle;
   int segment1_handle;
@@ -71,19 +68,14 @@ struct Connection {
   int segment1_particle_handle;
 
   vec4 rest_darboux_vector;
-  float bending_stiffness;
-  float twisting_stiffness;
+  float bending_alpha;
+  float twisting_alpha;
   int prev_handle;
   int next_handle;
 
   vec4 bend_twist_strain_valid;
 
   vec4 max_bend_twist_strain;
-
-  int prev_jump_handle;
-  int next_jump_handle;
-  int padding0;
-  int padding1;
 };
 
 struct DelaunayTetrahedron {
@@ -110,10 +102,14 @@ layout(std430, set = DYNAMIC_STRANDS_SET, binding = 2) buffer PARTICLES_BLOCK {
   Particle particles[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 3) buffer CONNECTIONS_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 3) buffer UNIFORM_PARTICLES_BLOCK {
+  UniformParticle uniform_particles[];
+};
+
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 4) buffer CONNECTIONS_BLOCK {
   Connection connections[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 4) buffer DELAUNAY_TETRAHEDRON_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 5) buffer DELAUNAY_TETRAHEDRON_BLOCK {
   DelaunayTetrahedron delaunay_tetrahedrons[];
 };

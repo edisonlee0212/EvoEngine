@@ -49,9 +49,15 @@ class DynamicStrandsPrediction {
 
   struct ConnectionPredictionPushConstant {
     uint32_t connection_size = 0;
+    uint32_t allow_breaking;
+  };
+
+  struct UniformParticlePredictionPushConstant {
+    uint32_t uniform_particle_size = 0;
   };
 
   inline static std::shared_ptr<ComputePipeline> particle_prediction_pipeline;
+  inline static std::shared_ptr<ComputePipeline> uniform_particle_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> connection_prediction_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -81,6 +87,24 @@ class IDynamicStrandsConstraint {
 };
 
 #pragma region Constraints
+
+class DsGroundPlane final : public IDynamicStrandsConstraint {
+ public:
+  struct GroundPlanePushConstant {
+    uint32_t particle_size;
+    float ground_height;
+    float ground_softness;
+  };
+
+  float ground_height = -0.5f;
+  float ground_softness = 0.95f;
+  inline static std::shared_ptr<ComputePipeline> pipeline{};
+  void Project(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const DynamicStrands& target_dynamic_strands) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  DsGroundPlane();
+};
+
 class DsStiffRod final : public IDynamicStrandsConstraint {
  public:
   DsStiffRod();
@@ -144,6 +168,7 @@ class DsRandomBundle : public IDynamicStrandsConstraint {
  public:
   struct RandomBundleUpdateConstant {
     uint32_t pair_size = 0;
+    uint32_t allow_breaking;
   };
 
   struct RandomBundleConstant {
@@ -151,12 +176,21 @@ class DsRandomBundle : public IDynamicStrandsConstraint {
     float inv_time_step = 0.0f;
   };
 
+  struct RandomBundleApplySegmentsConstant {
+    uint32_t segment_size = 0;
+    float inv_time_step = 0.0f;
+  };
+
+  struct RandomBundleApplyConnectionsConstant {
+    uint32_t connection_size = 0;
+    float inv_time_step = 0.0f;
+  };
   struct SegmentPair {
     int segment0_handle;
     int segment1_handle;
     int valid;
     float max_strain;
-    glm::vec4 stiffness;
+    glm::vec4 alphas;
 
     glm::vec4 segment0_particle0_offset;
     glm::vec4 segment0_particle1_offset;
@@ -190,8 +224,8 @@ class DsRandomBundle : public IDynamicStrandsConstraint {
   inline static std::shared_ptr<ComputePipeline> bundle_update_pipeline{};
 
   inline static std::shared_ptr<ComputePipeline> bundle_offset_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> bundle_apply_pipeline{};
-
+  inline static std::shared_ptr<ComputePipeline> bundle_apply_segments_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> bundle_apply_connections_pipeline{};
   DsRandomBundle();
   int sub_iteration = 5;
   void Project(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -209,12 +243,14 @@ class DsUniformBundle : public IDynamicStrandsConstraint {
  public:
   struct UniformBundleUpdateConstant {
     uint32_t pair_size = 0;
+    uint32_t allow_breaking = true;
     float inv_time_step = 0.0f;
   };
 
   struct UniformBundleConstant {
     uint32_t profile_size = 0;
     float inv_time_step = 0.0f;
+    
   };
   struct SegmentPair {
     int segment0_handle;
@@ -254,6 +290,7 @@ class DsUniformBundle : public IDynamicStrandsConstraint {
   inline static std::shared_ptr<ComputePipeline> uniform_bundle_update_pipeline{};
   DsUniformBundle();
   int sub_iteration = 1;
+  
   void Project(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands) override;
   void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,

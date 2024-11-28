@@ -28,10 +28,6 @@ class SorghumGenerator : public IAsset {
   PlottedDistribution<float> leaf_bending_acceleration;
   PlottedDistribution<float> leaf_bending_smoothness;
 
-  // PlottedDistribution<float> m_leafSaggingBase;
-  // PlottedDistribution<float> m_leafSaggingStrength;
-  // PlottedDistribution<float> m_leafGravitropism;
-
   PlottedDistribution<float> leaf_waviness;
   PlottedDistribution<float> leaf_waviness_frequency;
   PlottedDistribution<float> leaf_length;

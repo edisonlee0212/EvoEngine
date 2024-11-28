@@ -15,13 +15,13 @@ const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * EXT_MESH_SUBGROUP_SIZE;
 layout(local_size_x = WORKGROUP_SIZE) in;
 layout(triangles) out;
 
-#define SEGMENT_VERTICES_SIZE 8
-#define SEGMENT_TRIANGLE_SIZE 12
+#define PARTICLE_VERTICES_SIZE 8
+#define PARTICLE_TRIANGLE_SIZE 12
 
-layout(max_vertices = SEGMENT_VERTICES_SIZE, max_primitives = SEGMENT_TRIANGLE_SIZE) out;
+layout(max_vertices = PARTICLE_VERTICES_SIZE, max_primitives = PARTICLE_TRIANGLE_SIZE) out;
 
-const uint SEGMENT_VERTEX_ITERATIONS    = ((SEGMENT_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-const uint SEGMENT_PRIMITIVE_ITERATIONS = ((SEGMENT_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint PARTICLE_VERTEX_ITERATIONS    = ((PARTICLE_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint PARTICLE_PRIMITIVE_ITERATIONS = ((PARTICLE_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
 layout(location = 0) out MS_V_OUT {
 	vec3 frag_pos;
@@ -70,7 +70,7 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
 	vec4 color1;
 
 	uint camera_index;
-	uint segments_size;
+	uint uniform_particles_size;
 	uint color_mode;
 	uint multiplier;
 };
@@ -78,50 +78,35 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
 taskPayloadSharedEXT Task ts_in;
 
 // gl_WorkGroupID.x runs from [0 .. parentTask.groupCountX - 1]
-uint segment_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
+uint uniform_particle_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
 uint laneID = gl_LocalInvocationID.x;
 
 
 void main(){
-	if(segment_id >= segments_size) return;
+	if(uniform_particle_id >= uniform_particles_size) return;
 
-	SetMeshOutputsEXT(SEGMENT_VERTICES_SIZE, SEGMENT_TRIANGLE_SIZE);
+	SetMeshOutputsEXT(PARTICLE_VERTICES_SIZE, PARTICLE_TRIANGLE_SIZE);
 	
-	Segment segment = segments[segment_id];
-
-	Particle particle0 = particles[floatBitsToInt(segment.inertia_tensor_particle_0_handle.w)];
-	Particle particle1 = particles[floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w)];
-
-	vec3 start_position = particle0.x_node_handle.xyz;
-	vec3 end_position = particle1.x_node_handle.xyz;
-
-	vec3 center_position = (start_position + end_position) * 0.5;
-	float center_thickness = segment.radius * 2.0;
+	UniformParticle uniform_particle = uniform_particles[uniform_particle_id];
+	Segment segment = segments[uniform_particle.segment_handle];
+	vec3 center_position = uniform_particle.position_t.xyz;
+	float center_thickness = segment.radius * 3.0;
+	vec3 uniform_particle_size = vec3(center_thickness, center_thickness, segment.radius * 3.0);
+	vec4 color = color0;
 	
-	//vec4 rotation = segment.q;
-
-	vec3 front = normalize(end_position - start_position);
-	vec4 rotation = quatLookAt(front, vec3(front.y, front.z, front.x));
-
-	mat4 instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, distance(start_position, end_position)));
-	
-	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
-	
-	vec4 color;
-	if(color_mode == 0){
-		color = color0;
-	}else if(color_mode == 1){
+	if(color_mode == 1){
 		color = segment.color;
 	}
-	else if(color_mode == 2){
-		color = mix(color0, color1, clamp(length(segment.stretch_shear_strain_original_inv_mass.xyz) * uintBitsToFloat(multiplier), 0.0, 1.0));
-	}
 	
+	mat4 instance_matrix = translate(center_position) * scale(uniform_particle_size);
+	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
+	
+
 	[[unroll]]
-	for (uint i = 0; i < uint(SEGMENT_VERTEX_ITERATIONS); ++i)
+	for (uint i = 0; i < uint(PARTICLE_VERTEX_ITERATIONS); ++i)
 	{
 		uint vertex_index = laneID + i * WORKGROUP_SIZE;
-		if (vertex_index > SEGMENT_VERTICES_SIZE) break;
+		if (vertex_index > PARTICLE_VERTICES_SIZE) break;
 		vec3 vertex_position = positions[vertex_index];
 
 		ms_v_out[vertex_index].frag_pos = vec4(instance_matrix * vec4(vertex_position, 1.0)).xyz;
@@ -132,10 +117,10 @@ void main(){
 	}
 
 	[[unroll]]
-	for (uint i = 0; i < uint(SEGMENT_PRIMITIVE_ITERATIONS); ++i)
+	for (uint i = 0; i < uint(PARTICLE_PRIMITIVE_ITERATIONS); ++i)
 	{
 		uint triangle_index = laneID + i * WORKGROUP_SIZE;
-		if(triangle_index <= SEGMENT_TRIANGLE_SIZE){
+		if(triangle_index <= PARTICLE_TRIANGLE_SIZE){
 			gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
 		}
 	}

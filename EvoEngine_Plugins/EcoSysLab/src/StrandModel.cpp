@@ -213,7 +213,8 @@ void StrandModel::CalculateProfile(const float max_root_distance, const Skeleton
       if (internode.PeekChildHandles().empty())
         CopyFrontToBackTask(node_handle);
     }
-    internode.data.profile.CalculateBoundaries(true, strand_model_parameters.boundary_point_distance);
+    internode.data.profile.CalculateBoundaries(false, strand_model_parameters.boundary_point_distance);
+    internode.data.profile.CalculateInitialBoundaries(true, strand_model_parameters.boundary_point_distance);
   });
   Jobs::Execute(strand_model_skeleton.RefNode(node_handle).data.job);
 }
@@ -491,6 +492,7 @@ void StrandModel::ApplyProfile(const StrandModelParameters& strand_model_paramet
   for (const auto& [strand_handle, particle_handle] : node.data.particle_map) {
     const auto& particle = node.data.profile.PeekParticle(particle_handle);
     auto& strand_segment = strand_model_skeleton.data.strand_group.RefStrandSegment(particle.strand_segment_handle);
+    auto& strand_segment_data = strand_model_skeleton.data.strand_group.RefStrandSegmentData(particle.strand_segment_handle);
     strand_segment.end_thickness = node.data.strand_radius;
 
     glm::vec3 start_position;
@@ -525,6 +527,10 @@ void StrandModel::ApplyProfile(const StrandModelParameters& strand_model_paramet
                                        strand_model_parameters.cladoptosis_range))) *
           .5f;
     }
+
+    strand_segment_data.initial_distance_to_boundary = particle.GetInitialDistanceToBoundary();
+   
+
     strand_segment.end_color = particle.IsBoundary() ? parameters.boundary_point_color : parameters.content_point_color;
     strand_model_skeleton.data.strand_group.RefStrandSegmentData(particle.strand_segment_handle).is_boundary =
         particle.IsBoundary();
