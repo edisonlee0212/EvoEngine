@@ -1053,8 +1053,8 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
     new_strand.start_position = strand.start_position;
     strand_data_action(strand_handle, target_strand_group.RefStrandData(new_strand_handle));
     float t = 0.f;
-    float root_distance = 0.0f;
     float remaining_length = target_segment_length();
+    float root_distance = remaining_length;
     uint32_t sub_segment_index = 0;
     for (uint32_t segment_index = 0; segment_index < strand.strand_segment_handles_.size(); segment_index++) {
       const auto& segment_handle = strand.strand_segment_handles_[segment_index];
@@ -1068,18 +1068,19 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
         if (const float t_next = Strands::FindTAdaptive(p0, p1, p2, p3, t, remaining_length, tolerance);
             t_next != 1.f) {
           // Add a new segment.
+          const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
+          auto& new_strand_segment = target_strand_group.RefStrandSegment(new_strand_segment_handle);
+          new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t_next);
+          new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t_next);
+          new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t_next);
+
+          segment_data_action(root_distance, segment_handle, segment_index, t_next,
+                              target_strand_group.RefStrandSegmentData(new_strand_segment_handle), sub_segment_index);
+          sub_segment_index++;
+
           t = t_next;
           remaining_length = target_segment_length();
           root_distance += remaining_length;
-          const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
-          auto& new_strand_segment = target_strand_group.RefStrandSegment(new_strand_segment_handle);
-          new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t);
-          new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t);
-          new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t);
-
-          segment_data_action(root_distance, segment_handle, segment_index, t,
-                              target_strand_group.RefStrandSegmentData(new_strand_segment_handle), sub_segment_index);
-          sub_segment_index++;
         } else {
           remaining_length -= Strands::CalculateLengthAdaptive(p0, p1, p2, p3, t, 1.f, tolerance);
           t = 0.f;

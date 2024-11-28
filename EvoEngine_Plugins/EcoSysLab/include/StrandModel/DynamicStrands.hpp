@@ -218,7 +218,7 @@ class DynamicStrands {
     int segment_handle;
     int node_index;
     int segment_index;
-    int padding;
+    float distance_to_boundary;
   };
 
   struct GpuDelaunayTetrahedron {

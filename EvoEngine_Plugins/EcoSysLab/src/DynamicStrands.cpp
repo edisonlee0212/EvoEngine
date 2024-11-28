@@ -258,7 +258,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
   uniform_particles.resize(uniformly_subdivided_strand_group.PeekStrandSegments().size() + target_strands.size());
   std::vector<int> uniform_particle_offsets(target_strands.size());
-  uniform_particle_offsets[0] = 0;
+  if (!uniform_particle_offsets.empty())
+    uniform_particle_offsets[0] = 0;
   for (uint32_t strand_index = 1; strand_index < target_strands.size(); strand_index++) {
     uniform_particle_offsets[strand_index] =
         uniform_particle_offsets[strand_index - 1] +
@@ -269,7 +270,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     auto& uniformly_subdivided_strand = uniformly_subdivided_strand_group.PeekStrand(strand_index);
     const auto uniform_particle_offset = uniform_particle_offsets[strand_index];
 
-    auto& first_uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(0);
+    auto& first_uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(
+        uniformly_subdivided_strand.PeekStrandSegmentHandles()[0]);
     auto& first_uniform_particle = uniform_particles[uniform_particle_offset];
     int random_segment_walker_index = 0;
     first_uniform_particle.segment_handle =
@@ -282,7 +284,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     for (int uniform_segment_index = 0;
          uniform_segment_index < uniformly_subdivided_strand.PeekStrandSegmentHandles().size();
          uniform_segment_index++) {
-      const auto& uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(uniform_segment_index);
+      const auto& uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(
+          uniformly_subdivided_strand.PeekStrandSegmentHandles()[uniform_segment_index]);
       auto& uniform_particle = uniform_particles[uniform_particle_offset + 1 + uniform_segment_index];
       uniform_particle.node_index = uniform_segment_data.node_handle;
       uniform_particle.segment_index = uniform_segment_index + 1;
@@ -299,7 +302,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
             uniform_particle.t = (uniform_segment_data.root_distance - previous_root_distance) /
                                  (random_segment_data.root_distance - previous_root_distance);
           }
-          
+          uniform_particle.distance_to_boundary = uniform_segment_data.initial_distance_to_boundary;
           found = true;
           break;
         }
