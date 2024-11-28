@@ -413,6 +413,28 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
             vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
           });
     }
+
+    if (visualization_parameters.render_uniform_particles) {
+      uniform_particle_render_pipeline->states.ResetAllStates(1);
+      uniform_particle_render_pipeline->states.view_port = viewport;
+      uniform_particle_render_pipeline->states.scissor = scissor;
+      uniform_particle_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+      uniform_particle_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
+
+      uniform_particle_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+      target_camera->GetRenderTexture()->Render(
+          vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
+            uniform_particle_render_pipeline->Bind(vk_command_buffer);
+            uniform_particle_render_pipeline->BindDescriptorSet(
+                vk_command_buffer, 0, render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+            uniform_particle_render_pipeline->BindDescriptorSet(
+                vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+            uniform_particle_render_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
+            const uint32_t count = Platform::DivUp(uniform_particles.size(), task_work_group_invocations);
+            vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+          });
+    }
+
     if (visualization_parameters.render_particles) {
       particle_render_pipeline->states.ResetAllStates(1);
       particle_render_pipeline->states.view_port = viewport;
@@ -433,25 +455,6 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
             vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
           });
     }
-    if (visualization_parameters.render_uniform_particles) {
-      uniform_particle_render_pipeline->states.ResetAllStates(1);
-      uniform_particle_render_pipeline->states.view_port = viewport;
-      uniform_particle_render_pipeline->states.scissor = scissor;
-      uniform_particle_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
-      uniform_particle_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
-
-      uniform_particle_render_pipeline->states.ApplyAllStates(vk_command_buffer);
-      target_camera->GetRenderTexture()->Render(
-          vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
-            uniform_particle_render_pipeline->Bind(vk_command_buffer);
-            uniform_particle_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                        render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-            uniform_particle_render_pipeline->BindDescriptorSet(
-                vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-            uniform_particle_render_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
-            const uint32_t count = Platform::DivUp(uniform_particles.size(), task_work_group_invocations);
-            vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
-          });
-    }
+    
   });
 }
