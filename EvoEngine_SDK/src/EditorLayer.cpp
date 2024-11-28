@@ -2,11 +2,11 @@
 #include "Application.hpp"
 #include "Cubemap.hpp"
 #include "EnvironmentalMap.hpp"
-#include "Platform.hpp"
 #include "ILayer.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
+#include "Platform.hpp"
 #include "Prefab.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
@@ -671,7 +671,7 @@ void EditorLayer::RenderGui() {
       ImGui::UpdatePlatformWindows();
       ImGui::RenderPlatformWindowsDefault();
       glfwMakeContextCurrent(backup_current_context);
-    } 
+    }
 
     vkCmdEndRendering(vk_command_buffer);
     Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
@@ -1454,7 +1454,8 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
         instance_index_with_one_added > 0) {
       const auto render_layer = Application::GetLayer<RenderLayer>();
       const auto scene = GetScene();
-      const auto handle = render_layer->render_instances_list[Platform::GetCurrentFrameIndex()]->GetInstanceHandle(static_cast<uint32_t>(instance_index_with_one_added - 1));
+      const auto handle = render_layer->render_instances_list[Platform::GetCurrentFrameIndex()]->GetInstanceHandle(
+          static_cast<uint32_t>(instance_index_with_one_added - 1));
       if (handle != 0)
         ret_val = scene->GetEntity(handle);
     }

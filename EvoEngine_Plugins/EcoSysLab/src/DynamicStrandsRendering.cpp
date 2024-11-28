@@ -1,7 +1,7 @@
 
 #include "Delaunay.hpp"
-#include "DynamicStrandsOperators.hpp"
-#include "DynamicStrandsPhysics.hpp"
+#include "DsConstraints.hpp"
+#include "DsOperators.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "Shader.hpp"
 #include "Tree.hpp"

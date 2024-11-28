@@ -1,0 +1,91 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+#include "Math.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	vec4 obb_rotation;
+	vec4 obb_center;
+	vec4 obb_scale;
+	float softness;
+	uint segment_size;
+};
+
+vec3 process_point(in vec3 p){
+	vec3 projected_p = p - obb_center.xyz;
+	projected_p = rotate_vec3(conjugate(obb_rotation), projected_p);
+	float abs_x = abs(projected_p.x);
+	float abs_y = abs(projected_p.y);
+	float abs_z = abs(projected_p.z);
+
+	if(abs_x > obb_scale.x || abs_y > obb_scale.y || abs_z > obb_scale.z) return p;
+	float factor_x = obb_scale.x - abs_x;
+	float factor_y = obb_scale.y - abs_y;
+	float factor_z = obb_scale.z - abs_z;
+	if(factor_x <= factor_y && factor_x <= factor_z){
+		if(projected_p.x < 0.f){
+			projected_p.x -= softness * (obb_scale.x - projected_p.x);
+		}else{
+			projected_p.x += softness * (obb_scale.x - projected_p.x);
+		}
+	}else if(factor_y <= factor_z){
+		if(projected_p.y < 0.f){
+			projected_p.y -= softness * (obb_scale.y - projected_p.y);
+		}else{
+			projected_p.y += softness * (obb_scale.y - projected_p.y);
+		}
+	}else{
+		if(projected_p.z < 0.f){
+			projected_p.z -= softness * (obb_scale.z - projected_p.z);
+		}else{
+			projected_p.z += softness * (obb_scale.z - projected_p.z);
+		}
+	}
+	//return projected_p + obb_center.xyz;
+	return rotate_vec3(obb_rotation, projected_p) + obb_center.xyz;
+}
+
+void main(){
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint segment_index = baseID + local_index;
+
+		if(segment_index >= segment_size) break;
+
+		Segment segment = segments[segment_index];
+		int particle0_handle = floatBitsToInt(segment.inertia_tensor_particle_0_handle.w);
+		int particle1_handle = floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w);
+		Particle particle0 = particles[particle0_handle];
+		Particle particle1 = particles[particle1_handle];
+
+		vec3 p0 = particle0.x_node_handle.xyz;
+		vec3 p1 = particle1.x_node_handle.xyz;
+
+		p0 = process_point(p0);
+		p1 = process_point(p1);
+
+		particles[particle0_handle].x_node_handle.xyz = p0;
+		particles[particle1_handle].x_node_handle.xyz = p1;
+	}
+}

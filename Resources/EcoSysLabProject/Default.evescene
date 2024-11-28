@@ -88,12 +88,75 @@ entity_metadata_list:
     pc:
       - tn: DynamicTreeStrands
         e: true
+  - n: Stick
+    h: 5594278585294077197
+    e: true
+    s: false
+    r: 5594278585294077197
+    pc:
+      - tn: MeshRenderer
+        e: true
+        cast_shadow: true
+        mesh:
+          asset_handle_: 72
+          asset_type_name_: Mesh
+        material:
+          asset_handle_: 9351133328134294989
+          asset_type_name_: Material
+      - tn: DsBoxCollider
+        e: true
+        mesh_renderer_ref:
+          entity_handle_: 5594278585294077197
+          private_component_type_name_: MeshRenderer
 systems_:
   []
+LocalAssets:
+  - type_name: Material
+    handle: 9351133328134294989
+    albedo_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    normal_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    metallic_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    roughness_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    ao_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    draw_settings:
+      cull_mode: 0
+      line_width: 1
+      polygon_mode: 0
+      blending: false
+      blending_src_factor: 6
+      blending_dst_factor: 7
+    material_properties:
+      albedo_color: [1, 1, 1]
+      subsurface_color: [1, 1, 1]
+      subsurface_factor: 0
+      subsurface_radius: [1, 0.200000003, 0.100000001]
+      metallic: 0.100000001
+      specular: 0.5
+      specular_tint: 0
+      roughness: 0.300000012
+      sheen: 0
+      sheen_tint: 0.5
+      clear_coat: 0
+      clear_coat_roughness: 0.0299999993
+      ior: 1.45000005
+      transmission: 0
+      transmission_roughness: 0
+      emission: 0
+    vertex_color_only: false
 data_component_storage_list:
   - entity_size: 130
     chunk_capacity: 126
-    entity_alive_count: 6
+    entity_alive_count: 7
     data_component_types:
       - type_name: Transform
         type_size: 64
@@ -134,4 +197,9 @@ data_component_storage_list:
         dc:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAA="
+      - h: 5594278585294077197
+        dc:
+          - d: !!binary "zcxMPgAAAAAAAAAAAAAAAAAAAADNzEw+AAAAAAAAAAAAAAAAAAAAAAAAQEAAAAAAAACAQAAAAD8AAAAAAACAPw=="
+          - d: !!binary "zcxMPgAAAAAAAAAAAAAAAAAAAADNzEw+AAAAAAAAAAAAAAAAAAAAAAAAQEAAAAAAAACAQAAAAD8AAAAAAACAPw=="
           - d: !!binary "AAA="

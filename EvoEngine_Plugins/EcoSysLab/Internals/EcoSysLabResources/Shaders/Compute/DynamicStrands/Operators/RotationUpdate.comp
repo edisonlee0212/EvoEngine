@@ -52,10 +52,9 @@ void main(){
 		uint segment_index = rotation_update.index;
 
 		vec4 new_rotation = rotation_update.new_rotation;
-		//vec4 old_rotation = segments[segment_index].q;
-		//vec4 delta_rotation = new_rotation - old_rotation;
+
 		Segment segment = segments[segment_index];
-		segment.q = segment.last_q = segment.old_q = new_rotation;
+		segment.q = segment.last_q = new_rotation;
 		segment.torque_rest_length.xyz = vec3(0, 0, 0);
 		segment.inv_mass = 0.0;
 

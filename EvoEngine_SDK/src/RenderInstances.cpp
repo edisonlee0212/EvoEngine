@@ -4,6 +4,8 @@
 using namespace evo_engine;
 
 bool MeshRenderInstance::operator!=(const MeshRenderInstance& other) const {
+  if (entity_selected != other.entity_selected)
+    return true;
   if (instance_index != other.instance_index)
     return true;
   if (command_type != other.command_type)
@@ -32,6 +34,8 @@ bool MeshRenderInstance::operator!=(const MeshRenderInstance& other) const {
 }
 
 bool SkinnedMeshRenderInstance::operator!=(const SkinnedMeshRenderInstance& other) const {
+  if (entity_selected != other.entity_selected)
+    return true;
   if (instance_index != other.instance_index)
     return true;
   if (command_type != other.command_type)
@@ -64,6 +68,8 @@ bool SkinnedMeshRenderInstance::operator!=(const SkinnedMeshRenderInstance& othe
 }
 
 bool InstancedRenderInstance::operator!=(const InstancedRenderInstance& other) const {
+  if (entity_selected != other.entity_selected)
+    return true;
   if (instance_index != other.instance_index)
     return true;
   if (command_type != other.command_type)
@@ -96,6 +102,8 @@ bool InstancedRenderInstance::operator!=(const InstancedRenderInstance& other) c
 }
 
 bool StrandsRenderInstance::operator!=(const StrandsRenderInstance& other) const {
+  if (entity_selected != other.entity_selected)
+    return true;
   if (instance_index != other.instance_index)
     return true;
   if (command_type != other.command_type)
@@ -495,7 +503,7 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
   render_instance.material_version = material->GetVersion();
 
   render_instance.instance_index = instance_index;
-
+  render_instance.entity_selected = instance_info_block.entity_selected == 1;
   render_instance.line_width = material->draw_settings.line_width;
   render_instance.cull_mode = material->draw_settings.cull_mode;
   render_instance.polygon_mode = material->draw_settings.polygon_mode;
@@ -560,7 +568,7 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
   render_instance.line_width = material->draw_settings.line_width;
   render_instance.cull_mode = material->draw_settings.cull_mode;
   render_instance.polygon_mode = material->draw_settings.polygon_mode;
-
+  render_instance.entity_selected = instance_info_block.entity_selected == 1;
   if (material->draw_settings.blending) {
     transparent_render_instances.render_commands.push_back(render_instance);
   } else {
@@ -637,7 +645,7 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner,
   render_instance.skinned_mesh_version = skinned_mesh->GetVersion();
   render_instance.material_version = material->GetVersion();
   render_instance.bone_matrices_version = skinned_mesh_renderer->bone_matrices->GetVersion();
-
+  render_instance.entity_selected = instance_info_block.entity_selected == 1;
   render_instance.line_width = material->draw_settings.line_width;
   render_instance.cull_mode = material->draw_settings.cull_mode;
   render_instance.polygon_mode = material->draw_settings.polygon_mode;
@@ -700,7 +708,7 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
   render_instance.particle_info_list_version = particle_info_list->GetVersion();
 
   render_instance.instance_index = instance_index;
-
+  render_instance.entity_selected = instance_info_block.entity_selected == 1;
   render_instance.line_width = material->draw_settings.line_width;
   render_instance.cull_mode = material->draw_settings.cull_mode;
   render_instance.polygon_mode = material->draw_settings.polygon_mode;

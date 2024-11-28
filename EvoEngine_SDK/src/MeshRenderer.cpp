@@ -11,12 +11,12 @@ void MeshRenderer::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer,
   const auto scene = GetScene();
   const auto transform = scene->GetDataComponent<GlobalTransform>(GetOwner()).value;
   glm::vec3 size = mesh.Get<Mesh>()->GetBound().Size() * 2.0f;
-  if (size.x < 0.01f)
-    size.x = 0.01f;
-  if (size.z < 0.01f)
-    size.z = 0.01f;
-  if (size.y < 0.01f)
-    size.y = 0.01f;
+  if (size.x < 0.001f)
+    size.x = 0.001f;
+  if (size.z < 0.001f)
+    size.z = 0.001f;
+  if (size.y < 0.001f)
+    size.y = 0.001f;
   GizmoSettings gizmo_settings;
   gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
   gizmo_settings.draw_settings.blending = true;

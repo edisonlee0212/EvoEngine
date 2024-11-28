@@ -1,4 +1,4 @@
-#include "DynamicStrandsOperators.hpp"
+#include "DsOperators.hpp"
 #include "Shader.hpp"
 using namespace eco_sys_lab_plugin;
 

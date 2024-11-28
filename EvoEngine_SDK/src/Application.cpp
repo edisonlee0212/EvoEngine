@@ -282,14 +282,16 @@ void Application::LateUpdateInternal() {
     });
 
   } else {
-    if (const auto editor_layer = GetLayer<EditorLayer>()) {
+    const auto editor_layer = GetLayer<EditorLayer>();
+    const auto render_layer = GetLayer<RenderLayer>();
+    if (editor_layer) {
       for (const auto& layer : application.layers_)
         layer->OnInspect(editor_layer);
     }
     application.application_execution_status_ = ApplicationExecutionStatus::LateUpdate;
     for (const auto& i : application.external_late_update_functions_)
       i();
-    if (const auto render_layer = GetLayer<RenderLayer>()) {
+    if (render_layer) {
       render_layer->RenderAllCameras();
     }
     if (application.application_status_ == ApplicationStatus::Playing ||
@@ -299,10 +301,13 @@ void Application::LateUpdateInternal() {
     for (auto i = application.layers_.rbegin(); i != application.layers_.rend(); ++i) {
       (*i)->LateUpdate();
     }
-    if (const auto editor_layer = GetLayer<EditorLayer>()) {
+    if (render_layer) {
+      render_layer->RenderGizmos();
+    }
+    if (editor_layer) {
       editor_layer->RenderGui();
     }
-    if (const auto render_layer = GetLayer<RenderLayer>()) {
+    if (render_layer) {
       render_layer->ClearAllCameras();
     }
     if (application.application_status_ == ApplicationStatus::Step)

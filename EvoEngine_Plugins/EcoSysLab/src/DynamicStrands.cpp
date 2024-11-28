@@ -1,6 +1,7 @@
 #include "DynamicStrands.hpp"
 
-#include "DynamicStrandsPhysics.hpp"
+#include "DsColliders.hpp"
+#include "DsConstraints.hpp"
 #include "Shader.hpp"
 #include "glm/gtc/matrix_access.hpp"
 #include "glm/gtx/quaternion.hpp"
@@ -27,6 +28,36 @@ inline glm::vec3 cgal_to_glm(const CGAL::Point_3<CGAL::Epick>& p) {
   return {p.x(), p.y(), p.z()};
 }
 #endif
+
+void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
+                             const std::function<void()>& operators_action) const {
+  if (pre_step)
+    pre_step->Execute(physics_parameters, *this);
+  operators_action();
+  for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
+    if (prediction)
+      prediction->Execute(physics_parameters, *this);
+    for (const auto& c : constraints) {
+      if (c->enabled)
+        for (int iteration_i = 0; iteration_i < physics_parameters.constraint_iteration; iteration_i++) {
+          c->ProjectPositionConstraint(physics_parameters, *this);
+        }
+    }
+
+    const auto scene = Application::GetActiveScene();
+    if (const auto *collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>()) {
+      for (const auto& entity : *collider_entities) {
+        scene->GetOrSetPrivateComponent<DsBoxCollider>(entity).lock()->ProjectPositionConstraint(physics_parameters,
+                                                                                                 *this);
+      }
+    }
+
+    if (velocity_update)
+      velocity_update->Execute(physics_parameters, *this);
+  }
+  // Handle collision
+  // Handle velocity constraints (Frictions, etc.)
+}
 
 DynamicStrands::DynamicStrands() {
   if (!strands_layout) {
@@ -64,8 +95,10 @@ DynamicStrands::DynamicStrands() {
     i = std::make_shared<DescriptorSet>(strands_layout);
   }
 
-  pre_step = std::make_shared<DynamicStrandsPreStep>();
-  prediction = std::make_shared<DynamicStrandsPrediction>();
+  pre_step = std::make_shared<DsPreStep>();
+  prediction = std::make_shared<DsPrediction>();
+
+  velocity_update = std::make_shared<DsVelocityUpdate>();
 }
 
 bool DynamicStrands::WaitForUpload() const {
@@ -97,7 +130,7 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
 
   if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
     changed = true;
-  if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.01f, 0.01f, 1.0f))
+  if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
     changed = true;
 
   if (ImGui::DragFloat("Neighbor range", &neighbor_range, 0.01f, 0.01f, 10.0f))
@@ -140,6 +173,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       strand.end_segment_handle = -1;
     }
   });
+
   segments.resize(target_strand_segments.size());
   Jobs::RunParallelFor(target_strand_segments.size(), [&](const size_t i) {
     auto& segment = segments[i];
@@ -164,7 +198,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     }
     segment.radius = target_strand_segment.end_thickness * .5f;
     segment.damping = initialize_parameters.angular_velocity_damping;
-    segment.q0 = segment.q = segment.last_q = segment.old_q =
+    segment.q0 = segment.q = segment.last_q =
         initialize_parameters.root_transform.GetRotation() * target_strand_segment.rotation;
     segment.torque = glm::vec3(0.f);
     // 0.6046 = area radio of the circle within its bounding equilateral triangle.
@@ -194,12 +228,12 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.particle0_handle = static_cast<int>(segment_handle) * 2;
     segment.particle1_handle = static_cast<int>(segment_handle) * 2 + 1;
     particle0.damping = particle1.damping = initialize_parameters.velocity_damping;
-    particle0.x0 = particle0.x = particle0.last_x = particle0.old_x =
+    particle0.x0 = particle0.x = particle0.last_x =
         glm::vec4(initialize_parameters.root_transform.TransformPoint(
                       strand_group.GetStrandSegmentStart(static_cast<int>(segment_handle))),
                   0.0);
 
-    particle1.x0 = particle1.x = particle1.last_x = particle1.old_x =
+    particle1.x0 = particle1.x = particle1.last_x =
         glm::vec4(initialize_parameters.root_transform.TransformPoint(strand_segment.end_position), 0.0);
 
     particle0.acceleration = particle1.acceleration = glm::vec3(0.0);

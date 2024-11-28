@@ -71,16 +71,13 @@ void main(){
 		update_inertia_w(segment);
 
 		//Calculate angular velocity and apply torque.
-		vec3 angular_velocity = vec3(0, 0, 0);
-		if(segment.inv_inertia_tensor_particle_1_handle.x != 0.0 || segment.inv_inertia_tensor_particle_1_handle.y != 0.0 || segment.inv_inertia_tensor_particle_1_handle.z != 0.0){
-			vec4 rot = quat_mul(segment.q, conjugate(segment.old_q));
-			angular_velocity = rot.xyz * 2.0 * inv_time_step;
+		vec3 angular_velocity = segment.angular_v.xyz;
+		if(segment.inv_mass != 0.0f){
+			angular_velocity *= 1.0f - segment.damping * length(angular_velocity);
 			angular_velocity += time_step * mat3(segment.inv_inertia_w) * (segment.torque_rest_length.xyz - cross(angular_velocity, mat3(segment.inertia_w) * angular_velocity));
 		}
-		angular_velocity *= 1.0 - segment.damping;
 		//Shift rotation values
-		segment.last_q = segment.old_q;
-		segment.old_q = segment.q;
+		segment.last_q = segment.q;
 		//Apply angular velocity
 		vec4 angular_velocity_q = vec4(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0.0);
 

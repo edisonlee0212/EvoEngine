@@ -6,9 +6,7 @@
 #extension GL_EXT_control_flow_attributes : require
 
 #define DYNAMIC_STRANDS_SET 0
-#include "DynamicStrands.glsl"
-#include "Math.glsl"
-
+#include "DynamicStrandsPhysics.glsl"
 const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
 
 const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
@@ -23,22 +21,22 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	vec4 acceleration_particle_size;
-	float ground_height;
+	uint segment_size;
+	float inv_time_step;
+	float over_relaxation;
 };
 
+#include "RandomBundle.glsl"
+
+
 void main(){
+
 	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint particle_index = baseID + local_index;
-
-		if(particle_index >= floatBitsToUint(acceleration_particle_size.w)) break;
-		vec3 acceleration = acceleration_particle_size.xyz;
-		Particle particle = particles[particle_index];
-		Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
-		if(segment.inv_mass == 0.0 || particle.x_node_handle.y < ground_height) acceleration = vec3(0.0);
-		particles[particle_index].acceleration_connectivity_strain.xyz += acceleration;
+		uint segment_index = baseID + local_index;
+		if(segment_index >= segment_size) break;
+		BundleSegmentBendTwist(segment_index, inv_time_step, over_relaxation);
 	}
 }

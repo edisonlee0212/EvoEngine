@@ -1,32 +1,14 @@
-#include "DynamicStrandsPhysics.hpp"
+#include "DsConstraints.hpp"
 #include "Shader.hpp"
 #include "VoxelGrid.hpp"
 using namespace eco_sys_lab_plugin;
 
-void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& operators_action,
-                             const std::function<void()>& pre_constraint_action) const {
-  if (pre_step)
-    pre_step->Execute(physics_parameters, *this);
-  operators_action();
-  for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
-    if (prediction)
-      prediction->Execute(physics_parameters, *this);
-    pre_constraint_action();
-    for (const auto& c : constraints) {
-      if (c->enabled)
-        for (int iteration_i = 0; iteration_i < physics_parameters.constraint_iteration; iteration_i++) {
-          c->Project(physics_parameters, *this);
-        }
-    }
-  }
-}
-
-DynamicStrandsPreStep::DynamicStrandsPreStep() {
+DsPreStep::DsPreStep() {
   if (!particle_pre_step_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/ParticlePreStep.comp");
+                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/PreStep/Particle.comp");
 
     particle_pre_step_pipeline = std::make_shared<ComputePipeline>();
     particle_pre_step_pipeline->compute_shader = shader;
@@ -43,7 +25,7 @@ DynamicStrandsPreStep::DynamicStrandsPreStep() {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/SegmentPreStep.comp");
+                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/PreStep/Segment.comp");
     segment_pre_step_pipeline = std::make_shared<ComputePipeline>();
     segment_pre_step_pipeline->compute_shader = shader;
     segment_pre_step_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -61,7 +43,7 @@ DynamicStrandsPreStep::DynamicStrandsPreStep() {
     shader = std::make_shared<Shader>();
     shader->Set(
         ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/ConnectionPreStep.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/PreStep/Connection.comp");
     connection_pre_step_pipeline = std::make_shared<ComputePipeline>();
     connection_pre_step_pipeline->compute_shader = shader;
     connection_pre_step_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -75,8 +57,8 @@ DynamicStrandsPreStep::DynamicStrandsPreStep() {
   }
 }
 
-void DynamicStrandsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-                                    const DynamicStrands& target_dynamic_strands) {
+void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+                        const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   ParticlePreStepPushConstant particle_push_constant;
   particle_push_constant.particle_size = target_dynamic_strands.particles.size();
@@ -128,13 +110,13 @@ void DynamicStrandsPreStep::Execute(const DynamicStrands::PhysicsParameters& phy
   });
 }
 
-DynamicStrandsPrediction::DynamicStrandsPrediction() {
+DsPrediction::DsPrediction() {
   if (!particle_prediction_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->Set(
         ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/ParticlePrediction.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Prediction/Particle.comp");
 
     particle_prediction_pipeline = std::make_shared<ComputePipeline>();
     particle_prediction_pipeline->compute_shader = shader;
@@ -152,7 +134,7 @@ DynamicStrandsPrediction::DynamicStrandsPrediction() {
     shader = std::make_shared<Shader>();
     shader->Set(
         ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/SegmentPrediction.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Prediction/Segment.comp");
     segment_prediction_pipeline = std::make_shared<ComputePipeline>();
     segment_prediction_pipeline->compute_shader = shader;
     segment_prediction_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -168,9 +150,9 @@ DynamicStrandsPrediction::DynamicStrandsPrediction() {
   if (!uniform_particle_prediction_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/UniformParticlePrediction.comp");
+    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                std::filesystem::path("./EcoSysLabResources") /
+                    "Shaders/Compute/DynamicStrands/Prediction/UniformParticle.comp");
 
     uniform_particle_prediction_pipeline = std::make_shared<ComputePipeline>();
     uniform_particle_prediction_pipeline->compute_shader = shader;
@@ -203,8 +185,8 @@ DynamicStrandsPrediction::DynamicStrandsPrediction() {
   }
 }
 
-void DynamicStrandsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-                                       const DynamicStrands& target_dynamic_strands) {
+void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+                           const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   ParticlePredictionPushConstant particle_push_constant;
   particle_push_constant.particle_size = target_dynamic_strands.particles.size();
@@ -215,10 +197,10 @@ void DynamicStrandsPrediction::Execute(const DynamicStrands::PhysicsParameters& 
 
   UniformParticlePredictionPushConstant uniform_particle_push_constant;
   uniform_particle_push_constant.uniform_particle_size = target_dynamic_strands.uniform_particles.size();
-  
+
   SegmentPredictionPushConstant segment_push_constant;
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
-  segment_push_constant.time_step = physics_parameters.time_step;
+  segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
 
   ConnectionPredictionPushConstant connection_push_constant;
@@ -261,18 +243,96 @@ void DynamicStrandsPrediction::Execute(const DynamicStrands::PhysicsParameters& 
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     uniform_particle_prediction_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(uniform_particle_push_constant.uniform_particle_size, task_work_group_invocations),
+    vkCmdDispatch(vk_command_buffer,
+                  Platform::DivUp(uniform_particle_push_constant.uniform_particle_size, task_work_group_invocations), 1,
+                  1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+}
+
+DsVelocityUpdate::DsVelocityUpdate() {
+  if (!particle_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->Set(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/VelocityUpdate/Particle.comp");
+
+    particle_pipeline = std::make_shared<ComputePipeline>();
+    particle_pipeline->compute_shader = shader;
+    particle_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = particle_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(ParticlePushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    particle_pipeline->Initialize();
+  }
+  if (!segment_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->Set(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/VelocityUpdate/Segment.comp");
+    segment_pipeline = std::make_shared<ComputePipeline>();
+    segment_pipeline->compute_shader = shader;
+    segment_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = segment_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    segment_pipeline->Initialize();
+  }
+}
+
+void DsVelocityUpdate::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+                               const DynamicStrands& target_dynamic_strands) {
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  ParticlePushConstant particle_push_constant;
+  particle_push_constant.particle_size = target_dynamic_strands.particles.size();
+  particle_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
+  particle_push_constant.inv_time_step = 1.f / particle_push_constant.time_step;
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+
+  SegmentPushConstant segment_push_constant;
+  segment_push_constant.segment_size = target_dynamic_strands.segments.size();
+  segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
+  segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
+
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    particle_pipeline->Bind(vk_command_buffer);
+    particle_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    particle_pipeline->PushConstant(vk_command_buffer, 0, particle_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(particle_push_constant.particle_size, task_work_group_invocations),
+                  1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    segment_pipeline->Bind(vk_command_buffer);
+    segment_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    segment_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, task_work_group_invocations),
                   1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
 
-void DsGroundPlane::Project(const DynamicStrands::PhysicsParameters& physics_parameters,
-                            const DynamicStrands& target_dynamic_strands) {
+void DsGroundPlane::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                              const DynamicStrands& target_dynamic_strands) {
   GroundPlanePushConstant push_constant;
   push_constant.ground_height = ground_height;
   push_constant.particle_size = target_dynamic_strands.particles.size();
   push_constant.ground_softness = ground_softness;
+  push_constant.ground_friction = ground_friction;
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -297,6 +357,8 @@ bool DsGroundPlane::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) 
     if (ImGui::DragFloat("Ground height", &ground_height, 0.01f, -100.0f, 100.0f))
       changed = true;
     if (ImGui::DragFloat("Ground softness", &ground_softness, 0.01f, 0.f, 1.f))
+      changed = true;
+    if (ImGui::DragFloat("Ground friction", &ground_friction, 0.01f, 0.f, 1.f))
       changed = true;
     ImGui::TreePop();
   }
@@ -531,17 +593,15 @@ void DsStiffRod::InitializeData(const DynamicStrands::InitializeParameters& init
   }
 }
 
-void DsStiffRod::Project(const DynamicStrands::PhysicsParameters& physics_parameters,
-                         const DynamicStrands& target_dynamic_strands) {
+void DsStiffRod::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                           const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   StretchShearConstraintConstant stretch_shear_constraint_constant;
   stretch_shear_constraint_constant.strand_size = per_strand_data_list.size();
-  stretch_shear_constraint_constant.inv_time_step =
-      1.f / (physics_parameters.time_step / physics_parameters.sub_step);
+  stretch_shear_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   BendTwistConstraintConstant bend_twist_constraint_constant;
   bend_twist_constraint_constant.strand_size = per_strand_data_list.size();
-  bend_twist_constraint_constant.inv_time_step =
-      1.f / (physics_parameters.time_step / physics_parameters.sub_step);
+  bend_twist_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -696,11 +756,47 @@ DsRandomBundle::DsRandomBundle() {
     bundle_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
     bundle_update_pipeline->descriptor_set_layouts.emplace_back(layout);
 
-    auto& stretch_shear_push_constant_range = bundle_update_pipeline->push_constant_ranges.emplace_back();
-    stretch_shear_push_constant_range.size = sizeof(RandomBundleUpdateConstant);
-    stretch_shear_push_constant_range.offset = 0;
-    stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    auto& push_constant_range = bundle_update_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RandomBundleUpdateConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     bundle_update_pipeline->Initialize();
+  }
+
+  if (!bundle_stretch_shear_offset_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                std::filesystem::path("./EcoSysLabResources") /
+                    "Shaders/Compute/DynamicStrands/Constraints/RandomBundleStretchShearOffset.comp");
+    bundle_stretch_shear_offset_pipeline = std::make_shared<ComputePipeline>();
+    bundle_stretch_shear_offset_pipeline->compute_shader = shader;
+    bundle_stretch_shear_offset_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    bundle_stretch_shear_offset_pipeline->descriptor_set_layouts.emplace_back(layout);
+
+    auto& push_constant_range = bundle_stretch_shear_offset_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RandomBundleStretchShearConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bundle_stretch_shear_offset_pipeline->Initialize();
+  }
+
+  if (!bundle_bend_twist_offset_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                std::filesystem::path("./EcoSysLabResources") /
+                    "Shaders/Compute/DynamicStrands/Constraints/RandomBundleBendTwistOffset.comp");
+    bundle_bend_twist_offset_pipeline = std::make_shared<ComputePipeline>();
+    bundle_bend_twist_offset_pipeline->compute_shader = shader;
+    bundle_bend_twist_offset_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    bundle_bend_twist_offset_pipeline->descriptor_set_layouts.emplace_back(layout);
+
+    auto& push_constant_range = bundle_bend_twist_offset_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RandomBundleBendTwistConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bundle_bend_twist_offset_pipeline->Initialize();
   }
 
   if (!bundle_offset_pipeline) {
@@ -714,10 +810,10 @@ DsRandomBundle::DsRandomBundle() {
     bundle_offset_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
     bundle_offset_pipeline->descriptor_set_layouts.emplace_back(layout);
 
-    auto& stretch_shear_push_constant_range = bundle_offset_pipeline->push_constant_ranges.emplace_back();
-    stretch_shear_push_constant_range.size = sizeof(RandomBundleConstant);
-    stretch_shear_push_constant_range.offset = 0;
-    stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    auto& push_constant_range = bundle_offset_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RandomBundleConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     bundle_offset_pipeline->Initialize();
   }
 
@@ -734,29 +830,29 @@ DsRandomBundle::DsRandomBundle() {
     bundle_apply_segments_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
     bundle_apply_segments_pipeline->descriptor_set_layouts.emplace_back(layout);
 
-    auto& stretch_shear_push_constant_range = bundle_apply_segments_pipeline->push_constant_ranges.emplace_back();
-    stretch_shear_push_constant_range.size = sizeof(RandomBundleApplySegmentsConstant);
-    stretch_shear_push_constant_range.offset = 0;
-    stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    auto& push_constant_range = bundle_apply_segments_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RandomBundleApplySegmentsConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     bundle_apply_segments_pipeline->Initialize();
   }
 
-  if (!bundle_apply_connections_pipeline) {
+  if (!connections_correction_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
                     "Shaders/Compute/DynamicStrands/Constraints/RandomBundleApplyConnections.comp");
 
-    bundle_apply_connections_pipeline = std::make_shared<ComputePipeline>();
-    bundle_apply_connections_pipeline->compute_shader = shader;
-    bundle_apply_connections_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    auto& stretch_shear_push_constant_range = bundle_apply_connections_pipeline->push_constant_ranges.emplace_back();
+    connections_correction_pipeline = std::make_shared<ComputePipeline>();
+    connections_correction_pipeline->compute_shader = shader;
+    connections_correction_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    auto& stretch_shear_push_constant_range = connections_correction_pipeline->push_constant_ranges.emplace_back();
     stretch_shear_push_constant_range.size = sizeof(RandomBundleApplyConnectionsConstant);
     stretch_shear_push_constant_range.offset = 0;
     stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    bundle_apply_connections_pipeline->Initialize();
+    connections_correction_pipeline->Initialize();
   }
 
   if (bundle_descriptor_sets.empty()) {
@@ -767,8 +863,8 @@ DsRandomBundle::DsRandomBundle() {
   }
 }
 
-void DsRandomBundle::Project(const DynamicStrands::PhysicsParameters& physics_parameters,
-                             const DynamicStrands& target_dynamic_strands) {
+void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                               const DynamicStrands& target_dynamic_strands) {
   if (segment_pairs.empty())
     return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -777,16 +873,27 @@ void DsRandomBundle::Project(const DynamicStrands::PhysicsParameters& physics_pa
   update_constant.allow_breaking = physics_parameters.allow_breaking ? 1 : 0;
   RandomBundleConstant constraint_constant;
   constraint_constant.segment_size = static_cast<uint32_t>(segment_data_list.size());
-  constraint_constant.inv_time_step =
-      1.f / (physics_parameters.time_step / physics_parameters.sub_step);
+  constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
+  constraint_constant.over_relaxation = over_relaxation;
+
+  RandomBundleBendTwistConstant bend_twist_constraint_constant;
+  bend_twist_constraint_constant.segment_size = static_cast<uint32_t>(segment_data_list.size());
+  bend_twist_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
+  bend_twist_constraint_constant.over_relaxation = bend_twist_over_relaxation;
+
+
+  RandomBundleStretchShearConstant stretch_shear_constraint_constant;
+  stretch_shear_constraint_constant.segment_size = static_cast<uint32_t>(segment_data_list.size());
+  stretch_shear_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
+
 
   RandomBundleApplySegmentsConstant constraint_apply_segments_constant;
   constraint_apply_segments_constant.segment_size = static_cast<uint32_t>(segment_data_list.size());
-  constraint_apply_segments_constant.inv_time_step =
-      1.f / (physics_parameters.time_step / physics_parameters.sub_step);
+  constraint_apply_segments_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
 
   RandomBundleApplyConnectionsConstant constraint_apply_connections_constant;
-  constraint_apply_connections_constant.connection_size = static_cast<uint32_t>(target_dynamic_strands.connections.size());
+  constraint_apply_connections_constant.connection_size =
+      static_cast<uint32_t>(target_dynamic_strands.connections.size());
   constraint_apply_connections_constant.inv_time_step =
       1.f / (physics_parameters.time_step / physics_parameters.sub_step);
 
@@ -795,6 +902,69 @@ void DsRandomBundle::Project(const DynamicStrands::PhysicsParameters& physics_pa
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {
+      const auto apply_segment_offset = [&]() {
+        bundle_apply_segments_pipeline->Bind(vk_command_buffer);
+        bundle_apply_segments_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0,
+            target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        bundle_apply_segments_pipeline->BindDescriptorSet(
+            vk_command_buffer, 1, bundle_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        bundle_apply_segments_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_segments_constant);
+        vkCmdDispatch(vk_command_buffer,
+                      Platform::DivUp(constraint_apply_segments_constant.segment_size, task_work_group_invocations), 1,
+                      1);
+        Platform::EverythingBarrier(vk_command_buffer);
+      };
+      const auto correct_connections = [&]() {
+        connections_correction_pipeline->Bind(vk_command_buffer);
+        connections_correction_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0,
+            target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        connections_correction_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_connections_constant);
+        vkCmdDispatch(
+            vk_command_buffer,
+            Platform::DivUp(constraint_apply_connections_constant.connection_size, task_work_group_invocations), 1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+      };
+      const auto calculate_stretch_shear_offset = [&]() {
+        bundle_stretch_shear_offset_pipeline->Bind(vk_command_buffer);
+        bundle_stretch_shear_offset_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0,
+            target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        bundle_stretch_shear_offset_pipeline->BindDescriptorSet(
+            vk_command_buffer, 1, bundle_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        bundle_stretch_shear_offset_pipeline->PushConstant(vk_command_buffer, 0, stretch_shear_constraint_constant);
+        vkCmdDispatch(vk_command_buffer,
+                      Platform::DivUp(stretch_shear_constraint_constant.segment_size, task_work_group_invocations),
+                      1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+      };
+      const auto calculate_bend_twist_offset = [&]() {
+        bundle_bend_twist_offset_pipeline->Bind(vk_command_buffer);
+        bundle_bend_twist_offset_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0,
+            target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        bundle_bend_twist_offset_pipeline->BindDescriptorSet(
+            vk_command_buffer, 1, bundle_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        bundle_bend_twist_offset_pipeline->PushConstant(vk_command_buffer, 0, bend_twist_constraint_constant);
+        vkCmdDispatch(vk_command_buffer,
+                      Platform::DivUp(bend_twist_constraint_constant.segment_size, task_work_group_invocations),
+                      1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+      };
+      const auto calculate_offset = [&]() {
+        bundle_offset_pipeline->Bind(vk_command_buffer);
+        bundle_offset_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0,
+            target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        bundle_offset_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                                  bundle_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        bundle_offset_pipeline->PushConstant(vk_command_buffer, 0, constraint_constant);
+        vkCmdDispatch(vk_command_buffer, Platform::DivUp(constraint_constant.segment_size, task_work_group_invocations),
+                      1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+      };
+
       bundle_update_pipeline->Bind(vk_command_buffer);
       bundle_update_pipeline->BindDescriptorSet(
           vk_command_buffer, 0,
@@ -805,38 +975,13 @@ void DsRandomBundle::Project(const DynamicStrands::PhysicsParameters& physics_pa
       vkCmdDispatch(vk_command_buffer, Platform::DivUp(update_constant.pair_size, task_work_group_invocations), 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
 
-      bundle_offset_pipeline->Bind(vk_command_buffer);
-      bundle_offset_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0,
-          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      bundle_offset_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                                bundle_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      bundle_offset_pipeline->PushConstant(vk_command_buffer, 0, constraint_constant);
-      vkCmdDispatch(vk_command_buffer, Platform::DivUp(constraint_constant.segment_size, task_work_group_invocations),
-                    1, 1);
-      Platform::EverythingBarrier(vk_command_buffer);
-
-      bundle_apply_segments_pipeline->Bind(vk_command_buffer);
-      bundle_apply_segments_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0,
-          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      bundle_apply_segments_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                               bundle_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      bundle_apply_segments_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_segments_constant);
-      vkCmdDispatch(vk_command_buffer,
-                    Platform::DivUp(constraint_apply_segments_constant.segment_size, task_work_group_invocations),
-                    1, 1);
-      Platform::EverythingBarrier(vk_command_buffer);
-
-      bundle_apply_connections_pipeline->Bind(vk_command_buffer);
-      bundle_apply_connections_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0,
-          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      bundle_apply_connections_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_connections_constant);
-      vkCmdDispatch(vk_command_buffer,
-                    Platform::DivUp(constraint_apply_connections_constant.connection_size, task_work_group_invocations),
-                    1, 1);
-      Platform::EverythingBarrier(vk_command_buffer);
+      calculate_offset();
+      calculate_bend_twist_offset();
+      apply_segment_offset();
+      correct_connections();
+      calculate_stretch_shear_offset();
+      apply_segment_offset();
+      correct_connections();
     }
   });
 }
@@ -907,21 +1052,23 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
     if (const auto search = candidates.find(0.0f); search != candidates.end()) {
       search->second.emplace(pair);
     } else {
-      candidates.insert({0.0f, {pair}});
+      candidates.insert({-1.0f, {pair}});
     }
   }
-
+  const float detection_radius =
+      (initialize_parameters.max_segment_length + initialize_parameters.min_segment_length) * 2.0f;
   for (int segment_handle = 0; segment_handle < target_dynamic_strands.segments.size(); segment_handle++) {
     const auto& segment = target_dynamic_strands.segments[segment_handle];
     const auto& particle0 = target_dynamic_strands.particles[segment.particle0_handle];
     const auto& particle1 = target_dynamic_strands.particles[segment.particle1_handle];
     const auto segment_center_position = (particle0.x0 + particle1.x0) * .5f;
-    voxel_grid.ForEach(segment_center_position, segment.rest_length * 3.0f, [&](const std::vector<SegmentInfo>& list) {
+    voxel_grid.ForEach(segment_center_position, detection_radius, [&](const std::vector<SegmentInfo>& list) {
       for (const auto& info : list) {
         if (info.segment_handle == segment_handle)
           continue;
-        if (info.strand_handle == segment.strand_handle)
+        if (info.strand_handle == segment.strand_handle) {
           continue;
+        }
         //  Function to check if a point is inside a cylinder
         const auto cylinder_check = [](const glm::vec3& p0, const glm::vec3& p1, const float radius,
                                        const glm::vec3& point, bool& check) {
@@ -1005,27 +1152,30 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
 
       const auto& segment0 = target_dynamic_strands.segments[pair.first];
       const auto& segment1 = target_dynamic_strands.segments[pair.second];
-      const float segment_length = 1.f;//(segment0.rest_length + segment1.rest_length) * .5f;
-      const float segment_radius = 1.f;//((segment0.radius + segment1.radius) * .5f;
+      auto& segment0_particle0 = target_dynamic_strands.particles[segment0.particle0_handle];
+      auto& segment0_particle1 = target_dynamic_strands.particles[segment0.particle1_handle];
 
-      const float area = glm::pi<float>() * segment_radius * segment_radius;
-      const float youngs_modulus = initialize_parameters.youngs_modulus.GetValue() * 1e9f;
-      const float shear_modulus = initialize_parameters.shear_modulus.GetValue() * 1e9f;
+      auto& segment1_particle0 = target_dynamic_strands.particles[segment1.particle0_handle];
+      auto& segment1_particle1 = target_dynamic_strands.particles[segment1.particle1_handle];
 
+      const auto segment0_center_position = (segment0_particle0.x0 + segment0_particle1.x0) * .5f;
+      const auto segment1_center_position = (segment1_particle0.x0 + segment1_particle1.x0) * .5f;
+
+      const float segment_length = 1.f;
+      //glm::distance(segment0_center_position, segment1_center_position);
+      const float segment_radius = 1.f;
+      //(segment0.radius + segment1.radius) * .5f;
 
       const float torsion_modulus = initialize_parameters.torsion_modulus.GetValue() * 1e9f;
       const float bending_modulus = initialize_parameters.bending_modulus.GetValue() * 1e9f;
 
-      const float stretching_alpha = 1.f / (youngs_modulus * area / segment_length);
-      const float shearing_alpha = 1.f / (shear_modulus * area / segment_length);
-
       const auto second_moment_of_area = glm::pi<float>() * std::pow(segment_radius, 4.f) * 0.25f;
       const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(segment_radius, 4.f) * 0.5f;
 
-      const float bending_alpha = 1.f / (bending_modulus * second_moment_of_area / glm::pow(segment_length, 3.f));
-      const float torsion_alpha = 1.f / (torsion_modulus * polar_moment_of_inertia / segment_length);
-
-      new_pair.alphas = glm::vec4(bending_alpha, torsion_alpha, shearing_alpha, stretching_alpha);
+      new_pair.bending_alpha = 1.f / (bending_modulus * second_moment_of_area / glm::pow(segment_length, 3.f));
+      new_pair.twisting_alpha = 1.f / (torsion_modulus * polar_moment_of_inertia / segment_length);
+      new_pair.bundle_weight = 1.0f;
+      new_pair.bend_twist_weight = 1.0f;
 
       new_pair.max_strain =
           glm::max(initialize_parameters.min_neighbor_strain, initialize_parameters.max_neighbor_strain.GetValue());
@@ -1036,7 +1186,6 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
       second++;
     }
   }
-
 
   Jobs::RunParallelFor(segment_pairs.size(), [&](const auto pair_index) {
     auto& pair = segment_pairs[pair_index];
@@ -1083,354 +1232,12 @@ bool DsRandomBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       changed = true;
     if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100))
       changed = true;
-    ImGui::TreePop();
-  }
-  return changed;
-}
 
-DsUniformBundle::DsUniformBundle() {
-  if (!layout) {
-    layout = std::make_shared<DescriptorSetLayout>();
-    layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    layout->Initialize();
-  }
-
-  VkBufferCreateInfo storage_buffer_create_info{};
-  storage_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  storage_buffer_create_info.usage =
-      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-  storage_buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  storage_buffer_create_info.size = 1;
-  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
-  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
-
-  segment_pairs_buffer = std::make_shared<Buffer>(storage_buffer_create_info, buffer_vma_allocation_create_info);
-  front_profiles_buffer = std::make_shared<Buffer>(storage_buffer_create_info, buffer_vma_allocation_create_info);
-  back_profiles_buffer = std::make_shared<Buffer>(storage_buffer_create_info, buffer_vma_allocation_create_info);
-  if (descriptor_sets.empty()) {
-    descriptor_sets.resize(max_frame_in_flight);
-    for (auto& i : descriptor_sets) {
-      i = std::make_shared<DescriptorSet>(layout);
-    }
-  }
-
-  if (!uniform_bundle_update_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Constraints/UniformBundleUpdate.comp");
-    uniform_bundle_update_pipeline = std::make_shared<ComputePipeline>();
-    uniform_bundle_update_pipeline->compute_shader = shader;
-    uniform_bundle_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    uniform_bundle_update_pipeline->descriptor_set_layouts.emplace_back(layout);
-
-    auto& stretch_shear_push_constant_range = uniform_bundle_update_pipeline->push_constant_ranges.emplace_back();
-    stretch_shear_push_constant_range.size = sizeof(UniformBundleUpdateConstant);
-    stretch_shear_push_constant_range.offset = 0;
-    stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    uniform_bundle_update_pipeline->Initialize();
-  }
-
-  if (!uniform_bundle_front_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Constraints/UniformBundleFront.comp");
-    uniform_bundle_front_pipeline = std::make_shared<ComputePipeline>();
-    uniform_bundle_front_pipeline->compute_shader = shader;
-    uniform_bundle_front_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    uniform_bundle_front_pipeline->descriptor_set_layouts.emplace_back(layout);
-
-    auto& stretch_shear_push_constant_range = uniform_bundle_front_pipeline->push_constant_ranges.emplace_back();
-    stretch_shear_push_constant_range.size = sizeof(UniformBundleConstant);
-    stretch_shear_push_constant_range.offset = 0;
-    stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    uniform_bundle_front_pipeline->Initialize();
-  }
-  if (!uniform_bundle_back_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Constraints/UniformBundleBack.comp");
-    uniform_bundle_back_pipeline = std::make_shared<ComputePipeline>();
-    uniform_bundle_back_pipeline->compute_shader = shader;
-    uniform_bundle_back_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    uniform_bundle_back_pipeline->descriptor_set_layouts.emplace_back(layout);
-
-    auto& stretch_shear_push_constant_range = uniform_bundle_back_pipeline->push_constant_ranges.emplace_back();
-    stretch_shear_push_constant_range.size = sizeof(UniformBundleConstant);
-    stretch_shear_push_constant_range.offset = 0;
-    stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    uniform_bundle_back_pipeline->Initialize();
-  }
-}
-
-void DsUniformBundle::Project(const DynamicStrands::PhysicsParameters& physics_parameters,
-                              const DynamicStrands& target_dynamic_strands) {
-  if (front_profiles.empty() && back_profiles.empty())
-    return;
-  const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  UniformBundleUpdateConstant update_constant;
-  update_constant.pair_size = static_cast<uint32_t>(segment_pairs.size());
-  update_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
-  update_constant.allow_breaking = physics_parameters.allow_breaking ? 1 : 0;
-
-  UniformBundleConstant front_constraint_constant;
-  front_constraint_constant.profile_size = static_cast<uint32_t>(front_profiles.size());
-  front_constraint_constant.inv_time_step =
-      1.f / (physics_parameters.time_step / physics_parameters.sub_step);
-  
-  UniformBundleConstant back_constraint_constant;
-  back_constraint_constant.profile_size = static_cast<uint32_t>(back_profiles.size());
-  back_constraint_constant.inv_time_step =
-      1.f / (physics_parameters.time_step / physics_parameters.sub_step);
-
-  const uint32_t task_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {
-      uniform_bundle_update_pipeline->Bind(vk_command_buffer);
-      uniform_bundle_update_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0,
-          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      uniform_bundle_update_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                                        descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      uniform_bundle_update_pipeline->PushConstant(vk_command_buffer, 0, update_constant);
-      vkCmdDispatch(vk_command_buffer, Platform::DivUp(update_constant.pair_size, task_work_group_invocations), 1, 1);
-      Platform::EverythingBarrier(vk_command_buffer);
-
-      uniform_bundle_front_pipeline->Bind(vk_command_buffer);
-      uniform_bundle_front_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0,
-          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      uniform_bundle_front_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                                       descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      uniform_bundle_front_pipeline->PushConstant(vk_command_buffer, 0, front_constraint_constant);
-      vkCmdDispatch(vk_command_buffer, front_constraint_constant.profile_size, 1, 1);
-      Platform::EverythingBarrier(vk_command_buffer);
-
-      uniform_bundle_back_pipeline->Bind(vk_command_buffer);
-      uniform_bundle_back_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0,
-          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      uniform_bundle_back_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                                      descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      uniform_bundle_back_pipeline->PushConstant(vk_command_buffer, 0, back_constraint_constant);
-      vkCmdDispatch(vk_command_buffer, front_constraint_constant.profile_size, 1, 1);
-      Platform::EverythingBarrier(vk_command_buffer);
-    }
-  });
-}
-
-void DsUniformBundle::InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
-                                     const StrandModelSkeleton& strand_model_skeleton,
-                                     const DtsStrandGroup& subdivided_strand_group,
-                                     const DynamicStrands& target_dynamic_strands) {
-  struct SegmentProfile {
-    std::vector<int> segment_handles;
-    std::vector<glm::vec2> projected_positions;
-
-    std::vector<std::pair<int, int>> edges;
-    int segment_index;
-    int node_handle;
-
-    void CalculateEdges(const float avg_segment_radius) {
-      std::vector<float> coords(segment_handles.size() * 2);
-      memcpy(coords.data(), projected_positions.data(),
-             sizeof(glm::vec2) * projected_positions.size());
-      const Delaunator::Delaunator2D d(coords);
-      std::set<std::pair<int, int>> edge_set;
-      const float removal_length = avg_segment_radius * 6;
-      for (std::size_t i = 0; i < d.triangles.size(); i += 3) {
-        const auto& v0 = d.triangles[i];
-        const auto& v1 = d.triangles[i + 1];
-        const auto& v2 = d.triangles[i + 2];
-        const auto& positions = projected_positions;
-        if (glm::distance(positions[v0], positions[v1]) > removal_length ||
-            glm::distance(positions[v1], positions[v2]) > removal_length ||
-            glm::distance(positions[v0], positions[v2]) > removal_length)
-          continue;
-        edge_set.emplace(std::make_pair(glm::min(v0, v1), glm::max(v0, v1)));
-        edge_set.emplace(std::make_pair(glm::min(v1, v2), glm::max(v1, v2)));
-        edge_set.emplace(std::make_pair(glm::min(v0, v2), glm::max(v0, v2)));
-      }
-      edges.resize(edge_set.size());
-      int index = 0;
-      for (const auto i : edge_set) {
-        edges[index] = i;
-        index++;
-      }
-    }
-  };
-
-  std::vector<std::vector<SegmentProfile>> segment_profiles_list;
-  std::vector<int> sub_segment_index_offsets;
-  const auto& sorted_node_list = strand_model_skeleton.PeekSortedNodeList();
-  segment_profiles_list.resize(sorted_node_list.size());
-  sub_segment_index_offsets.resize(sorted_node_list.size());
-  sub_segment_index_offsets[0] = 0;
-  for (int node_handle : sorted_node_list) {
-    auto& sub_segment_offset = sub_segment_index_offsets[node_handle];
-    if (node_handle != 0) {
-      const auto parent_handle = strand_model_skeleton.PeekNode(node_handle).GetParentHandle();
-      sub_segment_offset = sub_segment_index_offsets[parent_handle] + initialize_parameters.uniform_subdivision;
-    }
-    segment_profiles_list[node_handle].resize(initialize_parameters.uniform_subdivision);
-    auto& segment_profiles = segment_profiles_list[node_handle];
-    for (int distance = 0; distance < initialize_parameters.uniform_subdivision; distance++) {
-      auto& segment_profile = segment_profiles[distance];
-      segment_profile.node_handle = node_handle;
-      segment_profile.segment_index = sub_segment_offset + distance;
-    }
-  }
-
-  for (int segment_handle = 0; segment_handle < target_dynamic_strands.segments.size(); segment_handle++) {
-    const auto& strand_segment_data = subdivided_strand_group.PeekStrandSegmentData(segment_handle);
-    const auto& root_distance_offset = sub_segment_index_offsets[strand_segment_data.node_handle];
-    segment_profiles_list[strand_segment_data.node_handle][strand_segment_data.segment_index - root_distance_offset]
-        .segment_handles.emplace_back(segment_handle);
-  }
-  std::vector<SegmentProfile> valid_profiles;
-  for (const auto& segment_profiles : segment_profiles_list) {
-    for (const auto& profile : segment_profiles) {
-      if (profile.segment_handles.size() > 1) {
-        valid_profiles.emplace_back(profile);
-      }
-    }
-  }
-  segment_pairs.clear();
-  for (auto& valid_profile : valid_profiles) {
-    const auto& node = strand_model_skeleton.PeekNode(valid_profile.node_handle);
-    const auto node_position = initialize_parameters.root_transform.TransformPoint(node.info.global_position);
-    const auto node_rotation = initialize_parameters.root_transform.GetRotation() * node.info.global_rotation;
-    const auto up = node_rotation * glm::vec3(0, 1, 0);
-    const auto right = node_rotation * glm::vec3(1, 0, 0);
-    valid_profile.projected_positions.resize(valid_profile.segment_handles.size());
-    auto position_sum = glm::vec2(0.0f);
-    float segment_radius_sum = 0.0f;
-    for (int local_segment_index = 0; local_segment_index < valid_profile.segment_handles.size();
-         local_segment_index++) {
-      const auto& segment = target_dynamic_strands.segments[valid_profile.segment_handles[local_segment_index]];
-      segment_radius_sum += segment.radius;
-      const auto& particle1 = target_dynamic_strands.particles[segment.particle1_handle];
-      auto& projected_position = valid_profile.projected_positions[local_segment_index];
-      projected_position = Plane::ProjectPointToPlane(particle1.x0, node_position, up, right);
-      position_sum += projected_position;
-    }
-    position_sum /= valid_profile.segment_handles.size();
     
-    Jobs::RunParallelFor(valid_profile.segment_handles.size(), [&](const auto local_segment_index) {
-      auto& projected_position = valid_profile.projected_positions[local_segment_index];
-      projected_position -= position_sum;
-    });
-    PerProfileData profile;
-    profile.start_pair_handle = static_cast<int>(segment_pairs.size());
-
-    if (valid_profile.segment_handles.size() > 2) {
-      valid_profile.CalculateEdges(segment_radius_sum / valid_profile.segment_handles.size());
-
-      std::multimap<float, SegmentPair> current_profile_pairs;
-      for (const auto& edge : valid_profile.edges) {
-        const auto& segment_handle0 = valid_profile.segment_handles[edge.first];
-        const auto& segment_handle1 = valid_profile.segment_handles[edge.second];
-
-        float edge_center_distance = glm::length(valid_profile.projected_positions[edge.first]) +
-                                     glm::length(valid_profile.projected_positions[edge.second]);
-
-        SegmentPair new_pair;
-        new_pair.segment0_handle = glm::min(segment_handle0, segment_handle1);
-        new_pair.segment1_handle = glm::max(segment_handle0, segment_handle1);
-        new_pair.valid = 1;
-        new_pair.stiffness = glm::vec4(initialize_parameters.bending_modulus.GetValue() * 1e9f,
-                                       initialize_parameters.bending_modulus.GetValue() * 1e9f,
-                                       initialize_parameters.bending_modulus.GetValue() * 1e9f,
-                                       initialize_parameters.youngs_modulus.GetValue() * 1e9f);
-        new_pair.max_strain = glm::max(0.0f, initialize_parameters.max_neighbor_strain.GetValue());
-
-        current_profile_pairs.emplace(edge_center_distance, new_pair);
-      }
-      for (const auto& i : current_profile_pairs) {
-        segment_pairs.emplace_back(i.second);
-      }
-    } else {
-      SegmentPair new_pair;
-      const auto& segment_handle0 = valid_profile.segment_handles[0];
-      const auto& segment_handle1 = valid_profile.segment_handles[1];
-      new_pair.segment0_handle = glm::min(segment_handle0, segment_handle1);
-      new_pair.segment1_handle = glm::max(segment_handle0, segment_handle1);
-      new_pair.valid = 1;
-      new_pair.stiffness = glm::vec4(initialize_parameters.bending_modulus.GetValue() * 1e9f,
-                                     initialize_parameters.bending_modulus.GetValue() * 1e9f,
-                                     initialize_parameters.bending_modulus.GetValue() * 1e9f,
-                                     initialize_parameters.youngs_modulus.GetValue() * 1e9f);
-      new_pair.max_strain = glm::max(0.0f, initialize_parameters.max_neighbor_strain.GetValue());
-      segment_pairs.emplace_back(new_pair);
-    }
-
-    std::shuffle(segment_pairs.begin(), segment_pairs.end(), std::default_random_engine());
-
-    profile.end_pair_handle = static_cast<int>(segment_pairs.size()) - 1;
-
-    if (valid_profile.segment_index % 2 == 0)
-      front_profiles.emplace_back(profile);
-    else
-      back_profiles.emplace_back(profile);
-  }
-
-  Jobs::RunParallelFor(segment_pairs.size(), [&](const auto pair_index) {
-    auto& pair = segment_pairs[pair_index];
-    auto& segment0 = target_dynamic_strands.segments[pair.segment0_handle];
-    auto& segment1 = target_dynamic_strands.segments[pair.segment1_handle];
-    auto& segment0_particle0 = target_dynamic_strands.particles[segment0.particle0_handle];
-    auto& segment0_particle1 = target_dynamic_strands.particles[segment0.particle1_handle];
-
-    auto& segment1_particle0 = target_dynamic_strands.particles[segment1.particle0_handle];
-    auto& segment1_particle1 = target_dynamic_strands.particles[segment1.particle1_handle];
-
-    const auto segment0_center_position = (segment0_particle0.x0 + segment0_particle1.x0) * .5f;
-    const auto segment1_center_position = (segment1_particle0.x0 + segment1_particle1.x0) * .5f;
-
-    pair.segment0_particle0_offset =
-        glm::vec4(glm::inverse(segment1.q0) * (segment0_particle0.x0 - segment1_center_position), 0.0f);
-    pair.segment0_particle1_offset =
-        glm::vec4(glm::inverse(segment1.q0) * (segment0_particle1.x0 - segment1_center_position), 0.0f);
-
-    pair.segment1_particle0_offset =
-        glm::vec4(glm::inverse(segment0.q0) * (segment1_particle0.x0 - segment0_center_position), 0.0f);
-    pair.segment1_particle1_offset =
-        glm::vec4(glm::inverse(segment0.q0) * (segment1_particle1.x0 - segment0_center_position), 0.0f);
-
-    pair.rest_darboux_vector = glm::conjugate(segment0.q0) * segment1.q0;
-  });
-}
-
-void DsUniformBundle::UploadData() {
-  segment_pairs_buffer->UploadVector(segment_pairs);
-  front_profiles_buffer->UploadVector(front_profiles);
-  back_profiles_buffer->UploadVector(back_profiles);
-}
-
-void DsUniformBundle::UpdateBindings() {
-  const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, segment_pairs_buffer, 0);
-  descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, front_profiles_buffer, 0);
-  descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, back_profiles_buffer, 0);
-}
-
-bool DsUniformBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::TreeNode("Uniform Bundle")) {
-    if (ImGui::Checkbox("Enable", &enabled))
+     if (ImGui::DragFloat("Over relaxation", &over_relaxation, 0.01f, 1, 10.f))
       changed = true;
-    if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100))
-      changed = true;
+     if (ImGui::DragFloat("Bend Twist over relaxation", &bend_twist_over_relaxation, 0.01f, 1, 10.f))
+       changed = true;
     ImGui::TreePop();
   }
   return changed;

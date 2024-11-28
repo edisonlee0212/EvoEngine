@@ -140,6 +140,14 @@ void RenderLayer::RenderAllCameras() {
       }
     }
   }
+  
+  
+}
+
+void RenderLayer::RenderGizmos() {
+  const auto scene = GetScene();
+  if (!scene)
+    return;
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
     // Gizmos rendering
     for (const auto& i : editor_layer->gizmo_mesh_tasks_) {
@@ -255,10 +263,6 @@ void RenderLayer::RenderAllCameras() {
       }
     }
   }
-
-  directional_light_info_blocks_.clear();
-  point_light_info_blocks_.clear();
-  spot_light_info_blocks_.clear();
 }
 
 void RenderLayer::ForEachCollectedCamera(const std::function<void(const std::shared_ptr<Camera>& camera)>& action) {
@@ -1295,7 +1299,7 @@ bool RenderLayer::UpdateRenderInstances(const std::shared_ptr<Scene>& scene, con
       render_instances_list[current_frame_index]->UpdateRenderInstances(scene, world_bound);
 
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
-    if (render_instance_updated && scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
+    if (scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
       for (const auto& i : render_instances_list[current_frame_index]->instance_info_blocks_) {
         if (i.entity_selected) {
           need_fade_ = true;
@@ -1323,7 +1327,9 @@ bool RenderLayer::UpdateLighting(const std::shared_ptr<Scene>& scene, uint32_t c
       main_camera_gt = scene->GetDataComponent<GlobalTransform>(main_camera_owner);
     }
   }
-
+  directional_light_info_blocks_.clear();
+  point_light_info_blocks_.clear();
+  spot_light_info_blocks_.clear();
   CollectDirectionalLights(scene, cameras);
   CollectPointLights(scene, main_camera_gt);
   CollectSpotLights(scene, main_camera_gt);

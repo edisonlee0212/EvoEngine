@@ -369,8 +369,8 @@ void Scene::Deserialize(const YAML::Node& in) {
 #pragma endregion
   main_camera.Load("main_camera", in, self);
 #pragma region Assets
+  std::vector<std::pair<int, std::shared_ptr<IAsset>>> local_assets;
   if (const auto in_local_assets = in["LocalAssets"]) {
-    std::vector<std::pair<int, std::shared_ptr<IAsset>>> local_assets;
     int index = 0;
     for (const auto& i : in_local_assets) {
       // First, find the asset in asset registry
@@ -380,15 +380,14 @@ void Scene::Deserialize(const YAML::Node& in) {
       }
       index++;
     }
-
     for (const auto& i : local_assets) {
       i.second->Deserialize(in_local_assets[i.first]);
     }
-#ifdef _DEBUG
-    EVOENGINE_LOG(std::string("Scene Deserialization: Loaded " + std::to_string(local_assets.size()) + " assets."))
-#endif
-  }
 
+  }
+#ifdef _DEBUG
+  EVOENGINE_LOG(std::string("Scene Deserialization: Loaded " + std::to_string(local_assets.size()) + " assets."))
+#endif
 #pragma endregion
   if (in["environment"])
     environment.Deserialize(in["environment"]);

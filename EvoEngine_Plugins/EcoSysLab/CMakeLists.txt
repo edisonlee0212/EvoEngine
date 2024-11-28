@@ -5,6 +5,7 @@ set(ECOSYSLAB_INCLUDES
 	${ECOSYSLAB_DIRECTORY}/include
 	${ECOSYSLAB_DIRECTORY}/include
 	${ECOSYSLAB_DIRECTORY}/include/MeshFormation
+	${ECOSYSLAB_DIRECTORY}/include/DynamicStrands
 	${ECOSYSLAB_DIRECTORY}/include/Layers
 	${ECOSYSLAB_DIRECTORY}/include/TreeDescriptor
 	${ECOSYSLAB_DIRECTORY}/include/SpatialCompetition

@@ -88,7 +88,7 @@ void main(){
 	SetMeshOutputsEXT(PARTICLE_VERTICES_SIZE, PARTICLE_TRIANGLE_SIZE);
 	
 	Particle particle = particles[particle_id];
-	Segment segment = segments[floatBitsToInt(particle.old_x_segment_handle.w)];
+	Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
 	vec3 center_position = particle.x_node_handle.xyz;
 	float center_thickness = segment.radius * 3.0;
 	vec3 particle_size = vec3(center_thickness, center_thickness, segment.radius * 3.0);
