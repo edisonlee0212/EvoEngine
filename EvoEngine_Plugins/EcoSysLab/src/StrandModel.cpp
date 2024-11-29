@@ -529,7 +529,7 @@ void StrandModel::ApplyProfile(const StrandModelParameters& strand_model_paramet
     }
 
     strand_segment_data.initial_distance_to_boundary = particle.GetInitialDistanceToBoundary();
-   
+    strand_segment_data.profile_position = particle.GetInitialPosition();
 
     strand_segment.end_color = particle.IsBoundary() ? parameters.boundary_point_color : parameters.content_point_color;
     strand_model_skeleton.data.strand_group.RefStrandSegmentData(particle.strand_segment_handle).is_boundary =

@@ -1,8 +1,8 @@
 
 #include "DynamicTreeStrands.hpp"
 #include "Delaunay.hpp"
-#include "DsOperators.hpp"
 #include "DsConstraints.hpp"
+#include "DsOperators.hpp"
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
@@ -34,42 +34,59 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
       },
       [](StrandHandle src_handle, DtsStrandData& strand_data) {
       },
-      [&](const float root_distance, const StrandSegmentHandle src_handle, const uint32_t original_segment_index,
-          const float segment_t,
-          DtsStrandSegmentData& segment_data, const uint32_t sub_segment_index) {
+      [&](const float start_root_distance, const float end_root_distance, const StrandSegmentHandle src_handle,
+          const uint32_t original_segment_index,
+          const float segment_t, DtsStrandSegmentData& segment_data, const uint32_t sub_segment_index) {
         const auto& src_segment_data = source_strand_group.PeekStrandSegmentData(src_handle);
         segment_data.node_handle = src_segment_data.node_handle;
         segment_data.original_segment_t = segment_t;
         segment_data.original_segment_handle = src_handle;
         segment_data.original_segment_index = original_segment_index;
         segment_data.segment_index = sub_segment_index;
-        segment_data.root_distance = root_distance;
+        segment_data.start_root_distance = start_root_distance;
+        segment_data.end_root_distance = end_root_distance;
         const auto& strand_segment = source_strand_group.PeekStrandSegment(src_handle);
         const auto& strand = source_strand_group.PeekStrand(strand_segment.GetStrandHandle());
         const auto& strand_segment_handles = strand.PeekStrandSegmentHandles();
+        glm::vec2 p0, p1, p3;
+        const glm::vec2 p2 = src_segment_data.profile_position;
         float d0, d1, d3;
         const float d2 = src_segment_data.initial_distance_to_boundary;
         if (src_handle == strand_segment_handles.front()) {
           d1 = d2;
           d0 = d1 * 2.0f - d2;
+
+          p1 = p2;
+          p0 = p1 * 2.0f - p2;
         } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
           const auto& prev_segment_data = source_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
           d0 = d2;
           d1 = prev_segment_data.initial_distance_to_boundary;
+
+          p0 = p2;
+          p1 = prev_segment_data.profile_position;
         } else {
           const auto& prev_segment = source_strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
           const auto& prev_segment_data = source_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
           const auto& prev_prev_segment_data = source_strand_group.PeekStrandSegmentData(prev_segment.GetPrevHandle());
           d0 = prev_prev_segment_data.initial_distance_to_boundary;
           d1 = prev_segment_data.initial_distance_to_boundary;
+
+          p0 = prev_prev_segment_data.profile_position;
+          p1 = prev_segment_data.profile_position;
         }
         if (src_handle == strand_segment_handles.back()) {
           d3 = d2 * 2.0f - d1;
+
+          p3 = p2 * 2.0f - p1;
         } else {
           const auto& next_segment_data = source_strand_group.PeekStrandSegmentData(strand_segment.GetNextHandle());
           d3 = next_segment_data.initial_distance_to_boundary;
+
+          p3 = next_segment_data.profile_position;
         }
         segment_data.initial_distance_to_boundary = Strands::CubicInterpolation(d0, d1, d2, d3, segment_t);
+        segment_data.profile_position = Strands::CubicInterpolation(p0, p1, p2, p3, segment_t);
       },
       (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
 
@@ -120,7 +137,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (ImGui::TreeNode("Initialization settings")) {
     initialize_parameters.OnInspect(editor_layer);
     ImGui::Checkbox("Auto subdivide", &auto_subdivide);
-    
+
     ImGui::Checkbox("Limit strand length", &limit_strand_length);
     if (limit_strand_length) {
       ImGui::DragFloat("Max strand length", &max_strand_length, 0.01f, 0.01f, 10.0f);
@@ -374,27 +391,25 @@ void DynamicTreeStrands::PhysicsStep() const {
         }
       }
 
-      dynamic_strands->Physics(
-          physics_parameters,
-          [&]() {
-            for (const auto& transform_operator : transform_operators) {
-              if (transform_operator.ds_transform->enabled && scene->IsEntityValid(transform_operator.target_entity))
-                transform_operator.ds_transform->Execute(physics_parameters, dynamic_strands);
-            }
-            if (gravity->enabled)
-              gravity->Execute(physics_parameters, dynamic_strands);
-            for (const auto& attraction_operator : attraction_operators) {
-              if (attraction_operator.ds_attraction->enabled && scene->IsEntityValid(attraction_operator.target_entity))
-                attraction_operator.ds_attraction->Execute(physics_parameters, dynamic_strands);
-            }
+      dynamic_strands->Physics(physics_parameters, [&]() {
+        for (const auto& transform_operator : transform_operators) {
+          if (transform_operator.ds_transform->enabled && scene->IsEntityValid(transform_operator.target_entity))
+            transform_operator.ds_transform->Execute(physics_parameters, dynamic_strands);
+        }
+        if (gravity->enabled)
+          gravity->Execute(physics_parameters, dynamic_strands);
+        for (const auto& attraction_operator : attraction_operators) {
+          if (attraction_operator.ds_attraction->enabled && scene->IsEntityValid(attraction_operator.target_entity))
+            attraction_operator.ds_attraction->Execute(physics_parameters, dynamic_strands);
+        }
 
-            if (box_selection_operator->enabled) {
-              box_selection_operator->Execute(dynamic_strands);
-            }
-            if (drag_operator->enabled) {
-              drag_operator->Execute(physics_parameters, dynamic_strands);
-            }
-          });
+        if (box_selection_operator->enabled) {
+          box_selection_operator->Execute(dynamic_strands);
+        }
+        if (drag_operator->enabled) {
+          drag_operator->Execute(physics_parameters, dynamic_strands);
+        }
+      });
     }
   }
 }

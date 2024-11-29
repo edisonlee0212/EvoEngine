@@ -45,7 +45,7 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
     }
 
     const auto scene = Application::GetActiveScene();
-    if (const auto *collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>()) {
+    if (const auto* collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>()) {
       for (const auto& entity : *collider_entities) {
         scene->GetOrSetPrivateComponent<DsBoxCollider>(entity).lock()->ProjectPositionConstraint(physics_parameters,
                                                                                                  *this);
@@ -133,8 +133,12 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
   if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
     changed = true;
 
-  if (ImGui::DragFloat("Neighbor range", &neighbor_range, 0.01f, 0.01f, 10.0f))
+  if (ImGui::DragFloat("Neighbor vertical range", &neighbor_vertical_range, 0.01f, 0.01f, 10.0f))
     changed = true;
+
+  if (ImGui::DragFloat("Neighbor horizontal range", &neighbor_horizontal_range, 0.01f, 0.01f, 10.0f))
+    changed = true;
+
   if (max_neighbor_strain.OnInspect("Max neighbor strain", 0.01f))
     changed = true;
   if (ImGui::DragFloat("Min neighbor strain", &min_neighbor_strain, 0.001f, 0.00f, 1.0f))
@@ -248,7 +252,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       [&](const StrandHandle src_handle, DtsStrandData& strand_data) {
 
       },
-      [&](const float root_distance, const StrandSegmentHandle src_handle, const uint32_t original_segment_index,
+      [&](const float start_root_distance, const float end_root_distance, const StrandSegmentHandle src_handle,
+          const uint32_t original_segment_index,
           const float segment_t, DtsStrandSegmentData& segment_data, const uint32_t sub_segment_index) {
         const auto& src_segment_data = strand_model_strand_group.PeekStrandSegmentData(src_handle);
         segment_data.node_handle = src_segment_data.node_handle;
@@ -256,20 +261,30 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
         segment_data.original_segment_index = original_segment_index;
         segment_data.segment_index = sub_segment_index;
         segment_data.original_segment_t = segment_t;
-        segment_data.root_distance = root_distance;
+        segment_data.start_root_distance = start_root_distance;
+        segment_data.end_root_distance = end_root_distance;
         const auto& strand_segment = strand_model_strand_group.PeekStrandSegment(src_handle);
         const auto& strand = strand_model_strand_group.PeekStrand(strand_segment.GetStrandHandle());
         const auto& strand_segment_handles = strand.PeekStrandSegmentHandles();
+
+        glm::vec2 p0, p1, p3;
+        const glm::vec2 p2 = src_segment_data.profile_position;
         float d0, d1, d3;
         const float d2 = src_segment_data.initial_distance_to_boundary;
         if (src_handle == strand_segment_handles.front()) {
           d1 = d2;
           d0 = d1 * 2.0f - d2;
+
+          p1 = p2;
+          p0 = p1 * 2.0f - p2;
         } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
           const auto& prev_segment_data =
               strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
           d0 = d2;
           d1 = prev_segment_data.initial_distance_to_boundary;
+
+          p0 = p2;
+          p1 = prev_segment_data.profile_position;
         } else {
           const auto& prev_segment = strand_model_strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
           const auto& prev_segment_data =
@@ -278,15 +293,23 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
               strand_model_strand_group.PeekStrandSegmentData(prev_segment.GetPrevHandle());
           d0 = prev_prev_segment_data.initial_distance_to_boundary;
           d1 = prev_segment_data.initial_distance_to_boundary;
+
+          p0 = prev_prev_segment_data.profile_position;
+          p1 = prev_segment_data.profile_position;
         }
         if (src_handle == strand_segment_handles.back()) {
           d3 = d2 * 2.0f - d1;
+
+          p3 = p2 * 2.0f - p1;
         } else {
           const auto& next_segment_data =
               strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetNextHandle());
           d3 = next_segment_data.initial_distance_to_boundary;
+
+          p3 = next_segment_data.profile_position;
         }
         segment_data.initial_distance_to_boundary = Strands::CubicInterpolation(d0, d1, d2, d3, segment_t);
+        segment_data.profile_position = Strands::CubicInterpolation(p0, p1, p2, p3, segment_t);
       },
       (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
 
@@ -328,20 +351,20 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
         uniform_particle.segment_handle =
             random_subdivided_strand.PeekStrandSegmentHandles()[random_segment_walker_index];
         const auto& random_segment_data = strand_group.PeekStrandSegmentData(uniform_particle.segment_handle);
-        if (random_segment_data.root_distance >= uniform_segment_data.root_distance) {
+        if (random_segment_data.end_root_distance >= uniform_segment_data.end_root_distance) {
           // Get the start original_segment_t for random_segment.
-          if (glm::abs(random_segment_data.root_distance - previous_root_distance) < glm::epsilon<float>()) {
+          if (glm::abs(random_segment_data.end_root_distance - previous_root_distance) < glm::epsilon<float>()) {
             uniform_particle.t = 1.f;
           } else {
-            uniform_particle.t = (uniform_segment_data.root_distance - previous_root_distance) /
-                                 (random_segment_data.root_distance - previous_root_distance);
+            uniform_particle.t = (uniform_segment_data.end_root_distance - previous_root_distance) /
+                                 (random_segment_data.end_root_distance - previous_root_distance);
           }
           uniform_particle.distance_to_boundary = uniform_segment_data.initial_distance_to_boundary;
           found = true;
           break;
         }
         random_segment_walker_index++;
-        previous_root_distance = random_segment_data.root_distance;
+        previous_root_distance = random_segment_data.end_root_distance;
       }
       if (!found) {
         EVOENGINE_ERROR("Fault!");
