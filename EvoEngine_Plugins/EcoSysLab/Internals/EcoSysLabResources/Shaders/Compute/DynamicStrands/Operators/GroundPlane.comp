@@ -26,6 +26,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	uint particle_size;
 	float ground_height;
 	float ground_softness;
+	float ground_friction;
 };
 
 void main(){
@@ -38,9 +39,12 @@ void main(){
 		if(particle_index >= particle_size) break;
 		Particle particle = particles[particle_index];
 
-		Segment segment = segments[floatBitsToInt(particle.old_x_segment_handle.w)];
+		Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
 		if(segment.inv_mass == 0.0f) return;
 		float diff = max(0.0f, ground_height - particle.x_node_handle.y);
+
+
+
 		particle.x_node_handle.y += (1.f + ground_softness) * diff;
 
 		particles[particle_index] = particle;

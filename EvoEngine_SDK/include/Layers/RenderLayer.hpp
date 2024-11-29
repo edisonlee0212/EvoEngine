@@ -74,7 +74,7 @@ class RenderLayer final : public ILayer {
                       std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
   void ClearAllCameras();
   void RenderAllCameras();
-
+  void RenderGizmos();
  public:
   void ForEachCollectedCamera(const std::function<void(const std::shared_ptr<Camera>& camera)>& action);
 

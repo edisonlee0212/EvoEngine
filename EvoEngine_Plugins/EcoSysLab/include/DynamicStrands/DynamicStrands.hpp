@@ -3,13 +3,17 @@
 #include "StrandModelData.hpp"
 #include "TreeGrowthData.hpp"
 
+namespace eco_sys_lab_plugin {
+class DsVelocityUpdate;
+}
+
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
-class DynamicStrandsPreStep;
+class DsPreStep;
 class IDsPhysicsOperator;
-class IDynamicStrandsConstraint;
-class DynamicStrandsPrediction;
+class IDsConstraint;
+class DsPrediction;
 
 struct DtsStrandGroupData {};
 
@@ -50,7 +54,7 @@ class DynamicStrands {
     SingleDistribution<float> torsion_modulus = {1.5f, 0.15f};  // GPa
 
     float velocity_damping = 0.005f;
-    float angular_velocity_damping = 0.005f;
+    float angular_velocity_damping = 0.0005f;
 
     float neighbor_range = 6.0f;
     SingleDistribution<float> max_neighbor_strain = {0.1f, 0.1f};
@@ -74,8 +78,8 @@ class DynamicStrands {
 #pragma region Step
   struct PhysicsParameters {
     float time_step = 0.01f;
-    int sub_step = 5;
-    int constraint_iteration = 1;
+    int sub_step = 10;
+    int constraint_iteration = 5;
     bool allow_breaking = true;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -120,9 +124,10 @@ class DynamicStrands {
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
-  std::shared_ptr<DynamicStrandsPreStep> pre_step;
-  std::shared_ptr<DynamicStrandsPrediction> prediction;
-  std::vector<std::shared_ptr<IDynamicStrandsConstraint>> constraints;
+  std::shared_ptr<DsPreStep> pre_step;
+  std::shared_ptr<DsPrediction> prediction;
+  std::shared_ptr<DsVelocityUpdate> velocity_update;
+  std::vector<std::shared_ptr<IDsConstraint>> constraints;
 
   void UpdateBindings() const;
 #pragma endregion
@@ -149,7 +154,10 @@ class DynamicStrands {
     glm::quat q;
     // Last frame rotation
     glm::quat last_q;
-    glm::quat old_q;
+    //Angular velocity
+    glm::vec3 angular_v;
+    float padding;
+
     glm::vec3 torque = glm::vec3(0.f);
     float rest_length;
 
@@ -182,7 +190,8 @@ class DynamicStrands {
     // Last frame position
     glm::vec3 last_x;
     int strand_handle = -1;
-    glm::vec3 old_x;
+    //Velocity
+    glm::vec3 v;
     int segment_handle = -1;
 
     glm::vec3 acceleration = glm::vec3(0.f);
@@ -260,8 +269,7 @@ class DynamicStrands {
   void Render(const std::shared_ptr<Camera>& target_camera, const RenderParameters& render_parameters) const;
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const VisualizationParameters& visualization_parameters) const;
-  void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& operators_action,
-               const std::function<void()>& pre_constraint_action) const;
+  void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& operators_action) const;
 
  private:
   void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);

@@ -1,8 +1,8 @@
 
 #include "DynamicTreeStrands.hpp"
 #include "Delaunay.hpp"
-#include "DynamicStrandsOperators.hpp"
-#include "DynamicStrandsPhysics.hpp"
+#include "DsOperators.hpp"
+#include "DsConstraints.hpp"
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
@@ -72,9 +72,10 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
         segment_data.initial_distance_to_boundary = Strands::CubicInterpolation(d0, d1, d2, d3, segment_t);
       },
       (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
-  dynamic_strands->constraints.emplace_back(std::make_shared<DsRandomBundle>());
 
   dynamic_strands->constraints.emplace_back(std::make_shared<DsStiffRod>());
+  dynamic_strands->constraints.emplace_back(std::make_shared<DsRandomBundle>());
+
   dynamic_strands->constraints.emplace_back(std::make_shared<DsGroundPlane>());
   // subdivided_strand_group.RandomAssignColor();
 
@@ -365,7 +366,6 @@ void DynamicTreeStrands::PhysicsStep() const {
           transform_operator.ds_transform->Update(global_transform, dynamic_strands);
         }
       }
-
       for (const auto& attraction_operator : attraction_operators) {
         if (scene->IsEntityValid(attraction_operator.target_entity)) {
           const auto global_position =
@@ -373,6 +373,7 @@ void DynamicTreeStrands::PhysicsStep() const {
           attraction_operator.ds_attraction->Update(global_position);
         }
       }
+
       dynamic_strands->Physics(
           physics_parameters,
           [&]() {
@@ -380,7 +381,6 @@ void DynamicTreeStrands::PhysicsStep() const {
               if (transform_operator.ds_transform->enabled && scene->IsEntityValid(transform_operator.target_entity))
                 transform_operator.ds_transform->Execute(physics_parameters, dynamic_strands);
             }
-
             if (gravity->enabled)
               gravity->Execute(physics_parameters, dynamic_strands);
             for (const auto& attraction_operator : attraction_operators) {
@@ -394,9 +394,6 @@ void DynamicTreeStrands::PhysicsStep() const {
             if (drag_operator->enabled) {
               drag_operator->Execute(physics_parameters, dynamic_strands);
             }
-          },
-          [&]() {
-
           });
     }
   }

@@ -23,6 +23,7 @@ barrier();
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint segment_size;
 	float inv_time_step;
+	float over_relaxation;
 };
 
 #include "RandomBundle.glsl"
@@ -36,6 +37,6 @@ void main(){
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
 		uint segment_index = baseID + local_index;
 		if(segment_index >= segment_size) break;
-		BundleSegment(segment_index, inv_time_step);
+		BundleSegment(segment_index, inv_time_step, over_relaxation);
 	}
 }

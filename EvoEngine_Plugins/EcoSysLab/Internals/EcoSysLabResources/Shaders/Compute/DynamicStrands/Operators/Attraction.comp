@@ -42,7 +42,7 @@ void main(){
 		if(global_index >= command_size) break;
 		int particle_index = particle_indices[global_index];
 		Particle particle = particles[particle_index];
-		Segment segment = segments[floatBitsToInt(particle.old_x_segment_handle.w)];
+		Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
 
 		vec3 diff = target_position_multiplier.xyz - particle.x_node_handle.xyz;
 		vec3 force = diff * target_position_multiplier.w;

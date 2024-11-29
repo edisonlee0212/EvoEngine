@@ -1,6 +1,6 @@
 #pragma once
 #include "DynamicStrands.hpp"
-#include "DynamicStrandsOperators.hpp"
+#include "DsOperators.hpp"
 #include "StrandModelData.hpp"
 #include "TreeGrowthData.hpp"
 

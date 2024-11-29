@@ -23,8 +23,9 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	vec4 acceleration_particle_size;
-	float ground_height;
+	uint particle_size;
+	float time_step;
+	float inv_time_step;
 };
 
 void main(){
@@ -34,11 +35,15 @@ void main(){
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
 		uint particle_index = baseID + local_index;
 
-		if(particle_index >= floatBitsToUint(acceleration_particle_size.w)) break;
-		vec3 acceleration = acceleration_particle_size.xyz;
+		if(particle_index >= particle_size) break;
+
 		Particle particle = particles[particle_index];
 		Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
-		if(segment.inv_mass == 0.0 || particle.x_node_handle.y < ground_height) acceleration = vec3(0.0);
-		particles[particle_index].acceleration_connectivity_strain.xyz += acceleration;
+		//Calculate velocity and apply acceleration.
+		vec3 velocity = vec3(0.0f, 0.0f, 0.0f);
+		if(segment.inv_mass != 0.0f){
+			velocity = inv_time_step * (particle.x_node_handle.xyz - particle.v_segment_handle.xyz);
+		}
+		particles[particle_index].v_segment_handle.xyz = velocity;
 	}
 }

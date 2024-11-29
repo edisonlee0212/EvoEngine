@@ -28,13 +28,12 @@ struct MeshRenderInstance {
   uint32_t instance_index = 0;
   RenderCommandType command_type = RenderCommandType::Unknown;
   Entity owner = Entity();
-
+  bool entity_selected = false;
   GlobalTransform model = {};
   uint32_t material_version;
   uint32_t mesh_version;
   std::shared_ptr<Material> material;
   std::shared_ptr<Mesh> mesh;
-
 
   bool cast_shadow = true;
 
@@ -50,7 +49,7 @@ struct SkinnedMeshRenderInstance {
   uint32_t instance_index = 0;
   RenderCommandType command_type = RenderCommandType::Unknown;
   Entity owner = Entity();
-
+  bool entity_selected = false;
   GlobalTransform model = {};
   uint32_t material_version;
   uint32_t skinned_mesh_version;
@@ -72,7 +71,7 @@ struct InstancedRenderInstance {
   uint32_t instance_index = 0;
   RenderCommandType command_type = RenderCommandType::Unknown;
   Entity owner = Entity();
-
+  bool entity_selected = false;
   GlobalTransform model = {};
   uint32_t material_version;
   uint32_t mesh_version;
@@ -94,7 +93,7 @@ struct StrandsRenderInstance {
   uint32_t instance_index = 0;
   RenderCommandType command_type = RenderCommandType::Unknown;
   Entity owner = Entity();
-
+  bool entity_selected = false;
   GlobalTransform model = {};
   uint32_t material_version;
   uint32_t strands_version;
@@ -147,6 +146,7 @@ class RenderInstances {
   void Collect(Bound& world_bound);
   uint32_t geometry_storage_version = 0;
   uint32_t texture_storage_version = 0;
+
  public:
   RenderInstances();
   [[nodiscard]] bool MeshInstancesUpdated(const RenderInstances& other) const;
@@ -167,8 +167,7 @@ class RenderInstances {
   std::shared_ptr<Buffer> material_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> instance_info_descriptor_buffer = {};
 
-  std::shared_ptr<TopLevelAccelerationStructure> mesh_top_level_acceleration_structure{}; 
-
+  std::shared_ptr<TopLevelAccelerationStructure> mesh_top_level_acceleration_structure{};
 
   std::vector<VkDrawIndexedIndirectCommand> mesh_draw_indexed_indirect_commands;
   std::shared_ptr<Buffer> mesh_draw_indexed_indirect_commands_buffer;
@@ -183,18 +182,13 @@ class RenderInstances {
 
   void Clear();
 
-  bool TryRegisterRenderer(const Entity& owner,
-                                  const std::shared_ptr<MeshRenderer>& mesh_renderer,
+  bool TryRegisterRenderer(const Entity& owner, const std::shared_ptr<MeshRenderer>& mesh_renderer,
                            glm::vec3& min_bound, glm::vec3& max_bound);
-  bool TryRegisterRenderer(const Entity& owner,
-                                  const std::shared_ptr<SkinnedMeshRenderer>& skinned_mesh_renderer,
+  bool TryRegisterRenderer(const Entity& owner, const std::shared_ptr<SkinnedMeshRenderer>& skinned_mesh_renderer,
                            glm::vec3& min_bound, glm::vec3& max_bound);
-  bool TryRegisterRenderer(const Entity& owner,
-                                  const std::shared_ptr<Particles>& particles,
-                                  glm::vec3& min_bound,
+  bool TryRegisterRenderer(const Entity& owner, const std::shared_ptr<Particles>& particles, glm::vec3& min_bound,
                            glm::vec3& max_bound);
-  bool TryRegisterRenderer(const Entity& owner,
-                                  const std::shared_ptr<StrandsRenderer>& strands_renderer,
+  bool TryRegisterRenderer(const Entity& owner, const std::shared_ptr<StrandsRenderer>& strands_renderer,
                            glm::vec3& min_bound, glm::vec3& max_bound);
 
   static void CalculateLodFactor(const std::shared_ptr<Scene>& scene, const glm::vec3& view_position,

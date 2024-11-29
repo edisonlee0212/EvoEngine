@@ -13,20 +13,12 @@ void GizmoSettings::ApplySettings(GraphicsPipelineStates& global_pipeline_state)
 void EditorLayer::DrawGizmoMesh(const std::shared_ptr<Mesh>& mesh,
                                 const std::shared_ptr<Camera>& editor_camera_component, const glm::vec4& color,
                                 const glm::mat4& model, const float& size, const GizmoSettings& gizmo_settings) {
-  if (Application::GetApplicationExecutionStatus() == ApplicationExecutionStatus::LateUpdate) {
-    EVOENGINE_ERROR("Gizmos command ignored! Submit gizmos command during LateUpdate is now allowed!")
-    return;
-  }
   gizmo_mesh_tasks_.push_back({mesh, editor_camera_component, color, model, size, gizmo_settings});
 }
 
 void EditorLayer::DrawGizmoStrands(const std::shared_ptr<Strands>& strands,
                                    const std::shared_ptr<Camera>& editor_camera_component, const glm::vec4& color,
                                    const glm::mat4& model, const float& size, const GizmoSettings& gizmo_settings) {
-  if (Application::GetApplicationExecutionStatus() == ApplicationExecutionStatus::LateUpdate) {
-    EVOENGINE_ERROR("Gizmos command ignored! Submit gizmos command during LateUpdate is now allowed!")
-    return;
-  }
   gizmo_strands_tasks_.push_back({strands, editor_camera_component, color, model, size, gizmo_settings});
 }
 
@@ -35,10 +27,6 @@ void EditorLayer::DrawGizmoMeshInstancedColored(const std::shared_ptr<Mesh>& mes
                                                 const std::shared_ptr<ParticleInfoList>& instanced_data,
                                                 const glm::mat4& model, const float& size,
                                                 const GizmoSettings& gizmo_settings) {
-  if (Application::GetApplicationExecutionStatus() == ApplicationExecutionStatus::LateUpdate) {
-    EVOENGINE_ERROR("Gizmos command ignored! Submit gizmos command during LateUpdate is now allowed!")
-    return;
-  }
   gizmo_instanced_mesh_tasks_.push_back({mesh, editor_camera_component, instanced_data, model, size, gizmo_settings});
 }
 

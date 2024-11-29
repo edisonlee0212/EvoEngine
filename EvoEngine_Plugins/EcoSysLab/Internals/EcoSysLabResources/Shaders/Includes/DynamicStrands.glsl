@@ -20,7 +20,8 @@ struct Segment {
   vec4 q0;
   vec4 q;
   vec4 last_q;
-  vec4 old_q;
+  vec4 angular_v;
+
   vec4 torque_rest_length;
 
   float radius;
@@ -43,7 +44,7 @@ struct Particle {
   vec4 x0_damping;
   vec4 x_node_handle;
   vec4 last_x_strand_handle;
-  vec4 old_x_segment_handle;
+  vec4 v_segment_handle;
   vec4 acceleration_connectivity_strain;
 
   int selected;

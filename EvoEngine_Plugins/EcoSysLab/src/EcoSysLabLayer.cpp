@@ -13,7 +13,8 @@
 #include "ClassRegistry.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
-#include "DynamicStrandsOperators.hpp"
+#include "DsColliders.hpp"
+#include "DsOperators.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "FlowerDescriptor.hpp"
 #include "FoliageDescriptor.hpp"
@@ -32,6 +33,7 @@ PrivateComponentRegistration<TreeStructor> tree_structor_registry("TreeStructor"
 PrivateComponentRegistration<Soil> soil_registry("Soil");
 PrivateComponentRegistration<Climate> climate_registry("Climate");
 
+PrivateComponentRegistration<DsBoxCollider> ds_box_collider_registry("DsBoxCollider");
 PrivateComponentRegistration<DynamicTreeStrands> dynamic_tree_strands_registry("DynamicTreeStrands");
 
 PrivateComponentRegistration<SpatialPlantDistributionSimulator> spds_registry("SpatialPlantDistributionSimulator");
@@ -987,6 +989,8 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   ImGui::PopStyleVar();
   TreeVisualization(editor_layer);
   StrandVisualization(editor_layer);
+
+  
 #pragma endregion
 }
 
@@ -1922,7 +1926,7 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
                                  IM_COL32(255, 255, 255, 255));
 
             const glm::vec3 acceleration = strand_visualizer_settings_.drag_multiplier *
-                                    (camera_right * screen_vector.x - camera_up * screen_vector.y);
+                                           (camera_right * screen_vector.x - camera_up * screen_vector.y);
             for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
               dts->drag_operator->enabled = true;
               dts->drag_operator->Update(acceleration);
@@ -1988,7 +1992,18 @@ void EcoSysLabLayer::LateUpdate() {
             }
           }
         };
-
+    const auto* collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
+    const auto for_each_collider_entity =
+        [&](const std::function<void(const std::shared_ptr<DsBoxCollider>& dts)>& action) {
+          if (collider_entities && !collider_entities->empty()) {
+            for (const auto& i : *collider_entities) {
+              const auto box_collider = scene->GetOrSetPrivateComponent<DsBoxCollider>(i).lock();
+              action(box_collider);
+            }
+          }
+        };
+    
+    
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
       if (!dts->dynamic_strands->WaitForUpload())
         dts->dynamic_strands->UpdateBindings();
@@ -2005,14 +2020,16 @@ void EcoSysLabLayer::LateUpdate() {
       });
     }
 
-    const auto editor_layer = Application::GetLayer<EditorLayer>();
-    if (editor_layer) {
+    if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
         render_layer->ForEachCollectedCamera([&](const std::shared_ptr<Camera>& camera) {
           if (camera == editor_layer->GetSceneCamera() || scene->IsEntityValid(camera->GetOwner())) {
             dts->Render(camera);
           }
         });
+      });
+      for_each_collider_entity([&](const std::shared_ptr<DsBoxCollider>& collider) {
+        collider->RenderBound(editor_layer, visualization_camera_, glm::vec4(1, 0, 1, 0.1f));
       });
     }
   }
