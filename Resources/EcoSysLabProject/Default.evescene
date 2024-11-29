@@ -88,7 +88,7 @@ entity_metadata_list:
     pc:
       - tn: DynamicTreeStrands
         e: true
-  - n: Stick
+  - n: BoxCollider
     h: 5594278585294077197
     e: true
     s: false
@@ -105,9 +105,47 @@ entity_metadata_list:
           asset_type_name_: Material
       - tn: DsBoxCollider
         e: true
-        mesh_renderer_ref:
-          entity_handle_: 5594278585294077197
-          private_component_type_name_: MeshRenderer
+        scale: [0.5, 0.5, 0.5]
+        softness: 1
+  - n: CylinderCollider
+    h: 9785811340505075165
+    e: true
+    s: false
+    r: 9785811340505075165
+    pc:
+      - tn: MeshRenderer
+        e: true
+        cast_shadow: true
+        mesh:
+          asset_handle_: 74
+          asset_type_name_: Mesh
+        material:
+          asset_handle_: 9269403427852511889
+          asset_type_name_: Material
+      - tn: DsCylinderCollider
+        e: true
+        radius: 0.5
+        height: 0.5
+        softness: 1
+  - n: SphereCollider
+    h: 13374184260884109780
+    e: true
+    s: false
+    r: 13374184260884109780
+    pc:
+      - tn: MeshRenderer
+        e: true
+        cast_shadow: true
+        mesh:
+          asset_handle_: 71
+          asset_type_name_: Mesh
+        material:
+          asset_handle_: 14316066197675944754
+          asset_type_name_: Material
+      - tn: DsSphereCollider
+        e: true
+        softness: 0.5
+        radius: 0.5
 systems_:
   []
 LocalAssets:
@@ -153,10 +191,94 @@ LocalAssets:
       transmission_roughness: 0
       emission: 0
     vertex_color_only: false
+  - type_name: Material
+    handle: 9269403427852511889
+    albedo_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    normal_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    metallic_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    roughness_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    ao_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    draw_settings:
+      cull_mode: 0
+      line_width: 1
+      polygon_mode: 0
+      blending: false
+      blending_src_factor: 6
+      blending_dst_factor: 7
+    material_properties:
+      albedo_color: [1, 1, 1]
+      subsurface_color: [1, 1, 1]
+      subsurface_factor: 0
+      subsurface_radius: [1, 0.200000003, 0.100000001]
+      metallic: 0.100000001
+      specular: 0.5
+      specular_tint: 0
+      roughness: 0.300000012
+      sheen: 0
+      sheen_tint: 0.5
+      clear_coat: 0
+      clear_coat_roughness: 0.0299999993
+      ior: 1.45000005
+      transmission: 0
+      transmission_roughness: 0
+      emission: 0
+    vertex_color_only: false
+  - type_name: Material
+    handle: 14316066197675944754
+    albedo_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    normal_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    metallic_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    roughness_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    ao_texture_:
+      asset_handle_: 0
+      asset_type_name_: ""
+    draw_settings:
+      cull_mode: 0
+      line_width: 1
+      polygon_mode: 0
+      blending: false
+      blending_src_factor: 6
+      blending_dst_factor: 7
+    material_properties:
+      albedo_color: [1, 1, 1]
+      subsurface_color: [1, 1, 1]
+      subsurface_factor: 0
+      subsurface_radius: [1, 0.200000003, 0.100000001]
+      metallic: 0.100000001
+      specular: 0.5
+      specular_tint: 0
+      roughness: 0.300000012
+      sheen: 0
+      sheen_tint: 0.5
+      clear_coat: 0
+      clear_coat_roughness: 0.0299999993
+      ior: 1.45000005
+      transmission: 0
+      transmission_roughness: 0
+      emission: 0
+    vertex_color_only: false
 data_component_storage_list:
   - entity_size: 130
     chunk_capacity: 126
-    entity_alive_count: 7
+    entity_alive_count: 9
     data_component_types:
       - type_name: Transform
         type_size: 64
@@ -200,6 +322,16 @@ data_component_storage_list:
           - d: !!binary "AAA="
       - h: 5594278585294077197
         dc:
-          - d: !!binary "zcxMPgAAAAAAAAAAAAAAAAAAAADNzEw+AAAAAAAAAAAAAAAAAAAAAAAAQEAAAAAAAACAQAAAAD8AAAAAAACAPw=="
-          - d: !!binary "zcxMPgAAAAAAAAAAAAAAAAAAAADNzEw+AAAAAAAAAAAAAAAAAAAAAAAAQEAAAAAAAACAQAAAAD8AAAAAAACAPw=="
+          - d: !!binary "zcxMPgAAAAAAAAAAAAAAAAAAAADNzEw+AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAL8AAAAAAACAPw=="
+          - d: !!binary "zcxMPgAAAAAAAAAAAAAAAAAAAADNzEw+AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAL8AAAAAAACAPw=="
+          - d: !!binary "AAA="
+      - h: 9785811340505075165
+        dc:
+          - d: !!binary "zcxMPgAAAAAAAAAAAAAAAAAAAAD//38z/v9/PwAAAAAAAAAAy8xMvszMTDIAAAAAAAAAPwAAAL8AAAAAAACAPw=="
+          - d: !!binary "zcxMPgAAAAAAAAAAAAAAAAAAAAD//38z/v9/PwAAAAAAAAAAy8xMvszMTDIAAAAAAAAAPwAAAL8AAAAAAACAPw=="
+          - d: !!binary "AAA="
+      - h: 13374184260884109780
+        dc:
+          - d: !!binary "AAAAPwAAAAAAAAAAAAAAAAAAAAAAAAA/AAAAAAAAAAAAAAAAAAAAAAAAAD8AAAAAAAAAvwAAAL8AAAAAAACAPw=="
+          - d: !!binary "AAAAPwAAAAAAAAAAAAAAAAAAAAAAAAA/AAAAAAAAAAAAAAAAAAAAAAAAAD8AAAAAAAAAvwAAAL8AAAAAAACAPw=="
           - d: !!binary "AAA="

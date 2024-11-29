@@ -109,6 +109,17 @@ void main(){
 		color = mix(color0, color1, clamp(length(connection.bend_twist_strain_valid.xyz) * uintBitsToFloat(multiplier), 0.0, 1.0));
 	}
 	
+	Particle particle0 = particles[connection.segment0_particle_handle];
+	Particle particle1 = particles[connection.segment1_particle_handle];
+
+	if(particle0.highlighted == 1 || particle1.highlighted == 1){
+		color = mix(color, vec4(0, 1, 0, 1), 0.8f);
+	}else if(particle0.highlighted == 2 || particle1.highlighted == 2){
+		color = mix(color, vec4(1, 0, 0, 1), 0.8f);
+	}else if(particle0.selected == 1 || particle1.selected == 1){
+		color = mix(color, vec4(1, 1, 1, 1), 0.8f);
+	}
+
 	[[unroll]]
 	for (uint i = 0; i < uint(CONNECTION_VERTEX_ITERATIONS); ++i)
 	{

@@ -9,6 +9,7 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (render_particles) {
     if (ImGui::Combo("Particle mode", {"Default", "Segment color", "Connectivity strain"}, particle_render_mode))
       changed = true;
+
     switch (particle_render_mode) {
       case 0: {
         if (ImGui::ColorEdit4("Particle color", &particle_color_main.x))
@@ -35,8 +36,6 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
     switch (segment_render_mode) {
       case 0: {
         if (ImGui::ColorEdit4("Main segment color", &segment_color_main.x))
-          changed = true;
-        if (ImGui::ColorEdit4("Sub segment color", &segment_color_sub.x))
           changed = true;
         break;
       }
@@ -338,9 +337,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   segment_push_constant.min_color = visualization_parameters.segment_render_mode == 0
                                         ? visualization_parameters.segment_color_main
                                         : visualization_parameters.segment_color_min;
-  segment_push_constant.max_color = visualization_parameters.segment_render_mode == 0
-                                        ? visualization_parameters.segment_color_sub
-                                        : visualization_parameters.segment_color_max;
+  segment_push_constant.max_color = visualization_parameters.segment_color_max;
   segment_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   segment_push_constant.multiplier = visualization_parameters.segment_multiplier;
   segment_push_constant.strand_segment_size = segments.size();

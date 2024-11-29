@@ -23,45 +23,17 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	vec4 obb_rotation;
 	vec4 obb_center;
-	vec4 obb_scale;
+	float radius;
 	float softness;
 	uint segment_size;
 };
 
 vec3 process_point(in vec3 p){
 	vec3 projected_p = p - obb_center.xyz;
-	projected_p = rotate_vec3(conjugate(obb_rotation), projected_p);
-	float abs_x = abs(projected_p.x);
-	float abs_y = abs(projected_p.y);
-	float abs_z = abs(projected_p.z);
-
-	if(abs_x > obb_scale.x || abs_y > obb_scale.y || abs_z > obb_scale.z) return p;
-	float factor_x = obb_scale.x - abs_x;
-	float factor_y = obb_scale.y - abs_y;
-	float factor_z = obb_scale.z - abs_z;
-	if(factor_x <= factor_y && factor_x <= factor_z){
-		if(projected_p.x < 0.f){
-			projected_p.x -= softness * (obb_scale.x - abs_x);
-		}else{
-			projected_p.x += softness * (obb_scale.x - abs_x);
-		}
-	}else if(factor_y <= factor_z){
-		if(projected_p.y < 0.f){
-			projected_p.y -= softness * (obb_scale.y - abs_y);
-		}else{
-			projected_p.y += softness * (obb_scale.y - abs_y);
-		}
-	}else{
-		if(projected_p.z < 0.f){
-			projected_p.z -= softness * (obb_scale.z - abs_z);
-		}else{
-			projected_p.z += softness * (obb_scale.z - abs_z);
-		}
-	}
-	//return projected_p + obb_center.xyz;
-	return rotate_vec3(obb_rotation, projected_p) + obb_center.xyz;
+	float current_radius = length(projected_p);
+	if(current_radius == 0.0f) return obb_center.xyz + radius * vec3(0, 1, 0);
+	return obb_center.xyz + max(current_radius, radius) * normalize(projected_p);
 }
 
 void main(){

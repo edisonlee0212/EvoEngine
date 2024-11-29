@@ -29,7 +29,7 @@ struct DtsStrandSegmentData {
    */
   SkeletonNodeHandle node_handle = -1;
   StrandSegmentHandle original_segment_handle;
-  
+
   float original_segment_t;
   uint32_t segment_index;
 
@@ -48,6 +48,7 @@ class DynamicStrands {
   [[nodiscard]] bool WaitForUpload() const;
 #pragma region Initialization
   struct InitializeParameters {
+    bool static_root = true;
     float min_segment_length = 0.03f;
     float max_segment_length = 0.06f;
     int uniform_subdivision = 1;
@@ -105,13 +106,12 @@ class DynamicStrands {
 
     glm::vec4 particle_color_min = glm::vec4(0, 0, 1, 1);
     glm::vec4 particle_color_max = glm::vec4(1, 0, 0, 1);
-    glm::vec4 particle_color_main = glm::vec4(0.2, 1, 1, 0.5);
+    glm::vec4 particle_color_main = glm::vec4(0.6, 0.3, 0, 0.5);
     float particle_multiplier = 1.0f;
 
     glm::vec4 segment_color_min = glm::vec4(0, 0, 1, 1);
     glm::vec4 segment_color_max = glm::vec4(1, 0, 0, 1);
-    glm::vec4 segment_color_main = glm::vec4(0.6, 0.3, 0.0, 0.4);
-    glm::vec4 segment_color_sub = glm::vec4(0.6, 0.3, 0.0, 0.1);
+    glm::vec4 segment_color_main = glm::vec4(0.3, 0.15, 0.0, 0.5);
     float segment_multiplier = 1.0f;
 
     glm::vec4 connection_color_min = glm::vec4(0, 0, 1, 1);
@@ -120,7 +120,7 @@ class DynamicStrands {
     glm::vec4 connection_color_sub = glm::vec4(1, 1, 1, 0.2);
     float connection_multiplier = 1.0f;
 
-    glm::vec4 uniform_particle_main = glm::vec4(1, 1, 1, 0.3);
+    glm::vec4 uniform_particle_main = glm::vec4(1, 1, 1, 0.8f);
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -159,7 +159,7 @@ class DynamicStrands {
     glm::quat q;
     // Last frame rotation
     glm::quat last_q;
-    //Angular velocity
+    // Angular velocity
     glm::vec3 angular_v;
     float padding;
 
@@ -195,7 +195,7 @@ class DynamicStrands {
     // Last frame position
     glm::vec3 last_x;
     int strand_handle = -1;
-    //Velocity
+    // Velocity
     glm::vec3 v;
     int segment_handle = -1;
 
@@ -274,7 +274,8 @@ class DynamicStrands {
   void Render(const std::shared_ptr<Camera>& target_camera, const RenderParameters& render_parameters) const;
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const VisualizationParameters& visualization_parameters) const;
-  void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& operators_action) const;
+  void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
+               const std::function<void()>& sub_step_action) const;
 
  private:
   void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);

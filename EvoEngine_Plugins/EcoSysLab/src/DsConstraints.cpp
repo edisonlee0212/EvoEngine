@@ -971,14 +971,19 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
       bundle_update_pipeline->PushConstant(vk_command_buffer, 0, update_constant);
       vkCmdDispatch(vk_command_buffer, Platform::DivUp(update_constant.pair_size, task_work_group_invocations), 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
-
-      calculate_offset();
-      calculate_bend_twist_offset();
-      apply_segment_offset();
-      correct_connections();
-      calculate_stretch_shear_offset();
-      apply_segment_offset();
-      correct_connections();
+      if (enable_bundle) {
+        calculate_offset();
+      }
+      if (enable_bend_twist) {
+        calculate_bend_twist_offset();
+        apply_segment_offset();
+        correct_connections();
+      }
+      if (enable_stretch_shear) {
+        calculate_stretch_shear_offset();
+        apply_segment_offset();
+        correct_connections();
+      }
     }
   });
 }
@@ -1007,7 +1012,8 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
   const auto calculate_regularized_segment_center = [&](const int segment_handle) {
     const auto& strand_segment_data = subdivided_strand_group.PeekStrandSegmentData(segment_handle);
     return glm::vec3(strand_segment_data.profile_position.x, strand_segment_data.profile_position.y,
-        (strand_segment_data.start_root_distance + strand_segment_data.end_root_distance) * .5f / average_segment_length);
+                     (strand_segment_data.start_root_distance + strand_segment_data.end_root_distance) * .5f /
+                         average_segment_length);
   };
   const auto calculate_regularized_segment_p1 = [&](const int segment_handle) {
     const auto& strand_segment_data = subdivided_strand_group.PeekStrandSegmentData(segment_handle);
@@ -1028,7 +1034,7 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
       segment_data_list[segment_handle].pair_handles[j] = -1;
     }
   });
-  
+
   auto max_bound = glm::vec3(-FLT_MAX);
   auto min_bound = glm::vec3(FLT_MAX);
   for (auto& i : max_bounds)
@@ -1057,17 +1063,19 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
     s_d.segment_handle = segment_handle;
     voxel_grid.Ref(s_d.center_position).emplace_back(s_d);
   }
-  std::multimap<float, std::set<std::pair<int, int>>> candidates;
+  std::multimap<float, std::map<std::pair<int, int>, std::pair<float, float>>> candidates;
 
   for (const auto& connection : target_dynamic_strands.connections) {
     const auto& segment0_handle = connection.segment0_handle;
     const auto& segment1_handle = connection.segment1_handle;
     const auto pair =
         std::make_pair(glm::min(segment0_handle, segment1_handle), glm::max(segment0_handle, segment1_handle));
+    constexpr auto distance_pair = std::make_pair(0.f, 0.f);
     if (const auto search = candidates.find(0.0f); search != candidates.end()) {
-      search->second.emplace(pair);
+      search->second.emplace(pair, distance_pair);
     } else {
-      candidates.insert({-1.0f, {pair}});
+      candidates.insert({-1.0f, {}});
+      candidates.find(-1.0f)->second.insert({pair, distance_pair});
     }
   }
   for (int segment_handle = 0; segment_handle < target_dynamic_strands.segments.size(); segment_handle++) {
@@ -1081,97 +1089,102 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
     const auto center = calculate_regularized_segment_center(segment_handle);
     const auto strand_handle = subdivided_strand_group.PeekStrandSegment(segment_handle).GetStrandHandle();
     voxel_grid.ForEach(
-        center, glm::max(initialize_parameters.neighbor_vertical_range, initialize_parameters.neighbor_horizontal_range),
+        center,
+        glm::max(initialize_parameters.neighbor_vertical_range, initialize_parameters.neighbor_horizontal_range),
         [&](const std::vector<SegmentInfo>& list) {
-      for (const auto& info : list) {
-        if (info.segment_handle == segment_handle)
-          continue;
-        if (info.strand_handle == strand_handle) {
-          continue;
-        }
-        //  Function to check if a point is inside a cylinder
-        const auto cylinder_check = [](const glm::vec3& p0, const glm::vec3& p1, const float radius,
-                                       const glm::vec3& point, bool& check) {
-          // Calculate the direction vector of the cylinder's axis
-          const glm::vec3 d_v = p1 - p0;
-          const float height = glm::length(d_v);
-          const glm::vec3 direction = glm::normalize(d_v);
+          for (const auto& info : list) {
+            if (info.segment_handle == segment_handle)
+              continue;
+            if (info.strand_handle == strand_handle) {
+              continue;
+            }
+            //  Function to check if a point is inside a cylinder
+            const auto cylinder_check = [](const glm::vec3& p0, const glm::vec3& p1, const float radius,
+                                           const glm::vec3& point, float& horizontal_distance, float &vertical_distance) {
+              // Calculate the direction vector of the cylinder's axis
+              const glm::vec3 d_v = p1 - p0;
+              const float height = glm::length(d_v);
+              const glm::vec3 direction = glm::normalize(d_v);
 
-          // Vector from p0 to point
-          const glm::vec3 p0_p = point - p0;
+              // Vector from p0 to point
+              const glm::vec3 p0_p = point - p0;
 
-          // Projection scalar
-          const float t = glm::dot(p0_p, direction);
+              // Projection scalar
+              const float t = glm::dot(p0_p, direction);
+              // Check if projection is within the cylinder's height
+              if (t < 0.0f || t > height) {
+                return false;  // Outside the cylinder height
+              }
 
-          // Check if projection is within the cylinder's height
-          if (t < 0.0f || t > height) {
-            check = false;
-            return 0.0f;  // Outside the cylinder height
-          }
+              // Closest point on the cylinder's axis
+              const glm::vec3 closest_point = p0 + t * direction;
 
-          // Closest point on the cylinder's axis
-          const glm::vec3 closest_point = p0 + t * direction;
+              // Distance from point to the axis
+              horizontal_distance = glm::length(point - closest_point);
+              // Check if the distance is within the radius
+              return horizontal_distance <= radius;
+            };
+            float horizontal_distance1, horizontal_distance2;
+            float vertical_distance1, vertical_distance2;
+            const auto check1 = cylinder_check(extended_p0, extended_p1, initialize_parameters.neighbor_horizontal_range, info.p0,
+                               horizontal_distance1, vertical_distance1);
+            const auto check2 = cylinder_check(extended_p0, extended_p1, initialize_parameters.neighbor_horizontal_range, info.p1,
+                               horizontal_distance2, vertical_distance2);
+            if (!check1 && !check2)
+              continue;
 
-          // Distance from point to the axis
-          const float distance = glm::length(point - closest_point);
-          check = distance <= radius;
-          // Check if the distance is within the radius
-          return distance;
-        };
-        bool check1, check2;
-        const auto distance1 =
-            cylinder_check(extended_p0, extended_p1, initialize_parameters.neighbor_horizontal_range, info.p0, check1);
-        const auto distance2 =
-            cylinder_check(extended_p0, extended_p1, initialize_parameters.neighbor_horizontal_range, info.p1, check2);
-        if (!check1 && !check2)
-          continue;
-
-        bool node_check = false;
-        if (info.node_handle == strand_segment_data.node_handle)
-          node_check = true;
-        if (!node_check) {
-          if (auto& node = strand_model_skeleton.PeekNode(strand_segment_data.node_handle);
-              info.node_handle == node.GetParentHandle()) {
-            node_check = true;
-          } else {
-            for (const auto& child_handle : node.PeekChildHandles()) {
-              if (info.node_handle == child_handle) {
+            bool node_check = false;
+            if (info.node_handle == strand_segment_data.node_handle)
+              node_check = true;
+            if (!node_check) {
+              if (auto& node = strand_model_skeleton.PeekNode(strand_segment_data.node_handle);
+                  info.node_handle == node.GetParentHandle()) {
                 node_check = true;
-                break;
+              } else {
+                for (const auto& child_handle : node.PeekChildHandles()) {
+                  if (info.node_handle == child_handle) {
+                    node_check = true;
+                    break;
+                  }
+                }
               }
             }
+            if (!node_check)
+              continue;
+            const auto horizontal_distance = glm::min(horizontal_distance1, horizontal_distance2);
+            const auto pair = segment_handle <= info.segment_handle
+                                  ? std::make_pair(segment_handle, info.segment_handle)
+                                  : std::make_pair(info.segment_handle, segment_handle);
+
+            const auto distance_pair = std::make_pair(horizontal_distance, 0.f);
+            if (const auto search = candidates.find(horizontal_distance); search != candidates.end()) {
+              search->second.emplace(pair, distance_pair);
+            } else {
+              candidates.insert({horizontal_distance, {}});
+              candidates.find(horizontal_distance)->second.insert({pair, distance_pair});
+            }
           }
-        }
-        if (!node_check)
-          continue;
-        const auto distance = glm::min(distance1, distance2);
-        const auto pair = segment_handle <= info.segment_handle ? std::make_pair(segment_handle, info.segment_handle)
-                                                                : std::make_pair(info.segment_handle, segment_handle);
-        if (const auto search = candidates.find(distance); search != candidates.end()) {
-          search->second.emplace(pair);
-        } else {
-          candidates.insert({distance, {pair}});
-        }
-      }
-    });
+        });
   }
   segment_pairs.clear();
   std::vector<uint32_t> counters(target_dynamic_strands.segments.size(), 0);
 
   for (const auto& candidate_set : candidates) {
-    for (const auto& pair : candidate_set.second) {
-      auto& first = counters[pair.first];
-      auto& second = counters[pair.second];
+    for (const auto& candidate : candidate_set.second) {
+      auto& first = counters[candidate.first.first];
+      auto& second = counters[candidate.first.second];
       if (first >= BUNDLE_MAX_CONNECTION || second >= BUNDLE_MAX_CONNECTION)
         continue;
       const auto pair_handle = static_cast<int>(segment_pairs.size());
       segment_pairs.emplace_back();
       auto& new_pair = segment_pairs.back();
-      new_pair.segment0_handle = pair.first;
-      new_pair.segment1_handle = pair.second;
+      new_pair.segment0_handle = candidate.first.first;
+      new_pair.segment1_handle = candidate.first.second;
+      const auto& horizontal_distance = candidate.second.first;
+      const auto& vertical_distance = candidate.second.second;
 
-      const auto& segment0 = target_dynamic_strands.segments[pair.first];
-      const auto& segment1 = target_dynamic_strands.segments[pair.second];
+      const auto& segment0 = target_dynamic_strands.segments[candidate.first.first];
+      const auto& segment1 = target_dynamic_strands.segments[candidate.first.second];
       auto& segment0_particle0 = target_dynamic_strands.particles[segment0.particle0_handle];
       auto& segment0_particle1 = target_dynamic_strands.particles[segment0.particle1_handle];
 
@@ -1200,8 +1213,8 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
       new_pair.max_strain =
           glm::max(initialize_parameters.min_neighbor_strain, initialize_parameters.max_neighbor_strain.GetValue());
       new_pair.valid = 1;
-      segment_data_list[pair.first].pair_handles[first] = pair_handle;
-      segment_data_list[pair.second].pair_handles[second] = pair_handle;
+      segment_data_list[candidate.first.first].pair_handles[first] = pair_handle;
+      segment_data_list[candidate.first.second].pair_handles[second] = pair_handle;
       first++;
       second++;
     }
@@ -1250,6 +1263,16 @@ bool DsRandomBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   if (ImGui::TreeNode("Random Bundle")) {
     if (ImGui::Checkbox("Enable", &enabled))
       changed = true;
+    if (enabled) {
+      if (ImGui::Checkbox("Enable bundle", &enable_bundle))
+        changed = true;
+
+      if (ImGui::Checkbox("Enable bend twist", &enable_bend_twist))
+        changed = true;
+
+      if (ImGui::Checkbox("Enable stretch shear", &enable_stretch_shear))
+        changed = true;
+    }
     if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100))
       changed = true;
 

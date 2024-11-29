@@ -35,8 +35,8 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
       [](StrandHandle src_handle, DtsStrandData& strand_data) {
       },
       [&](const float start_root_distance, const float end_root_distance, const StrandSegmentHandle src_handle,
-          const uint32_t original_segment_index,
-          const float segment_t, DtsStrandSegmentData& segment_data, const uint32_t sub_segment_index) {
+          const uint32_t original_segment_index, const float segment_t, DtsStrandSegmentData& segment_data,
+          const uint32_t sub_segment_index) {
         const auto& src_segment_data = source_strand_group.PeekStrandSegmentData(src_handle);
         segment_data.node_handle = src_segment_data.node_handle;
         segment_data.original_segment_t = segment_t;
@@ -96,34 +96,35 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
   dynamic_strands->constraints.emplace_back(std::make_shared<DsGroundPlane>());
   // subdivided_strand_group.RandomAssignColor();
 
-  attraction_operators.clear();
   transform_operators.clear();
-  transform_operators.emplace_back();
-  const auto owner = GetOwner();
-  const auto scene = GetScene();
-  initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
-
-  Jobs::RunParallelFor(subdivided_strand_group.PeekStrands().size(), [&](const size_t strand_index) {
-    const auto& strand = subdivided_strand_group.PeekStrands()[strand_index];
-    for (int sub_segment_index = 0; sub_segment_index < strand.PeekStrandSegmentHandles().size(); sub_segment_index++) {
-      auto& segment_data =
-          subdivided_strand_group.RefStrandSegmentData(strand.PeekStrandSegmentHandles()[sub_segment_index]);
-      segment_data.segment_index = sub_segment_index;
-    }
-  });
 
   dynamic_strands->Initialize(initialize_parameters, strand_model_skeleton, source_strand_group,
                               subdivided_strand_group);
+  if (initialize_parameters.static_root) {
+    transform_operators.emplace_back();
+    const auto owner = GetOwner();
+    const auto scene = GetScene();
+    initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
 
-  auto& transform_operator = transform_operators.back();
-  std::vector<uint32_t> segment_handles(dynamic_strands->strands.size());
-  Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
-    const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
-    segment_handles[i] = segment_handle;
-  });
-  transform_operator.target_entity = owner;
-  transform_operator.ds_transform = std::make_shared<DsTransform>();
-  transform_operator.ds_transform->Initialize(initialize_parameters.root_transform, dynamic_strands, segment_handles);
+    Jobs::RunParallelFor(subdivided_strand_group.PeekStrands().size(), [&](const size_t strand_index) {
+      const auto& strand = subdivided_strand_group.PeekStrands()[strand_index];
+      for (int sub_segment_index = 0; sub_segment_index < strand.PeekStrandSegmentHandles().size();
+           sub_segment_index++) {
+        auto& segment_data =
+            subdivided_strand_group.RefStrandSegmentData(strand.PeekStrandSegmentHandles()[sub_segment_index]);
+        segment_data.segment_index = sub_segment_index;
+      }
+    });
+    auto& transform_operator = transform_operators.back();
+    std::vector<uint32_t> segment_handles(dynamic_strands->strands.size());
+    Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+      const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
+      segment_handles[i] = segment_handle;
+    });
+    transform_operator.target_entity = owner;
+    transform_operator.ds_transform = std::make_shared<DsTransform>();
+    transform_operator.ds_transform->Initialize(initialize_parameters.root_transform, dynamic_strands, segment_handles);
+  }
 }
 
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
@@ -160,13 +161,28 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     UpdateDynamicStrands();
   }
   if (ImGui::TreeNodeEx("Experiments", ImGuiTreeNodeFlags_DefaultOpen)) {
-    static MultipleRodExperimentSetupSettings multiple_rod_experiment_setup_settings{};
-
-    ImGui::DragFloat("Rod length", &multiple_rod_experiment_setup_settings.segment_length, 0.01f, 0.01f, 10.0f);
-    ImGui::DragInt3("Rod dimension (3D)", &multiple_rod_experiment_setup_settings.rod_dimension.x, 1, 1, 1000);
-    ImGui::Checkbox("Operator", &multiple_rod_experiment_setup_settings.add_operator);
-    if (ImGui::Button("Multiple Rod Experiment")) {
-      MultipleRodExperimentSetup(multiple_rod_experiment_setup_settings);
+    if (ImGui::TreeNode("Board Experiment")) {
+      static BoardExperimentSetupSettings multiple_rod_experiment_setup_settings{};
+      ImGui::DragFloat("Rod length", &multiple_rod_experiment_setup_settings.segment_length, 0.01f, 0.01f, 10.0f);
+      ImGui::DragFloat("Rod radius", &multiple_rod_experiment_setup_settings.radius, 0.001f, 0.001f, 1.0f);
+      ImGui::DragInt3("Rod dimension (3D)", &multiple_rod_experiment_setup_settings.rod_dimension.x, 1, 1, 1000);
+      ImGui::Checkbox("Operator", &multiple_rod_experiment_setup_settings.add_operator);
+      if (ImGui::Button("Initialize")) {
+        BoardExperimentSetup(multiple_rod_experiment_setup_settings);
+      }
+      ImGui::TreePop();
+    }
+    if (ImGui::TreeNode("Log Experiment")) {
+      static LogExperimentSetupSettings log_experiment_setup_settings{};
+      ImGui::DragFloat("Rod length", &log_experiment_setup_settings.segment_length, 0.01f, 0.01f, 10.0f);
+      ImGui::DragFloat("Rod radius", &log_experiment_setup_settings.radius, 0.001f, 0.001f, 1.0f);
+      ImGui::DragInt("Rod size", &log_experiment_setup_settings.rod_size, 1, 1, 1000);
+      ImGui::DragInt("Rod segment size", &log_experiment_setup_settings.rod_segment_count, 1, 1, 1000);
+      ImGui::Checkbox("Operator", &log_experiment_setup_settings.add_operator);
+      if (ImGui::Button("Initialize")) {
+        LogExperimentSetup(log_experiment_setup_settings);
+      }
+      ImGui::TreePop();
     }
     ImGui::TreePop();
   }
@@ -201,12 +217,6 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       if (ImGui::TreeNode("Transform operators")) {
         for (auto& i : transform_operators) {
           i.ds_transform->OnInspect(editor_layer);
-        }
-        ImGui::TreePop();
-      }
-      if (ImGui::TreeNode("Drag force operators")) {
-        for (auto& i : attraction_operators) {
-          i.ds_attraction->OnInspect(editor_layer);
         }
         ImGui::TreePop();
       }
@@ -261,7 +271,7 @@ void DynamicTreeStrands::OnDestroy() {
 void DynamicTreeStrands::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
-void DynamicTreeStrands::MultipleRodExperimentSetup(const MultipleRodExperimentSetupSettings& settings) {
+void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings& settings) {
   strand_model_skeleton = {1};
   auto& strand_group = strand_model_skeleton.data.strand_group;
 
@@ -283,8 +293,9 @@ void DynamicTreeStrands::MultipleRodExperimentSetup(const MultipleRodExperimentS
       strand.start_position = glm::vec3(0.0f, settings.radius * (y - settings.rod_dimension.y / 2.f) * 2.f,
                                         settings.radius * (x - settings.rod_dimension.x / 2.f) * 2.f);
       strand.start_color = glm::vec4(1, 1, 1, 1);
-      strand.start_thickness = settings.radius;
-
+      strand.start_thickness = settings.radius * 2.f;
+      const float distance_to_boundary =
+          glm::min(glm::min(x, y), glm::min(settings.rod_dimension.x - x, settings.rod_dimension.y - y));
       for (int z = 0; z < settings.rod_dimension.z; z++) {
         const auto segment_handle = strand_group.Extend(strand_handle);
         auto& segment = strand_group.RefStrandSegment(segment_handle);
@@ -293,10 +304,11 @@ void DynamicTreeStrands::MultipleRodExperimentSetup(const MultipleRodExperimentS
             settings.radius * (static_cast<float>(y) - static_cast<float>(settings.rod_dimension.y) / 2.f) * 2.f,
             settings.radius * (static_cast<float>(x) - static_cast<float>(settings.rod_dimension.x) / 2.f) * 2.f);
         segment.end_color = glm::vec4(1, 1, 1, 1);
-        segment.end_thickness = settings.radius;
-        auto &segment_data = strand_group.RefStrandSegmentData(segment_handle);
+        segment.end_thickness = settings.radius * 2.f;
+        auto& segment_data = strand_group.RefStrandSegmentData(segment_handle);
         segment_data.profile_position = glm::vec2(x, y);
         segment_data.node_handle = z;
+        segment_data.initial_distance_to_boundary = distance_to_boundary;
       }
     }
   }
@@ -323,6 +335,110 @@ void DynamicTreeStrands::MultipleRodExperimentSetup(const MultipleRodExperimentS
     auto operator_root_transform = GlobalTransform();
     operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
         glm::vec3(static_cast<float>(settings.rod_dimension.z + 1) * settings.segment_length, 0, 0)));
+    scene->SetDataComponent(operator_entity, operator_root_transform);
+    scene->SetParent(operator_entity, GetOwner());
+
+    std::vector<uint32_t> segment_handles(dynamic_strands->strands.size());
+    Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+      const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
+      segment_handles[i] = segment_handle;
+    });
+    transform_operator.target_entity = operator_entity;
+    transform_operator.ds_transform = std::make_shared<DsTransform>();
+    transform_operator.ds_transform->Initialize(operator_root_transform, dynamic_strands, segment_handles);
+  }
+}
+
+void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& settings) {
+  strand_model_skeleton = {1};
+  auto& strand_group = strand_model_skeleton.data.strand_group;
+
+  auto& root_node = strand_model_skeleton.RefNode(0);
+  root_node.info.global_position = glm::vec3(0.0f);
+  root_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
+  for (int z = 1; z < settings.rod_segment_count; z++) {
+    const auto new_node_handle = strand_model_skeleton.Extend(z - 1, false);
+    auto& new_node = strand_model_skeleton.RefNode(new_node_handle);
+    new_node.info.global_position = glm::vec3(settings.segment_length * (static_cast<float>(z) + 1.f), 0.0f, 0.0f);
+    new_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
+  }
+  strand_model_skeleton.CalculateRegulatedGlobalRotation();
+  strand_model_skeleton.SortLists();
+
+  StrandModelProfile<CellParticlePhysicsData> profile;
+  for (int i = 0; i < settings.rod_size; i++) {
+    const auto new_particle_handle = profile.AllocateParticle();
+    auto& new_particle = profile.RefParticle(new_particle_handle);
+    new_particle.strand_handle = i;
+    new_particle.strand_segment_handle = 0;
+    new_particle.base = false;
+    const auto position =
+        settings.rod_size == 1 ? glm::vec2(0.f) : glm::diskRand(glm::sqrt(static_cast<float>(settings.rod_size)));
+    new_particle.SetPosition(position);
+    new_particle.SetInitialPosition(position);
+  }
+  for (int i = 0; i < 1024; i++) {
+    profile.Simulate(
+        1,
+        [&](auto& grid, const bool grid_resized) {
+        },
+        [&](auto& particle) {
+          auto acceleration = glm::vec2(0.f);
+          if (!profile.particle_grid_2d.PeekCells().empty()) {
+            const auto& cell = profile.particle_grid_2d.RefCell(particle.GetPosition());
+            if (glm::length(cell.target) > glm::epsilon<float>()) {
+              acceleration += settings.center_attraction_strength * glm::normalize(cell.target);
+            }
+          }
+          particle.SetAcceleration(acceleration);
+        });
+  }
+  profile.CalculateBoundaries(true);
+  for (int i = 0; i < settings.rod_size; i++) {
+    const auto strand_handle = strand_group.AllocateStrand();
+    auto& strand = strand_group.RefStrand(strand_handle);
+    const auto& particle = profile.PeekParticle(i);
+    const auto profile_position = particle.GetPosition();
+    strand.start_position = glm::vec3(0.0f, settings.radius * profile_position.x, settings.radius * profile_position.y);
+    strand.start_color = glm::vec4(1, 1, 1, 1);
+    strand.start_thickness = settings.radius * 2.f;
+    const float distance_to_boundary = particle.GetDistanceToBoundary();
+    for (int z = 0; z < settings.rod_segment_count; z++) {
+      const auto segment_handle = strand_group.Extend(strand_handle);
+      auto& segment = strand_group.RefStrandSegment(segment_handle);
+      segment.end_position = glm::vec3(settings.segment_length * (static_cast<float>(z) + 1.f),
+                                       settings.radius * profile_position.x, settings.radius * profile_position.y);
+      segment.end_color = glm::vec4(1, 1, 1, 1);
+      segment.end_thickness = settings.radius * 2.f;
+      auto& segment_data = strand_group.RefStrandSegmentData(segment_handle);
+      segment_data.profile_position = profile_position;
+      segment_data.node_handle = z;
+      segment_data.initial_distance_to_boundary = distance_to_boundary;
+    }
+  }
+  strand_group.CalculateRotations();
+  const bool saved_strand_length_limit = limit_strand_length;
+  limit_strand_length = false;
+  UpdateDynamicStrands();
+  limit_strand_length = saved_strand_length_limit;
+  if (settings.add_operator) {
+    const auto scene = Application::GetActiveScene();
+    const auto children = scene->GetChildren(GetOwner());
+    Entity operator_entity{};
+    for (const auto& child : children) {
+      if (scene->GetEntityName(child) == "Operator") {
+        operator_entity = child;
+        break;
+      }
+    }
+    if (!scene->IsEntityValid(operator_entity))
+      operator_entity = scene->CreateEntity("Operator");
+    transform_operators.emplace_back();
+    auto& transform_operator = transform_operators.back();
+
+    auto operator_root_transform = GlobalTransform();
+    operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
+        glm::vec3(static_cast<float>(settings.rod_segment_count + 1) * settings.segment_length, 0, 0)));
     scene->SetDataComponent(operator_entity, operator_root_transform);
     scene->SetParent(operator_entity, GetOwner());
 
@@ -374,6 +490,12 @@ void DynamicTreeStrands::ClearStrandParticles() const {
   }
 }
 
+void DynamicTreeStrands::InteractionStep() const {
+  if (box_selection_operator->enabled) {
+    box_selection_operator->Execute(dynamic_strands);
+  }
+}
+
 void DynamicTreeStrands::PhysicsStep() const {
   if (!dynamic_strands->segments.empty()) {
     const auto scene = GetScene();
@@ -385,33 +507,23 @@ void DynamicTreeStrands::PhysicsStep() const {
           transform_operator.ds_transform->Update(global_transform, dynamic_strands);
         }
       }
-      for (const auto& attraction_operator : attraction_operators) {
-        if (scene->IsEntityValid(attraction_operator.target_entity)) {
-          const auto global_position =
-              scene->GetDataComponent<GlobalTransform>(attraction_operator.target_entity).GetPosition();
-          attraction_operator.ds_attraction->Update(global_position);
-        }
-      }
-
-      dynamic_strands->Physics(physics_parameters, [&]() {
-        for (const auto& transform_operator : transform_operators) {
-          if (transform_operator.ds_transform->enabled && scene->IsEntityValid(transform_operator.target_entity))
-            transform_operator.ds_transform->Execute(physics_parameters, dynamic_strands);
-        }
-        if (gravity->enabled)
-          gravity->Execute(physics_parameters, dynamic_strands);
-        for (const auto& attraction_operator : attraction_operators) {
-          if (attraction_operator.ds_attraction->enabled && scene->IsEntityValid(attraction_operator.target_entity))
-            attraction_operator.ds_attraction->Execute(physics_parameters, dynamic_strands);
-        }
-
-        if (box_selection_operator->enabled) {
-          box_selection_operator->Execute(dynamic_strands);
-        }
-        if (drag_operator->enabled) {
-          drag_operator->Execute(physics_parameters, dynamic_strands);
-        }
-      });
+      dynamic_strands->Physics(
+          physics_parameters,
+          [&]() {
+            
+          },
+          [&]() {
+            for (const auto& transform_operator : transform_operators) {
+              if (transform_operator.ds_transform->enabled && scene->IsEntityValid(transform_operator.target_entity))
+                transform_operator.ds_transform->Execute(physics_parameters, dynamic_strands);
+            }
+            if (gravity->enabled)
+              gravity->Execute(physics_parameters, dynamic_strands);
+            
+            if (drag_operator->enabled) {
+              drag_operator->Execute(physics_parameters, dynamic_strands);
+            }
+          });
     }
   }
 }

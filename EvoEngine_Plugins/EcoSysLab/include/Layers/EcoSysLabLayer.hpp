@@ -63,8 +63,8 @@ class EcoSysLabLayer : public ILayer {
     float m_health = 1.0f;
   };
 
-  enum class TreeOperatorMode { Select, Rotate, Prune, Invigorate, Reduce };
-  unsigned tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::Select);
+  enum class TreeOperatorMode { None, Select, Rotate, Prune, Invigorate, Reduce };
+  unsigned tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::None);
   float tree_reduce_rate = 0.1f;
   struct TreeVisualizerSettings {
     bool display_shoot_stem = true;
@@ -79,12 +79,14 @@ class EcoSysLabLayer : public ILayer {
     void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
-  struct StrandVisualizerSettings {
+  struct DynamicStrandsVisualizerSettings {
     float drag_multiplier = 1.f;
+    enum class DynamicStrandsTransformMode { None, Translate, Rotate };
+    unsigned transform_mode = static_cast<unsigned>(DynamicStrandsTransformMode::Translate);
     void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   TreeVisualizerSettings tree_visualizer_settings_;
-  StrandVisualizerSettings strand_visualizer_settings_;
+  DynamicStrandsVisualizerSettings dynamic_strands_visualizer_settings_;
   bool auto_generate_mesh_after_editing_ = false;
   bool auto_generate_skeletal_graph_every_frame_ = false;
   bool auto_generate_strands_after_editing_ = false;

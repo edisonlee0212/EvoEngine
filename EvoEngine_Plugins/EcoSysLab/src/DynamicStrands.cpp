@@ -28,13 +28,13 @@ inline glm::vec3 cgal_to_glm(const CGAL::Point_3<CGAL::Epick>& p) {
   return {p.x(), p.y(), p.z()};
 }
 #endif
-
-void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
-                             const std::function<void()>& operators_action) const {
-  if (pre_step)
-    pre_step->Execute(physics_parameters, *this);
-  operators_action();
+void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
+                             const std::function<void()>& sub_step_action) const {
+  pre_step_action();
   for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
+    if (pre_step)
+      pre_step->Execute(physics_parameters, *this);
+    sub_step_action();
     if (prediction)
       prediction->Execute(physics_parameters, *this);
     for (const auto& c : constraints) {
@@ -45,12 +45,34 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
     }
 
     const auto scene = Application::GetActiveScene();
-    if (const auto* collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>()) {
-      for (const auto& entity : *collider_entities) {
-        scene->GetOrSetPrivateComponent<DsBoxCollider>(entity).lock()->ProjectPositionConstraint(physics_parameters,
-                                                                                                 *this);
-      }
-    }
+
+    const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
+    const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
+    const auto* cylinder_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsCylinderCollider>();
+    const auto for_each_collider_entity =
+        [&](const std::function<void(const std::shared_ptr<IDsCollider>& dts)>& action) {
+          if (box_collider_entities && !box_collider_entities->empty()) {
+            for (const auto& i : *box_collider_entities) {
+              const auto box_collider = scene->GetOrSetPrivateComponent<DsBoxCollider>(i).lock();
+              action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
+            }
+          }
+          if (sphere_collider_entities && !sphere_collider_entities->empty()) {
+            for (const auto& i : *sphere_collider_entities) {
+              const auto sphere_collider = scene->GetOrSetPrivateComponent<DsSphereCollider>(i).lock();
+              action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
+            }
+          }
+          if (cylinder_collider_entities && !cylinder_collider_entities->empty()) {
+            for (const auto& i : *cylinder_collider_entities) {
+              const auto cylinder_collider = scene->GetOrSetPrivateComponent<DsCylinderCollider>(i).lock();
+              action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
+            }
+          }
+        };
+    for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
+      dts->ProjectPositionConstraint(physics_parameters, *this);
+    });
 
     if (velocity_update)
       velocity_update->Execute(physics_parameters, *this);
@@ -107,6 +129,10 @@ bool DynamicStrands::WaitForUpload() const {
 
 bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
+  if (ImGui::Checkbox("Static root", &static_root)) {
+    changed = true;
+  }
+
   if (ImGui::DragFloat("Min segment length", &min_segment_length, 0.001f, 0.001f, max_segment_length))
     changed = true;
   if (ImGui::DragFloat("Max segment length", &max_segment_length, 0.001f, min_segment_length, 1.0f))
@@ -253,8 +279,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
       },
       [&](const float start_root_distance, const float end_root_distance, const StrandSegmentHandle src_handle,
-          const uint32_t original_segment_index,
-          const float segment_t, DtsStrandSegmentData& segment_data, const uint32_t sub_segment_index) {
+          const uint32_t original_segment_index, const float segment_t, DtsStrandSegmentData& segment_data,
+          const uint32_t sub_segment_index) {
         const auto& src_segment_data = strand_model_strand_group.PeekStrandSegmentData(src_handle);
         segment_data.node_handle = src_segment_data.node_handle;
         segment_data.original_segment_handle = src_handle;

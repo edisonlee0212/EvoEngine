@@ -543,7 +543,13 @@ void DatasetGenerator::GenerateMeshAndPointCloudForSorghum(
   scanner->sorghum_point_cloud_point_settings = point_settings;
   scanner->Capture(point_cloud_output_path, capture_settings);
   Application::Loop();
-
+  std::ofstream of;
+  of.open(mesh_output_path, std::ofstream::out | std::ofstream::trunc);
+  if (of.is_open()) {
+    unsigned start_index = 1;
+    sorghum_layer->ExportSorghum(sorghum_entity, of, start_index);
+    of.close();
+  }
   if (avoid_occlusion) {
     auto mesh_settings_copy = sorghum_mesh_generator_settings;
     mesh_settings_copy.leaf_separated = true;
@@ -571,13 +577,7 @@ void DatasetGenerator::GenerateMeshAndPointCloudForSorghum(
     temp_path.replace_filename(temp_path.filename().stem().string() + "_nc.ply");
     scanner->SavePointCloud(temp_path, points, leaf_indices, instance_indices, type_indices);
   }
-  std::ofstream of;
-  of.open(mesh_output_path, std::ofstream::out | std::ofstream::trunc);
-  if (of.is_open()) {
-    unsigned start_index = 0;
-    sorghum_layer->ExportSorghum(sorghum_entity, of, start_index);
-    of.close();
-  }
+  
   scene->DeleteEntity(sorghum_entity);
   scene->DeleteEntity(scanner_entity);
   Application::Loop();
