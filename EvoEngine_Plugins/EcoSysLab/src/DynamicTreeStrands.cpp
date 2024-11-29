@@ -294,7 +294,9 @@ void DynamicTreeStrands::MultipleRodExperimentSetup(const MultipleRodExperimentS
             settings.radius * (static_cast<float>(x) - static_cast<float>(settings.rod_dimension.x) / 2.f) * 2.f);
         segment.end_color = glm::vec4(1, 1, 1, 1);
         segment.end_thickness = settings.radius;
-        strand_group.RefStrandSegmentData(segment_handle).node_handle = z;
+        auto &segment_data = strand_group.RefStrandSegmentData(segment_handle);
+        segment_data.profile_position = glm::vec2(x, y);
+        segment_data.node_handle = z;
       }
     }
   }
