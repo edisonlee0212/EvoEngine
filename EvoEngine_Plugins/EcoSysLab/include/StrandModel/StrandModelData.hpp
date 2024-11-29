@@ -18,7 +18,7 @@ struct StrandModelStrandSegmentData {
   ParticleHandle profile_particle_handle = -1;
 
   bool is_boundary = false;
-
+  glm::vec2 profile_position;
   float initial_distance_to_boundary;
 };
 

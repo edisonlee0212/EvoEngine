@@ -191,7 +191,7 @@ class DsStiffRod final : public IDsConstraint {
   static glm::vec3 ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1, float average_segment_length);
 };
 
-#define BUNDLE_MAX_CONNECTION 32
+#define BUNDLE_MAX_CONNECTION 16
 class DsRandomBundle : public IDsConstraint {
  public:
   struct RandomBundleUpdateConstant {

@@ -171,7 +171,7 @@ DsPrediction::DsPrediction() {
     shader = std::make_shared<Shader>();
     shader->Set(
         ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/ConnectionPrediction.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Prediction/Connection.comp");
     connection_prediction_pipeline = std::make_shared<ComputePipeline>();
     connection_prediction_pipeline->compute_shader = shader;
     connection_prediction_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -881,11 +881,9 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
   bend_twist_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   bend_twist_constraint_constant.over_relaxation = bend_twist_over_relaxation;
 
-
   RandomBundleStretchShearConstant stretch_shear_constraint_constant;
   stretch_shear_constraint_constant.segment_size = static_cast<uint32_t>(segment_data_list.size());
   stretch_shear_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
-
 
   RandomBundleApplySegmentsConstant constraint_apply_segments_constant;
   constraint_apply_segments_constant.segment_size = static_cast<uint32_t>(segment_data_list.size());
@@ -935,8 +933,8 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
             vk_command_buffer, 1, bundle_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         bundle_stretch_shear_offset_pipeline->PushConstant(vk_command_buffer, 0, stretch_shear_constraint_constant);
         vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(stretch_shear_constraint_constant.segment_size, task_work_group_invocations),
-                      1, 1);
+                      Platform::DivUp(stretch_shear_constraint_constant.segment_size, task_work_group_invocations), 1,
+                      1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
       const auto calculate_bend_twist_offset = [&]() {
@@ -948,8 +946,7 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
             vk_command_buffer, 1, bundle_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         bundle_bend_twist_offset_pipeline->PushConstant(vk_command_buffer, 0, bend_twist_constraint_constant);
         vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(bend_twist_constraint_constant.segment_size, task_work_group_invocations),
-                      1, 1);
+                      Platform::DivUp(bend_twist_constraint_constant.segment_size, task_work_group_invocations), 1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
       const auto calculate_offset = [&]() {
@@ -998,20 +995,40 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
     i = glm::vec3(-FLT_MAX);
   for (auto& i : min_bounds)
     i = glm::vec3(FLT_MAX);
-  Jobs::RunParallelFor(segment_data_list.size(), [&](const auto i, const auto worker_i) {
-    const auto& segment = target_dynamic_strands.segments[i];
-    const auto& particle0 = target_dynamic_strands.particles[segment.particle0_handle];
-    const auto& particle1 = target_dynamic_strands.particles[segment.particle1_handle];
 
-    max_bounds[worker_i] = glm::max(max_bounds[worker_i], particle0.x0);
-    min_bounds[worker_i] = glm::min(min_bounds[worker_i], particle0.x0);
-    max_bounds[worker_i] = glm::max(max_bounds[worker_i], particle1.x0);
-    min_bounds[worker_i] = glm::min(min_bounds[worker_i], particle1.x0);
+  float average_segment_length =
+      (initialize_parameters.min_segment_length, initialize_parameters.max_segment_length) * 0.5f;
+
+  const auto calculate_regularized_segment_p0 = [&](const int segment_handle) {
+    const auto& strand_segment_data = subdivided_strand_group.PeekStrandSegmentData(segment_handle);
+    return glm::vec3(strand_segment_data.profile_position.x, strand_segment_data.profile_position.y,
+                     strand_segment_data.start_root_distance / average_segment_length);
+  };
+  const auto calculate_regularized_segment_center = [&](const int segment_handle) {
+    const auto& strand_segment_data = subdivided_strand_group.PeekStrandSegmentData(segment_handle);
+    return glm::vec3(strand_segment_data.profile_position.x, strand_segment_data.profile_position.y,
+        (strand_segment_data.start_root_distance + strand_segment_data.end_root_distance) * .5f / average_segment_length);
+  };
+  const auto calculate_regularized_segment_p1 = [&](const int segment_handle) {
+    const auto& strand_segment_data = subdivided_strand_group.PeekStrandSegmentData(segment_handle);
+    return glm::vec3(strand_segment_data.profile_position.x, strand_segment_data.profile_position.y,
+                     strand_segment_data.end_root_distance / average_segment_length);
+  };
+  Jobs::RunParallelFor(segment_data_list.size(), [&](const auto segment_handle, const auto worker_i) {
+    max_bounds[worker_i] =
+        glm::max(max_bounds[worker_i], calculate_regularized_segment_p0(static_cast<int>(segment_handle)));
+    min_bounds[worker_i] =
+        glm::min(min_bounds[worker_i], calculate_regularized_segment_p0(static_cast<int>(segment_handle)));
+    max_bounds[worker_i] =
+        glm::max(max_bounds[worker_i], calculate_regularized_segment_p1(static_cast<int>(segment_handle)));
+    min_bounds[worker_i] =
+        glm::min(min_bounds[worker_i], calculate_regularized_segment_p1(static_cast<int>(segment_handle)));
 
     for (int j = 0; j < BUNDLE_MAX_CONNECTION; j++) {
-      segment_data_list[i].pair_handles[j] = -1;
+      segment_data_list[segment_handle].pair_handles[j] = -1;
     }
   });
+  
   auto max_bound = glm::vec3(-FLT_MAX);
   auto min_bound = glm::vec3(FLT_MAX);
   for (auto& i : max_bounds)
@@ -1027,19 +1044,17 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
     int segment_handle;
   };
   VoxelGrid<std::vector<SegmentInfo>> voxel_grid;
-  constexpr auto grid_size = 0.1f;
-  voxel_grid.Initialize(grid_size, min_bound - glm::vec3(grid_size) * 2.f, max_bound + glm::vec3(grid_size) * 2.f, {});
-  for (int segment_index = 0; segment_index < target_dynamic_strands.segments.size(); segment_index++) {
-    const auto& segment = target_dynamic_strands.segments[segment_index];
-    const auto& particle0 = target_dynamic_strands.particles[segment.particle0_handle];
-    const auto& particle1 = target_dynamic_strands.particles[segment.particle1_handle];
+  constexpr auto cell_size = 1.f;
+  voxel_grid.Initialize(cell_size, min_bound - glm::vec3(cell_size) * 2.f, max_bound + glm::vec3(cell_size) * 2.f, {});
+  for (int segment_handle = 0; segment_handle < target_dynamic_strands.segments.size(); segment_handle++) {
+    const auto& strand_segment_data = subdivided_strand_group.PeekStrandSegmentData(segment_handle);
     SegmentInfo s_d;
-    s_d.p0 = particle0.x0;
-    s_d.p1 = particle1.x0;
-    s_d.center_position = (particle0.x0 + particle1.x0) * .5f;
-    s_d.node_handle = particle0.node_handle;
-    s_d.strand_handle = segment.strand_handle;
-    s_d.segment_handle = segment_index;
+    s_d.p0 = calculate_regularized_segment_p0(segment_handle);
+    s_d.p1 = calculate_regularized_segment_p1(segment_handle);
+    s_d.center_position = calculate_regularized_segment_center(segment_handle);
+    s_d.node_handle = strand_segment_data.node_handle;
+    s_d.strand_handle = subdivided_strand_group.PeekStrandSegment(segment_handle).GetStrandHandle();
+    s_d.segment_handle = segment_handle;
     voxel_grid.Ref(s_d.center_position).emplace_back(s_d);
   }
   std::multimap<float, std::set<std::pair<int, int>>> candidates;
@@ -1055,18 +1070,23 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
       candidates.insert({-1.0f, {pair}});
     }
   }
-  const float detection_radius =
-      (initialize_parameters.max_segment_length + initialize_parameters.min_segment_length) * 2.0f;
   for (int segment_handle = 0; segment_handle < target_dynamic_strands.segments.size(); segment_handle++) {
-    const auto& segment = target_dynamic_strands.segments[segment_handle];
-    const auto& particle0 = target_dynamic_strands.particles[segment.particle0_handle];
-    const auto& particle1 = target_dynamic_strands.particles[segment.particle1_handle];
-    const auto segment_center_position = (particle0.x0 + particle1.x0) * .5f;
-    voxel_grid.ForEach(segment_center_position, detection_radius, [&](const std::vector<SegmentInfo>& list) {
+    const auto& strand_segment_data = subdivided_strand_group.PeekStrandSegmentData(segment_handle);
+    const auto p0 = calculate_regularized_segment_p0(segment_handle);
+    const auto p1 = calculate_regularized_segment_p1(segment_handle);
+
+    const auto extended_p0 = p0 - glm::vec3(0, 0, initialize_parameters.neighbor_vertical_range);
+    const auto extended_p1 = p1 + glm::vec3(0, 0, initialize_parameters.neighbor_vertical_range);
+
+    const auto center = calculate_regularized_segment_center(segment_handle);
+    const auto strand_handle = subdivided_strand_group.PeekStrandSegment(segment_handle).GetStrandHandle();
+    voxel_grid.ForEach(
+        center, glm::max(initialize_parameters.neighbor_vertical_range, initialize_parameters.neighbor_horizontal_range),
+        [&](const std::vector<SegmentInfo>& list) {
       for (const auto& info : list) {
         if (info.segment_handle == segment_handle)
           continue;
-        if (info.strand_handle == segment.strand_handle) {
+        if (info.strand_handle == strand_handle) {
           continue;
         }
         //  Function to check if a point is inside a cylinder
@@ -1099,18 +1119,18 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
           return distance;
         };
         bool check1, check2;
-        const auto distance1 = cylinder_check(particle0.x0, particle1.x0,
-                                              segment.radius * initialize_parameters.neighbor_range, info.p0, check1);
-        const auto distance2 = cylinder_check(particle0.x0, particle1.x0,
-                                              segment.radius * initialize_parameters.neighbor_range, info.p1, check2);
+        const auto distance1 =
+            cylinder_check(extended_p0, extended_p1, initialize_parameters.neighbor_horizontal_range, info.p0, check1);
+        const auto distance2 =
+            cylinder_check(extended_p0, extended_p1, initialize_parameters.neighbor_horizontal_range, info.p1, check2);
         if (!check1 && !check2)
           continue;
 
         bool node_check = false;
-        if (info.node_handle == particle0.node_handle)
+        if (info.node_handle == strand_segment_data.node_handle)
           node_check = true;
         if (!node_check) {
-          if (auto& node = strand_model_skeleton.PeekNode(particle0.node_handle);
+          if (auto& node = strand_model_skeleton.PeekNode(strand_segment_data.node_handle);
               info.node_handle == node.GetParentHandle()) {
             node_check = true;
           } else {
@@ -1162,7 +1182,7 @@ void DsRandomBundle::InitializeData(const DynamicStrands::InitializeParameters& 
       const auto segment1_center_position = (segment1_particle0.x0 + segment1_particle1.x0) * .5f;
 
       const float segment_length = 1.f;
-      //glm::distance(segment0_center_position, segment1_center_position);
+      // glm::distance(segment0_center_position, segment1_center_position);
       const float segment_radius = 1.f;
       //(segment0.radius + segment1.radius) * .5f;
 
@@ -1233,11 +1253,10 @@ bool DsRandomBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100))
       changed = true;
 
-    
-     if (ImGui::DragFloat("Over relaxation", &over_relaxation, 0.01f, 1, 10.f))
+    if (ImGui::DragFloat("Over relaxation", &over_relaxation, 0.01f, 1, 10.f))
       changed = true;
-     if (ImGui::DragFloat("Bend Twist over relaxation", &bend_twist_over_relaxation, 0.01f, 1, 10.f))
-       changed = true;
+    if (ImGui::DragFloat("Bend Twist over relaxation", &bend_twist_over_relaxation, 0.01f, 1, 10.f))
+      changed = true;
     ImGui::TreePop();
   }
   return changed;

@@ -20,7 +20,8 @@ struct DtsStrandGroupData {};
 struct DtsStrandData {};
 
 struct DtsStrandSegmentData {
-  float root_distance = 0.0f;
+  float start_root_distance = 0.0f;
+  float end_root_distance = 0.0f;
   uint32_t original_segment_index;
   /**
    * \brief The handle of the internode this pipe segment belongs to. Pipe -> PipeSegment <-> Cell <- Profile <-
@@ -28,9 +29,12 @@ struct DtsStrandSegmentData {
    */
   SkeletonNodeHandle node_handle = -1;
   StrandSegmentHandle original_segment_handle;
+  
   float original_segment_t;
   uint32_t segment_index;
-  
+
+  glm::vec2 profile_position;
+
   float initial_distance_to_boundary;
 };
 
@@ -56,7 +60,8 @@ class DynamicStrands {
     float velocity_damping = 0.005f;
     float angular_velocity_damping = 0.0005f;
 
-    float neighbor_range = 6.0f;
+    float neighbor_vertical_range = 3.0f;
+    float neighbor_horizontal_range = 3.0f;
     SingleDistribution<float> max_neighbor_strain = {0.1f, 0.1f};
 
     float min_neighbor_strain = 0.001f;

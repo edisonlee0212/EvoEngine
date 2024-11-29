@@ -1,5 +1,5 @@
 
-#define BUNDLE_MAX_CONNECTION 32
+#define BUNDLE_MAX_CONNECTION 16
 
 struct SegmentPair {
   int segment0_handle;
