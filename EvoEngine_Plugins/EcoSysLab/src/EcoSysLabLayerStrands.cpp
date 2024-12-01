@@ -96,9 +96,21 @@ void EcoSysLabLayer::ClearStrandModelMeshes() const {
   }
 }
 
-void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& editor_layer) {
-  if (!show_strands)
-    return;
+void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
+  const auto scene = GetScene();
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    for (auto tree_entity : *tree_entities) {
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      tree->BuildStrandModel();
+      const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+      ds->strand_model_skeleton = tree->strand_model.strand_model_skeleton;
+      ds->UpdateDynamicStrands();
+    }
+  }
+}
+
+void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& editor_layer) const {
   const auto scene = GetScene();
   const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
   const auto for_each_dts_entity =
@@ -139,7 +151,10 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
   static glm::vec2 strands_operator_current;
 
   enum MouseOperatorMode { Idle, Selecting, ConfirmSelection, Dragging };
-
+  for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+    dts->box_selection_operator->enabled = false;
+    dts->drag_operator->enabled = false;
+  });
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
   if (ImGui::Begin("Plant Visual")) {
     if (ImGui::BeginChild("InternodeCameraRenderer", ImVec2(0, 0), false)) {
@@ -216,7 +231,7 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
               draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y), 5.0f,
                                    IM_COL32(255, 255, 255, 255));
 
-              const glm::vec3 acceleration = dynamic_strands_visualizer_settings_.drag_multiplier *
+              const glm::vec3 acceleration = dynamic_strands_settings_.drag_multiplier *
                                              (camera_right * screen_vector.x - camera_up * screen_vector.y);
               for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
                 dts->drag_operator->enabled = true;
@@ -228,7 +243,7 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
         }
 
         const auto imguizmo_transform = [&](glm::mat4& global_transform) {
-          if (dynamic_strands_visualizer_settings_.transform_mode == 0)
+          if (dynamic_strands_settings_.transform_mode == 0)
             return false;
           ImGuizmo::SetOrthographic(false);
           ImGuizmo::SetDrawlist();
@@ -238,7 +253,7 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
                                                glm::mat4_cast(editor_layer->GetSceneCameraRotation()));
           glm::mat4 camera_projection = visualization_camera_->GetProjection();
           auto op = ImGuizmo::OPERATION::TRANSLATE;
-          switch (dynamic_strands_visualizer_settings_.transform_mode) {
+          switch (dynamic_strands_settings_.transform_mode) {
             case 2: {
               op = ImGuizmo::OPERATION::ROTATE;
               break;
@@ -277,7 +292,11 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
   ImGui::PopStyleVar();
 }
 
-void EcoSysLabLayer::DynamicStrandsVisualizerSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Combo("Transform Mode", {"None", "Translate", "Rotate"}, transform_mode);
   ImGui::DragFloat("Drag acceleration multiplier", &drag_multiplier, 0.001f, 0.0f, 1.0f);
+
+  ImGui::Checkbox("Physics", &enable_physics);
+  ImGui::Checkbox("Visualization", &enable);
+  ImGui::Checkbox("Rendering", &enable_rendering);
 }

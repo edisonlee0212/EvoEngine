@@ -37,101 +37,102 @@ PrivateComponentRegistration<Soil> soil_registry("Soil");
 AssetRegistration<ProceduralNoise2D> procedural_noise2d_registry("ProceduralNoise2D", {".noise2D"});
 AssetRegistration<ProceduralNoise3D> procedural_noise3d_registry("ProceduralNoise3D", {".noise3D"});
 AssetRegistration<SoilDescriptor> soil_d_registry("SoilDescriptor", {".soil"});
-void EcoSysLabLayer::OnSoilVisualizationMenu() {
+bool EcoSysLabLayer::SoilVisualizationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::Checkbox("Enable", &enable);
   static bool force_update;
   ImGui::Checkbox("Force Update", &force_update);
 
-  if (ImGui::Checkbox("Vector Visualization", &vector_enable_)) {
-    if (vector_enable_)
-      update_vector_matrices_ = true;
+  if (ImGui::Checkbox("Vector Visualization", &vector_enable)) {
+    if (vector_enable)
+      update_vector_matrices = true;
   }
 
-  if (ImGui::Checkbox("Scalar Visualization", &scalar_enable_)) {
-    if (scalar_enable_)
-      update_scalar_matrices_ = true;
+  if (ImGui::Checkbox("Scalar Visualization", &scalar_enable)) {
+    if (scalar_enable)
+      update_scalar_matrices = true;
   }
 
-  if (vector_enable_) {
-    update_vector_matrices_ = update_vector_matrices_ || force_update;
-
+  if (vector_enable) {
+    update_vector_matrices = update_vector_matrices || force_update;
     if (ImGui::TreeNodeEx("Vector", ImGuiTreeNodeFlags_DefaultOpen)) {
       if (ImGui::Button("Reset")) {
-        vector_multiplier_ = 50.0f;
-        vector_base_color_ = glm::vec4(1.0f, 1.0f, 1.0f, 0.8f);
-        vector_soil_property_ = 4;
-        vector_line_width_factor_ = 0.1f;
-        vector_line_max_width_ = 0.1f;
-        update_vector_matrices_ = true;
+        vector_multiplier = 50.0f;
+        vector_base_color = glm::vec4(1.0f, 1.0f, 1.0f, 0.8f);
+        vector_soil_property = 4;
+        vector_line_width_factor = 0.1f;
+        vector_line_max_width = 0.1f;
+        update_vector_matrices = true;
       }
-      if (ImGui::ColorEdit4("Vector Base Color", &vector_base_color_.x)) {
-        update_vector_matrices_ = true;
+      if (ImGui::ColorEdit4("Vector Base Color", &vector_base_color.x)) {
+        update_vector_matrices = true;
       }
-      if (ImGui::DragFloat("Multiplier", &vector_multiplier_, 0.1f, 0.0f, 100.0f, "%.3f")) {
-        update_vector_matrices_ = true;
+      if (ImGui::DragFloat("Multiplier", &vector_multiplier, 0.1f, 0.0f, 100.0f, "%.3f")) {
+        update_vector_matrices = true;
       }
-      if (ImGui::DragFloat("Line Width Factor", &vector_line_width_factor_, 0.01f, 0.0f, 5.0f)) {
-        update_vector_matrices_ = true;
+      if (ImGui::DragFloat("Line Width Factor", &vector_line_width_factor, 0.01f, 0.0f, 5.0f)) {
+        update_vector_matrices = true;
       }
-      if (ImGui::DragFloat("Max Line Width", &vector_line_max_width_, 0.01f, 0.0f, 5.0f)) {
-        update_vector_matrices_ = true;
+      if (ImGui::DragFloat("Max Line Width", &vector_line_max_width, 0.01f, 0.0f, 5.0f)) {
+        update_vector_matrices = true;
       }
       if (ImGui::Combo("Vector Mode",
                        {"N/A", "N/A", "Water Density Gradient", "Flux", "Divergence", "N/A", "N/A", "N/A"},
-                       vector_soil_property_)) {
-        update_vector_matrices_ = true;
+                       vector_soil_property)) {
+        update_vector_matrices = true;
       }
       ImGui::TreePop();
     }
   }
-  if (scalar_enable_) {
-    update_scalar_matrices_ = update_scalar_matrices_ || force_update;
+  if (scalar_enable) {
+    update_scalar_matrices = update_scalar_matrices || force_update;
 
-    if (scalar_enable_ && ImGui::TreeNodeEx("Scalar", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (scalar_enable && ImGui::TreeNodeEx("Scalar", ImGuiTreeNodeFlags_DefaultOpen)) {
       if (ImGui::Button("Reset")) {
-        scalar_multiplier_ = 1.0f;
-        scalar_box_size_ = 0.5f;
-        scalar_min_alpha_ = 0.00f;
-        scalar_base_color_ = glm::vec3(0.0f, 0.0f, 1.0f);
-        scalar_soil_property_ = 1;
-        update_scalar_matrices_ = true;
+        scalar_multiplier = 1.0f;
+        scalar_box_size = 0.5f;
+        scalar_min_alpha = 0.00f;
+        scalar_base_color = glm::vec3(0.0f, 0.0f, 1.0f);
+        scalar_soil_property = 1;
+        update_scalar_matrices = true;
       }
-      if (ImGui::SliderFloat("X Depth", &soil_cutout_x_depth_, 0.0f, 1.0f)) {
-        update_scalar_matrices_ = true;
+      if (ImGui::SliderFloat("X Depth", &soil_cutout_x_depth, 0.0f, 1.0f)) {
+        update_scalar_matrices = true;
       }
-      if (ImGui::SliderFloat("Z Depth", &soil_cutout_z_depth_, 0.0f, 1.0f)) {
-        update_scalar_matrices_ = true;
+      if (ImGui::SliderFloat("Z Depth", &soil_cutout_z_depth, 0.0f, 1.0f)) {
+        update_scalar_matrices = true;
       }
 
       if (ImGui::TreeNodeEx("Layer colors", ImGuiTreeNodeFlags_DefaultOpen)) {
         for (int i = 0; i < 10; i++) {
-          ImGui::ColorEdit4(("Layer " + std::to_string(i)).c_str(), &soil_layer_colors_[i].x);
+          ImGui::ColorEdit4(("Layer " + std::to_string(i)).c_str(), &soil_layer_colors[i].x);
         }
         ImGui::TreePop();
       }
 
-      if (ImGui::ColorEdit3("Scalar Base Color", &scalar_base_color_.x)) {
-        update_scalar_matrices_ = true;
+      if (ImGui::ColorEdit3("Scalar Base Color", &scalar_base_color.x)) {
+        update_scalar_matrices = true;
       }
-      if (ImGui::SliderFloat("Multiplier", &scalar_multiplier_, 0.001, 10000, "%.4f", ImGuiSliderFlags_Logarithmic)) {
-        update_scalar_matrices_ = true;
+      if (ImGui::SliderFloat("Multiplier", &scalar_multiplier, 0.001, 10000, "%.4f", ImGuiSliderFlags_Logarithmic)) {
+        update_scalar_matrices = true;
       }
-      if (ImGui::DragFloat("Min alpha", &scalar_min_alpha_, 0.001f, 0.0f, 1.0f)) {
-        update_scalar_matrices_ = true;
+      if (ImGui::DragFloat("Min alpha", &scalar_min_alpha, 0.001f, 0.0f, 1.0f)) {
+        update_scalar_matrices = true;
       }
-      if (ImGui::DragFloat("Box size", &scalar_box_size_, 0.001f, 0.0f, 1.0f)) {
-        update_scalar_matrices_ = true;
+      if (ImGui::DragFloat("Box size", &scalar_box_size, 0.001f, 0.0f, 1.0f)) {
+        update_scalar_matrices = true;
       }
       // disable less useful visualizations to avoid clutter in the gui
       if (ImGui::Combo(
               "Scalar Mode",
               {"Blank", "Water Density", "N/A", "N/A", "N/A", "Nutrient Density", "Soil Density", "Soil Layer"},
-              scalar_soil_property_)) {
-        update_scalar_matrices_ = true;
+              scalar_soil_property)) {
+        update_scalar_matrices = true;
       }
       ImGui::TreePop();
     }
   }
 }
+
 void EcoSysLabLayer::SoilVisualization() {
   std::shared_ptr<Soil> soil;
   if (const auto soil_candidate = FindSoil(); !soil_candidate.expired())
@@ -142,40 +143,44 @@ void EcoSysLabLayer::SoilVisualization() {
 
   const auto& soil_model = soil->soil_model;
   if (soil_version_ != soil_model.m_version) {
-    update_vector_matrices_ = true;
-    update_scalar_matrices_ = true;
+    soil_visualization_settings_.update_vector_matrices = true;
+    soil_visualization_settings_.update_scalar_matrices = true;
     soil_version_ = soil_model.m_version;
   }
 
-  if (vector_enable_) {
+  if (soil_visualization_settings_.vector_enable) {
     SoilVisualizationVector(soil_model);
   }
-  if (scalar_enable_) {
+  if (soil_visualization_settings_.scalar_enable) {
     SoilVisualizationScalar(soil_model);
   }
 }
 
 void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
   const auto num_voxels = soil_model.m_resolution.x * soil_model.m_resolution.y * soil_model.m_resolution.z;
-  if (update_scalar_matrices_) {
+  if (soil_visualization_settings_.update_scalar_matrices) {
     std::vector<ParticleInfo> particle_infos;
     particle_infos.resize(num_voxels);
     Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
       const auto coordinate = soil_model.GetCoordinateFromIndex(i);
-      if (static_cast<float>(coordinate.x) / soil_model.m_resolution.x < soil_cutout_x_depth_ ||
-          static_cast<float>(coordinate.z) / soil_model.m_resolution.z > (1.0f - soil_cutout_z_depth_)) {
+      if (static_cast<float>(coordinate.x) / soil_model.m_resolution.x <
+              soil_visualization_settings_.soil_cutout_x_depth ||
+          static_cast<float>(coordinate.z) / soil_model.m_resolution.z >
+              (1.0f - soil_visualization_settings_.soil_cutout_z_depth)) {
         particle_infos[i].instance_matrix.value = glm::mat4(0.0f);
       } else {
-        particle_infos[i].instance_matrix.value = glm::translate(soil_model.GetPositionFromCoordinate(coordinate)) *
-                                                  glm::mat4_cast(glm::quat(glm::vec3(0.0f))) *
-                                                  glm::scale(glm::vec3(soil_model.GetVoxelSize() * scalar_box_size_));
+        particle_infos[i].instance_matrix.value =
+            glm::translate(soil_model.GetPositionFromCoordinate(coordinate)) *
+            glm::mat4_cast(glm::quat(glm::vec3(0.0f))) *
+            glm::scale(glm::vec3(soil_model.GetVoxelSize() * soil_visualization_settings_.scalar_box_size));
       }
     });
     auto visualize_vec3 = [&](const Field& x, const Field& y, const Field& z) {
       Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
         const auto value = glm::vec3(x[i], y[i], z[i]);
         particle_infos[i].instance_color = {
-            glm::normalize(value), glm::clamp(glm::length(value) * scalar_multiplier_, scalar_min_alpha_, 1.0f)};
+            glm::normalize(value), glm::clamp(glm::length(value) * soil_visualization_settings_.scalar_multiplier,
+                                              soil_visualization_settings_.scalar_min_alpha, 1.0f)};
       });
     };
 
@@ -183,14 +188,16 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
       Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
         const auto value = glm::vec3(v[i]);
         particle_infos[i].instance_color = {
-            scalar_base_color_, glm::clamp(glm::length(value) * scalar_multiplier_, scalar_min_alpha_, 1.0f)};
+            soil_visualization_settings_.scalar_base_color,
+            glm::clamp(glm::length(value) * soil_visualization_settings_.scalar_multiplier,
+                       soil_visualization_settings_.scalar_min_alpha, 1.0f)};
       });
     };
 
-    switch (static_cast<SoilProperty>(scalar_soil_property_)) {
+    switch (static_cast<SoilProperty>(soil_visualization_settings_.scalar_soil_property)) {
       case SoilProperty::Blank: {
         Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
-          particle_infos[i].instance_color = {scalar_base_color_, 0.01f};
+          particle_infos[i].instance_color = {soil_visualization_settings_.scalar_base_color, 0.01f};
         });
       } break;
       case SoilProperty::WaterDensity: {
@@ -208,7 +215,7 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
           if (layerIndex == 0)
             particle_infos[i].instance_color = glm::vec4(0.0f);
           else {
-            particle_infos[i].instance_color = soil_layer_colors_[layerIndex - 1];
+            particle_infos[i].instance_color = soil_visualization_settings_.soil_layer_colors[layerIndex - 1];
           }
         });
       } break;
@@ -218,13 +225,13 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
         }break;*/
       default: {
         Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
-          particle_infos[i].instance_color = {scalar_base_color_, 0.01f};
+          particle_infos[i].instance_color = {soil_visualization_settings_.scalar_base_color, 0.01f};
         });
       } break;
     }
     ground_fruit_matrices_->SetParticleInfos(particle_infos);
   }
-  update_scalar_matrices_ = false;
+  soil_visualization_settings_.update_scalar_matrices = false;
   const auto editor_layer = Application::GetLayer<EditorLayer>();
   GizmoSettings gizmo_settings;
   gizmo_settings.draw_settings.blending = true;
@@ -238,12 +245,12 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
 void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
   const auto num_voxels = soil_model.m_resolution.x * soil_model.m_resolution.y * soil_model.m_resolution.z;
 
-  if (update_vector_matrices_) {
+  if (soil_visualization_settings_.update_vector_matrices) {
     std::vector<ParticleInfo> particle_infos;
     particle_infos.resize(num_voxels);
 
-    const auto actual_vector_multiplier = vector_multiplier_ * soil_model.m_dx;
-    switch (static_cast<SoilProperty>(vector_soil_property_)) {
+    const auto actual_vector_multiplier = soil_visualization_settings_.vector_multiplier * soil_model.m_dx;
+    switch (static_cast<SoilProperty>(soil_visualization_settings_.vector_soil_property)) {
         /*
         case SoilProperty::WaterDensityGradient:
         {
@@ -255,7 +262,7 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
         * actualVectorMultiplier; const auto direction = glm::normalize(end - start); glm::quat rotation =
         glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x)); rotation *=
         glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f)); const auto length = glm::distance(end, start) / 2.0f;
-                                const auto width = glm::min(vector_line_max_width_, length * vector_line_width_factor_);
+                                const auto width = glm::min(vector_line_max_width, length * vector_line_width_factor);
                                 const auto model = glm::translate((start + end) / 2.0f) * glm::mat4_cast(rotation) *
                                         glm::scale(glm::vec3(width, length, width));
                                 particleInfos[i] = model;
@@ -272,7 +279,7 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
         * actualVectorMultiplier; const auto direction = glm::normalize(end - start); glm::quat rotation =
         glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x)); rotation *=
         glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f)); const auto length = glm::distance(end, start) / 2.0f;
-                                const auto width = glm::min(vector_line_max_width_, length * vector_line_width_factor_);
+                                const auto width = glm::min(vector_line_max_width, length * vector_line_width_factor);
                                 const auto model = glm::translate((start + end) / 2.0f) * glm::mat4_cast(rotation) *
                                         glm::scale(glm::vec3(width, length, width));
                                 particleInfos[i] = model;
@@ -288,11 +295,11 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
       } break;
     }
     Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
-      particle_infos[i].instance_color = vector_base_color_;
+      particle_infos[i].instance_color = soil_visualization_settings_.vector_base_color;
     });
 
     ground_fruit_matrices_->SetParticleInfos(particle_infos);
-    update_vector_matrices_ = false;
+    soil_visualization_settings_.update_vector_matrices = false;
   }
 
   const auto editor_layer = Application::GetLayer<EditorLayer>();
@@ -305,7 +312,14 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
   editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CYLINDER"), vector_matrices_,
                                               glm::mat4(1.0f), 1.0f, gizmo_settings);
 }
-
+EcoSysLabLayer::SoilVisualizationSettings::SoilVisualizationSettings() {
+  if (soil_layer_colors.empty()) {
+    for (int i = 0; i < 10; i++) {
+      glm::vec4 color = {glm::linearRand(glm::vec3(0.0f), glm::vec3(1.0f)), 1.0f};
+      soil_layer_colors.emplace_back(color);
+    }
+  }
+}
 
 std::weak_ptr<Soil> EcoSysLabLayer::FindSoil() {
   const auto scene = Application::GetActiveScene();

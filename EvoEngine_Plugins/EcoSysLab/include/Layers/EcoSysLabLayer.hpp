@@ -13,7 +13,7 @@ class EcoSysLabLayer : public ILayer {
   void ExportAllTrees(const std::filesystem::path& path) const;
 
   SimulationSettings simulation_settings{};
-
+  SimulationStats simulation_stats{};
   bool need_full_flow_update = false;
 
   int visualization_camera_resolution_x = 1;
@@ -28,7 +28,7 @@ class EcoSysLabLayer : public ILayer {
 
   [[nodiscard]] glm::vec2 GetMouseSceneCameraPosition() const;
 
-  void Simulate(const SimulationSettings& target_simulation_settings);
+  void Simulate(const SimulationSettings& target_simulation_settings, SimulationStats& target_simulation_stats);
   void Simulate();
 
   void GenerateMeshes(const TreeMeshGeneratorSettings& target_mesh_generator_settings) const;
@@ -39,7 +39,7 @@ class EcoSysLabLayer : public ILayer {
   void GenerateStrandModelMeshes(
       const StrandModelMeshGeneratorSettings& target_strand_model_mesh_generator_settings) const;
   void ClearStrandModelMeshes() const;
-
+  void GenerateDynamicStrandsForAllTrees() const;
   void GenerateStrandRenderers() const;
   void ClearStrandRenderers() const;
 
@@ -66,27 +66,32 @@ class EcoSysLabLayer : public ILayer {
   enum class TreeOperatorMode { None, Select, Rotate, Prune, Invigorate, Reduce };
   unsigned tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::None);
   float tree_reduce_rate = 0.1f;
-  struct TreeVisualizerSettings {
+  struct TreeVisualizationSettings {
+    bool enable = true;
+
     bool display_shoot_stem = true;
     bool display_foliage = true;
     bool display_fruit = true;
     bool display_bounding_box = false;
-    bool display_soil = false;
+
     bool display_ground_fruit = true;
     bool display_ground_leaves = true;
     bool show_shadow_grid = false;
     bool show_lighting_grid = false;
-    void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
-  struct DynamicStrandsVisualizerSettings {
+  struct DynamicStrandsSettings {
     float drag_multiplier = 1.f;
     enum class DynamicStrandsTransformMode { None, Translate, Rotate };
     unsigned transform_mode = static_cast<unsigned>(DynamicStrandsTransformMode::Translate);
+    bool enable = true;
+    bool enable_physics = true;
+    bool enable_rendering = true;
     void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
-  TreeVisualizerSettings tree_visualizer_settings_;
-  DynamicStrandsVisualizerSettings dynamic_strands_visualizer_settings_;
+  TreeVisualizationSettings tree_visualization_settings_;
+  DynamicStrandsSettings dynamic_strands_settings_;
   bool auto_generate_mesh_after_editing_ = false;
   bool auto_generate_skeletal_graph_every_frame_ = false;
   bool auto_generate_strands_after_editing_ = false;
@@ -94,8 +99,8 @@ class EcoSysLabLayer : public ILayer {
 
   friend class TreeVisualizer;
   friend class Tree;
-  bool show_trees = true;
-  bool show_strands = true;
+  
+  
   std::vector<int> shoot_versions_;
   std::vector<glm::vec3> random_colors_;
 
@@ -112,43 +117,40 @@ class EcoSysLabLayer : public ILayer {
   std::shared_ptr<ParticleInfoList> ground_fruit_matrices_;
   std::shared_ptr<ParticleInfoList> ground_leaf_matrices_;
 
-  float last_used_time_ = 0.0f;
-  float total_time_ = 0.0f;
-  int internode_size_ = 0;
-  int leaf_size_ = 0;
-  int fruit_size_ = 0;
-  int shoot_stem_size_ = 0;
-  int root_node_size_ = 0;
-  int root_stem_size_ = 0;
+  struct SoilVisualizationSettings {
+    bool enable = false;
+    bool vector_enable = false;
+    bool scalar_enable = true;
+    bool update_vector_matrices = false;
+    bool update_scalar_matrices = false;
+    float vector_multiplier = 50.0f;
+    glm::vec4 vector_base_color = glm::vec4(1.0f, 1.0f, 1.0f, 0.8f);
+    unsigned vector_soil_property = 4;
+    float vector_line_width_factor = 0.1f;
+    float vector_line_max_width = 0.1f;
+    float scalar_multiplier = 1.0f;
+    float scalar_box_size = 1.0f;
+    float scalar_min_alpha = 0.00f;
+    glm::vec3 scalar_base_color = glm::vec3(0.0f, 0.0f, 1.0f);
+    unsigned scalar_soil_property = 1;
+    float soil_cutout_x_depth = 0.0f;
+    float soil_cutout_z_depth = 0.0f;
+    std::vector<glm::vec4> soil_layer_colors;
+    SoilVisualizationSettings();
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  };
+
+  SoilVisualizationSettings soil_visualization_settings_{};
 
   bool need_flow_update_for_selection_ = false;
   int last_selected_tree_index_ = -1;
 
   int soil_version_ = -1;
-  bool vector_enable_ = false;
-  bool scalar_enable_ = true;
-  bool update_vector_matrices_ = false;
-  bool update_scalar_matrices_ = false;
-  float vector_multiplier_ = 50.0f;
-  glm::vec4 vector_base_color_ = glm::vec4(1.0f, 1.0f, 1.0f, 0.8f);
-  unsigned vector_soil_property_ = 4;
-  float vector_line_width_factor_ = 0.1f;
-  float vector_line_max_width_ = 0.1f;
+
   std::shared_ptr<ParticleInfoList> vector_matrices_;
-
-  float scalar_multiplier_ = 1.0f;
-  float scalar_box_size_ = 1.0f;
-  float scalar_min_alpha_ = 0.00f;
-
-  std::vector<glm::vec4> soil_layer_colors_;
 
   friend class Soil;
 
-  float soil_cutout_x_depth_ = 0.0f;
-  float soil_cutout_z_depth_ = 0.0f;
-
-  glm::vec3 scalar_base_color_ = glm::vec3(0.0f, 0.0f, 1.0f);
-  unsigned scalar_soil_property_ = 1;
   std::shared_ptr<ParticleInfoList> scalar_matrices_;
 
   std::shared_ptr<ParticleInfoList> shadow_grid_particle_info_list_;
@@ -166,9 +168,8 @@ class EcoSysLabLayer : public ILayer {
 
   void LateUpdate() override;
   void TreeVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
-  void StrandVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
+  void StrandVisualization(const std::shared_ptr<EditorLayer>& editor_layer) const;
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void OnSoilVisualizationMenu();
   void UpdateFlows(const std::vector<Entity>* tree_entities, const std::shared_ptr<Strands>& branch_strands);
   void ClearGroundFruitAndLeaf();
   void UpdateGroundFruitAndLeaves() const;
