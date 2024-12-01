@@ -95,17 +95,15 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
 
   dynamic_strands->constraints.emplace_back(std::make_shared<DsGroundPlane>());
   // subdivided_strand_group.RandomAssignColor();
-
   transform_operators.clear();
+  const auto owner = GetOwner();
+  const auto scene = GetScene();
+  initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
 
   dynamic_strands->Initialize(initialize_parameters, strand_model_skeleton, source_strand_group,
                               subdivided_strand_group);
   if (initialize_parameters.static_root) {
     transform_operators.emplace_back();
-    const auto owner = GetOwner();
-    const auto scene = GetScene();
-    initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
-
     Jobs::RunParallelFor(subdivided_strand_group.PeekStrands().size(), [&](const size_t strand_index) {
       const auto& strand = subdivided_strand_group.PeekStrands()[strand_index];
       for (int sub_segment_index = 0; sub_segment_index < strand.PeekStrandSegmentHandles().size();
@@ -134,10 +132,8 @@ void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
 }
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  static bool auto_subdivide = true;
   if (ImGui::TreeNode("Initialization settings")) {
     initialize_parameters.OnInspect(editor_layer);
-    ImGui::Checkbox("Auto subdivide", &auto_subdivide);
 
     ImGui::Checkbox("Limit strand length", &limit_strand_length);
     if (limit_strand_length) {
@@ -149,9 +145,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     if (const auto tree = tree_ref.Get<Tree>()) {
       tree->BuildStrandModel();
       strand_model_skeleton = tree->strand_model.strand_model_skeleton;
-      if (auto_subdivide) {
-        UpdateDynamicStrands();
-      }
+      UpdateDynamicStrands();
       tree_ref.Clear();
     }
   }

@@ -7,6 +7,18 @@
 
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {
+class SimulationStats {
+ public:
+  float last_used_time = 0.0f;
+  float total_time = 0.0f;
+  int internode_size = 0;
+  int leaf_size = 0;
+  int fruit_size = 0;
+  int shoot_stem_size = 0;
+  int root_node_size = 0;
+  int root_stem_size = 0;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+};
 class SimulationSettings {
  public:
   float delta_time = 0.0822f;
@@ -23,11 +35,12 @@ class SimulationSettings {
   float environment_light_intensity = 0.01f;
 
   int blur_iteration = 0;
-
+  bool auto_generate_skeletal_graph = false;
   void Save(const std::string& name, YAML::Emitter& out) const;
   void Load(const std::string& name, const YAML::Node& in);
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 };
+
 }  // namespace eco_sys_lab_plugin
