@@ -25,7 +25,8 @@ barrier();
 layout(push_constant) uniform PUSH_CONSTANTS {
 	vec4 obb_rotation;
 	vec4 obb_center;
-	vec4 obb_scale;
+	float radius;
+	float height;
 	float softness;
 	uint segment_size;
 };
@@ -33,34 +34,23 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 vec3 process_point(in vec3 p){
 	vec3 projected_p = p - obb_center.xyz;
 	projected_p = rotate_vec3(conjugate(obb_rotation), projected_p);
-	float abs_x = abs(projected_p.x);
-	float abs_y = abs(projected_p.y);
-	float abs_z = abs(projected_p.z);
-
-	if(abs_x > obb_scale.x || abs_y > obb_scale.y || abs_z > obb_scale.z) return p;
-	float factor_x = obb_scale.x - abs_x;
-	float factor_y = obb_scale.y - abs_y;
-	float factor_z = obb_scale.z - abs_z;
-	if(factor_x <= factor_y && factor_x <= factor_z){
-		if(projected_p.x < 0.f){
-			projected_p.x -= softness * (obb_scale.x - abs_x);
-		}else{
-			projected_p.x += softness * (obb_scale.x - abs_x);
-		}
-	}else if(factor_y <= factor_z){
-		if(projected_p.y < 0.f){
-			projected_p.y -= softness * (obb_scale.y - abs_y);
-		}else{
-			projected_p.y += softness * (obb_scale.y - abs_y);
-		}
+	float current_height = abs(projected_p.y);
+	if(height - current_height < 0.f) return p;
+	float current_radius = length(projected_p.xz);
+	if(radius - current_radius < 0.f) return p;
+	float radius_diff = radius - current_radius;
+	float height_diff = height - current_height;
+	if(radius_diff > height_diff){
+		if(projected_p.y >= 0.f) projected_p += vec3(0, height_diff, 0);
+		else projected_p -= vec3(0, height_diff, 0);
 	}else{
-		if(projected_p.z < 0.f){
-			projected_p.z -= softness * (obb_scale.z - abs_z);
-		}else{
-			projected_p.z += softness * (obb_scale.z - abs_z);
+		vec2 direction = vec2(0, 1);
+		if(current_radius > 0.f){
+			direction = normalize(projected_p.xz);
 		}
+		vec2 push = radius_diff * direction;
+		projected_p += vec3(push.x, 0.f, push.y);
 	}
-	//return projected_p + obb_center.xyz;
 	return rotate_vec3(obb_rotation, projected_p) + obb_center.xyz;
 }
 

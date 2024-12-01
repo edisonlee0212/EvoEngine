@@ -1,0 +1,283 @@
+//
+// Created by lllll on 11/1/2022.
+//
+
+#include "EcoSysLabLayer.hpp"
+#ifdef OPTIX_RAY_TRACER_PLUGIN
+#  include <RayTracerLayer.hpp>
+#endif
+#include "BarkDescriptor.hpp"
+#include "Times.hpp"
+
+#include "BillboardCloudsConverter.hpp"
+#include "ClassRegistry.hpp"
+#include "Climate.hpp"
+#include "CubeVolume.hpp"
+#include "DsColliders.hpp"
+#include "DsOperators.hpp"
+#include "DynamicTreeStrands.hpp"
+#include "FlowerDescriptor.hpp"
+#include "FoliageDescriptor.hpp"
+#include "ForestDescriptor.hpp"
+#include "FruitDescriptor.hpp"
+#include "RenderLayer.hpp"
+#include "Shader.hpp"
+#include "Soil.hpp"
+#include "SpatialPlantDistributionSimulator.hpp"
+#include "StrandsRenderer.hpp"
+#include "Tree.hpp"
+#include "TreeStructor.hpp"
+
+using namespace eco_sys_lab_plugin;
+
+PrivateComponentRegistration<DsBoxCollider> ds_box_collider_registry("DsBoxCollider");
+PrivateComponentRegistration<DsSphereCollider> ds_sphere_collider_registry("DsSphereCollider");
+PrivateComponentRegistration<DsCylinderCollider> ds_cylinder_collider_registry("DsCylinderCollider");
+PrivateComponentRegistration<DynamicTreeStrands> dynamic_tree_strands_registry("DynamicTreeStrands");
+
+void EcoSysLabLayer::GenerateStrandModelProfiles() const {
+  const auto scene = GetScene();
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      if (const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock(); tree->generate_mesh)
+        tree->BuildStrandModel();
+    }
+  }
+}
+
+void EcoSysLabLayer::GenerateStrandModelMeshes(
+    const StrandModelMeshGeneratorSettings& target_strand_model_mesh_generator_settings) const {
+  const auto scene = GetScene();
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      if (const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock(); tree->generate_mesh)
+        tree->InitializeStrandModelMeshRenderer(target_strand_model_mesh_generator_settings);
+    }
+  }
+}
+
+void EcoSysLabLayer::GenerateStrandRenderers() const {
+  const auto scene = GetScene();
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      if (const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock(); tree->generate_mesh)
+        tree->InitializeStrandRenderer();
+    }
+  }
+}
+
+void EcoSysLabLayer::ClearStrandRenderers() const {
+  const auto scene = GetScene();
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      tree->ClearStrandRenderer();
+    }
+  }
+}
+
+void EcoSysLabLayer::ClearStrandModelMeshes() const {
+  const auto scene = GetScene();
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    const auto copied_entities = *tree_entities;
+    for (auto tree_entity : copied_entities) {
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      tree->ClearStrandModelMeshRenderer();
+    }
+  }
+}
+
+void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& editor_layer) {
+  if (!show_strands)
+    return;
+  const auto scene = GetScene();
+  const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+  const auto for_each_dts_entity =
+      [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {
+        if (dts_entities && !dts_entities->empty()) {
+          for (const auto& i : *dts_entities) {
+            const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(i).lock();
+            action(dts);
+          }
+        }
+      };
+  const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
+  const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
+  const auto* cylinder_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsCylinderCollider>();
+  const auto for_each_collider_entity =
+      [&](const std::function<void(const std::shared_ptr<IDsCollider>& dts)>& action) {
+        if (box_collider_entities && !box_collider_entities->empty()) {
+          for (const auto& i : *box_collider_entities) {
+            const auto box_collider = scene->GetOrSetPrivateComponent<DsBoxCollider>(i).lock();
+            action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
+          }
+        }
+        if (sphere_collider_entities && !sphere_collider_entities->empty()) {
+          for (const auto& i : *sphere_collider_entities) {
+            const auto sphere_collider = scene->GetOrSetPrivateComponent<DsSphereCollider>(i).lock();
+            action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
+          }
+        }
+        if (cylinder_collider_entities && !cylinder_collider_entities->empty()) {
+          for (const auto& i : *cylinder_collider_entities) {
+            const auto cylinder_collider = scene->GetOrSetPrivateComponent<DsCylinderCollider>(i).lock();
+            action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
+          }
+        }
+      };
+
+  static glm::vec2 strands_operator_start;
+  static glm::vec2 strands_operator_current;
+
+  enum MouseOperatorMode { Idle, Selecting, ConfirmSelection, Dragging };
+
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
+  if (ImGui::Begin("Plant Visual")) {
+    if (ImGui::BeginChild("InternodeCameraRenderer", ImVec2(0, 0), false)) {
+      const ImVec2 canvas_p0 = ImGui::GetWindowPos() + ImVec2(1, 0);  // ImDrawList API uses screen coordinates!
+      const ImVec2 canvas_size = ImGui::GetWindowSize();              // Resize canvas to what's available
+      const ImVec2 canvas_p1 = ImVec2(canvas_p0.x + canvas_size.x - 2, canvas_p0.y + canvas_size.y - 1);
+      ImDrawList* draw_list = ImGui::GetWindowDrawList();
+      // Draw border and background color
+      // draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
+      draw_list->PushClipRect(canvas_p0, canvas_p1, true);
+      if (tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::None)) {
+        if (visualization_camera_window_focused_ &&
+            editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold &&
+            editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Press) {
+          static bool is_dragging_previously = false;
+          bool mouse_drag = true;
+          glm::vec2 mouse_valid_position =
+              glm::clamp(visualization_camera_mouse_position, {0, 0},
+                         {visualization_camera_resolution_x - 1, visualization_camera_resolution_y - 1});
+          if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) != Input::KeyActionType::Hold) {
+            mouse_drag = false;
+          }
+          const auto camera_rotation = editor_layer->GetSceneCameraRotation();
+          const auto camera_position = editor_layer->GetSceneCameraPosition();
+          const glm::vec3 camera_front = camera_rotation * glm::vec3(0, 0, -1);
+          const glm::vec3 camera_up = camera_rotation * glm::vec3(0, 1, 0);
+          const glm::vec3 camera_right = camera_rotation * glm::vec3(1, 0, 0);
+          if (mouse_drag && !is_dragging_previously) {
+            strands_operator_start = mouse_valid_position;
+          }
+          if (editor_layer->GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
+            for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+              dts->box_selection_operator->enabled = true;
+              dts->box_selection_operator->Update(strands_operator_start / glm::vec2(canvas_size.x, canvas_size.y),
+                                                  strands_operator_current / glm::vec2(canvas_size.x, canvas_size.y),
+                                                  {}, 4);
+            });
+          } else if (editor_layer->GetKey(GLFW_KEY_Q) == Input::KeyActionType::Hold) {
+            const auto camera_projection_view = visualization_camera_->GetProjection() *
+                                                glm::lookAt(camera_position, camera_position + camera_front, camera_up);
+            if (mouse_drag) {
+              strands_operator_current = mouse_valid_position;
+              draw_list->AddQuad(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y),
+                                 canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_current.y),
+                                 canvas_p0 + ImVec2(strands_operator_current.x, strands_operator_current.y),
+                                 canvas_p0 + ImVec2(strands_operator_current.x, strands_operator_start.y),
+                                 IM_COL32(255, 255, 255, 255));
+              for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+                dts->box_selection_operator->enabled = true;
+                dts->box_selection_operator->Update(
+                    strands_operator_start / glm::vec2(canvas_size.x, canvas_size.y),
+                    strands_operator_current / glm::vec2(canvas_size.x, canvas_size.y), camera_projection_view,
+                    editor_layer->GetKey(GLFW_KEY_R) != Input::KeyActionType::Hold ? 0 : 1);
+              });
+            } else if (is_dragging_previously) {
+              for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+                dts->box_selection_operator->enabled = true;
+                dts->box_selection_operator->Update(
+                    strands_operator_start / glm::vec2(canvas_size.x, canvas_size.y),
+                    strands_operator_current / glm::vec2(canvas_size.x, canvas_size.y), camera_projection_view,
+                    editor_layer->GetKey(GLFW_KEY_R) != Input::KeyActionType::Hold ? 2 : 3);
+              });
+            }
+          } else if (editor_layer->GetKey(GLFW_KEY_E) == Input::KeyActionType::Hold) {
+            if (mouse_drag) {
+              strands_operator_current = mouse_valid_position;
+              draw_list->AddLine(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y),
+                                 canvas_p0 + ImVec2(strands_operator_current.x, strands_operator_current.y),
+                                 IM_COL32(255, 255, 255, 255));
+              const auto screen_vector = strands_operator_current - strands_operator_start;
+              const float line_distance = glm::length(screen_vector);
+              draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_current.x, strands_operator_current.y),
+                                   line_distance * 0.05f, IM_COL32(255, 255, 255, 255));
+              draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y), 5.0f,
+                                   IM_COL32(255, 255, 255, 255));
+
+              const glm::vec3 acceleration = dynamic_strands_visualizer_settings_.drag_multiplier *
+                                             (camera_right * screen_vector.x - camera_up * screen_vector.y);
+              for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+                dts->drag_operator->enabled = true;
+                dts->drag_operator->Update(acceleration);
+              });
+            }
+          }
+          is_dragging_previously = mouse_drag;
+        }
+
+        const auto imguizmo_transform = [&](glm::mat4& global_transform) {
+          if (dynamic_strands_visualizer_settings_.transform_mode == 0)
+            return false;
+          ImGuizmo::SetOrthographic(false);
+          ImGuizmo::SetDrawlist();
+          ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, visualization_camera_resolution_x,
+                            visualization_camera_resolution_y);
+          glm::mat4 camera_view = glm::inverse(glm::translate(editor_layer->GetSceneCameraPosition()) *
+                                               glm::mat4_cast(editor_layer->GetSceneCameraRotation()));
+          glm::mat4 camera_projection = visualization_camera_->GetProjection();
+          auto op = ImGuizmo::OPERATION::TRANSLATE;
+          switch (dynamic_strands_visualizer_settings_.transform_mode) {
+            case 2: {
+              op = ImGuizmo::OPERATION::ROTATE;
+              break;
+            }
+            default:
+              break;
+          }
+          ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op, ImGuizmo::LOCAL,
+                               glm::value_ptr(global_transform));
+          return ImGuizmo::IsUsing();
+        };
+        for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+          const auto entity = dts->GetOwner();
+          if (editor_layer->GetSelectedEntity() != entity)
+            return;
+          auto gt = scene->GetDataComponent<GlobalTransform>(entity);
+          if (imguizmo_transform(gt.value)) {
+            scene->SetDataComponent(entity, gt);
+          }
+        });
+        for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& collider) {
+          const auto entity = collider->GetOwner();
+          if (editor_layer->GetSelectedEntity() != entity)
+            return;
+          auto gt = scene->GetDataComponent<GlobalTransform>(entity);
+          if (imguizmo_transform(gt.value)) {
+            scene->SetDataComponent(entity, gt);
+          }
+        });
+      }
+      draw_list->PopClipRect();
+    }
+    ImGui::EndChild();
+  }
+  ImGui::End();
+  ImGui::PopStyleVar();
+}
+
+void EcoSysLabLayer::DynamicStrandsVisualizerSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::Combo("Transform Mode", {"None", "Translate", "Rotate"}, transform_mode);
+  ImGui::DragFloat("Drag acceleration multiplier", &drag_multiplier, 0.001f, 0.0f, 1.0f);
+}

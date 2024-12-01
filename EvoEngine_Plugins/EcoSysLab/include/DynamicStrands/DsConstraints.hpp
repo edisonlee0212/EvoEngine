@@ -276,6 +276,9 @@ class DsRandomBundle : public IDsConstraint {
   inline static std::shared_ptr<ComputePipeline> connections_correction_pipeline{};
   DsRandomBundle();
   int sub_iteration = 1;
+  bool enable_bundle = true;
+  bool enable_bend_twist = true;
+  bool enable_stretch_shear = true;
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
   void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,

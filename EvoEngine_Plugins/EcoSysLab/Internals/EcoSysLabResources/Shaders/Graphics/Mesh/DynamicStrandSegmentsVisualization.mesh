@@ -117,6 +117,33 @@ void main(){
 		color = mix(color0, color1, clamp(length(segment.stretch_shear_strain_original_inv_mass.xyz) * uintBitsToFloat(multiplier), 0.0, 1.0));
 	}
 	
+	float highlight1_ratio = 0.0f;
+	float highlight2_ratio = 0.0f;
+	float selected_ratio = 0.0f;
+
+	if(particle0.highlighted == 1){
+		highlight1_ratio += 0.4f;
+	}else if(particle0.highlighted == 2){
+		highlight2_ratio += 0.4f;
+	}else if(particle0.selected == 1){
+		selected_ratio += 0.4f;
+	}
+	if(particle1.highlighted == 1){
+		highlight1_ratio += 0.4f;
+	}else if(particle1.highlighted == 2){
+		highlight2_ratio += 0.4f;
+	}else if(particle1.selected == 1){
+		selected_ratio += 0.4f;
+	}
+
+	if(highlight1_ratio != 0.f){
+		color = mix(color, vec4(0, 1, 0, 1), highlight1_ratio);
+	}else if(highlight2_ratio != 0.f){
+		color = mix(color, vec4(1, 0, 0, 1), highlight2_ratio);
+	}else if(selected_ratio != 0.f){
+		color = mix(color, vec4(1, 1, 1, 1), selected_ratio);
+	}
+
 	[[unroll]]
 	for (uint i = 0; i < uint(SEGMENT_VERTEX_ITERATIONS); ++i)
 	{

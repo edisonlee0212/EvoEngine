@@ -101,6 +101,34 @@ void main(){
 	mat4 instance_matrix = translate(center_position) * scale(uniform_particle_size);
 	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 	
+	Particle particle0 = particles[floatBitsToInt(segment.inertia_tensor_particle_0_handle.w)];
+	Particle particle1 = particles[floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w)];
+	float highlight1_ratio = 0.0f;
+	float highlight2_ratio = 0.0f;
+	float selected_ratio = 0.0f;
+
+	if(particle0.highlighted == 1){
+		highlight1_ratio += 0.4f;
+	}else if(particle0.highlighted == 2){
+		highlight2_ratio += 0.4f;
+	}else if(particle0.selected == 1){
+		selected_ratio += 0.4f;
+	}
+	if(particle1.highlighted == 1){
+		highlight1_ratio += 0.4f;
+	}else if(particle1.highlighted == 2){
+		highlight2_ratio += 0.4f;
+	}else if(particle1.selected == 1){
+		selected_ratio += 0.4f;
+	}
+
+	if(highlight1_ratio != 0.f){
+		color = mix(color, vec4(0, 1, 0, 1), highlight1_ratio);
+	}else if(highlight2_ratio != 0.f){
+		color = mix(color, vec4(1, 0, 0, 1), highlight2_ratio);
+	}else if(selected_ratio != 0.f){
+		color = mix(color, vec4(1, 1, 1, 1), selected_ratio);
+	}
 
 	[[unroll]]
 	for (uint i = 0; i < uint(PARTICLE_VERTEX_ITERATIONS); ++i)
