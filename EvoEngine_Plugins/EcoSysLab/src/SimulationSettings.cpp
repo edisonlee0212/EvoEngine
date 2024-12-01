@@ -54,6 +54,9 @@ void SimulationSettings::Deserialize(const YAML::Node& in) {
 
 bool SimulationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
+  if (ImGui::DragInt("Max node count", &max_node_count, 500, 0, INT_MAX)) {
+    changed = true;
+  }
   if (ImGui::Button("Grow weekly")) {
     delta_time = 0.01918f;
     changed = true;
@@ -82,4 +85,20 @@ bool SimulationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     ImGui::TreePop();
   }
   return changed;
+}
+
+bool SimulationStats::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  if (ImGui::TreeNodeEx("Stats")) {
+    ImGui::Text("Growth time: %.4f", last_used_time);
+    ImGui::Text("Total time: %.4f", total_time);
+    ImGui::Text("Total internode size: %d", internode_size);
+    ImGui::Text("Total shoot branch size: %d", shoot_stem_size);
+    ImGui::Text("Total fruit size: %d", fruit_size);
+    ImGui::Text("Total leaf size: %d", leaf_size);
+    ImGui::Text("Total root node size: %d", root_node_size);
+    ImGui::Text("Total root branch size: %d", root_stem_size);
+
+    ImGui::TreePop();
+  }
+  return false;
 }
