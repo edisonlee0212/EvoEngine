@@ -7,25 +7,10 @@
 #include "glm/gtc/matrix_access.hpp"
 #include "glm/gtx/quaternion.hpp"
 
-#ifdef USE_CGAL
-#  include <CGAL/Delaunay_triangulation_3.h>
-#  include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#  include <CGAL/Triangulation_vertex_base_with_info_3.h>
-#else
-#  include "Delaunay.hpp"
-#endif
-
-#ifdef USE_CGAL
-typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
-typedef CGAL::Triangulation_vertex_base_with_info_3<unsigned int, K> Vb;
-typedef CGAL::Triangulation_data_structure_3<Vb> Tds;
-typedef CGAL::Delaunay_triangulation_3<K, Tds> Delaunay_CGAL;
-typedef K::Point_3 Point;
-#endif
 using namespace eco_sys_lab_plugin;
 
 #ifdef USE_CGAL
-inline glm::vec3 cgal_to_glm(const CGAL::Point_3<CGAL::Epick>& p) {
+inline glm::vec3 cgal_to_glm(const Point_CGAL& p) {
   return {p.x(), p.y(), p.z()};
 }
 #endif
@@ -423,6 +408,34 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
     uniform_particle.position = glm::mix(particle0.x0, particle1.x0, uniform_particle.t);
   });
+  // need to do this sequentially or divide according to strands
+  for (size_t segment_handle = 0; segment_handle < segments.size(); segment_handle++) {
+    auto& segment = segments[segment_handle];
+    auto& particle0 = particles[segment_handle * 2];
+    auto& particle1 = particles[segment_handle * 2 + 1];
+
+    // compute distance to root
+    int& prev_segment_handle = segment.prev_handle;
+
+    // detect particle at root
+    if (prev_segment_handle == -1) {
+      particle0.hop_distance_to_root = 0; 
+      particle1.hop_distance_to_root = 1;
+      continue;
+    }
+
+    auto& prev_particle = particles[segments[prev_segment_handle].particle1_handle];
+    
+    // detect previously unset ho distance
+    // this should not happen if our assumption is correct that particles are stored in upwards direction for each strand
+    if (prev_particle.hop_distance_to_root == -1) {
+      EVOENGINE_ERROR("Previous segment not processed yet");
+      continue; 
+    }
+
+    particle0.hop_distance_to_root = prev_particle.hop_distance_to_root; // TODO: not sure if we should add 1 here
+    particle1.hop_distance_to_root = particle0.hop_distance_to_root + 1; 
+  }
 
   for (uint32_t strand_index = 0; strand_index < target_strands.size(); strand_index++) {
     auto& target_strand = target_strands[strand_index];
@@ -711,37 +724,81 @@ std::vector<glm::vec3> DynamicStrands::ComputeVirtualParticles(DynamicStrands::G
 }
 
 void DynamicStrands::ComputeDelaunayWithVirtualParticles(std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
-#ifdef USE_CGAL
-  std::vector<std::pair<Point, unsigned> > points;
-  std::vector<int> particle_indices;
+
+}
+
+void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
+  int max_dist_from_root = 0;
+
   for (int i = 0; i < particles.size(); i++) {
-    // For duplicate particles we only use one of them.
-    // if (particles[i].connection_handle >= 0 &&
-    //    connections[particles[i].connection_handle].segment0_particle_handle == i)
-    //  continue;
-    auto& particle = particles[i];
-    glm::vec3 particle_pos = particle.x0;
-    if (particle.connection_handle) {
-      auto& segment = segments[particle.segment_handle];
-      auto& connection = connections[particle.connection_handle];
-      glm::vec3 front = segment.q * glm::vec3(0, 0, -1);
-      if (connection.segment0_particle_handle == i) {
-        particle_pos -= front * segment.rest_length * 0.25f;
-      } else {
-        particle_pos += front * segment.rest_length * 0.25f;
-      }
-    }
 
-    auto virtual_particles = ComputeVirtualParticles(particle, i);
-
-    for (size_t j = 0; j < virtual_particles.size(); j++) {
-
-      Point p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);
-      points.emplace_back(p_cgal, points.size());
-      particle_indices.emplace_back(i * virtual_particles.size() + j);
+    // only take start of bundle
+    if (i % 2 == 0) {
+      max_dist_from_root = std::max(max_dist_from_root, particles[i].hop_distance_to_root);
     }
   }
 
+  std::vector<std::map<int, std::vector<size_t> > > bundle_maps(max_dist_from_root + 1);
+  std::vector<size_t> offsets(max_dist_from_root + 1, 0);
+  std::vector<std::vector<size_t>> particle_adjacent_tets(particles.size());
+
+  for (int i = 0; i < segments.size(); i++) {
+
+    auto& segment = segments[i];
+    auto& particle0 = particles[segment.particle0_handle];
+    auto& node_handle = particle0.node_handle;
+
+    if (bundle_maps[particle0.hop_distance_to_root].find(node_handle) ==
+        bundle_maps[particle0.hop_distance_to_root].end()) {
+
+      bundle_maps[particle0.hop_distance_to_root][node_handle] = std::vector<size_t>();
+    }
+
+    bundle_maps[particle0.hop_distance_to_root][node_handle].push_back(i);
+  }
+
+  // TODO: "squish" each bundle such that no internal degenerate tetrahedrons occur
+
+  // triangulate each bundle:
+  for (int d = 0; d < bundle_maps.size(); d++) {
+    offsets[d] = tetrahedrons.size();
+    auto& map = bundle_maps[d];
+    for (auto& kv_pair : map) {
+      auto& bundle = kv_pair.second;
+      std::vector<std::pair<Point_CGAL, unsigned> > points;
+
+      for (size_t i : bundle) {
+        auto& segment = segments[i];
+
+        glm::vec3 particle0_pos = particles[segment.particle0_handle].x0;
+        glm::vec3 particle1_pos = particles[segment.particle1_handle].x0;
+
+        Point_CGAL p0_cgal(particle0_pos[0], particle0_pos[1], particle0_pos[2]);
+        Point_CGAL p1_cgal(particle1_pos[0], particle1_pos[1], particle1_pos[2]);
+        points.emplace_back(p0_cgal, segment.particle0_handle);
+        points.emplace_back(p1_cgal, segment.particle1_handle);
+      }
+
+      CGALDelaunay(points, tetrahedrons); 
+    }
+  }
+
+  Jobs::RunParallelFor(tetrahedrons.size(), [&](const size_t tet_index) {
+    auto& tet = tetrahedrons[tet_index];
+
+    for (size_t i = 0; i < 4; i++) {
+      particle_adjacent_tets[tet.indices[i]].emplace_back(tet_index);
+    }
+  });
+
+  Jobs::RunParallelFor(particles.size(), [&](const size_t particle_handle) {
+     
+  });
+
+}
+
+void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned> >& points,
+                                  std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
   Delaunay_CGAL dt;
   dt.insert(points.begin(), points.end());
 
@@ -753,12 +810,12 @@ void DynamicStrands::ComputeDelaunayWithVirtualParticles(std::vector<GpuDelaunay
     for (size_t i = 0; i < 4; i++) {
       indices[i] = cell.vertex(i)->info();
     }
-    if (!DynamicStrandUtils::IsValid(indices, particle_indices)) {
+    if (!DynamicStrandUtils::IsValid(indices, particles.size())) {
       continue;  // discard this tetrahedron
     }
     GpuDelaunayTetrahedron gpu_tet;
     for (size_t i = 0; i < 4; i++) {
-      gpu_tet.indices[i] = particle_indices[indices[i]];
+      gpu_tet.indices[i] = indices[i];
       gpu_tet.neighbors[i] = -1;
     }
     // set up debugging members
@@ -791,7 +848,7 @@ void DynamicStrands::ComputeDelaunayWithVirtualParticles(std::vector<GpuDelaunay
         neighbor_indices[j] = neighbor.vertex(j)->info();
       }
 
-      if (!DynamicStrandUtils::IsValid(neighbor_indices, particle_indices)) {
+      if (!DynamicStrandUtils::IsValid(neighbor_indices, particles.size())) {
         continue;
       }
 
@@ -799,13 +856,10 @@ void DynamicStrands::ComputeDelaunayWithVirtualParticles(std::vector<GpuDelaunay
       // TODO: according to CGAL documentation, this is guaranteed anyway, so we do not need to match both sides
       // store it such that the neighboring tetrahedron always consists of different indices
       // e. g. for the triangle 1 2 4 we store the corresponding neighboring index at position 3
-      gpu_tet.neighbors[particle_indices[mismatch_indices.first]] =
-          neighbor_indices[particle_indices[mismatch_indices.second]];
+      gpu_tet.neighbors[mismatch_indices.first] = neighbor_indices[mismatch_indices.second];
     }
 
     tetrahedrons.emplace_back(gpu_tet);
-
-#endif
   }
 }
 
@@ -813,92 +867,33 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
  
 // TODO: maybe a different library will work here
 #ifdef USE_CGAL
-  std::vector<std::pair<Point, unsigned> > points;
-  std::vector<int> particle_indices;
+  std::vector<std::pair<Point_CGAL, unsigned> > points;
   for (int i = 0; i < particles.size(); i++) {
     // For duplicate particles we only use one of them.
-    // if (particles[i].connection_handle >= 0 &&
-    //    connections[particles[i].connection_handle].segment0_particle_handle == i)
-    //  continue;
+    /* if (particles[i].connection_handle >= 0 &&
+      connections[particles[i].connection_handle].segment0_particle_handle == i)
+      continue;*/
+    if (i % 2 == 1) {
+      continue;
+    }
     auto& particle = particles[i];
     glm::vec3 particle_pos = particle.x0;
     if (particle.connection_handle) {
       auto& segment = segments[particle.segment_handle];
       auto& connection = connections[particle.connection_handle]; 
-      glm::vec3 front = segment.q * glm::vec3(0, 0, -1);
-      if (connection.segment0_particle_handle == i) {
+      glm::vec3 front = segment.q * glm::vec3(0, 0, -1); 
+      /*if (connection.segment0_particle_handle == i) {
         particle_pos -= front * segment.rest_length * 0.25f;
       } else {
         particle_pos += front * segment.rest_length * 0.25f;
-      }
+      }*/
     }
-    Point p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);
-    points.emplace_back(p_cgal, points.size());
-    particle_indices.emplace_back(i);
+    Point_CGAL p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);
+    points.emplace_back(p_cgal, i);
   }
 
-  Delaunay_CGAL dt;
-  dt.insert(points.begin(), points.end());
-
-  // TODO: parallel for
-  for (auto cell_it = dt.all_cells_begin(); cell_it != dt.all_cells_end(); cell_it++) {
-    auto& cell = *cell_it;
-    auto& tetrahedron = dt.tetrahedron(cell_it);
-    int indices[4];
-    for (size_t i = 0; i < 4; i++) {
-      indices[i] = cell.vertex(i)->info();
-    }
-    if (!DynamicStrandUtils::IsValid(indices, particle_indices)) {
-      continue;  // discard this tetrahedron
-    }
-    GpuDelaunayTetrahedron gpu_tet;
-    for (size_t i = 0; i < 4; i++) {
-      gpu_tet.indices[i] = particle_indices[indices[i]];
-      gpu_tet.neighbors[i] = -1;
-    }
-    // set up debugging members
-    gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
-    for (int& i : gpu_tet.render_neighbor) {
-      i = -1;
-    }
-    gpu_tet.task_looked_at = 0;
-    gpu_tet.mesh_looked_at = 0;
-    gpu_tet.inside = 0;
-    gpu_tet.triangles_accepted = 0;
-
-    // check orientation of the tetrahedron
-    const float d = DynamicStrandUtils::PointPlaneDistance(particles[gpu_tet.indices[3]].x0, particles[gpu_tet.indices[0]].x0,
-                                         particles[gpu_tet.indices[1]].x0, particles[gpu_tet.indices[2]].x0);
-
-    if (d > 0)  // point no. 3 is in front if the triangle 0 1 2, we need to correct this so the triangles face outwards
-    {
-      std::swap(gpu_tet.indices[1], gpu_tet.indices[2]);
-    }
-
-    // fill in neighbor indices
-    // TODO: need to figure out how to check if a neighbor is valid
-    for (size_t i = 0; i < 4; i++) {
-      auto& neighbor = *cell.neighbor(i);
-      int neighbor_indices[4];
-
-      for (size_t j = 0; j < 4; j++) {
-        neighbor_indices[j] = neighbor.vertex(j)->info();
-      }
-
-      if (!DynamicStrandUtils::IsValid(neighbor_indices, particle_indices)) {
-        continue;
-      }
-
-      const auto mismatch_indices = DynamicStrandUtils::CompareIndices(gpu_tet.indices, neighbor_indices);
-      // TODO: according to CGAL documentation, this is guaranteed anyway, so we do not need to match both sides
-      // store it such that the neighboring tetrahedron always consists of different indices
-      // e. g. for the triangle 1 2 4 we store the corresponding neighboring index at position 3
-      gpu_tet.neighbors[particle_indices[mismatch_indices.first]] =
-          neighbor_indices[particle_indices[mismatch_indices.second]];
-    }
-
-    tetrahedrons.emplace_back(gpu_tet);
-  }
+  CGALDelaunay(points, tetrahedrons);
+ 
 
 #else
   std::vector<glm::vec3> points;

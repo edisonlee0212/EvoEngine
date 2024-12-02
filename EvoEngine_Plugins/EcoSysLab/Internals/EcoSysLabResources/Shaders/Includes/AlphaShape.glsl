@@ -89,7 +89,7 @@ float LongestSide(uint indices[4]) {
   for (uint i = 0; i < 4; i++) {
     v[i] = particles[indices[i]].x_node_handle.xyz;
   }
- float  d = 0.0;
+  float  d = 0.0;
 
   // just compare all sidelengths
   [[unroll]]
@@ -108,21 +108,43 @@ float LongestSide(uint indices[4]) {
 
 bool AreNeighbors(uint index0, uint index1)
 {
-  // horizontal neighbors
-  if (particles[index0].node_handle == particles[index1].node_handle &&
-      particles[index0].hop_distance_to_root == particles[index1].hop_distance_to_root) {
-    return true;
-  }
-
-  // vertical and diagonal neighbors
   int node_handle0 = particles[index0].node_handle;
   int node_handle1 = particles[index1].node_handle;
 
-  // index0 is higher
-  if (particles[index0].hop_distance_to_root == particles[index1].hop_distance_to_root - 1)
-  {
+  // horizontal neighbors
+  if (particles[index0].hop_distance_to_root == particles[index1].hop_distance_to_root &&
+      (node_handle0 == node_handle1 ||
+       nodes[node_handle0].prev_handle == node_handle1 ||
+       node_handle0 == nodes[node_handle1].prev_handle)) {
 
+    // same plane, now take alpha into account
+    vec3 vij = particles[index0].x_node_handle.xyz - particles[index1].x_node_handle.xyz;
+    float dist_squared = dot(vij, vij);
+    return dist_squared < alpha;
   }
+
+  // vertical and diagonal neighbors
+
+  // index0 is higher
+  if (particles[index0].hop_distance_to_root - 1 == particles[index1].hop_distance_to_root) {
+    int prev_node_handle0 = nodes[node_handle0].prev_handle;
+    if(node_handle0 == node_handle1 || prev_node_handle0 == node_handle1) {
+      vec3 vij = particles[index0].x_node_handle.xyz - particles[index1].x_node_handle.xyz;
+      float dist_squared = dot(vij, vij);
+      return dist_squared < sqrt(2.0f) * alpha; // account for diagonal (TODO: refine by actual size)
+    }
+
+  // index1 is higher
+  } else if (particles[index0].hop_distance_to_root == particles[index1].hop_distance_to_root - 1) {
+    int prev_node_handle1 = nodes[node_handle1].prev_handle;
+    if (node_handle0 == node_handle1 || node_handle0 == prev_node_handle1) {
+      vec3 vij = particles[index0].x_node_handle.xyz - particles[index1].x_node_handle.xyz;
+      float dist_squared = dot(vij, vij);
+      return dist_squared < sqrt(2.0f) * alpha;  // account for diagonal (TODO: refine by actual size)
+    }
+  }
+
+  return false;
 
 }
 
@@ -137,8 +159,11 @@ float SkeletonStructure(uint indices[4]) {
 
   [[unroll]] for (uint i = 0; i < 4; i++) {
     [[unroll]] for (uint j = i + 1; j < 4; j++) {
-      // TODO
-
+      
+      if (!AreNeighbors(indices[i], indices[j])) {
+        return 2 * alpha; // something certainly larger than alpha
+      }
+      // TODO: compute longest edge nontheless, maybe filtered by distance, though
     }
   }
 
@@ -147,9 +172,36 @@ float SkeletonStructure(uint indices[4]) {
 
 bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float d) {
   // check if neighbor is invalid
-  if (neighbor_index != -1 && tet.neighbors[neighbor_index] == -1) {
+  if (neighbor_index != -1) {
     d = 100000.0f;  // marker for this condition
-    return false;
+    // if all indices are at the same distance from root, always return true
+    // TODO: we will see how consistent this is
+    bool all_same_dist = true;
+    [[unroll]] for (uint i = 0; i < 4; i++) {
+      if (i == neighbor_index) {
+        continue;
+      }
+      [[unroll]] for (uint j = i + 1; j < 4; j++) {
+        if (j == neighbor_index) {
+          continue;
+        }
+
+        if (particles[tet.indices[i]].hop_distance_to_root != particles[tet.indices[j]].hop_distance_to_root) {
+          all_same_dist = false;
+          break;
+        }
+      }
+    }
+
+    if (all_same_dist) {
+      return true;
+    }
+
+    if (tet.neighbors[neighbor_index] == -1)
+    {
+      return false;
+
+    }
   }
   //return true; // debug: should give us the convex hull
   // prepare indices
@@ -164,7 +216,8 @@ bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float d) {
     }
   }
 
-  d = LongestSide(indices);
+  //d = LongestSide(indices);
+  d = SkeletonStructure(indices);
 
   return d <= alpha;
 }

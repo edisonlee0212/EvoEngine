@@ -11,6 +11,22 @@ class DsVelocityUpdate;
 static RENDERDOC_API_1_1_2* rdoc_api = NULL;
 #endif
 
+#ifdef USE_CGAL
+#  include <CGAL/Delaunay_triangulation_3.h>
+#  include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#  include <CGAL/Triangulation_vertex_base_with_info_3.h>
+#else
+#  include "Delaunay.hpp"
+#endif
+
+#ifdef USE_CGAL
+typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
+typedef CGAL::Triangulation_vertex_base_with_info_3<unsigned int, K> Vb;
+typedef CGAL::Triangulation_data_structure_3<Vb> Tds;
+typedef CGAL::Delaunay_triangulation_3<K, Tds> Delaunay_CGAL;
+typedef K::Point_3 Point_CGAL;
+#endif
+
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
@@ -133,6 +149,7 @@ class DynamicStrands {
     bool render_alpha_shape_mesh = true;
     bool wireframe = false;
     float alpha = 1.0 / 10000.0f;
+    float bifurcation_alpha = 1.0 / 10000.0f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -297,6 +314,9 @@ class DynamicStrands {
 
  private:
   std::vector<glm::vec3> ComputeVirtualParticles(DynamicStrands::GpuParticle particle, size_t i);
+  void CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned>>& points,
+                    std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
+  void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   void ComputeDelaunayWithVirtualParticles(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);

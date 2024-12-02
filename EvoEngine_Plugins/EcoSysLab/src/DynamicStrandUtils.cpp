@@ -53,9 +53,9 @@ std::pair<int, int> DynamicStrandUtils::CompareIndices(const int a[4], const int
 };
 
 #ifdef USE_CGAL
-bool DynamicStrandUtils::IsValid(const int target_indices[4], const std::vector<int>& particle_indices) {
+bool DynamicStrandUtils::IsValid(const int target_indices[4], int size) {
   for (size_t i = 0; i < 4; i++) {
-    if (static_cast<unsigned>(target_indices[i]) >= particle_indices.size()) {
+    if (static_cast<unsigned>(target_indices[i]) >= size) {
       // EVOENGINE_ERROR("tetrahedron vertex index out of range, will be discarded: " << target_indices[i]);
       return false;
     }
@@ -73,13 +73,13 @@ bool DynamicStrandUtils::IsValid(const int target_indices[4], const std::vector<
   return true;
 };
 #else
-bool DynamicStrandUtils::IsValid(const int tet_vertices[4], const std::vector<glm::vec3>& points) {
-  for (size_t i = 0; i < 4; i++) {
+bool DynamicStrandUtils::IsValid(const int tet_vertices[4]) {
+  /*for (size_t i = 0; i < 4; i++) {
     if (tet_vertices[i] >= static_cast<int>(points.size())) {
       EVOENGINE_ERROR("tetrahedron vertex index out of range, will be discarded: " << tet_vertices[i]);
       return false;
     }
-  }
+  }*/
 
   for (size_t i = 0; i < 4; i++) {
     for (size_t j = i + 1; j < 4; j++) {

@@ -10,7 +10,8 @@ using namespace eco_sys_lab_plugin;
 bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Render alpha shape mesh", &render_alpha_shape_mesh);
   ImGui::Checkbox("Wireframe", &wireframe);
-  ImGui::InputFloat("alpha", &alpha, 0.00001, 0.0f, "%.5f");
+  ImGui::DragFloat("alpha", &alpha, 0.000001, 0.0f, 1.0f, "%.6f");
+  ImGui::DragFloat("bifurcation alpha", &bifurcation_alpha, 0.000001, 0.0f, 1.0f, "%.6f");
   return false;
 }
 
@@ -36,9 +37,8 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   struct RenderPushConstant {
     uint32_t camera_index = 0;
     uint32_t tetrahedrons_size = 0;
-    uint32_t padding0;
-    uint32_t padding1;
     float alpha = 0.0f;
+    float bifurcation_alpha = 0.0f;
   };
 
   if (!render_pipeline) {
@@ -90,6 +90,7 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
   push_constant.alpha = render_parameters.alpha;
+  push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
 
   #ifdef USE_RENDERDOC
   if (rdoc_api) {
