@@ -129,9 +129,9 @@ void engine_terminate() {
   Application::Terminate();
 }
 
-void generate_sorghum_mesh(const std::string& sorghum_descriptor_path,
-                           const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                           const std::filesystem::path& mesh_output_path) {
+void sorghum_descriptor_to_mesh(const std::string& sorghum_descriptor_path,
+                                const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
+                                const std::filesystem::path& mesh_output_path) {
   std::shared_ptr<SorghumDescriptor> sorghum_descriptor;
   if (const auto path = std::filesystem::path(sorghum_descriptor_path); path.is_absolute()) {
     sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
@@ -146,10 +146,28 @@ void generate_sorghum_mesh(const std::string& sorghum_descriptor_path,
   DatasetGenerator::GenerateMeshForSorghum(sorghum_descriptor, sorghum_mesh_generator_settings, mesh_output_path);
 }
 
-void generate_sorghum_point_cloud(const std::string& sorghum_descriptor_path,
-                                  const SorghumPointCloudPointSettings& point_settings,
-                                  const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                  bool avoid_occlusion, const std::filesystem::path& point_cloud_output_path) {
+void sorghum_state_to_mesh(const std::string& sorghum_state_path,
+                           const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
+                           const std::filesystem::path& mesh_output_path) {
+  std::shared_ptr<SorghumState> sorghum_state;
+  if (const auto path = std::filesystem::path(sorghum_state_path); path.is_absolute()) {
+    sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
+    sorghum_state->Import(sorghum_state_path);
+  } else {
+    sorghum_state = std::dynamic_pointer_cast<SorghumState>(ProjectManager::GetOrCreateAsset(path));
+  }
+  if (!sorghum_state) {
+    EVOENGINE_ERROR("Failed to import sorghum state!")
+    return;
+  }
+  DatasetGenerator::GenerateMeshForSorghum(sorghum_state, sorghum_mesh_generator_settings, mesh_output_path);
+}
+
+void sorghum_descriptor_to_point_cloud(const std::string& sorghum_descriptor_path,
+                                       const SorghumPointCloudPointSettings& point_settings,
+                                       const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
+                                       const bool avoid_occlusion,
+                                       const std::filesystem::path& point_cloud_output_path) {
   std::shared_ptr<SorghumDescriptor> sorghum_descriptor;
   if (const auto path = std::filesystem::path(sorghum_descriptor_path); path.is_absolute()) {
     sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
@@ -171,11 +189,36 @@ void generate_sorghum_point_cloud(const std::string& sorghum_descriptor_path,
                                                  point_cloud_output_path);
 }
 
-void generate_sorghum_mesh_and_point_cloud(const std::string& sorghum_descriptor_path,
-                                       const SorghumPointCloudPointSettings& point_settings,
-                                       const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                       bool avoid_occlusion, const std::filesystem::path& mesh_output_path,
-                                       const std::filesystem::path& point_cloud_output_path) {
+void sorghum_state_to_point_cloud(const std::string& sorghum_state_path,
+                                  const SorghumPointCloudPointSettings& point_settings,
+                                  const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
+                                  const bool avoid_occlusion, const std::filesystem::path& point_cloud_output_path) {
+  std::shared_ptr<SorghumState> sorghum_state;
+  if (const auto path = std::filesystem::path(sorghum_state_path); path.is_absolute()) {
+    sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
+    sorghum_state->Import(sorghum_state_path);
+  } else {
+    sorghum_state = std::dynamic_pointer_cast<SorghumState>(ProjectManager::GetOrCreateAsset(path));
+  }
+  if (!sorghum_state) {
+    EVOENGINE_ERROR("Failed to import sorghum state!")
+    return;
+  }
+  const auto capture_settings = std::make_shared<SorghumGantryCaptureSettings>();
+  capture_settings->step = glm::vec2(0.005f);  // Smaller -> more points.
+  capture_settings->scanner_angles = {30, 60};
+  capture_settings->output_spline_info = true;
+
+  DatasetGenerator::GeneratePointCloudForSorghum(sorghum_state, point_settings, capture_settings,
+                                                 sorghum_mesh_generator_settings, avoid_occlusion,
+                                                 point_cloud_output_path);
+}
+
+void sorghum_descriptor_to_mesh_and_point_cloud(const std::string& sorghum_descriptor_path,
+                                                const SorghumPointCloudPointSettings& point_settings,
+                                                const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
+                                                bool avoid_occlusion, const std::filesystem::path& mesh_output_path,
+                                                const std::filesystem::path& point_cloud_output_path) {
   std::shared_ptr<SorghumDescriptor> sorghum_descriptor;
   if (const auto path = std::filesystem::path(sorghum_descriptor_path); path.is_absolute()) {
     sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
@@ -193,6 +236,32 @@ void generate_sorghum_mesh_and_point_cloud(const std::string& sorghum_descriptor
   capture_settings->output_spline_info = true;
 
   DatasetGenerator::GenerateMeshAndPointCloudForSorghum(sorghum_descriptor, point_settings, capture_settings,
+                                                        sorghum_mesh_generator_settings, avoid_occlusion,
+                                                        mesh_output_path, point_cloud_output_path);
+}
+
+void sorghum_state_to_mesh_and_point_cloud(const std::string& sorghum_state_path,
+                                           const SorghumPointCloudPointSettings& point_settings,
+                                           const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
+                                           bool avoid_occlusion, const std::filesystem::path& mesh_output_path,
+                                           const std::filesystem::path& point_cloud_output_path) {
+  std::shared_ptr<SorghumState> sorghum_state;
+  if (const auto path = std::filesystem::path(sorghum_state_path); path.is_absolute()) {
+    sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
+    sorghum_state->Import(sorghum_state_path);
+  } else {
+    sorghum_state = std::dynamic_pointer_cast<SorghumState>(ProjectManager::GetOrCreateAsset(path));
+  }
+  if (!sorghum_state) {
+    EVOENGINE_ERROR("Failed to import sorghum descriptor!")
+    return;
+  }
+  const auto capture_settings = std::make_shared<SorghumGantryCaptureSettings>();
+  capture_settings->step = glm::vec2(0.005f);  // Smaller -> more points.
+  capture_settings->scanner_angles = {30, 60};
+  capture_settings->output_spline_info = true;
+
+  DatasetGenerator::GenerateMeshAndPointCloudForSorghum(sorghum_state, point_settings, capture_settings,
                                                         sorghum_mesh_generator_settings, avoid_occlusion,
                                                         mesh_output_path, point_cloud_output_path);
 }
@@ -227,8 +296,15 @@ PYBIND11_MODULE(PyDigitalAgriculture, m) {
   m.def("engine_loop", &engine_loop, "Loop Application");
   m.def("engine_terminate", &engine_terminate, "Terminate Application");
 
-  m.def("generate_sorghum_mesh", &generate_sorghum_mesh, "Create a sorghum and generate mesh");
-  m.def("generate_sorghum_point_cloud", &generate_sorghum_point_cloud, "Create a sorghum and generate point cloud");
-  m.def("generate_sorghum_mesh_and_point_cloud", &generate_sorghum_mesh_and_point_cloud, "Create a sorghum and generate mesh and point cloud");
+  m.def("sorghum_descriptor_to_mesh", &sorghum_descriptor_to_mesh, "Create a sorghum and generate mesh");
+  m.def("sorghum_descriptor_to_point_cloud", &sorghum_descriptor_to_point_cloud,
+        "Create a sorghum and generate point cloud");
+  m.def("sorghum_descriptor_to_mesh_and_point_cloud", &sorghum_descriptor_to_mesh_and_point_cloud,
+        "Create a sorghum and generate mesh and point cloud");
+
+  m.def("sorghum_state_to_mesh", &sorghum_state_to_mesh, "Create a sorghum and generate mesh");
+  m.def("sorghum_state_to_point_cloud", &sorghum_state_to_point_cloud, "Create a sorghum and generate point cloud");
+  m.def("sorghum_state_to_mesh_and_point_cloud", &sorghum_state_to_mesh_and_point_cloud,
+        "Create a sorghum and generate mesh and point cloud");
 }
 #endif

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Climate.hpp"
+#include "DynamicStrands.hpp"
 #include "SimulationSettings.hpp"
 #include "Soil.hpp"
 #include "Strands.hpp"
@@ -82,6 +83,9 @@ class EcoSysLabLayer : public ILayer {
   };
 
   struct DynamicStrandsSettings {
+    DynamicStrands::PhysicsParameters physics_parameters{};
+    DynamicStrands::VisualizationParameters visualization_parameters{};
+
     float drag_multiplier = 1.f;
     enum class DynamicStrandsTransformMode { None, Translate, Rotate };
     unsigned transform_mode = static_cast<unsigned>(DynamicStrandsTransformMode::Translate);

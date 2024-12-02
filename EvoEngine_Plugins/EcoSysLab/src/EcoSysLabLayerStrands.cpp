@@ -297,6 +297,15 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
   ImGui::DragFloat("Drag acceleration multiplier", &drag_multiplier, 0.001f, 0.0f, 1.0f);
 
   ImGui::Checkbox("Physics", &enable_physics);
+  if (ImGui::TreeNode("Physics parameters")) {
+    physics_parameters.OnInspect(editor_layer);
+    ImGui::TreePop();
+  }
+
   ImGui::Checkbox("Visualization", &enable);
+  if (ImGui::TreeNode("Visualization settings")) {
+    visualization_parameters.OnInspect(editor_layer);
+    ImGui::TreePop();
+  }
   ImGui::Checkbox("Rendering", &enable_rendering);
 }
