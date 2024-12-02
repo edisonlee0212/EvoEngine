@@ -243,7 +243,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
           need_full_flow_update = true;
         }
         tree_visualization_settings_.OnInspect(editor_layer);
-       
+
         ImGui::TreePop();
       }
       if (ImGui::TreeNodeEx("Soil visualization settings")) {
@@ -661,12 +661,12 @@ void EcoSysLabLayer::LateUpdate() {
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
         dts->InteractionStep();
         if (dts->enable_physics)
-          dts->PhysicsStep();
+          dts->PhysicsStep(dynamic_strands_settings_.physics_parameters);
       });
     }
     if (dynamic_strands_settings_.enable) {
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        dts->Visualization(visualization_camera_);
+        dts->Visualization(visualization_camera_, dynamic_strands_settings_.visualization_parameters);
       });
     }
 

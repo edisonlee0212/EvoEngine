@@ -5,7 +5,7 @@
 #  include <RayTracerLayer.hpp>
 #endif
 #include "Tinyply.hpp"
-using namespace tinyply;
+
 #include "EcoSysLabLayer.hpp"
 #include "Soil.hpp"
 using namespace eco_sys_lab_plugin;
@@ -327,10 +327,10 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
 
           const auto global_transform = scene->GetDataComponent<GlobalTransform>(child);
           const auto strands = twig_strands_renderer->strands.Get<Strands>();
-          plant_bound.min = glm::min(plant_bound.min,
-                                      glm::vec3(global_transform.value * glm::vec4(strands->GetBound().min, 1.0f)));
-          plant_bound.max = glm::max(plant_bound.max,
-                                      glm::vec3(global_transform.value * glm::vec4(strands->GetBound().max, 1.0f)));
+          plant_bound.min =
+              glm::min(plant_bound.min, glm::vec3(global_transform.value * glm::vec4(strands->GetBound().min, 1.0f)));
+          plant_bound.max =
+              glm::max(plant_bound.max, glm::vec3(global_transform.value * glm::vec4(strands->GetBound().max, 1.0f)));
         }
       });
     }
@@ -433,38 +433,41 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
   if (outstream_ascii.fail()) throw std::runtime_error("failed to open " +
   filename);
   */
-  PlyFile cube_file;
-  cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32, points.size(),
-                                      reinterpret_cast<uint8_t*>(points.data()), Type::INVALID, 0);
+  tinyply::PlyFile cube_file;
+  cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, tinyply::Type::FLOAT32, points.size(),
+                                      reinterpret_cast<uint8_t*>(points.data()), tinyply::Type::INVALID, 0);
 
   if (m_pointSettings.m_typeIndex)
-    cube_file.add_properties_to_element("type_index", {"type_index"}, Type::INT32, type_index.size(),
-                                        reinterpret_cast<uint8_t*>(type_index.data()), Type::INVALID, 0);
+    cube_file.add_properties_to_element("type_index", {"type_index"}, tinyply::Type::INT32, type_index.size(),
+                                        reinterpret_cast<uint8_t*>(type_index.data()), tinyply::Type::INVALID, 0);
 
   if (m_pointSettings.m_instanceIndex) {
-    cube_file.add_properties_to_element("instance_index", {"instance_index"}, Type::INT32, instance_index.size(),
-                                        reinterpret_cast<uint8_t*>(instance_index.data()), Type::INVALID, 0);
+    cube_file.add_properties_to_element("instance_index", {"instance_index"}, tinyply::Type::INT32,
+                                        instance_index.size(), reinterpret_cast<uint8_t*>(instance_index.data()),
+                                        tinyply::Type::INVALID, 0);
   }
   if (m_pointSettings.m_branchIndex) {
-    cube_file.add_properties_to_element("branch_index", {"branch_index"}, Type::INT32, branch_index.size(),
-                                        reinterpret_cast<uint8_t*>(branch_index.data()), Type::INVALID, 0);
+    cube_file.add_properties_to_element("branch_index", {"branch_index"}, tinyply::Type::INT32, branch_index.size(),
+                                        reinterpret_cast<uint8_t*>(branch_index.data()), tinyply::Type::INVALID, 0);
   }
   if (m_pointSettings.m_treePartIndex) {
-    cube_file.add_properties_to_element("tree_part_index", {"tree_part_index"}, Type::INT32, tree_part_index.size(),
-                                        reinterpret_cast<uint8_t*>(tree_part_index.data()), Type::INVALID, 0);
+    cube_file.add_properties_to_element("tree_part_index", {"tree_part_index"}, tinyply::Type::INT32,
+                                        tree_part_index.size(), reinterpret_cast<uint8_t*>(tree_part_index.data()),
+                                        tinyply::Type::INVALID, 0);
   }
   if (m_pointSettings.m_treePartTypeIndex) {
-    cube_file.add_properties_to_element("tree_part_type_index", {"tree_part_type_index"}, Type::INT32,
-                                        tree_part_type_index.size(), reinterpret_cast<uint8_t*>(tree_part_type_index.data()),
-                                        Type::INVALID, 0);
+    cube_file.add_properties_to_element(
+        "tree_part_type_index", {"tree_part_type_index"}, tinyply::Type::INT32, tree_part_type_index.size(),
+        reinterpret_cast<uint8_t*>(tree_part_type_index.data()), tinyply::Type::INVALID, 0);
   }
   if (m_pointSettings.m_lineIndex) {
-    cube_file.add_properties_to_element("line_index", {"line_index"}, Type::INT32, line_index.size(),
-                                        reinterpret_cast<uint8_t*>(line_index.data()), Type::INVALID, 0);
+    cube_file.add_properties_to_element("line_index", {"line_index"}, tinyply::Type::INT32, line_index.size(),
+                                        reinterpret_cast<uint8_t*>(line_index.data()), tinyply::Type::INVALID, 0);
   }
   if (m_pointSettings.m_internodeIndex) {
-    cube_file.add_properties_to_element("internode_index", {"internode_index"}, Type::INT32, internode_index.size(),
-                                        reinterpret_cast<uint8_t*>(internode_index.data()), Type::INVALID, 0);
+    cube_file.add_properties_to_element("internode_index", {"internode_index"}, tinyply::Type::INT32,
+                                        internode_index.size(), reinterpret_cast<uint8_t*>(internode_index.data()),
+                                        tinyply::Type::INVALID, 0);
   }
   // Write a binary file
   cube_file.write(outstream_binary, true);

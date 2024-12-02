@@ -8,7 +8,6 @@
 #include "Sorghum.hpp"
 #include "Tinyply.hpp"
 #include "TreePointCloudScanner.hpp"
-using namespace tinyply;
 using namespace digital_agriculture_plugin;
 using namespace dataset_generation_plugin;
 bool SorghumPointCloudPointSettings::OnInspect() {
@@ -120,8 +119,8 @@ bool SorghumGantryCaptureSettings::SampleFilter(const PointCloudSample& sample) 
 }
 
 void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-                                       std::vector<glm::vec3>& points, std::vector<int>& leaf_indices,
-                                       std::vector<int>& instance_indices, std::vector<int>& type_indices) const {
+                                    std::vector<glm::vec3>& points, std::vector<int>& leaf_indices,
+                                    std::vector<int>& instance_indices, std::vector<int>& type_indices) const {
 #ifdef OPTIX_RAY_TRACER_PLUGIN
   const auto digital_agriculture_layer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
@@ -265,23 +264,26 @@ void SorghumPointCloudScanner::SavePointCloud(const std::filesystem::path& save_
   if (ostream.fail())
     throw std::runtime_error("failed to open " + save_path.string());
 
-  PlyFile cube_file;
-  cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32, points.size(),
+  tinyply::PlyFile cube_file;
+  cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, tinyply::Type::FLOAT32, points.size(),
                                       static_cast<const uint8_t*>(static_cast<const void*>(points.data())),
-                                      Type::INVALID, 0);
+                                      tinyply::Type::INVALID, 0);
 
   if (sorghum_point_cloud_point_settings.type_index)
-    cube_file.add_properties_to_element("type_index", {"type_index"}, Type::INT32, type_indices.size(),
-                                        static_cast<const uint8_t*>(static_cast<const void*>(type_indices.data())), Type::INVALID, 0);
+    cube_file.add_properties_to_element("type_index", {"type_index"}, tinyply::Type::INT32, type_indices.size(),
+                                        static_cast<const uint8_t*>(static_cast<const void*>(type_indices.data())),
+                                        tinyply::Type::INVALID, 0);
 
   if (sorghum_point_cloud_point_settings.instance_index) {
-    cube_file.add_properties_to_element("instance_index", {"instance_index"}, Type::INT32, instance_indices.size(),
-                                        static_cast<const uint8_t*>(static_cast<const void*>(instance_indices.data())), Type::INVALID, 0);
+    cube_file.add_properties_to_element(
+        "instance_index", {"instance_index"}, tinyply::Type::INT32, instance_indices.size(),
+        static_cast<const uint8_t*>(static_cast<const void*>(instance_indices.data())), tinyply::Type::INVALID, 0);
   }
 
   if (sorghum_point_cloud_point_settings.leaf_index) {
-    cube_file.add_properties_to_element("leaf_index", {"leaf_index"}, Type::INT32, leaf_indices.size(),
-                                        static_cast<const uint8_t*>(static_cast<const void*>(leaf_indices.data())), Type::INVALID, 0);
+    cube_file.add_properties_to_element("leaf_index", {"leaf_index"}, tinyply::Type::INT32, leaf_indices.size(),
+                                        static_cast<const uint8_t*>(static_cast<const void*>(leaf_indices.data())),
+                                        tinyply::Type::INVALID, 0);
   }
   // Write a binary file
   cube_file.write(ostream, true);
@@ -364,7 +366,7 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
 
   Scan(capture_settings, points, leaf_indices, instance_indices, type_indices);
   SavePointCloud(save_path, points, leaf_indices, instance_indices, type_indices);
-  
+
   if (capture_settings->output_spline_info) {
     WriteSplineInfo(save_path, capture_settings);
   }

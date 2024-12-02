@@ -3,6 +3,7 @@
 #include "Delaunay.hpp"
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"
+#include "DynamicStrands.hpp"
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
@@ -195,18 +196,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   }
 
   ImGui::Checkbox("Physics", &enable_physics);
-  if (!enable_physics) {
-    if (ImGui::Button("Simulate 1 step")) {
-      enable_physics = true;
-      PhysicsStep();
-      enable_physics = false;
-    }
-  }
   if (ImGui::TreeNode("Physics settings")) {
-    if (ImGui::TreeNode("Physics parameters")) {
-      physics_parameters.OnInspect(editor_layer);
-      ImGui::TreePop();
-    }
     if (ImGui::TreeNode("Operators")) {
       if (ImGui::TreeNode("Transform operators")) {
         for (auto& i : transform_operators) {
@@ -230,10 +220,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     }
     ImGui::TreePop();
   }
-  if (ImGui::TreeNode("Visualization settings")) {
-    visualization_parameters.OnInspect(editor_layer);
-    ImGui::TreePop();
-  }
+
   if (ImGui::TreeNode("Render settings")) {
     render_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
@@ -490,7 +477,7 @@ void DynamicTreeStrands::InteractionStep() const {
   }
 }
 
-void DynamicTreeStrands::PhysicsStep() const {
+void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const {
   if (!dynamic_strands->segments.empty()) {
     const auto scene = GetScene();
     const auto editor_layer = Application::GetLayer<EditorLayer>();
@@ -504,7 +491,7 @@ void DynamicTreeStrands::PhysicsStep() const {
       dynamic_strands->Physics(
           physics_parameters,
           [&]() {
-            
+
           },
           [&]() {
             for (const auto& transform_operator : transform_operators) {
@@ -513,7 +500,7 @@ void DynamicTreeStrands::PhysicsStep() const {
             }
             if (gravity->enabled)
               gravity->Execute(physics_parameters, dynamic_strands);
-            
+
             if (drag_operator->enabled) {
               drag_operator->Execute(physics_parameters, dynamic_strands);
             }
@@ -522,7 +509,8 @@ void DynamicTreeStrands::PhysicsStep() const {
   }
 }
 
-void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_camera) const {
+void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
+                                       const DynamicStrands::VisualizationParameters& visualization_parameters) const {
   if (!dynamic_strands->segments.empty()) {
     if (!dynamic_strands->WaitForUpload()) {
       dynamic_strands->Visualize(target_camera, visualization_parameters);

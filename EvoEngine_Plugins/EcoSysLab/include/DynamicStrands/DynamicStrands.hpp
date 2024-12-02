@@ -3,9 +3,6 @@
 #include "StrandModelData.hpp"
 #include "TreeGrowthData.hpp"
 
-namespace eco_sys_lab_plugin {
-class DsVelocityUpdate;
-}
 
 using namespace evo_engine;
 
@@ -14,7 +11,7 @@ class DsPreStep;
 class IDsPhysicsOperator;
 class IDsConstraint;
 class DsPrediction;
-
+class DsVelocityUpdate;
 struct DtsStrandGroupData {};
 
 struct DtsStrandData {};

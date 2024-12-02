@@ -1,6 +1,6 @@
 #pragma once
-#include "DynamicStrands.hpp"
 #include "DsOperators.hpp"
+#include "DynamicStrands.hpp"
 #include "StrandModelData.hpp"
 #include "TreeGrowthData.hpp"
 
@@ -16,8 +16,7 @@ class DynamicTreeStrands : public IPrivateComponent {
 
   DynamicStrands::InitializeParameters initialize_parameters{};
   bool enable_physics = true;
-  DynamicStrands::PhysicsParameters physics_parameters{};
-  DynamicStrands::VisualizationParameters visualization_parameters{};
+
   DynamicStrands::RenderParameters render_parameters{};
   std::shared_ptr<DynamicStrands> dynamic_strands{};
 
@@ -25,12 +24,12 @@ class DynamicTreeStrands : public IPrivateComponent {
     Entity target_entity;
     std::shared_ptr<DsTransform> ds_transform;
   };
-  
+
   bool limit_strand_length = true;
   float max_strand_length = 1.f;
 
   std::vector<EntityTransform> transform_operators;
-  
+
   std::shared_ptr<DsBoxSelection> box_selection_operator;
   std::shared_ptr<DsDrag> drag_operator;
   std::shared_ptr<DsGravity> gravity;
@@ -63,9 +62,10 @@ class DynamicTreeStrands : public IPrivateComponent {
 
   void InteractionStep() const;
 
-  void PhysicsStep() const;
+  void PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const;
 
-  void Visualization(const std::shared_ptr<Camera>& target_camera) const;
+  void Visualization(const std::shared_ptr<Camera>& target_camera,
+                     const DynamicStrands::VisualizationParameters& visualization_parameters) const;
 
   void Render(const std::shared_ptr<Camera>& target_camera) const;
 };
