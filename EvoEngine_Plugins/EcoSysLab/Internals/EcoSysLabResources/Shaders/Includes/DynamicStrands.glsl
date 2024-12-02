@@ -123,6 +123,6 @@ layout(std430, set = DYNAMIC_STRANDS_SET, binding = 5) buffer DELAUNAY_TETRAHEDR
   DelaunayTetrahedron delaunay_tetrahedrons[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 5) buffer NODES_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 6) buffer NODES_BLOCK {
   Node nodes[];
 };

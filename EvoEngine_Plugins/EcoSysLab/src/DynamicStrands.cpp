@@ -2,7 +2,6 @@
 #include "DsColliders.hpp"
 #include "DsConstraints.hpp"
 #include "DynamicStrandUtils.hpp"
-#include "DynamicStrandsPhysics.hpp"
 #include "Shader.hpp"
 #include "glm/gtc/matrix_access.hpp"
 #include "glm/gtx/quaternion.hpp"
@@ -86,6 +85,7 @@ DynamicStrands::DynamicStrands() {
     strands_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
 
     strands_layout->Initialize();
   }
@@ -408,34 +408,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
     uniform_particle.position = glm::mix(particle0.x0, particle1.x0, uniform_particle.t);
   });
-  // need to do this sequentially or divide according to strands
-  for (size_t segment_handle = 0; segment_handle < segments.size(); segment_handle++) {
-    auto& segment = segments[segment_handle];
-    auto& particle0 = particles[segment_handle * 2];
-    auto& particle1 = particles[segment_handle * 2 + 1];
-
-    // compute distance to root
-    int& prev_segment_handle = segment.prev_handle;
-
-    // detect particle at root
-    if (prev_segment_handle == -1) {
-      particle0.hop_distance_to_root = 0; 
-      particle1.hop_distance_to_root = 1;
-      continue;
-    }
-
-    auto& prev_particle = particles[segments[prev_segment_handle].particle1_handle];
-    
-    // detect previously unset ho distance
-    // this should not happen if our assumption is correct that particles are stored in upwards direction for each strand
-    if (prev_particle.hop_distance_to_root == -1) {
-      EVOENGINE_ERROR("Previous segment not processed yet");
-      continue; 
-    }
-
-    particle0.hop_distance_to_root = prev_particle.hop_distance_to_root; // TODO: not sure if we should add 1 here
-    particle1.hop_distance_to_root = particle0.hop_distance_to_root + 1; 
-  }
 
   for (uint32_t strand_index = 0; strand_index < target_strands.size(); strand_index++) {
     auto& target_strand = target_strands[strand_index];
@@ -607,10 +579,10 @@ void DynamicStrands::UpdateBindings() const {
 
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_delaunay_tetrahedrons_buffer,
                                                                               0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_nodes_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(6, device_nodes_buffer, 0); 
 
   for (const auto& c : constraints) {
-    c->UpdateBindings();
+    c->UpdateBindings(); 
   }
 }
 
@@ -868,7 +840,7 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
 // TODO: maybe a different library will work here
 #ifdef USE_CGAL
   std::vector<std::pair<Point_CGAL, unsigned> > points;
-  for (int i = 0; i < particles.size(); i++) {
+  for (int i = 0; i < uniform_particles.size(); i++) {
     // For duplicate particles we only use one of them.
     /* if (particles[i].connection_handle >= 0 &&
       connections[particles[i].connection_handle].segment0_particle_handle == i)
@@ -876,18 +848,8 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
     if (i % 2 == 1) {
       continue;
     }
-    auto& particle = particles[i];
-    glm::vec3 particle_pos = particle.x0;
-    if (particle.connection_handle) {
-      auto& segment = segments[particle.segment_handle];
-      auto& connection = connections[particle.connection_handle]; 
-      glm::vec3 front = segment.q * glm::vec3(0, 0, -1); 
-      /*if (connection.segment0_particle_handle == i) {
-        particle_pos -= front * segment.rest_length * 0.25f;
-      } else {
-        particle_pos += front * segment.rest_length * 0.25f;
-      }*/
-    }
+    auto& particle = uniform_particles[i];
+    glm::vec3 particle_pos = particle.position;
     Point_CGAL p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);
     points.emplace_back(p_cgal, i);
   }

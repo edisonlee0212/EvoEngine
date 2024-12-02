@@ -54,7 +54,7 @@ float CircumsphereRadius(uint indices[4]) {
   vec3 v[4];
 
   for (uint i = 0; i < 4; i++) {
-    v[i] = particles[indices[i]].x_node_handle.xyz;
+    v[i] = uniform_particles[indices[i]].position_t.xyz;
   }
 
   mat3 A;
@@ -87,7 +87,7 @@ float LongestSide(uint indices[4]) {
   vec3 v[4];
 
   for (uint i = 0; i < 4; i++) {
-    v[i] = particles[indices[i]].x_node_handle.xyz;
+    v[i] = uniform_particles[indices[i]].position_t.xyz;
   }
   float  d = 0.0;
 
@@ -108,17 +108,17 @@ float LongestSide(uint indices[4]) {
 
 bool AreNeighbors(uint index0, uint index1)
 {
-  int node_handle0 = particles[index0].node_handle;
-  int node_handle1 = particles[index1].node_handle;
+  int node_handle0 = uniform_particles[index0].node_index;
+  int node_handle1 = uniform_particles[index1].node_index;
 
   // horizontal neighbors
-  if (particles[index0].hop_distance_to_root == particles[index1].hop_distance_to_root &&
+  if (uniform_particles[index0].segment_index == uniform_particles[index1].segment_index &&
       (node_handle0 == node_handle1 ||
        nodes[node_handle0].prev_handle == node_handle1 ||
        node_handle0 == nodes[node_handle1].prev_handle)) {
 
     // same plane, now take alpha into account
-    vec3 vij = particles[index0].x_node_handle.xyz - particles[index1].x_node_handle.xyz;
+    vec3 vij = uniform_particles[index0].position_t.xyz - uniform_particles[index1].position_t.xyz;
     float dist_squared = dot(vij, vij);
     return dist_squared < alpha;
   }
@@ -126,19 +126,19 @@ bool AreNeighbors(uint index0, uint index1)
   // vertical and diagonal neighbors
 
   // index0 is higher
-  if (particles[index0].hop_distance_to_root - 1 == particles[index1].hop_distance_to_root) {
+  if (uniform_particles[index0].segment_index - 1 == uniform_particles[index1].segment_index) {
     int prev_node_handle0 = nodes[node_handle0].prev_handle;
     if(node_handle0 == node_handle1 || prev_node_handle0 == node_handle1) {
-      vec3 vij = particles[index0].x_node_handle.xyz - particles[index1].x_node_handle.xyz;
+      vec3 vij = uniform_particles[index0].position_t.xyz - uniform_particles[index1].position_t.xyz;
       float dist_squared = dot(vij, vij);
       return dist_squared < sqrt(2.0f) * alpha; // account for diagonal (TODO: refine by actual size)
     }
 
   // index1 is higher
-  } else if (particles[index0].hop_distance_to_root == particles[index1].hop_distance_to_root - 1) {
+  } else if (uniform_particles[index0].segment_index == uniform_particles[index1].segment_index - 1) {
     int prev_node_handle1 = nodes[node_handle1].prev_handle;
     if (node_handle0 == node_handle1 || node_handle0 == prev_node_handle1) {
-      vec3 vij = particles[index0].x_node_handle.xyz - particles[index1].x_node_handle.xyz;
+      vec3 vij = uniform_particles[index0].position_t.xyz - uniform_particles[index1].position_t.xyz;
       float dist_squared = dot(vij, vij);
       return dist_squared < sqrt(2.0f) * alpha;  // account for diagonal (TODO: refine by actual size)
     }
@@ -152,8 +152,7 @@ float SkeletonStructure(uint indices[4]) {
   vec3 v[4];
 
   for (uint i = 0; i < 4; i++) {
-    v[i] = particles[indices[i]].x_node_handle.xyz;
-    particles[indices[i]].node_handle = floatBitsToInt(particles[indices[i]].x_node_handle.w);
+    v[i] = uniform_particles[indices[i]].position_t.xyz;
   }
   float d = 0.0;
 
@@ -186,7 +185,7 @@ bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float d) {
           continue;
         }
 
-        if (particles[tet.indices[i]].hop_distance_to_root != particles[tet.indices[j]].hop_distance_to_root) {
+        if (uniform_particles[tet.indices[i]].segment_index != uniform_particles[tet.indices[j]].segment_index) {
           all_same_dist = false;
           break;
         }

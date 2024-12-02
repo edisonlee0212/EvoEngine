@@ -96,7 +96,7 @@ void main(){
 	{
 		uint vertex_index = laneID + i * WORKGROUP_SIZE;
 		if (vertex_index >= TETRAHEDRON_VERTICES_SIZE) break;
-		vec3 vertex_position = particles[tet.indices[vertex_index]].x_node_handle.xyz;
+		vec3 vertex_position = uniform_particles[tet.indices[vertex_index]].position_t.xyz;
 
 		ms_v_out[vertex_index].frag_pos = vertex_position;
 		ms_v_out[vertex_index].normal = vec3(0, 1, 0);
