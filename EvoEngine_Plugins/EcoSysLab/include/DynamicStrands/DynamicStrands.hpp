@@ -313,12 +313,10 @@ class DynamicStrands {
                const std::function<void()>& sub_step_action) const;
 
  private:
-  std::vector<glm::vec3> ComputeVirtualParticles(DynamicStrands::GpuParticle particle, size_t i);
   void CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned>>& points,
                     std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
-  void ComputeDelaunayWithVirtualParticles(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
   static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
 };

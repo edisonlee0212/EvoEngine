@@ -661,50 +661,13 @@ glm::vec3 DynamicStrands::ComputeInertiaTensorRod(const float mass, const float 
   };
 }
 
-/// @brief Make virtual particles that are offset 
-/// @param particle 
-/// @return 
-std::vector<glm::vec3> DynamicStrands::ComputeVirtualParticles(DynamicStrands::GpuParticle particle, size_t i) {
-  std::vector<glm::vec3> virtual_particles;
-  // for now just offset in fixed directio
-  glm::vec3 particle_pos = particle.x0;
-  if (particle.connection_handle) {
-    auto& segment = segments[particle.segment_handle];
-    auto& connection = connections[particle.connection_handle];
-    glm::vec3 front = segment.q * glm::vec3(0, 0, -1);
-    if (connection.segment0_particle_handle == i) {
-      particle_pos -= front * segment.rest_length * 0.25f;
-    } else {
-      particle_pos += front * segment.rest_length * 0.25f;
-    }
-  }
-  //Point p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);
-  // TODO: actually offset
-  std::vector<glm::vec3> offsets = {
-    glm::vec3(1.0f, 0.0f, 0.0f),
-    glm::vec3(-1.0f, 0.0f, 0.0f),
-    glm::vec3(0.0f, 0.0f, 1.0f),
-    glm::vec3(0.0f, 0.0f, -1.0f)
-  };
-
-  for (auto& offset : offsets)
-  {
-    virtual_particles.emplace_back(particle_pos + offset);
-  }
-
-  return virtual_particles;
-}
-
-void DynamicStrands::ComputeDelaunayWithVirtualParticles(std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
-
-}
-
 void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
   int max_dist_from_root = 0;
 
   for (int i = 0; i < particles.size(); i++) {
 
     // only take start of bundle
+    // TODO: needs to change
     if (i % 2 == 0) {
       max_dist_from_root = std::max(max_dist_from_root, particles[i].hop_distance_to_root);
     }
@@ -763,10 +726,6 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
     }
   });
 
-  Jobs::RunParallelFor(particles.size(), [&](const size_t particle_handle) {
-     
-  });
-
 }
 
 void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned> >& points,
@@ -782,7 +741,7 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
     for (size_t i = 0; i < 4; i++) {
       indices[i] = cell.vertex(i)->info();
     }
-    if (!DynamicStrandUtils::IsValid(indices, particles.size())) {
+    if (!DynamicStrandUtils::IsValid(indices, uniform_particles.size())) {
       continue;  // discard this tetrahedron
     }
     GpuDelaunayTetrahedron gpu_tet;
@@ -798,12 +757,12 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
     gpu_tet.task_looked_at = 0;
     gpu_tet.mesh_looked_at = 0;
     gpu_tet.inside = 0;
-    gpu_tet.triangles_accepted = 0;
+    gpu_tet.triangles_accepted = 0; 
 
     // check orientation of the tetrahedron
-    const float d =
-        DynamicStrandUtils::PointPlaneDistance(particles[gpu_tet.indices[3]].x0, particles[gpu_tet.indices[0]].x0,
-                                               particles[gpu_tet.indices[1]].x0, particles[gpu_tet.indices[2]].x0);
+    const float d = DynamicStrandUtils::PointPlaneDistance(
+        uniform_particles[gpu_tet.indices[3]].position, uniform_particles[gpu_tet.indices[0]].position,
+        uniform_particles[gpu_tet.indices[1]].position, uniform_particles[gpu_tet.indices[2]].position);
 
     if (d > 0)  // point no. 3 is in front if the triangle 0 1 2, we need to correct this so the triangles face outwards
     {
@@ -820,7 +779,7 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
         neighbor_indices[j] = neighbor.vertex(j)->info();
       }
 
-      if (!DynamicStrandUtils::IsValid(neighbor_indices, particles.size())) {
+      if (!DynamicStrandUtils::IsValid(neighbor_indices, uniform_particles.size())) {
         continue;
       }
 
@@ -841,13 +800,6 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
 #ifdef USE_CGAL
   std::vector<std::pair<Point_CGAL, unsigned> > points;
   for (int i = 0; i < uniform_particles.size(); i++) {
-    // For duplicate particles we only use one of them.
-    /* if (particles[i].connection_handle >= 0 &&
-      connections[particles[i].connection_handle].segment0_particle_handle == i)
-      continue;*/
-    if (i % 2 == 1) {
-      continue;
-    }
     auto& particle = uniform_particles[i];
     glm::vec3 particle_pos = particle.position;
     Point_CGAL p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);

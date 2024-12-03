@@ -176,11 +176,13 @@ bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float d) {
     // if all indices are at the same distance from root, always return true
     // TODO: we will see how consistent this is
     bool all_same_dist = true;
-    [[unroll]] for (uint i = 0; i < 4; i++) {
+    [[unroll]]
+    for (uint i = 0; i < 4; i++) {
       if (i == neighbor_index) {
         continue;
       }
-      [[unroll]] for (uint j = i + 1; j < 4; j++) {
+      [[unroll]]
+      for (uint j = i + 1; j < 4; j++) {
         if (j == neighbor_index) {
           continue;
         }
