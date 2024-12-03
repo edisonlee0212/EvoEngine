@@ -171,38 +171,9 @@ float SkeletonStructure(uint indices[4]) {
 
 bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float d) {
   // check if neighbor is invalid
-  if (neighbor_index != -1) {
+  if (neighbor_index != -1 && tet.neighbors[neighbor_index] == -1) {
     d = 100000.0f;  // marker for this condition
-    // if all indices are at the same distance from root, always return true
-    // TODO: we will see how consistent this is
-    bool all_same_dist = true;
-    [[unroll]]
-    for (uint i = 0; i < 4; i++) {
-      if (i == neighbor_index) {
-        continue;
-      }
-      [[unroll]]
-      for (uint j = i + 1; j < 4; j++) {
-        if (j == neighbor_index) {
-          continue;
-        }
-
-        if (uniform_particles[tet.indices[i]].segment_index != uniform_particles[tet.indices[j]].segment_index) {
-          all_same_dist = false;
-          break;
-        }
-      }
-    }
-
-    if (all_same_dist) {
-      return true;
-    }
-
-    if (tet.neighbors[neighbor_index] == -1)
-    {
-      return false;
-
-    }
+    return false;
   }
   //return true; // debug: should give us the convex hull
   // prepare indices
