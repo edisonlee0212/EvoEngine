@@ -138,37 +138,45 @@ void Platform::Initialize() {
   graphics.triangles.resize(graphics.max_frame_in_flight_);
   graphics.strands_segments.resize(graphics.max_frame_in_flight_);
 
+  const uint32_t subgroup_size = selected_physical_device->vulkan11_properties.subgroupSize;
+
   const uint32_t mesh_work_group_invocations =
       selected_physical_device->mesh_shader_properties_ext.maxPreferredMeshWorkGroupInvocations;
   Constants::task_work_group_invocations =
       selected_physical_device->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  Constants::compute_work_group_invocations = glm::max(Constants::task_work_group_invocations, subgroup_size);
+  Constants::max_compute_work_group_invocations =
+      selected_physical_device->properties.limits.maxComputeWorkGroupInvocations;
 
-  const uint32_t mesh_subgroup_size = selected_physical_device->vulkan11_properties.subgroupSize;
+  
   const uint32_t mesh_subgroup_count =
       (std::min(std::max(Constants::meshlet_max_vertices_size, Constants::meshlet_max_triangles_size),
                 mesh_work_group_invocations) +
-       mesh_subgroup_size - 1) /
-      mesh_subgroup_size;
-  const uint32_t task_subgroup_size = selected_physical_device->vulkan11_properties.subgroupSize;
-  const uint32_t task_subgroup_count =
-      (Constants::task_work_group_invocations + task_subgroup_size - 1) / task_subgroup_size;
+       subgroup_size - 1) /
+      subgroup_size;
+  const uint32_t task_subgroup_count = (Constants::task_work_group_invocations + subgroup_size - 1) / subgroup_size;
+  const uint32_t compute_subgroup_count =
+      (Constants::compute_work_group_invocations + subgroup_size - 1) / subgroup_size;
 
-  Constants::task_subgroup_size = glm::max(task_subgroup_size, 1u);
-  Constants::mesh_subgroup_size = glm::max(mesh_subgroup_size, 1u);
+  Constants::max_shared_memory_size = selected_physical_device->properties.limits.maxComputeSharedMemorySize;
+
+  Constants::subgroup_size = glm::max(subgroup_size, 1u);
   Constants::task_subgroup_count = glm::max(task_subgroup_count, 1u);
   Constants::mesh_subgroup_count = glm::max(mesh_subgroup_count, 1u);
+  Constants::compute_subgroup_count = glm::max(compute_subgroup_count, 1u);
   Constants::shader_global_defines =
       "\n#define MAX_DIRECTIONAL_LIGHT_SIZE " + std::to_string(Settings::max_directional_light_size) +
       "\n#define MAX_KERNEL_AMOUNT " + std::to_string(Constants::max_kernel_amount) +
       "\n#define MESHLET_MAX_VERTICES_SIZE " + std::to_string(Constants::meshlet_max_vertices_size) +
       "\n#define MESHLET_MAX_TRIANGLES_SIZE " + std::to_string(Constants::meshlet_max_triangles_size) +
-      "\n#define MESHLET_MAX_INDICES_SIZE " + std::to_string(Constants::meshlet_max_triangles_size * 3)
-
-      + "\n#define EXT_TASK_SUBGROUP_SIZE " + std::to_string(task_subgroup_size) + "\n#define EXT_MESH_SUBGROUP_SIZE " +
-      std::to_string(mesh_subgroup_size) + "\n#define EXT_TASK_SUBGROUP_COUNT " + std::to_string(task_subgroup_count) +
-      "\n#define EXT_MESH_SUBGROUP_COUNT " + std::to_string(mesh_subgroup_count)
-
-      + "\n#define EXT_INVOCATIONS_PER_TASK " + std::to_string(Constants::task_work_group_invocations) + "\n";
+      "\n#define MESHLET_MAX_INDICES_SIZE " + std::to_string(Constants::meshlet_max_triangles_size * 3) + 
+      "\n#define SUBGROUP_SIZE " + std::to_string(Constants::subgroup_size) + 
+      "\n#define COMPUTE_SUBGROUP_COUNT " + std::to_string(Constants::compute_subgroup_count) + 
+      "\n#define COMPUTE_WORK_GROUP_INVOCATIONS " + std::to_string(Constants::compute_work_group_invocations) + 
+      "\n#define MAX_COMPUTE_WORK_GROUP_INVOCATIONS " + std::to_string(Constants::max_compute_work_group_invocations) +
+      "\n#define EXT_TASK_SUBGROUP_COUNT " + std::to_string(Constants::task_subgroup_count) + 
+      "\n#define EXT_MESH_SUBGROUP_COUNT " + std::to_string(Constants::mesh_subgroup_count) + 
+      "\n#define EXT_TASK_WORK_GROUP_INVOCATIONS " + std::to_string(Constants::task_work_group_invocations) + "\n";
 }
 
 VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,

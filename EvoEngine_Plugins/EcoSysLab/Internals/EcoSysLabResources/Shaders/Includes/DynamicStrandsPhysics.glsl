@@ -3,11 +3,11 @@
 #include "DynamicStrands.glsl"
 
 //Constraint Solvers Decl
-void project_stretch_shear_constraint(in float inv_time_step, in int segment_handle);
-void project_stretch_shear_constraint(in float inv_time_step, in int segment_handle, out vec3 x0_correction,
+void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle);
+void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle, out vec3 x0_correction,
                                       out vec3 x1_correction,
                                       out vec4 q_correction);
-void project_stretch_shear_constraint(in float inv_time_step, in vec3 p0, in vec3 p1, in vec4 q, in float inv_mass_p0,
+void project_shear_stretch_constraint(in float inv_time_step, in vec3 p0, in vec3 p1, in vec4 q, in float inv_mass_p0,
                                       in float inv_mass_p1,
                                     in float inv_mass_q, in vec3 alpha, in float rest_length,
                                     out vec3 x0_correction, out vec3 x1_correction, out vec4 q_correction);
@@ -22,10 +22,10 @@ void project_bend_twist_constraint(in float inv_time_step, in vec4 q0, in float 
 
 void BundleSegment(in uint segment_handle, in float inv_time_step, in float over_relaxation);
 void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in float over_relaxation);
-void BundleSegmentStretchShear(in uint segment_handle, in float inv_time_step);
+void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step);
 
 //Constraint Solvers Impl
-void project_stretch_shear_constraint(in float inv_time_step, in int segment_handle) {
+void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle) {
   vec3 x0_correction, x1_correction;
   vec4 q_correction;
 
@@ -52,7 +52,7 @@ void project_stretch_shear_constraint(in float inv_time_step, in int segment_han
       vec3(segment.shearing_alpha, segment.shearing_alpha, segment.stretching_alpha);
   float rest_length = segment.torque_rest_length.w;
 
-  project_stretch_shear_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha,
+  project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha,
                                    rest_length, x0_correction, x1_correction, q_correction);
 
   vec3 particle0_new_position = particles[particle0_handle].x_node_handle.xyz + x0_correction;
@@ -63,17 +63,17 @@ void project_stretch_shear_constraint(in float inv_time_step, in int segment_han
 
   if (segment.prev_handle != -1) {
     int copy_particle_handle = floatBitsToInt(segments[segment.prev_handle].inv_inertia_tensor_particle_1_handle.w);
-    if (connections[particle0.connection_handle].bend_twist_strain_valid.w != 0.0)
+    if (connections[particle0.connection_handle].bend_twist_strain_limit_connectivity_valid.w != 0.0)
       particles[copy_particle_handle].x_node_handle.xyz = particle0_new_position;
   }
   if (segment.next_handle != -1) {
     int copy_particle_handle = floatBitsToInt(segments[segment.next_handle].inertia_tensor_particle_0_handle.w);
-    if (connections[particle1.connection_handle].bend_twist_strain_valid.w != 0.0)
+    if (connections[particle1.connection_handle].bend_twist_strain_limit_connectivity_valid.w != 0.0)
       particles[copy_particle_handle].x_node_handle.xyz = particle1_new_position;
   }
 }
 
-void project_stretch_shear_constraint(in float inv_time_step, in int segment_handle, out vec3 x0_correction,
+void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle, out vec3 x0_correction,
                                       out vec3 x1_correction,
                                     out vec4 q_correction) {
   Segment segment = segments[segment_handle];
@@ -99,12 +99,12 @@ void project_stretch_shear_constraint(in float inv_time_step, in int segment_han
       vec3(segment.shearing_alpha, segment.shearing_alpha, segment.stretching_alpha);
   float rest_length = segment.torque_rest_length.w;
 
-  project_stretch_shear_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q,
+  project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q,
                                    alpha,
                                  rest_length, x0_correction, x1_correction, q_correction);
 }
 
-void project_stretch_shear_constraint(in float inv_time_step, in vec3 p0, in vec3 p1, in vec4 q, in float inv_mass_p0,
+void project_shear_stretch_constraint(in float inv_time_step, in vec3 p0, in vec3 p1, in vec4 q, in float inv_mass_p0,
                                       in float inv_mass_p1,
                                     in float inv_mass_q, in vec3 alpha, in float rest_length,
                                     out vec3 x0_correction, out vec3 x1_correction, out vec4 q_correction) {
@@ -136,7 +136,7 @@ void project_stretch_shear_constraint(in float inv_time_step, in vec3 p0, in vec
 
 void project_bend_twist_constraint(in float inv_time_step, in int connection_handle) {
   Connection connection = connections[connection_handle];
-  if (connections[connection_handle].bend_twist_strain_valid.w == 0.0f)
+  if (connection.bend_twist_strain_valid.w == 0.0f || connection.bend_twist_strain_limit_connectivity_valid.w == 0.0f)
     return;
 
   vec4 q0_correction, q1_correction;
@@ -196,7 +196,7 @@ void project_bend_twist_constraint(in float inv_time_step, in vec4 q0, in float 
   q1_correction = quat_mul(q0, lambda) * inv_mass_q1 * -1.0f;
 }
 
-vec3 stretch_shear_strain(in vec3 p0, in vec3 p1, in vec4 q, in float rest_length) {
+vec3 shear_stretch_strain(in vec3 p0, in vec3 p1, in vec4 q, in float rest_length) {
   vec3 d3;
   d3[0] = -2.0f * (q.x * q.z + q.w * q.y);
   d3[1] = -2.0f * (q.y * q.z - q.w * q.x);
@@ -315,7 +315,7 @@ void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in f
   }
 }
 
-void BundleSegmentStretchShear(in uint segment_handle, in float inv_time_step) {
+void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
   vec3 x0_correction, x1_correction;
   vec4 q_correction;
 
@@ -345,7 +345,7 @@ void BundleSegmentStretchShear(in uint segment_handle, in float inv_time_step) {
 
   float rest_length = segment.torque_rest_length.w;
 
-  project_stretch_shear_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
+  project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
                                    x0_correction, x1_correction, q_correction);
 
   segment_data_list[segment_handle].particle0_position_correction.xyz = x0_correction;

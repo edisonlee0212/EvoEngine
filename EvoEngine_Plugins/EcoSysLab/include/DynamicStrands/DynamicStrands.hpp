@@ -3,6 +3,10 @@
 #include "StrandModelData.hpp"
 #include "TreeGrowthData.hpp"
 
+namespace eco_sys_lab_plugin {
+class DsHashedGrid;
+}
+
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
@@ -15,6 +19,7 @@ struct DtsStrandGroupData {};
 
 struct DtsStrandData {};
 #define BUNDLE_MAX_CONNECTION 16
+#define HASH_GRID_CELL_SIZE 2 << 15
 struct DtsStrandSegmentData {
   float start_root_distance = 0.0f;
   float end_root_distance = 0.0f;
@@ -50,30 +55,36 @@ class DynamicStrands {
     int uniform_subdivision = 1;
 
     float max_distance_to_boundary = 1.0f;
-    PlottedDistribution<float> wood_density = {{600.0f, 700.0f, {0.0f, 1.0f, {0, 0}, {1, 1}}}, {}};
+    PlottedDistribution<float> wood_density = {{600.0f, 700.0f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
+                                               {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    PlottedDistribution<float> max_shear_modulus = {{9.5f, 13.5f, {0.0f, 1.0f, {0, 0}, {1, 1}}}, {}};
-    PlottedDistribution<float> max_youngs_modulus = {{9.5f, 13.5f, {0.0f, 1.0f, {0, 0}, {1, 1}}}, {}};
+    PlottedDistribution<float> max_shear_modulus = {{9.5f, 13.5f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
+                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
+    PlottedDistribution<float> max_youngs_modulus = {{9.5f, 13.5f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
+                                                     {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    PlottedDistribution<float> max_bending_modulus = {{0.8f, 2.f, {0.0f, 1.0f, {0, 0}, {1, 1}}}, {}};
-    PlottedDistribution<float> max_torsion_modulus = {{0.8f, 2.f, {0.0f, 1.0f, {0, 0}, {1, 1}}}, {}};
+    PlottedDistribution<float> max_bending_modulus = {{0.8f, 2.f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
+                                                      {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
+    PlottedDistribution<float> max_torsion_modulus = {{0.8f, 2.f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
+                                                      {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    PlottedDistribution<float> moisture_content = {{0.08f, 0.12f, {1.0f, 0.0f, {0, 0}, {1, 1}}}, {}};
-
-    float velocity_damping = 0.005f;
-    float angular_velocity_damping = 0.0005f;
+    PlottedDistribution<float> moisture_content = {{0.08f, 0.12f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+                                                   {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
     float neighbor_vertical_range = 3.0f;
     float neighbor_horizontal_range = 3.0f;
-    SingleDistribution<float> max_neighbor_strain = {0.1f, 0.1f};
+    PlottedDistribution<float> max_bundle_strain = {{0.08f, 0.12f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    float min_neighbor_strain = 0.001f;
+    PlottedDistribution<float> max_shear_strain = {{0.01f, 0.01f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+                                                   {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
+    PlottedDistribution<float> max_stretch_strain = {{0.01f, 0.01f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+                                                     {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    SingleDistribution<glm::vec3> max_stretch_shear_strain = {glm::vec3(0.01f), 0.01f};
-    SingleDistribution<glm::vec3> max_bend_twist_strain = {glm::vec3(0.05f), 0.05f};
-
-    glm::vec3 min_stretch_shear_strain = glm::vec3(0.001f);
-    glm::vec3 min_bend_twist_strain = glm::vec3(0.001f);
+    PlottedDistribution<float> max_bend_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+                                                  {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
+    PlottedDistribution<float> max_twist_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+                                                   {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
     GlobalTransform root_transform{};
 
@@ -87,18 +98,37 @@ class DynamicStrands {
   struct PhysicsParameters {
     float time_step = 0.01f;
     int sub_step = 10;
+    uint32_t frame_index = 0;
     int constraint_iteration = 5;
     bool allow_breaking = true;
+    float velocity_damping = 0.005f;
+    float angular_velocity_damping = 0.0005f;
+
+    float enable_segment_collision = true;
+
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   struct VisualizationParameters {
     enum class ParticleRenderMode { Default, SegmentColor };
-    enum class SegmentRenderMode { Default, SegmentColor, ShearStrain, StretchStrain, BoundaryDistance };
-    enum class ConnectionRenderMode { Default, BendStrain, TwistStrain };
+    enum class SegmentRenderMode {
+      Default,
+      SegmentColor,
+      BoundaryDistance,
+      MoistureContent,
+      ShearStrain,
+      StretchStrain
+    };
+    enum class ConnectionRenderMode {
+      Default,
+      BoundaryDistance,
+      MoistureContent,
+      BendStrain,
+      TwistStrain,
+    };
     enum class UniformParticleRenderMode { Default, SegmentColor };
 
-    enum class SegmentPairRenderMode { Default };
+    enum class SegmentPairRenderMode { Default, BendingStrain, TwistStrain, BundleStrain };
     bool render_particles = true;
     bool render_segments = true;
     bool render_connections = true;
@@ -121,6 +151,8 @@ class DynamicStrands {
     float segment_radius_multiplier = 0.9f;
     float segment_boundary_distance_modular = 0.03f;
 
+    glm::vec4 segment_pair_color_min = glm::vec4(0, 0, 1, 1);
+    glm::vec4 segment_pair_color_max = glm::vec4(1, 0, 0, 1);
     glm::vec4 segment_pair_color_main = glm::vec4(0, 1, 1, 0.2);
     float segment_pair_radius_multiplier = 0.9f;
 
@@ -128,6 +160,7 @@ class DynamicStrands {
     glm::vec4 connection_color_max = glm::vec4(1, 0, 0, 1);
     glm::vec4 connection_color_main = glm::vec4(1, 1, 1, 0.8);
     float connection_radius_multiplier = 0.9f;
+    float connection_boundary_distance_modular = 0.03f;
 
     glm::vec4 uniform_particle_main = glm::vec4(1, 1, 1, 0.8f);
     float uniform_particle_radius_multiplier = 0.1f;
@@ -142,6 +175,7 @@ class DynamicStrands {
   std::shared_ptr<DsPreStep> pre_step;
   std::shared_ptr<DsPrediction> prediction;
   std::shared_ptr<DsVelocityUpdate> velocity_update;
+  std::shared_ptr<DsHashedGrid> hashed_grid;
   std::vector<std::shared_ptr<IDsConstraint>> constraints;
 
   void UpdateBindings() const;
@@ -171,7 +205,7 @@ class DynamicStrands {
     glm::quat last_q;
     // Angular velocity
     glm::vec3 angular_v;
-    float padding0;
+    int shear_stretch_valid = 1;
 
     glm::vec3 torque = glm::vec3(0.f);
     float rest_length;
@@ -179,7 +213,7 @@ class DynamicStrands {
     float radius;
     float shearing_alpha;
     float stretching_alpha;
-    float damping;
+    float original_inv_mass = 0.0f;
 
     float max_shearing_modulus;
     float max_stretching_modulus;
@@ -195,15 +229,15 @@ class DynamicStrands {
     glm::mat4 inertia_w;
     glm::mat4 inv_inertia_w;
 
-    glm::vec3 stretch_shear_strain = glm::vec3(0.f);
-    float original_inv_mass = 0.0f;
-
-    glm::vec4 max_stretch_shear_strain;
+    glm::vec4 shear_stretch_strain = glm::vec4(0.f);
+    glm::vec4 max_shear_stretch_strain;
+    glm::vec4 shear_stretch_strain_limit;
   };
+
   struct GpuParticle {
     // Initial position
     glm::vec3 x0;
-    float damping;
+    float padding0;
     // Current position
     glm::vec3 x;
     int node_handle = -1;
@@ -215,7 +249,7 @@ class DynamicStrands {
     int segment_handle = -1;
 
     glm::vec3 acceleration = glm::vec3(0.f);
-    float connectivity_strain;
+    float padding1;
 
     int selected = 0;
     int highlighted = 0;
@@ -241,22 +275,28 @@ class DynamicStrands {
     float moisture_content;
     float boundary_distance;
 
-    glm::vec4 bend_twist_strain_valid = glm::vec4(0.f);
-
-    glm::vec4 max_bend_twist_strain;
+    glm::vec3 bend_twist_strain = glm::vec3(0.f);
+    float bend_twist_valid = 1.0f;
+    glm::vec3 max_bend_twist_strain;
+    float padding;
+    glm::vec3 bend_twist_strain_limit;
+    float connectivity_valid = 1.f;
   };
 
   struct GpuSegmentPair {
     int segment0_handle;
     int segment1_handle;
     int valid;
-    float max_strain;
+    int padding;
+
     float bending_alpha;
     float twisting_alpha;
     float max_bending_modulus;
     float max_torsion_modulus;
 
     glm::vec4 bending_twist_bundle_strain;
+    glm::vec4 max_bending_twist_bundle_strain;
+    glm::vec4 bending_twist_bundle_limit;
 
     glm::vec4 segment0_particle0_offset;
     glm::vec4 segment0_particle1_offset;
@@ -297,6 +337,20 @@ class DynamicStrands {
     int triangles_accepted = 0;
   };
 
+  struct GpuHashedGridElement {
+    uint32_t cell_id;
+    uint32_t segment_handle;
+    uint32_t padding0;
+    uint32_t padding1;
+  };
+
+  struct GpuHashedGridCellStart {
+    uint32_t start_index = -1;
+    uint32_t padding0;
+    uint32_t padding1;
+    uint32_t padding2;
+  };
+
   inline static std::shared_ptr<DescriptorSetLayout> strands_layout{};
 
   std::shared_ptr<Buffer> device_strands_buffer;
@@ -306,6 +360,9 @@ class DynamicStrands {
   std::shared_ptr<Buffer> device_segment_data_list_buffer;
   std::shared_ptr<Buffer> device_uniform_particles_buffer;
   std::shared_ptr<Buffer> device_connections_buffer;
+  std::shared_ptr<Buffer> device_delaunay_tetrahedrons_buffer;
+  std::shared_ptr<Buffer> device_hashed_grid_elements_buffer;
+  std::shared_ptr<Buffer> device_hashed_grid_cell_starts_buffer;
 
   std::vector<GpuStrand> strands;
   std::vector<GpuSegment> segments;
@@ -314,9 +371,9 @@ class DynamicStrands {
   std::vector<GpuSegmentData> segment_data_list;
   std::vector<GpuUniformParticle> uniform_particles;
   std::vector<GpuConnection> connections;
-
-  std::shared_ptr<Buffer> device_delaunay_tetrahedrons_buffer;
   std::vector<GpuDelaunayTetrahedron> delaunay_tetrahedrons;
+  std::vector<GpuHashedGridElement> hashed_grid_elements;
+  std::vector<GpuHashedGridCellStart> hashed_grid_cell_starts;
 #pragma endregion
 
   void Upload();

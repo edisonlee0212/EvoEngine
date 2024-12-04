@@ -8,11 +8,11 @@
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrandsPhysics.glsl"
 
-const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
-const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
 uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
@@ -35,7 +35,12 @@ void main(){
 		uint pair_index = baseID + local_index;
 		if(pair_index >= pair_size) break;
 		SegmentPair segment_pair = segment_pairs[pair_index];
-		if(segment_pair.valid == 0) continue;
+		bool valid = segment_pair.valid != 0;
+		if(!valid) continue;
+
+		//Modify limit here.
+		vec4 bend_twist_bundle_strain_limit = segment_pair.max_bend_twist_bundle_strain;
+		segment_pairs[pair_index].bend_twist_bundle_strain_limit = bend_twist_bundle_strain_limit;
 
 		Segment segment0 = segments[segment_pair.segment0_handle];
 		Segment segment1 = segments[segment_pair.segment1_handle];
@@ -45,10 +50,10 @@ void main(){
 		Particle segment1_particle0 = particles[floatBitsToInt(segment1.inertia_tensor_particle_0_handle.w)];
 		Particle segment1_particle1 = particles[floatBitsToInt(segment1.inv_inertia_tensor_particle_1_handle.w)];
 
-		float original_distance0 = distance(segment0_particle0.x0_damping.xyz, segment1_particle0.x0_damping.xyz);
+		float original_distance0 = distance(segment0_particle0.x0.xyz, segment1_particle0.x0.xyz);
 		float current_distance0 = distance(segment0_particle0.x_node_handle.xyz, segment1_particle0.x_node_handle.xyz);
 		float strain0 = abs(current_distance0 - original_distance0) / (segment0.torque_rest_length.w + segment1.torque_rest_length.w) * 2.0;
-		float original_distance1 = distance(segment0_particle1.x0_damping.xyz, segment1_particle1.x0_damping.xyz);
+		float original_distance1 = distance(segment0_particle1.x0.xyz, segment1_particle1.x0.xyz);
 		float current_distance1 = distance(segment0_particle1.x_node_handle.xyz, segment1_particle1.x_node_handle.xyz);
 		float strain1 = abs(current_distance1 - original_distance1) / (segment0.torque_rest_length.w + segment1.torque_rest_length.w) * 2.0;
 
@@ -57,11 +62,15 @@ void main(){
 		Connection segment1_particle0_connection = connections[segment1_particle0.connection_handle];
 		Connection segment1_particle1_connection = connections[segment1_particle1.connection_handle];
 
-		bool left_break = strain0 > segment_pair.max_strain;
-		bool right_break = strain1 > segment_pair.max_strain;
-		
-		if(allow_breaking == 1 && left_break && right_break){
-			segment_pairs[pair_index].valid = 0;
+		float bundle_strain = max(strain0, strain1);
+		vec3 bend_twist_strain = bend_twist_strain(segment0.q, segment1.q, segment_pair.rest_darboux_vector);
+		if(allow_breaking == 1){
+			valid = bend_twist_strain.x < segment_pair.bend_twist_bundle_strain_limit.x
+					&& bend_twist_strain.y < segment_pair.bend_twist_bundle_strain_limit.y
+					&& bend_twist_strain.z < segment_pair.bend_twist_bundle_strain_limit.z
+					&& bundle_strain < segment_pair.bend_twist_bundle_strain_limit.w;
 		}
+		segment_pairs[pair_index].bending_twist_bundle_strain = vec4(bend_twist_strain, bundle_strain);
+		segment_pairs[pair_index].valid = valid ? 1 : 0;
 	}
 }

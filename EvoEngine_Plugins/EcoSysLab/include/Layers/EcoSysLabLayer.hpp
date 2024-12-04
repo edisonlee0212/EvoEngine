@@ -181,5 +181,7 @@ class EcoSysLabLayer : public ILayer {
   void SoilVisualization();
   void SoilVisualizationScalar(const VoxelSoilModel& soil_model);  // called during LateUpdate()
   void SoilVisualizationVector(const VoxelSoilModel& soil_model);  // called during LateUpdate()
+
+  void StrandPhysics();
 };
 }  // namespace eco_sys_lab_plugin

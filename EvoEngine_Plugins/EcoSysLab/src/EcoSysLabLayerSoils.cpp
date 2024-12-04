@@ -314,6 +314,8 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
   editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CYLINDER"), vector_matrices_,
                                               glm::mat4(1.0f), 1.0f, gizmo_settings);
 }
+
+
 EcoSysLabLayer::SoilVisualizationSettings::SoilVisualizationSettings() {
   if (soil_layer_colors.empty()) {
     for (int i = 0; i < 10; i++) {

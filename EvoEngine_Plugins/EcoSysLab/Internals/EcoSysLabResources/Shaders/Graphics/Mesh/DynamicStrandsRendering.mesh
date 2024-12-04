@@ -9,7 +9,7 @@
 #define DYNAMIC_STRANDS_SET 1
 #include "DynamicStrands.glsl"
 
-const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * EXT_MESH_SUBGROUP_SIZE;
+const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
 layout(local_size_x = WORKGROUP_SIZE) in;
 layout(triangles) out;
@@ -31,7 +31,7 @@ layout(location = 0) out MS_V_OUT {
 
 struct Task{
 	uint	baseID;
-	uint8_t	deltaIDs[EXT_INVOCATIONS_PER_TASK];
+	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
 
 // order them such that the triangle index corresponds to the vertex index on the opposing side

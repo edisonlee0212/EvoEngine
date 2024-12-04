@@ -1,5 +1,5 @@
 #include "DynamicStrands.hpp"
-
+#include "DsPhysics.hpp"
 #include "DsColliders.hpp"
 #include "DsConstraints.hpp"
 #include "Shader.hpp"
@@ -31,6 +31,9 @@ inline glm::vec3 cgal_to_glm(const CGAL::Point_3<CGAL::Epick>& p) {
 void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
                              const std::function<void()>& sub_step_action) const {
   pre_step_action();
+  if (physics_parameters.enable_segment_collision && hashed_grid) {
+    hashed_grid->Initialize(physics_parameters, *this);
+  }
   for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
     if (pre_step)
       pre_step->Execute(physics_parameters, *this);
@@ -92,6 +95,8 @@ DynamicStrands::DynamicStrands() {
     strands_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->Initialize();
   }
   wait_for_upload = true;
@@ -112,16 +117,19 @@ DynamicStrands::DynamicStrands() {
   device_uniform_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_connections_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_delaunay_tetrahedrons_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_hashed_grid_elements_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_hashed_grid_cell_starts_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
   strands_descriptor_sets.resize(max_frame_in_flight);
   for (auto& i : strands_descriptor_sets) {
     i = std::make_shared<DescriptorSet>(strands_layout);
   }
-
   pre_step = std::make_shared<DsPreStep>();
   prediction = std::make_shared<DsPrediction>();
   velocity_update = std::make_shared<DsVelocityUpdate>();
+  hashed_grid = std::make_shared<DsHashedGrid>();
 }
 
 bool DynamicStrands::WaitForUpload() const {
@@ -149,36 +157,39 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     changed = true;
   if (ImGui::TreeNode("Material Properties")) {
     PlottedDistributionSettings wood_density_settings{};
-    if (wood_density.OnInspect("Wood Density"))
+    if (wood_density.OnInspect("Wood Density", wood_density_settings))
       changed = true;
-    if (max_youngs_modulus.OnInspect("Wood Young's modulus"))
+    PlottedDistributionSettings wood_young_settings{};
+    if (max_youngs_modulus.OnInspect("Wood Young's modulus", wood_young_settings))
       changed = true;
-    if (max_shear_modulus.OnInspect("Wood Shear modulus"))
+    PlottedDistributionSettings wood_shear_settings{};
+    if (max_shear_modulus.OnInspect("Wood Shear modulus", wood_shear_settings))
+      changed = true;
+    PlottedDistributionSettings wood_bending_settings{};
+    if (max_bending_modulus.OnInspect("Wood Bending modulus", wood_bending_settings))
+      changed = true;
+    PlottedDistributionSettings wood_torsion_settings{};
+    if (max_torsion_modulus.OnInspect("Wood Torsion modulus", wood_torsion_settings))
       changed = true;
 
-    if (max_bending_modulus.OnInspect("Wood Bending modulus"))
+    PlottedDistributionSettings max_bundle_strain_settings{};
+    if (max_bundle_strain.OnInspect("Max bundle strain", max_bundle_strain_settings))
       changed = true;
-    if (max_torsion_modulus.OnInspect("Wood Torsion modulus"))
+    PlottedDistributionSettings max_shear_strain_settings{};
+    if (max_shear_strain.OnInspect("Max shear strain", max_shear_strain_settings))
       changed = true;
-    if (max_neighbor_strain.OnInspect("Max neighbor strain", 0.01f))
+    PlottedDistributionSettings max_stretch_strain_settings{};
+    if (max_stretch_strain.OnInspect("Max stretch strain", max_stretch_strain_settings))
       changed = true;
-    if (ImGui::DragFloat("Min neighbor strain", &min_neighbor_strain, 0.001f, 0.00f, 1.0f))
+
+    PlottedDistributionSettings max_bend_strain_settings{};
+    if (max_bend_strain.OnInspect("Max bend strain", max_bend_strain_settings))
       changed = true;
-    if (max_stretch_shear_strain.OnInspect("Max stretch/shear strain", 0.01f))
+    PlottedDistributionSettings max_twist_strain_settings{};
+    if (max_twist_strain.OnInspect("Max twist strain", max_twist_strain_settings))
       changed = true;
-    if (ImGui::DragFloat3("Min stretch/shear strain", &min_stretch_shear_strain.x, 0.001f, 0.00f, 1.0f))
-      changed = true;
-    if (max_bend_twist_strain.OnInspect("Max bend/twist strain", 0.01f))
-      changed = true;
-    if (ImGui::DragFloat3("Min bend/twist strain", &min_bend_twist_strain.x, 0.001f, 0.00f, 1.0f))
-      changed = true;
+
     ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Physical Properties")) {
-    if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
-      changed = true;
-    if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
-      changed = true;
   }
 
   return changed;
@@ -220,7 +231,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.color = target_strand_segment.end_color;
 
     segment.radius = target_strand_segment.end_thickness * .5f;
-    segment.damping = initialize_parameters.angular_velocity_damping;
     segment.q0 = segment.q = segment.last_q =
         initialize_parameters.root_transform.GetRotation() * target_strand_segment.rotation;
     segment.torque = glm::vec3(0.f);
@@ -240,10 +250,10 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.boundary_distance = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f;
     segment.stretching_alpha = 1.f / (segment.max_stretching_modulus * area / segment.rest_length);
     segment.shearing_alpha = 1.f / (segment.max_shearing_modulus * area / segment.rest_length);
-
-    segment.max_stretch_shear_strain = glm::vec4(glm::max(initialize_parameters.min_stretch_shear_strain,
-                                                          initialize_parameters.max_stretch_shear_strain.GetValue()),
-                                                 0.0f);
+    const float max_shear_strain = glm::max(0.001f, initialize_parameters.max_shear_strain.GetValue(ratio));
+    const float max_stretch_strain = glm::max(0.001f, initialize_parameters.max_stretch_strain.GetValue(ratio));
+    segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain = segment.shear_stretch_strain_limit =
+        glm::vec4(max_shear_strain, max_shear_strain, max_stretch_strain, 0.0f);
   });
 
   particles.resize(segments.size() * 2);
@@ -255,7 +265,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     auto& particle1 = particles[segment_handle * 2 + 1];
     segment.particle0_handle = static_cast<int>(segment_handle) * 2;
     segment.particle1_handle = static_cast<int>(segment_handle) * 2 + 1;
-    particle0.damping = particle1.damping = initialize_parameters.velocity_damping;
     particle0.x0 = particle0.x = particle0.last_x =
         glm::vec4(initialize_parameters.root_transform.TransformPoint(
                       strand_group.GetStrandSegmentStart(static_cast<int>(segment_handle))),
@@ -531,12 +540,17 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
       const auto& q0 = segment0.q0;
       const auto& q1 = segment1.q0;
+      connection.moisture_content = (segment0.moisture_content + segment1.moisture_content) * 0.5f;
       connection.boundary_distance = (segment0.boundary_distance + segment1.boundary_distance) * 0.5f;
       connection.rest_darboux_vector = glm::conjugate(q0) * q1;
-      connection.bend_twist_strain_valid.w = 1.0;
-      connection.max_bend_twist_strain = glm::vec4(
-          glm::max(initialize_parameters.max_bend_twist_strain.GetValue(), initialize_parameters.min_bend_twist_strain),
-          0.0f);
+      connection.bend_twist_valid = 1.f;
+      connection.connectivity_valid = 1.f;
+      const float max_bend_strain = glm::max(0.001f, initialize_parameters.max_bend_strain.GetValue(ratio));
+      const float max_twist_strain = glm::max(0.001f, initialize_parameters.max_twist_strain.GetValue(ratio));
+
+
+      connection.max_bend_twist_strain = connection.bend_twist_strain_limit =
+          glm::vec3(max_bend_strain, max_bend_strain, max_twist_strain);
     }
   }
 
@@ -764,9 +778,12 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       new_pair.bending_alpha =
           1.f / (new_pair.max_bending_modulus * second_moment_of_area / glm::pow(segment_length, 3.f));
       new_pair.twisting_alpha = 1.f / (new_pair.max_torsion_modulus * polar_moment_of_inertia / segment_length);
+      const float max_bend_strain = glm::max(0.001f, initialize_parameters.max_bend_strain.GetValue(ratio));
+      const float max_twist_strain = glm::max(0.001f, initialize_parameters.max_twist_strain.GetValue(ratio));
 
-      new_pair.max_strain =
-          glm::max(initialize_parameters.min_neighbor_strain, initialize_parameters.max_neighbor_strain.GetValue());
+      const float max_bundle_strain = glm::max(0.001f, initialize_parameters.max_bundle_strain.GetValue(ratio));
+      new_pair.max_bending_twist_bundle_strain = new_pair.bending_twist_bundle_limit =
+          glm::vec4(max_bend_strain, max_bend_strain, max_twist_strain, max_bundle_strain);
       new_pair.valid = 1;
       segment_data_list[candidate.first.first].pair_handles[first] = pair_handle;
       segment_data_list[candidate.first.second].pair_handles[second] = pair_handle;
@@ -805,6 +822,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   for (const auto& i : constraints)
     i->InitializeData(initialize_parameters, strand_model_skeleton, strand_group, *this);
 
+  hashed_grid_elements.resize(segments.size());
+  hashed_grid_cell_starts.resize(HASH_GRID_CELL_SIZE);
   Upload();
 }
 
@@ -819,6 +838,10 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     changed = true;
   }
   if (ImGui::DragInt("Constraint Iteration", &constraint_iteration, 1, 1, 500))
+    changed = true;
+  if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
+    changed = true;
+  if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
     changed = true;
   return changed;
 }
@@ -837,6 +860,10 @@ void DynamicStrands::UpdateBindings() const {
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(6, device_connections_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_delaunay_tetrahedrons_buffer,
                                                                               0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(8, device_hashed_grid_elements_buffer,
+                                                                              0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(9, device_hashed_grid_cell_starts_buffer,
+                                                                              0);
   for (const auto& c : constraints) {
     c->UpdateBindings();
   }
@@ -853,6 +880,9 @@ void DynamicStrands::Upload() {
     device_uniform_particles_buffer->UploadVector(uniform_particles);
     device_connections_buffer->UploadVector(connections);
     device_delaunay_tetrahedrons_buffer->UploadVector(delaunay_tetrahedrons);
+    device_hashed_grid_elements_buffer->UploadVector(hashed_grid_elements);
+    device_hashed_grid_cell_starts_buffer->UploadVector(hashed_grid_cell_starts);
+
     for (const auto& c : constraints) {
       c->UploadData();
     }
@@ -878,6 +908,12 @@ void DynamicStrands::Download() {
       device_connections_buffer->DownloadVector(connections, connections.size());
     if (!delaunay_tetrahedrons.empty())
       device_delaunay_tetrahedrons_buffer->DownloadVector(delaunay_tetrahedrons, delaunay_tetrahedrons.size());
+
+    if (!hashed_grid_elements.empty())
+      device_hashed_grid_elements_buffer->DownloadVector(hashed_grid_elements, hashed_grid_elements.size());
+    if (!hashed_grid_cell_starts.empty())
+      device_hashed_grid_cell_starts_buffer->DownloadVector(hashed_grid_cell_starts, hashed_grid_cell_starts.size());
+
     for (const auto& c : constraints) {
       c->DownloadData();
     }
@@ -892,8 +928,9 @@ void DynamicStrands::Clear() {
   segment_data_list.clear();
   uniform_particles.clear();
   connections.clear();
-
   delaunay_tetrahedrons.clear();
+  hashed_grid_elements.clear();
+  hashed_grid_cell_starts.clear();
 }
 
 glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height,

@@ -9,18 +9,18 @@
 #define DYNAMIC_STRANDS_SET 1
 #include "DynamicStrands.glsl"
 
-const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
-const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint ITERATIONS_PER_TASK = ((EXT_TASK_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint baseID = gl_WorkGroupID.x * EXT_TASK_WORK_GROUP_INVOCATIONS;
 uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE) in;
 
 struct Task{
 	uint	baseID;
-	uint8_t	deltaIDs[EXT_INVOCATIONS_PER_TASK];
+	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
 
 taskPayloadSharedEXT Task ts_out;

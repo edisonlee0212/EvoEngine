@@ -126,7 +126,6 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
     transform_operator.ds_transform->Initialize(initialize_parameters.root_transform, dynamic_strands, segment_handles);
   }
 }
-
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
 }
 

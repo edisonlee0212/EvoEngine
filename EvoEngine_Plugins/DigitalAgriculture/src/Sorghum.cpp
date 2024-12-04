@@ -1,8 +1,12 @@
 #include "Sorghum.hpp"
 
-#include "SorghumLayer.hpp"
 #include "SorghumGenerator.hpp"
-
+#include "SorghumLayer.hpp"
+#ifdef OPTIX_RAY_TRACER_PLUGIN
+#  include "BTFMeshRenderer.hpp"
+#  include "CBTFGroup.hpp"
+#  include "CompressedBTF.hpp"
+#endif
 using namespace digital_agriculture_plugin;
 
 void Sorghum::ClearGeometryEntities() const {
@@ -40,13 +44,14 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
   }
 
   if (!target_sorghum_descriptor) {
-    EVOENGINE_ERROR("Failed to generate sorghum geometry: No SorghumDescriptor/SorghumGenerator/SorghumGrowthStages/SorghumState provided.")
+    EVOENGINE_ERROR(
+        "Failed to generate sorghum geometry: No SorghumDescriptor/SorghumGenerator/SorghumGrowthStages/SorghumState "
+        "provided.")
     return;
   }
 
   if (target_sorghum_descriptor->stem.spline.segments.empty()) {
-    EVOENGINE_ERROR(
-        "Failed to generate sorghum geometry: No stem.")
+    EVOENGINE_ERROR("Failed to generate sorghum geometry: No stem.")
     return;
   }
   ClearGeometryEntities();
@@ -61,16 +66,16 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
     particles->mesh = mesh;
     particles->material = material;
     const auto panicle_material = sorghum_layer->panicle_material.Get<Material>();
-    // material->SetAlbedoTexture(panicleMaterial->GetAlbedoTexture());
-    // material->SetNormalTexture(panicleMaterial->GetNormalTexture());
-    // material->SetRoughnessTexture(panicleMaterial->GetRoughnessTexture());
-    // material->SetMetallicTexture(panicleMaterial->GetMetallicTexture());
+    material->SetAlbedoTexture(panicle_material->GetAlbedoTexture());
+    material->SetNormalTexture(panicle_material->GetNormalTexture());
+    material->SetRoughnessTexture(panicle_material->GetRoughnessTexture());
+    material->SetMetallicTexture(panicle_material->GetMetallicTexture());
     material->material_properties = panicle_material->material_properties;
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
 
-    target_sorghum_descriptor->panicle.GenerateGeometry(target_sorghum_descriptor->stem.spline.segments.back().position, vertices,
-                                             indices, particle_info_list);
+    target_sorghum_descriptor->panicle.GenerateGeometry(target_sorghum_descriptor->stem.spline.segments.back().position,
+                                                        vertices, indices, particle_info_list);
     VertexAttributes attributes{};
     attributes.tex_coord = true;
     mesh->SetVertices(attributes, vertices, indices);
@@ -85,11 +90,11 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
     const auto material = ProjectManager::CreateTemporaryAsset<Material>();
     mesh_renderer->mesh = mesh;
     mesh_renderer->material = material;
-    const auto  stem_material = sorghum_layer->leaf_material.Get<Material>();
-    // material->SetAlbedoTexture(stemMaterial->GetAlbedoTexture());
-    // material->SetNormalTexture(stemMaterial->GetNormalTexture());
-    // material->SetRoughnessTexture(stemMaterial->GetRoughnessTexture());
-    // material->SetMetallicTexture(stemMaterial->GetMetallicTexture());
+    const auto stem_material = sorghum_layer->leaf_material.Get<Material>();
+    material->SetAlbedoTexture(stem_material->GetAlbedoTexture());
+    material->SetNormalTexture(stem_material->GetNormalTexture());
+    material->SetRoughnessTexture(stem_material->GetRoughnessTexture());
+    material->SetMetallicTexture(stem_material->GetMetallicTexture());
     material->material_properties = stem_material->material_properties;
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
@@ -101,21 +106,32 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
   }
   if (sorghum_mesh_generator_settings.enable_leaves) {
     if (sorghum_mesh_generator_settings.leaf_separated) {
+#ifdef OPTIX_RAY_TRACER_PLUGIN
+      const auto btf_group = sorghum_layer->leaf_cbtf_group.Get<CBTFGroup>()->GetRandom();
+#endif
       if (sorghum_mesh_generator_settings.single_leaf_index != -1) {
         if (sorghum_mesh_generator_settings.single_leaf_index < target_sorghum_descriptor->leaves.size()) {
           const auto& leaf_state = target_sorghum_descriptor->leaves[sorghum_mesh_generator_settings.single_leaf_index];
           const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
-          const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
           const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
-          const auto material = ProjectManager::CreateTemporaryAsset<Material>();
-          mesh_renderer->mesh = mesh;
-          mesh_renderer->material = material;
-          const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
-          // material->SetAlbedoTexture(leafMaterial->GetAlbedoTexture());
-          // material->SetNormalTexture(leafMaterial->GetNormalTexture());
-          // material->SetRoughnessTexture(leafMaterial->GetRoughnessTexture());
-          // material->SetMetallicTexture(leafMaterial->GetMetallicTexture());
-          material->material_properties = leaf_material->material_properties;
+          if (sorghum_layer->enable_compressed_btf) {
+#ifdef OPTIX_RAY_TRACER_PLUGIN
+            const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
+            btf_renderer->mesh = mesh;
+            btf_renderer->btf = btf_group;
+#endif
+          } else {
+            const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
+            const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+            mesh_renderer->mesh = mesh;
+            mesh_renderer->material = material;
+            const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
+            material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
+            material->SetNormalTexture(leaf_material->GetNormalTexture());
+            material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
+            material->SetMetallicTexture(leaf_material->GetMetallicTexture());
+            material->material_properties = leaf_material->material_properties;
+          }
           std::vector<Vertex> vertices;
           std::vector<unsigned int> indices;
           leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, false);
@@ -130,17 +146,25 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
       } else {
         for (const auto& leaf_state : target_sorghum_descriptor->leaves) {
           const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
-          const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
           const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
-          const auto material = ProjectManager::CreateTemporaryAsset<Material>();
-          mesh_renderer->mesh = mesh;
-          mesh_renderer->material = material;
-          const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
-          // material->SetAlbedoTexture(leafMaterial->GetAlbedoTexture());
-          // material->SetNormalTexture(leafMaterial->GetNormalTexture());
-          // material->SetRoughnessTexture(leafMaterial->GetRoughnessTexture());
-          // material->SetMetallicTexture(leafMaterial->GetMetallicTexture());
-          material->material_properties = leaf_material->material_properties;
+          if (sorghum_layer->enable_compressed_btf) {
+#ifdef OPTIX_RAY_TRACER_PLUGIN
+            const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
+            btf_renderer->mesh = mesh;
+            btf_renderer->btf = btf_group;
+#endif
+          } else {
+            const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
+            const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+            mesh_renderer->mesh = mesh;
+            mesh_renderer->material = material;
+            const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
+            material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
+            material->SetNormalTexture(leaf_material->GetNormalTexture());
+            material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
+            material->SetMetallicTexture(leaf_material->GetMetallicTexture());
+            material->material_properties = leaf_material->material_properties;
+          }
           std::vector<Vertex> vertices;
           std::vector<unsigned int> indices;
           leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, false);
@@ -155,17 +179,26 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
       }
     } else {
       const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
-      const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
       const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
-      const auto material = ProjectManager::CreateTemporaryAsset<Material>();
-      mesh_renderer->mesh = mesh;
-      mesh_renderer->material = material;
-      const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
-      material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
-      // material->SetNormalTexture(leafMaterial->GetNormalTexture());
-      // material->SetRoughnessTexture(leafMaterial->GetRoughnessTexture());
-      // material->SetMetallicTexture(leafMaterial->GetMetallicTexture());
-      material->material_properties = leaf_material->material_properties;
+      if (sorghum_layer->enable_compressed_btf) {
+#ifdef OPTIX_RAY_TRACER_PLUGIN
+        const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
+        btf_renderer->mesh = mesh;
+        const auto btf_group = sorghum_layer->leaf_cbtf_group.Get<CBTFGroup>()->GetRandom();
+        btf_renderer->btf = btf_group;
+#endif
+      } else {
+        const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
+        const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+        mesh_renderer->mesh = mesh;
+        mesh_renderer->material = material;
+        const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
+        material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
+        material->SetNormalTexture(leaf_material->GetNormalTexture());
+        material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
+        material->SetMetallicTexture(leaf_material->GetMetallicTexture());
+        material->material_properties = leaf_material->material_properties;
+      }
       std::vector<Vertex> vertices;
       std::vector<unsigned int> indices;
       for (const auto& leaf_state : target_sorghum_descriptor->leaves) {
@@ -264,7 +297,7 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (!node_debug_info_list)
       node_debug_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
     constexpr bool show_all_node = false;
-    if (show_all_node){
+    if (show_all_node) {
       if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>()) {
         std::vector<ParticleInfo> particle_infos;
         const auto owner = GetOwner();
@@ -284,7 +317,7 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         }
         node_debug_info_list->SetParticleInfos(particle_infos);
       }
-    }else {
+    } else {
       if (ImGui::Button("Refresh leaf nodes")) {
         if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>()) {
           std::vector<ParticleInfo> particle_infos;
@@ -297,7 +330,7 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
             const auto segments = leaf_part.RebuildFixedSizeSegments(8);
             const auto start_index = particle_infos.size();
             particle_infos.resize(start_index + segments.size());
-            for(int i = 0; i < segments.size(); i++) {
+            for (int i = 0; i < segments.size(); i++) {
               auto& matrix = particle_infos[start_index + i].instance_matrix;
               matrix.value = glm::translate(segments.at(i).position + plant_position) *
                              glm::scale(glm::vec3(node_render_size * segments.at(i).radius));

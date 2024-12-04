@@ -10,7 +10,7 @@
 #include "DynamicStrands.glsl"
 #include "Math.glsl"
 
-const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * EXT_MESH_SUBGROUP_SIZE;
+const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
 layout(local_size_x = WORKGROUP_SIZE) in;
 layout(triangles) out;
@@ -32,7 +32,7 @@ layout(location = 0) out MS_V_OUT {
 
 struct Task{
 	uint	baseID;
-	uint8_t	deltaIDs[EXT_INVOCATIONS_PER_TASK];
+	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
 
 vec3 positions[] = {
@@ -117,7 +117,21 @@ void main(){
 	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 
 	vec4 color = color0;
-	
+	if(color_mode == 0){
+		color = color0;
+	}else if(color_mode == 1){
+		color = mix(color0, color1, clamp(max(
+					abs(segment_pair.bending_twist_bundle_strain.x) / segment_pair.bend_twist_bundle_strain_limit.x, 
+					abs(segment_pair.bending_twist_bundle_strain.y) / segment_pair.bend_twist_bundle_strain_limit.y), 0.0, 1.0));
+	}else if(color_mode == 2){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain.z) / segment_pair.bend_twist_bundle_strain_limit.z, 0.0, 1.0));
+	}else if(color_mode == 3){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain.w) / segment_pair.bend_twist_bundle_strain_limit.w, 0.0, 1.0));
+	}
+
+
 	if(segment0_particle0.highlighted == 1 || segment0_particle1.highlighted == 1 || segment1_particle0.highlighted == 1 || segment1_particle1.highlighted == 1){
 		color = mix(color, vec4(0, 1, 0, 1), 0.8f);
 	}else if(segment0_particle0.highlighted == 2 || segment0_particle1.highlighted == 2 || segment1_particle0.highlighted == 2 || segment1_particle1.highlighted == 2){
