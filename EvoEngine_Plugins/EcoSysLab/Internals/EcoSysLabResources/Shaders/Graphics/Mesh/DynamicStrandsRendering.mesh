@@ -46,13 +46,6 @@ uvec3 triangles[] = {
 	memoryBarrierShared(); \
 	barrier();
 
-layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
-  uint camera_index;
-  uint tetrahedrons_size;
-  float alpha;
-  float bufurcation_alpha;
-};
-
 taskPayloadSharedEXT Task ts_in;
 
 // gl_WorkGroupID.x runs from [0 .. parentTask.groupCountX - 1]

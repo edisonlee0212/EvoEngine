@@ -1,5 +1,12 @@
 #extension GL_EXT_control_flow_attributes : require
 
+layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
+  uint camera_index;
+  uint tetrahedrons_size;
+  float alpha;
+  float bifurcation_alpha;
+};
+
 void SortFourElements(inout uint a[4]) {
   uint min1, min2, max1, max2;
 
@@ -40,6 +47,11 @@ void SortFourElements(inout uint a[4]) {
     a[1] = a[2];
     a[2] = tmp;
   }
+}
+
+float DistSquared(vec3 A, vec3 B) {
+  vec3 C = A - B;
+  return dot(C, C);
 }
 
 // Note: seems to be unstable with a physics simulation
@@ -108,41 +120,83 @@ float LongestSide(uint indices[4]) {
 
 bool AreNeighbors(uint index0, uint index1)
 {
-  int node_handle0 = uniform_particles[index0].node_index;
-  int node_handle1 = uniform_particles[index1].node_index;
+  UniformParticle p0 = uniform_particles[index0];
+  UniformParticle p1 = uniform_particles[index1];
+  int node_handle0 = p0.node_index;
+  int node_handle1 = p1.node_index;
 
   // horizontal neighbors
-  if (uniform_particles[index0].segment_index == uniform_particles[index1].segment_index &&
-      (node_handle0 == node_handle1 ||
-       nodes[node_handle0].prev_handle == node_handle1 ||
-       node_handle0 == nodes[node_handle1].prev_handle)) {
+  if (p0.segment_index == p1.segment_index &&
+      node_handle0 == node_handle1) {
 
     // same plane, now take alpha into account
-    vec3 vij = uniform_particles[index0].position_t.xyz - uniform_particles[index1].position_t.xyz;
+    vec3 vij = p0.position_t.xyz - p1.position_t.xyz;
     float dist_squared = dot(vij, vij);
-    return dist_squared < alpha;
+
+    // distinguish bifurcation point
+    if (p0.next_node_index == p1.next_node_index) {
+      return dist_squared < alpha;
+    } else {
+      return dist_squared < bifurcation_alpha;
+    }
   }
 
-  // vertical and diagonal neighbors
+  // vertical neighbors -> always true, TODO: except if broken
+  if (p0.segment_index - 1 == p1.segment_index) { // p0 is higher
+    if (p0.prev_particle_handle == index1)
+    {
+      return true;
+    }
+  } else if (p0.segment_index == p1.segment_index - 1) {
+    if (index0 == p1.prev_particle_handle) {
+      return true;
+    }
+  }
 
-  // index0 is higher
-  if (uniform_particles[index0].segment_index - 1 == uniform_particles[index1].segment_index) {
+  // diagonal neighbors
+  if (p0.segment_index - 1 == p1.segment_index) {  // p0 is higher
     int prev_node_handle0 = nodes[node_handle0].prev_handle;
-    if(node_handle0 == node_handle1 || prev_node_handle0 == node_handle1) {
-      vec3 vij = uniform_particles[index0].position_t.xyz - uniform_particles[index1].position_t.xyz;
-      float dist_squared = dot(vij, vij);
-      return dist_squared < sqrt(2.0f) * alpha; // account for diagonal (TODO: refine by actual size)
-    }
+    if (node_handle0 == node_handle1 || prev_node_handle0 == node_handle1) {
 
-  // index1 is higher
-  } else if (uniform_particles[index0].segment_index == uniform_particles[index1].segment_index - 1) {
+      // use pythagorean theorem to determine adapted alpha:
+      //
+      // p0 *
+      //    |\
+      //    | \ sqrt(adapted_alpha)
+      //    |  \
+      //    *---* p1
+      //  sqrt(alpha)
+      //
+      // TODO: also take into account broken particles
+      float vertical_dist_squared = DistSquared(uniform_particles[p0.prev_particle_handle].position_t.xyz, p0.position_t.xyz);
+      float dist_squared = DistSquared(p0.position_t.xyz, p1.position_t.xyz);
+
+      // distinguish bifurcation point
+      if ((node_handle0 == node_handle1 && p0.next_node_index == p1.next_node_index) ||
+          (prev_node_handle0 == node_handle1 && node_handle0 == p1.next_node_index)) {
+        return dist_squared < alpha + vertical_dist_squared; // = adapted_alpha
+      } else {
+        return dist_squared < bifurcation_alpha + vertical_dist_squared; // = adapted_alpha
+      }
+    } 
+  } else if (p1.segment_index - 1 == p0.segment_index) {  // p1 is higher
     int prev_node_handle1 = nodes[node_handle1].prev_handle;
-    if (node_handle0 == node_handle1 || node_handle0 == prev_node_handle1) {
-      vec3 vij = uniform_particles[index0].position_t.xyz - uniform_particles[index1].position_t.xyz;
-      float dist_squared = dot(vij, vij);
-      return dist_squared < sqrt(2.0f) * alpha;  // account for diagonal (TODO: refine by actual size)
+    if (node_handle1 == node_handle0 || prev_node_handle1 == node_handle0) {
+
+      // use pythagorean theorem to determine adapted alpha, same as above
+      float vertical_dist_squared = DistSquared(uniform_particles[p1.prev_particle_handle].position_t.xyz, p1.position_t.xyz);
+      float dist_squared = DistSquared(p1.position_t.xyz, p0.position_t.xyz);
+
+      // distinguish bifurcation point
+      if ((node_handle1 == node_handle0 && p1.next_node_index == p0.next_node_index) ||
+          (prev_node_handle1 == node_handle0 && node_handle1 == p0.next_node_index)) {
+        return dist_squared < alpha + vertical_dist_squared; // = adapted_alpha
+      } else {
+        return dist_squared < bifurcation_alpha + vertical_dist_squared; // = adapted_alpha
+      }
     }
   }
+
 
   return false;
 

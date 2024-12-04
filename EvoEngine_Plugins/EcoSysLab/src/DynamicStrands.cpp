@@ -320,7 +320,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
           const auto& prev_prev_segment_data =
               strand_model_strand_group.PeekStrandSegmentData(prev_segment.GetPrevHandle());
           d0 = prev_prev_segment_data.initial_distance_to_boundary;
-          d1 = prev_segment_data.initial_distance_to_boundary;
+          d1 = prev_segment_data.initial_distance_to_boundary; 
 
           p0 = prev_prev_segment_data.profile_position;
           p1 = prev_segment_data.profile_position;
@@ -364,7 +364,12 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     first_uniform_particle.node_index = first_uniform_segment_data.node_handle;
     first_uniform_particle.t = 0.0f;
     first_uniform_particle.segment_index = 0;
+    first_uniform_particle.prev_particle_handle = -1;
+    first_uniform_particle.next_particle_handle - -1;
+    first_uniform_particle.next_node_index = -1;
+    first_uniform_particle.strand_index = strand_index;
 
+    int last_index_with_new_node = 0;
     float previous_root_distance = 0.0f;
     for (int uniform_segment_index = 0;
          uniform_segment_index < uniformly_subdivided_strand.PeekStrandSegmentHandles().size();
@@ -374,6 +379,23 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       auto& uniform_particle = uniform_particles[uniform_particle_offset + 1 + uniform_segment_index];
       uniform_particle.node_index = uniform_segment_data.node_handle;
       uniform_particle.segment_index = uniform_segment_index + 1;
+      uniform_particle.prev_particle_handle = uniform_particle_offset + uniform_segment_index;
+      uniform_particles[uniform_particle_offset + uniform_segment_index].next_particle_handle =
+          uniform_particle_offset + 1 + uniform_segment_index;
+      uniform_particle.next_particle_handle = -1; // will stay for the last particle of the strand
+      uniform_particle.next_node_index = -1; // will stay for the last particle of the strand
+      uniform_particle.strand_index = strand_index;
+
+      if (uniform_particles[uniform_particle_offset + 1 + last_index_with_new_node].node_index !=
+          uniform_particle.node_index) {
+
+        // write node index to all previous ones
+        for (int i = last_index_with_new_node; i < uniform_segment_index + 1; i++) {
+          uniform_particles[uniform_particle_offset + i].next_node_index = uniform_particle.node_index;
+        }
+        last_index_with_new_node = uniform_segment_index;
+      }
+
       bool found = false;
       while (random_segment_walker_index < random_subdivided_strand.PeekStrandSegmentHandles().size()) {
         uniform_particle.segment_handle =

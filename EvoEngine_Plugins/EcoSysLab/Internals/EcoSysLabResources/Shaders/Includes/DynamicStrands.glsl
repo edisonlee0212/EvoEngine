@@ -68,6 +68,10 @@ struct UniformParticle {
   int node_index;
   int segment_index;
   float distance_to_boundary;
+  int next_particle_handle;
+  int prev_particle_handle;
+  int next_node_index;
+  int strand_index;
 };
 
 struct Connection {
