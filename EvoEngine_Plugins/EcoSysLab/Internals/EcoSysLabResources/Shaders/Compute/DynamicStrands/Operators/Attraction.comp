@@ -47,6 +47,6 @@ void main(){
 		vec3 diff = target_position_multiplier.xyz - particle.x_node_handle.xyz;
 		vec3 force = diff * target_position_multiplier.w;
 
-		particles[particle_index].acceleration_connectivity_strain.xyz += force * segment.inv_mass;
+		particles[particle_index].acceleration.xyz += force * segment.inv_mass;
 	}
 }

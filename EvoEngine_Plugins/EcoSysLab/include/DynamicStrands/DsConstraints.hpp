@@ -51,7 +51,10 @@ class DsPrediction {
     uint32_t connection_size = 0;
     uint32_t allow_breaking;
   };
-
+  struct SegmentPairPredictionPushConstant {
+    uint32_t segment_pair_size = 0;
+    uint32_t allow_breaking;
+  };
   struct UniformParticlePredictionPushConstant {
     uint32_t uniform_particle_size = 0;
   };
@@ -60,6 +63,7 @@ class DsPrediction {
   inline static std::shared_ptr<ComputePipeline> uniform_particle_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> connection_prediction_pipeline;
+  inline static std::shared_ptr<ComputePipeline> segment_pair_prediction_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };
@@ -191,14 +195,9 @@ class DsStiffRod final : public IDsConstraint {
   static glm::vec3 ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1, float average_segment_length);
 };
 
-#define BUNDLE_MAX_CONNECTION 16
 class DsRandomBundle : public IDsConstraint {
  public:
-  struct RandomBundleUpdateConstant {
-    uint32_t pair_size = 0;
-    uint32_t allow_breaking;
-  };
-
+  
   struct RandomBundleStretchShearConstant {
     uint32_t segment_size = 0;
     float inv_time_step = 0.0f;
@@ -225,49 +224,9 @@ class DsRandomBundle : public IDsConstraint {
     uint32_t connection_size = 0;
     float inv_time_step = 0.0f;
   };
-  struct SegmentPair {
-    int segment0_handle;
-    int segment1_handle;
-    int valid;
-    float max_strain;
-    float bending_alpha;
-    float twisting_alpha;
-    float bundle_weight;
-    float bend_twist_weight;
-
-    glm::vec4 segment0_particle0_offset;
-    glm::vec4 segment0_particle1_offset;
-
-    glm::vec4 segment1_particle0_offset;
-    glm::vec4 segment1_particle1_offset;
-
-    glm::quat rest_darboux_vector;
-  };
-
-  struct SegmentData {
-    glm::vec3 particle0_position_correction;
-    float padding0;
-    glm::vec3 particle1_position_correction;
-    float padding1;
-
-    glm::quat q_correction;
-
-    int pair_handles[BUNDLE_MAX_CONNECTION];
-  };
 
   float over_relaxation = 1.f;
   float bend_twist_over_relaxation = 1.f;
-
-  std::vector<SegmentPair> segment_pairs;
-  std::vector<SegmentData> segment_data_list;
-
-  inline static std::shared_ptr<DescriptorSetLayout> layout{};
-  std::shared_ptr<Buffer> pairs_buffer;
-  std::shared_ptr<Buffer> segment_data_list_buffer;
-
-  std::vector<std::shared_ptr<DescriptorSet>> bundle_descriptor_sets{};
-
-  inline static std::shared_ptr<ComputePipeline> bundle_update_pipeline{};
 
   inline static std::shared_ptr<ComputePipeline> bundle_stretch_shear_offset_pipeline{};
   inline static std::shared_ptr<ComputePipeline> bundle_bend_twist_offset_pipeline{};
@@ -281,12 +240,7 @@ class DsRandomBundle : public IDsConstraint {
   bool enable_stretch_shear = true;
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
-  void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
-                      const StrandModelSkeleton& strand_model_skeleton, const DtsStrandGroup& subdivided_strand_group,
-                      const DynamicStrands& target_dynamic_strands) override;
 
-  void UploadData() override;
-  void UpdateBindings() override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 #pragma endregion

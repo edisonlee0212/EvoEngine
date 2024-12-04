@@ -72,7 +72,7 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
 	uint camera_index;
 	uint uniform_particles_size;
 	uint color_mode;
-	uint multiplier;
+	float multiplier;
 };
 
 taskPayloadSharedEXT Task ts_in;
@@ -91,7 +91,7 @@ void main(){
 	Segment segment = segments[uniform_particle.segment_handle];
 	vec3 center_position = uniform_particle.position_t.xyz;
 	float center_thickness = segment.radius * 3.0;
-	vec3 uniform_particle_size = vec3(center_thickness, center_thickness, segment.radius * 3.0);
+	vec3 uniform_particle_size = vec3(segment.radius * multiplier, center_thickness, center_thickness);
 	vec4 color = color0;
 	
 	if(color_mode == 1){

@@ -48,6 +48,6 @@ void main(){
 		vec3 force = external_force.force_index.xyz;
 		Particle particle = particles[particle_index];
 		Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
-		particles[particle_index].acceleration_connectivity_strain.xyz += force * segment.inv_mass;
+		particles[particle_index].acceleration.xyz += force * segment.inv_mass;
 	}
 }

@@ -55,6 +55,6 @@ void main(){
 						&& segment1.stretch_shear_strain_original_inv_mass.y < segment1.max_stretch_shear_strain.y
 						&& segment1.stretch_shear_strain_original_inv_mass.z < segment1.max_stretch_shear_strain.z;
 		}
-		connections[connection_index].bend_twist_strain_valid = vec4(bend_twist_strain, valid ? 1.0 : 0.0);
+		connections[connection_index].bend_twist_strain_valid = vec4(valid ? vec3(0, 0, 0) : bend_twist_strain, valid ? 1.0 : 0.0);
 	}
 }

@@ -90,7 +90,8 @@ DynamicStrands::DynamicStrands() {
     strands_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-
+    strands_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->Initialize();
   }
   wait_for_upload = true;
@@ -106,9 +107,10 @@ DynamicStrands::DynamicStrands() {
   device_strands_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segments_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segment_pairs_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segment_data_list_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_uniform_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_connections_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-
   device_delaunay_tetrahedrons_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
@@ -119,7 +121,6 @@ DynamicStrands::DynamicStrands() {
 
   pre_step = std::make_shared<DsPreStep>();
   prediction = std::make_shared<DsPrediction>();
-
   velocity_update = std::make_shared<DsVelocityUpdate>();
 }
 
@@ -142,41 +143,44 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     uniform_subdivision = glm::clamp(uniform_subdivision, 1, 16);
     changed = true;
   }
-  if (ImGui::DragFloat("Wood Density", &wood_density, 0.01f, 0.01f, 3.0f))
-    changed = true;
-  if (youngs_modulus.OnInspect("Wood Young's modulus"))
-    changed = true;
-  if (shear_modulus.OnInspect("Wood Shear modulus"))
-    changed = true;
-
-  if (bending_modulus.OnInspect("Wood Bending modulus"))
-    changed = true;
-  if (torsion_modulus.OnInspect("Wood Torsion modulus"))
-    changed = true;
-
-  if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
-    changed = true;
-  if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
-    changed = true;
-
   if (ImGui::DragFloat("Neighbor vertical range", &neighbor_vertical_range, 0.01f, 0.01f, 10.0f))
     changed = true;
-
   if (ImGui::DragFloat("Neighbor horizontal range", &neighbor_horizontal_range, 0.01f, 0.01f, 10.0f))
     changed = true;
+  if (ImGui::TreeNode("Material Properties")) {
+    PlottedDistributionSettings wood_density_settings{};
+    if (wood_density.OnInspect("Wood Density"))
+      changed = true;
+    if (max_youngs_modulus.OnInspect("Wood Young's modulus"))
+      changed = true;
+    if (max_shear_modulus.OnInspect("Wood Shear modulus"))
+      changed = true;
 
-  if (max_neighbor_strain.OnInspect("Max neighbor strain", 0.01f))
-    changed = true;
-  if (ImGui::DragFloat("Min neighbor strain", &min_neighbor_strain, 0.001f, 0.00f, 1.0f))
-    changed = true;
-  if (max_stretch_shear_strain.OnInspect("Max stretch/shear strain", 0.01f))
-    changed = true;
-  if (ImGui::DragFloat3("Min stretch/shear strain", &min_stretch_shear_strain.x, 0.001f, 0.00f, 1.0f))
-    changed = true;
-  if (max_bend_twist_strain.OnInspect("Max bend/twist strain", 0.01f))
-    changed = true;
-  if (ImGui::DragFloat3("Min bend/twist strain", &min_bend_twist_strain.x, 0.001f, 0.00f, 1.0f))
-    changed = true;
+    if (max_bending_modulus.OnInspect("Wood Bending modulus"))
+      changed = true;
+    if (max_torsion_modulus.OnInspect("Wood Torsion modulus"))
+      changed = true;
+    if (max_neighbor_strain.OnInspect("Max neighbor strain", 0.01f))
+      changed = true;
+    if (ImGui::DragFloat("Min neighbor strain", &min_neighbor_strain, 0.001f, 0.00f, 1.0f))
+      changed = true;
+    if (max_stretch_shear_strain.OnInspect("Max stretch/shear strain", 0.01f))
+      changed = true;
+    if (ImGui::DragFloat3("Min stretch/shear strain", &min_stretch_shear_strain.x, 0.001f, 0.00f, 1.0f))
+      changed = true;
+    if (max_bend_twist_strain.OnInspect("Max bend/twist strain", 0.01f))
+      changed = true;
+    if (ImGui::DragFloat3("Min bend/twist strain", &min_bend_twist_strain.x, 0.001f, 0.00f, 1.0f))
+      changed = true;
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Physical Properties")) {
+    if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
+      changed = true;
+    if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
+      changed = true;
+  }
+
   return changed;
 }
 
@@ -213,35 +217,29 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.next_handle = target_strand_segment.GetNextHandle();
     segment.strand_handle = target_strand_segment.GetStrandHandle();
     segment.rest_length = strand_group.GetStrandSegmentLength(static_cast<int>(i));
+    segment.color = target_strand_segment.end_color;
 
-    if (target_strand_segment_data.initial_distance_to_boundary < 8.f) {
-      segment.color = glm::mix(glm::vec4(0.6, 0.3, 0, 1), glm::vec4(0, 0, 1, 1),
-                               glm::clamp(target_strand_segment_data.initial_distance_to_boundary / 8.f, 0.0f, 1.0f));
-    } else if (target_strand_segment_data.initial_distance_to_boundary < 24.f) {
-      segment.color =
-          glm::mix(glm::vec4(0, 0, 1, 1), glm::vec4(1, 0, 0, 1),
-                   glm::clamp((target_strand_segment_data.initial_distance_to_boundary - 8.f) / 16.f, 0.0f, 1.0f));
-    } else {
-      segment.color =
-          glm::mix(glm::vec4(1, 0, 0, 1), glm::vec4(0, 1, 0, 1),
-                   glm::clamp((target_strand_segment_data.initial_distance_to_boundary - 24.f) / 32.f, 0.0f, 1.0f));
-    }
     segment.radius = target_strand_segment.end_thickness * .5f;
     segment.damping = initialize_parameters.angular_velocity_damping;
     segment.q0 = segment.q = segment.last_q =
         initialize_parameters.root_transform.GetRotation() * target_strand_segment.rotation;
     segment.torque = glm::vec3(0.f);
     // 0.6046 = area radio of the circle within its bounding equilateral triangle.
-    const float mass = segment.radius * segment.radius * glm::pi<float>() * initialize_parameters.wood_density *
-                       segment.rest_length * 0.6046;
+    const float ratio = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f /
+                        initialize_parameters.max_distance_to_boundary;
+
+    const float mass = segment.radius * segment.radius * glm::pi<float>() *
+                       initialize_parameters.wood_density.GetValue(ratio) * segment.rest_length;
     segment.inertia_tensor = ComputeInertiaTensorRod(mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     segment.original_inv_mass = 1.f / mass;
     const float area = glm::pi<float>() * segment.radius * segment.radius;
-    const float youngs_modulus = initialize_parameters.youngs_modulus.GetValue() * 1e9f;
-    const float shear_modulus = initialize_parameters.shear_modulus.GetValue() * 1e9f;
-    segment.stretching_alpha = 1.f / (youngs_modulus * area / segment.rest_length);
-    segment.shearing_alpha = 1.f / (shear_modulus * area / segment.rest_length);
+    segment.max_stretching_modulus = initialize_parameters.max_youngs_modulus.GetValue(ratio) * 1e9f;
+    segment.max_shearing_modulus = initialize_parameters.max_shear_modulus.GetValue(ratio) * 1e9f;
+    segment.moisture_content = initialize_parameters.moisture_content.GetValue(ratio);
+    segment.boundary_distance = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f;
+    segment.stretching_alpha = 1.f / (segment.max_stretching_modulus * area / segment.rest_length);
+    segment.shearing_alpha = 1.f / (segment.max_shearing_modulus * area / segment.rest_length);
 
     segment.max_stretch_shear_strain = glm::vec4(glm::max(initialize_parameters.min_stretch_shear_strain,
                                                           initialize_parameters.max_stretch_shear_strain.GetValue()),
@@ -511,8 +509,14 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
         connection.next_jump_handle = -1;
       }
       */
-      const float torsion_modulus = initialize_parameters.torsion_modulus.GetValue() * 1e9f;
-      const float bending_modulus = initialize_parameters.bending_modulus.GetValue() * 1e9f;
+
+      const float ratio0 =
+          segment0.boundary_distance * segment0.radius * 2.f / initialize_parameters.max_distance_to_boundary;
+      const float ratio1 =
+          segment1.boundary_distance * segment1.radius * 2.f / initialize_parameters.max_distance_to_boundary;
+      const float ratio = (ratio0 + ratio1) * .5f;
+      connection.max_bending_modulus = initialize_parameters.max_bending_modulus.GetValue(ratio) * 1e9f;
+      connection.max_torsion_modulus = initialize_parameters.max_torsion_modulus.GetValue(ratio) * 1e9f;
 
       const float average_segment_radius = (segment0.radius + segment1.radius) * .5f;
       const float average_segment_length = (segment0.rest_length + segment1.rest_length) * .5f;
@@ -521,11 +525,13 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.5f;
 
       connection.bending_alpha =
-          1.f / (bending_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f));
-      connection.torsion_alpha = 1.f / (torsion_modulus * polar_moment_of_inertia / average_segment_length);
+          1.f / (connection.max_bending_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f));
+      connection.torsion_alpha =
+          1.f / (connection.max_torsion_modulus * polar_moment_of_inertia / average_segment_length);
+
       const auto& q0 = segment0.q0;
       const auto& q1 = segment1.q0;
-
+      connection.boundary_distance = (segment0.boundary_distance + segment1.boundary_distance) * 0.5f;
       connection.rest_darboux_vector = glm::conjugate(q0) * q1;
       connection.bend_twist_strain_valid.w = 1.0;
       connection.max_bend_twist_strain = glm::vec4(
@@ -533,6 +539,268 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
           0.0f);
     }
   }
+
+  std::vector<glm::vec3> max_bounds(Jobs::GetWorkerSize());
+  std::vector<glm::vec3> min_bounds(Jobs::GetWorkerSize());
+  for (auto& i : max_bounds)
+    i = glm::vec3(-FLT_MAX);
+  for (auto& i : min_bounds)
+    i = glm::vec3(FLT_MAX);
+
+  float average_segment_length =
+      (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * 0.5f;
+
+  const auto calculate_regularized_segment_p0 = [&](const int segment_handle) {
+    const auto& strand_segment_data = strand_group.PeekStrandSegmentData(segment_handle);
+    return glm::vec3(strand_segment_data.profile_position.x, strand_segment_data.profile_position.y,
+                     strand_segment_data.start_root_distance / average_segment_length);
+  };
+  const auto calculate_regularized_segment_center = [&](const int segment_handle) {
+    const auto& strand_segment_data = strand_group.PeekStrandSegmentData(segment_handle);
+    return glm::vec3(strand_segment_data.profile_position.x, strand_segment_data.profile_position.y,
+                     (strand_segment_data.start_root_distance + strand_segment_data.end_root_distance) * .5f /
+                         average_segment_length);
+  };
+  const auto calculate_regularized_segment_p1 = [&](const int segment_handle) {
+    const auto& strand_segment_data = strand_group.PeekStrandSegmentData(segment_handle);
+    return glm::vec3(strand_segment_data.profile_position.x, strand_segment_data.profile_position.y,
+                     strand_segment_data.end_root_distance / average_segment_length);
+  };
+
+  segment_data_list.resize(segments.size());
+  Jobs::RunParallelFor(segment_data_list.size(), [&](const auto segment_handle, const auto worker_i) {
+    max_bounds[worker_i] =
+        glm::max(max_bounds[worker_i], calculate_regularized_segment_p0(static_cast<int>(segment_handle)));
+    min_bounds[worker_i] =
+        glm::min(min_bounds[worker_i], calculate_regularized_segment_p0(static_cast<int>(segment_handle)));
+    max_bounds[worker_i] =
+        glm::max(max_bounds[worker_i], calculate_regularized_segment_p1(static_cast<int>(segment_handle)));
+    min_bounds[worker_i] =
+        glm::min(min_bounds[worker_i], calculate_regularized_segment_p1(static_cast<int>(segment_handle)));
+
+    for (int j = 0; j < BUNDLE_MAX_CONNECTION; j++) {
+      segment_data_list[segment_handle].pair_handles[j] = -1;
+    }
+  });
+
+  auto max_bound = glm::vec3(-FLT_MAX);
+  auto min_bound = glm::vec3(FLT_MAX);
+  for (auto& i : max_bounds)
+    max_bound = glm::max(i, max_bound);
+  for (auto& i : min_bounds)
+    min_bound = glm::min(i, min_bound);
+  struct SegmentInfo {
+    glm::vec3 p0;
+    glm::vec3 p1;
+    glm::vec3 center_position;
+    int node_handle;
+    int strand_handle;
+    int segment_handle;
+  };
+
+  VoxelGrid<std::vector<SegmentInfo>> voxel_grid;
+  constexpr auto cell_size = 1.f;
+  voxel_grid.Initialize(cell_size, min_bound - glm::vec3(cell_size) * 2.f, max_bound + glm::vec3(cell_size) * 2.f, {});
+  for (int segment_handle = 0; segment_handle < segments.size(); segment_handle++) {
+    const auto& strand_segment_data = strand_group.PeekStrandSegmentData(segment_handle);
+    SegmentInfo s_d;
+    s_d.p0 = calculate_regularized_segment_p0(segment_handle);
+    s_d.p1 = calculate_regularized_segment_p1(segment_handle);
+    s_d.center_position = calculate_regularized_segment_center(segment_handle);
+    s_d.node_handle = strand_segment_data.node_handle;
+    s_d.strand_handle = strand_group.PeekStrandSegment(segment_handle).GetStrandHandle();
+    s_d.segment_handle = segment_handle;
+    voxel_grid.Ref(s_d.center_position).emplace_back(s_d);
+  }
+  std::multimap<float, std::map<std::pair<int, int>, std::pair<float, float>>> candidates;
+
+  for (const auto& connection : connections) {
+    const auto& segment0_handle = connection.segment0_handle;
+    const auto& segment1_handle = connection.segment1_handle;
+    const auto pair =
+        std::make_pair(glm::min(segment0_handle, segment1_handle), glm::max(segment0_handle, segment1_handle));
+    constexpr auto distance_pair = std::make_pair(0.f, 0.f);
+    if (const auto search = candidates.find(0.0f); search != candidates.end()) {
+      search->second.emplace(pair, distance_pair);
+    } else {
+      candidates.insert({-1.0f, {}});
+      candidates.find(-1.0f)->second.insert({pair, distance_pair});
+    }
+  }
+  for (int segment_handle = 0; segment_handle < segments.size(); segment_handle++) {
+    const auto& strand_segment_data = strand_group.PeekStrandSegmentData(segment_handle);
+    const auto p0 = calculate_regularized_segment_p0(segment_handle);
+    const auto p1 = calculate_regularized_segment_p1(segment_handle);
+
+    const auto extended_p0 = p0 - glm::vec3(0, 0, initialize_parameters.neighbor_vertical_range);
+    const auto extended_p1 = p1 + glm::vec3(0, 0, initialize_parameters.neighbor_vertical_range);
+
+    const auto center = calculate_regularized_segment_center(segment_handle);
+    const auto strand_handle = strand_group.PeekStrandSegment(segment_handle).GetStrandHandle();
+    voxel_grid.ForEach(
+        center,
+        glm::max(initialize_parameters.neighbor_vertical_range, initialize_parameters.neighbor_horizontal_range),
+        [&](const std::vector<SegmentInfo>& list) {
+          for (const auto& info : list) {
+            if (info.segment_handle == segment_handle)
+              continue;
+            if (info.strand_handle == strand_handle) {
+              continue;
+            }
+            //  Function to check if a point is inside a cylinder
+            const auto cylinder_check = [](const glm::vec3& p0, const glm::vec3& p1, const float radius,
+                                           const glm::vec3& point, float& horizontal_distance,
+                                           float& vertical_distance) {
+              // Calculate the direction vector of the cylinder's axis
+              const glm::vec3 d_v = p1 - p0;
+              const float height = glm::length(d_v);
+              const glm::vec3 direction = glm::normalize(d_v);
+
+              // Vector from p0 to point
+              const glm::vec3 p0_p = point - p0;
+
+              // Projection scalar
+              const float t = glm::dot(p0_p, direction);
+              // Check if projection is within the cylinder's height
+              if (t < 0.0f || t > height) {
+                return false;  // Outside the cylinder height
+              }
+
+              // Closest point on the cylinder's axis
+              const glm::vec3 closest_point = p0 + t * direction;
+
+              // Distance from point to the axis
+              horizontal_distance = glm::length(point - closest_point);
+              // Check if the distance is within the radius
+              return horizontal_distance <= radius;
+            };
+            float horizontal_distance1, horizontal_distance2;
+            float vertical_distance1, vertical_distance2;
+            const auto check1 =
+                cylinder_check(extended_p0, extended_p1, initialize_parameters.neighbor_horizontal_range, info.p0,
+                               horizontal_distance1, vertical_distance1);
+            const auto check2 =
+                cylinder_check(extended_p0, extended_p1, initialize_parameters.neighbor_horizontal_range, info.p1,
+                               horizontal_distance2, vertical_distance2);
+            if (!check1 && !check2)
+              continue;
+
+            bool node_check = false;
+            if (info.node_handle == strand_segment_data.node_handle)
+              node_check = true;
+            if (!node_check) {
+              if (auto& node = strand_model_skeleton.PeekNode(strand_segment_data.node_handle);
+                  info.node_handle == node.GetParentHandle()) {
+                node_check = true;
+              } else {
+                for (const auto& child_handle : node.PeekChildHandles()) {
+                  if (info.node_handle == child_handle) {
+                    node_check = true;
+                    break;
+                  }
+                }
+              }
+            }
+            if (!node_check)
+              continue;
+            const auto horizontal_distance = glm::min(horizontal_distance1, horizontal_distance2);
+            const auto pair = segment_handle <= info.segment_handle
+                                  ? std::make_pair(segment_handle, info.segment_handle)
+                                  : std::make_pair(info.segment_handle, segment_handle);
+
+            const auto distance_pair = std::make_pair(horizontal_distance, 0.f);
+            if (const auto search = candidates.find(horizontal_distance); search != candidates.end()) {
+              search->second.emplace(pair, distance_pair);
+            } else {
+              candidates.insert({horizontal_distance, {}});
+              candidates.find(horizontal_distance)->second.insert({pair, distance_pair});
+            }
+          }
+        });
+  }
+  segment_pairs.clear();
+  std::vector<uint32_t> counters(segments.size(), 0);
+
+  for (const auto& candidate_set : candidates) {
+    for (const auto& candidate : candidate_set.second) {
+      auto& first = counters[candidate.first.first];
+      auto& second = counters[candidate.first.second];
+      if (first >= BUNDLE_MAX_CONNECTION || second >= BUNDLE_MAX_CONNECTION)
+        continue;
+      const auto pair_handle = static_cast<int>(segment_pairs.size());
+      segment_pairs.emplace_back();
+      auto& new_pair = segment_pairs.back();
+      new_pair.segment0_handle = candidate.first.first;
+      new_pair.segment1_handle = candidate.first.second;
+      const auto& horizontal_distance = candidate.second.first;
+      const auto& vertical_distance = candidate.second.second;
+
+      const auto& segment0 = segments[candidate.first.first];
+      const auto& segment1 = segments[candidate.first.second];
+      auto& segment0_particle0 = particles[segment0.particle0_handle];
+      auto& segment0_particle1 = particles[segment0.particle1_handle];
+
+      auto& segment1_particle0 = particles[segment1.particle0_handle];
+      auto& segment1_particle1 = particles[segment1.particle1_handle];
+
+      const auto segment0_center_position = (segment0_particle0.x0 + segment0_particle1.x0) * .5f;
+      const auto segment1_center_position = (segment1_particle0.x0 + segment1_particle1.x0) * .5f;
+
+      const float segment_length = 1.f;
+      // glm::distance(segment0_center_position, segment1_center_position);
+      const float segment_radius = 1.f;
+      //(segment0.radius + segment1.radius) * .5f;
+      const float ratio0 =
+          segment0.boundary_distance * segment0.radius * 2.f / initialize_parameters.max_distance_to_boundary;
+      const float ratio1 =
+          segment1.boundary_distance * segment1.radius * 2.f / initialize_parameters.max_distance_to_boundary;
+      const float ratio = (ratio0 + ratio1) * .5f;
+      new_pair.max_bending_modulus = initialize_parameters.max_bending_modulus.GetValue(ratio) * 1e9f;
+      new_pair.max_torsion_modulus = initialize_parameters.max_torsion_modulus.GetValue(ratio) * 1e9f;
+
+      const auto second_moment_of_area = glm::pi<float>() * std::pow(segment_radius, 4.f) * 0.25f;
+      const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(segment_radius, 4.f) * 0.5f;
+
+      new_pair.bending_alpha =
+          1.f / (new_pair.max_bending_modulus * second_moment_of_area / glm::pow(segment_length, 3.f));
+      new_pair.twisting_alpha = 1.f / (new_pair.max_torsion_modulus * polar_moment_of_inertia / segment_length);
+
+      new_pair.max_strain =
+          glm::max(initialize_parameters.min_neighbor_strain, initialize_parameters.max_neighbor_strain.GetValue());
+      new_pair.valid = 1;
+      segment_data_list[candidate.first.first].pair_handles[first] = pair_handle;
+      segment_data_list[candidate.first.second].pair_handles[second] = pair_handle;
+      first++;
+      second++;
+    }
+  }
+
+  Jobs::RunParallelFor(segment_pairs.size(), [&](const auto pair_index) {
+    auto& pair = segment_pairs[pair_index];
+    auto& segment0 = segments[pair.segment0_handle];
+    auto& segment1 = segments[pair.segment1_handle];
+    auto& segment0_particle0 = particles[segment0.particle0_handle];
+    auto& segment0_particle1 = particles[segment0.particle1_handle];
+
+    auto& segment1_particle0 = particles[segment1.particle0_handle];
+    auto& segment1_particle1 = particles[segment1.particle1_handle];
+
+    const auto segment0_center_position = (segment0_particle0.x0 + segment0_particle1.x0) * .5f;
+    const auto segment1_center_position = (segment1_particle0.x0 + segment1_particle1.x0) * .5f;
+
+    pair.segment0_particle0_offset =
+        glm::vec4(glm::inverse(segment1.q0) * (segment0_particle0.x0 - segment1_center_position), 0.0f);
+    pair.segment0_particle1_offset =
+        glm::vec4(glm::inverse(segment1.q0) * (segment0_particle1.x0 - segment1_center_position), 0.0f);
+
+    pair.segment1_particle0_offset =
+        glm::vec4(glm::inverse(segment0.q0) * (segment1_particle0.x0 - segment0_center_position), 0.0f);
+    pair.segment1_particle1_offset =
+        glm::vec4(glm::inverse(segment0.q0) * (segment1_particle1.x0 - segment0_center_position), 0.0f);
+
+    pair.rest_darboux_vector = glm::conjugate(segment0.q0) * segment1.q0;
+  });
+
   ComputeDelaunay(delaunay_tetrahedrons);
   for (const auto& i : constraints)
     i->InitializeData(initialize_parameters, strand_model_skeleton, strand_group, *this);
@@ -562,11 +830,12 @@ void DynamicStrands::UpdateBindings() const {
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_strands_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_segments_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(2, device_particles_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_uniform_particles_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_segment_pairs_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(4, device_segment_data_list_buffer, 0);
 
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(4, device_connections_buffer, 0);
-
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_delaunay_tetrahedrons_buffer,
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_uniform_particles_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(6, device_connections_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_delaunay_tetrahedrons_buffer,
                                                                               0);
   for (const auto& c : constraints) {
     c->UpdateBindings();
@@ -579,9 +848,10 @@ void DynamicStrands::Upload() {
     device_strands_buffer->UploadVector(strands);
     device_segments_buffer->UploadVector(segments);
     device_particles_buffer->UploadVector(particles);
+    device_segment_pairs_buffer->UploadVector(segment_pairs);
+    device_segment_data_list_buffer->UploadVector(segment_data_list);
     device_uniform_particles_buffer->UploadVector(uniform_particles);
     device_connections_buffer->UploadVector(connections);
-
     device_delaunay_tetrahedrons_buffer->UploadVector(delaunay_tetrahedrons);
     for (const auto& c : constraints) {
       c->UploadData();
@@ -594,19 +864,18 @@ void DynamicStrands::Download() {
   Platform::AddTemporaryBufferSyncAction([&]() {
     if (!strands.empty())
       device_strands_buffer->DownloadVector(strands, strands.size());
-
     if (!segments.empty())
       device_segments_buffer->DownloadVector(segments, segments.size());
-
     if (!particles.empty())
       device_particles_buffer->DownloadVector(particles, particles.size());
-
+    if (!segment_pairs.empty())
+      device_segment_pairs_buffer->DownloadVector(segment_pairs, segment_pairs.size());
+    if (!segment_data_list.empty())
+      device_segment_data_list_buffer->DownloadVector(segment_data_list, segment_data_list.size());
     if (!uniform_particles.empty())
       device_uniform_particles_buffer->DownloadVector(uniform_particles, uniform_particles.size());
-
     if (!connections.empty())
       device_connections_buffer->DownloadVector(connections, connections.size());
-
     if (!delaunay_tetrahedrons.empty())
       device_delaunay_tetrahedrons_buffer->DownloadVector(delaunay_tetrahedrons, delaunay_tetrahedrons.size());
     for (const auto& c : constraints) {
@@ -619,6 +888,8 @@ void DynamicStrands::Clear() {
   strands.clear();
   segments.clear();
   particles.clear();
+  segment_pairs.clear();
+  segment_data_list.clear();
   uniform_particles.clear();
   connections.clear();
 
@@ -734,7 +1005,7 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
 #endif
 // TODO: maybe a different library will work here
 #ifdef USE_CGAL
-  std::vector<std::pair<Point, unsigned> > points;
+  std::vector<std::pair<Point, unsigned>> points;
   std::vector<int> particle_indices;
   for (int i = 0; i < particles.size(); i++) {
     // For duplicate particles we only use one of them.

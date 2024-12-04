@@ -43,7 +43,7 @@ void main(){
 		vec3 velocity = particle.v_segment_handle.xyz;
 		if(segment.inv_mass != 0.0f){
 			velocity *= 1.0f - particle.x0_damping.w * length(velocity);
-			velocity += particle.acceleration_connectivity_strain.xyz * time_step;
+			velocity += particle.acceleration.xyz * time_step;
 		}
 		//Shift position values
 		particle.last_x_strand_handle.xyz = particle.v_segment_handle.xyz;

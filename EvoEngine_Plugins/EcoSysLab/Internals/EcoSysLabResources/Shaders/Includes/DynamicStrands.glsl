@@ -29,6 +29,11 @@ struct Segment {
   float stretching_alpha;
   float damping;
 
+  float max_shearing_modulus;
+  float max_stretching_modulus;
+  float moisture_content;
+  float boundary_distance;
+
   vec4 inertia_tensor_particle_0_handle;
   vec4 inv_inertia_tensor_particle_1_handle;
   
@@ -45,7 +50,7 @@ struct Particle {
   vec4 x_node_handle;
   vec4 last_x_strand_handle;
   vec4 v_segment_handle;
-  vec4 acceleration_connectivity_strain;
+  vec4 acceleration;
 
   int selected;
   int highlighted;
@@ -54,12 +59,42 @@ struct Particle {
 
 };
 
+struct SegmentPair {
+  int segment0_handle;
+  int segment1_handle;
+  int valid;
+  float max_strain;
+
+  float bending_alpha;
+  float twisting_alpha;
+  float max_bending_modulus;
+  float max_torsion_modulus;
+  
+  vec4 bending_twist_bundle_strain;
+
+  vec4 segment0_particle0_offset;
+  vec4 segment0_particle1_offset;
+
+  vec4 segment1_particle0_offset;
+  vec4 segment1_particle1_offset;
+
+  vec4 rest_darboux_vector;
+};
+
+#define BUNDLE_MAX_CONNECTION 16
+struct SegmentData {
+  vec4 particle0_position_correction;
+  vec4 particle1_position_correction;
+  vec4 q_correction;
+  int pair_handles[BUNDLE_MAX_CONNECTION];
+};
+
 struct UniformParticle {
   vec4 position_t;
   int segment_handle;
   int node_index;
   int segment_index;
-  float distance_to_boundary;
+  float boundary_distance;
 };
 
 struct Connection {
@@ -71,8 +106,14 @@ struct Connection {
   vec4 rest_darboux_vector;
   float bending_alpha;
   float twisting_alpha;
+
   int prev_handle;
   int next_handle;
+
+  float max_bending_modulus;
+  float max_torsion_modulus;
+  float moisture_content;
+  float boundary_distance;
 
   vec4 bend_twist_strain_valid;
 
@@ -103,14 +144,22 @@ layout(std430, set = DYNAMIC_STRANDS_SET, binding = 2) buffer PARTICLES_BLOCK {
   Particle particles[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 3) buffer UNIFORM_PARTICLES_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 3) buffer SEGMENT_PAIR_BLOCK {
+  SegmentPair segment_pairs[];
+};
+
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 4) buffer SEGMENT_DATA_BLOCK {
+  SegmentData segment_data_list[];
+};
+
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 5) buffer UNIFORM_PARTICLES_BLOCK {
   UniformParticle uniform_particles[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 4) buffer CONNECTIONS_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 6) buffer CONNECTIONS_BLOCK {
   Connection connections[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 5) buffer DELAUNAY_TETRAHEDRON_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 7) buffer DELAUNAY_TETRAHEDRON_BLOCK {
   DelaunayTetrahedron delaunay_tetrahedrons[];
 };

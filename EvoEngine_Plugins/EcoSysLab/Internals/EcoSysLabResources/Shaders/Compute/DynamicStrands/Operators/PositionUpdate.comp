@@ -51,7 +51,7 @@ void main(){
 
 		Particle particle = particles[particle_index];
 		particle.x_node_handle.xyz = particle.last_x_strand_handle.xyz = new_position;
-		particle.acceleration_connectivity_strain.xyz = vec3(0, 0, 0);
+		particle.acceleration.xyz = vec3(0, 0, 0);
 
 		particles[particle_index] = particle;
 	}
