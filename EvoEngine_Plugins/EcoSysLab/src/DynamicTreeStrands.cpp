@@ -95,7 +95,8 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
   dynamic_strands->constraints.emplace_back(std::make_shared<DsRandomBundle>());
 
   dynamic_strands->constraints.emplace_back(std::make_shared<DsGroundPlane>());
-  // subdivided_strand_group.RandomAssignColor();
+  subdivided_strand_group.RandomAssignColor();
+
   transform_operators.clear();
   const auto owner = GetOwner();
   const auto scene = GetScene();

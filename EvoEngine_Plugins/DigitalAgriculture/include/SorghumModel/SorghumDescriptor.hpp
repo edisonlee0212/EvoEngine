@@ -60,6 +60,8 @@ class SorghumDescriptor : public IAsset {
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
   [[maybe_unused]] Entity CreateEntity(const std::string& name) const;
+
+  void ImportPrediction(const std::filesystem::path& yaml_path);
 };
 
 }  // namespace digital_agriculture_plugin

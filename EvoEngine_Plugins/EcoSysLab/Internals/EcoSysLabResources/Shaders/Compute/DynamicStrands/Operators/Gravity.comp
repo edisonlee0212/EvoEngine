@@ -39,6 +39,6 @@ void main(){
 		Particle particle = particles[particle_index];
 		Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
 		if(segment.inv_mass == 0.0 || particle.x_node_handle.y < ground_height) acceleration = vec3(0.0);
-		particles[particle_index].acceleration_connectivity_strain.xyz += acceleration;
+		particles[particle_index].acceleration.xyz += acceleration;
 	}
 }

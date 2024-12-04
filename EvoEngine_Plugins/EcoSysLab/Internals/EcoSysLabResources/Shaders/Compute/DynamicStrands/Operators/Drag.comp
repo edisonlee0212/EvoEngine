@@ -39,7 +39,7 @@ void main(){
 		Particle particle = particles[particle_index];
 		if(particle.selected == 1){
 			Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
-			particle.acceleration_connectivity_strain.xyz += acceleration.xyz;
+			particle.acceleration.xyz += acceleration.xyz;
 		}
 		particles[particle_index] = particle;
 	}

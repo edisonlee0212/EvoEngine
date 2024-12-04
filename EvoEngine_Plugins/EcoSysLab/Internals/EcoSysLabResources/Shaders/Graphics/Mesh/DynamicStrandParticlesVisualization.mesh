@@ -72,7 +72,7 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
 	uint camera_index;
 	uint particles_size;
 	uint color_mode;
-	uint multiplier;
+	float multiplier;
 };
 
 taskPayloadSharedEXT Task ts_in;
@@ -91,21 +91,11 @@ void main(){
 	Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
 	vec3 center_position = particle.x_node_handle.xyz;
 	float center_thickness = segment.radius * 3.0;
-	vec3 particle_size = vec3(center_thickness, center_thickness, segment.radius * 3.0);
+	vec3 particle_size = vec3(segment.radius * multiplier, center_thickness, center_thickness);
 	vec4 color = color0;
-	/*
-	if(particle.highlighted == 1 || particle.highlighted == 2){
-		particle_size = vec3(center_thickness * 6.0, center_thickness * 6.0, segment.radius * 18.0);
-	}else if(particle.selected == 1){
-		particle_size = vec3(center_thickness * 3.0, center_thickness * 3.0, segment.radius * 9.0);
-	}
-	*/
-
+	
 	if(color_mode == 1){
 		color = segment.color;
-	}
-	else if(color_mode == 2){
-		color = mix(color0, color1, clamp(particle.acceleration_connectivity_strain.w * uintBitsToFloat(multiplier), 0.0, 1.0));
 	}
 
 	if(particle.highlighted == 1){

@@ -40,7 +40,7 @@ void main(){
 		Particle particle = particles[particle_index];
 		
 		//Reset acceration
-		particle.acceleration_connectivity_strain = vec4(0.0, 0.0, 0.0, 0.0);
+		particle.acceleration = vec4(0.0, 0.0, 0.0, 0.0);
 
 		particles[particle_index] = particle;
 	}

@@ -350,3 +350,7 @@ Entity SorghumDescriptor::CreateEntity(const std::string& name) const {
   
   return sorghum_entity;
 }
+
+void SorghumDescriptor::ImportPrediction(const std::filesystem::path& yaml_path) {
+    
+}

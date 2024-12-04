@@ -72,7 +72,8 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
 	uint camera_index;
 	uint segments_size;
 	uint color_mode;
-	uint multiplier;
+	float multiplier;
+	float boundary_layer_radius;
 };
 
 taskPayloadSharedEXT Task ts_in;
@@ -95,8 +96,8 @@ void main(){
 	vec3 start_position = particle0.x_node_handle.xyz;
 	vec3 end_position = particle1.x_node_handle.xyz;
 
-	vec3 center_position = (start_position + end_position) * 0.5;
-	float center_thickness = segment.radius * 2.0;
+	vec3 center_position = (start_position + end_position) * 0.5f;
+	float center_thickness = segment.radius * 2.0f * multiplier;
 	
 	//vec4 rotation = segment.q;
 
@@ -112,9 +113,12 @@ void main(){
 		color = color0;
 	}else if(color_mode == 1){
 		color = segment.color;
-	}
-	else if(color_mode == 2){
-		color = mix(color0, color1, clamp(length(segment.stretch_shear_strain_original_inv_mass.xyz) * uintBitsToFloat(multiplier), 0.0, 1.0));
+	}else if(color_mode == 2){
+		color = mix(color0, color1, clamp(max(segment.stretch_shear_strain_original_inv_mass.x / segment.max_stretch_shear_strain.x, segment.stretch_shear_strain_original_inv_mass.y / segment.max_stretch_shear_strain.y), 0.0, 1.0));
+	}else if(color_mode == 3){
+		color = mix(color0, color1, clamp(segment.stretch_shear_strain_original_inv_mass.z / segment.max_stretch_shear_strain.z, 0.0, 1.0));
+	}else if(color_mode == 4){
+		color = mix(color0, color1, clamp(mod(segment.boundary_distance, boundary_layer_radius) / boundary_layer_radius, 0.0, 1.0));
 	}
 	
 	float highlight1_ratio = 0.0f;

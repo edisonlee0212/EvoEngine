@@ -3,7 +3,6 @@
 #include "StrandModelData.hpp"
 #include "TreeGrowthData.hpp"
 
-
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
@@ -15,7 +14,7 @@ class DsVelocityUpdate;
 struct DtsStrandGroupData {};
 
 struct DtsStrandData {};
-
+#define BUNDLE_MAX_CONNECTION 16
 struct DtsStrandSegmentData {
   float start_root_distance = 0.0f;
   float end_root_distance = 0.0f;
@@ -49,11 +48,17 @@ class DynamicStrands {
     float min_segment_length = 0.03f;
     float max_segment_length = 0.06f;
     int uniform_subdivision = 1;
-    float wood_density = 400.f;                                 // kg/m^3
-    SingleDistribution<float> youngs_modulus = {12.f, 1.2f};    // GPa
-    SingleDistribution<float> shear_modulus = {12.f, 0.15f};    // GPa
-    SingleDistribution<float> bending_modulus = {1.5f, 0.15f};  // GPa
-    SingleDistribution<float> torsion_modulus = {1.5f, 0.15f};  // GPa
+
+    float max_distance_to_boundary = 1.0f;
+    PlottedDistribution<float> wood_density = {{600.0f, 700.0f, {0.0f, 1.0f, {0, 0}, {1, 1}}}, {}};
+
+    PlottedDistribution<float> max_shear_modulus = {{9.5f, 13.5f, {0.0f, 1.0f, {0, 0}, {1, 1}}}, {}};
+    PlottedDistribution<float> max_youngs_modulus = {{9.5f, 13.5f, {0.0f, 1.0f, {0, 0}, {1, 1}}}, {}};
+
+    PlottedDistribution<float> max_bending_modulus = {{0.8f, 2.f, {0.0f, 1.0f, {0, 0}, {1, 1}}}, {}};
+    PlottedDistribution<float> max_torsion_modulus = {{0.8f, 2.f, {0.0f, 1.0f, {0, 0}, {1, 1}}}, {}};
+
+    PlottedDistribution<float> moisture_content = {{0.08f, 0.12f, {1.0f, 0.0f, {0, 0}, {1, 1}}}, {}};
 
     float velocity_damping = 0.005f;
     float angular_velocity_damping = 0.0005f;
@@ -88,36 +93,44 @@ class DynamicStrands {
   };
 
   struct VisualizationParameters {
-    enum class ParticleRenderMode { Default, SegmentColor, ConnectivityStrain };
-    enum class SegmentRenderMode { Default, SegmentColor, StretchShearStrain };
-    enum class ConnectionRenderMode { Default, BendTwistStrain };
+    enum class ParticleRenderMode { Default, SegmentColor };
+    enum class SegmentRenderMode { Default, SegmentColor, ShearStrain, StretchStrain, BoundaryDistance };
+    enum class ConnectionRenderMode { Default, BendStrain, TwistStrain };
     enum class UniformParticleRenderMode { Default, SegmentColor };
+
+    enum class SegmentPairRenderMode { Default };
     bool render_particles = true;
     bool render_segments = true;
     bool render_connections = true;
+    bool render_segment_pairs = true;
+
     bool render_uniform_particles = true;
+
     uint32_t particle_render_mode = 0;
     uint32_t segment_render_mode = 0;
     uint32_t connection_render_mode = 0;
+    uint32_t segment_pair_render_mode = 0;
     uint32_t uniform_particle_render_mode = 0;
 
-    glm::vec4 particle_color_min = glm::vec4(0, 0, 1, 1);
-    glm::vec4 particle_color_max = glm::vec4(1, 0, 0, 1);
     glm::vec4 particle_color_main = glm::vec4(0.6, 0.3, 0, 0.5);
-    float particle_multiplier = 1.0f;
+    float particle_radius_multiplier = 0.9f;
 
     glm::vec4 segment_color_min = glm::vec4(0, 0, 1, 1);
     glm::vec4 segment_color_max = glm::vec4(1, 0, 0, 1);
     glm::vec4 segment_color_main = glm::vec4(0.3, 0.15, 0.0, 0.5);
-    float segment_multiplier = 1.0f;
+    float segment_radius_multiplier = 0.9f;
+    float segment_boundary_distance_modular = 0.03f;
+
+    glm::vec4 segment_pair_color_main = glm::vec4(0, 1, 1, 0.2);
+    float segment_pair_radius_multiplier = 0.9f;
 
     glm::vec4 connection_color_min = glm::vec4(0, 0, 1, 1);
     glm::vec4 connection_color_max = glm::vec4(1, 0, 0, 1);
     glm::vec4 connection_color_main = glm::vec4(1, 1, 1, 0.8);
-    glm::vec4 connection_color_sub = glm::vec4(1, 1, 1, 0.2);
-    float connection_multiplier = 1.0f;
+    float connection_radius_multiplier = 0.9f;
 
     glm::vec4 uniform_particle_main = glm::vec4(1, 1, 1, 0.8f);
+    float uniform_particle_radius_multiplier = 0.1f;
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -158,7 +171,7 @@ class DynamicStrands {
     glm::quat last_q;
     // Angular velocity
     glm::vec3 angular_v;
-    float padding;
+    float padding0;
 
     glm::vec3 torque = glm::vec3(0.f);
     float rest_length;
@@ -167,6 +180,11 @@ class DynamicStrands {
     float shearing_alpha;
     float stretching_alpha;
     float damping;
+
+    float max_shearing_modulus;
+    float max_stretching_modulus;
+    float moisture_content;
+    float boundary_distance;
 
     glm::vec3 inertia_tensor;
     int particle0_handle = -1;
@@ -218,11 +236,46 @@ class DynamicStrands {
     int prev_handle = -1;
     int next_handle = -1;
 
+    float max_bending_modulus;
+    float max_torsion_modulus;
+    float moisture_content;
+    float boundary_distance;
+
     glm::vec4 bend_twist_strain_valid = glm::vec4(0.f);
 
     glm::vec4 max_bend_twist_strain;
   };
 
+  struct GpuSegmentPair {
+    int segment0_handle;
+    int segment1_handle;
+    int valid;
+    float max_strain;
+    float bending_alpha;
+    float twisting_alpha;
+    float max_bending_modulus;
+    float max_torsion_modulus;
+
+    glm::vec4 bending_twist_bundle_strain;
+
+    glm::vec4 segment0_particle0_offset;
+    glm::vec4 segment0_particle1_offset;
+
+    glm::vec4 segment1_particle0_offset;
+    glm::vec4 segment1_particle1_offset;
+
+    glm::quat rest_darboux_vector;
+  };
+  struct GpuSegmentData {
+    glm::vec3 particle0_position_correction;
+    float padding0;
+    glm::vec3 particle1_position_correction;
+    float padding1;
+
+    glm::quat q_correction;
+
+    int pair_handles[BUNDLE_MAX_CONNECTION];
+  };
   struct GpuUniformParticle {
     glm::vec3 position;
     float t;
@@ -249,11 +302,16 @@ class DynamicStrands {
   std::shared_ptr<Buffer> device_strands_buffer;
   std::shared_ptr<Buffer> device_segments_buffer;
   std::shared_ptr<Buffer> device_particles_buffer;
+  std::shared_ptr<Buffer> device_segment_pairs_buffer;
+  std::shared_ptr<Buffer> device_segment_data_list_buffer;
   std::shared_ptr<Buffer> device_uniform_particles_buffer;
   std::shared_ptr<Buffer> device_connections_buffer;
+
   std::vector<GpuStrand> strands;
   std::vector<GpuSegment> segments;
   std::vector<GpuParticle> particles;
+  std::vector<GpuSegmentPair> segment_pairs;
+  std::vector<GpuSegmentData> segment_data_list;
   std::vector<GpuUniformParticle> uniform_particles;
   std::vector<GpuConnection> connections;
 
