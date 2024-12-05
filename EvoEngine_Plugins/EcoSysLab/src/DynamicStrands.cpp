@@ -687,31 +687,24 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
   int max_dist_from_root = 0;
 
   for (int i = 0; i < particles.size(); i++) {
-
-    // only take start of bundle
-    // TODO: needs to change
-    if (i % 2 == 0) {
-      max_dist_from_root = std::max(max_dist_from_root, particles[i].hop_distance_to_root);
-    }
+      max_dist_from_root = std::max(max_dist_from_root, uniform_particles[i].segment_index);
   }
 
   std::vector<std::map<int, std::vector<size_t> > > bundle_maps(max_dist_from_root + 1);
   std::vector<size_t> offsets(max_dist_from_root + 1, 0);
   std::vector<std::vector<size_t>> particle_adjacent_tets(particles.size());
 
-  for (int i = 0; i < segments.size(); i++) {
+  for (int i = 0; i < uniform_particles.size(); i++) {
 
-    auto& segment = segments[i];
-    auto& particle0 = particles[segment.particle0_handle];
-    auto& node_handle = particle0.node_handle;
+    auto& particle = uniform_particles[i];
+    auto& node_handle = particle.node_index;
 
-    if (bundle_maps[particle0.hop_distance_to_root].find(node_handle) ==
-        bundle_maps[particle0.hop_distance_to_root].end()) {
+    if (bundle_maps[particle.segment_index].find(node_handle) == bundle_maps[particle.segment_index].end()) {
 
-      bundle_maps[particle0.hop_distance_to_root][node_handle] = std::vector<size_t>();
+      bundle_maps[particle.segment_index][node_handle] = std::vector<size_t>();
     }
 
-    bundle_maps[particle0.hop_distance_to_root][node_handle].push_back(i);
+    bundle_maps[particle.segment_index][node_handle].push_back(i);
   }
 
   // TODO: "squish" each bundle such that no internal degenerate tetrahedrons occur
@@ -724,17 +717,15 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
       auto& bundle = kv_pair.second;
       std::vector<std::pair<Point_CGAL, unsigned> > points;
 
-      for (size_t i : bundle) {
-        auto& segment = segments[i];
-
-        glm::vec3 particle0_pos = particles[segment.particle0_handle].x0;
-        glm::vec3 particle1_pos = particles[segment.particle1_handle].x0;
+      // TODO:
+      /*for (size_t i : bundle) {
+        auto& particle = uniform_particles[i];
 
         Point_CGAL p0_cgal(particle0_pos[0], particle0_pos[1], particle0_pos[2]);
         Point_CGAL p1_cgal(particle1_pos[0], particle1_pos[1], particle1_pos[2]);
         points.emplace_back(p0_cgal, segment.particle0_handle);
         points.emplace_back(p1_cgal, segment.particle1_handle);
-      }
+      }*/
 
       CGALDelaunay(points, tetrahedrons); 
     }
