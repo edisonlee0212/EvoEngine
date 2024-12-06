@@ -15,9 +15,10 @@ static RENDERDOC_API_1_1_2* rdoc_api = NULL;
 #  include <CGAL/Delaunay_triangulation_3.h>
 #  include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #  include <CGAL/Triangulation_vertex_base_with_info_3.h>
-#else
-#  include "Delaunay.hpp"
+//#else
+
 #endif
+#  include "Delaunay.hpp"
 
 #ifdef USE_CGAL
 typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
@@ -317,8 +318,12 @@ class DynamicStrands {
                const std::function<void()>& sub_step_action) const;
 
  private:
+#ifdef USE_CGAL
   void CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned>>& points,
                     std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
+#endif
+  void TetDelaunay(const std::vector<glm::vec3>& points,
+                   const std::vector<size_t>& particle_indices, std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);

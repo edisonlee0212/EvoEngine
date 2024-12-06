@@ -1,5 +1,7 @@
 #include "DynamicStrandUtils.hpp"
 
+using namespace eco_sys_lab_plugin;
+
  float DynamicStrandUtils::PointPlaneDistance(const glm::vec3& target_point, const glm::vec3& target_a,
                                       const glm::vec3& target_b, const glm::vec3& target_c) {
   // Compute the normal of the triangle
@@ -52,7 +54,21 @@ std::pair<int, int> DynamicStrandUtils::CompareIndices(const int a[4], const int
   return std::make_pair(a_not_in_b, b_not_in_a);
 };
 
-#ifdef USE_CGAL
+bool DynamicStrandUtils::IsBetweenPlanes(const int target_indices[4],
+                                         std::vector<DynamicStrands::GpuUniformParticle>& particles) {
+  int max_difference = -1;
+
+  for (size_t i = 0; i < 4; i++) {
+    for (size_t j = i + 1; j < 4; j++) {
+      int diff = glm::abs(particles[target_indices[i]].segment_index - particles[target_indices[j]].segment_index);
+      if (diff > max_difference) {
+        max_difference = diff;
+      }
+    }
+  }
+  return max_difference == 1;
+}
+
 bool DynamicStrandUtils::IsValid(const int target_indices[4], int size) {
   for (size_t i = 0; i < 4; i++) {
     if (static_cast<unsigned>(target_indices[i]) >= size) {
@@ -72,21 +88,3 @@ bool DynamicStrandUtils::IsValid(const int target_indices[4], int size) {
 
   return true;
 };
-#else
-bool DynamicStrandUtils::IsValid(const int tet_vertices[4]) {
-  /*for (size_t i = 0; i < 4; i++) {
-    if (tet_vertices[i] >= static_cast<int>(points.size())) {
-      EVOENGINE_ERROR("tetrahedron vertex index out of range, will be discarded: " << tet_vertices[i]);
-      return false;
-    }
-  }*/
-
-  for (size_t i = 0; i < 4; i++) {
-    for (size_t j = i + 1; j < 4; j++) {
-      if (tet_vertices[i] == tet_vertices[j]) {
-        return false;
-      }
-    }
-  }
-};
-#endif

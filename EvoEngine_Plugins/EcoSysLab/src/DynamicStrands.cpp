@@ -686,13 +686,13 @@ glm::vec3 DynamicStrands::ComputeInertiaTensorRod(const float mass, const float 
 void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
   int max_dist_from_root = 0;
 
-  for (int i = 0; i < particles.size(); i++) {
+  for (int i = 0; i < uniform_particles.size(); i++) {
       max_dist_from_root = std::max(max_dist_from_root, uniform_particles[i].segment_index);
   }
 
   std::vector<std::map<int, std::vector<size_t> > > bundle_maps(max_dist_from_root + 1);
   std::vector<size_t> offsets(max_dist_from_root + 1, 0);
-  std::vector<std::vector<size_t>> particle_adjacent_tets(particles.size());
+  std::vector<std::vector<size_t>> particle_adjacent_tets(uniform_particles.size(), std::vector<size_t>{});
 
   for (int i = 0; i < uniform_particles.size(); i++) {
 
@@ -708,7 +708,7 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
   }
 
   // TODO: "squish" each bundle such that no internal degenerate tetrahedrons occur
-
+#ifdef USE_CGAL
   // triangulate each bundle:
   for (int d = 0; d < bundle_maps.size(); d++) {
     offsets[d] = tetrahedrons.size();
@@ -717,30 +717,93 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
       auto& bundle = kv_pair.second;
       std::vector<std::pair<Point_CGAL, unsigned> > points;
 
-      // TODO:
-      /*for (size_t i : bundle) {
+      if (bundle.size() < 3) {
+        continue;
+      }
+
+      for (size_t i : bundle) {
         auto& particle = uniform_particles[i];
 
-        Point_CGAL p0_cgal(particle0_pos[0], particle0_pos[1], particle0_pos[2]);
-        Point_CGAL p1_cgal(particle1_pos[0], particle1_pos[1], particle1_pos[2]);
-        points.emplace_back(p0_cgal, segment.particle0_handle);
-        points.emplace_back(p1_cgal, segment.particle1_handle);
-      }*/
+        if (particle.next_particle_handle == -1) {
+          continue;
+          // TODO: probably even means we can skip this bundle entirely
+        }
+
+        auto& next_particle = uniform_particles[particle.next_particle_handle];
+
+        float squish_weight = 0.0f;
+
+        glm::vec3 squished_position = squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
+
+        Point_CGAL p0_cgal(particle.position[0], particle.position[1], particle.position[2]);
+        Point_CGAL p1_cgal(squished_position[0], squished_position[1], squished_position[2]);
+
+        points.emplace_back(p0_cgal, i);
+        points.emplace_back(p1_cgal, particle.next_particle_handle);
+
+      }
 
       CGALDelaunay(points, tetrahedrons); 
     }
   }
 
+  std::mutex mtx;
+
   Jobs::RunParallelFor(tetrahedrons.size(), [&](const size_t tet_index) {
     auto& tet = tetrahedrons[tet_index];
 
     for (size_t i = 0; i < 4; i++) {
+      if (tet.indices[i] == -1) {
+        continue;
+      }
+
+      if (tet.indices[i] >= particle_adjacent_tets.size()) {
+        EVOENGINE_ERROR("particle index out of range, skipping!");
+        continue;
+      }
+
+      mtx.lock();
       particle_adjacent_tets[tet.indices[i]].emplace_back(tet_index);
+      mtx.unlock();
     }
   });
 
+  // now glue them back together
+  for (int particle_index = 0; particle_index < uniform_particles.size(); particle_index++) {
+    auto& adjacent_tets = particle_adjacent_tets[particle_index];
+
+    // can't be too many, brute force should work here;
+    for (size_t i = 0; i < adjacent_tets.size(); i++) {
+      for (size_t j = i + 1; j < adjacent_tets.size(); j++) {
+        auto& tet0 = tetrahedrons[adjacent_tets[i]];
+        auto& tet1 = tetrahedrons[adjacent_tets[j]];
+
+        // check if the two share a face
+        size_t occurs_in_both = 0;
+        size_t b_in_both = 0;
+
+        for (size_t i = 0; i < 4; i++) {
+          for (size_t j = 0; j < 4; j++) {
+            if (tet0.indices[i] == tet1.indices[j] && tet0.indices[i] != -1) {
+              occurs_in_both++;
+            }
+          }
+        }
+
+        if (occurs_in_both != 3) {
+          continue;
+        }
+        const auto mismatch_indices = DynamicStrandUtils::CompareIndices(tet0.indices, tet1.indices);
+
+        tet0.neighbors[mismatch_indices.first] = tet1.indices[mismatch_indices.second];
+        tet1.neighbors[mismatch_indices.second] = tet0.indices[mismatch_indices.first];
+      }
+    }
+  }
+  #endif
 }
 
+#ifdef USE_CGAL
 void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned> >& points,
                                   std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
   Delaunay_CGAL dt;
@@ -757,6 +820,12 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
     if (!DynamicStrandUtils::IsValid(indices, uniform_particles.size())) {
       continue;  // discard this tetrahedron
     }
+
+    // only take tetrahedra that sit between two neighboring planes
+    if (!DynamicStrandUtils::IsBetweenPlanes(indices, uniform_particles)) {
+      continue;
+    }
+
     GpuDelaunayTetrahedron gpu_tet;
     for (size_t i = 0; i < 4; i++) {
       gpu_tet.indices[i] = indices[i];
@@ -796,6 +865,98 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
         continue;
       }
 
+      if (!DynamicStrandUtils::IsBetweenPlanes(neighbor_indices, uniform_particles)) {
+        continue;
+      }
+
+      const auto mismatch_indices = DynamicStrandUtils::CompareIndices(gpu_tet.indices, neighbor_indices);
+      // TODO: according to CGAL documentation, this is guaranteed anyway, so we do not need to match both sides
+      // store it such that the neighboring tetrahedron always consists of different indices
+      // e. g. for the triangle 1 2 4 we store the corresponding neighboring index at position 3
+      gpu_tet.neighbors[mismatch_indices.first] = neighbor_indices[mismatch_indices.second];
+    }
+
+    tetrahedrons.emplace_back(gpu_tet);
+  }
+}
+#endif
+
+void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std::vector<size_t>& particle_indices,
+                                  std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
+
+  const auto tets = Delaunay3D::GenerateTetrahedrons(points);
+
+  for (const auto& tet : tets) {
+
+    
+
+    int indices[4];
+    for (size_t i = 0; i < 4; i++) {
+      indices[i] = particle_indices[tet.v[i]];
+    }
+    if (!DynamicStrandUtils::IsValid(indices, uniform_particles.size())) {
+      continue;  // discard this tetrahedron
+    }
+
+    // only take tetrahedra that sit between two neighboring planes
+    if (!DynamicStrandUtils::IsBetweenPlanes(indices, uniform_particles)) {
+      continue;
+    }
+
+    GpuDelaunayTetrahedron gpu_tet;
+    for (size_t i = 0; i < 4; i++) {
+      gpu_tet.indices[i] = indices[i];
+      gpu_tet.neighbors[i] = -1;
+    }
+    // set up debugging members
+    gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+    for (int& i : gpu_tet.render_neighbor) {
+      i = -1;
+    }
+    gpu_tet.task_looked_at = 0;
+    gpu_tet.mesh_looked_at = 0;
+    gpu_tet.inside = 0;
+    gpu_tet.triangles_accepted = 0;
+
+    // check orientation of the tetrahedron
+    const float d = DynamicStrandUtils::PointPlaneDistance(
+        uniform_particles[gpu_tet.indices[3]].position, uniform_particles[gpu_tet.indices[0]].position,
+        uniform_particles[gpu_tet.indices[1]].position, uniform_particles[gpu_tet.indices[2]].position);
+
+    if (d > 0)  // point no. 3 is in front if the triangle 0 1 2, we need to correct this so the triangles face outwards
+    {
+      std::swap(gpu_tet.indices[1], gpu_tet.indices[2]);
+    }
+
+    // fill in neighbor indices
+    // TODO: need to figure out how to check if a neighbor is valid
+    for (size_t i = 0; i < 4; i++) {
+      auto& neighbor = tets[tet.neighbor_tet_indices[i]];
+      int neighbor_indices[4];
+
+      bool invalid = false;
+      for (size_t j = 0; j < 4; j++) {
+
+        if (neighbor.v[i] >= particle_indices.size()) {
+          invalid = true;
+          break;
+        }
+
+        neighbor_indices[j] = particle_indices[neighbor.v[i]];
+      }
+
+      if (invalid) {
+        continue;
+      }
+
+      if (!DynamicStrandUtils::IsValid(neighbor_indices, uniform_particles.size())) {
+        continue;
+      }
+
+      if (!DynamicStrandUtils::IsBetweenPlanes(neighbor_indices, uniform_particles)) {
+        continue;
+      }
+
       const auto mismatch_indices = DynamicStrandUtils::CompareIndices(gpu_tet.indices, neighbor_indices);
       // TODO: according to CGAL documentation, this is guaranteed anyway, so we do not need to match both sides
       // store it such that the neighboring tetrahedron always consists of different indices
@@ -824,66 +985,16 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
 
 #else
   std::vector<glm::vec3> points;
+  std::vector<size_t> indices;
 
-  for (uint32_t i = 0; i < particles.size(); i++) {
-    auto& particle = particles[i];
-    glm::vec3 particle_pos = particle.x0;
-    if (particle.connection_handle) {
-      auto& segment = segments[particle.segment_handle];
-      auto& connection = connections[particle.connection_handle];
-      glm::vec3 front = segment.q * glm::vec3(0, 0, -1);
-      if (connection.segment0_particle_handle == i) {
-        particle_pos -= front * segment.rest_length * 0.25f;
-      } else {
-        particle_pos += front * segment.rest_length * 0.25f;
-      }
-    }
+  for (int i = 0; i < uniform_particles.size(); i++) {
+    auto& particle = uniform_particles[i];
+    glm::vec3& particle_pos = particle.position;
     points.emplace_back(particle_pos);
+    indices.emplace_back(i);
   }
-  const auto tets = Delaunay3D::GenerateTetrahedrons(points);
 
-  tetrahedrons.reserve(tets.size());
-  for (const auto& tet : tets) {
-    if (!is_valid(tet.v, points)) {
-      continue;  // discard this tetrahedron
-    }
-    auto& gpu_tet = tetrahedrons.emplace_back();
-    for (size_t i = 0; i < 4; i++) {
-      gpu_tet.indices[i] = tet.v[i];
-      gpu_tet.neighbors[i] = -1;
-    }
-    // set up debugging members
-    gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
-    gpu_tet.task_looked_at = 0;
-    gpu_tet.mesh_looked_at = 0;
-    gpu_tet.inside = 0;
-    gpu_tet.triangles_accepted = 0;
-
-    // check orientation of the tetrahedron
-
-    if (const float d = point_plane_distance(particles[gpu_tet.indices[3]].x0, particles[gpu_tet.indices[0]].x0,
-                                             particles[gpu_tet.indices[1]].x0, particles[gpu_tet.indices[2]].x0);
-        d > 0)  // point no. 3 is in front if the triangle 0 1 2, we need to correct this so the triangles face outwards
-    {
-      std::swap(gpu_tet.indices[1], gpu_tet.indices[2]);
-    }
-
-    // fill in neighbor indices
-    // TODO: need to figure out how to check if a neighbor is valid
-    const auto& neighbor_indices = tet.neighbor_tet_indices;
-    for (const auto& neighbor_index : neighbor_indices) {
-      if (neighbor_index < 0 || neighbor_index >= tets.size())
-        continue;
-      const auto& neighbor = tets[neighbor_index];
-      if (!is_valid(neighbor.v, points)) {
-        continue;
-      }
-      const auto mismatch_indices = compare_indices(gpu_tet.indices, neighbor.v);
-      // TODO: according to CGAL documentation, this is guaranteed anyway, so we do not need to match both sides
-      // store it such that the neighboring tetrahedron always consists of different indices
-      // e.g. for the triangle 1 2 4 we store the corresponding neighboring index at position 3
-      gpu_tet.neighbors[mismatch_indices.first] = neighbor_indices[mismatch_indices.second];
-    }
-  }
+  TetDelaunay(points, indices, tetrahedrons);
+  
 #endif
 }
