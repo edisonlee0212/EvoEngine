@@ -4,21 +4,21 @@
 #endif
 #include "ILayer.hpp"
 #include "PointCloud.hpp"
-#include "SorghumField.hpp"
 #include "SorghumDescriptor.hpp"
+#include "SorghumField.hpp"
 using namespace evo_engine;
 namespace digital_agriculture_plugin {
 class SorghumLayer : public ILayer {
-  static void ObjExportHelper(glm::vec3 position, const std::shared_ptr<Mesh>& mesh, std::ofstream& of, unsigned& start_index);
+  static void ObjExportHelper(glm::vec3 position, const std::shared_ptr<Mesh>& mesh, std::ofstream& of,
+                              unsigned& start_index);
 
  public:
+  bool enable_compressed_btf = false;
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 #  pragma region Illumination
   int m_seed = 0;
   float push_distance = 0.001f;
   RayProperties ray_properties;
-
-  bool enable_compressed_btf = false;
   std::vector<Entity> processing_entities;
   int processing_index;
   bool processing = false;
@@ -56,4 +56,4 @@ class SorghumLayer : public ILayer {
   void ExportAllSorghumsModel(const std::string& filename) const;
 };
 
-}  // namespace eco_sys_lab_plugin
+}  // namespace digital_agriculture_plugin

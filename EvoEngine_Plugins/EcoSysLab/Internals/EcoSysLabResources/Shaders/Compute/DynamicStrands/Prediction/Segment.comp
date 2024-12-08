@@ -8,11 +8,11 @@
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrandsPhysics.glsl"
 
-const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
-const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
 uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
@@ -25,6 +25,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	uint segment_size;
 	float time_step;
 	float inv_time_step;
+	float angular_velocity_damping;
 };
 
 void update_inertia_w(inout Segment segment){
@@ -71,9 +72,9 @@ void main(){
 		update_inertia_w(segment);
 
 		//Calculate angular velocity and apply torque.
-		vec3 angular_velocity = segment.angular_v.xyz;
+		vec3 angular_velocity = segment.angular_v_shear_stretch_valid.xyz;
 		if(segment.inv_mass != 0.0f){
-			angular_velocity *= 1.0f - segment.damping * length(angular_velocity);
+			angular_velocity *= 1.0f - angular_velocity_damping * length(angular_velocity);
 			angular_velocity += time_step * mat3(segment.inv_inertia_w) * (segment.torque_rest_length.xyz - cross(angular_velocity, mat3(segment.inertia_w) * angular_velocity));
 		}
 		//Shift rotation values
@@ -86,11 +87,17 @@ void main(){
 
 		//Update w
 		update_inertia_w(segment);
-		vec3 stretch_shear_strain = stretch_shear_strain(
+		vec3 shear_stretch_strain = shear_stretch_strain(
 			particles[floatBitsToInt(segment.inertia_tensor_particle_0_handle.w)].x_node_handle.xyz, 
 			particles[floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w)].x_node_handle.xyz, 
 			segment.q, segment.torque_rest_length.w);
-		segment.stretch_shear_strain_original_inv_mass.xyz = stretch_shear_strain;
+
+		segment.shear_stretch_strain.xyz = shear_stretch_strain;
+		//Update moisture content.
+
+		//Update shear_stretch_strain_limit
+		segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain;
+
 		segments[segment_index] = segment;
 	}
 }

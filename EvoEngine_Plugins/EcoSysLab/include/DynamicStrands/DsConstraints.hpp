@@ -3,94 +3,6 @@
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
-class DsPreStep {
- public:
-  DsPreStep();
-
-  struct ParticlePreStepPushConstant {
-    uint32_t particle_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-  };
-
-  struct SegmentPreStepPushConstant {
-    uint32_t segment_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-  };
-
-  struct ConnectionPreStepPushConstant {
-    uint32_t connection_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-  };
-
-  inline static std::shared_ptr<ComputePipeline> particle_pre_step_pipeline;
-  inline static std::shared_ptr<ComputePipeline> segment_pre_step_pipeline;
-  inline static std::shared_ptr<ComputePipeline> connection_pre_step_pipeline;
-  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands);
-};
-class DsPrediction {
- public:
-  DsPrediction();
-
-  struct ParticlePredictionPushConstant {
-    uint32_t particle_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-  };
-
-  struct SegmentPredictionPushConstant {
-    uint32_t segment_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-  };
-
-  struct ConnectionPredictionPushConstant {
-    uint32_t connection_size = 0;
-    uint32_t allow_breaking;
-  };
-  struct SegmentPairPredictionPushConstant {
-    uint32_t segment_pair_size = 0;
-    uint32_t allow_breaking;
-  };
-  struct UniformParticlePredictionPushConstant {
-    uint32_t uniform_particle_size = 0;
-  };
-
-  inline static std::shared_ptr<ComputePipeline> particle_prediction_pipeline;
-  inline static std::shared_ptr<ComputePipeline> uniform_particle_prediction_pipeline;
-  inline static std::shared_ptr<ComputePipeline> segment_prediction_pipeline;
-  inline static std::shared_ptr<ComputePipeline> connection_prediction_pipeline;
-  inline static std::shared_ptr<ComputePipeline> segment_pair_prediction_pipeline;
-  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands);
-};
-
-class DsVelocityUpdate {
- public:
-  struct ParticlePushConstant {
-    uint32_t particle_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-  };
-
-  struct SegmentPushConstant {
-    uint32_t segment_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-  };
-
-  DsVelocityUpdate();
-
-  inline static std::shared_ptr<ComputePipeline> particle_pipeline;
-  inline static std::shared_ptr<ComputePipeline> segment_pipeline;
-
-  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands);
-};
-
 class IDsConstraint {
  public:
   virtual void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
@@ -147,25 +59,32 @@ class DsStiffRod final : public IDsConstraint {
     int back_propagate_begin_connection_handle = -1;
     int front_propagate_begin_segment_handle = -1;
     int back_propagate_begin_segment_handle = -1;
+
+    int alternative_front_propagate_begin_connection_handle = -1;
+    int alternative_back_propagate_begin_connection_handle = -1;
+    int alternative_front_propagate_begin_segment_handle = -1;
+    int alternative_back_propagate_begin_segment_handle = -1;
   };
 
   std::vector<PerStrandData> per_strand_data_list;
 
   std::shared_ptr<Buffer> per_strand_data_list_buffer;
 
-  struct StretchShearConstraintConstant {
+  struct ShearStretchConstraintConstant {
     uint32_t strand_size = 0;
     float inv_time_step;
+    uint32_t frame_index;
   };
 
   struct BendTwistConstraintConstant {
     uint32_t strand_size = 0;
     float inv_time_step;
+    uint32_t frame_index;
   };
 
-  enum class ProjectMode { Forward, Backward, Bilateral };
+  enum class ProjectMode { Forward, Backward, AlternatingDirection, Bilateral };
 
-  uint32_t project_mode = static_cast<uint32_t>(ProjectMode::Backward);
+  uint32_t project_mode = static_cast<uint32_t>(ProjectMode::Bilateral);
 
   int sub_iteration = 1;
   bool bend_twist = true;
@@ -197,8 +116,7 @@ class DsStiffRod final : public IDsConstraint {
 
 class DsRandomBundle : public IDsConstraint {
  public:
-  
-  struct RandomBundleStretchShearConstant {
+  struct RandomBundleShearStretchConstant {
     uint32_t segment_size = 0;
     float inv_time_step = 0.0f;
   };

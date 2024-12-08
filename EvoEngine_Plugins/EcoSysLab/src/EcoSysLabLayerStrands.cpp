@@ -165,10 +165,12 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
       // Draw border and background color
       // draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
       draw_list->PushClipRect(canvas_p0, canvas_p1, true);
-      if (tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::None)) {
+      if (!tree_visualization_settings_.enable || tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::None) ||
+          tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Select)) {
         if (visualization_camera_window_focused_ &&
             editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold &&
             editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Press) {
+          static bool is_box_selection_previously = false;
           static bool is_dragging_previously = false;
           bool mouse_drag = true;
           glm::vec2 mouse_valid_position =
@@ -182,9 +184,11 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
           const glm::vec3 camera_front = camera_rotation * glm::vec3(0, 0, -1);
           const glm::vec3 camera_up = camera_rotation * glm::vec3(0, 1, 0);
           const glm::vec3 camera_right = camera_rotation * glm::vec3(1, 0, 0);
-          if (mouse_drag && !is_dragging_previously) {
+          if (mouse_drag && !is_dragging_previously && !is_box_selection_previously) {
             strands_operator_start = mouse_valid_position;
           }
+          const auto camera_projection_view = visualization_camera_->GetProjection() *
+                                              glm::lookAt(camera_position, camera_position + camera_front, camera_up);
           if (editor_layer->GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
             for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
               dts->box_selection_operator->enabled = true;
@@ -192,10 +196,9 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
                                                   strands_operator_current / glm::vec2(canvas_size.x, canvas_size.y),
                                                   {}, 4);
             });
-          } else if (editor_layer->GetKey(GLFW_KEY_Q) == Input::KeyActionType::Hold) {
-            const auto camera_projection_view = visualization_camera_->GetProjection() *
-                                                glm::lookAt(camera_position, camera_position + camera_front, camera_up);
-            if (mouse_drag) {
+          } else if (mouse_drag) {
+            if (editor_layer->GetKey(GLFW_KEY_Q) == Input::KeyActionType::Hold || is_box_selection_previously) {
+              is_box_selection_previously = true;
               strands_operator_current = mouse_valid_position;
               draw_list->AddQuad(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y),
                                  canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_current.y),
@@ -209,17 +212,8 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
                     strands_operator_current / glm::vec2(canvas_size.x, canvas_size.y), camera_projection_view,
                     editor_layer->GetKey(GLFW_KEY_R) != Input::KeyActionType::Hold ? 0 : 1);
               });
-            } else if (is_dragging_previously) {
-              for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-                dts->box_selection_operator->enabled = true;
-                dts->box_selection_operator->Update(
-                    strands_operator_start / glm::vec2(canvas_size.x, canvas_size.y),
-                    strands_operator_current / glm::vec2(canvas_size.x, canvas_size.y), camera_projection_view,
-                    editor_layer->GetKey(GLFW_KEY_R) != Input::KeyActionType::Hold ? 2 : 3);
-              });
-            }
-          } else if (editor_layer->GetKey(GLFW_KEY_E) == Input::KeyActionType::Hold) {
-            if (mouse_drag) {
+            } else if (editor_layer->GetKey(GLFW_KEY_E) == Input::KeyActionType::Hold || is_dragging_previously) {
+              is_dragging_previously = true;
               strands_operator_current = mouse_valid_position;
               draw_list->AddLine(canvas_p0 + ImVec2(strands_operator_start.x, strands_operator_start.y),
                                  canvas_p0 + ImVec2(strands_operator_current.x, strands_operator_current.y),
@@ -238,8 +232,19 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
                 dts->drag_operator->Update(acceleration);
               });
             }
+          } else {
+            if (is_box_selection_previously) {
+              for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+                dts->box_selection_operator->enabled = true;
+                dts->box_selection_operator->Update(
+                    strands_operator_start / glm::vec2(canvas_size.x, canvas_size.y),
+                    strands_operator_current / glm::vec2(canvas_size.x, canvas_size.y), camera_projection_view,
+                    editor_layer->GetKey(GLFW_KEY_R) != Input::KeyActionType::Hold ? 2 : 3);
+              });
+            }
           }
-          is_dragging_previously = mouse_drag;
+          is_dragging_previously = mouse_drag && is_dragging_previously;
+          is_box_selection_previously = mouse_drag && is_box_selection_previously;
         }
 
         const auto imguizmo_transform = [&](glm::mat4& global_transform) {

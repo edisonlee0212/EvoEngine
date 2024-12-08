@@ -4,6 +4,11 @@ struct PerStrandData {
   int back_propagate_begin_connection_handle;
   int front_propagate_begin_segment_handle;
   int back_propagate_begin_segment_handle;
+
+  int alternative_front_propagate_begin_connection_handle;
+  int alternative_back_propagate_begin_connection_handle;
+  int alternative_front_propagate_begin_segment_handle;
+  int alternative_back_propagate_begin_segment_handle;
 };
 
 layout(std430, set = DYNAMIC_STRANDS_PER_STRAND_DATA_SET, binding = 0) readonly buffer PER_STRAND_DATA_LIST_BLOCK {

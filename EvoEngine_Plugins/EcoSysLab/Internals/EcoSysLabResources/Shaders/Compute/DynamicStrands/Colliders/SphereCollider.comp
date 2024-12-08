@@ -9,11 +9,11 @@
 #include "DynamicStrands.glsl"
 #include "Math.glsl"
 
-const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
-const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
 uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
@@ -23,35 +23,17 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	vec4 obb_rotation;
 	vec4 obb_center;
 	float radius;
-	float height;
 	float softness;
 	uint segment_size;
 };
 
 vec3 process_point(in vec3 p){
 	vec3 projected_p = p - obb_center.xyz;
-	projected_p = rotate_vec3(conjugate(obb_rotation), projected_p);
-	float current_height = abs(projected_p.y);
-	if(height - current_height < 0.f) return p;
-	float current_radius = length(projected_p.xz);
-	if(radius - current_radius < 0.f) return p;
-	float radius_diff = radius - current_radius;
-	float height_diff = height - current_height;
-	if(radius_diff > height_diff){
-		if(projected_p.y >= 0.f) projected_p += vec3(0, height_diff, 0);
-		else projected_p -= vec3(0, height_diff, 0);
-	}else{
-		vec2 direction = vec2(0, 1);
-		if(current_radius > 0.f){
-			direction = normalize(projected_p.xz);
-		}
-		vec2 push = radius_diff * direction;
-		projected_p += vec3(push.x, 0.f, push.y);
-	}
-	return rotate_vec3(obb_rotation, projected_p) + obb_center.xyz;
+	float current_radius = length(projected_p);
+	if(current_radius == 0.0f) return obb_center.xyz + radius * vec3(0, 1, 0);
+	return obb_center.xyz + max(current_radius, radius) * normalize(projected_p);
 }
 
 void main(){

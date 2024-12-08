@@ -16,7 +16,6 @@
 #include "SorghumDescriptor.hpp"
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include "CBTFGroup.hpp"
-#  include "DoubleCBTF.hpp"
 #  include "PARSensorGroup.hpp"
 #endif
 using namespace digital_agriculture_plugin;
@@ -32,8 +31,7 @@ AssetRegistration<SorghumGenerator> sdg_registry("SorghumGenerator", {".sg"});
 AssetRegistration<SorghumField> sf_registry("SorghumField", {".sorghumfield"});
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 AssetRegistration<PARSensorGroup> parssg_registry("PARSensorGroup", {".parsensorgroup"});
-AssetRegistration<CBTFGroup> cbtfg_registry("CBTFGroup", {".cbtfg"});
-AssetRegistration<DoubleCBTF> dcbtf_registry("DoubleCBTF", {".dcbtf"});
+AssetRegistration<CBTFGroup> cbtfg_registry("CBTFGroup", {".cbtfgroup"});
 #endif
 AssetRegistration<SkyIlluminance> si_registry("SkyIlluminance", {".skyilluminance"});
 AssetRegistration<SorghumCoordinates> sc_registry("SorghumCoordinates", {".sorghumcoords"});
@@ -45,16 +43,16 @@ void SorghumLayer::OnCreate() {
                                                  "SorghumGrowthDescriptor.png"));
     editor_layer->AssetIcons()["SorghumGrowthStages"] = texture_2d;
     texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
-    texture_2d->Import(
-        std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") / "SorghumDescriptor.png"));
+    texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
+                                                 "SorghumDescriptor.png"));
     editor_layer->AssetIcons()["SorghumGenerator"] = texture_2d;
     texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
-    texture_2d->Import(
-        std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") / "PositionsField.png"));
+    texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
+                                                 "PositionsField.png"));
     editor_layer->AssetIcons()["SorghumField"] = texture_2d;
 
-    texture_2d->Import(
-        std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") / "GeneralDataPipeline.png"));
+    texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
+                                                 "GeneralDataPipeline.png"));
     editor_layer->AssetIcons()["GeneralDataCapture"] = texture_2d;
   }
 
@@ -124,9 +122,10 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       }
       ImGui::TreePop();
     }
-    editor_layer->DragAndDropButton<CBTFGroup>(leaf_cbtf_group, "Leaf CBTFGroup");
-
     ImGui::Checkbox("Enable BTF", &enable_compressed_btf);
+    if (enable_compressed_btf) {
+      editor_layer->DragAndDropButton<CBTFGroup>(leaf_cbtf_group, "Leaf CBTFGroup");
+    }
 #endif
     ImGui::Separator();
     sorghum_mesh_generator_settings.OnInspect(editor_layer);
@@ -162,7 +161,6 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
             }
           }
         }
-        
       }
     }
 
@@ -184,9 +182,12 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       }
     }
 
-    FileUtils::SaveFile("Export OBJ for all sorghums", "3D Model", {".obj"}, [this](const std::filesystem::path& path) {
-      ExportAllSorghumsModel(path.string());
-    }, false);
+    FileUtils::SaveFile(
+        "Export OBJ for all sorghums", "3D Model", {".obj"},
+        [this](const std::filesystem::path& path) {
+          ExportAllSorghumsModel(path.string());
+        },
+        false);
 
     static bool opened = false;
 #ifdef OPTIX_RAY_TRACER_PLUGIN

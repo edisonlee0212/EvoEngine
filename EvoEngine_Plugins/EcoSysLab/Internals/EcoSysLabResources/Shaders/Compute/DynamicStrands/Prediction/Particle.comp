@@ -9,11 +9,11 @@
 #include "DynamicStrands.glsl"
 #include "Math.glsl"
 
-const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * EXT_TASK_SUBGROUP_SIZE;
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
-const uint ITERATIONS_PER_TASK = ((EXT_INVOCATIONS_PER_TASK + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-uint baseID = gl_WorkGroupID.x * EXT_INVOCATIONS_PER_TASK;
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
 uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
@@ -26,6 +26,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	uint particle_size;
 	float time_step;
 	float inv_time_step;
+	float velocity_damping;
 };
 
 void main(){
@@ -42,7 +43,7 @@ void main(){
 		//Calculate velocity and apply acceleration.
 		vec3 velocity = particle.v_segment_handle.xyz;
 		if(segment.inv_mass != 0.0f){
-			velocity *= 1.0f - particle.x0_damping.w * length(velocity);
+			velocity *= 1.0f - velocity_damping * length(velocity);
 			velocity += particle.acceleration.xyz * time_step;
 		}
 		//Shift position values

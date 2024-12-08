@@ -243,11 +243,17 @@ class Platform final {
     constexpr static uint32_t meshlet_max_vertices_size = 64;
     constexpr static uint32_t meshlet_max_triangles_size = 40;
 
-    inline static uint32_t task_subgroup_size = 1;
+    inline static uint32_t subgroup_size = 1;
+
     inline static uint32_t task_subgroup_count = 1;
-    inline static uint32_t mesh_subgroup_size = 1;
-    inline static uint32_t mesh_subgroup_count = 1;
     inline static uint32_t task_work_group_invocations = 1;
+    inline static uint32_t mesh_subgroup_count = 1;
+
+    inline static uint32_t compute_subgroup_count = 1;
+    inline static uint32_t compute_work_group_invocations = 1;
+    inline static uint32_t max_compute_work_group_invocations = 1;
+
+    inline static uint32_t max_shared_memory_size = 1;
     /**
      * \brief Defined during Platform::Initialize();
      */

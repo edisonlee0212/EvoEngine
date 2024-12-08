@@ -41,7 +41,7 @@ void SorghumPanicleDescriptor::Deserialize(const YAML::Node& in) {
 }
 
 void SorghumPanicleDescriptor::GenerateGeometry(const glm::vec3& stem_tip, std::vector<Vertex>& vertices,
-                                           std::vector<unsigned>& indices) const {
+                                                std::vector<unsigned>& indices) const {
   std::vector<glm::vec3> icosahedron_vertices;
   std::vector<glm::uvec3> icosahedron_triangles;
   SphereMeshGenerator::Icosahedron(icosahedron_vertices, icosahedron_triangles);
@@ -66,8 +66,8 @@ void SorghumPanicleDescriptor::GenerateGeometry(const glm::vec3& stem_tip, std::
 }
 
 void SorghumPanicleDescriptor::GenerateGeometry(const glm::vec3& stem_tip, std::vector<Vertex>& vertices,
-                                           std::vector<unsigned>& indices,
-                                           const std::shared_ptr<ParticleInfoList>& particle_info_list) const {
+                                                std::vector<unsigned>& indices,
+                                                const std::shared_ptr<ParticleInfoList>& particle_info_list) const {
   std::vector<glm::vec3> icosahedron_vertices;
   std::vector<glm::uvec3> icosahedron_triangles;
   SphereMeshGenerator::Icosahedron(icosahedron_vertices, icosahedron_triangles);
@@ -160,7 +160,6 @@ void SorghumStemDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std:
 }
 
 bool SorghumLeafDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  
   return false;
 }
 
@@ -176,7 +175,8 @@ void SorghumLeafDescriptor::Deserialize(const YAML::Node& in) {
 }
 
 void SorghumLeafDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned>& indices,
-                                        const SorghumMeshGeneratorSettings& mesh_generator_settings, bool current_bottom_face) const {
+                                             const SorghumMeshGeneratorSettings& mesh_generator_settings,
+                                             bool current_bottom_face) const {
   if (spline.segments.empty())
     return;
   auto sorghum_layer = Application::GetLayer<SorghumLayer>();
@@ -187,14 +187,15 @@ void SorghumLeafDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std:
   spline.SubdivideByDistance(sorghum_layer->vertical_subdivision_length, temp_spline.segments);
   if (mesh_generator_settings.enable_leaf_sheath) {
     segments = temp_spline.segments;
-  }else {
+  } else {
     segments = temp_spline.GetLeafPart();
   }
   const int vertex_index = vertices.size();
   Vertex archetype{};
 #pragma region Semantic mask color
   const uint32_t actual_index = this->index + 1;
-  const auto vertex_color = glm::vec4(actual_index % 3 * 0.5f, actual_index / 3 % 3 * 0.5f, actual_index / 9 % 3 * 0.5f, 1.0f);
+  const auto vertex_color =
+      glm::vec4(actual_index % 3 * 0.5f, actual_index / 3 % 3 * 0.5f, actual_index / 9 % 3 * 0.5f, 1.0f);
 #pragma endregion
   archetype.color = vertex_color;
   archetype.vertex_info1 = glm::uintBitsToFloat(actual_index);
@@ -207,8 +208,10 @@ void SorghumLeafDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std:
     const float angle_step = segment.theta / static_cast<float>(sorghum_layer->horizontal_subdivision_step);
     const int verts_count = sorghum_layer->horizontal_subdivision_step * 2 + 1;
     for (int j = 0; j < verts_count; j++) {
-      auto position = segment.GetLeafPoint((j - static_cast<float>(sorghum_layer->horizontal_subdivision_step)) * angle_step);
-      auto normal = segment.GetNormal((j - static_cast<float>(sorghum_layer->horizontal_subdivision_step)) * angle_step);
+      auto position =
+          segment.GetLeafPoint((j - static_cast<float>(sorghum_layer->horizontal_subdivision_step)) * angle_step);
+      auto normal =
+          segment.GetNormal((j - static_cast<float>(sorghum_layer->horizontal_subdivision_step)) * angle_step);
       if (i != 0 && j != 0 && j != verts_count - 1) {
         position -= normal * mesh_generator_settings.leaf_thickness;
       }
@@ -247,7 +250,12 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   if (ImGui::Button("Instantiate")) {
     CreateEntity("New Sorghum");
   }
-
+  FileUtils::OpenFile(
+      "Load splines", "YAML", {".yml"},
+      [&](const std::filesystem::path& path) {
+        ImportPrediction(path);
+      },
+      false);
   bool changed = false;
   if (ImGui::TreeNodeEx((std::string("Stem")).c_str())) {
     if (stem.OnInspect(editor_layer))
@@ -344,13 +352,81 @@ Entity SorghumDescriptor::CreateEntity(const std::string& name) const {
   sorghum->sorghum_descriptor = GetSelf();
   if (const auto sorghum_layer = Application::GetLayer<SorghumLayer>()) {
     sorghum->GenerateGeometryEntities(sorghum_layer->sorghum_mesh_generator_settings);
-  }else {
+  } else {
     sorghum->GenerateGeometryEntities({});
   }
-  
+
   return sorghum_entity;
 }
 
 void SorghumDescriptor::ImportPrediction(const std::filesystem::path& yaml_path) {
-    
+  if (!std::filesystem::exists(yaml_path)) {
+    EVOENGINE_ERROR("File not exist!")
+    return;
+  }
+  try {
+    const std::ifstream stream(yaml_path.string());
+    std::stringstream string_stream;
+    string_stream << stream.rdbuf();
+    const YAML::Node in = YAML::Load(string_stream.str());
+
+    if (in["Sorghum"]) {
+      const auto& sorghum_in = in["Sorghum"];
+      for (const auto sorghum_real_in : sorghum_in) {
+        if (sorghum_real_in["Leaves"]) {
+          const auto& leaves_in = sorghum_real_in["Leaves"];
+          for (const auto& leaf_in : leaves_in) {
+            std::vector<glm::vec3> center_points;
+            std::vector<glm::vec3> left_points;
+            std::vector<glm::vec3> right_points;
+            int leaf_index;
+            if (leaf_in["Center Points"]) {
+              const auto& center_points_in = leaf_in["Center Points"];
+              for (const auto& point_in : center_points_in) {
+                glm::vec3 point;
+                int i = 0;
+                for (const auto& number : point_in) {
+                  point[i] = number.as<float>();
+                  i++;
+                }
+                center_points.emplace_back(point);
+              }
+            }
+            if (leaf_in["Left Points"]) {
+              const auto& left_points_in = leaf_in["Left Points"];
+              for (const auto& point_in : left_points_in) {
+                glm::vec3 point;
+                int i = 0;
+                for (const auto& number : point_in) {
+                  point[i] = number.as<float>();
+                  i++;
+                }
+                left_points.emplace_back(point);
+              }
+            }
+            if (leaf_in["Right Points"]) {
+              const auto& right_points_in = leaf_in["Right Points"];
+              for (const auto& point_in : right_points_in) {
+                glm::vec3 point;
+                int i = 0;
+                for (const auto& number : point_in) {
+                  point[i] = number.as<float>();
+                  i++;
+                }
+                right_points.emplace_back(point);
+              }
+            }
+            if (leaf_in["Leaf Index"]) {
+              leaf_index = leaf_in["Leaf Index"].as<int>();
+            }
+          }
+        }
+      }
+    }
+
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to load!")
+    return;
+  }
+  return;
 }

@@ -29,7 +29,7 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
     changed = true;
   if (render_segments) {
     if (ImGui::Combo("Segment mode",
-                     {"Default", "Segment color", "Shear strain", "Stretch strain", "Boundary distance"},
+                     {"Default", "Segment color", "Boundary distance", "Moister Content", "Shear strain", "Stretch strain"},
                      segment_render_mode))
       changed = true;
     switch (segment_render_mode) {
@@ -52,26 +52,19 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
           changed = true;
         if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
           changed = true;
-        break;
-      }
-      case 3: {
-        if (ImGui::ColorEdit4("Segment min color", &segment_color_min.x))
-          changed = true;
-        if (ImGui::ColorEdit4("Segment max color", &segment_color_max.x))
-          changed = true;
-        if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
-          changed = true;
-        break;
-      }
-      case 4: {
-        if (ImGui::ColorEdit4("Segment min color", &segment_color_min.x))
-          changed = true;
-        if (ImGui::ColorEdit4("Segment max color", &segment_color_max.x))
-          changed = true;
-        if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
-          changed = true;
         if (ImGui::DragFloat("Segment boundary distance modular", &segment_boundary_distance_modular, 0.001f, 0.001f,
                              1.f))
+          changed = true;
+        break;
+      }
+      case 3:
+      case 4:
+      case 5: {
+        if (ImGui::ColorEdit4("Segment min color", &segment_color_min.x))
+          changed = true;
+        if (ImGui::ColorEdit4("Segment max color", &segment_color_max.x))
+          changed = true;
+        if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
           changed = true;
         break;
       }
@@ -80,7 +73,9 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (ImGui::Checkbox("Connections", &render_connections))
     changed = true;
   if (render_connections) {
-    if (ImGui::Combo("Connection mode", {"Default", "Bend strain", "Twist strain"}, connection_render_mode))
+    if (ImGui::Combo("Connection mode",
+                     {"Default", "Boundary distance", "Moister Content", "Bend strain", "Twist strain"},
+                     connection_render_mode))
       changed = true;
     switch (connection_render_mode) {
       case 0: {
@@ -97,6 +92,21 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
           changed = true;
         if (ImGui::DragFloat("Connection radius multiplier", &connection_radius_multiplier, 0.1f, 0.1f, 1000.f))
           changed = true;
+        if (ImGui::DragFloat("Connection boundary distance modular", &connection_boundary_distance_modular, 0.001f,
+                             0.001f,
+                             1.f))
+          changed = true;
+        break;
+      }
+      case 2:
+      case 3:
+      case 4: {
+        if (ImGui::ColorEdit4("Connection min color", &connection_color_min.x))
+          changed = true;
+        if (ImGui::ColorEdit4("Connection max color", &connection_color_max.x))
+          changed = true;
+        if (ImGui::DragFloat("Connection radius multiplier", &connection_radius_multiplier, 0.1f, 0.1f, 1000.f))
+          changed = true;
         break;
       }
     }
@@ -104,13 +114,24 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (ImGui::Checkbox("Segment Pair", &render_segment_pairs))
     changed = true;
   if (render_segment_pairs) {
-    if (ImGui::Combo("Segment Pair mode", {"Default"}, segment_pair_render_mode))
+    if (ImGui::Combo("Segment Pair mode", {"Default", "Bending Strain", "Twisting Strain", "Bundle Strain"}, segment_pair_render_mode))
       changed = true;
     switch (segment_pair_render_mode) {
       case 0: {
         if (ImGui::ColorEdit4("Segment pair color", &segment_pair_color_main.x))
           changed = true;
         if (ImGui::DragFloat("Segment pair radius multiplier", &segment_pair_radius_multiplier, 0.1f, 0.1f, 10.f))
+          changed = true;
+        break;
+      }
+      case 1:
+      case 2:
+      case 3: {
+        if (ImGui::ColorEdit4("Segment pair min color", &segment_pair_color_min.x))
+          changed = true;
+        if (ImGui::ColorEdit4("Segment pair max color", &segment_pair_color_max.x))
+          changed = true;
+        if (ImGui::DragFloat("Segment pair radius multiplier", &segment_pair_radius_multiplier, 0.1f, 0.1f, 1000.f))
           changed = true;
         break;
       }
@@ -310,6 +331,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     uint32_t strand_connection_size = 0;
     uint32_t render_mode = 2;
     float multiplier = 10.0f;
+    float boundary_distance_modular = 10.0f;
   };
 
   if (!connection_render_pipeline) {
@@ -436,7 +458,10 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
 
   SegmentPairRenderPushConstant segment_pair_push_constant;
   segment_pair_push_constant.render_mode = visualization_parameters.segment_pair_render_mode;
-  segment_pair_push_constant.min_color = visualization_parameters.segment_pair_color_main;
+  segment_pair_push_constant.min_color = visualization_parameters.segment_pair_render_mode == 0
+                                        ? visualization_parameters.segment_pair_color_main
+                                        : visualization_parameters.segment_pair_color_min;
+  segment_pair_push_constant.max_color = visualization_parameters.segment_pair_color_max;
   segment_pair_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   segment_pair_push_constant.multiplier = visualization_parameters.segment_pair_radius_multiplier;
   segment_pair_push_constant.strand_segment_pair_size = segment_pairs.size();
@@ -450,7 +475,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   connection_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   connection_push_constant.multiplier = visualization_parameters.connection_radius_multiplier;
   connection_push_constant.strand_connection_size = connections.size();
-
+  connection_push_constant.boundary_distance_modular = visualization_parameters.connection_boundary_distance_modular;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
     VkViewport viewport;

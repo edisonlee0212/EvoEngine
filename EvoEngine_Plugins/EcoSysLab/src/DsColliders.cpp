@@ -33,7 +33,7 @@ DsBoxCollider::DsBoxCollider() {
     shader = std::make_shared<Shader>();
     shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/ContactConstraints/BoxCollider.comp");
+                    "Shaders/Compute/DynamicStrands/Colliders/BoxCollider.comp");
 
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = shader;
@@ -84,8 +84,8 @@ void DsBoxCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t task_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  const uint32_t work_group_invocations =
+      Platform::Constants::compute_work_group_invocations;
   glm::vec3 size = scale * global_transform.GetScale();
   if (size.x < 0.001f)
     size.x = 0.001f;
@@ -107,7 +107,7 @@ void DsBoxCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, task_work_group_invocations),
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations),
                   1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
@@ -157,7 +157,7 @@ DsCylinderCollider::DsCylinderCollider() {
     shader = std::make_shared<Shader>();
     shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/ContactConstraints/CylinderCollider.comp");
+                    "Shaders/Compute/DynamicStrands/Colliders/CylinderCollider.comp");
 
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = shader;
@@ -199,8 +199,8 @@ void DsCylinderCollider::ProjectPositionConstraint(const DynamicStrands::Physics
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t task_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  const uint32_t work_group_invocations =
+      Platform::Constants::compute_work_group_invocations;
   const glm::vec3 scale = global_transform.GetScale();
   auto size = glm::vec2(radius * glm::max(scale.x, scale.z), height * scale.y);
   if (size.x < 0.001f)
@@ -222,7 +222,7 @@ void DsCylinderCollider::ProjectPositionConstraint(const DynamicStrands::Physics
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, task_work_group_invocations),
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations),
                   1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
@@ -270,7 +270,7 @@ DsSphereCollider::DsSphereCollider() {
     shader = std::make_shared<Shader>();
     shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/ContactConstraints/SphereCollider.comp");
+                    "Shaders/Compute/DynamicStrands/Colliders/SphereCollider.comp");
 
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = shader;
@@ -311,8 +311,8 @@ void DsSphereCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t task_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  const uint32_t work_group_invocations =
+      Platform::Constants::compute_work_group_invocations;
   const glm::vec3 scale = global_transform.GetScale();
   float size = radius * glm::max(glm::max(scale.x, scale.y), scale.z);
   if (size < 0.001f)
@@ -331,7 +331,7 @@ void DsSphereCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, task_work_group_invocations),
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations),
                   1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
