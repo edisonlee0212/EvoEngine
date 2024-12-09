@@ -3,6 +3,7 @@
 #include "Delaunay.hpp"
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"
+#include "DsPhysics.hpp"
 #include "DynamicStrands.hpp"
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
@@ -216,6 +217,10 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     if (ImGui::TreeNode("Constraint")) {
       for (auto& i : dynamic_strands->constraints)
         i->OnInspect(editor_layer);
+      ImGui::TreePop();
+    }
+    if (ImGui::TreeNode("Dynamic Hashed Grid")) {
+      dynamic_strands->dynamic_hashed_grid->OnInspect(editor_layer);
       ImGui::TreePop();
     }
     ImGui::TreePop();

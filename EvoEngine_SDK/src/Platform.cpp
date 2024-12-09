@@ -148,7 +148,6 @@ void Platform::Initialize() {
   Constants::max_compute_work_group_invocations =
       selected_physical_device->properties.limits.maxComputeWorkGroupInvocations;
 
-  
   const uint32_t mesh_subgroup_count =
       (std::min(std::max(Constants::meshlet_max_vertices_size, Constants::meshlet_max_triangles_size),
                 mesh_work_group_invocations) +

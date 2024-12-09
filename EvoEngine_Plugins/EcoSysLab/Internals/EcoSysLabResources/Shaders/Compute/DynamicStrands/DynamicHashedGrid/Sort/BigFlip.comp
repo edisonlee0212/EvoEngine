@@ -1,0 +1,42 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrandsPhysics.glsl"
+#include "SortCompare.glsl"
+
+layout(local_size_x_id = 0) in;
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint segment_size;
+	uint group_size;
+};
+
+void global_compare_and_swap(ivec2 idx){
+	if (COMPARE(hashed_grid_elements[idx.x], hashed_grid_elements[idx.y])) {
+		HashedGridElement tmp = hashed_grid_elements[idx.x];
+		hashed_grid_elements[idx.x] = hashed_grid_elements[idx.y];
+		hashed_grid_elements[idx.y] = tmp;
+	}
+}
+
+// Performs full-height flip (h height) over globally available indices.
+void big_flip(in uint h) {
+	uint t_prime = gl_GlobalInvocationID.x;
+	uint half_h = h >> 1; // Note: h >> 1 is equivalent to h / 2 
+	uint q = ((2 * t_prime) / h) * h;
+	uint x = q     + (t_prime % half_h);
+	uint y = q + h - (t_prime % half_h) - 1;
+	if(x < segment_size && y < segment_size) global_compare_and_swap(ivec2(x,y));
+}
+
+void main(){
+	big_flip(group_size);
+}
