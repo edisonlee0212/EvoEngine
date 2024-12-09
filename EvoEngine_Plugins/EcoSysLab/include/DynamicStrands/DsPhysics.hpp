@@ -92,21 +92,51 @@ class DsVelocityUpdate {
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };
-class DsHashedGrid {
-public:
+class DsDynamicHashedGrid {
+ public:
   struct PartitionPushConstant {
     uint32_t segment_size = 0;
-    float grid_size;
+    float grid_cell_size;
+  };
+
+  struct SortPushConstant {
+    uint32_t segment_size = 0;
+    uint32_t segment_group_size = 0;
+  };
+
+  struct OffsetPushConstant {
+    uint32_t segment_size = 0;
   };
 
   inline static std::shared_ptr<ComputePipeline> partition_pipeline;
+  inline static std::shared_ptr<ComputePipeline> offset_pipeline;
 
-  float grid_size = 0.05f;
+  inline static std::shared_ptr<Shader> local_merge_sort_shader;
+  inline static std::shared_ptr<Shader> big_flip_shader;
+  inline static std::shared_ptr<Shader> local_disperse_shader;
+  inline static std::shared_ptr<Shader> global_disperse_shader;
+  float grid_cell_size = 0.03f;
 
-  DsHashedGrid();
-
-  void Initialize(const DynamicStrands::PhysicsParameters& physics_parameters,
+  DsDynamicHashedGrid();
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  void BuildGrid(const DynamicStrands::PhysicsParameters& physics_parameters,
                  const DynamicStrands& target_dynamic_strands);
+};
+
+class DsSegmentCollision {
+public:
+  enum class CollisionMode {
+    Spherical
+  };
+ struct SphericalPushConstant {
+   uint32_t segment_size = 0;
+   float grid_cell_size;
+ };
+  uint32_t collision_mode = static_cast<uint32_t>(CollisionMode::Spherical);
+  inline static std::shared_ptr<ComputePipeline> spherical_pipeline;
+  DsSegmentCollision();
+  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const DynamicStrands& target_dynamic_strands);
 };
 
 }  // namespace eco_sys_lab_plugin

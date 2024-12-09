@@ -33,6 +33,23 @@ void ComputePipeline::Initialize() {
   shader_stage_create_info.flags = 0;
   shader_stage_create_info.pNext = nullptr;
 
+  VkSpecializationInfo vk_specialization_info{};
+  std::vector<VkSpecializationMapEntry> specialization_map_entries;
+  for (int i = 0; i < map_entries.size(); i++) {
+    specialization_map_entries.emplace_back();
+    auto& entry = specialization_map_entries.back();
+    entry.constantID = i;
+    entry.offset = sizeof(int32_t) * i;
+    entry.size = sizeof(int32_t);
+  }
+  vk_specialization_info.mapEntryCount = specialization_map_entries.size();
+  if (!specialization_map_entries.empty()) {
+    vk_specialization_info.pMapEntries = specialization_map_entries.data();
+    vk_specialization_info.dataSize = sizeof(int32_t) * map_entries.size();
+    vk_specialization_info.pData = map_entries.data();
+  }
+  shader_stage_create_info.pSpecializationInfo = &vk_specialization_info;
+
   VkComputePipelineCreateInfo pipeline_info{};
   pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
   pipeline_info.layout = pipeline_layout_->GetVkPipelineLayout();

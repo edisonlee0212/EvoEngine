@@ -2,7 +2,7 @@
 #include "GraphicsResources.hpp"
 namespace evo_engine {
 class Shader;
-class ComputePipeline final : public IGraphicsResource{
+class ComputePipeline final : public IGraphicsResource {
   friend class Platform;
 
   std::unique_ptr<PipelineLayout> pipeline_layout_ = {};
@@ -11,6 +11,9 @@ class ComputePipeline final : public IGraphicsResource{
 
  public:
   ~ComputePipeline() override;
+
+  std::vector<int32_t> map_entries;
+
   std::vector<VkPushConstantRange> push_constant_ranges;
   std::vector<std::shared_ptr<DescriptorSetLayout>> descriptor_set_layouts;
 

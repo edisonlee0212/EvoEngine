@@ -4,7 +4,8 @@
 #include "TreeGrowthData.hpp"
 
 namespace eco_sys_lab_plugin {
-class DsHashedGrid;
+class DsSegmentCollision;
+class DsDynamicHashedGrid;
 }
 
 using namespace evo_engine;
@@ -104,7 +105,7 @@ class DynamicStrands {
     float velocity_damping = 0.005f;
     float angular_velocity_damping = 0.0005f;
 
-    float enable_segment_collision = true;
+    bool enable_segment_collision = false;
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -175,7 +176,8 @@ class DynamicStrands {
   std::shared_ptr<DsPreStep> pre_step;
   std::shared_ptr<DsPrediction> prediction;
   std::shared_ptr<DsVelocityUpdate> velocity_update;
-  std::shared_ptr<DsHashedGrid> hashed_grid;
+  std::shared_ptr<DsDynamicHashedGrid> dynamic_hashed_grid;
+  std::shared_ptr<DsSegmentCollision> segment_collision;
   std::vector<std::shared_ptr<IDsConstraint>> constraints;
 
   void UpdateBindings() const;

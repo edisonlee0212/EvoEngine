@@ -216,6 +216,12 @@ vec3 bend_twist_strain(in vec4 q0, in vec4 q1, in vec4 rest_darboux_vector) {
 }
 
 void BundleSegment(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
+  Segment segment0 = segments[segment_handle];
+  int segment0_particle0_handle = floatBitsToInt(segment0.inertia_tensor_particle_0_handle.w);
+  int segment0_particle1_handle = floatBitsToInt(segment0.inv_inertia_tensor_particle_1_handle.w);
+  Particle segment0_particle0 = particles[segment0_particle0_handle];
+  Particle segment0_particle1 = particles[segment0_particle1_handle];
+
   SegmentData segment_data = segment_data_list[segment_handle];
   vec3 movement0_sum = vec3(0.0f, 0.0f, 0.0f);
   vec3 movement1_sum = vec3(0.0f, 0.0f, 0.0f);
@@ -230,17 +236,11 @@ void BundleSegment(in uint segment_handle, in float inv_time_step, in float over
     if (segment_pair.valid == 0)
       continue;
     bool is_segment0 = segment_handle == segment_pair.segment0_handle;
-    Segment segment0 = segments[is_segment0 ? segment_pair.segment0_handle : segment_pair.segment1_handle];
     Segment segment1 = segments[is_segment0 ? segment_pair.segment1_handle : segment_pair.segment0_handle];
-
-    int segment0_particle0_handle = floatBitsToInt(segment0.inertia_tensor_particle_0_handle.w);
-    int segment0_particle1_handle = floatBitsToInt(segment0.inv_inertia_tensor_particle_1_handle.w);
-
+    
     int segment1_particle0_handle = floatBitsToInt(segment1.inertia_tensor_particle_0_handle.w);
     int segment1_particle1_handle = floatBitsToInt(segment1.inv_inertia_tensor_particle_1_handle.w);
 
-    Particle segment0_particle0 = particles[segment0_particle0_handle];
-    Particle segment0_particle1 = particles[segment0_particle1_handle];
     Particle segment1_particle0 = particles[segment1_particle0_handle];
     Particle segment1_particle1 = particles[segment1_particle1_handle];
 
@@ -291,13 +291,8 @@ void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in f
     if (segment_pair.valid == 0)
       continue;
     bool is_segment0 = segment_handle == segment_pair.segment0_handle;
-    Segment segment0 = segments[is_segment0 ? segment_pair.segment0_handle : segment_pair.segment1_handle];
-    Segment segment1 = segments[is_segment0 ? segment_pair.segment1_handle : segment_pair.segment0_handle];
-
     vec4 q0_correction, q1_correction;
-
     vec3 bend_twist_alpha = vec3(segment_pair.bending_alpha, segment_pair.bending_alpha, segment_pair.twisting_alpha);
-
     project_bend_twist_constraint(
         inv_time_step, segments[segment_pair.segment0_handle].q, segments[segment_pair.segment0_handle].inv_mass,
         segments[segment_pair.segment1_handle].q, segments[segment_pair.segment1_handle].inv_mass, bend_twist_alpha,

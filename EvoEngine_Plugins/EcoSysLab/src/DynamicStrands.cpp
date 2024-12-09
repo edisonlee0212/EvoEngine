@@ -31,9 +31,7 @@ inline glm::vec3 cgal_to_glm(const CGAL::Point_3<CGAL::Epick>& p) {
 void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
                              const std::function<void()>& sub_step_action) const {
   pre_step_action();
-  if (physics_parameters.enable_segment_collision && hashed_grid) {
-    hashed_grid->Initialize(physics_parameters, *this);
-  }
+  
   for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
     if (pre_step)
       pre_step->Execute(physics_parameters, *this);
@@ -48,7 +46,6 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
     }
 
     const auto scene = Application::GetActiveScene();
-
     const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
     const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
     const auto* cylinder_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsCylinderCollider>();
@@ -76,12 +73,13 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
     for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
       dts->ProjectPositionConstraint(physics_parameters, *this);
     });
-
     if (velocity_update)
       velocity_update->Execute(physics_parameters, *this);
   }
-  // Handle collision
-  // Handle velocity constraints (Frictions, etc.)
+  dynamic_hashed_grid->BuildGrid(physics_parameters, *this);
+  if (physics_parameters.enable_segment_collision) {
+    segment_collision->Execute(physics_parameters, *this);
+  }
 }
 
 DynamicStrands::DynamicStrands() {
@@ -129,7 +127,8 @@ DynamicStrands::DynamicStrands() {
   pre_step = std::make_shared<DsPreStep>();
   prediction = std::make_shared<DsPrediction>();
   velocity_update = std::make_shared<DsVelocityUpdate>();
-  hashed_grid = std::make_shared<DsHashedGrid>();
+  dynamic_hashed_grid = std::make_shared<DsDynamicHashedGrid>();
+  segment_collision = std::make_shared<DsSegmentCollision>();
 }
 
 bool DynamicStrands::WaitForUpload() const {
@@ -835,6 +834,9 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     changed = true;
   }
   if (ImGui::Checkbox("Breaking", &allow_breaking)) {
+    changed = true;
+  }
+  if (ImGui::Checkbox("Segment Collision", &enable_segment_collision)) {
     changed = true;
   }
   if (ImGui::DragInt("Constraint Iteration", &constraint_iteration, 1, 1, 500))
