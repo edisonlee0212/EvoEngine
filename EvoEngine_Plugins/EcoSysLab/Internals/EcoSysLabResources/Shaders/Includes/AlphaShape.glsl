@@ -5,6 +5,7 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
   uint tetrahedrons_size;
   float alpha;
   float bifurcation_alpha;
+  int render_complex;
 };
 
 void SortFourElements(inout uint a[4]) {

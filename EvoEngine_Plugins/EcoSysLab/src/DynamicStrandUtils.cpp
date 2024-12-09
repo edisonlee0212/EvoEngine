@@ -62,11 +62,12 @@ bool DynamicStrandUtils::IsBetweenPlanes(const int target_indices[4],
     for (size_t j = i + 1; j < 4; j++) {
       int diff = glm::abs(particles[target_indices[i]].segment_index - particles[target_indices[j]].segment_index);
       if (diff > max_difference) {
-        max_difference = diff;
+        max_difference = diff; 
       }
     }
   }
-  return max_difference == 1;
+  //return max_difference == 1;
+  return max_difference <= 1; // for now also permit same distance
 }
 
 bool DynamicStrandUtils::IsValid(const int target_indices[4], int size) {

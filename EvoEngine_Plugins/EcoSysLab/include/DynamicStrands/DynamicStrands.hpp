@@ -95,6 +95,8 @@ class DynamicStrands {
     glm::vec3 min_bend_twist_strain = glm::vec3(0.001f);
 
     GlobalTransform root_transform{};
+    bool use_cgal = false;
+    bool triangulate_per_bundle = false;
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -148,6 +150,8 @@ class DynamicStrands {
 
   struct RenderParameters {
     bool render_alpha_shape_mesh = true;
+    bool render_complex = false;
+    bool use_cgal = false;
     bool wireframe = false;
     float alpha = 1.0 / 10000.0f;
     float bifurcation_alpha = 1.0 / 10000.0f;
@@ -324,8 +328,8 @@ class DynamicStrands {
 #endif
   void TetDelaunay(const std::vector<glm::vec3>& points,
                    const std::vector<size_t>& particle_indices, std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
-  void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
-  void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
+  void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
+  void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
   static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
 };

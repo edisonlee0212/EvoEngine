@@ -67,7 +67,12 @@ void main(){
 		if(triangle_index < TETRAHEDRON_TRIANGLE_SIZE){
 			float min_distance_squared = 200000.0f; // 
 			// check if we are at the boundary of the alpha shape
-			delaunay_tetrahedrons[tet_id].render_neighbor[triangle_index] = InsideAlpha(tet, int(triangle_index % 4), min_distance_squared) ? 0 : 1;
+			if(render_complex == 0){
+				delaunay_tetrahedrons[tet_id].render_neighbor[triangle_index] = InsideAlpha(tet, int(triangle_index % 4), min_distance_squared) ? 0 : 1;
+			}
+			else {
+				delaunay_tetrahedrons[tet_id].render_neighbor[triangle_index] = 1;
+			}
 			delaunay_tetrahedrons[tet_id].neighbor_circumference[triangle_index] = min_distance_squared;
 			if(delaunay_tetrahedrons[tet_id].render_neighbor[triangle_index] == 1){
 				atomicAdd(delaunay_tetrahedrons[tet_id].triangles_accepted, 1);

@@ -174,6 +174,12 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     changed = true;
   if (ImGui::DragFloat3("Min bend/twist strain", &min_bend_twist_strain.x, 0.001f, 0.00f, 1.0f))
     changed = true;
+  if (ImGui::Checkbox("Triangulate per bundle", &triangulate_per_bundle))
+    changed = true;
+#ifdef USE_CGAL
+  if (ImGui::Checkbox("Use CGAL", &use_cgal))
+    changed = true;
+#endif  // USE_CGAL
   return changed;
 }
 
@@ -565,8 +571,12 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   for (size_t i = 0; i < skeleton_nodes.size(); i++) {
     nodes[i].prev_handle = skeleton_nodes[i].GetParentHandle();
   }
-
-  ComputeDelaunay(delaunay_tetrahedrons);
+  
+  if (!initialize_parameters.triangulate_per_bundle) {
+    ComputeDelaunay(delaunay_tetrahedrons, initialize_parameters.use_cgal);
+  } else {
+    ComputeDelaunayPerBundle(delaunay_tetrahedrons, initialize_parameters.use_cgal);
+  }
   for (const auto& i : constraints)
     i->InitializeData(initialize_parameters, strand_model_skeleton, strand_group, *this);
 
@@ -683,7 +693,7 @@ glm::vec3 DynamicStrands::ComputeInertiaTensorRod(const float mass, const float 
   };
 }
 
-void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
+void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal) {
   int max_dist_from_root = 0;
 
   for (int i = 0; i < uniform_particles.size(); i++) {
@@ -746,6 +756,52 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
       CGALDelaunay(points, tetrahedrons); 
     }
   }
+#else
+  for (int d = 0; d < bundle_maps.size(); d++) {
+    offsets[d] = tetrahedrons.size();
+    auto& map = bundle_maps[d];
+    for (auto& kv_pair : map) {
+      auto& bundle = kv_pair.second;
+      std::vector<glm::vec3> points;
+      std::vector<size_t> indices;
+
+      if (bundle.size() < 3) {
+        continue;
+      }
+
+      int end_of_strand_count = 0;
+      for (size_t i : bundle) {
+        auto& particle = uniform_particles[i];
+
+        glm::vec3 p0(particle.position[0], particle.position[1], particle.position[2]);
+        points.emplace_back(p0);
+        indices.emplace_back(i);
+
+        if (particle.next_particle_handle == -1) {
+          end_of_strand_count++;
+        } else {
+          auto& next_particle = uniform_particles[particle.next_particle_handle];
+
+          float squish_weight = 0.0f;
+
+          glm::vec3 squished_position =
+              squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
+
+          glm::vec3 p1(squished_position[0], squished_position[1], squished_position[2]);
+
+          points.emplace_back(p1);
+          indices.emplace_back(particle.next_particle_handle);
+        }
+      }
+
+      if (end_of_strand_count == bundle.size()) {
+        continue;
+      }
+
+      TetDelaunay(points, indices, tetrahedrons);
+    }
+  }
+#endif
 
   std::mutex mtx;
 
@@ -800,7 +856,6 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
       }
     }
   }
-  #endif
 }
 
 #ifdef USE_CGAL
@@ -886,15 +941,23 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
 
   const auto tets = Delaunay3D::GenerateTetrahedrons(points);
 
+  int valid_neighbors = 0;
   for (const auto& tet : tets) {
 
     
 
     int indices[4];
+    bool invalid = false;
     for (size_t i = 0; i < 4; i++) {
+      if (tet.v[i] >= particle_indices.size() || tet.v[i] < 0)
+      {
+        invalid = true;
+        EVOENGINE_LOG("Tetrahedron is invalid");
+        break;
+      }
       indices[i] = particle_indices[tet.v[i]];
     }
-    if (!DynamicStrandUtils::IsValid(indices, uniform_particles.size())) {
+    if (invalid) {
       continue;  // discard this tetrahedron
     }
 
@@ -929,20 +992,24 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
     }
 
     // fill in neighbor indices
-    // TODO: need to figure out how to check if a neighbor is valid
     for (size_t i = 0; i < 4; i++) {
+      // check if neighbor is valid
+      if (tet.neighbor_tet_indices[i] >= tets.size() || tet.neighbor_tet_indices[i] < 0) {
+        continue;
+      }
+
       auto& neighbor = tets[tet.neighbor_tet_indices[i]];
       int neighbor_indices[4];
 
       bool invalid = false;
       for (size_t j = 0; j < 4; j++) {
 
-        if (neighbor.v[i] >= particle_indices.size()) {
+        if (neighbor.v[j] >= particle_indices.size()) {
           invalid = true;
           break;
         }
 
-        neighbor_indices[j] = particle_indices[neighbor.v[i]];
+        neighbor_indices[j] = particle_indices[neighbor.v[j]];
       }
 
       if (invalid) {
@@ -962,39 +1029,42 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
       // store it such that the neighboring tetrahedron always consists of different indices
       // e. g. for the triangle 1 2 4 we store the corresponding neighboring index at position 3
       gpu_tet.neighbors[mismatch_indices.first] = neighbor_indices[mismatch_indices.second];
+      valid_neighbors++;
     }
 
     tetrahedrons.emplace_back(gpu_tet);
   }
+
+  EVOENGINE_LOG("Found " << valid_neighbors << " valid neighbors");
 }
 
-void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
+void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal) {
  
 // TODO: maybe a different library will work here
 #ifdef USE_CGAL
-  std::vector<std::pair<Point_CGAL, unsigned> > points;
-  for (int i = 0; i < uniform_particles.size(); i++) {
-    auto& particle = uniform_particles[i];
-    glm::vec3 particle_pos = particle.position;
-    Point_CGAL p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);
-    points.emplace_back(p_cgal, i);
+  if (use_cgal) {
+    std::vector<std::pair<Point_CGAL, unsigned>> points;
+    for (int i = 0; i < uniform_particles.size(); i++) {
+      auto& particle = uniform_particles[i];
+      glm::vec3 particle_pos = particle.position;
+      Point_CGAL p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);
+      points.emplace_back(p_cgal, i);
+    }
+
+    CGALDelaunay(points, tetrahedrons);
   }
-
-  CGALDelaunay(points, tetrahedrons);
- 
-
-#else
-  std::vector<glm::vec3> points;
-  std::vector<size_t> indices;
-
-  for (int i = 0; i < uniform_particles.size(); i++) {
-    auto& particle = uniform_particles[i];
-    glm::vec3& particle_pos = particle.position;
-    points.emplace_back(particle_pos);
-    indices.emplace_back(i);
-  }
-
-  TetDelaunay(points, indices, tetrahedrons);
-  
 #endif
+  if (!use_cgal) {
+    std::vector<glm::vec3> points;
+    std::vector<size_t> indices;
+
+    for (int i = 0; i < uniform_particles.size(); i++) {
+      auto& particle = uniform_particles[i];
+      glm::vec3& particle_pos = particle.position;
+      points.emplace_back(particle_pos);
+      indices.emplace_back(i);
+    }
+
+    TetDelaunay(points, indices, tetrahedrons);
+  }
 }
