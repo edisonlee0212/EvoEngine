@@ -11,7 +11,6 @@
 
 #include "Application.hpp"
 #include "BarkDescriptor.hpp"
-#include "BillboardCloud.hpp"
 #include "Climate.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EditorLayer.hpp"
@@ -340,6 +339,7 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
 }
 
 bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+#ifdef BILLBOARD_CLOUDS_PLUGIN
   static BillboardCloud::GenerateSettings foliage_billboard_cloud_generate_settings{};
 
   foliage_billboard_cloud_generate_settings.OnInspect("Foliage billboard cloud settings");
@@ -347,7 +347,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::Button("Generate billboard")) {
     GenerateBillboardClouds(foliage_billboard_cloud_generate_settings);
   }
-
+#endif
   bool changed = false;
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
   const auto scene = GetScene();
@@ -1962,6 +1962,7 @@ void Tree::Deserialize(const YAML::Node& in) {
     }
   }
 }
+#ifdef BILLBOARD_CLOUDS_PLUGIN
 inline void TransformVertex(Vertex& v, const glm::mat4& transform) {
   v.normal = glm::normalize(transform * glm::vec4(v.normal, 0.f));
   v.tangent = glm::normalize(transform * glm::vec4(v.tangent, 0.f));
@@ -2024,7 +2025,7 @@ void Tree::GenerateBillboardClouds(const BillboardCloud::GenerateSettings& folia
     cloud_index++;
   }
 }
-
+#endif
 void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mesh_generator_settings,
                                             const int iteration, const bool enable_physics) {
   const auto scene = GetScene();

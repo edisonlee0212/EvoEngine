@@ -6,14 +6,14 @@
 #include "RayTracingPipeline.hpp"
 #define ENABLE_EXTERNAL_MEMORY true
 #define ENABLE_NV_RAY_TRACING_VALIDATION false
+
 #ifndef USE_RENDERDOC
-#  define USE_NSIGHT_AFTERMATH true
-#else
-#  define USE_NSIGHT_AFTERMATH false
+#  undef ENABLE_NVIDIA_NSIGHT_AFTERMATH true
 #endif  // !USE_RENDERDOC
+
 // Enables the Nsight Aftermath code instrumentation for GPU crash dump creation.
 
-#if USE_NSIGHT_AFTERMATH
+#ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
 #  include "NsightAftermathGpuCrashTracker.h"
 #  include "NsightAftermathHelpers.h"
 #  include "NsightAftermathShaderDatabase.h"
@@ -95,7 +95,7 @@ class Platform final {
   std::vector<std::shared_ptr<PhysicalDevice>> physical_devices_{};
   std::shared_ptr<PhysicalDevice> selected_physical_device{};
 
-#if USE_NSIGHT_AFTERMATH
+#ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
   GpuCrashTracker::MarkerMap markerMap;
   GpuCrashTracker gpu_crash_tracker{markerMap};
 #endif

@@ -27,7 +27,10 @@ target_include_directories(MeshRepairPlugin
 
 set(MESH_REPAIR_PCH ${MESH_REPAIR_DIRECTORY}/include/MeshRepair_PCH.hpp)
 set(MESH_REPAIR_PCH ${MESH_REPAIR_PCH} PARENT_SCOPE)
-
+target_link_libraries(MeshRepairPlugin
+	EvoEngine_SDK
+	${EvoEngine_Plugins}
+	)
 target_precompile_headers(MeshRepairPlugin
 	PRIVATE
 	${EVOENGINE_SDK_PCH}

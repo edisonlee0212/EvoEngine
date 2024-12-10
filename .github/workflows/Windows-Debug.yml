@@ -21,7 +21,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Setup Vulkan
+    - name: Setup Vulkan-SDK
       run: |
           $ver = (Invoke-WebRequest -Uri "https://vulkan.lunarg.com/sdk/latest.json" | ConvertFrom-Json).windows
           echo Version $ver

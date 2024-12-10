@@ -56,6 +56,8 @@ elseif (APPLE)
 endif ()
 target_link_libraries(PhysXPhysicsPlugin
 	${PHYSX_LIBS}
+	EvoEngine_SDK
+	${EvoEngine_Plugins}
 	)
 
 set(EVOENGINE_PLUGINS_INCLUDES ${EVOENGINE_PLUGINS_INCLUDES} ${PHYSX_PHYSICS_INCLUDES} PARENT_SCOPE)

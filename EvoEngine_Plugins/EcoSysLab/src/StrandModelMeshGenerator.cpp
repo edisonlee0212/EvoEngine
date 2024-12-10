@@ -66,13 +66,13 @@ void StrandModelMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLay
                                         std::vector<unsigned>& indices,
                                         const StrandModelMeshGeneratorSettings& settings) {
   switch (settings.generator_type) {
-    case StrandModelMeshGeneratorType::RecursiveSlicing: {
+    case static_cast<unsigned>(StrandModelMeshGeneratorType::RecursiveSlicing): {
       IterativeSlicingMeshGenerator::Generate(strand_model, vertices, indices, settings);
     } break;
-    case StrandModelMeshGeneratorType::MarchingCube: {
+    case static_cast<unsigned>(StrandModelMeshGeneratorType::MarchingCube): {
       MarchingCubeMeshGenerator::Generate(strand_model, vertices, indices, settings);
     } break;
-    case StrandModelMeshGeneratorType::AlphaShape: {
+    case static_cast<unsigned>(StrandModelMeshGeneratorType::AlphaShape): {
       AlphaShapeMeshGenerator::Generate(strand_model, vertices, indices, settings);
     } break;
   }
@@ -96,13 +96,13 @@ void StrandModelMeshGenerator::Generate(const StrandModel& strand_model, std::ve
                                         const StrandModelMeshGeneratorSettings& settings) {
   
    switch (settings.generator_type) {
-    case StrandModelMeshGeneratorType::RecursiveSlicing: {
+    case static_cast<unsigned>(StrandModelMeshGeneratorType::RecursiveSlicing): {
        IterativeSlicingMeshGenerator::Generate(strand_model, vertices, tex_coords, index_pairs, settings);
     } break;
-    case StrandModelMeshGeneratorType::MarchingCube: {
+    case static_cast<unsigned>(StrandModelMeshGeneratorType::MarchingCube): {
       MarchingCubeMeshGenerator::Generate(strand_model, vertices, tex_coords, index_pairs, settings);
     } break;
-    case StrandModelMeshGeneratorType::AlphaShape: {
+    case static_cast<unsigned>(StrandModelMeshGeneratorType::AlphaShape): {
       AlphaShapeMeshGenerator::Generate(strand_model, vertices, tex_coords, index_pairs, settings);
     } break;
   }

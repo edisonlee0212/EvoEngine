@@ -42,7 +42,10 @@ target_include_directories(EcoSysLabPlugin
 	${EVOENGINE_PLUGINS_INCLUDES}
 	${ECOSYSLAB_INCLUDES}
 	)
-
+target_link_libraries(EcoSysLabPlugin
+	EvoEngine_SDK
+	${EvoEngine_Plugins}
+	)
 set(ECOSYSLAB_PCH ${ECOSYSLAB_DIRECTORY}/include/EcoSysLab_PCH.hpp)
 set(ECOSYSLAB_PCH ${ECOSYSLAB_PCH} PARENT_SCOPE)
 

@@ -4,7 +4,7 @@
 #include "GeometryStorage.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Jobs.hpp"
-#include "LODGroup.hpp"
+#include "LodGroup.hpp"
 #include "MeshRenderer.hpp"
 #include "Particles.hpp"
 #include "Platform.hpp"

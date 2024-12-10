@@ -22,7 +22,10 @@ target_include_directories(LogGradingPlugin
 	${EVOENGINE_PLUGINS_INCLUDES}
 	${LOG_GRADING_INCLUDES}
 	)
-
+target_link_libraries(LogGradingPlugin
+	EvoEngine_SDK
+	${EvoEngine_Plugins}
+	)
 set(LOG_GRADING_PCH ${LOG_GRADING_DIRECTORY}/include/LogGrading_PCH.hpp)
 set(LOG_GRADING_PCH ${LOG_GRADING_PCH} PARENT_SCOPE)
 

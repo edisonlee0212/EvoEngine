@@ -9,7 +9,7 @@
 #include "Input.hpp"
 #include "Jobs.hpp"
 #include "Json.hpp"
-#include "LODGroup.hpp"
+#include "LodGroup.hpp"
 #include "LightProbe.hpp"
 #include "Lights.hpp"
 #include "Mesh.hpp"

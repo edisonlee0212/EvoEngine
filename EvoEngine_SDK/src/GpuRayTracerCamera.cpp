@@ -6,6 +6,7 @@
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Shader.hpp"
+#include "Times.hpp"
 using namespace evo_engine;
 
 void GpuRayTracerCamera::OnCreate() {
@@ -181,7 +182,7 @@ void GpuRayTracerCamera::Capture() {
      * excutable folder. In that case, you will write something like: xxx_shader->Set(ShaderType::Compute,
      * std::filesystem::path("./EcoSysLabResources/Shaders/Compute/AlphaShape.comp"));
      */
-    ray_tracer_camera_shader->Set(ShaderType::Compute,
+    ray_tracer_camera_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
                                   std::filesystem::path("./DefaultResources") / "Shaders/Compute/RayTracerCamera.comp");
   }
   /**
@@ -312,7 +313,9 @@ void GpuRayTracerCamera::Capture() {
   image_info.imageView = texture2d->GetVkImageView();
   image_info.sampler = texture2d->GetVkSampler();
   output_texture_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
+  const auto start_time = Times::Now();
   /**
    * Finally, let's dispatch compute task!
    */
@@ -342,7 +345,7 @@ void GpuRayTracerCamera::Capture() {
     /**
      * Dispatch!
      */
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(resolution.x * resolution.y, 256), 1, 1);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(resolution.x * resolution.y, work_group_invocations), 1, 1);
     /**
      * Remember, many of vulkan commands are executed without ordering. So we have this Platform::EverythingBarrier() to
      * make sure that the above commands finishes before moving on. This is syncronization on GPU, not between GPU and
@@ -355,6 +358,9 @@ void GpuRayTracerCamera::Capture() {
      */
     texture2d->GetImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
+
+  const auto passed_time = Times::Now() - start_time;
+  EVOENGINE_LOG("Trace finished in " + std::to_string(passed_time) + " s.")
   capture_parameters.sampled_count++;
 }
 

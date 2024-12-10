@@ -48,7 +48,7 @@ bool ProceduralNoise2D::OnInspect(const SkeletonNodeHandle node_handle) {
       ImGui::EndPopup();
     }
     OperatorTypeSelection(node.data.m_operatorType, tag);
-    if (node.data.m_operatorType != ProceduralNoiseOperatorType::None)
+    if (node.data.m_operatorType != ProceduralNoiseOperatorType::Empty)
       ValueTypeSelection(node.data.m_valueType, tag);
     if (node.data.m_valueType != ProceduralNoiseValueType::Constant) {
       if (ImGui::DragFloat2(("Offset" + tag).c_str(), &node.data.m_offset.x, 0.01f))
@@ -110,7 +110,7 @@ bool ProceduralNoise3D::OnInspect(const SkeletonNodeHandle nodeHandle) {
       ImGui::EndPopup();
     }
     OperatorTypeSelection(node.data.m_operatorType, tag);
-    if (node.data.m_operatorType != ProceduralNoiseOperatorType::None)
+    if (node.data.m_operatorType != ProceduralNoiseOperatorType::Empty)
       ValueTypeSelection(node.data.m_valueType, tag);
 
     if (node.data.m_valueType != ProceduralNoiseValueType::Constant) {

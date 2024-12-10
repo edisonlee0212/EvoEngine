@@ -41,6 +41,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 
 set(3RDPARTY_INCLUDES "")
 set(3RDPARTY_LIBS "")
+set(3RDPARTY_DEFS "")
 set(3RDPARTY_DLLS "")
 set(3RDPARTY_PDBS "")
 set(3RDPARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Extern/3rdParty)
@@ -86,12 +87,14 @@ function(evoengine_copy_resources dst_target dst_dir)
 	else()
 		foreach (file_i ${EVOENGINE_DLLS})
 			add_custom_command(TARGET ${dst_target} POST_BUILD
-				/bin/sh -c "if [ -e \"${file_i}\" ]; then cp \"${file_i}\" \"${dst_dir}\\\"; fi")
+				COMMAND /bin/sh -c "if [ -e \"${file_i}\" ]; then cp ${file_i} ${dst_dir}/; fi"
+				VERBATIM)
 		endforeach(file_i)
 
 		foreach(file_i ${EVOENGINE_PDBS})
 			add_custom_command(TARGET ${dst_target} POST_BUILD
-				/bin/sh -c "if [ -e \"${file_i}\" ]; then cp \"${file_i}\" \"${dst_dir}\\\"; fi")
+				COMMAND /bin/sh -c "if [ -e \"${file_i}\" ]; then cp ${file_i} ${dst_dir}/; fi"
+				VERBATIM)
 		endforeach(file_i)
 	endif()
 	evoengine_sdk_copy_resources(${dst_target} ${dst_dir})

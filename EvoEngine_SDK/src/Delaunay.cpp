@@ -241,6 +241,7 @@ std::vector<glm::uvec3> Delaunay3D::GenerateConcaveHullTriangles(const std::vect
       return false;
     if (glm::distance(points[tetrahedron.v[2]], points[tetrahedron.v[3]]) > max_edge_length)
       return false;
+    return false;
   });
 }
 

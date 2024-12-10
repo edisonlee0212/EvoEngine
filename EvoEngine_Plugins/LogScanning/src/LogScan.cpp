@@ -1,12 +1,9 @@
 #include "LogScan.hpp"
-
-#include "CellGrid.hpp"
 #include "JoeScanScanner.hpp"
 #include "Json.hpp"
 #include "Prefab.hpp"
 #include "Scene.hpp"
 using namespace log_scanning_plugin;
-using namespace eco_sys_lab_plugin;
 void LogScan::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "profiles" << YAML::Value << YAML::BeginSeq;
   for (const auto& profile : profiles) {

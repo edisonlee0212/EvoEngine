@@ -2,7 +2,7 @@
 #include "Serialization.hpp"
 using namespace evo_engine;
 
-void ICurve::GetUniformCurve(size_t point_amount, std::vector<glm::vec3>& points) const {
+void BezierCurve::GetUniformCurve(size_t point_amount, std::vector<glm::vec3>& points) const {
   float step = 1.0f / (point_amount - 1);
   for (size_t i = 0; i <= point_amount; i++) {
     points.push_back(GetPoint(step * i));
@@ -13,7 +13,7 @@ BezierCurve::BezierCurve() {
 }
 
 BezierCurve::BezierCurve(glm::vec3 cp0, glm::vec3 cp1, glm::vec3 cp2, glm::vec3 cp3)
-    : ICurve(), p0(cp0), p1(cp1), p2(cp2), p3(cp3) {
+    : p0(cp0), p1(cp1), p2(cp2), p3(cp3) {
 }
 
 glm::vec3 BezierCurve::GetPoint(float t) const {
@@ -97,14 +97,14 @@ void BezierSpline::Deserialize(const YAML::Node& in) {
   if (in["curves"]) {
     curves.clear();
     for (const auto& i_curve : in["curves"]) {
-      curves.emplace_back(i_curve["p0"].as<glm::vec3>(), i_curve["p1"].as<glm::vec3>(),
-                            i_curve["p2"].as<glm::vec3>(), i_curve["p3"].as<glm::vec3>());
+      curves.emplace_back(i_curve["p0"].as<glm::vec3>(), i_curve["p1"].as<glm::vec3>(), i_curve["p2"].as<glm::vec3>(),
+                          i_curve["p3"].as<glm::vec3>());
     }
   } else if (in["m_curves"]) {
     curves.clear();
     for (const auto& i_curve : in["m_curves"]) {
-      curves.emplace_back(i_curve["m_p0"].as<glm::vec3>(), i_curve["m_p1"].as<glm::vec3>(), i_curve["m_p2"].as<glm::vec3>(),
-                          i_curve["m_p3"].as<glm::vec3>());
+      curves.emplace_back(i_curve["m_p0"].as<glm::vec3>(), i_curve["m_p1"].as<glm::vec3>(),
+                          i_curve["m_p2"].as<glm::vec3>(), i_curve["m_p3"].as<glm::vec3>());
     }
   }
 }

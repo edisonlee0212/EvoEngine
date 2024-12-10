@@ -1,6 +1,7 @@
 #pragma once
 #include "CellGrid.hpp"
 #include "Json.hpp"
+#include "Prefab.hpp"
 using namespace evo_engine;
 namespace log_scanning_plugin {
 struct CellData {

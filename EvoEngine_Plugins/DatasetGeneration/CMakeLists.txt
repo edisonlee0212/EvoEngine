@@ -26,7 +26,10 @@ target_include_directories(DatasetGenerationPlugin
 
 set(DATASET_GENERATION_PCH ${DATASET_GENERATION_DIRECTORY}/include/DatasetGeneration_PCH.hpp)
 set(DATASET_GENERATION_PCH ${DATASET_GENERATION_PCH} PARENT_SCOPE)
-
+target_link_libraries(DatasetGenerationPlugin
+	EvoEngine_SDK
+	${EvoEngine_Plugins}
+	)
 target_precompile_headers(DatasetGenerationPlugin
 	PRIVATE
 	${EVOENGINE_SDK_PCH}
