@@ -103,7 +103,6 @@ class ProjectManager {
   std::vector<std::shared_ptr<AssetThumbnail>> asset_thumbnail_storage_;
   int max_thumbnail_size_ = 256;
   friend class AssetRegistry;
-  friend class ProjectManager;
 
   friend class EditorLayer;
   friend class IAsset;

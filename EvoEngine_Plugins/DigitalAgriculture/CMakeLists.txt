@@ -27,7 +27,10 @@ target_include_directories(DigitalAgriculturePlugin
 
 set(DIGITAL_AGRICULTURE_PCH ${DIGITAL_AGRICULTURE_DIRECTORY}/include/DigitalAgriculture_PCH.hpp)
 set(DIGITAL_AGRICULTURE_PCH ${DIGITAL_AGRICULTURE_PCH} PARENT_SCOPE)
-
+target_link_libraries(DigitalAgriculturePlugin
+	EvoEngine_SDK
+	${EvoEngine_Plugins}
+	)
 target_precompile_headers(DigitalAgriculturePlugin
 	PRIVATE
 	${EVOENGINE_SDK_PCH}

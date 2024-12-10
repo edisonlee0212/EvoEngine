@@ -11,7 +11,7 @@ class CpuRayTracer final {
  public:
   enum class TraceFlags {
     // No special flag set.
-    None = 0,
+    Default = 0,
     // Enforce any hit programs for all geometries. This flag is mutually exclusive with DisableAnyHit.
     EnforceAnyHit = 1 << 1,
     CullBackFace = 1 << 2,
@@ -38,7 +38,7 @@ class CpuRayTracer final {
     /**
      * @brief Configurations of the ray.
      */
-    TraceFlags flags = TraceFlags::None;
+    TraceFlags flags = TraceFlags::Default;
   };
 
   struct HitInfo {

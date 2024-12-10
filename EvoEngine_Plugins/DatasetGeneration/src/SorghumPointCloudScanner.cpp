@@ -121,7 +121,7 @@ bool SorghumGantryCaptureSettings::SampleFilter(const PointCloudSample& sample) 
 void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                     std::vector<glm::vec3>& points, std::vector<int>& leaf_indices,
                                     std::vector<int>& instance_indices, std::vector<int>& type_indices) const {
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+
   const auto digital_agriculture_layer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
   if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
@@ -187,8 +187,11 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
   }
   std::vector<PointCloudSample> pc_samples;
   capture_settings->GenerateSamples(pc_samples);
+#ifdef OPTIX_RAY_TRACER_PLUGIN
   CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
+#else
 
+#endif
   glm::vec3 left_offset = glm::linearRand(-left_random_offset, left_random_offset);
   glm::vec3 right_offset = glm::linearRand(-right_random_offset, right_random_offset);
   for (int sample_index = 0; sample_index < pc_samples.size(); sample_index++) {
@@ -250,7 +253,6 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
       }
     }
   }
-#endif
 }
 
 void SorghumPointCloudScanner::SavePointCloud(const std::filesystem::path& save_path,

@@ -14,6 +14,19 @@ function(register_evoengine_plugin plugin_name default_enable)
   if(option_name AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${plugin_name})
 	add_subdirectory(${plugin_name})
 	if(TARGET ${plugin_name}Plugin)
+		if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+			message(STATUS "Setting G++ flags")
+			# G++
+			target_compile_options(${plugin_name}Plugin PRIVATE -Werror)
+		elseif (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
+			message(STATUS "Setting MSVC flags")
+			# MSVC
+			target_compile_options(${plugin_name}Plugin PRIVATE /EHsc /W2 /c)
+		elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
+			message(STATUS "Setting Clang flags")
+			# Activate all clang warnings except those that don't really affect much
+			target_compile_options(${plugin_name}Plugin PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
+		endif ()
 		message("Enabled [${plugin_name}] plugin.")
 		set_target_properties(${plugin_name}Plugin PROPERTIES FOLDER "Plugins")
 		set(EvoEngine_Plugins ${EvoEngine_Plugins} ${plugin_name}Plugin)
@@ -30,29 +43,24 @@ function(register_evoengine_plugin plugin_name default_enable)
   set(EVOENGINE_PLUGINS_RESOURCES ${EVOENGINE_PLUGINS_RESOURCES} PARENT_SCOPE)
 endfunction()
 
+if (WIN32)
+	register_evoengine_plugin(MeshRepair ON)
+	register_evoengine_plugin(TextureBaking ON)
+	register_evoengine_plugin(OptiXRayTracer ON)
+	register_evoengine_plugin(Gpr ON)
+	register_evoengine_plugin(BillboardClouds ON)
+endif()
 
-
-register_evoengine_plugin(MeshRepair ON)
-register_evoengine_plugin(TextureBaking ON)
-register_evoengine_plugin(OptiXRayTracer ON)
-register_evoengine_plugin(BillboardClouds ON)
 register_evoengine_plugin(EcoSysLab ON)
 register_evoengine_plugin(DigitalAgriculture ON)
 register_evoengine_plugin(DatasetGeneration ON)
-register_evoengine_plugin(LogGrading ON)
-register_evoengine_plugin(LogScanning ON)
+
+if (WIN32)
+	register_evoengine_plugin(LogGrading ON)
+	register_evoengine_plugin(LogScanning ON)
+endif()
+
 register_evoengine_plugin(Universe ON)
-register_evoengine_plugin(Gpr ON)
-
-#file(GLOB plugin_subdirectory_candidates RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-#    ${CMAKE_CURRENT_SOURCE_DIR}/*
-#)
-
-#foreach(plugin_subdirectory ${plugin_subdirectory_candidates})
-#    if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${plugin_subdirectory} AND NOT DEFINED ${plugin_subdirectory})
-#       register_evoengine_plugin(${plugin_subdirectory} ON)
-#   endif()
-#endforeach()
 
 set(EvoEngine_Plugins ${EvoEngine_Plugins} PARENT_SCOPE)
 set(EVOENGINE_PLUGINS_INCLUDES ${EVOENGINE_PLUGINS_INCLUDES} PARENT_SCOPE)

@@ -1,6 +1,8 @@
 message("====Checking Python Binding====")
 
 add_custom_target(PyResourceCopy)
+add_dependencies(PyResourceCopy EvoEngine_SDK)
+
 evoengine_copy_resources(PyResourceCopy ${CMAKE_CURRENT_BINARY_DIR})
 evoengine_clear_shader_binaries(PyResourceCopy)
 add_custom_command(TARGET PyResourceCopy POST_BUILD
@@ -34,6 +36,15 @@ function(register_python_binding target_name default_enable)
 				EvoEngine_SDK
 				${EvoEngine_Plugins}
 				)
+
+			if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+				target_compile_options(${target_name} PRIVATE -Werror)
+			elseif (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
+				target_compile_options(${target_name} PRIVATE /EHsc /W2 /c)
+			elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
+				target_compile_options(${target_name} PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
+			endif ()
+
 			add_dependencies(${target_name} PyResourceCopy)
 			set_property(TARGET ${target_name} PROPERTY FOLDER PythonBindings)
 			message("Enabled [${target_name}] PythonBinding.")

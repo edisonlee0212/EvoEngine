@@ -17,7 +17,7 @@ class MarchingCubeMeshGenerator {
                        const StrandModelMeshGeneratorSettings& settings);
 
  private:
-  static std::vector<glm::ivec3> MarchingCubeMeshGenerator::VoxelizeLineSeg(glm::vec3 start, glm::vec3 end,
+  static std::vector<glm::ivec3> VoxelizeLineSeg(glm::vec3 start, glm::vec3 end,
                                                                             float voxel_side_length);
   static void MarchingCube(const StrandModel& strand_model, std::vector<Vertex>& vertices,
                            std::vector<unsigned>& indices, const StrandModelMeshGeneratorSettings& settings);

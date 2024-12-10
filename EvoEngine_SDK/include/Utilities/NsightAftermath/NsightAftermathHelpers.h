@@ -23,7 +23,7 @@
 //*********************************************************
 
 #pragma once
-
+#ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
 #include <iomanip>
 #include <string>
 #include <sstream>
@@ -128,4 +128,7 @@ inline std::string  AftermathErrorMessage(GFSDK_Aftermath_Result result)
         exit(1);                                                                                        \
     }                                                                                                   \
 }()
+#endif
+
+
 #endif

@@ -27,64 +27,77 @@
 //Following resource will be bind via No.1 descriptor set.
 layout(set = 1, binding = 0, rgba32f) uniform image2D result_image;
 
+
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
 layout(push_constant) uniform RAY_CASTING_CONSTANTS{
-	vec4 resolution_xy_sample_bounce;
+	uint resolution_x;
+	uint resolution_y;
+	uint sample_count;
+	uint bounce_count;
 	mat4 inverse_projection_view;
 };
-void Execute(uint pixel_index);
 
-layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+void Execute(uint pixel_index);
 
 #define FLT_MAX 3.402823466e+38
 
 void main() {
-	uint pixel_index = gl_GlobalInvocationID.x;
-	Execute(pixel_index);
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint pixel_index = baseID + local_index;
+
+		if(pixel_index >= resolution_x * resolution_y) break;
+		Execute(pixel_index);
+	}
 }
 
 void Execute(uint pixel_index) {
-	uint resolution_x = floatBitsToUint(resolution_xy_sample_bounce.x);
-	uint resolution_y = floatBitsToUint(resolution_xy_sample_bounce.y);
 	uint seed = pixel_index;
-	if(pixel_index < resolution_x * resolution_y){
-		uint sample_count = floatBitsToUint(resolution_xy_sample_bounce.z);
-		uint bounce_count = floatBitsToUint(resolution_xy_sample_bounce.w);
+	float x_coordinate = float(pixel_index % resolution_y);
+	float y_coordinate = float(pixel_index / resolution_y);
 
-		float x_coordinate = float(pixel_index % resolution_y);
-		float y_coordinate = float(pixel_index / resolution_y);
+	float half_x = float(resolution_x) * .5;
+	float half_y = float(resolution_y) * .5;
+	RayDescriptor ray_descriptor;
+	ray_descriptor.t_min = 0.;
+	ray_descriptor.t_max = FLT_MAX;
 
-		float half_x = float(resolution_x) * .5;
-		float half_y = float(resolution_y) * .5;
-		RayDescriptor ray_descriptor;
-		ray_descriptor.t_min = 0.;
-		ray_descriptor.t_max = FLT_MAX;
-
-		vec4 color;
-		float screen_x = (x_coordinate + EE_RANDOM(seed) - half_x) / half_x;
-		float screen_y = (y_coordinate + EE_RANDOM(seed) - half_y) / half_y;
-		vec4 camera_start = inverse_projection_view * vec4(screen_x, screen_y, 0.0, 1.0);
-		vec4 camera_end = inverse_projection_view * vec4(screen_x, screen_y, 1.0, 1.0);
-		camera_start /= camera_start.w;
-		camera_end /= camera_end.w;
-		vec3 sample_origin = camera_start.xyz;
-		vec3 sample_direction = normalize(camera_end.xyz - camera_start.xyz);
-		bool hit = false;
-		ray_descriptor.origin = sample_origin;
-		ray_descriptor.direction = sample_direction;
-		HitInfo hit_info = Trace(ray_descriptor, false, false, hit);
-		if (hit) {
-			uint material_index = EE_INSTANCES[hit_info.instance_index].material_index;
-			MaterialProperties mat_props = EE_MATERIAL_PROPERTIES[material_index];
-			Vertex p0, p1, p2;
-			GetTriangle(hit_info.triangle_index, p0, p1, p2);
-			vec2 tex_coord = hit_info.barycentric.x * p0.tex_coord + hit_info.barycentric.y * p1.tex_coord + hit_info.barycentric.z * p2.tex_coord;
-			vec4 albedo = mat_props.albedo;
-			if (mat_props.albedo_map_index != -1) {
-				albedo = texture(EE_TEXTURE_2DS[mat_props.albedo_map_index], tex_coord);
-			}
-			color = albedo;
+	vec4 color;
+	float screen_x = (x_coordinate + EE_RANDOM(seed) - half_x) / half_x;
+	float screen_y = (y_coordinate + EE_RANDOM(seed) - half_y) / half_y;
+	vec4 camera_start = inverse_projection_view * vec4(screen_x, screen_y, 0.0, 1.0);
+	vec4 camera_end = inverse_projection_view * vec4(screen_x, screen_y, 1.0, 1.0);
+	camera_start /= camera_start.w;
+	camera_end /= camera_end.w;
+	vec3 sample_origin = camera_start.xyz;
+	vec3 sample_direction = normalize(camera_end.xyz - camera_start.xyz);
+	bool hit = false;
+	ray_descriptor.origin = sample_origin;
+	ray_descriptor.direction = sample_direction;
+	HitInfo hit_info = Trace(ray_descriptor, false, false, hit);
+	if (hit) {
+		uint material_index = EE_INSTANCES[hit_info.instance_index].material_index;
+		MaterialProperties mat_props = EE_MATERIAL_PROPERTIES[material_index];
+		Vertex p0, p1, p2;
+		GetTriangle(hit_info.triangle_index, p0, p1, p2);
+		vec2 tex_coord = hit_info.barycentric.x * p0.tex_coord + hit_info.barycentric.y * p1.tex_coord + hit_info.barycentric.z * p2.tex_coord;
+		vec4 albedo = mat_props.albedo;
+		if (mat_props.albedo_map_index != -1) {
+			albedo = texture(EE_TEXTURE_2DS[mat_props.albedo_map_index], tex_coord);
 		}
-		vec4 accumlated = imageLoad(result_image, ivec2(x_coordinate, y_coordinate)) * sample_count;
-		imageStore(result_image, ivec2(x_coordinate, y_coordinate), (color + accumlated) / (sample_count + 1));
+		color = albedo;
 	}
+	vec4 accumlated = imageLoad(result_image, ivec2(x_coordinate, y_coordinate)) * sample_count;
+	imageStore(result_image, ivec2(x_coordinate, y_coordinate), (color + accumlated) / (sample_count + 1));
+	
 }

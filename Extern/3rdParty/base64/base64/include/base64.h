@@ -16,6 +16,12 @@ namespace base64
 #include <string_view>
 #endif  // __cplusplus >= 201703L
 
+#  if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#include <cstdint>
+#else
+#include <inttypes.h>
+#endif
+
 std::string base64_encode(const std::string &s, bool url = false);
 std::string base64_encode(const std::vector<uint8_t> &s, bool url = false);
 

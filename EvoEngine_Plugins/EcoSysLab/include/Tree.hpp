@@ -1,5 +1,8 @@
 #pragma once
+#ifdef BILLBOARD_CLOUDS_PLUGIN
 #include "BillboardCloud.hpp"
+using namespace billboard_clouds_plugin;
+#endif
 #include "Climate.hpp"
 #include "FoliageDescriptor.hpp"
 #include "LSystemString.hpp"
@@ -18,7 +21,7 @@
 #  include "RigidBody.hpp"
 #endif
 using namespace evo_engine;
-using namespace billboard_clouds_plugin;
+
 namespace eco_sys_lab_plugin {
 struct BranchPhysicsParameters {
 #pragma region Physics
@@ -196,9 +199,9 @@ class Tree : public IPrivateComponent {
   void ExportRadialBoundingVolume(const std::shared_ptr<RadialBoundingVolume>& rbv) const;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
   void Deserialize(const YAML::Node& in) override;
-
+#ifdef BILLBOARD_CLOUDS_PLUGIN
   void GenerateBillboardClouds(const BillboardCloud::GenerateSettings& foliage_generate_settings);
-
+#endif
   void GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mesh_generator_settings, int iteration,
                                         bool enable_physics = true);
   void ClearAnimatedGeometryEntities() const;

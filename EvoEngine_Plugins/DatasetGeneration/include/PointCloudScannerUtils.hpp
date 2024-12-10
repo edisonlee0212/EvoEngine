@@ -22,7 +22,7 @@ struct PointCloudSample {
   glm::vec3 start = glm::vec3(0.0f);
 
   // Output
-  uint64_t handle_ = 0;
+  uint64_t m_handle = 0;
   bool m_hit = false;
 
   HitInfo m_hitInfo;

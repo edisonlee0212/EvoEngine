@@ -29,6 +29,12 @@
 #include <unordered_set>
 #include "Math.hpp"
 
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#  include <cstdint>
+#else
+#  include <inttypes.h>
+#endif
+
 // OpenGL and Vulkan
 
 #include "volk.h"

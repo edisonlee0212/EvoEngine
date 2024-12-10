@@ -61,3 +61,4 @@ class Console final {
     std::cout << "[evo_engine]Warning: " << msg << " (" << __FILE__ << ": line " << __LINE__ \
               << ")\n==========" << std::endl;                                               \
   }
+

@@ -64,8 +64,8 @@ class EcoSysLabLayer : public ILayer {
     float m_health = 1.0f;
   };
 
-  enum class TreeOperatorMode { None, Select, Rotate, Prune, Invigorate, Reduce };
-  unsigned tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::None);
+  enum class TreeOperatorMode { Disabled, Select, Rotate, Prune, Invigorate, Reduce };
+  unsigned tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::Disabled);
   float tree_reduce_rate = 0.1f;
   struct TreeVisualizationSettings {
     bool enable = true;
@@ -87,7 +87,7 @@ class EcoSysLabLayer : public ILayer {
     DynamicStrands::VisualizationParameters visualization_parameters{};
 
     float drag_multiplier = 1.f;
-    enum class DynamicStrandsTransformMode { None, Translate, Rotate };
+    enum class DynamicStrandsTransformMode { Disabled, Translate, Rotate };
     unsigned transform_mode = static_cast<unsigned>(DynamicStrandsTransformMode::Translate);
     bool enable = true;
     bool enable_physics = true;

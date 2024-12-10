@@ -1,6 +1,8 @@
 message("=========Checking Apps=========")
 
 add_custom_target(AppResourceCopy)
+add_dependencies(AppResourceCopy EvoEngine_SDK)
+
 evoengine_copy_resources(AppResourceCopy ${CMAKE_CURRENT_BINARY_DIR})
 evoengine_clear_shader_binaries(AppResourceCopy)
 add_custom_command(TARGET AppResourceCopy POST_BUILD
@@ -35,6 +37,15 @@ function(register_evoengine_app app_name default_enable)
 				EvoEngine_SDK
 				${EvoEngine_Plugins}
 				)
+
+			if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+				target_compile_options(${app_name} PRIVATE -Werror)
+			elseif (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
+				target_compile_options(${app_name} PRIVATE /EHsc /W2 /c)
+			elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
+				target_compile_options(${app_name} PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
+			endif ()
+
 			add_dependencies(${app_name} AppResourceCopy)
 			set_property(TARGET ${app_name} PROPERTY FOLDER Executables)
 			message("Enabled [${app_name}] application.")

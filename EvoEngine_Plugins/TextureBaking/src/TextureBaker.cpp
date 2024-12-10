@@ -113,7 +113,7 @@ std::vector<RayCastingResult> RayCastingSolver(const TextureBaker::Parameters& p
     CpuRayTracer::RayDescriptor ray_descriptor{};
     auto& result = ray_casting_results[i];
     ray_descriptor.flags = parameters.cull_back_face ? CpuRayTracer::TraceFlags::CullBackFace
-                                                     : CpuRayTracer::TraceFlags::None;
+                                                     : CpuRayTracer::TraceFlags::Default;
     //  Compare and get closest triangle.
     //  Diagram:
     //
@@ -144,7 +144,7 @@ std::vector<RayCastingResult> RayCastingSolver(const TextureBaker::Parameters& p
       ray_descriptor.direction = sample_direction;
       ray_descriptor.t_max = max_ray_casting_distance - thin_scale;
       ray_descriptor.flags = parameters.cull_back_face ? CpuRayTracer::TraceFlags::CullFrontFace
-                                                       : CpuRayTracer::TraceFlags::None;
+                                                       : CpuRayTracer::TraceFlags::Default;
       ray_tracer.Trace(
           ray_descriptor,
           [&](const CpuRayTracer::HitInfo& hit_info) {
