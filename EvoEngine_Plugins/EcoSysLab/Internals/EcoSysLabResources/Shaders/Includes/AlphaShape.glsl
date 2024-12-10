@@ -177,7 +177,8 @@ bool AreNeighbors(uint index0, uint index1)
           (prev_node_handle0 == node_handle1 && node_handle0 == p1.next_node_index)) {
         return dist_squared < alpha + vertical_dist_squared; // = adapted_alpha
       } else {
-        return dist_squared < bifurcation_alpha + vertical_dist_squared; // = adapted_alpha
+        //return dist_squared < bifurcation_alpha + vertical_dist_squared; // = adapted_alpha
+        return dist_squared < alpha + vertical_dist_squared;
       }
     } 
   } else if (p1.segment_index - 1 == p0.segment_index) {  // p1 is higher
@@ -193,7 +194,8 @@ bool AreNeighbors(uint index0, uint index1)
           (prev_node_handle1 == node_handle0 && node_handle1 == p0.next_node_index)) {
         return dist_squared < alpha + vertical_dist_squared; // = adapted_alpha
       } else {
-        return dist_squared < bifurcation_alpha + vertical_dist_squared; // = adapted_alpha
+        //return dist_squared < bifurcation_alpha + vertical_dist_squared; // = adapted_alpha
+        return dist_squared < alpha + vertical_dist_squared;
       }
     }
   }
