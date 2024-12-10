@@ -8,11 +8,21 @@
 using namespace eco_sys_lab_plugin;
 
 bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::Checkbox("Render mesh", &render_alpha_shape_mesh);
+  ImGui::Checkbox("Render interior complex", &render_complex);
+  ImGui::Checkbox("Wireframe", &wireframe);
+  ImGui::DragFloat("alpha", &alpha, 0.000001, 0.0f, 1.0f, "%.6f");
+  ImGui::DragFloat("bifurcation alpha", &bifurcation_alpha, 0.000001, 0.0f, 1.0f, "%.6f");
   return false;
 }
 
 void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
                             const RenderParameters& render_parameters) const {
+  if (!render_parameters.render_alpha_shape_mesh)
+  {
+    return;
+  }
+
   if (!Platform::Constants::support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return;
@@ -28,9 +38,9 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   struct RenderPushConstant {
     uint32_t camera_index = 0;
     uint32_t tetrahedrons_size = 0;
-    uint32_t padding0;
-    uint32_t padding1;
     float alpha = 0.0f;
+    float bifurcation_alpha = 0.0f;
+    int render_complex = 0;
   };
 
   if (!render_pipeline) {
@@ -81,7 +91,16 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   RenderPushConstant push_constant;
   push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
-  push_constant.alpha = 1.0f / 1000.0f;
+  push_constant.alpha = render_parameters.alpha;
+  push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
+  push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
+
+  #ifdef USE_RENDERDOC
+  if (rdoc_api) {
+    rdoc_api->StartFrameCapture(NULL, NULL);
+    EVOENGINE_LOG("RDOC API detected!");
+  }
+  #endif  //  USERENDERDOC
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
@@ -104,7 +123,7 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
     render_pipeline->states.ResetAllStates(color_attachment_infos.size());
     render_pipeline->states.view_port = viewport;
     render_pipeline->states.scissor = scissor;
-    render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+    render_pipeline->states.polygon_mode = render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
     render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
 
     render_pipeline->states.ApplyAllStates(vk_command_buffer);
@@ -118,6 +137,11 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
           render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
           const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
           vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+          Platform::EverythingBarrier(vk_command_buffer);
+          #ifdef USE_RENDERDOC
+          if (rdoc_api)
+            rdoc_api->EndFrameCapture(NULL, NULL);
+          #endif
         });
   });
 }

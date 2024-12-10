@@ -33,6 +33,7 @@ void Platform::CreateGraphicsPipelines() const {
     render_texture_pass_through->Initialize();
     RegisterGraphicsPipeline("RENDER_TEXTURE_PRESENT", render_texture_pass_through);
   }
+#ifndef USE_RENDERDOC
   {
     const auto ray_tracing_camera = std::make_shared<RayTracingPipeline>();
     ray_tracing_camera->raygen_shader = Resources::GetResource<Shader>("RAY_TRACING_CAMERA_RAYGEN");
@@ -51,6 +52,7 @@ void Platform::CreateGraphicsPipelines() const {
     ray_tracing_camera->Initialize();
     RegisterRayTracingPipeline("RAY_TRACING_CAMERA", ray_tracing_camera);
   }
+#endif  // !USE_RENDERDOC
   {
     const auto ssr_reflect = std::make_shared<GraphicsPipeline>();
     ssr_reflect->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");

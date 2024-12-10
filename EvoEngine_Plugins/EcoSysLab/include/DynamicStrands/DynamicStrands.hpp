@@ -7,6 +7,27 @@ namespace eco_sys_lab_plugin {
 class DsSegmentCollision;
 class DsDynamicHashedGrid;
 }
+#ifdef USE_RENDERDOC
+#include "C:\Program Files\RenderDoc\renderdoc_app.h"
+static RENDERDOC_API_1_1_2* rdoc_api = NULL;
+#endif
+
+#ifdef USE_CGAL
+#  include <CGAL/Delaunay_triangulation_3.h>
+#  include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#  include <CGAL/Triangulation_vertex_base_with_info_3.h>
+//#else
+
+#endif
+#  include "Delaunay.hpp"
+
+#ifdef USE_CGAL
+typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
+typedef CGAL::Triangulation_vertex_base_with_info_3<unsigned int, K> Vb;
+typedef CGAL::Triangulation_data_structure_3<Vb> Tds;
+typedef CGAL::Delaunay_triangulation_3<K, Tds> Delaunay_CGAL;
+typedef K::Point_3 Point_CGAL;
+#endif
 
 using namespace evo_engine;
 
@@ -88,6 +109,8 @@ class DynamicStrands {
                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
     GlobalTransform root_transform{};
+    bool use_cgal = false;
+    bool triangulate_per_bundle = false;
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -170,6 +193,12 @@ class DynamicStrands {
   };
 
   struct RenderParameters {
+    bool render_alpha_shape_mesh = true;
+    bool render_complex = false;
+    bool use_cgal = false;
+    bool wireframe = false;
+    float alpha = 1.0 / 10000.0f;
+    float bifurcation_alpha = 1.0 / 10000.0f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -189,6 +218,10 @@ class DynamicStrands {
 
     int begin_connection_handle = -1;
     int end_connection_handle = -1;
+  };
+
+  struct GpuNode {
+    int prev_handle = -1;
   };
 
   struct GpuSegment {
@@ -256,7 +289,12 @@ class DynamicStrands {
     int selected = 0;
     int highlighted = 0;
     int connection_handle = 0;
-    int padding2 = 0;
+    int hop_distance_to_root = -1;
+
+    int node_handle2 = -1;
+    int strand_handle2 = -1;
+    int segment_handle2 = -1;
+    int padding3 = 0;
   };
 
   struct GpuConnection {
@@ -325,6 +363,10 @@ class DynamicStrands {
     int node_index;
     int segment_index;
     float distance_to_boundary;
+    int next_particle_handle;
+    int prev_particle_handle;
+    int next_node_index;
+    int strand_index;
   };
 
   struct GpuDelaunayTetrahedron {
@@ -376,6 +418,8 @@ class DynamicStrands {
   std::vector<GpuDelaunayTetrahedron> delaunay_tetrahedrons;
   std::vector<GpuHashedGridElement> hashed_grid_elements;
   std::vector<GpuHashedGridCellStart> hashed_grid_cell_starts;
+  std::shared_ptr<Buffer> device_nodes_buffer;
+  std::vector<GpuNode> nodes;
 #pragma endregion
 
   void Upload();
@@ -392,7 +436,14 @@ class DynamicStrands {
                const std::function<void()>& sub_step_action) const;
 
  private:
-  void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
+#ifdef USE_CGAL
+  void CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned>>& points,
+                    std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
+#endif
+  void TetDelaunay(const std::vector<glm::vec3>& points,
+                   const std::vector<size_t>& particle_indices, std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
+  void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
+  void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
   static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
 };
