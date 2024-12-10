@@ -1,24 +1,16 @@
 #pragma once
 
 namespace evo_engine {
-class ICurve {
- public:
-  virtual glm::vec3 GetPoint(float t) const = 0;
 
-  virtual glm::vec3 GetAxis(float t) const = 0;
-
-  void GetUniformCurve(size_t point_amount, std::vector<glm::vec3>& points) const;
-};
-
-class BezierCurve : public ICurve {
+class BezierCurve {
  public:
   BezierCurve();
-
+  void GetUniformCurve(size_t point_amount, std::vector<glm::vec3>& points) const;
   BezierCurve(glm::vec3 cp0, glm::vec3 cp1, glm::vec3 cp2, glm::vec3 cp3);
 
-  [[nodiscard]] glm::vec3 GetPoint(float t) const override;
+  [[nodiscard]] glm::vec3 GetPoint(float t) const;
 
-  [[nodiscard]] glm::vec3 GetAxis(float t) const override;
+  [[nodiscard]] glm::vec3 GetAxis(float t) const;
 
   [[nodiscard]] glm::vec3 GetStartAxis() const;
 
@@ -39,4 +31,4 @@ class BezierSpline {
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
 };
-}  // namespace eco_sys_lab_plugin
+}  // namespace evo_engine

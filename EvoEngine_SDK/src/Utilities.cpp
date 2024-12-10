@@ -22,7 +22,7 @@ std::string FileUtils::LoadFileAsString(const std::filesystem::path& path) {
     file.close();
     // convert stream into string
     return stream.str();
-  } catch (const std::ifstream::failure &e) {
+  } catch (const std::ifstream::failure& e) {
     EVOENGINE_ERROR("Failed to load: " + path.string());
     throw;
   }
@@ -65,17 +65,17 @@ void FileUtils::OpenFolder(const std::string& dialog_title,
     }
   }
 #else
-  if (windowLayer && ImGui::Button(dialogTitle.c_str()))
-    ImGuiFileDialog::Instance()->OpenDialog(dialogTitle, "Choose Folder", nullptr, ".", 1, nullptr,
+  if (window_layer && ImGui::Button(dialog_title.c_str()))
+    ImGuiFileDialog::Instance()->OpenDialog(dialog_title, "Choose Folder", nullptr, ".", 1, nullptr,
                                             ImGuiFileDialogFlags_Default);
   // display
   ImGui::SetNextWindowSize(ImVec2(600, 300), ImGuiCond_Appearing);
-  if (ImGuiFileDialog::Instance()->Display(dialogTitle, ImGuiWindowFlags_AlwaysAutoResize)) {
+  if (ImGuiFileDialog::Instance()->Display(dialog_title, ImGuiWindowFlags_AlwaysAutoResize)) {
     // action if OK
     if (ImGuiFileDialog::Instance()->IsOk()) {
       // action
       std::filesystem::path path = ImGuiFileDialog::Instance()->GetCurrentPath();
-      if (!projectDirCheck || ProjectManager::IsInProjectFolder(path))
+      if (!project_dir_check || ProjectManager::IsInProjectFolder(path))
         func(path);
     }
     // close
@@ -155,17 +155,17 @@ void FileUtils::OpenFile(const std::string& dialog_title, const std::string& fil
     if (i != extensions.size() - 1)
       fileExtensions << ",";
   }
-  if (windowLayer && ImGui::Button(dialogTitle.c_str()))
-    ImGuiFileDialog::Instance()->OpenDialog(dialogTitle, "Choose File", fileExtensions.str().c_str(), ".", 1, nullptr,
+  if (window_layer && ImGui::Button(dialog_title.c_str()))
+    ImGuiFileDialog::Instance()->OpenDialog(dialog_title, "Choose File", fileExtensions.str().c_str(), ".", 1, nullptr,
                                             ImGuiFileDialogFlags_Default);
   // display
   ImGui::SetNextWindowSize(ImVec2(600, 300), ImGuiCond_Appearing);
-  if (ImGuiFileDialog::Instance()->Display(dialogTitle)) {
+  if (ImGuiFileDialog::Instance()->Display(dialog_title)) {
     // action if OK
     if (ImGuiFileDialog::Instance()->IsOk()) {
       // action
       std::filesystem::path path = ImGuiFileDialog::Instance()->GetFilePathName();
-      if (!projectDirCheck || ProjectManager::IsInProjectFolder(path))
+      if (!project_dir_check || ProjectManager::IsInProjectFolder(path))
         func(path);
     }
 
@@ -249,17 +249,17 @@ void FileUtils::SaveFile(const std::string& dialog_title, const std::string& fil
     if (i != extensions.size() - 1)
       fileExtensions << ",";
   }
-  if (windowLayer && ImGui::Button(dialogTitle.c_str()))
-    ImGuiFileDialog::Instance()->OpenDialog(dialogTitle, "Choose File", fileExtensions.str().c_str(), ".", 1, nullptr,
+  if (window_layer && ImGui::Button(dialog_title.c_str()))
+    ImGuiFileDialog::Instance()->OpenDialog(dialog_title, "Choose File", fileExtensions.str().c_str(), ".", 1, nullptr,
                                             ImGuiFileDialogFlags_Default);
   ImGui::SetNextWindowSize(ImVec2(600, 300), ImGuiCond_Appearing);
   // display
-  if (ImGuiFileDialog::Instance()->Display(dialogTitle)) {
+  if (ImGuiFileDialog::Instance()->Display(dialog_title)) {
     // action if OK
     if (ImGuiFileDialog::Instance()->IsOk()) {
       // action
       std::filesystem::path path = ImGuiFileDialog::Instance()->GetFilePathName();
-      if (!projectDirCheck || ProjectManager::IsInProjectFolder(path))
+      if (!project_dir_check || ProjectManager::IsInProjectFolder(path))
         func(path);
     }
 
@@ -268,8 +268,6 @@ void FileUtils::SaveFile(const std::string& dialog_title, const std::string& fil
   }
 #endif
 }
-
-
 
 void SphereMeshGenerator::Icosahedron(std::vector<glm::vec3>& vertices, std::vector<glm::uvec3>& triangles) {
   vertices.clear();

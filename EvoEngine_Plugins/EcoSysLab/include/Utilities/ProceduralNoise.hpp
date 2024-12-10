@@ -8,7 +8,7 @@ using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
 enum class ProceduralNoiseOperatorType {
-  None,
+  Empty,
   Reset,
   Add,
   Subtract,
@@ -26,7 +26,7 @@ enum class ProceduralNoiseValueType { Constant, Linear, Sine, Tangent, Simplex, 
 template <typename T>
 struct ProceduralNoiseStage {
   std::string m_name = "New node";
-  ProceduralNoiseOperatorType m_operatorType = ProceduralNoiseOperatorType::None;
+  ProceduralNoiseOperatorType m_operatorType = ProceduralNoiseOperatorType::Empty;
   ProceduralNoiseValueType m_valueType = ProceduralNoiseValueType::Constant;
   T m_frequency = T(1.0f);
   float m_constantValue = 0.f;
@@ -129,7 +129,7 @@ void ProceduralNoiseStage<T>::Calculate(const T& samplePoint, float& value) cons
   }
 
   switch (m_operatorType) {
-    case ProceduralNoiseOperatorType::None:
+    case ProceduralNoiseOperatorType::Empty:
       break;
     case ProceduralNoiseOperatorType::Add:
       value += stageValue;

@@ -23,7 +23,7 @@
 //*********************************************************
 
 #pragma once
-
+#ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
 #include <map>
 #include <mutex>
 
@@ -164,3 +164,4 @@ private:
     // App-managed marker tracking
     const MarkerMap& m_markerMap;
 };
+#endif

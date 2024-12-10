@@ -6,25 +6,18 @@
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include <RayTracerLayer.hpp>
 #endif
-#include "BarkDescriptor.hpp"
 #include "Times.hpp"
-
+#ifdef BILLBOARD_CLOUDS_PLUGIN
 #include "BillboardCloudsConverter.hpp"
+#endif
 #include "ClassRegistry.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
-#include "DsColliders.hpp"
-#include "DsOperators.hpp"
 #include "DynamicTreeStrands.hpp"
-#include "FlowerDescriptor.hpp"
-#include "FoliageDescriptor.hpp"
 #include "ForestDescriptor.hpp"
-#include "FruitDescriptor.hpp"
-#include "RenderLayer.hpp"
 #include "Shader.hpp"
 #include "Soil.hpp"
 #include "SpatialPlantDistributionSimulator.hpp"
-#include "StrandsRenderer.hpp"
 #include "Tree.hpp"
 #include "TreeStructor.hpp"
 using namespace eco_sys_lab_plugin;
@@ -39,9 +32,9 @@ AssetRegistration<RadialBoundingVolume> rbv_registry("RadialBoundingVolume", {".
 AssetRegistration<CubeVolume> cube_volume_registry("CubeVolume", {".cubevolume"});
 
 AssetRegistration<ForestPatch> forest_patch_registry("ForestPatch", {".forestpatch"});
-
+#ifdef BILLBOARD_CLOUDS_PLUGIN
 PrivateComponentRegistration<BillboardCloudsConverter> billboard_clouds_converter_register("BillboardCloudsConverter");
-
+#endif
 void EcoSysLabLayer::OnCreate() {
   Shader::RegisterShaderIncludePath(std::filesystem::path("./EcoSysLabResources/Shaders/Includes"));
   if (random_colors_.empty()) {

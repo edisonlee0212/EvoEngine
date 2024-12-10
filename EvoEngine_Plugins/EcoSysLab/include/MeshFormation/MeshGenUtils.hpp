@@ -343,9 +343,9 @@ inline std::vector<StrandSegmentHandle> GetSegGroup(const StrandModelStrandGroup
 
 inline auto RoundInDir(float val, const int dir) -> int {
   if (dir > 0) {
-    return static_cast<int>(std::ceilf(val));
+    return static_cast<int>(glm::ceil(val));
   }
-  return static_cast<int>(std::floorf(val));
+  return static_cast<int>(glm::floor(val));
 }
 
 inline glm::ivec3 RoundInDir(glm::vec3 val, glm::ivec3 dir) {

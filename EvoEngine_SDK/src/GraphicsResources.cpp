@@ -250,7 +250,7 @@ Image::Image(VkImageCreateInfo image_create_info) {
 #ifdef _WIN64
   vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 #else
-  vkExternalMemImageCreateInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+  vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
 #endif
 
   image_create_info.pNext = &vk_external_mem_image_create_info;
@@ -283,7 +283,7 @@ Image::Image(VkImageCreateInfo image_create_info, const VmaAllocationCreateInfo&
 #ifdef _WIN64
   vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 #else
-  vkExternalMemImageCreateInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+  vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
 #endif
 
   image_create_info.pNext = &vk_external_mem_image_create_info;
@@ -525,7 +525,7 @@ void Buffer::Allocate(VkBufferCreateInfo buffer_create_info,
 #  ifdef _WIN64
   vk_external_mem_buffer_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 #  else
-  vkExternalMemBufferCreateInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+  vk_external_mem_buffer_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
 #  endif
 
   buffer_create_info.pNext = &vk_external_mem_buffer_create_info;
@@ -592,7 +592,7 @@ void Buffer::Resize(const VkDeviceSize new_size) {
 #  ifdef _WIN64
   vk_external_mem_buffer_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 #  else
-  vkExternalMemBufferCreateInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+  vk_external_mem_buffer_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
 #  endif
 
   buffer_create_info.pNext = &vk_external_mem_buffer_create_info;

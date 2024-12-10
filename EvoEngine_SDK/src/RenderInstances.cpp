@@ -1,5 +1,5 @@
 #include "RenderInstances.hpp"
-#include "LODGroup.hpp"
+#include "LodGroup.hpp"
 
 using namespace evo_engine;
 

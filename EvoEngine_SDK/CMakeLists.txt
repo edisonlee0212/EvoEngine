@@ -62,6 +62,7 @@ target_link_libraries(EvoEngine_SDK
 
 set(EVOENGINE_SDK_INTERNALS_DIR ${CMAKE_CURRENT_BINARY_DIR}/Internals/)
 set(EVOENGINE_SDK_INTERNALS_DEF 
+	${3RDPARTY_DEFS}
 	VULKAN_HPP_TYPESAFE_CONVERSION
 	EVOENGINE_INTERNALS_FOLDER=\"${EVOENGINE_SDK_INTERNALS_DIR}\")
 	
@@ -88,11 +89,7 @@ else()
 		${Vulkan_LIBRARIES}
 		stdc++
 		dl
-		Xau
-		X11
 		pthread
-		Xrandr
-		Xi
 		)
 endif ()
 
@@ -102,7 +99,7 @@ endif ()
 if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
 	message(STATUS "Setting G++ flags")
 	# G++
-	target_compile_options(EvoEngine_SDK PRIVATE -Wall -Wextra)
+	target_compile_options(EvoEngine_SDK PRIVATE -Werror)
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
 	message(STATUS "Setting MSVC flags")
 	# MSVC
@@ -110,7 +107,7 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 	message(STATUS "Setting Clang flags")
 	# Activate all clang warnings except those that don't really affect much
-	target_compile_options(EvoEngine_SDK PRIVATE -fPIC -Weverything -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
+	target_compile_options(EvoEngine_SDK PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
 endif ()
 
 set(EVOENGINE_SDK_DEFS NOMINMAX PARENT_SCOPE)

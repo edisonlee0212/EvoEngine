@@ -1587,14 +1587,14 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromJSONStri
   // for (auto &d : dataRoot)
   //{ if (d.contains("Count") && d.contains("Internodes")) { data = d; } }
 
-  const json data = json::parse(serialized);
+  const nlohmann::json data = nlohmann::json::parse(serialized);
 
   if (!data.contains("Count") || !data.contains("Internodes")) {
     return {};
   }
 
   const auto nodeCount{data["Count"].get<std::size_t>()};
-  const json internodes = data["Internodes"];
+  const nlohmann::json internodes = data["Internodes"];
 
   ArrayTree tree{};
   tree.mLoaded = false;
@@ -1618,7 +1618,7 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromJSONStri
     std::vector<std::size_t> children{};
   };  // struct NodeInfo
 
-  const auto parseNode{[](const treeio::json &dat) {
+  const auto parseNode{[](const nlohmann::json &dat) {
     NodeInfo info{};
 
     // auto chosenDat{ dat };
@@ -1632,7 +1632,7 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromJSONStri
     info.thickness = dat["Thickness"].get<float>();
     info.level = dat["Level"].get<std::size_t>();
     info.startAge = dat["Start Age"].get<std::size_t>();
-    json pos = dat["Position"];
+    nlohmann::json pos = dat["Position"];
     // auto basePos{ chosenDat["Position"] };
     // auto pos{ basePos };
     // for (auto &d : basePos)

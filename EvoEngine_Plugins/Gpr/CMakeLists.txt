@@ -33,6 +33,8 @@ target_include_directories(GprPlugin
 	)
 
 target_link_libraries(GprPlugin
+	EvoEngine_SDK
+	${EvoEngine_Plugins}
 	common
 	vc5_common
 	vc5_decoder
@@ -45,7 +47,7 @@ target_link_libraries(GprPlugin
 )
 
 
-set(GPR_PCH ${GPR_DIRECTORY}/include/GPR_PCH.hpp)
+set(GPR_PCH ${GPR_DIRECTORY}/include/Gpr_PCH.hpp)
 set(GPR_PCH ${GPR_PCH} PARENT_SCOPE)
 
 target_precompile_headers(GprPlugin

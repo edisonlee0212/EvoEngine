@@ -80,10 +80,14 @@ endif ()
 # Linker settings for all platforms
 if (NOT WIN32)
 	target_link_libraries(OptiXRayTracerPlugin
+		EvoEngine_SDK
+		${EvoEngine_Plugins}
 		cuda
 	)
 else()
 	target_link_libraries(OptiXRayTracerPlugin
+		EvoEngine_SDK
+		${EvoEngine_Plugins}
 		${CUDA_LIBRARIES}
 		${CUDA_CUDA_LIBRARY}
 	)

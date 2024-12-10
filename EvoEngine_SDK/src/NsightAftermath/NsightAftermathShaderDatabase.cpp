@@ -21,7 +21,7 @@
 //  DEALINGS IN THE SOFTWARE.
 //
 //*********************************************************
-
+#ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
 #include <fstream>
 #include <iomanip>
 
@@ -145,3 +145,4 @@ bool ShaderDatabase::FindShaderBinaryWithDebugData(const GFSDK_Aftermath_ShaderD
     shader = i_shader->second;
     return true;
 }
+#endif

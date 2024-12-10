@@ -29,7 +29,7 @@ void Platform::Initialize() {
   graphics.CreateSurface();
   graphics.CreateDebugMessenger();
   graphics.SelectPhysicalDevice();
-#if USE_NSIGHT_AFTERMATH
+#ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
   graphics.gpu_crash_tracker.Initialize();
 #endif
   graphics.CreateLogicalDevice();
@@ -732,7 +732,7 @@ void Platform::SelectPhysicalDevice() {
 #  endif
 #endif
   required_device_extension_names_.emplace_back(VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME);
-#if USE_NSIGHT_AFTERMATH
+#ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
   required_device_extension_names_.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
   required_device_extension_names_.emplace_back(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME);
 #endif
@@ -945,7 +945,7 @@ void Platform::CreateLogicalDevice() {
     c_required_layers.emplace_back(i.c_str());
 
 #pragma region Logical Device
-#if USE_NSIGHT_AFTERMATH
+#ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
   VkDeviceDiagnosticsConfigCreateInfoNV vk_device_diagnostics_config_create_info_nv{};
   vk_device_diagnostics_config_create_info_nv.pNext = nullptr;
   vk_device_diagnostics_config_create_info_nv.sType = VK_STRUCTURE_TYPE_DEVICE_DIAGNOSTICS_CONFIG_CREATE_INFO_NV;
@@ -957,7 +957,7 @@ void Platform::CreateLogicalDevice() {
   VkPhysicalDeviceRayTracingPipelineFeaturesKHR vk_physical_device_ray_tracing_pipeline_features_khr{};
   vk_physical_device_ray_tracing_pipeline_features_khr.sType =
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-#if USE_NSIGHT_AFTERMATH
+#ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
   vk_device_diagnostics_config_create_info_nv.pNext = nullptr;
 #else
   vk_physical_device_ray_tracing_pipeline_features_khr.pNext = nullptr;
@@ -1203,7 +1203,7 @@ void Platform::SetupVmaAllocator() {
 #  ifdef _WIN64
       handle_types[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 #  else
-      handleTypes[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+      handle_types[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 #  endif
     }
   }
@@ -1272,7 +1272,7 @@ void Platform::CheckVk(const VkResult& result) {
   if (result >= 0) {
     return;
   }
-#if USE_NSIGHT_AFTERMATH
+#ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
   if (result == VK_ERROR_DEVICE_LOST) {
     // Device lost notification is asynchronous to the NVIDIA display
     // driver's GPU crash handling. Give the Nsight Aftermath GPU crash dump

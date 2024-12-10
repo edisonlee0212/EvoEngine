@@ -41,7 +41,8 @@ if (WIN32)
 endif ()
 
 target_link_libraries(LogScanningPlugin 
-	PRIVATE
+	EvoEngine_SDK
+	${EvoEngine_Plugins}
 	${PINCHOT_LIB})
 
 if (WIN32)

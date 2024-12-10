@@ -18,37 +18,49 @@ layout(push_constant) uniform RAY_CASTING_CONSTANTS{
 	vec4 ray_cast_config;
 };
 
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
 void Execute(uint current_ray_index);
 
-layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
 void main() {
-	uint current_ray_index = gl_GlobalInvocationID.x;
-	Execute(current_ray_index);
+	uint rays_count = floatBitsToUint(ray_cast_config.z);
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint current_ray_index = baseID + local_index;
+
+		if(current_ray_index >= rays_count) break;
+		Execute(current_ray_index);
+	}
 }
 
 void Execute(uint current_ray_index) {
-	uint rays_count = floatBitsToUint(ray_cast_config.z);
-	if (current_ray_index < rays_count) {
-		vec3 sample_origin = rays[current_ray_index * 2].xyz;
-		vec3 sample_direction = rays[current_ray_index * 2 + 1].xyz;
-		RayDescriptor ray_descriptor;
-		ray_descriptor.origin = sample_origin;
-		ray_descriptor.direction = sample_direction;
-		ray_descriptor.t_min = rays[current_ray_index * 2].w;
-		ray_descriptor.t_max = rays[current_ray_index * 2 + 1].w;
-		bool hit = false;
-		HitInfo hit_info = Trace(ray_descriptor, ray_cast_config.x != 0.0, ray_cast_config.y != 0.0, hit);
-		if (hit) {
-			ray_casting_results[current_ray_index * 4] = vec4(hit_info.hit, 1);
-			ray_casting_results[current_ray_index * 4 + 1] = vec4(hit_info.barycentric, hit_info.back_face ? 1.0 : 0.0);
-			ray_casting_results[current_ray_index * 4 + 2] = vec4(hit_info.normal, hit_info.hit_dist);
-			ray_casting_results[current_ray_index * 4 + 3] = vec4(uintBitsToFloat(hit_info.instance_index), uintBitsToFloat(hit_info.node_index), uintBitsToFloat(hit_info.mesh_index), uintBitsToFloat(hit_info.local_triangle_index));
-		}else {
-			ray_casting_results[current_ray_index * 4] = vec4(0, 0, 0, 0);
-			ray_casting_results[current_ray_index * 4 + 1] = vec4(0, 0, 0, 0);
-			ray_casting_results[current_ray_index * 4 + 2] = vec4(0, 0, 0, 0);
-			ray_casting_results[current_ray_index * 4 + 3] = vec4(0, 0, 0, 0);
-		}
+	vec3 sample_origin = rays[current_ray_index * 2].xyz;
+	vec3 sample_direction = rays[current_ray_index * 2 + 1].xyz;
+	RayDescriptor ray_descriptor;
+	ray_descriptor.origin = sample_origin;
+	ray_descriptor.direction = sample_direction;
+	ray_descriptor.t_min = rays[current_ray_index * 2].w;
+	ray_descriptor.t_max = rays[current_ray_index * 2 + 1].w;
+	bool hit = false;
+	HitInfo hit_info = Trace(ray_descriptor, ray_cast_config.x != 0.0, ray_cast_config.y != 0.0, hit);
+	if (hit) {
+		ray_casting_results[current_ray_index * 4] = vec4(hit_info.hit, 1);
+		ray_casting_results[current_ray_index * 4 + 1] = vec4(hit_info.barycentric, hit_info.back_face ? 1.0 : 0.0);
+		ray_casting_results[current_ray_index * 4 + 2] = vec4(hit_info.normal, hit_info.hit_dist);
+		ray_casting_results[current_ray_index * 4 + 3] = vec4(uintBitsToFloat(hit_info.instance_index), uintBitsToFloat(hit_info.node_index), uintBitsToFloat(hit_info.mesh_index), uintBitsToFloat(hit_info.local_triangle_index));
+	}else {
+		ray_casting_results[current_ray_index * 4] = vec4(0, 0, 0, 0);
+		ray_casting_results[current_ray_index * 4 + 1] = vec4(0, 0, 0, 0);
+		ray_casting_results[current_ray_index * 4 + 2] = vec4(0, 0, 0, 0);
+		ray_casting_results[current_ray_index * 4 + 3] = vec4(0, 0, 0, 0);
 	}
 }

@@ -1,4 +1,4 @@
-#include "LODGroup.hpp"
+#include "LodGroup.hpp"
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
 #include "SkinnedMeshRenderer.hpp"

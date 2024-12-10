@@ -26,6 +26,11 @@ target_include_directories(BillboardCloudsPlugin
 set(BILLBOARD_CLOUDS_PCH ${BILLBOARD_CLOUDS_DIRECTORY}/include/BillboardClouds_PCH.hpp)
 set(BILLBOARD_CLOUDS_PCH ${BILLBOARD_CLOUDS_PCH} PARENT_SCOPE)
 
+target_link_libraries(BillboardCloudsPlugin
+	EvoEngine_SDK
+	${EvoEngine_Plugins}
+	)
+
 target_precompile_headers(BillboardCloudsPlugin
 	PRIVATE
 	${EVOENGINE_SDK_PCH}

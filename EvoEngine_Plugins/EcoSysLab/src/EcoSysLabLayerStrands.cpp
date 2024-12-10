@@ -6,25 +6,13 @@
 #ifdef OPTIX_RAY_TRACER_PLUGIN
 #  include <RayTracerLayer.hpp>
 #endif
-#include "BarkDescriptor.hpp"
-#include "Times.hpp"
 
-#include "BillboardCloudsConverter.hpp"
 #include "ClassRegistry.hpp"
-#include "Climate.hpp"
-#include "CubeVolume.hpp"
 #include "DsColliders.hpp"
 #include "DsOperators.hpp"
 #include "DynamicTreeStrands.hpp"
-#include "FlowerDescriptor.hpp"
-#include "FoliageDescriptor.hpp"
-#include "ForestDescriptor.hpp"
-#include "FruitDescriptor.hpp"
-#include "RenderLayer.hpp"
-#include "Shader.hpp"
 #include "Soil.hpp"
 #include "SpatialPlantDistributionSimulator.hpp"
-#include "StrandsRenderer.hpp"
 #include "Tree.hpp"
 #include "TreeStructor.hpp"
 
@@ -165,7 +153,7 @@ void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& edi
       // Draw border and background color
       // draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
       draw_list->PushClipRect(canvas_p0, canvas_p1, true);
-      if (!tree_visualization_settings_.enable || tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::None) ||
+      if (!tree_visualization_settings_.enable || tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Disabled) ||
           tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Select)) {
         if (visualization_camera_window_focused_ &&
             editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold &&
