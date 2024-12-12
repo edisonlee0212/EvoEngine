@@ -12,7 +12,6 @@ using namespace evo_engine;
 void Platform::CreateGraphicsPipelines() const {
   auto per_frame_layout = GetDescriptorSetLayout("PER_FRAME_LAYOUT");
   auto meshlet_layout = GetDescriptorSetLayout("MESHLET_LAYOUT");
-  auto ray_tracing_layout = GetDescriptorSetLayout("RAY_TRACING_LAYOUT");
   auto camera_g_buffer_layout = GetDescriptorSetLayout("CAMERA_GBUFFER_LAYOUT");
   auto lighting_layout = GetDescriptorSetLayout("LIGHTING_LAYOUT");
 
@@ -26,7 +25,7 @@ void Platform::CreateGraphicsPipelines() const {
     render_texture_pass_through->geometry_type = GeometryType::Mesh;
     render_texture_pass_through->descriptor_set_layouts.emplace_back(
         GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
-    
+
     render_texture_pass_through->depth_attachment_format = VK_FORMAT_UNDEFINED;
     render_texture_pass_through->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     render_texture_pass_through->color_attachment_formats = {1, swapchain_->GetImageFormat()};
@@ -34,16 +33,16 @@ void Platform::CreateGraphicsPipelines() const {
     RegisterGraphicsPipeline("RENDER_TEXTURE_PRESENT", render_texture_pass_through);
   }
 #ifndef USE_RENDERDOC
-  {
+  if (Platform::Constants::support_ray_tracing) {
     const auto ray_tracing_camera = std::make_shared<RayTracingPipeline>();
     ray_tracing_camera->raygen_shader = Resources::GetResource<Shader>("RAY_TRACING_CAMERA_RAYGEN");
     ray_tracing_camera->miss_shader = Resources::GetResource<Shader>("RAY_TRACING_CAMERA_MISS");
     ray_tracing_camera->closest_hit_shader = Resources::GetResource<Shader>("RAY_TRACING_CAMERA_CHIT");
 
     ray_tracing_camera->descriptor_set_layouts.emplace_back(per_frame_layout);
+    auto ray_tracing_layout = GetDescriptorSetLayout("RAY_TRACING_LAYOUT");
     ray_tracing_camera->descriptor_set_layouts.emplace_back(ray_tracing_layout);
-    ray_tracing_camera->descriptor_set_layouts.emplace_back(
-        GetDescriptorSetLayout("RENDER_TEXTURE_STORAGE_LAYOUT"));
+    ray_tracing_camera->descriptor_set_layouts.emplace_back(GetDescriptorSetLayout("RENDER_TEXTURE_STORAGE_LAYOUT"));
 
     auto& push_constant_range = ray_tracing_camera->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RayTracingPushConstant);
@@ -197,6 +196,7 @@ void Platform::CreateGraphicsPipelines() const {
     standard_instanced_deferred_prepass->Initialize();
     RegisterGraphicsPipeline("STANDARD_INSTANCED_DEFERRED_PREPASS", standard_instanced_deferred_prepass);
   }
+#ifdef EVOENGINE_WINDOWS
   {
     const auto standard_strands_deferred_prepass = std::make_shared<GraphicsPipeline>();
     standard_strands_deferred_prepass->vertex_shader = Resources::GetResource<Shader>("STANDARD_STRANDS_VERT");
@@ -223,6 +223,7 @@ void Platform::CreateGraphicsPipelines() const {
     standard_strands_deferred_prepass->Initialize();
     RegisterGraphicsPipeline("STANDARD_STRANDS_DEFERRED_PREPASS", standard_strands_deferred_prepass);
   }
+#endif
   {
     const auto standard_deferred_lighting = std::make_shared<GraphicsPipeline>();
     standard_deferred_lighting->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
@@ -343,6 +344,7 @@ void Platform::CreateGraphicsPipelines() const {
     directional_light_shadow_map_instanced->Initialize();
     RegisterGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_INSTANCED", directional_light_shadow_map_instanced);
   }
+#ifdef EVOENGINE_WINDOWS
   {
     const auto directional_light_shadow_map_strand = std::make_shared<GraphicsPipeline>();
     directional_light_shadow_map_strand->vertex_shader =
@@ -370,6 +372,7 @@ void Platform::CreateGraphicsPipelines() const {
     directional_light_shadow_map_strand->Initialize();
     RegisterGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_STRANDS", directional_light_shadow_map_strand);
   }
+#endif
   {
     const auto point_light_shadow_map = std::make_shared<GraphicsPipeline>();
     point_light_shadow_map->vertex_shader = Resources::GetResource<Shader>("POINT_LIGHT_SHADOW_MAP_VERT");
@@ -446,6 +449,7 @@ void Platform::CreateGraphicsPipelines() const {
     point_light_shadow_map_instanced->Initialize();
     RegisterGraphicsPipeline("POINT_LIGHT_SHADOW_MAP_INSTANCED", point_light_shadow_map_instanced);
   }
+#ifdef EVOENGINE_WINDOWS
   {
     const auto point_light_shadow_map_strand = std::make_shared<GraphicsPipeline>();
     point_light_shadow_map_strand->vertex_shader =
@@ -473,6 +477,7 @@ void Platform::CreateGraphicsPipelines() const {
     point_light_shadow_map_strand->Initialize();
     RegisterGraphicsPipeline("POINT_LIGHT_SHADOW_MAP_STRANDS", point_light_shadow_map_strand);
   }
+#endif
   {
     const auto spot_light_shadow_map = std::make_shared<GraphicsPipeline>();
     spot_light_shadow_map->vertex_shader = Resources::GetResource<Shader>("SPOT_LIGHT_SHADOW_MAP_VERT");
@@ -547,6 +552,7 @@ void Platform::CreateGraphicsPipelines() const {
     spot_light_shadow_map->Initialize();
     RegisterGraphicsPipeline("SPOT_LIGHT_SHADOW_MAP_INSTANCED", spot_light_shadow_map);
   }
+#ifdef EVOENGINE_WINDOWS
   {
     const auto spot_light_shadow_map_strand = std::make_shared<GraphicsPipeline>();
     spot_light_shadow_map_strand->vertex_shader = Resources::GetResource<Shader>("SPOT_LIGHT_SHADOW_MAP_STRANDS_VERT");
@@ -573,6 +579,7 @@ void Platform::CreateGraphicsPipelines() const {
     spot_light_shadow_map_strand->Initialize();
     RegisterGraphicsPipeline("SPOT_LIGHT_SHADOW_MAP_STRANDS", spot_light_shadow_map_strand);
   }
+#endif
   {
     const auto brdf_lut = std::make_shared<GraphicsPipeline>();
     brdf_lut->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
@@ -667,6 +674,7 @@ void Platform::CreateGraphicsPipelines() const {
     gizmos->Initialize();
     RegisterGraphicsPipeline("GIZMOS", gizmos);
   }
+#ifdef EVOENGINE_WINDOWS
   {
     const auto gizmos_strands = std::make_shared<GraphicsPipeline>();
     gizmos_strands->vertex_shader = Resources::GetResource<Shader>("GIZMOS_STRANDS_VERT");
@@ -692,6 +700,7 @@ void Platform::CreateGraphicsPipelines() const {
     gizmos_strands->Initialize();
     RegisterGraphicsPipeline("GIZMOS_STRANDS", gizmos_strands);
   }
+#endif
   {
     const auto gizmos_normal_colored = std::make_shared<GraphicsPipeline>();
     gizmos_normal_colored->vertex_shader = Resources::GetResource<Shader>("GIZMOS_NORMAL_COLORED_VERT");
@@ -714,6 +723,7 @@ void Platform::CreateGraphicsPipelines() const {
     gizmos_normal_colored->Initialize();
     RegisterGraphicsPipeline("GIZMOS_NORMAL_COLORED", gizmos_normal_colored);
   }
+#ifdef EVOENGINE_WINDOWS
   {
     const auto gizmos_strands_normal_colored = std::make_shared<GraphicsPipeline>();
     gizmos_strands_normal_colored->vertex_shader = Resources::GetResource<Shader>("GIZMOS_STRANDS_NORMAL_COLORED_VERT");
@@ -741,6 +751,7 @@ void Platform::CreateGraphicsPipelines() const {
     gizmos_strands_normal_colored->Initialize();
     RegisterGraphicsPipeline("GIZMOS_STRANDS_NORMAL_COLORED", gizmos_strands_normal_colored);
   }
+#endif
   {
     const auto gizmos_vertex_colored = std::make_shared<GraphicsPipeline>();
     gizmos_vertex_colored->vertex_shader = Resources::GetResource<Shader>("GIZMOS_VERTEX_COLORED_VERT");
@@ -761,6 +772,7 @@ void Platform::CreateGraphicsPipelines() const {
     gizmos_vertex_colored->Initialize();
     RegisterGraphicsPipeline("GIZMOS_VERTEX_COLORED", gizmos_vertex_colored);
   }
+#ifdef EVOENGINE_WINDOWS
   {
     const auto gizmos_strands_vertex_colored = std::make_shared<GraphicsPipeline>();
     gizmos_strands_vertex_colored->vertex_shader = Resources::GetResource<Shader>("GIZMOS_STRANDS_VERTEX_COLORED_VERT");
@@ -790,6 +802,7 @@ void Platform::CreateGraphicsPipelines() const {
     gizmos_strands_vertex_colored->Initialize();
     RegisterGraphicsPipeline("GIZMOS_STRANDS_VERTEX_COLORED", gizmos_strands_vertex_colored);
   }
+#endif
   {
     const auto gizmos_instanced_colored = std::make_shared<GraphicsPipeline>();
     gizmos_instanced_colored->vertex_shader = Resources::GetResource<Shader>("GIZMOS_INSTANCED_COLORED_VERT");

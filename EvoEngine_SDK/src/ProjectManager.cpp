@@ -667,8 +667,10 @@ bool ProjectManager::IsInProjectFolder(const std::filesystem::path& absolute_pat
   }
   const auto& project_manager = GetInstance();
   auto project_folder_path = project_manager.project_path_.parent_path();
-  return std::search(absolute_path.begin(), absolute_path.end(), project_folder_path.begin(),
-                     project_folder_path.end()) != absolute_path.end();
+  const auto absolute_path_string = absolute_path.string();
+  const auto project_folder_path_string = project_folder_path.string();
+  return std::search(absolute_path_string.begin(), absolute_path_string.end(), project_folder_path_string.begin(),
+                     project_folder_path_string.end()) != absolute_path_string.end();
 }
 bool ProjectManager::IsValidAssetFileName(const std::filesystem::path& path) {
   auto stem = path.stem().string();

@@ -1,5 +1,5 @@
 #include "Utilities.hpp"
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#ifdef EVOENGINE_WINDOWS
 #  include "shlobj.h"
 #endif
 #include "Application.hpp"
@@ -31,7 +31,7 @@ std::string FileUtils::LoadFileAsString(const std::filesystem::path& path) {
 void FileUtils::OpenFolder(const std::string& dialog_title,
                            const std::function<void(const std::filesystem::path& path)>& func, bool project_dir_check) {
   const auto window_layer = Application::GetLayer<WindowLayer>();
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#ifdef EVOENGINE_WINDOWS
   if (window_layer && ImGui::Button(dialog_title.c_str())) {
     TCHAR path[MAX_PATH];
     BROWSEINFO bi = {0};
@@ -88,7 +88,7 @@ void FileUtils::OpenFile(const std::string& dialog_title, const std::string& fil
                          const std::vector<std::string>& extensions,
                          const std::function<void(const std::filesystem::path& path)>& func, bool project_dir_check) {
   auto window_layer = Application::GetLayer<WindowLayer>();
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#ifdef EVOENGINE_WINDOWS
   if (window_layer && ImGui::Button(dialog_title.c_str())) {
     OPENFILENAMEA ofn;
     CHAR sz_file[260] = {0};
@@ -179,7 +179,7 @@ void FileUtils::SaveFile(const std::string& dialog_title, const std::string& fil
                          const std::vector<std::string>& extensions,
                          const std::function<void(const std::filesystem::path& path)>& func, bool project_dir_check) {
   const auto window_layer = Application::GetLayer<WindowLayer>();
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#ifdef EVOENGINE_WINDOWS
   if (ImGui::Button(dialog_title.c_str())) {
     OPENFILENAMEA ofn;
     CHAR sz_file[260] = {0};

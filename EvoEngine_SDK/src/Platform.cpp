@@ -13,7 +13,7 @@
 #include "vk_mem_alloc.h"
 
 #ifndef NDEBUG
-#  define GRAPHICS_VALIDATION true
+#  define GRAPHICS_VALIDATION
 #endif
 
 using namespace evo_engine;
@@ -168,14 +168,14 @@ void Platform::Initialize() {
       "\n#define MAX_KERNEL_AMOUNT " + std::to_string(Constants::max_kernel_amount) +
       "\n#define MESHLET_MAX_VERTICES_SIZE " + std::to_string(Constants::meshlet_max_vertices_size) +
       "\n#define MESHLET_MAX_TRIANGLES_SIZE " + std::to_string(Constants::meshlet_max_triangles_size) +
-      "\n#define MESHLET_MAX_INDICES_SIZE " + std::to_string(Constants::meshlet_max_triangles_size * 3) + 
-      "\n#define SUBGROUP_SIZE " + std::to_string(Constants::subgroup_size) + 
-      "\n#define COMPUTE_SUBGROUP_COUNT " + std::to_string(Constants::compute_subgroup_count) + 
-      "\n#define COMPUTE_WORK_GROUP_INVOCATIONS " + std::to_string(Constants::compute_work_group_invocations) + 
-      "\n#define MAX_COMPUTE_WORK_GROUP_INVOCATIONS " + std::to_string(Constants::max_compute_work_group_invocations) +
-      "\n#define EXT_TASK_SUBGROUP_COUNT " + std::to_string(Constants::task_subgroup_count) + 
-      "\n#define EXT_MESH_SUBGROUP_COUNT " + std::to_string(Constants::mesh_subgroup_count) + 
-      "\n#define EXT_TASK_WORK_GROUP_INVOCATIONS " + std::to_string(Constants::task_work_group_invocations) + "\n";
+      "\n#define MESHLET_MAX_INDICES_SIZE " + std::to_string(Constants::meshlet_max_triangles_size * 3) +
+      "\n#define SUBGROUP_SIZE " + std::to_string(Constants::subgroup_size) + "\n#define COMPUTE_SUBGROUP_COUNT " +
+      std::to_string(Constants::compute_subgroup_count) + "\n#define COMPUTE_WORK_GROUP_INVOCATIONS " +
+      std::to_string(Constants::compute_work_group_invocations) + "\n#define MAX_COMPUTE_WORK_GROUP_INVOCATIONS " +
+      std::to_string(Constants::max_compute_work_group_invocations) + "\n#define EXT_TASK_SUBGROUP_COUNT " +
+      std::to_string(Constants::task_subgroup_count) + "\n#define EXT_MESH_SUBGROUP_COUNT " +
+      std::to_string(Constants::mesh_subgroup_count) + "\n#define EXT_TASK_WORK_GROUP_INVOCATIONS " +
+      std::to_string(Constants::task_work_group_invocations) + "\n";
 }
 
 VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
@@ -338,6 +338,7 @@ const std::shared_ptr<RayTracingPipeline>& Platform::GetRayTracingPipeline(const
 
 const std::shared_ptr<DescriptorSetLayout>& Platform::GetDescriptorSetLayout(const std::string& name) {
   const auto& graphics = GetInstance();
+
   return graphics.descriptor_set_layouts_.at(name);
 }
 
@@ -553,10 +554,15 @@ uint32_t Platform::PhysicalDevice::FindMemoryType(uint32_t type_filter, VkMemory
 }
 
 bool Platform::PhysicalDevice::Suitable(const std::vector<std::string>& required_extension_names) const {
+  bool support_check = true;
   for (const auto& i : required_extension_names) {
-    if (!CheckExtensionSupport(i))
-      return false;
+    if (!CheckExtensionSupport(i)) {
+      EVOENGINE_WARNING("Current device doesn't support " + i + " extension!")
+      support_check = false;
+    }
   }
+  if (!support_check)
+    return false;
   if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
     if (!queue_family_indices.present_family.has_value())
       return false;
@@ -638,7 +644,12 @@ void Platform::CreateInstance() {
       required_instance_extension_names_.emplace_back(glfw_extensions[i]);
     }
   }
-#if GRAPHICS_VALIDATION
+
+#ifdef __APPLE__
+  required_extensions.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+#endif
+
+#ifdef GRAPHICS_VALIDATION
   required_extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   required_instance_extension_names_.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 #endif
@@ -651,14 +662,16 @@ void Platform::CreateInstance() {
   vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
   vk_supported_layers_.resize(layer_count);
   vkEnumerateInstanceLayerProperties(&layer_count, vk_supported_layers_.data());
-#if GRAPHICS_VALIDATION
+#ifdef GRAPHICS_VALIDATION
   if (!CheckLayerSupport("VK_LAYER_KHRONOS_validation")) {
     throw std::runtime_error("Validation layers requested, but not available!");
   }
 
   instance_create_info.enabledLayerCount = static_cast<uint32_t>(required_layers_.size());
   instance_create_info.ppEnabledLayerNames = c_required_layers.data();
-
+#  ifdef __APPLE__
+  instance_create_info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#  endif
   VkDebugUtilsMessengerCreateInfoEXT debug_create_info{};
   PopulateDebugMessengerCreateInfo(debug_create_info);
   instance_create_info.pNext = &debug_create_info;
@@ -687,7 +700,7 @@ void Platform::CreateSurface() {
 
 void Platform::CreateDebugMessenger() {
 #pragma region Debug Messenger
-#if GRAPHICS_VALIDATION
+#ifdef GRAPHICS_VALIDATION
   VkDebugUtilsMessengerCreateInfoEXT debug_utils_messenger_create_info{};
   PopulateDebugMessengerCreateInfo(debug_utils_messenger_create_info);
   if (CreateDebugUtilsMessengerExt(vk_instance_, &debug_utils_messenger_create_info, nullptr, &vk_debug_messenger_) !=
@@ -736,8 +749,12 @@ void Platform::SelectPhysicalDevice() {
   required_device_extension_names_.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
   required_device_extension_names_.emplace_back(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME);
 #endif
-  required_device_extension_names_.emplace_back(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
-  required_device_extension_names_.emplace_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+  required_device_extension_names_.emplace_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+  required_device_extension_names_.emplace_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
+#ifdef __APPLE__
+  required_device_extension_names_.emplace_back("VK_KHR_portability_subset");
+#endif
+
   required_device_extension_names_.emplace_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
   required_device_extension_names_.emplace_back(VK_EXT_EXTENDED_DYNAMIC_STATE_2_EXTENSION_NAME);
   required_device_extension_names_.emplace_back(VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME);
@@ -1018,17 +1035,9 @@ void Platform::CreateLogicalDevice() {
   dynamic_rendering_features.dynamicRendering = VK_TRUE;
   dynamic_rendering_features.pNext = &shader_draw_parameters_features;
 
-  VkPhysicalDeviceFragmentShadingRateFeaturesKHR physical_device_fragment_shading_rate_features{};
-  physical_device_fragment_shading_rate_features.sType =
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
-  physical_device_fragment_shading_rate_features.pNext = &dynamic_rendering_features;
-  physical_device_fragment_shading_rate_features.attachmentFragmentShadingRate = VK_FALSE;
-  physical_device_fragment_shading_rate_features.pipelineFragmentShadingRate = VK_FALSE;
-  physical_device_fragment_shading_rate_features.primitiveFragmentShadingRate = VK_FALSE;
-
   VkPhysicalDeviceMultiviewFeatures physical_device_multiview_features{};
   physical_device_multiview_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
-  physical_device_multiview_features.pNext = &physical_device_fragment_shading_rate_features;
+  physical_device_multiview_features.pNext = &dynamic_rendering_features;
   physical_device_multiview_features.multiview = VK_FALSE;
   physical_device_multiview_features.multiviewGeometryShader = VK_FALSE;
   physical_device_multiview_features.multiviewTessellationShader = VK_FALSE;
@@ -1052,12 +1061,6 @@ void Platform::CreateLogicalDevice() {
 
   physical_device_synchronization2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;
 
-  VkPhysicalDeviceVertexInputDynamicStateFeaturesEXT extended_vertex_input_dynamic_state_features{};
-  extended_vertex_input_dynamic_state_features.vertexInputDynamicState = VK_TRUE;
-  extended_vertex_input_dynamic_state_features.pNext = &physical_device_synchronization2_features;
-  extended_vertex_input_dynamic_state_features.sType =
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_INPUT_DYNAMIC_STATE_FEATURES_EXT;
-
   VkPhysicalDeviceExtendedDynamicState3FeaturesEXT extended_dynamic_state3_features{};
   extended_dynamic_state3_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
   extended_dynamic_state3_features.extendedDynamicState3PolygonMode = VK_TRUE;
@@ -1067,7 +1070,7 @@ void Platform::CreateLogicalDevice() {
   extended_dynamic_state3_features.extendedDynamicState3ColorBlendEquation = VK_TRUE;
   extended_dynamic_state3_features.extendedDynamicState3ColorWriteMask = VK_TRUE;
 
-  extended_dynamic_state3_features.pNext = &extended_vertex_input_dynamic_state_features;
+  extended_dynamic_state3_features.pNext = &physical_device_synchronization2_features;
 
   VkPhysicalDeviceExtendedDynamicState2FeaturesEXT extended_dynamic_state2_features{};
   extended_dynamic_state2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT;
@@ -1090,6 +1093,7 @@ void Platform::CreateLogicalDevice() {
   device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 #pragma region Queues requirement
   std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
   std::map<uint32_t, std::pair<uint32_t, std::vector<float>>> unique_queue_families;
   if (selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
     if (unique_queue_families.find(
@@ -1124,6 +1128,16 @@ void Platform::CreateLogicalDevice() {
     queue_create_info.pQueuePriorities = queue_family.second.second.data();
     queue_create_infos.push_back(queue_create_info);
   }
+#else
+  std::vector<float> priorities = {0.0f};
+  VkDeviceQueueCreateInfo queue_create_info{};
+  queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+  queue_create_info.queueFamilyIndex = selected_physical_device->queue_family_indices.present_family.value();
+  queue_create_info.queueCount = 1;
+  queue_create_info.pQueuePriorities = priorities.data();
+  queue_create_infos.push_back(queue_create_info);
+#endif
+
   device_create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
   device_create_info.pQueueCreateInfos = queue_create_infos.data();
 #pragma endregion
@@ -1141,6 +1155,8 @@ void Platform::CreateLogicalDevice() {
       VK_SUCCESS) {
     throw std::runtime_error("Failed to create logical device!");
   }
+
+#ifdef EVOENGINE_WINDOWS
   if (selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
     main_queue_ = std::make_unique<CommandQueue>();
     immediate_submit_queue_ = std::make_unique<CommandQueue>();
@@ -1160,6 +1176,27 @@ void Platform::CreateLogicalDevice() {
                        &present_queue_->vk_queue_);
     }
   }
+#else
+  if (selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
+    main_queue_ = std::make_unique<CommandQueue>();
+    immediate_submit_queue_ = std::make_unique<CommandQueue>();
+    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.graphics_and_compute_family.value(), 0,
+                     &immediate_submit_queue_->vk_queue_);
+    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.graphics_and_compute_family.value(), 0,
+                     &main_queue_->vk_queue_);
+  }
+  if (selected_physical_device->queue_family_indices.present_family.has_value()) {
+    present_queue_ = std::make_unique<CommandQueue>();
+    if (selected_physical_device->queue_family_indices.graphics_and_compute_family.value() !=
+        selected_physical_device->queue_family_indices.present_family.value()) {
+      vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.present_family.value(), 0,
+                       &present_queue_->vk_queue_);
+    } else {
+      vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.present_family.value(), 0,
+                       &present_queue_->vk_queue_);
+    }
+  }
+#endif
 #pragma endregion
 }
 

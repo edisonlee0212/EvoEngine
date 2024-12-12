@@ -140,8 +140,6 @@ void RenderLayer::RenderAllCameras() {
       }
     }
   }
-  
-  
 }
 
 void RenderLayer::RenderGizmos() {
@@ -222,6 +220,7 @@ void RenderLayer::RenderGizmos() {
         });
       }
     }
+#ifdef EVOENGINE_WINDOWS
     for (const auto& i : editor_layer->gizmo_strands_tasks_) {
       if (editor_layer->editor_cameras_.find(i.editor_camera_component->GetHandle()) ==
           editor_layer->editor_cameras_.end()) {
@@ -262,6 +261,7 @@ void RenderLayer::RenderGizmos() {
         });
       }
     }
+#endif
   }
 }
 
@@ -306,7 +306,7 @@ void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       ImGui::DragFloat("Seam fix ratio", &render_info_block.seam_fix_ratio, 0.001f, 0.0f, 0.1f);
       ImGui::Checkbox("Stable fit", &stable_fit);
     }
-
+#ifdef EVOENGINE_WINDOWS
     if (ImGui::TreeNodeEx("Strands settings", ImGuiTreeNodeFlags_DefaultOpen)) {
       ImGui::DragFloat("Curve subdivision factor", &render_info_block.strands_subdivision_x_factor, 1.0f, 1.0f,
                        1000.0f);
@@ -316,6 +316,7 @@ void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
       ImGui::TreePop();
     }
+#endif
     ImGui::End();
   }
 }
@@ -971,6 +972,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         }
         vkCmdEndRendering(vk_command_buffer);
       }
+#ifdef EVOENGINE_WINDOWS
       GeometryStorage::BindStrandPoints(vk_command_buffer);
       {
         VkRenderingInfo render_info{};
@@ -1018,6 +1020,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         }
         vkCmdEndRendering(vk_command_buffer);
       }
+#endif
     }
 #pragma region Viewport and scissor
 
@@ -1218,6 +1221,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       }
       vkCmdEndRendering(vk_command_buffer);
     }
+#ifdef EVOENGINE_WINDOWS
     GeometryStorage::BindStrandPoints(vk_command_buffer);
     {
       VkRenderingInfo render_info{};
@@ -1263,6 +1267,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       }
       vkCmdEndRendering(vk_command_buffer);
     }
+#endif
     lighting_->point_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     lighting_->spot_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
@@ -1773,6 +1778,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           }
           vkCmdEndRendering(vk_command_buffer);
         }
+#ifdef EVOENGINE_WINDOWS
         GeometryStorage::BindStrandPoints(vk_command_buffer);
         {
           const auto depth_attachment = lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(
@@ -1826,6 +1832,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           }
           vkCmdEndRendering(vk_command_buffer);
         }
+#endif
       }
     });
 
@@ -2031,6 +2038,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
 
         vkCmdEndRendering(vk_command_buffer);
       }
+#ifdef EVOENGINE_WINDOWS
       GeometryStorage::BindStrandPoints(vk_command_buffer);
       {
         const auto depth_attachment =
@@ -2070,7 +2078,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
 
         vkCmdEndRendering(vk_command_buffer);
       }
-
+#endif
 #pragma endregion
 #pragma region Lighting pass
       GeometryStorage::BindVertices(vk_command_buffer);

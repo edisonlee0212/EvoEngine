@@ -28,6 +28,14 @@
 #include <vector>
 #include <unordered_set>
 #include "Math.hpp"
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#define EVOENGINE_WINDOWS
+#elif __APPLE__
+#  define EVOENGINE_MACOS
+#else
+#  define EVOENGINE_LINUX
+#endif
+
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
 #  include <cstdint>
@@ -52,7 +60,7 @@
 #include <imgui_internal.h>
 
 //#include <imgui_stdlib.hpp>
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#ifdef EVOENGINE_WINDOWS
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include "GLFW/glfw3native.h"
 #define STBI_MSC_SECURE_CRT
@@ -78,7 +86,7 @@
 #include <stb_image_write.h>
 
 #include <yaml-cpp/yaml.h>
-#include "xmmintrin.h"
+
 #ifdef _DEBUG
 #undef _DEBUG
 #define DEBUG_WAS_DEFINED
@@ -98,7 +106,7 @@
 #undef NDEBUG
 #endif
 
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#ifdef EVOENGINE_WINDOWS
 #include <Windows.h>
 #endif
 

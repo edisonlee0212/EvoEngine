@@ -983,10 +983,10 @@ void SliceIteratively(const StrandModel& strand_model, std::vector<SlicingData>&
                       const float max_dist, std::vector<Vertex>& vertices, std::vector<glm::vec2>& tex_coords,
                       std::vector<std::pair<unsigned, unsigned>>& indices,
                       const StrandModelMeshGeneratorSettings& settings) {
-  std::vector<SlicingData> queue;
+  std::list<SlicingData> queue;
 
-  for (auto i = start_slices.rbegin(); i != start_slices.rend(); ++i) {
-    queue.emplace_back(*i);
+  for (SlicingData& s : start_slices) {
+    queue.emplace_back(s);
   }
 
   float accumulated_angle = 0.0f;
@@ -998,7 +998,7 @@ void SliceIteratively(const StrandModel& strand_model, std::vector<SlicingData>&
   std::vector<SlicingData> prev_slices;
 
   while (!queue.empty()) {
-    SlicingData cur = queue.back();
+    SlicingData cur = queue.front();
 
     if (t != cur.t)  // re-compute pipe_to_slice_index_map
     {
@@ -1018,7 +1018,7 @@ void SliceIteratively(const StrandModel& strand_model, std::vector<SlicingData>&
       index = 0;
     }
 
-    queue.pop_back();
+    queue.pop_front();
 
     if (DEBUG_OUTPUT)
       EVOENGINE_LOG("Took next slice with t = " << cur.t << " out of the queue");
@@ -1029,7 +1029,7 @@ void SliceIteratively(const StrandModel& strand_model, std::vector<SlicingData>&
     for (SlicingData& s : slices) {
       s.index = index;
       index++;
-      queue.push_back(s);
+      queue.emplace_back(s);
     }
   }
 }

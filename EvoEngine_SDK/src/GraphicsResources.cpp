@@ -4,8 +4,8 @@
 #include "Console.hpp"
 #include "Mesh.hpp"
 #include "Platform.hpp"
-#include "Utilities.hpp"
 #include "RenderInstances.hpp"
+#include "Utilities.hpp"
 
 using namespace evo_engine;
 
@@ -244,17 +244,17 @@ uint32_t Image::GetMipLevels() const {
 }
 
 Image::Image(VkImageCreateInfo image_create_info) {
+#if ENABLE_EXTERNAL_MEMORY
   VkExternalMemoryImageCreateInfo vk_external_mem_image_create_info = {};
   vk_external_mem_image_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
   vk_external_mem_image_create_info.pNext = nullptr;
-#ifdef _WIN64
+#  ifdef _WIN64
   vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#else
+#  else
   vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-#endif
-
+#  endif
   image_create_info.pNext = &vk_external_mem_image_create_info;
-
+#endif
   VmaAllocationCreateInfo alloc_info = {};
   alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
   if (vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &alloc_info, &vk_image_, &vma_allocation_,
@@ -277,17 +277,18 @@ Image::Image(VkImageCreateInfo image_create_info) {
 }
 
 Image::Image(VkImageCreateInfo image_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info) {
+#if ENABLE_EXTERNAL_MEMORY
   VkExternalMemoryImageCreateInfo vk_external_mem_image_create_info = {};
   vk_external_mem_image_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
   vk_external_mem_image_create_info.pNext = nullptr;
-#ifdef _WIN64
+#  ifdef _WIN64
   vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#else
+#  else
   vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-#endif
+#  endif
 
   image_create_info.pNext = &vk_external_mem_image_create_info;
-
+#endif
   if (vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &vma_allocation_create_info, &vk_image_,
                      &vma_allocation_, &vma_allocation_info_)) {
     throw std::runtime_error("Failed to create image!");
@@ -430,7 +431,7 @@ const VmaAllocationInfo& Image::GetVmaAllocationInfo() const {
   return vma_allocation_info_;
 }
 
-#  ifdef _WIN64
+#ifdef _WIN64
 void* Image::GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR external_memory_handle_type) const {
 #  if ENABLE_EXTERNAL_MEMORY
   void* handle;
@@ -443,11 +444,11 @@ void* Image::GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR external_mem
       static_cast<VkExternalMemoryHandleTypeFlagBitsKHR>(external_memory_handle_type);
   vkGetMemoryWin32HandleKHR(Platform::GetVkDevice(), &vk_memory_get_win32_handle_info_khr, &handle);
   return handle;
-#else
-  return nullptr;
-#endif
-}
 #  else
+  return nullptr;
+#  endif
+}
+#else
 int Image::GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR externalMemoryHandleType) const {
 #  if ENABLE_EXTERNAL_MEMORY
   if (externalMemoryHandleType == VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR) {
@@ -468,7 +469,7 @@ int Image::GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR externalMemory
   return -1;
 #  endif
 }
-#  endif
+#endif
 Sampler::Sampler(const VkSamplerCreateInfo& sampler_create_info) {
   Platform::CheckVk(vkCreateSampler(Platform::GetVkDevice(), &sampler_create_info, nullptr, &vk_sampler_));
 }
@@ -762,8 +763,8 @@ void DescriptorSet::UpdateImageDescriptorBinding(const uint32_t binding_index, c
   vkUpdateDescriptorSets(Platform::GetVkDevice(), 1, &write_info, 0, nullptr);
 }
 
-void DescriptorSet::UpdateAccelerationStructureDescriptorBinding(const uint32_t binding_index,
-    const VkAccelerationStructureKHR& acceleration_structure) const {
+void DescriptorSet::UpdateAccelerationStructureDescriptorBinding(
+    const uint32_t binding_index, const VkAccelerationStructureKHR& acceleration_structure) const {
   VkWriteDescriptorSetAccelerationStructureKHR descriptor_acceleration_structure_info{};
   descriptor_acceleration_structure_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
   descriptor_acceleration_structure_info.accelerationStructureCount = 1;
@@ -780,8 +781,8 @@ void DescriptorSet::UpdateAccelerationStructureDescriptorBinding(const uint32_t 
   vkUpdateDescriptorSets(Platform::GetVkDevice(), 1, &acceleration_structure_write, 0, nullptr);
 }
 
-void DescriptorSet::UpdateAccelerationStructureDescriptorBinding(const uint32_t binding_index,
-    const std::shared_ptr<TopLevelAccelerationStructure>& acceleration_structure) const {
+void DescriptorSet::UpdateAccelerationStructureDescriptorBinding(
+    const uint32_t binding_index, const std::shared_ptr<TopLevelAccelerationStructure>& acceleration_structure) const {
   const auto as = acceleration_structure->GetVkAccelerationStructure();
   UpdateAccelerationStructureDescriptorBinding(binding_index, as);
 }
@@ -926,8 +927,8 @@ void CommandBuffer::Reset() {
   status_ = CommandBufferStatus::Ready;
 }
 
-void CommandQueue::Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers, uint32_t offset,
-    uint32_t buffer_count,
+void CommandQueue::Submit(
+    const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers, uint32_t offset, uint32_t buffer_count,
     const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
     const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores, const std::shared_ptr<Fence>& fence) const {
   VkSubmitInfo submit_info{};
@@ -1079,18 +1080,19 @@ void CommandQueue::WaitIdle() const {
   vkQueueWaitIdle(vk_queue_);
 }
 
-BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices, const std::vector<glm::uvec3>& triangles) {
+BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices,
+                                                                   const std::vector<glm::uvec3>& triangles) {
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_create_info.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
                              VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  
+
   VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   buffer_create_info.size = vertices.size() * sizeof(Vertex);
   vertex_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  
+
   vertex_buffer->UploadVector(vertices);
 
   buffer_create_info.size = triangles.size() * sizeof(glm::uvec3);
@@ -1145,11 +1147,10 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
       Platform::GetSelectedPhysicalDevice()
           ->acceleration_structure_properties_khr.minAccelerationStructureScratchOffsetAlignment;
   buffer_create_info.size = acceleration_structure_build_sizes_info.buildScratchSize + scratch_buffer_alignment;
-                            ;
+  ;
   buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
   const auto scratch_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-
 
   VkAccelerationStructureCreateInfoKHR acceleration_structure_create_info{};
   acceleration_structure_create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
@@ -1193,8 +1194,8 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
   VkAccelerationStructureDeviceAddressInfoKHR acceleration_device_address_info{};
   acceleration_device_address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
   acceleration_device_address_info.accelerationStructure = vk_acceleration_structure_khr_;
-  device_address_ = vkGetAccelerationStructureDeviceAddressKHR(Platform::GetVkDevice(),
-                                                             &acceleration_device_address_info);
+  device_address_ =
+      vkGetAccelerationStructureDeviceAddressKHR(Platform::GetVkDevice(), &acceleration_device_address_info);
 }
 
 BottomLevelAccelerationStructure::~BottomLevelAccelerationStructure() {
@@ -1207,8 +1208,7 @@ VkDeviceAddress BottomLevelAccelerationStructure::GetDeviceAddress() const {
 
 TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene,
                                                              const std::vector<MeshRenderInstance>& render_instances) {
-  std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances(
-      render_instances.size());
+  std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances(render_instances.size());
   Jobs::RunParallelFor(render_instances.size(), [&](const size_t i) {
     const auto& render_instance = render_instances[i];
     auto& acceleration_structure_instance = acceleration_structure_instances[i];
@@ -1277,7 +1277,7 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
   const auto scratch_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  
+
   VkAccelerationStructureCreateInfoKHR acceleration_structure_create_info{};
   acceleration_structure_create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
   acceleration_structure_create_info.buffer = acceleration_structure_buffer_->GetVkBuffer();
@@ -1299,7 +1299,6 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   acceleration_build_geometry_info.pGeometries = &acceleration_structure_geometry;
   acceleration_build_geometry_info.scratchData.deviceAddress =
       (scratch_buffer->GetDeviceAddress() + scratch_buffer_alignment - 1) & ~(scratch_buffer_alignment - 1);
-
 
   VkAccelerationStructureBuildRangeInfoKHR acceleration_structure_build_range_info{};
   acceleration_structure_build_range_info.primitiveCount = instance_count;
