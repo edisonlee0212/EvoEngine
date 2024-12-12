@@ -719,67 +719,27 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
 
   // TODO: "squish" each bundle such that no internal degenerate tetrahedrons occur
 #ifdef USE_CGAL
-  // triangulate each bundle:
-  for (int d = 0; d < bundle_maps.size(); d++) {
-    offsets[d] = tetrahedrons.size();
-    auto& map = bundle_maps[d];
-    for (auto& kv_pair : map) {
-      auto& bundle = kv_pair.second;
-      std::vector<std::pair<Point_CGAL, unsigned> > points;
+  if (use_cgal) {
+    // triangulate each bundle:
+    for (int d = 0; d < bundle_maps.size(); d++) {
+      offsets[d] = tetrahedrons.size();
+      auto& map = bundle_maps[d];
+      for (auto& kv_pair : map) {
+        auto& bundle = kv_pair.second;
+        std::vector<std::pair<Point_CGAL, unsigned>> points;
 
-      if (bundle.size() < 3) {
-        continue;
-      }
-
-      for (size_t i : bundle) {
-        auto& particle = uniform_particles[i];
-
-        if (particle.next_particle_handle == -1) {
+        if (bundle.size() < 3) {
           continue;
-          // TODO: probably even means we can skip this bundle entirely
         }
 
-        auto& next_particle = uniform_particles[particle.next_particle_handle];
+        for (size_t i : bundle) {
+          auto& particle = uniform_particles[i];
 
-        float squish_weight = 0.0f;
+          if (particle.next_particle_handle == -1) {
+            continue;
+            // TODO: probably even means we can skip this bundle entirely
+          }
 
-        glm::vec3 squished_position = squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
-
-        Point_CGAL p0_cgal(particle.position[0], particle.position[1], particle.position[2]);
-        Point_CGAL p1_cgal(squished_position[0], squished_position[1], squished_position[2]);
-
-        points.emplace_back(p0_cgal, i);
-        points.emplace_back(p1_cgal, particle.next_particle_handle);
-
-      }
-
-      CGALDelaunay(points, tetrahedrons); 
-    }
-  }
-#else
-  for (int d = 0; d < bundle_maps.size(); d++) {
-    offsets[d] = tetrahedrons.size();
-    auto& map = bundle_maps[d];
-    for (auto& kv_pair : map) {
-      auto& bundle = kv_pair.second;
-      std::vector<glm::vec3> points;
-      std::vector<size_t> indices;
-
-      if (bundle.size() < 3) {
-        continue;
-      }
-
-      int end_of_strand_count = 0;
-      for (size_t i : bundle) {
-        auto& particle = uniform_particles[i];
-
-        glm::vec3 p0(particle.position[0], particle.position[1], particle.position[2]);
-        points.emplace_back(p0);
-        indices.emplace_back(i);
-
-        if (particle.next_particle_handle == -1) {
-          end_of_strand_count++;
-        } else {
           auto& next_particle = uniform_particles[particle.next_particle_handle];
 
           float squish_weight = 0.0f;
@@ -787,21 +747,118 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
           glm::vec3 squished_position =
               squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
 
-          glm::vec3 p1(squished_position[0], squished_position[1], squished_position[2]);
+          Point_CGAL p0_cgal(particle.position[0], particle.position[1], particle.position[2]);
+          Point_CGAL p1_cgal(squished_position[0], squished_position[1], squished_position[2]);
 
-          points.emplace_back(p1);
-          indices.emplace_back(particle.next_particle_handle);
+          points.emplace_back(p0_cgal, i);
+          points.emplace_back(p1_cgal, particle.next_particle_handle);
         }
-      }
 
-      if (end_of_strand_count == bundle.size()) {
-        continue;
+        CGALDelaunay(points, tetrahedrons);
       }
-
-      TetDelaunay(points, indices, tetrahedrons);
     }
   }
 #endif
+  if (!use_cgal) {
+    for (int d = 0; d < bundle_maps.size(); d++) {
+      offsets[d] = tetrahedrons.size();
+      auto& map = bundle_maps[d];
+      for (auto& kv_pair : map) {
+        auto& bundle = kv_pair.second;
+
+        // new idea: triangulate each plane separately in 2D and then compute a constrained triangulation between them in 3D
+        std::vector<float> points_top;
+        std::vector<float> points_bottom;
+
+         if (bundle.size() < 3) {
+          continue;
+        }
+
+        int end_of_strand_count = 0;
+        for (size_t i : bundle) {
+          auto& particle = uniform_particles[i];
+
+          glm::vec3 p0(particle.position[0], particle.position[1], particle.position[2]);
+          points_top.insert(points_bottom.end(), {p0.x, p0.y, p0.z});
+
+          if (particle.next_particle_handle == -1) {
+            end_of_strand_count++;
+          } else {
+            auto& next_particle = uniform_particles[particle.next_particle_handle];
+
+            float squish_weight = 0.0f;
+
+            glm::vec3 squished_position =
+                squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
+
+            glm::vec3 p1(squished_position[0], squished_position[1], squished_position[2]);
+
+            points_bottom.insert(points_bottom.end(), {p1.x, p1.y, p1.z});
+          }
+        }
+
+        if (end_of_strand_count == bundle.size()) {
+          continue;
+        }
+
+        Delaunator::Delaunator2D del_top(points_top);
+        Delaunator::Delaunator2D del_bottom(points_bottom);
+
+        std::vector<glm::vec3> points;
+        std::vector<unsigned int> triangles;
+
+        //points.insert(points.end(), points_top);
+
+        for (auto index : del_top.triangles){
+          triangles.emplace_back(index);
+        }
+
+        for (auto index : del_bottom.triangles) {
+          triangles.emplace_back(index);
+        }
+
+        const auto tets = Delaunay3D::GenerateTetrahedronsConstrained(points, triangles);
+
+        /* std::vector<glm::vec3> points;
+        std::vector<size_t> indices;
+
+        if (bundle.size() < 3) {
+          continue;
+        }
+
+        int end_of_strand_count = 0;
+        for (size_t i : bundle) {
+          auto& particle = uniform_particles[i];
+
+          glm::vec3 p0(particle.position[0], particle.position[1], particle.position[2]);
+          points.emplace_back(p0);
+          indices.emplace_back(i);
+
+          if (particle.next_particle_handle == -1) {
+            end_of_strand_count++;
+          } else {
+            auto& next_particle = uniform_particles[particle.next_particle_handle];
+
+            float squish_weight = 0.0f;
+
+            glm::vec3 squished_position =
+                squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
+
+            glm::vec3 p1(squished_position[0], squished_position[1], squished_position[2]);
+
+            points.emplace_back(p1);
+            indices.emplace_back(particle.next_particle_handle);
+          }
+        }
+
+        if (end_of_strand_count == bundle.size()) {
+          continue;
+        }
+
+        TetDelaunay(points, indices, tetrahedrons);*/
+      }
+    }
+  }
 
   std::mutex mtx;
 

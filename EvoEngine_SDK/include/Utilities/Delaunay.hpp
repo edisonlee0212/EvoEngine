@@ -15,7 +15,8 @@ class Delaunay3D {
                                      const glm::vec3& p3);
   static float CalculateTetrahedronVolume(const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2,
                                      const glm::vec3& p3);
-
+  static std::vector<Tetrahedron> GenerateTetrahedronsConstrained(
+      const std::vector<glm::vec3>& points, const std::vector<unsigned int>& triangles);
   static std::vector<Tetrahedron> GenerateTetrahedrons(const std::vector<glm::vec3>& points);
 
   static std::vector<glm::uvec3> FindOuterShell(const std::vector<Tetrahedron>& tetrahedrons,
