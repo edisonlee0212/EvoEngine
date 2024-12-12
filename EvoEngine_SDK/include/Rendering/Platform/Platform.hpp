@@ -4,11 +4,16 @@
 #include "GraphicsResources.hpp"
 #include "ISingleton.hpp"
 #include "RayTracingPipeline.hpp"
-#define ENABLE_EXTERNAL_MEMORY true
+
+#ifdef __APPLE__
+#  define ENABLE_EXTERNAL_MEMORY false
+#else
+#  define ENABLE_EXTERNAL_MEMORY true
+#endif
 #define ENABLE_NV_RAY_TRACING_VALIDATION false
 
 #ifndef USE_RENDERDOC
-#  undef ENABLE_NVIDIA_NSIGHT_AFTERMATH true
+#  undef ENABLE_NVIDIA_NSIGHT_AFTERMATH
 #endif  // !USE_RENDERDOC
 
 // Enables the Nsight Aftermath code instrumentation for GPU crash dump creation.
