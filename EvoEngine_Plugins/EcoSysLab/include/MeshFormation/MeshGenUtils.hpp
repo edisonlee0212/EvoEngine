@@ -2,8 +2,6 @@
 
 #include "Delaunator2D.hpp"
 
-#include "Delaunator2D.hpp"
-
 namespace eco_sys_lab_plugin {
 
 /// @brief An undirected graph represented as an unordered adjacency list

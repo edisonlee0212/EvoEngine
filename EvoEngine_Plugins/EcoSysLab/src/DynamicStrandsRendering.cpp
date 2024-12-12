@@ -13,6 +13,14 @@ bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLay
   ImGui::Checkbox("Wireframe", &wireframe);
   ImGui::DragFloat("alpha", &alpha, 0.000001, 0.0f, 1.0f, "%.6f");
   ImGui::DragFloat("bifurcation alpha", &bifurcation_alpha, 0.000001, 0.0f, 1.0f, "%.6f");
+
+  ImGui::Text("Use vertex color for visualization");
+
+  ImGui::RadioButton("Disabled", (int*) &vertex_colors, Default);
+  ImGui::RadioButton("Normals", (int*) &vertex_colors, Normals);
+  ImGui::RadioButton("Tangents", (int*) &vertex_colors, Tangents);
+  ImGui::RadioButton("Texture coordinates", (int*)&vertex_colors, TexCoords);
+
   return false;
 }
 
@@ -40,6 +48,7 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
     float alpha = 0.0f;
     float bifurcation_alpha = 0.0f;
     int render_complex = 0;
+    int vertex_colors = 0;
   };
 
   if (!render_pipeline) {
@@ -93,6 +102,7 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   push_constant.alpha = render_parameters.alpha;
   push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
+  push_constant.vertex_colors = render_parameters.vertex_colors;
 
 #ifdef USE_RENDERDOC
   if (rdoc_api) {

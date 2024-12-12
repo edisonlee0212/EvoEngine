@@ -113,6 +113,8 @@ class DynamicStrands {
     GlobalTransform root_transform{};
     bool use_cgal = false;
     bool triangulate_per_bundle = false;
+    int u_multiplier = 2;
+    float v_multiplier = 0.25;
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -186,8 +188,10 @@ class DynamicStrands {
     bool render_complex = false;
     bool use_cgal = false;
     bool wireframe = false;
-    float alpha = 1.0f / 10000.0f;
-    float bifurcation_alpha = 1.0f / 10000.0f;
+    float alpha = 1.0 / 10000.0f;
+    float bifurcation_alpha = 1.0 / 10000.0f;
+    enum VertexColors {Default, Normals, Tangents, TexCoords};
+    VertexColors vertex_colors = Default;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -221,6 +225,9 @@ class DynamicStrands {
 
   struct GpuNode {
     int prev_handle = -1;
+    int padding0;
+    int padding1;
+    int padding2;
   };
 
   struct GpuSegment {
@@ -338,6 +345,11 @@ class DynamicStrands {
   struct GpuUniformParticle {
     glm::vec3 position;
     float t;
+    glm::vec3 normal;
+    float deg;
+    glm::vec3 tangent;
+    int padding0;
+    glm::vec4 tex_coord;
     int segment_handle;
     int node_index;
     int segment_index;

@@ -6,6 +6,7 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
   float alpha;
   float bifurcation_alpha;
   int render_complex;
+  int vertex_colors;
 };
 
 void SortFourElements(inout uint a[4]) {

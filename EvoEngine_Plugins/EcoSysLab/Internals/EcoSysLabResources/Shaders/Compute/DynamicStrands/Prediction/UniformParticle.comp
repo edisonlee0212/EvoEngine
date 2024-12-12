@@ -43,6 +43,8 @@ void main(){
 
 		uniform_particles[uniform_particle_index].position_t.xyz = 
 			mix(particle0.x, particle1.x, uniform_particle.position_t.w);
-
+		uniform_particles[uniform_particle_index].tangent.xyz = normalize(particle1.x - particle0.x);
+		// need to reset normals
+		uniform_particles[uniform_particle_index].normal_deg = vec4(0.0f);
 	}
 }
