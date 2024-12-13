@@ -2866,7 +2866,7 @@ void Tree::PrepareController(const std::shared_ptr<ShootDescriptor>& shoot_descr
     float pruning_probability = 0.0f;
     if (shoot_descriptor->light_pruning_factor != 0.f) {
       if (internode.IsEndNode()) {
-        if (internode.data.light_intensity < shoot_descriptor->light_pruning_factor) {
+        if (internode.data.light_intake < shoot_descriptor->light_pruning_factor) {
           pruning_probability += 999.f;
         }
       }

@@ -98,7 +98,18 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
   }
 }
 
-void EcoSysLabLayer::StrandVisualization(const std::shared_ptr<EditorLayer>& editor_layer) const {
+void EcoSysLabLayer::ReGroupDynamicStrandSegments() const {
+  const auto scene = GetScene();
+  if (const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+      dts_entities && !dts_entities->empty()) {
+    for (auto dts_entity : *dts_entities) {
+      const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(dts_entity).lock();
+      ds->dynamic_strands->CalculateGroups();
+    }
+  }
+}
+
+void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLayer>& editor_layer) const {
   const auto scene = GetScene();
   const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
   const auto for_each_dts_entity =

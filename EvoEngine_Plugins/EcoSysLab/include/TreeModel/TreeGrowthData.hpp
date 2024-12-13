@@ -88,8 +88,8 @@ struct InternodeGrowthData {
   glm::vec3 descendant_weight_center = glm::vec3(0.f);
   float temperature = 0.0f;                        // No Serialize
   float inhibitor_sink = 0;                        // No Serialize
-  float light_intensity = 1.0f;                    // No Serialize
-  float max_descendant_light_intensity = 0.f;      // No Serialize
+  float light_intake = 1.0f;                       // No Serialize
+  float descendant_total_light_intake = 0.f;       // No Serialize
   glm::vec3 light_direction = glm::vec3(0, 1, 0);  // No Serialize
   float growth_potential = 0.0f;                   // No Serialize
   float desired_growth_rate = 0.0f;                // No Serialize

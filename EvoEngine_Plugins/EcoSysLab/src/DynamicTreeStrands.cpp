@@ -484,9 +484,8 @@ void DynamicTreeStrands::InteractionStep() const {
 
 void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const {
   if (!dynamic_strands->segments.empty()) {
-    const auto scene = GetScene();
-    const auto editor_layer = Application::GetLayer<EditorLayer>();
     if (!dynamic_strands->WaitForUpload()) {
+      const auto scene = GetScene();
       for (const auto& transform_operator : transform_operators) {
         if (scene->IsEntityValid(transform_operator.target_entity)) {
           const auto global_transform = scene->GetDataComponent<GlobalTransform>(transform_operator.target_entity);
@@ -500,8 +499,9 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
           },
           [&]() {
             for (const auto& transform_operator : transform_operators) {
-              if (transform_operator.ds_transform->enabled && scene->IsEntityValid(transform_operator.target_entity))
+              if (transform_operator.ds_transform->enabled && scene->IsEntityValid(transform_operator.target_entity)) {
                 transform_operator.ds_transform->Execute(physics_parameters, dynamic_strands);
+              }
             }
             if (gravity->enabled)
               gravity->Execute(physics_parameters, dynamic_strands);

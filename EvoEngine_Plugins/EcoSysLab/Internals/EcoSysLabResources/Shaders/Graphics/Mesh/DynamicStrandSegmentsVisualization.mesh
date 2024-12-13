@@ -124,6 +124,8 @@ void main(){
 	}else if(color_mode == 5){
 		color = mix(color0, color1, clamp(
 					abs(segment.shear_stretch_strain.z) / segment.shear_stretch_strain_limit.z, 0.0, 1.0));
+	}else if(color_mode == 6){
+		color = segments[floatBitsToInt(segment.shear_stretch_strain.w)].color;
 	}
 	
 	float highlight1_ratio = 0.0f;

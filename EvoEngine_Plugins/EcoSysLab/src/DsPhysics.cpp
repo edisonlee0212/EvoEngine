@@ -219,11 +219,11 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   segment_push_constant.angular_velocity_damping = physics_parameters.angular_velocity_damping;
   ConnectionPredictionPushConstant connection_push_constant;
   connection_push_constant.connection_size = target_dynamic_strands.connections.size();
-  connection_push_constant.allow_breaking = physics_parameters.allow_breaking ? 1 : 0;
+  connection_push_constant.allow_breaking = physics_parameters.enable_breaking ? 1 : 0;
 
   SegmentPairPredictionPushConstant segment_pair_push_constant;
   segment_pair_push_constant.segment_pair_size = target_dynamic_strands.segment_pairs.size();
-  segment_pair_push_constant.allow_breaking = physics_parameters.allow_breaking ? 1 : 0;
+  segment_pair_push_constant.allow_breaking = physics_parameters.enable_breaking ? 1 : 0;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     particle_prediction_pipeline->Bind(vk_command_buffer);
