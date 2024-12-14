@@ -128,20 +128,26 @@ void DsTransform::Update(const GlobalTransform& new_global_transform,
         target_dynamic_strands->particles[position_command1.particle_index].x0));
     rotation_command.new_rotation = rotation * target_dynamic_strands->segments[rotation_command.segment_index].q0;
   });
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  if (!position_commands.empty()) {
+    position_commands_buffer[current_frame_index]->UploadVector(position_commands);
+    position_commands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        0, position_commands_buffer[current_frame_index]);
+  }
+  if (!rotation_commands.empty()) {
+    rotation_commands_buffer[current_frame_index]->UploadVector(rotation_commands);
+    rotation_commands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        0, rotation_commands_buffer[current_frame_index]);
+  }
 }
 
 void DsTransform::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                           const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
   if (!position_commands.empty()) {
-    const auto current_frame_index = Platform::GetCurrentFrameIndex();
-    position_commands_buffer[current_frame_index]->UploadVector(position_commands);
-    position_commands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-        0, position_commands_buffer[current_frame_index]);
-
     PositionUpdatePushConstant push_constant;
     push_constant.commands_size = position_commands.size();
-    const uint32_t work_group_invocations =
-        Platform::Constants::compute_work_group_invocations;
+    const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       position_update_pipeline->Bind(vk_command_buffer);
@@ -156,15 +162,9 @@ void DsTransform::Execute(const DynamicStrands::PhysicsParameters& physics_param
     });
   }
   if (!rotation_commands.empty()) {
-    const auto current_frame_index = Platform::GetCurrentFrameIndex();
-    rotation_commands_buffer[current_frame_index]->UploadVector(rotation_commands);
-    rotation_commands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-        0, rotation_commands_buffer[current_frame_index]);
-
     RotationUpdatePushConstant push_constant;
     push_constant.commands_size = rotation_commands.size();
-    const uint32_t work_group_invocations =
-        Platform::Constants::compute_work_group_invocations;
+    const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       rotation_update_pipeline->Bind(vk_command_buffer);
@@ -186,8 +186,7 @@ void DsGravity::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
   push_constant.acceleration = gravity;
   push_constant.ground_height = ground_height;
   push_constant.particle_size = target_dynamic_strands->particles.size();
-  const uint32_t work_group_invocations =
-      Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     gravity_force_pipeline->Bind(vk_command_buffer);
@@ -304,8 +303,7 @@ void DsAttraction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   push_constant.target_position = target_position;
   push_constant.distance_multiplier = distance_multiplier;
   push_constant.commands_size = commands.size();
-  const uint32_t work_group_invocations =
-      Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     drag_force_pipeline->Bind(vk_command_buffer);
@@ -359,8 +357,7 @@ void DsBoxSelection::Update(const glm::vec2& box_start, const glm::vec2& box_end
 }
 
 void DsBoxSelection::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  const uint32_t work_group_invocations =
-      Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   push_constant.particle_size = target_dynamic_strands->particles.size();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -370,8 +367,8 @@ void DsBoxSelection::Execute(const std::shared_ptr<DynamicStrands>& target_dynam
         target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    vkCmdDispatch(vk_command_buffer,
-                  Platform::DivUp(target_dynamic_strands->particles.size(), work_group_invocations), 1, 1);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(target_dynamic_strands->particles.size(), work_group_invocations),
+                  1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -400,8 +397,7 @@ void DsDrag::Update(const glm::vec3& acceleration) {
 
 void DsDrag::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                      const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  const uint32_t work_group_invocations =
-      Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   DragPushConstant push_constant;
   push_constant.acceleration = target_acceleration;
@@ -413,8 +409,8 @@ void DsDrag::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
         target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    vkCmdDispatch(vk_command_buffer,
-                  Platform::DivUp(target_dynamic_strands->particles.size(), work_group_invocations), 1, 1);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(target_dynamic_strands->particles.size(), work_group_invocations),
+                  1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }

@@ -8,7 +8,7 @@
 #endif
 #include "Times.hpp"
 #ifdef BILLBOARD_CLOUDS_PLUGIN
-#include "BillboardCloudsConverter.hpp"
+#  include "BillboardCloudsConverter.hpp"
 #endif
 #include "ClassRegistry.hpp"
 #include "Climate.hpp"
@@ -248,6 +248,9 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       if (ImGui::Button("Initialize dynamic strands for all trees")) {
         GenerateDynamicStrandsForAllTrees();
       }
+      if (ImGui::Button("Re-Group segments")) {
+        ReGroupDynamicStrandSegments();
+      }
       dynamic_strands_settings_.OnInspect(editor_layer);
       ImGui::TreePop();
     }
@@ -386,7 +389,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   if (tree_visualization_settings_.enable)
     TreeVisualization(editor_layer);
   if (dynamic_strands_settings_.enable)
-    StrandVisualization(editor_layer);
+    DynamicStrandsVisualization(editor_layer);
   if (soil_visualization_settings_.enable) {
     SoilVisualization();
   }

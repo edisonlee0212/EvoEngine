@@ -269,13 +269,13 @@ void TreeVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
       case ShootVisualizerMode::MaxDescendantLightIntensity:
         matrices[i].instance_color =
             glm::mix(glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
-                     glm::clamp(glm::pow(node.data.max_descendant_light_intensity, m_settings.m_shootColorMultiplier),
+                     glm::clamp(glm::pow(node.data.descendant_total_light_intake, m_settings.m_shootColorMultiplier),
                                 0.0f, 1.f));
         break;
       case ShootVisualizerMode::LightIntensity:
         matrices[i].instance_color =
             glm::mix(glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
-                     glm::clamp(glm::pow(node.data.light_intensity, m_settings.m_shootColorMultiplier), 0.0f, 1.f));
+                     glm::clamp(glm::pow(node.data.light_intake, m_settings.m_shootColorMultiplier), 0.0f, 1.f));
         break;
       case ShootVisualizerMode::LightDirection:
         matrices[i].instance_color = glm::vec4(glm::vec3(glm::clamp(node.data.light_direction, 0.0f, 1.f)), 1.0f);
@@ -655,7 +655,7 @@ bool TreeVisualizer::InspectInternode(ShootSkeleton& shootSkeleton, SkeletonNode
 
     ImGui::InputFloat("Root distance", &internode.info.root_distance, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
 
-    ImGui::InputFloat("Light Intensity", &internodeData.light_intensity, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    ImGui::InputFloat("Light Intensity", &internodeData.light_intake, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
     ImGui::InputFloat3("Light direction", &internodeData.light_direction.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
 
     ImGui::InputFloat("Growth rate control", &internodeData.growth_potential, 1, 100, "%.3f",
@@ -752,7 +752,7 @@ void TreeVisualizer::PeekInternode(const ShootSkeleton& shootSkeleton, SkeletonN
     ImGui::InputFloat("Root distance", (float*)&internode.info.root_distance, 1, 100, "%.3f",
                       ImGuiInputTextFlags_ReadOnly);
     ImGui::InputFloat3("Light dir", (float*)&internodeData.light_direction.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat("Growth Potential", (float*)&internodeData.light_intensity, 1, 100, "%.3f",
+    ImGui::InputFloat("Growth Potential", (float*)&internodeData.light_intake, 1, 100, "%.3f",
                       ImGuiInputTextFlags_ReadOnly);
 
     if (ImGui::TreeNodeEx("Buds")) {

@@ -303,7 +303,7 @@ void TreeModel::CalculateShootFlux(const glm::mat4& global_transform, const Clim
     auto& internode = shoot_skeleton_.RefNode(internode_handle);
     auto& internode_data = internode.data;
     auto& internode_info = internode.info;
-    internode_data.light_intensity = 0.0f;
+    internode_data.light_intake = 0.0f;
     internode_data.light_direction = -current_gravity_direction;
     bool sample_light_intensity = false;
 
@@ -315,9 +315,9 @@ void TreeModel::CalculateShootFlux(const glm::mat4& global_transform, const Clim
     }
     const glm::vec3 position = global_transform * glm::vec4(internode_info.global_position, 1.0f);
     if (sample_light_intensity) {
-      internode_data.light_intensity =
+      internode_data.light_intake =
           glm::clamp(climate_model.environment_grid.Sample(position, internode_data.light_direction), 0.f, 1.f);
-      if (internode_data.light_intensity <= glm::epsilon<float>()) {
+      if (internode_data.light_intake <= glm::epsilon<float>()) {
         internode_data.light_direction = glm::normalize(internode_info.GetGlobalDirection());
       }
     }
@@ -330,17 +330,17 @@ ShootFlux TreeModel::CollectShootFlux(const std::vector<SkeletonNodeHandle>& sor
   for (const auto& internode_handle : sorted_internode_list) {
     auto& internode = shoot_skeleton_.RefNode(internode_handle);
     const auto& internode_data = internode.data;
-    total_shoot_flux.value += internode_data.light_intensity;
+    total_shoot_flux.value += internode_data.light_intake;
   }
 
   for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
     auto& internode = shoot_skeleton_.RefNode(*it);
     auto& internode_data = internode.data;
-    internode_data.max_descendant_light_intensity = glm::clamp(internode_data.light_intensity, 0.f, 1.f);
+    internode_data.descendant_total_light_intake = glm::clamp(internode_data.light_intake, 0.f, 1.f);
     for (const auto& child_handle : internode.PeekChildHandles()) {
-      internode_data.max_descendant_light_intensity =
-          glm::max(internode_data.max_descendant_light_intensity,
-                   shoot_skeleton_.RefNode(child_handle).data.max_descendant_light_intensity);
+      const auto& child_internode_data = shoot_skeleton_.RefNode(child_handle).data;
+      internode_data.descendant_total_light_intake +=
+          child_internode_data.light_intake + child_internode_data.descendant_total_light_intake;
     }
   }
   return total_shoot_flux;
@@ -597,7 +597,7 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
 
     new_internode.data = {};
     new_internode.data.index_of_parent_bud = 0;
-    new_internode.data.light_intensity = old_internode.data.light_intensity;
+    new_internode.data.light_intake = old_internode.data.light_intake;
     new_internode.data.light_direction = old_internode.data.light_direction;
     old_internode.data.finish_age = new_internode.data.start_age = age_;
     new_internode.data.finish_age = 0.0f;
@@ -852,13 +852,13 @@ void TreeModel::CalculateLevel() {
     if (node.GetParentHandle() == -1) {
       node.data.level = 0;
     } else {
-      float max_biomass = 0.0f;
+      float max_score = 0.0f;
       SkeletonNodeHandle max_child = -1;
       for (const auto& child_handle : node.PeekChildHandles()) {
         auto& child_node = shoot_skeleton_.PeekNode(child_handle);
-        if (const auto child_biomass = child_node.data.descendant_total_biomass + child_node.data.biomass;
-            child_biomass > max_biomass) {
-          max_biomass = child_biomass;
+        if (const auto child_score = child_node.data.descendant_total_light_intake + child_node.data.light_intake;
+            child_score > max_score) {
+          max_score = child_score;
           max_child = child_handle;
         }
       }
@@ -946,7 +946,7 @@ float TreeModel::CalculateGrowthPotential(const std::vector<SkeletonNodeHandle>&
     auto& node = shoot_skeleton_.RefNode(internode_handle);
     if (max_grow_potential > 0.0f)
       node.data.growth_potential /= max_grow_potential;
-    node.data.desired_growth_rate = node.data.light_intensity * node.data.growth_potential;
+    node.data.desired_growth_rate = node.data.light_intake * node.data.growth_potential;
     total_desired_growth_rate += node.data.desired_growth_rate;
   }
   return total_desired_growth_rate;

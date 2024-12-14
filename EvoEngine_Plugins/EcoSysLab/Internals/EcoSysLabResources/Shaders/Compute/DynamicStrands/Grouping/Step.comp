@@ -1,0 +1,51 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+#include "Math.glsl"
+
+layout(local_size_x_id = 0) in; // Set value for local_size_x via specialization constant with id 0
+
+#define BARRIER()        \
+	memoryBarrierShared(); \
+	barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint segment_size;
+};
+
+layout(std430, set = 1, binding = 0) buffer WORK_GROUP_SYNC_BLOCK {
+	uint work_group_updated[];
+};
+
+void main() {
+	int segment_index = int(gl_GlobalInvocationID.x);
+	if (segment_index >= segment_size) return;
+	Segment segment = segments[segment_index];
+	SegmentData segment_data = segment_data_list[segment_index];
+	int min_group_index = floatBitsToInt(segment.shear_stretch_strain.w);
+	uint updated = 0;
+	[[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
+		int pair_handle = segment_data.pair_handles[i];
+		if (pair_handle < 0)
+			break;
+		SegmentPair segment_pair = segment_pairs[pair_handle];
+		if (segment_pair.valid == 0)
+			continue;
+		bool is_segment0 = segment_index == segment_pair.segment0_handle;
+		int neighbor_group_index = floatBitsToInt(segments[is_segment0 ? segment_pair.segment1_handle : segment_pair.segment0_handle].shear_stretch_strain.w);
+		if(min_group_index > neighbor_group_index){
+			min_group_index = neighbor_group_index;
+			updated = 1;
+		}
+	}
+	if(updated == 1){
+		segments[segment_index].shear_stretch_strain.w = intBitsToFloat(min_group_index);
+	}
+	atomicOr(work_group_updated[gl_WorkGroupID.x], updated);
+}

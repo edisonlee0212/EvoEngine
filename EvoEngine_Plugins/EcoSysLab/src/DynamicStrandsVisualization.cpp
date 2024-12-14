@@ -29,7 +29,8 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
     changed = true;
   if (render_segments) {
     if (ImGui::Combo("Segment mode",
-                     {"Default", "Segment color", "Boundary distance", "Moister Content", "Shear strain", "Stretch strain"},
+                     {"Default", "Segment color", "Boundary distance", "Moister Content", "Shear strain",
+                      "Stretch strain", "Group Index"},
                      segment_render_mode))
       changed = true;
     switch (segment_render_mode) {
@@ -68,6 +69,11 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
           changed = true;
         break;
       }
+      case 6: {
+        if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
+          changed = true;
+        break;
+      }
     }
   }
   if (ImGui::Checkbox("Connections", &render_connections))
@@ -93,8 +99,7 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
         if (ImGui::DragFloat("Connection radius multiplier", &connection_radius_multiplier, 0.1f, 0.1f, 1000.f))
           changed = true;
         if (ImGui::DragFloat("Connection boundary distance modular", &connection_boundary_distance_modular, 0.001f,
-                             0.001f,
-                             1.f))
+                             0.001f, 1.f))
           changed = true;
         break;
       }
@@ -114,7 +119,8 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (ImGui::Checkbox("Segment Pair", &render_segment_pairs))
     changed = true;
   if (render_segment_pairs) {
-    if (ImGui::Combo("Segment Pair mode", {"Default", "Bending Strain", "Twisting Strain", "Bundle Strain"}, segment_pair_render_mode))
+    if (ImGui::Combo("Segment Pair mode", {"Default", "Bending Strain", "Twisting Strain", "Bundle Strain"},
+                     segment_pair_render_mode))
       changed = true;
     switch (segment_pair_render_mode) {
       case 0: {
@@ -459,8 +465,8 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   SegmentPairRenderPushConstant segment_pair_push_constant;
   segment_pair_push_constant.render_mode = visualization_parameters.segment_pair_render_mode;
   segment_pair_push_constant.min_color = visualization_parameters.segment_pair_render_mode == 0
-                                        ? visualization_parameters.segment_pair_color_main
-                                        : visualization_parameters.segment_pair_color_min;
+                                             ? visualization_parameters.segment_pair_color_main
+                                             : visualization_parameters.segment_pair_color_min;
   segment_pair_push_constant.max_color = visualization_parameters.segment_pair_color_max;
   segment_pair_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   segment_pair_push_constant.multiplier = visualization_parameters.segment_pair_radius_multiplier;

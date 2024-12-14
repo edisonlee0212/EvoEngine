@@ -8,7 +8,7 @@
 #include "DynamicStrandsPhysics.glsl"
 #include "SortCompare.glsl"
 
-layout(local_size_x_id = 0) in; // Set value for local_size_x via specialization constant with id 1
+layout(local_size_x_id = 0) in; // Set value for local_size_x via specialization constant with id 0
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint segment_size;

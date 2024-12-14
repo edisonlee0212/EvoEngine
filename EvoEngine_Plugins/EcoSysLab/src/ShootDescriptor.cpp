@@ -9,7 +9,7 @@ void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_cont
         internode.info.length != 0.f) {
       float branch_water_factor = 1.f;
       if (branch_strength_lighting_threshold != 0.f &&
-          internode.data.max_descendant_light_intensity < branch_strength_lighting_threshold) {
+          internode.data.descendant_total_light_intake < branch_strength_lighting_threshold) {
         branch_water_factor = 1.f - branch_strength_lighting_loss;
       }
 
@@ -104,18 +104,18 @@ void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_cont
   shoot_growth_controller.m_heightControl = height_control;
 
   shoot_growth_controller.m_apicalDominance = [&](const SkeletonNode<InternodeGrowthData>& internode) {
-    return apical_dominance * internode.data.light_intensity;
+    return apical_dominance * internode.data.light_intake;
   };
   shoot_growth_controller.m_apicalDominanceLoss = apical_dominance_loss;
   shoot_growth_controller.m_leaf = [&](const SkeletonNode<InternodeGrowthData>& internode) {
-    return internode.data.light_intensity > leaf_flushing_lighting_requirement;
+    return internode.data.light_intake > leaf_flushing_lighting_requirement;
   };
 
   shoot_growth_controller.m_leafFallProbability = [&](const SkeletonNode<InternodeGrowthData>& internode) {
     return leaf_fall_probability;
   };
   shoot_growth_controller.m_fruit = [&](const SkeletonNode<InternodeGrowthData>& internode) {
-    return internode.data.light_intensity > fruit_flushing_lighting_requirement;
+    return internode.data.light_intake > fruit_flushing_lighting_requirement;
   };
   shoot_growth_controller.m_fruitFallProbability = [&](const SkeletonNode<InternodeGrowthData>& internode) {
     return fruit_fall_probability;

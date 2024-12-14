@@ -18,8 +18,7 @@ bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLay
 
 void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
                             const RenderParameters& render_parameters) const {
-  if (!render_parameters.render_alpha_shape_mesh)
-  {
+  if (!render_parameters.render_alpha_shape_mesh) {
     return;
   }
 
@@ -95,12 +94,12 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
 
-  #ifdef USE_RENDERDOC
+#ifdef USE_RENDERDOC
   if (rdoc_api) {
     rdoc_api->StartFrameCapture(NULL, NULL);
     EVOENGINE_LOG("RDOC API detected!");
   }
-  #endif  //  USERENDERDOC
+#endif  //  USERENDERDOC
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
@@ -137,11 +136,11 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
           render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
           const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
           vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
-          Platform::EverythingBarrier(vk_command_buffer);
-          #ifdef USE_RENDERDOC
+#ifdef USE_RENDERDOC
           if (rdoc_api)
             rdoc_api->EndFrameCapture(NULL, NULL);
-          #endif
+#endif
         });
+    Platform::EverythingBarrier(vk_command_buffer);
   });
 }

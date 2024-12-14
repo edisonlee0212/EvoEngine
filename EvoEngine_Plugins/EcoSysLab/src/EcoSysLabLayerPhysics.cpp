@@ -15,7 +15,6 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
-
 void EcoSysLabLayer::StrandPhysics() {
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
     const auto scene = GetScene();

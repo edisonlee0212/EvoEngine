@@ -6,9 +6,9 @@
 namespace eco_sys_lab_plugin {
 class DsSegmentCollision;
 class DsDynamicHashedGrid;
-}
+}  // namespace eco_sys_lab_plugin
 #ifdef USE_RENDERDOC
-#include "C:\Program Files\RenderDoc\renderdoc_app.h"
+#  include "C:\Program Files\RenderDoc\renderdoc_app.h"
 static RENDERDOC_API_1_1_2* rdoc_api = NULL;
 #endif
 
@@ -16,10 +16,10 @@ static RENDERDOC_API_1_1_2* rdoc_api = NULL;
 #  include <CGAL/Delaunay_triangulation_3.h>
 #  include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #  include <CGAL/Triangulation_vertex_base_with_info_3.h>
-//#else
+// #else
 
 #endif
-#  include "Delaunay.hpp"
+#include "Delaunay.hpp"
 
 #ifdef USE_CGAL
 typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
@@ -124,12 +124,12 @@ class DynamicStrands {
     int sub_step = 10;
     uint32_t frame_index = 0;
     int constraint_iteration = 5;
-    bool allow_breaking = true;
+    bool enable_breaking = true;
     float velocity_damping = 0.005f;
     float angular_velocity_damping = 0.0005f;
 
     bool enable_segment_collision = false;
-
+    bool enable_grouping = true;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -141,7 +141,8 @@ class DynamicStrands {
       BoundaryDistance,
       MoistureContent,
       ShearStrain,
-      StretchStrain
+      StretchStrain,
+      GroupIndex,
     };
     enum class ConnectionRenderMode {
       Default,
@@ -264,7 +265,8 @@ class DynamicStrands {
     glm::mat4 inertia_w;
     glm::mat4 inv_inertia_w;
 
-    glm::vec4 shear_stretch_strain = glm::vec4(0.f);
+    glm::vec3 shear_stretch_strain = glm::vec3(0.f);
+    uint32_t group_index = 0;
     glm::vec4 max_shear_stretch_strain;
     glm::vec4 shear_stretch_strain_limit;
   };
@@ -425,6 +427,8 @@ class DynamicStrands {
   void Upload();
   void Download();
 
+  void CalculateGroups() const;
+
   void Clear();
 
   std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets;
@@ -440,8 +444,8 @@ class DynamicStrands {
   void CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned>>& points,
                     std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
 #endif
-  void TetDelaunay(const std::vector<glm::vec3>& points,
-                   const std::vector<size_t>& particle_indices, std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
+  void TetDelaunay(const std::vector<glm::vec3>& points, const std::vector<size_t>& particle_indices,
+                   std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
   void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);

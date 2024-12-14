@@ -1,7 +1,7 @@
 #include "DynamicStrands.hpp"
-#include "DsPhysics.hpp"
 #include "DsColliders.hpp"
 #include "DsConstraints.hpp"
+#include "DsPhysics.hpp"
 #include "DynamicStrandUtils.hpp"
 #include "Shader.hpp"
 #include "glm/gtc/matrix_access.hpp"
@@ -17,7 +17,7 @@ inline glm::vec3 cgal_to_glm(const Point_CGAL& p) {
 void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
                              const std::function<void()>& sub_step_action) const {
   pre_step_action();
-  
+
   for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
     if (pre_step)
       pre_step->Execute(physics_parameters, *this);
@@ -66,18 +66,22 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
   if (physics_parameters.enable_segment_collision) {
     segment_collision->Execute(physics_parameters, *this);
   }
+
+  if (physics_parameters.enable_grouping) {
+    CalculateGroups();
+  }
 }
 
 DynamicStrands::DynamicStrands() {
-  #ifdef USE_RENDERDOC
-    if (rdoc_api == nullptr) {
-      if (HMODULE mod = GetModuleHandleA("renderdoc.dll")) {
-        pRENDERDOC_GetAPI RENDERDOC_GetAPI = (pRENDERDOC_GetAPI)GetProcAddress(mod, "RENDERDOC_GetAPI");
-        int ret = RENDERDOC_GetAPI(eRENDERDOC_API_Version_1_1_2, (void**)&rdoc_api);
-        assert(ret == 1);
-      }
+#ifdef USE_RENDERDOC
+  if (rdoc_api == nullptr) {
+    if (HMODULE mod = GetModuleHandleA("renderdoc.dll")) {
+      pRENDERDOC_GetAPI RENDERDOC_GetAPI = (pRENDERDOC_GetAPI)GetProcAddress(mod, "RENDERDOC_GetAPI");
+      int ret = RENDERDOC_GetAPI(eRENDERDOC_API_Version_1_1_2, (void**)&rdoc_api);
+      assert(ret == 1);
     }
-  #endif
+  }
+#endif
 
   if (!strands_layout) {
     strands_layout = std::make_shared<DescriptorSetLayout>();
@@ -116,7 +120,7 @@ DynamicStrands::DynamicStrands() {
   device_hashed_grid_elements_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_hashed_grid_cell_starts_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  
+
   const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
   strands_descriptor_sets.resize(max_frame_in_flight);
   for (auto& i : strands_descriptor_sets) {
@@ -260,6 +264,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     const auto& strand_segment_data = strand_group.PeekStrandSegmentData(static_cast<int>(segment_handle));
     auto& particle0 = particles[segment_handle * 2];
     auto& particle1 = particles[segment_handle * 2 + 1];
+    segment.group_index = 0;
     segment.particle0_handle = static_cast<int>(segment_handle) * 2;
     segment.particle1_handle = static_cast<int>(segment_handle) * 2 + 1;
     particle0.x0 = particle0.x = particle0.last_x =
@@ -327,7 +332,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
           const auto& prev_prev_segment_data =
               strand_model_strand_group.PeekStrandSegmentData(prev_segment.GetPrevHandle());
           d0 = prev_prev_segment_data.initial_distance_to_boundary;
-          d1 = prev_segment_data.initial_distance_to_boundary; 
+          d1 = prev_segment_data.initial_distance_to_boundary;
 
           p0 = prev_prev_segment_data.profile_position;
           p1 = prev_segment_data.profile_position;
@@ -372,7 +377,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     first_uniform_particle.t = 0.0f;
     first_uniform_particle.segment_index = 0;
     first_uniform_particle.prev_particle_handle = -1;
-    first_uniform_particle.next_particle_handle - -1;
+    first_uniform_particle.next_particle_handle = -1;
     first_uniform_particle.next_node_index = -1;
     first_uniform_particle.strand_index = strand_index;
 
@@ -389,13 +394,12 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       uniform_particle.prev_particle_handle = uniform_particle_offset + uniform_segment_index;
       uniform_particles[uniform_particle_offset + uniform_segment_index].next_particle_handle =
           uniform_particle_offset + 1 + uniform_segment_index;
-      uniform_particle.next_particle_handle = -1; // will stay for the last particle of the strand
-      uniform_particle.next_node_index = -1; // will stay for the last particle of the strand
+      uniform_particle.next_particle_handle = -1;  // will stay for the last particle of the strand
+      uniform_particle.next_node_index = -1;       // will stay for the last particle of the strand
       uniform_particle.strand_index = strand_index;
 
       if (uniform_particles[uniform_particle_offset + 1 + last_index_with_new_node].node_index !=
           uniform_particle.node_index) {
-
         // write node index to all previous ones
         for (int i = last_index_with_new_node; i < uniform_segment_index + 1; i++) {
           uniform_particles[uniform_particle_offset + i].next_node_index = uniform_particle.node_index;
@@ -571,7 +575,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       connection.connectivity_valid = 1.f;
       const float max_bend_strain = glm::max(0.001f, initialize_parameters.max_bend_strain.GetValue(ratio));
       const float max_twist_strain = glm::max(0.001f, initialize_parameters.max_twist_strain.GetValue(ratio));
-
 
       connection.max_bend_twist_strain = connection.bend_twist_strain_limit =
           glm::vec3(max_bend_strain, max_bend_strain, max_twist_strain);
@@ -849,7 +852,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   for (size_t i = 0; i < skeleton_nodes.size(); i++) {
     nodes[i].prev_handle = skeleton_nodes[i].GetParentHandle();
   }
-  
+
   if (!initialize_parameters.triangulate_per_bundle) {
     ComputeDelaunay(delaunay_tetrahedrons, initialize_parameters.use_cgal);
   } else {
@@ -870,7 +873,10 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::DragInt("Sub step", &sub_step, 1, 1, 100)) {
     changed = true;
   }
-  if (ImGui::Checkbox("Breaking", &allow_breaking)) {
+  if (ImGui::Checkbox("Breaking", &enable_breaking)) {
+    changed = true;
+  }
+  if (ImGui::Checkbox("Grouping", &enable_grouping)) {
     changed = true;
   }
   if (ImGui::Checkbox("Segment Collision", &enable_segment_collision)) {
@@ -882,6 +888,7 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     changed = true;
   if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
     changed = true;
+
   return changed;
 }
 void DynamicStrands::UpdateBindings() const {
@@ -890,7 +897,7 @@ void DynamicStrands::UpdateBindings() const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_strands_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_nodes_buffer, 0); 
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_nodes_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(2, device_segments_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_particles_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(4, device_segment_pairs_buffer, 0);
@@ -900,14 +907,12 @@ void DynamicStrands::UpdateBindings() const {
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_connections_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(8, device_delaunay_tetrahedrons_buffer,
                                                                               0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(9, device_hashed_grid_elements_buffer,
-                                                                              0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(9, device_hashed_grid_elements_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(10, device_hashed_grid_cell_starts_buffer,
                                                                               0);
-  
 
   for (const auto& c : constraints) {
-    c->UpdateBindings(); 
+    c->UpdateBindings();
   }
 }
 
@@ -957,10 +962,121 @@ void DynamicStrands::Download() {
       device_hashed_grid_elements_buffer->DownloadVector(hashed_grid_elements, hashed_grid_elements.size());
     if (!hashed_grid_cell_starts.empty())
       device_hashed_grid_cell_starts_buffer->DownloadVector(hashed_grid_cell_starts, hashed_grid_cell_starts.size());
-    
+
     for (const auto& c : constraints) {
       c->DownloadData();
     }
+  });
+}
+
+void DynamicStrands::CalculateGroups() const {
+  if (segments.empty())
+    return;
+  Platform::AddTemporaryBufferSyncAction([&]() {
+    struct GroupingPushConstant {
+      uint32_t segment_size;
+    };
+    uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+    static std::shared_ptr<ComputePipeline> reset_pipeline, step_pipeline{};
+    static std::shared_ptr<Buffer> feedback_buffer;
+    if (!reset_pipeline) {
+      static std::shared_ptr<Shader> shader{};
+      shader = std::make_shared<Shader>();
+      shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                  std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Reset.comp");
+      reset_pipeline = std::make_shared<ComputePipeline>();
+      reset_pipeline->compute_shader = shader;
+      reset_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+      reset_pipeline->map_entries.emplace_back(work_group_invocations);
+      auto& push_constant_range = reset_pipeline->push_constant_ranges.emplace_back();
+      push_constant_range.size = sizeof(GroupingPushConstant);
+      push_constant_range.offset = 0;
+      push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+      reset_pipeline->Initialize();
+    }
+    static std::shared_ptr<DescriptorSetLayout> feedback_layout{};
+    if (!feedback_layout) {
+      feedback_layout = std::make_shared<DescriptorSetLayout>();
+    }
+    feedback_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    feedback_layout->Initialize();
+    if (!step_pipeline) {
+      static std::shared_ptr<Shader> shader{};
+      shader = std::make_shared<Shader>();
+      shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                  std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Step.comp");
+      step_pipeline = std::make_shared<ComputePipeline>();
+      step_pipeline->compute_shader = shader;
+      step_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+      step_pipeline->descriptor_set_layouts.emplace_back(feedback_layout);
+      step_pipeline->map_entries.emplace_back(work_group_invocations);
+      auto& push_constant_range = step_pipeline->push_constant_ranges.emplace_back();
+      push_constant_range.size = sizeof(GroupingPushConstant);
+      push_constant_range.offset = 0;
+      push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+      step_pipeline->Initialize();
+    }
+    if (!feedback_buffer) {
+      VkBufferCreateInfo buffer_create_info{};
+      buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+      buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+      buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+      buffer_create_info.size = 1;
+      VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
+      buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+      feedback_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+    }
+    static std::shared_ptr<DescriptorSet> feedback_descriptor_set{};
+    if (!feedback_descriptor_set) {
+      feedback_descriptor_set = std::make_shared<DescriptorSet>(feedback_layout);
+    }
+    const auto start_time = Times::Now();
+    GroupingPushConstant push_constant;
+    push_constant.segment_size = segments.size();
+    const auto current_frame_index = Platform::GetCurrentFrameIndex();
+    const auto group_size = Platform::DivUp(segments.size(), work_group_invocations);
+    std::vector<uint32_t> feedback(group_size);
+    feedback_buffer->UploadVector(feedback);
+    feedback_descriptor_set->UpdateBufferDescriptorBinding(0, feedback_buffer);
+    Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+      reset_pipeline->Bind(vk_command_buffer);
+      reset_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                        strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+      reset_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+      vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+      Platform::EverythingBarrier(vk_command_buffer);
+    });
+    bool updated = true;
+    const auto step = [&]() {
+      Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+        vkCmdFillBuffer(vk_command_buffer, feedback_buffer->GetVkBuffer(), 0, VK_WHOLE_SIZE, 0);
+        Platform::EverythingBarrier(vk_command_buffer);
+        step_pipeline->Bind(vk_command_buffer);
+        step_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                         strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        step_pipeline->BindDescriptorSet(vk_command_buffer, 1, feedback_descriptor_set->GetVkDescriptorSet());
+        step_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+        vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+      });
+      feedback_buffer->DownloadVector(feedback, feedback.size());
+    };
+    int iterations = 0;
+    while (updated) {
+      updated = false;
+      step();
+      for (const auto& i : feedback) {
+        if (i != 0) {
+          updated = true;
+          break;
+        }
+      }
+      iterations++;
+    }
+    const auto method3_time = std::to_string(Times::Now() - start_time);
   });
 }
 
@@ -976,7 +1092,6 @@ void DynamicStrands::Clear() {
   delaunay_tetrahedrons.clear();
   hashed_grid_elements.clear();
   hashed_grid_cell_starts.clear();
-  
 }
 
 glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height,
@@ -1000,20 +1115,18 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
   int max_dist_from_root = 0;
 
   for (int i = 0; i < uniform_particles.size(); i++) {
-      max_dist_from_root = std::max(max_dist_from_root, uniform_particles[i].segment_index);
+    max_dist_from_root = std::max(max_dist_from_root, uniform_particles[i].segment_index);
   }
 
-  std::vector<std::map<int, std::vector<size_t> > > bundle_maps(max_dist_from_root + 1);
+  std::vector<std::map<int, std::vector<size_t>>> bundle_maps(max_dist_from_root + 1);
   std::vector<size_t> offsets(max_dist_from_root + 1, 0);
   std::vector<std::vector<size_t>> particle_adjacent_tets(uniform_particles.size(), std::vector<size_t>{});
 
   for (int i = 0; i < uniform_particles.size(); i++) {
-
     auto& particle = uniform_particles[i];
     auto& node_handle = particle.node_index;
 
     if (bundle_maps[particle.segment_index].find(node_handle) == bundle_maps[particle.segment_index].end()) {
-
       bundle_maps[particle.segment_index][node_handle] = std::vector<size_t>();
     }
 
@@ -1028,7 +1141,7 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
     auto& map = bundle_maps[d];
     for (auto& kv_pair : map) {
       auto& bundle = kv_pair.second;
-      std::vector<std::pair<Point_CGAL, unsigned> > points;
+      std::vector<std::pair<Point_CGAL, unsigned>> points;
 
       if (bundle.size() < 3) {
         continue;
@@ -1046,17 +1159,17 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
 
         float squish_weight = 0.0f;
 
-        glm::vec3 squished_position = squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
+        glm::vec3 squished_position =
+            squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
 
         Point_CGAL p0_cgal(particle.position[0], particle.position[1], particle.position[2]);
         Point_CGAL p1_cgal(squished_position[0], squished_position[1], squished_position[2]);
 
         points.emplace_back(p0_cgal, i);
         points.emplace_back(p1_cgal, particle.next_particle_handle);
-
       }
 
-      CGALDelaunay(points, tetrahedrons); 
+      CGALDelaunay(points, tetrahedrons);
     }
   }
 #else
@@ -1162,7 +1275,7 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
 }
 
 #ifdef USE_CGAL
-void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned> >& points,
+void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned>>& points,
                                   std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
   Delaunay_CGAL dt;
   dt.insert(points.begin(), points.end());
@@ -1197,7 +1310,7 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
     gpu_tet.task_looked_at = 0;
     gpu_tet.mesh_looked_at = 0;
     gpu_tet.inside = 0;
-    gpu_tet.triangles_accepted = 0; 
+    gpu_tet.triangles_accepted = 0;
 
     // check orientation of the tetrahedron
     const float d = DynamicStrandUtils::PointPlaneDistance(
@@ -1240,20 +1353,15 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
 #endif
 
 void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std::vector<size_t>& particle_indices,
-                                  std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
-
+                                 std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
   const auto tets = Delaunay3D::GenerateTetrahedrons(points);
 
   int valid_neighbors = 0;
   for (const auto& tet : tets) {
-
-    
-
     int indices[4];
     bool invalid = false;
     for (size_t i = 0; i < 4; i++) {
-      if (tet.v[i] >= particle_indices.size() || tet.v[i] < 0)
-      {
+      if (tet.v[i] >= particle_indices.size() || tet.v[i] < 0) {
         invalid = true;
         EVOENGINE_LOG("Tetrahedron is invalid");
         break;
@@ -1306,7 +1414,6 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
 
       bool invalid = false;
       for (size_t j = 0; j < 4; j++) {
-
         if (neighbor.v[j] >= particle_indices.size()) {
           invalid = true;
           break;
@@ -1342,7 +1449,6 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
 }
 
 void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal) {
- 
 // TODO: maybe a different library will work here
 #ifdef USE_CGAL
   if (use_cgal) {

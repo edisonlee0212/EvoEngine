@@ -41,6 +41,7 @@ class EcoSysLabLayer : public ILayer {
       const StrandModelMeshGeneratorSettings& target_strand_model_mesh_generator_settings) const;
   void ClearStrandModelMeshes() const;
   void GenerateDynamicStrandsForAllTrees() const;
+  void ReGroupDynamicStrandSegments() const;
   void GenerateStrandRenderers() const;
   void ClearStrandRenderers() const;
 
@@ -103,8 +104,7 @@ class EcoSysLabLayer : public ILayer {
 
   friend class TreeVisualizer;
   friend class Tree;
-  
-  
+
   std::vector<int> shoot_versions_;
   std::vector<glm::vec3> random_colors_;
 
@@ -172,7 +172,7 @@ class EcoSysLabLayer : public ILayer {
 
   void LateUpdate() override;
   void TreeVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
-  void StrandVisualization(const std::shared_ptr<EditorLayer>& editor_layer) const;
+  void DynamicStrandsVisualization(const std::shared_ptr<EditorLayer>& editor_layer) const;
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void UpdateFlows(const std::vector<Entity>* tree_entities, const std::shared_ptr<Strands>& branch_strands);
   void ClearGroundFruitAndLeaf();
