@@ -91,11 +91,11 @@ void main(){
 	Segment segment0 = segments[segment_pair.segment0_handle];
 	Segment segment1 = segments[segment_pair.segment1_handle];
 
-	int segment0_particle0_handle = floatBitsToInt(segment0.inertia_tensor_particle_0_handle.w);
-    int segment0_particle1_handle = floatBitsToInt(segment0.inv_inertia_tensor_particle_1_handle.w);
+	int segment0_particle0_handle = segment0.particle_0_handle;
+    int segment0_particle1_handle = segment0.particle_1_handle;
 
-    int segment1_particle0_handle = floatBitsToInt(segment1.inertia_tensor_particle_0_handle.w);
-    int segment1_particle1_handle = floatBitsToInt(segment1.inv_inertia_tensor_particle_1_handle.w);
+    int segment1_particle0_handle = segment1.particle_0_handle;
+    int segment1_particle1_handle = segment1.particle_1_handle;
 
     Particle segment0_particle0 = particles[segment0_particle0_handle];
     Particle segment0_particle1 = particles[segment0_particle1_handle];
@@ -103,10 +103,10 @@ void main(){
     Particle segment1_particle1 = particles[segment1_particle1_handle];
 
 	vec3 start_position =
-        (segment0_particle0.x_node_handle.xyz + segment0_particle1.x_node_handle.xyz) * 0.5f;
+        (segment0_particle0.x + segment0_particle1.x) * 0.5f;
 
     vec3 end_position =
-        (segment1_particle0.x_node_handle.xyz + segment1_particle1.x_node_handle.xyz) * 0.5f;
+        (segment1_particle0.x + segment1_particle1.x) * 0.5f;
 
 	vec3 center_position = (start_position + end_position) * 0.5f;
 	float center_thickness = (segment0.radius + segment1.radius) * 0.1f * multiplier;
@@ -120,15 +120,14 @@ void main(){
 	if(color_mode == 0){
 		color = color0;
 	}else if(color_mode == 1){
-		color = mix(color0, color1, clamp(max(
-					abs(segment_pair.bending_twist_bundle_strain.x) / segment_pair.bend_twist_bundle_strain_limit.x, 
-					abs(segment_pair.bending_twist_bundle_strain.y) / segment_pair.bend_twist_bundle_strain_limit.y), 0.0, 1.0));
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain.x) / segment_pair.bending_twist_bundle_strain_limit.x, 0.0, 1.0));
 	}else if(color_mode == 2){
 		color = mix(color0, color1, clamp(
-					abs(segment_pair.bending_twist_bundle_strain.z) / segment_pair.bend_twist_bundle_strain_limit.z, 0.0, 1.0));
+					abs(segment_pair.bending_twist_bundle_strain.y) / segment_pair.bending_twist_bundle_strain_limit.y, 0.0, 1.0));
 	}else if(color_mode == 3){
 		color = mix(color0, color1, clamp(
-					abs(segment_pair.bending_twist_bundle_strain.w) / segment_pair.bend_twist_bundle_strain_limit.w, 0.0, 1.0));
+					abs(segment_pair.bending_twist_bundle_strain.z) / segment_pair.bending_twist_bundle_strain_limit.z, 0.0, 1.0));
 	}
 
 

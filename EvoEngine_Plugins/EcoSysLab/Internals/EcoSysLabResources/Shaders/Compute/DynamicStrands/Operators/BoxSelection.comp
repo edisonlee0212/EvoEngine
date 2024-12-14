@@ -41,7 +41,7 @@ void main(){
 		Particle particle = particles[particle_index];
 		
 		//Reset acceration
-		vec4 screen_space_coord = projection_view * vec4(particle.x_node_handle.xyz, 1.0);
+		vec4 screen_space_coord = projection_view * vec4(particle.x, 1.0);
 		vec3 screen_space_position = screen_space_coord.xyz / screen_space_coord.w;
 		float screen_x = (screen_space_position.x + 1.0) * 0.5;
 		float screen_y = (-screen_space_position.y + 1.0) * 0.5;

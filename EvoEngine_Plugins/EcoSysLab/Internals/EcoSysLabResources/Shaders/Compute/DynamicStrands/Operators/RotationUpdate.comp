@@ -55,7 +55,7 @@ void main(){
 
 		Segment segment = segments[segment_index];
 		segment.q = segment.last_q = new_rotation;
-		segment.torque_rest_length.xyz = vec3(0, 0, 0);
+		segment.torque = vec3(0, 0, 0);
 		segment.inv_mass = 0.0;
 
 		segments[segment_index] = segment;

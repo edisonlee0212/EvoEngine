@@ -38,10 +38,10 @@ void main(){
 		if(segment_index >= segment_size) break;
 
 		Segment segment = segments[segment_index];
-		segment.torque_rest_length.xyz = vec3(0.0, 0.0, 0.0);
+		segment.torque = vec3(0.0, 0.0, 0.0);
 		segment.inv_mass = segment.original_inv_mass;
 
-		segment.shear_stretch_strain.xyz = vec3(0.0, 0.0, 0.0);
+		segment.shear_stretch_strain = vec2(0.0, 0.0);
 
 		segments[segment_index] = segment;
 	}

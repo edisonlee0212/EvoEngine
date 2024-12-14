@@ -1571,6 +1571,9 @@ void Platform::PreUpdate() {
 
   const auto vulkan_update = [&](const std::function<void()>& swap_chain_action) {
     vkDeviceWaitIdle(graphics.vk_device_);
+    const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
+    vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX);
+
     for (auto& i : graphics.buffer_sync_actions)
       i.second();
     for (auto& i : graphics.temporary_buffer_sync_actions)
@@ -1578,8 +1581,6 @@ void Platform::PreUpdate() {
     graphics.temporary_buffer_sync_actions.clear();
     GeometryStorage::DeviceSync();
     TextureStorage::DeviceSync();
-    const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
-    vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX);
     swap_chain_action();
     vkResetFences(graphics.vk_device_, 1, in_flight_fences);
   };

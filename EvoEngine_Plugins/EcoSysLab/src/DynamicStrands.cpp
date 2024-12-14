@@ -17,7 +17,6 @@ inline glm::vec3 cgal_to_glm(const Point_CGAL& p) {
 void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
                              const std::function<void()>& sub_step_action) const {
   pre_step_action();
-
   for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
     if (pre_step)
       pre_step->Execute(physics_parameters, *this);
@@ -30,7 +29,6 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
           c->ProjectPositionConstraint(physics_parameters, *this);
         }
     }
-
     const auto scene = Application::GetActiveScene();
     const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
     const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
@@ -68,7 +66,7 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
   }
 
   if (physics_parameters.enable_grouping) {
-    CalculateGroups();
+    CalculateGroups(physics_parameters);
   }
 }
 
@@ -95,7 +93,6 @@ DynamicStrands::DynamicStrands() {
     strands_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->Initialize();
   }
   wait_for_upload = true;
@@ -115,7 +112,6 @@ DynamicStrands::DynamicStrands() {
   device_segment_pairs_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_data_list_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_uniform_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  device_connections_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_delaunay_tetrahedrons_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_hashed_grid_elements_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_hashed_grid_cell_starts_buffer =
@@ -441,146 +437,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
     uniform_particle.position = glm::mix(particle0.x0, particle1.x0, uniform_particle.t);
   });
-
-  for (uint32_t strand_index = 0; strand_index < target_strands.size(); strand_index++) {
-    auto& target_strand = target_strands[strand_index];
-    const auto& segment_handles = target_strand.PeekStrandSegmentHandles();
-    if (segment_handles.size() < 2)
-      continue;
-
-    auto& strand = strands[strand_index];
-    strand.begin_segment_handle = segment_handles.front();
-    strand.end_segment_handle = segment_handles.back();
-    const int handle_index_offset = static_cast<int>(connections.size());
-    strand.begin_connection_handle = handle_index_offset;
-    strand.end_connection_handle = handle_index_offset + static_cast<int>(segment_handles.size()) - 2;
-    connections.resize(connections.size() + segment_handles.size() - 1);
-    for (int segment_handle_index = 0; segment_handle_index < static_cast<int>(segment_handles.size());
-         segment_handle_index++) {
-      const auto segment0_handle = segment_handles[segment_handle_index];
-      auto& segment0 = segments[segment0_handle];
-      /*
-      if (initialize_parameters.uniform_subdivision == 1) {
-        segment0.prev_jump_handle = segment0.prev_handle;
-        segment0.next_jump_handle = segment0.next_handle;
-
-        strand.begin_jump_segment_handle = strand.begin_segment_handle;
-        strand.end_jump_segment_handle = strand.end_segment_handle;
-        strand.begin_jump_connection_handle = strand.begin_connection_handle;
-        strand.end_jump_connection_handle = strand.end_connection_handle;
-
-      } else if (segment_handle_index % initialize_parameters.uniform_subdivision ==
-      initialize_parameters.uniform_subdivision - 1) { if (segment_handle_index /
-      initialize_parameters.uniform_subdivision == 0) { strand.begin_jump_segment_handle = segment0_handle;
-        }
-        if (segment_handle_index == initialize_parameters.uniform_subdivision - 1) {
-          segment0.prev_jump_handle = -1;
-
-        } else {
-          int jump = initialize_parameters.uniform_subdivision - 1;
-          segment0.prev_jump_handle = segment0.prev_handle;
-          while (jump > 0) {
-            segment0.prev_jump_handle = segments[segment0.prev_jump_handle].prev_handle;
-            jump--;
-          }
-        }
-        if (segment_handle_index == static_cast<int>(segment_handles.size()) - 1) {
-          segment0.next_jump_handle = -1;
-          strand.end_jump_segment_handle = segment0_handle;
-        } else {
-          int jump = initialize_parameters.uniform_subdivision - 1;
-          segment0.next_jump_handle = segment0.next_handle;
-          while (jump > 0) {
-            segment0.next_jump_handle = segments[segment0.next_jump_handle].next_handle;
-            jump--;
-          }
-        }
-      } else {
-        segment0.prev_jump_handle = -1;
-        segment0.next_jump_handle = -1;
-      }
-      */
-      if (segment_handle_index == static_cast<int>(segment_handles.size()) - 1)
-        break;
-      const auto connection_handle = segment_handle_index + handle_index_offset;
-      auto& connection = connections[connection_handle];
-
-      connection.segment0_handle = segment0_handle;
-      connection.segment1_handle = segment_handles[segment_handle_index + 1];
-
-      const auto& segment1 = segments[connection.segment1_handle];
-      connection.segment0_particle_handle = segment0.particle1_handle;
-      connection.segment1_particle_handle = segment1.particle0_handle;
-      if (segment_handle_index > 0) {
-        connection.prev_handle = connection_handle - 1;
-      } else {
-        connection.prev_handle = -1;
-      }
-      if (segment_handle_index < static_cast<int>(segment_handles.size()) - 2) {
-        connection.next_handle = connection_handle + 1;
-      } else {
-        connection.next_handle = -1;
-      }
-      particles[connection.segment0_particle_handle].connection_handle = connection_handle;
-      particles[connection.segment1_particle_handle].connection_handle = connection_handle;
-      /*
-      if (initialize_parameters.uniform_subdivision == 1) {
-        connection.prev_jump_handle = connection.prev_handle;
-        connection.next_jump_handle = connection.next_handle;
-      } else if (segment_handle_index % initialize_parameters.uniform_subdivision ==
-      initialize_parameters.uniform_subdivision - 1) { if (segment_handle_index /
-      initialize_parameters.uniform_subdivision == 0) { strand.begin_jump_connection_handle = connection_handle;
-        }
-        if (segment_handle_index == initialize_parameters.uniform_subdivision - 1) {
-          connection.prev_jump_handle = -1;
-        } else {
-          connection.prev_jump_handle = connection_handle - initialize_parameters.uniform_subdivision;
-        }
-        if (segment_handle_index == static_cast<int>(segment_handles.size()) - 1 -
-      initialize_parameters.uniform_subdivision) { connection.next_jump_handle = -1; strand.end_jump_connection_handle =
-      connection_handle; } else { connection.next_jump_handle = connection_handle +
-      initialize_parameters.uniform_subdivision;
-        }
-      } else {
-        connection.prev_jump_handle = -1;
-        connection.next_jump_handle = -1;
-      }
-      */
-
-      const float ratio0 =
-          segment0.boundary_distance * segment0.radius * 2.f / initialize_parameters.max_distance_to_boundary;
-      const float ratio1 =
-          segment1.boundary_distance * segment1.radius * 2.f / initialize_parameters.max_distance_to_boundary;
-      const float ratio = (ratio0 + ratio1) * .5f;
-      connection.max_bending_modulus = initialize_parameters.max_bending_modulus.GetValue(ratio) * 1e9f;
-      connection.max_torsion_modulus = initialize_parameters.max_torsion_modulus.GetValue(ratio) * 1e9f;
-
-      const float average_segment_radius = (segment0.radius + segment1.radius) * .5f;
-      const float average_segment_length = (segment0.rest_length + segment1.rest_length) * .5f;
-
-      const auto second_moment_of_area = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.25f;
-      const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.5f;
-
-      connection.bending_alpha =
-          1.f / (connection.max_bending_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f));
-      connection.torsion_alpha =
-          1.f / (connection.max_torsion_modulus * polar_moment_of_inertia / average_segment_length);
-
-      const auto& q0 = segment0.q0;
-      const auto& q1 = segment1.q0;
-      connection.moisture_content = (segment0.moisture_content + segment1.moisture_content) * 0.5f;
-      connection.boundary_distance = (segment0.boundary_distance + segment1.boundary_distance) * 0.5f;
-      connection.rest_darboux_vector = glm::conjugate(q0) * q1;
-      connection.bend_twist_valid = 1.f;
-      connection.connectivity_valid = 1.f;
-      const float max_bend_strain = glm::max(0.001f, initialize_parameters.max_bend_strain.GetValue(ratio));
-      const float max_twist_strain = glm::max(0.001f, initialize_parameters.max_twist_strain.GetValue(ratio));
-
-      connection.max_bend_twist_strain = connection.bend_twist_strain_limit =
-          glm::vec3(max_bend_strain, max_bend_strain, max_twist_strain);
-    }
-  }
-
+  segment_data_list.resize(segments.size());
   std::vector<glm::vec3> max_bounds(Jobs::GetWorkerSize());
   std::vector<glm::vec3> min_bounds(Jobs::GetWorkerSize());
   for (auto& i : max_bounds)
@@ -608,7 +465,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
                      strand_segment_data.end_root_distance / average_segment_length);
   };
 
-  segment_data_list.resize(segments.size());
   Jobs::RunParallelFor(segment_data_list.size(), [&](const auto segment_handle, const auto worker_i) {
     max_bounds[worker_i] =
         glm::max(max_bounds[worker_i], calculate_regularized_segment_p0(static_cast<int>(segment_handle)));
@@ -623,6 +479,86 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       segment_data_list[segment_handle].pair_handles[j] = -1;
     }
   });
+
+  for (uint32_t strand_index = 0; strand_index < target_strands.size(); strand_index++) {
+    auto& target_strand = target_strands[strand_index];
+    const auto& segment_handles = target_strand.PeekStrandSegmentHandles();
+    if (segment_handles.size() < 2)
+      continue;
+
+    auto& strand = strands[strand_index];
+    strand.begin_segment_handle = segment_handles.front();
+    strand.end_segment_handle = segment_handles.back();
+    const int handle_index_offset = static_cast<int>(segment_pairs.size());
+    strand.begin_segment_pair_handle = handle_index_offset;
+    strand.end_segment_pair_handle = handle_index_offset + static_cast<int>(segment_handles.size()) - 2;
+    segment_pairs.resize(segment_pairs.size() + segment_handles.size() - 1);
+    for (int segment_handle_index = 0; segment_handle_index < static_cast<int>(segment_handles.size());
+         segment_handle_index++) {
+      const auto segment0_handle = segment_handles[segment_handle_index];
+      auto& segment0 = segments[segment0_handle];
+      if (segment_handle_index == static_cast<int>(segment_handles.size()) - 1)
+        break;
+      const auto segment_pair_handle = segment_handle_index + handle_index_offset;
+      auto& segment_pair = segment_pairs[segment_pair_handle];
+
+      segment_pair.segment0_handle = segment0_handle;
+      segment_pair.segment1_handle = segment_handles[segment_handle_index + 1];
+
+      const auto& segment1 = segments[segment_pair.segment1_handle];
+
+      auto& segment0_data = segment_data_list[segment0_handle];
+      auto& segment1_data = segment_data_list[segment_pair.segment1_handle];
+
+      segment0_data.pair_handles[1] = segment_pair_handle;
+      segment1_data.pair_handles[0] = segment_pair_handle;
+
+      particles[segment0.particle1_handle].connection_handle = segment_pair_handle;
+      particles[segment1.particle0_handle].connection_handle = segment_pair_handle;
+    }
+  }
+
+  for (uint32_t strand_index = 0; strand_index < target_strands.size(); strand_index++) {
+    auto& gpu_strand = strands[strand_index];
+    gpu_strand.front_propagate_begin_segment_handle = -1;
+    gpu_strand.back_propagate_begin_segment_handle = -1;
+    gpu_strand.front_propagate_begin_segment_pair_handle = -1;
+    gpu_strand.back_propagate_begin_segment_pair_handle = -1;
+    gpu_strand.alternative_front_propagate_begin_segment_pair_handle = -1;
+    gpu_strand.alternative_back_propagate_begin_segment_pair_handle = -1;
+    gpu_strand.alternative_front_propagate_begin_segment_handle = -1;
+    gpu_strand.alternative_back_propagate_begin_segment_handle = -1;
+    if (gpu_strand.begin_segment_handle == -1) {
+      continue;
+    }
+    gpu_strand.front_propagate_begin_segment_handle = gpu_strand.begin_segment_handle;
+    if (gpu_strand.begin_segment_handle == gpu_strand.end_segment_handle) {
+      gpu_strand.alternative_front_propagate_begin_segment_handle = gpu_strand.begin_segment_handle;
+      continue;
+    }
+    gpu_strand.alternative_front_propagate_begin_segment_handle = segments[gpu_strand.begin_segment_handle].next_handle;
+
+    gpu_strand.front_propagate_begin_segment_pair_handle = gpu_strand.begin_segment_pair_handle;
+    if (gpu_strand.begin_segment_pair_handle == gpu_strand.end_segment_pair_handle) {
+      gpu_strand.alternative_front_propagate_begin_segment_pair_handle = gpu_strand.begin_segment_pair_handle;
+      continue;
+    }
+    gpu_strand.alternative_front_propagate_begin_segment_pair_handle = gpu_strand.begin_segment_pair_handle + 1;
+
+    const int connection_size = gpu_strand.end_segment_pair_handle - gpu_strand.begin_segment_pair_handle + 1;
+    gpu_strand.back_propagate_begin_segment_pair_handle =
+        connection_size % 2 == 0 ? gpu_strand.end_segment_pair_handle : gpu_strand.end_segment_pair_handle - 1;
+
+    gpu_strand.alternative_back_propagate_begin_segment_pair_handle =
+        connection_size % 2 == 0 ? gpu_strand.end_segment_pair_handle - 1 : gpu_strand.end_segment_pair_handle;
+
+    gpu_strand.back_propagate_begin_segment_handle =
+        connection_size % 2 == 1 ? gpu_strand.end_segment_handle : segments[gpu_strand.end_segment_handle].prev_handle;
+
+    gpu_strand.alternative_back_propagate_begin_segment_handle =
+        connection_size % 2 == 1 ? segments[gpu_strand.end_segment_handle].prev_handle : gpu_strand.end_segment_handle;
+  }
+  connection_segment_pair_size = segment_pairs.size();
 
   auto max_bound = glm::vec3(-FLT_MAX);
   auto min_bound = glm::vec3(FLT_MAX);
@@ -654,20 +590,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     voxel_grid.Ref(s_d.center_position).emplace_back(s_d);
   }
   std::multimap<float, std::map<std::pair<int, int>, std::pair<float, float>>> candidates;
-
-  for (const auto& connection : connections) {
-    const auto& segment0_handle = connection.segment0_handle;
-    const auto& segment1_handle = connection.segment1_handle;
-    const auto pair =
-        std::make_pair(glm::min(segment0_handle, segment1_handle), glm::max(segment0_handle, segment1_handle));
-    constexpr auto distance_pair = std::make_pair(0.f, 0.f);
-    if (const auto search = candidates.find(0.0f); search != candidates.end()) {
-      search->second.emplace(pair, distance_pair);
-    } else {
-      candidates.insert({-1.0f, {}});
-      candidates.find(-1.0f)->second.insert({pair, distance_pair});
-    }
-  }
   for (int segment_handle = 0; segment_handle < segments.size(); segment_handle++) {
     const auto& strand_segment_data = strand_group.PeekStrandSegmentData(segment_handle);
     const auto p0 = calculate_regularized_segment_p0(segment_handle);
@@ -759,9 +681,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
           }
         });
   }
-  segment_pairs.clear();
-  std::vector<uint32_t> counters(segments.size(), 0);
 
+  std::vector<uint32_t> counters(segments.size(), 2);
   for (const auto& candidate_set : candidates) {
     for (const auto& candidate : candidate_set.second) {
       auto& first = counters[candidate.first.first];
@@ -773,45 +694,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       auto& new_pair = segment_pairs.back();
       new_pair.segment0_handle = candidate.first.first;
       new_pair.segment1_handle = candidate.first.second;
-      const auto& horizontal_distance = candidate.second.first;
-      const auto& vertical_distance = candidate.second.second;
-
-      const auto& segment0 = segments[candidate.first.first];
-      const auto& segment1 = segments[candidate.first.second];
-      auto& segment0_particle0 = particles[segment0.particle0_handle];
-      auto& segment0_particle1 = particles[segment0.particle1_handle];
-
-      auto& segment1_particle0 = particles[segment1.particle0_handle];
-      auto& segment1_particle1 = particles[segment1.particle1_handle];
-
-      const auto segment0_center_position = (segment0_particle0.x0 + segment0_particle1.x0) * .5f;
-      const auto segment1_center_position = (segment1_particle0.x0 + segment1_particle1.x0) * .5f;
-
-      const float segment_length = 1.f;
-      // glm::distance(segment0_center_position, segment1_center_position);
-      const float segment_radius = 1.f;
-      //(segment0.radius + segment1.radius) * .5f;
-      const float ratio0 =
-          segment0.boundary_distance * segment0.radius * 2.f / initialize_parameters.max_distance_to_boundary;
-      const float ratio1 =
-          segment1.boundary_distance * segment1.radius * 2.f / initialize_parameters.max_distance_to_boundary;
-      const float ratio = (ratio0 + ratio1) * .5f;
-      new_pair.max_bending_modulus = initialize_parameters.max_bending_modulus.GetValue(ratio) * 1e9f;
-      new_pair.max_torsion_modulus = initialize_parameters.max_torsion_modulus.GetValue(ratio) * 1e9f;
-
-      const auto second_moment_of_area = glm::pi<float>() * std::pow(segment_radius, 4.f) * 0.25f;
-      const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(segment_radius, 4.f) * 0.5f;
-
-      new_pair.bending_alpha =
-          1.f / (new_pair.max_bending_modulus * second_moment_of_area / glm::pow(segment_length, 3.f));
-      new_pair.twisting_alpha = 1.f / (new_pair.max_torsion_modulus * polar_moment_of_inertia / segment_length);
-      const float max_bend_strain = glm::max(0.001f, initialize_parameters.max_bend_strain.GetValue(ratio));
-      const float max_twist_strain = glm::max(0.001f, initialize_parameters.max_twist_strain.GetValue(ratio));
-
-      const float max_bundle_strain = glm::max(0.001f, initialize_parameters.max_bundle_strain.GetValue(ratio));
-      new_pair.max_bending_twist_bundle_strain = new_pair.bending_twist_bundle_limit =
-          glm::vec4(max_bend_strain, max_bend_strain, max_twist_strain, max_bundle_strain);
-      new_pair.valid = 1;
       segment_data_list[candidate.first.first].pair_handles[first] = pair_handle;
       segment_data_list[candidate.first.second].pair_handles[second] = pair_handle;
       first++;
@@ -820,9 +702,13 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   }
 
   Jobs::RunParallelFor(segment_pairs.size(), [&](const auto pair_index) {
-    auto& pair = segment_pairs[pair_index];
-    auto& segment0 = segments[pair.segment0_handle];
-    auto& segment1 = segments[pair.segment1_handle];
+    auto& segment_pair = segment_pairs[pair_index];
+
+    auto& segment0 = segments[segment_pair.segment0_handle];
+    auto& segment1 = segments[segment_pair.segment1_handle];
+
+    bool direct_connection = segment_data_list[segment_pair.segment0_handle].pair_handles[1] == pair_index;
+
     auto& segment0_particle0 = particles[segment0.particle0_handle];
     auto& segment0_particle1 = particles[segment0.particle1_handle];
 
@@ -832,19 +718,46 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     const auto segment0_center_position = (segment0_particle0.x0 + segment0_particle1.x0) * .5f;
     const auto segment1_center_position = (segment1_particle0.x0 + segment1_particle1.x0) * .5f;
 
-    pair.segment0_particle0_offset =
+    segment_pair.segment0_particle0_offset =
         glm::vec4(glm::inverse(segment1.q0) * (segment0_particle0.x0 - segment1_center_position), 0.0f);
-    pair.segment0_particle1_offset =
+    segment_pair.segment0_particle1_offset =
         glm::vec4(glm::inverse(segment1.q0) * (segment0_particle1.x0 - segment1_center_position), 0.0f);
 
-    pair.segment1_particle0_offset =
+    segment_pair.segment1_particle0_offset =
         glm::vec4(glm::inverse(segment0.q0) * (segment1_particle0.x0 - segment0_center_position), 0.0f);
-    pair.segment1_particle1_offset =
+    segment_pair.segment1_particle1_offset =
         glm::vec4(glm::inverse(segment0.q0) * (segment1_particle1.x0 - segment0_center_position), 0.0f);
 
-    pair.rest_darboux_vector = glm::conjugate(segment0.q0) * segment1.q0;
-  });
+    segment_pair.rest_darboux_vector = glm::conjugate(segment0.q0) * segment1.q0;
 
+    segment_pair.bend_twist_valid = true;
+    segment_pair.connectivity_valid = true;
+
+    const float ratio0 =
+        segment0.boundary_distance * segment0.radius * 2.f / initialize_parameters.max_distance_to_boundary;
+    const float ratio1 =
+        segment1.boundary_distance * segment1.radius * 2.f / initialize_parameters.max_distance_to_boundary;
+    const float ratio = (ratio0 + ratio1) * .5f;
+
+    segment_pair.max_bending_modulus = initialize_parameters.max_bending_modulus.GetValue(ratio) * 1e9f;
+    segment_pair.max_torsion_modulus = initialize_parameters.max_torsion_modulus.GetValue(ratio) * 1e9f;
+    const float average_segment_radius = (segment0.radius + segment1.radius) * .5f;
+    const float average_segment_length = (segment0.rest_length + segment1.rest_length) * .5f;
+    const auto second_moment_of_area = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.25f;
+    const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.5f;
+    segment_pair.bending_alpha =
+        1.f / (segment_pair.max_bending_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f));
+    segment_pair.torsion_alpha =
+        1.f / (segment_pair.max_torsion_modulus * polar_moment_of_inertia / average_segment_length);
+    const auto& q0 = segment0.q0;
+    const auto& q1 = segment1.q0;
+    segment_pair.rest_darboux_vector = glm::conjugate(q0) * q1;
+    const float max_bend_strain = glm::max(0.001f, initialize_parameters.max_bend_strain.GetValue(ratio));
+    const float max_twist_strain = glm::max(0.001f, initialize_parameters.max_twist_strain.GetValue(ratio));
+    const float max_bundle_strain = glm::max(0.001f, initialize_parameters.max_bundle_strain.GetValue(ratio));
+    segment_pair.max_bending_twist_bundle_strain = segment_pair.bending_twist_bundle_limit =
+        glm::vec3(max_bend_strain, max_twist_strain, max_bundle_strain);
+  });
   // set up nodes
   auto& skeleton_nodes = strand_model_skeleton.PeekRawNodes();
   nodes.resize(skeleton_nodes.size());
@@ -904,11 +817,10 @@ void DynamicStrands::UpdateBindings() const {
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_segment_data_list_buffer, 0);
 
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(6, device_uniform_particles_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_connections_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(8, device_delaunay_tetrahedrons_buffer,
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_delaunay_tetrahedrons_buffer,
                                                                               0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(9, device_hashed_grid_elements_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(10, device_hashed_grid_cell_starts_buffer,
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(8, device_hashed_grid_elements_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(9, device_hashed_grid_cell_starts_buffer,
                                                                               0);
 
   for (const auto& c : constraints) {
@@ -926,11 +838,9 @@ void DynamicStrands::Upload() {
     device_segment_pairs_buffer->UploadVector(segment_pairs);
     device_segment_data_list_buffer->UploadVector(segment_data_list);
     device_uniform_particles_buffer->UploadVector(uniform_particles);
-    device_connections_buffer->UploadVector(connections);
     device_delaunay_tetrahedrons_buffer->UploadVector(delaunay_tetrahedrons);
     device_hashed_grid_elements_buffer->UploadVector(hashed_grid_elements);
     device_hashed_grid_cell_starts_buffer->UploadVector(hashed_grid_cell_starts);
-
     for (const auto& c : constraints) {
       c->UploadData();
     }
@@ -954,97 +864,116 @@ void DynamicStrands::Download() {
       device_segment_data_list_buffer->DownloadVector(segment_data_list, segment_data_list.size());
     if (!uniform_particles.empty())
       device_uniform_particles_buffer->DownloadVector(uniform_particles, uniform_particles.size());
-    if (!connections.empty())
-      device_connections_buffer->DownloadVector(connections, connections.size());
     if (!delaunay_tetrahedrons.empty())
       device_delaunay_tetrahedrons_buffer->DownloadVector(delaunay_tetrahedrons, delaunay_tetrahedrons.size());
     if (!hashed_grid_elements.empty())
       device_hashed_grid_elements_buffer->DownloadVector(hashed_grid_elements, hashed_grid_elements.size());
     if (!hashed_grid_cell_starts.empty())
       device_hashed_grid_cell_starts_buffer->DownloadVector(hashed_grid_cell_starts, hashed_grid_cell_starts.size());
-
     for (const auto& c : constraints) {
       c->DownloadData();
     }
   });
 }
-
-void DynamicStrands::CalculateGroups() const {
+std::shared_ptr<ComputePipeline> reset_pipeline, step_pipeline, apply_pipeline{};
+std::shared_ptr<Buffer> feedback_buffer;
+std::shared_ptr<Buffer> new_group_index_buffer;
+std::shared_ptr<DescriptorSetLayout> feedback_layout{};
+std::shared_ptr<DescriptorSet> feedback_descriptor_set{};
+void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters) const {
   if (segments.empty())
     return;
-  Platform::AddTemporaryBufferSyncAction([&]() {
-    struct GroupingPushConstant {
-      uint32_t segment_size;
-    };
-    uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
-    static std::shared_ptr<ComputePipeline> reset_pipeline, step_pipeline{};
-    static std::shared_ptr<Buffer> feedback_buffer;
-    if (!reset_pipeline) {
-      static std::shared_ptr<Shader> shader{};
-      shader = std::make_shared<Shader>();
-      shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                  std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Reset.comp");
-      reset_pipeline = std::make_shared<ComputePipeline>();
-      reset_pipeline->compute_shader = shader;
-      reset_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-      reset_pipeline->map_entries.emplace_back(work_group_invocations);
-      auto& push_constant_range = reset_pipeline->push_constant_ranges.emplace_back();
-      push_constant_range.size = sizeof(GroupingPushConstant);
-      push_constant_range.offset = 0;
-      push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  struct GroupingPushConstant {
+    uint32_t segment_size;
+  };
+  if (!reset_pipeline) {
+    std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Reset.comp");
+    reset_pipeline = std::make_shared<ComputePipeline>();
+    reset_pipeline->compute_shader = shader;
+    reset_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    reset_pipeline->map_entries.emplace_back(Platform::Constants::compute_work_group_invocations);
+    auto& push_constant_range = reset_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(GroupingPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-      reset_pipeline->Initialize();
-    }
-    static std::shared_ptr<DescriptorSetLayout> feedback_layout{};
-    if (!feedback_layout) {
-      feedback_layout = std::make_shared<DescriptorSetLayout>();
-    }
+    reset_pipeline->Initialize();
+  }
+  if (!feedback_layout) {
+    feedback_layout = std::make_shared<DescriptorSetLayout>();
     feedback_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    feedback_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     feedback_layout->Initialize();
-    if (!step_pipeline) {
-      static std::shared_ptr<Shader> shader{};
-      shader = std::make_shared<Shader>();
-      shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                  std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Step.comp");
-      step_pipeline = std::make_shared<ComputePipeline>();
-      step_pipeline->compute_shader = shader;
-      step_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-      step_pipeline->descriptor_set_layouts.emplace_back(feedback_layout);
-      step_pipeline->map_entries.emplace_back(work_group_invocations);
-      auto& push_constant_range = step_pipeline->push_constant_ranges.emplace_back();
-      push_constant_range.size = sizeof(GroupingPushConstant);
-      push_constant_range.offset = 0;
-      push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  }
+  if (!step_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Step.comp");
+    step_pipeline = std::make_shared<ComputePipeline>();
+    step_pipeline->compute_shader = shader;
+    step_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    step_pipeline->descriptor_set_layouts.emplace_back(feedback_layout);
+    step_pipeline->map_entries.emplace_back(Platform::Constants::compute_work_group_invocations);
+    auto& push_constant_range = step_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(GroupingPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-      step_pipeline->Initialize();
-    }
-    if (!feedback_buffer) {
-      VkBufferCreateInfo buffer_create_info{};
-      buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-      buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-      buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-      buffer_create_info.size = 1;
-      VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
-      buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-      feedback_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-    }
-    static std::shared_ptr<DescriptorSet> feedback_descriptor_set{};
-    if (!feedback_descriptor_set) {
-      feedback_descriptor_set = std::make_shared<DescriptorSet>(feedback_layout);
-    }
+    step_pipeline->Initialize();
+  }
+  if (!apply_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Apply.comp");
+    apply_pipeline = std::make_shared<ComputePipeline>();
+    apply_pipeline->compute_shader = shader;
+    apply_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    apply_pipeline->descriptor_set_layouts.emplace_back(feedback_layout);
+    apply_pipeline->map_entries.emplace_back(Platform::Constants::compute_work_group_invocations);
+    auto& push_constant_range = apply_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(GroupingPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    apply_pipeline->Initialize();
+  }
+  if (!feedback_buffer || !new_group_index_buffer) {
+    VkBufferCreateInfo buffer_create_info{};
+    buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_create_info.usage =
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    buffer_create_info.size = 1;
+    VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
+    buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    feedback_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+    new_group_index_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  }
+  if (!feedback_descriptor_set) {
+    feedback_descriptor_set = std::make_shared<DescriptorSet>(feedback_layout);
+  }
+  Platform::AddTemporaryBufferSyncAction([&]() {
+    const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+
     const auto start_time = Times::Now();
     GroupingPushConstant push_constant;
     push_constant.segment_size = segments.size();
     const auto current_frame_index = Platform::GetCurrentFrameIndex();
     const auto group_size = Platform::DivUp(segments.size(), work_group_invocations);
     std::vector<uint32_t> feedback(group_size);
-    feedback_buffer->UploadVector(feedback);
+    feedback_buffer->Resize(sizeof(uint32_t) * group_size);
     feedback_descriptor_set->UpdateBufferDescriptorBinding(0, feedback_buffer);
+    new_group_index_buffer->Resize(sizeof(int) * segments.size());
+    feedback_descriptor_set->UpdateBufferDescriptorBinding(1, new_group_index_buffer);
     Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
       reset_pipeline->Bind(vk_command_buffer);
       reset_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                         strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
       reset_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
       vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
@@ -1059,6 +988,14 @@ void DynamicStrands::CalculateGroups() const {
                                          strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         step_pipeline->BindDescriptorSet(vk_command_buffer, 1, feedback_descriptor_set->GetVkDescriptorSet());
         step_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+        vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+
+        apply_pipeline->Bind(vk_command_buffer);
+        apply_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                         strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        apply_pipeline->BindDescriptorSet(vk_command_buffer, 1, feedback_descriptor_set->GetVkDescriptorSet());
+        apply_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
         vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       });
@@ -1088,7 +1025,6 @@ void DynamicStrands::Clear() {
   segment_pairs.clear();
   segment_data_list.clear();
   uniform_particles.clear();
-  connections.clear();
   delaunay_tetrahedrons.clear();
   hashed_grid_elements.clear();
   hashed_grid_cell_starts.clear();

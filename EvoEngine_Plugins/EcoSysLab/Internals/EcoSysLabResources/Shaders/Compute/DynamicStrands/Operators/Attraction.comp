@@ -42,9 +42,9 @@ void main(){
 		if(global_index >= command_size) break;
 		int particle_index = particle_indices[global_index];
 		Particle particle = particles[particle_index];
-		Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
+		Segment segment = segments[particle.segment_handle];
 
-		vec3 diff = target_position_multiplier.xyz - particle.x_node_handle.xyz;
+		vec3 diff = target_position_multiplier.xyz - particle.x;
 		vec3 force = diff * target_position_multiplier.w;
 
 		particles[particle_index].acceleration.xyz += force * segment.inv_mass;

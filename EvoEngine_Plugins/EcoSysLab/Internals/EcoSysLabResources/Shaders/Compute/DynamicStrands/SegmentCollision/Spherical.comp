@@ -27,7 +27,6 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 };
 
 void main(){
-	int neighbor_segment_handles[BUNDLE_MAX_CONNECTION];
 	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
@@ -37,26 +36,14 @@ void main(){
 		if(segment_handle >= segment_size) break;
 		SegmentData segment_data = segment_data_list[segment_handle];
 		
-		[[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
-			neighbor_segment_handles[i] = -1;
-			int pair_handle = segment_data.pair_handles[i];
-			if (pair_handle < 0)
-				continue;
-			SegmentPair segment_pair = segment_pairs[pair_handle];
-			if (segment_pair.valid == 0)
-				continue;
-			bool is_segment0 = segment_handle == segment_pair.segment0_handle;
-			neighbor_segment_handles[i] = is_segment0 ? segment_pair.segment1_handle : segment_pair.segment0_handle;
-		}
-
 		Segment segment = segments[segment_handle];
-		int particle0_handle = floatBitsToInt(segment.inertia_tensor_particle_0_handle.w);
-		int particle1_handle = floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w);
+		int particle0_handle = segment.particle_0_handle;
+		int particle1_handle = segment.particle_1_handle;
 		Particle particle0 = particles[particle0_handle];
 		Particle particle1 = particles[particle1_handle];
 
-		vec3 p0 = particle0.x_node_handle.xyz;
-		vec3 p1 = particle1.x_node_handle.xyz;
+		vec3 p0 = particle0.x;
+		vec3 p1 = particle1.x;
 		vec3 segment_center_position = (p0 + p1) * 0.5f;
 
 		ivec3 coordinate;
@@ -65,7 +52,7 @@ void main(){
 		coordinate.z = int(segment_center_position.z / cell_size);
 		int sum = 0;
 		vec3 position_offset = vec3(0.0f, 0.0f, 0.0f);
-
+		int group_index = segment.group_index;
 		for(int x = -1; x <= 1; x++){
 			for(int y = -1; y <= 1; y++){
 				for(int z = -1; z <= 1; z++){
@@ -74,20 +61,12 @@ void main(){
 					uint start_index = hashed_grid_cell_starts[cell_id].start_index;
 					while(start_index != 0xFFFFFFFF && start_index < segment_size){
 						uint neighbor_segment_handle = hashed_grid_elements[start_index].segment_handle;
-						bool found = false;
-						for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++){
-							if(neighbor_segment_handle == neighbor_segment_handles[i]){
-								found = true;
-								break;
-							}
-						}
-						if(!found){
-							Segment neighbor_segment = segments[neighbor_segment_handle];
-							Particle neighbor_particle0 = particles[floatBitsToInt(neighbor_segment.inertia_tensor_particle_0_handle.w)];
-							Particle neighbor_particle1 = particles[floatBitsToInt(neighbor_segment.inv_inertia_tensor_particle_1_handle.w)];
-
-							vec3 neighbor_p0 = neighbor_particle0.x_node_handle.xyz;
-							vec3 neighbor_p1 = neighbor_particle1.x_node_handle.xyz;
+						Segment neighbor_segment = segments[neighbor_segment_handle];
+						if(neighbor_segment.group_index != group_index){
+							Particle neighbor_particle0 = particles[neighbor_segment.particle_0_handle];
+							Particle neighbor_particle1 = particles[neighbor_segment.particle_1_handle];
+							vec3 neighbor_p0 = neighbor_particle0.x;
+							vec3 neighbor_p1 = neighbor_particle1.x;
 							vec3 neighbor_segment_center_position = (neighbor_p0 + neighbor_p1) * 0.5f;
 
 							vec3 diff = segment_center_position - neighbor_segment_center_position;
@@ -107,8 +86,8 @@ void main(){
 		}
 		if(sum != 0){
 			position_offset /= sum;
-			particles[particle0_handle].x_node_handle.xyz += position_offset;
-			particles[particle1_handle].x_node_handle.xyz += position_offset;
+			particles[particle0_handle].x += position_offset;
+			particles[particle1_handle].x += position_offset;
 		}
 	}
 }

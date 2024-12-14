@@ -36,13 +36,13 @@ void main(){
 		if(segment_handle >= segment_size) break;
 
 		Segment segment = segments[segment_handle];
-		int particle0_handle = floatBitsToInt(segment.inertia_tensor_particle_0_handle.w);
-		int particle1_handle = floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w);
+		int particle0_handle = segment.particle_0_handle;
+		int particle1_handle = segment.particle_1_handle;
 		Particle particle0 = particles[particle0_handle];
 		Particle particle1 = particles[particle1_handle];
 
-		vec3 p0 = particle0.x_node_handle.xyz;
-		vec3 p1 = particle1.x_node_handle.xyz;
+		vec3 p0 = particle0.x;
+		vec3 p1 = particle1.x;
 		vec3 segment_center_position = (p0 + p1) * 0.5f;
 
 		HashedGridElement hashed_grid_element;

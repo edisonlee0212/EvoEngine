@@ -38,12 +38,12 @@ void main(){
 		if(particle_index >= particle_size) break;
 
 		Particle particle = particles[particle_index];
-		Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
+		Segment segment = segments[particle.segment_handle];
 		//Calculate velocity and apply acceleration.
 		vec3 velocity = vec3(0.0f, 0.0f, 0.0f);
 		if(segment.inv_mass != 0.0f){
-			velocity = inv_time_step * (particle.x_node_handle.xyz - particle.v_segment_handle.xyz);
+			velocity = inv_time_step * (particle.x - particle.v);
 		}
-		particles[particle_index].v_segment_handle.xyz = velocity;
+		particles[particle_index].v = velocity;
 	}
 }

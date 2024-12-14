@@ -90,11 +90,11 @@ void main(){
 	
 	Segment segment = segments[segment_id];
 
-	Particle particle0 = particles[floatBitsToInt(segment.inertia_tensor_particle_0_handle.w)];
-	Particle particle1 = particles[floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w)];
+	Particle particle0 = particles[segment.particle_0_handle];
+	Particle particle1 = particles[segment.particle_1_handle];
 
-	vec3 start_position = particle0.x_node_handle.xyz;
-	vec3 end_position = particle1.x_node_handle.xyz;
+	vec3 start_position = particle0.x;
+	vec3 end_position = particle1.x;
 
 	vec3 center_position = (start_position + end_position) * 0.5f;
 	float center_thickness = segment.radius * 2.0f * multiplier;
@@ -118,14 +118,13 @@ void main(){
 	}else if(color_mode == 3){
 		color = mix(color0, color1, clamp(segment.moisture_content, 0.0f, 1.0f));
 	}else if(color_mode == 4){
-		color = mix(color0, color1, clamp(max(
-					abs(segment.shear_stretch_strain.x) / segment.shear_stretch_strain_limit.x, 
-					abs(segment.shear_stretch_strain.y) / segment.shear_stretch_strain_limit.y), 0.0, 1.0));
+		color = mix(color0, color1, clamp(
+					abs(segment.shear_stretch_strain.x) / segment.shear_stretch_strain_limit.x, 0.0, 1.0));
 	}else if(color_mode == 5){
 		color = mix(color0, color1, clamp(
-					abs(segment.shear_stretch_strain.z) / segment.shear_stretch_strain_limit.z, 0.0, 1.0));
+					abs(segment.shear_stretch_strain.y) / segment.shear_stretch_strain_limit.y, 0.0, 1.0));
 	}else if(color_mode == 6){
-		color = segments[floatBitsToInt(segment.shear_stretch_strain.w)].color;
+		color = segments[segment.group_index].color;
 	}
 	
 	float highlight1_ratio = 0.0f;

@@ -50,7 +50,7 @@ void main(){
 		vec3 new_position = position_update.new_position_index.xyz;
 
 		Particle particle = particles[particle_index];
-		particle.x_node_handle.xyz = particle.last_x_strand_handle.xyz = new_position;
+		particle.x = particle.last_x = new_position;
 		particle.acceleration.xyz = vec3(0, 0, 0);
 
 		particles[particle_index] = particle;

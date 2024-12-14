@@ -41,7 +41,6 @@ class EcoSysLabLayer : public ILayer {
       const StrandModelMeshGeneratorSettings& target_strand_model_mesh_generator_settings) const;
   void ClearStrandModelMeshes() const;
   void GenerateDynamicStrandsForAllTrees() const;
-  void ReGroupDynamicStrandSegments() const;
   void GenerateStrandRenderers() const;
   void ClearStrandRenderers() const;
 

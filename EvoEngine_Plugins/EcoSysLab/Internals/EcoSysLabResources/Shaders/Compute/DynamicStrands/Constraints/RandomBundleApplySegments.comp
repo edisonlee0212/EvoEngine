@@ -37,12 +37,12 @@ void main(){
 		if(segment_index >= segment_size) break;
 
 		Segment segment = segments[segment_index];
-		int particle0_handle = floatBitsToInt(segment.inertia_tensor_particle_0_handle.w);
-		int particle1_handle = floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w);
+		int particle0_handle = segment.particle_0_handle;
+		int particle1_handle = segment.particle_1_handle;
 		
 		SegmentData segment_data = segment_data_list[segment_index];
-		particles[particle0_handle].x_node_handle.xyz += segment_data.particle0_position_correction.xyz;
-		particles[particle1_handle].x_node_handle.xyz += segment_data.particle1_position_correction.xyz;
+		particles[particle0_handle].x += segment_data.particle0_position_correction.xyz;
+		particles[particle1_handle].x += segment_data.particle1_position_correction.xyz;
 
 		segments[segment_index].q = normalize(segment_data.q_correction + segments[segment_index].q);
 	}

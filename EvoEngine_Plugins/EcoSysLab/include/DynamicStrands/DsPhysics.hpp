@@ -19,15 +19,8 @@ class DsPreStep {
     float inv_time_step = 100.f;
   };
 
-  struct ConnectionPreStepPushConstant {
-    uint32_t connection_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-  };
-
   inline static std::shared_ptr<ComputePipeline> particle_pre_step_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_pre_step_pipeline;
-  inline static std::shared_ptr<ComputePipeline> connection_pre_step_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };
@@ -49,10 +42,6 @@ class DsPrediction {
     float angular_velocity_damping;
   };
 
-  struct ConnectionPredictionPushConstant {
-    uint32_t connection_size = 0;
-    uint32_t allow_breaking;
-  };
   struct SegmentPairPredictionPushConstant {
     uint32_t segment_pair_size = 0;
     uint32_t allow_breaking;
@@ -64,7 +53,6 @@ class DsPrediction {
   inline static std::shared_ptr<ComputePipeline> particle_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> uniform_particle_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_prediction_pipeline;
-  inline static std::shared_ptr<ComputePipeline> connection_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_pair_prediction_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);

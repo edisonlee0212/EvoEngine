@@ -25,10 +25,15 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 };
 
 #define DYNAMIC_STRANDS_SET 0
-#define DYNAMIC_STRANDS_PER_STRAND_DATA_SET 1
 #include "DynamicStrandsPhysics.glsl"
-#include "DynamicStrandsPerStrandData.glsl"
 
+int find_next_segment_pair_handle(in int segment_pair_handle){
+	return segment_data_list[segment_pairs[segment_pair_handle].segment1_handle].pair_handles[1];
+}
+
+int find_prev_segment_pair_handle(in int segment_pair_handle){
+	return segment_data_list[segment_pairs[segment_pair_handle].segment0_handle].pair_handles[0];
+}
 
 void main(){
 
@@ -40,19 +45,20 @@ void main(){
 
 		if(strand_index >= strand_size) break;
 
-		PerStrandData strand_data = per_strand_data_list[strand_index];
-		int front_propagate_handle = frame_index % 2 == 0 ? strand_data.front_propagate_begin_connection_handle : strand_data.alternative_front_propagate_begin_connection_handle;
-		int back_propagate_handle = frame_index % 2 == 0 ? strand_data.back_propagate_begin_connection_handle : strand_data.alternative_back_propagate_begin_connection_handle;
+		Strand strand = strands[strand_index];
+		int front_propagate_handle = frame_index % 2 == 0 ? strand.front_propagate_begin_segment_pair_handle : strand.alternative_front_propagate_begin_segment_pair_handle;
+		int back_propagate_handle = frame_index % 2 == 0 ? strand.back_propagate_begin_segment_pair_handle : strand.alternative_back_propagate_begin_segment_pair_handle;
+		
 		while(front_propagate_handle != -1 || back_propagate_handle != -1){
 			if(front_propagate_handle != -1) {
 				project_bend_twist_constraint(inv_time_step, front_propagate_handle);
-				front_propagate_handle = connections[front_propagate_handle].next_handle;
-				if(front_propagate_handle != -1) front_propagate_handle = connections[front_propagate_handle].next_handle;
+				front_propagate_handle = find_next_segment_pair_handle(front_propagate_handle);
+				if(front_propagate_handle != -1) find_next_segment_pair_handle(front_propagate_handle);
 			}
 			if(back_propagate_handle != -1) {
 				project_bend_twist_constraint(inv_time_step, back_propagate_handle);
-				back_propagate_handle = connections[back_propagate_handle].prev_handle;
-				if(back_propagate_handle != -1) back_propagate_handle = connections[back_propagate_handle].prev_handle;
+				back_propagate_handle = find_prev_segment_pair_handle(back_propagate_handle);
+				if(back_propagate_handle != -1) find_prev_segment_pair_handle(back_propagate_handle);
 			}
 		}
 	}

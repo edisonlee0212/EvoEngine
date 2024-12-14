@@ -248,9 +248,6 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       if (ImGui::Button("Initialize dynamic strands for all trees")) {
         GenerateDynamicStrandsForAllTrees();
       }
-      if (ImGui::Button("Re-Group segments")) {
-        ReGroupDynamicStrandSegments();
-      }
       dynamic_strands_settings_.OnInspect(editor_layer);
       ImGui::TreePop();
     }

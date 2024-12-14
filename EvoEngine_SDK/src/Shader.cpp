@@ -204,7 +204,6 @@ std::vector<uint32_t> CompileGlsl(const ShaderType shader_type, const std::strin
                       glsl_shader_includer)) {
       EVOENGINE_ERROR("Failed to parse shader: " + std::string(shader.getInfoLog()));
     }
-
     glslang::TProgram program;
     program.addShader(&shader);
     if (!program.link(message_flags)) {
@@ -231,7 +230,6 @@ std::vector<uint32_t> CompileGlsl(const ShaderType shader_type, const std::strin
   }
   return ret_val;
 }
-
 void Shader::Set(const ShaderType shader_type, const std::string& shader_code) {
   shader_type_ = shader_type;
   code_ = shader_code;

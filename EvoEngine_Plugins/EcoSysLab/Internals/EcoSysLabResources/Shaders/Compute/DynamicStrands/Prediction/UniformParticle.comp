@@ -38,11 +38,11 @@ void main(){
 
 		Segment segment = segments[uniform_particle.segment_handle];
 
-		Particle particle0 = particles[floatBitsToInt(segment.inertia_tensor_particle_0_handle.w)];
-		Particle particle1 = particles[floatBitsToInt(segment.inv_inertia_tensor_particle_1_handle.w)];
+		Particle particle0 = particles[segment.particle_0_handle];
+		Particle particle1 = particles[segment.particle_1_handle];
 
 		uniform_particles[uniform_particle_index].position_t.xyz = 
-			mix(particle0.x_node_handle.xyz, particle1.x_node_handle.xyz, uniform_particle.position_t.w);
+			mix(particle0.x, particle1.x, uniform_particle.position_t.w);
 
 	}
 }
