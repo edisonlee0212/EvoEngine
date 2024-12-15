@@ -136,11 +136,11 @@ void DsStiffRod::ProjectPositionConstraint(const DynamicStrands::PhysicsParamete
   ShearStretchConstraintConstant stretch_shear_constraint_constant;
   stretch_shear_constraint_constant.strand_size = target_dynamic_strands.strands.size();
   stretch_shear_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
-  stretch_shear_constraint_constant.frame_index = physics_parameters.frame_index;
+  stretch_shear_constraint_constant.frame_index = target_dynamic_strands.GetFrameIndex();
   BendTwistConstraintConstant bend_twist_constraint_constant;
   bend_twist_constraint_constant.strand_size = target_dynamic_strands.strands.size();
   bend_twist_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
-  bend_twist_constraint_constant.frame_index = physics_parameters.frame_index;
+  bend_twist_constraint_constant.frame_index = target_dynamic_strands.GetFrameIndex();
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {

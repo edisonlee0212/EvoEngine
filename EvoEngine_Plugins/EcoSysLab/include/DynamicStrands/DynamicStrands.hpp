@@ -65,9 +65,11 @@ typedef StrandGroup<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData> Dts
 
 class DynamicStrands {
   bool wait_for_upload = true;
+  uint32_t frame_index = 0;
 
  public:
   DynamicStrands();
+  uint32_t GetFrameIndex() const;
   [[nodiscard]] bool WaitForUpload() const;
 #pragma region Initialization
   struct InitializeParameters {
@@ -122,14 +124,14 @@ class DynamicStrands {
   struct PhysicsParameters {
     float time_step = 0.01f;
     int sub_step = 10;
-    uint32_t frame_index = 0;
+
     int constraint_iteration = 5;
     bool enable_breaking = true;
     float velocity_damping = 0.005f;
     float angular_velocity_damping = 0.0005f;
 
     bool enable_segment_collision = false;
-    bool enable_grouping = false;
+    bool enable_grouping = true;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -155,7 +157,7 @@ class DynamicStrands {
     bool render_uniform_particles = true;
 
     uint32_t particle_render_mode = 0;
-    uint32_t segment_render_mode = 0;
+    uint32_t segment_render_mode = 6;
     uint32_t segment_pair_render_mode = 0;
     uint32_t uniform_particle_render_mode = 0;
 
@@ -410,7 +412,7 @@ class DynamicStrands {
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const VisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
-               const std::function<void()>& sub_step_action) const;
+               const std::function<void()>& sub_step_action);
 
  private:
 #ifdef USE_CGAL
