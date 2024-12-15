@@ -6,7 +6,6 @@
 #include "Shader.hpp"
 #include "glm/gtc/matrix_access.hpp"
 #include "glm/gtx/quaternion.hpp"
-
 using namespace eco_sys_lab_plugin;
 
 #ifdef USE_CGAL
@@ -255,10 +254,9 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.shearing_alpha = 1.f / (segment.max_shearing_modulus * area / segment.rest_length);
     const float max_shear_strain = glm::max(0.001f, initialize_parameters.max_shear_strain.GetValue(ratio));
     const float max_stretch_strain = glm::max(0.001f, initialize_parameters.max_stretch_strain.GetValue(ratio));
-    segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain = segment.shear_stretch_strain_limit =
-        glm::vec4(max_shear_strain, max_shear_strain, max_stretch_strain, 0.0f);
+    segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain =
+        glm::vec2(max_shear_strain, max_stretch_strain);
   });
-
   particles.resize(segments.size() * 2);
   Jobs::RunParallelFor(segments.size(), [&](const size_t segment_handle) {
     auto& segment = segments[segment_handle];
@@ -709,21 +707,15 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
   Jobs::RunParallelFor(segment_pairs.size(), [&](const auto pair_index) {
     auto& segment_pair = segment_pairs[pair_index];
-
     auto& segment0 = segments[segment_pair.segment0_handle];
     auto& segment1 = segments[segment_pair.segment1_handle];
-
     bool direct_connection = segment_data_list[segment_pair.segment0_handle].pair_handles[1] == pair_index;
-
     auto& segment0_particle0 = particles[segment0.particle0_handle];
     auto& segment0_particle1 = particles[segment0.particle1_handle];
-
     auto& segment1_particle0 = particles[segment1.particle0_handle];
     auto& segment1_particle1 = particles[segment1.particle1_handle];
-
     const auto segment0_center_position = (segment0_particle0.x0 + segment0_particle1.x0) * .5f;
     const auto segment1_center_position = (segment1_particle0.x0 + segment1_particle1.x0) * .5f;
-
     segment_pair.segment0_particle0_offset =
         glm::vec4(glm::inverse(segment1.q0) * (segment0_particle0.x0 - segment1_center_position), 0.0f);
     segment_pair.segment0_particle1_offset =
@@ -735,9 +727,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
         glm::vec4(glm::inverse(segment0.q0) * (segment1_particle1.x0 - segment0_center_position), 0.0f);
 
     segment_pair.rest_darboux_vector = glm::conjugate(segment0.q0) * segment1.q0;
-
-    segment_pair.bend_twist_valid = true;
-    segment_pair.connectivity_valid = true;
+    segment_pair.bend_twist_bundle_valid = true;
+    segment_pair.connectivity_valid = direct_connection;
 
     const float ratio0 =
         segment0.boundary_distance * segment0.radius * 2.f / initialize_parameters.max_distance_to_boundary;
@@ -999,7 +990,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
 
         apply_pipeline->Bind(vk_command_buffer);
         apply_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                         strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+                                          strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         apply_pipeline->BindDescriptorSet(vk_command_buffer, 1, feedback_descriptor_set->GetVkDescriptorSet());
         apply_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
         vkCmdDispatch(vk_command_buffer, group_size, 1, 1);

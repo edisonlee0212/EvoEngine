@@ -62,8 +62,9 @@ struct Segment {
   vec2 shear_stretch_strain;
   float padding;
   int group_index;
-  vec4 max_shear_stretch_strain;
-  vec4 shear_stretch_strain_limit;
+
+  vec2 max_shear_stretch_strain;
+  vec2 shear_stretch_strain_limit;
 };
 
 struct Particle {
@@ -92,7 +93,7 @@ struct Particle {
 struct SegmentPair {
   int segment0_handle;
   int segment1_handle;
-  uint bend_twist_valid;
+  uint bend_twist_bundle_valid;
   uint connectivity_valid;
 
   float bending_alpha;

@@ -146,4 +146,42 @@ class DsDrag : public IDsPhysicsOperator {
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
 };
+
+class DsLineCut : public IDsOperator {
+ public:
+  struct LineCutPushConstant {
+    glm::vec2 line_start;
+    glm::vec2 line_end;
+    glm::mat4 projection_view;
+    uint32_t segment_pair_size;
+    uint32_t cut_mode = 0;
+  };
+  inline static std::shared_ptr<ComputePipeline> pipeline{};
+  LineCutPushConstant push_constant;
+  DsLineCut();
+  void Update(const glm::vec2& line_start, const glm::vec2& line_end, const glm::mat4& projection_view,
+              unsigned cut_mode);
+  void Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
+};
+
+class DsSaw : public IDsOperator {
+ public:
+  struct SawPushConstant {
+    glm::mat4 projection_view;
+    uint32_t segment_pair_size;
+    uint32_t line_point_pair_size;
+    uint32_t cut_mode = 0;
+  };
+  std::vector<glm::vec4> line_point_pairs;
+  std::vector<std::shared_ptr<Buffer>> line_buffer;
+  inline static std::shared_ptr<DescriptorSetLayout> layout{};
+  std::vector<std::shared_ptr<DescriptorSet>> line_descriptor_sets{};
+
+  inline static std::shared_ptr<ComputePipeline> pipeline{};
+  SawPushConstant push_constant;
+  DsSaw();
+  void Update(const std::vector<glm::vec2>& line, const glm::mat4& projection_view, unsigned cut_mode);
+  void Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
+};
+
 }  // namespace eco_sys_lab_plugin

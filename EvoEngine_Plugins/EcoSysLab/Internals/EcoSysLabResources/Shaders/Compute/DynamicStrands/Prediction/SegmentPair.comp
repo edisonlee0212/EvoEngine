@@ -36,11 +36,10 @@ void main(){
 		if(pair_index >= pair_size) break;
 		SegmentPair segment_pair = segment_pairs[pair_index];
 		uint connectivity_valid = segment_pair.connectivity_valid;
-		if(connectivity_valid == 0) continue;
-
+		uint bend_twist_bundle_valid = segment_pair.bend_twist_bundle_valid;
 		//Modify limit here.
 		vec4 bending_twist_bundle_strain_limit = segment_pair.max_bending_twist_bundle_strain;
-
+		
 		Segment segment0 = segments[segment_pair.segment0_handle];
 		Segment segment1 = segments[segment_pair.segment1_handle];
 
@@ -58,12 +57,20 @@ void main(){
 
 		float bundle_strain = max(strain0, strain1);
 		vec2 bend_twist_strain = bend_twist_strain(segment0.q, segment1.q, segment_pair.rest_darboux_vector);
+
 		if(allow_breaking == 1){
-			connectivity_valid = abs(bend_twist_strain.x) < bending_twist_bundle_strain_limit.x
-					&& abs(bend_twist_strain.y) < bending_twist_bundle_strain_limit.y
-					&& bundle_strain < bending_twist_bundle_strain_limit.z ? 1 : 0;
+			connectivity_valid = connectivity_valid == 1
+				&& abs(segment0.shear_stretch_strain.x) < segment0.shear_stretch_strain_limit.x
+				&& abs(segment0.shear_stretch_strain.y) < segment0.shear_stretch_strain_limit.y
+				&& abs(segment1.shear_stretch_strain.x) < segment1.shear_stretch_strain_limit.x
+				&& abs(segment1.shear_stretch_strain.y) < segment1.shear_stretch_strain_limit.y ? 1 : 0;
 		}
+
+		bend_twist_bundle_valid = bend_twist_bundle_valid == 1 && abs(bend_twist_strain.x) < bending_twist_bundle_strain_limit.x
+					&& abs(bend_twist_strain.y) < bending_twist_bundle_strain_limit.z
+					&& bundle_strain < bending_twist_bundle_strain_limit.z ? 1 : 0;
 		segment_pairs[pair_index].bending_twist_bundle_strain = vec4(bend_twist_strain.x, bend_twist_strain.y, bundle_strain, 0.0f);
-		segment_pairs[pair_index].bend_twist_valid = segment_pairs[pair_index].connectivity_valid = connectivity_valid;
+		segment_pairs[pair_index].bend_twist_bundle_valid = bend_twist_bundle_valid;
+		segment_pairs[pair_index].connectivity_valid = connectivity_valid;
 	}
 }
