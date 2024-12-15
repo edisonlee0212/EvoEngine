@@ -39,13 +39,13 @@ void main(){
 		if(particle_index >= particle_size) break;
 		Particle particle = particles[particle_index];
 
-		Segment segment = segments[floatBitsToInt(particle.v_segment_handle.w)];
+		Segment segment = segments[particle.segment_handle];
 		if(segment.inv_mass == 0.0f) return;
-		float diff = max(0.0f, ground_height - particle.x_node_handle.y);
+		float diff = max(0.0f, ground_height - particle.x.y);
 
 
 
-		particle.x_node_handle.y += (1.f + ground_softness) * diff;
+		particle.x.y += (1.f + ground_softness) * diff;
 
 		particles[particle_index] = particle;
 	}

@@ -129,7 +129,7 @@ class DynamicStrands {
     float angular_velocity_damping = 0.0005f;
 
     bool enable_segment_collision = false;
-    bool enable_grouping = true;
+    bool enable_grouping = false;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -144,26 +144,18 @@ class DynamicStrands {
       StretchStrain,
       GroupIndex,
     };
-    enum class ConnectionRenderMode {
-      Default,
-      BoundaryDistance,
-      MoistureContent,
-      BendStrain,
-      TwistStrain,
-    };
+
     enum class UniformParticleRenderMode { Default, SegmentColor };
 
     enum class SegmentPairRenderMode { Default, BendingStrain, TwistStrain, BundleStrain };
     bool render_particles = true;
     bool render_segments = true;
-    bool render_connections = true;
     bool render_segment_pairs = true;
 
     bool render_uniform_particles = true;
 
     uint32_t particle_render_mode = 0;
     uint32_t segment_render_mode = 0;
-    uint32_t connection_render_mode = 0;
     uint32_t segment_pair_render_mode = 0;
     uint32_t uniform_particle_render_mode = 0;
 
@@ -181,12 +173,6 @@ class DynamicStrands {
     glm::vec4 segment_pair_color_main = glm::vec4(0, 1, 1, 0.2);
     float segment_pair_radius_multiplier = 0.9f;
 
-    glm::vec4 connection_color_min = glm::vec4(0, 0, 1, 1);
-    glm::vec4 connection_color_max = glm::vec4(1, 0, 0, 1);
-    glm::vec4 connection_color_main = glm::vec4(1, 1, 1, 0.8);
-    float connection_radius_multiplier = 0.9f;
-    float connection_boundary_distance_modular = 0.03f;
-
     glm::vec4 uniform_particle_main = glm::vec4(1, 1, 1, 0.8f);
     float uniform_particle_radius_multiplier = 0.1f;
 
@@ -198,8 +184,8 @@ class DynamicStrands {
     bool render_complex = false;
     bool use_cgal = false;
     bool wireframe = false;
-    float alpha = 1.0 / 10000.0f;
-    float bifurcation_alpha = 1.0 / 10000.0f;
+    float alpha = 1.0f / 10000.0f;
+    float bifurcation_alpha = 1.0f / 10000.0f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -217,8 +203,18 @@ class DynamicStrands {
     int begin_segment_handle = -1;
     int end_segment_handle = -1;
 
-    int begin_connection_handle = -1;
-    int end_connection_handle = -1;
+    int begin_segment_pair_handle = -1;
+    int end_segment_pair_handle = -1;
+
+    int front_propagate_begin_segment_pair_handle = -1;
+    int back_propagate_begin_segment_pair_handle = -1;
+    int front_propagate_begin_segment_handle = -1;
+    int back_propagate_begin_segment_handle = -1;
+
+    int alternative_front_propagate_begin_segment_pair_handle = -1;
+    int alternative_back_propagate_begin_segment_pair_handle = -1;
+    int alternative_front_propagate_begin_segment_handle = -1;
+    int alternative_back_propagate_begin_segment_handle = -1;
   };
 
   struct GpuNode {
@@ -266,7 +262,7 @@ class DynamicStrands {
     glm::mat4 inv_inertia_w;
 
     glm::vec3 shear_stretch_strain = glm::vec3(0.f);
-    uint32_t group_index = 0;
+    int32_t group_index = 0;
     glm::vec4 max_shear_stretch_strain;
     glm::vec4 shear_stretch_strain_limit;
   };
@@ -299,46 +295,16 @@ class DynamicStrands {
     int padding3 = 0;
   };
 
-  struct GpuConnection {
-    int segment0_handle;
-    int segment1_handle;
-    int segment0_particle_handle;
-    int segment1_particle_handle;
-
-    glm::quat rest_darboux_vector;
-    float bending_alpha;
-    float torsion_alpha;
-
-    int prev_handle = -1;
-    int next_handle = -1;
-
-    float max_bending_modulus;
-    float max_torsion_modulus;
-    float moisture_content;
-    float boundary_distance;
-
-    glm::vec3 bend_twist_strain = glm::vec3(0.f);
-    float bend_twist_valid = 1.0f;
-    glm::vec3 max_bend_twist_strain;
-    float padding;
-    glm::vec3 bend_twist_strain_limit;
-    float connectivity_valid = 1.f;
-  };
-
   struct GpuSegmentPair {
     int segment0_handle;
     int segment1_handle;
-    int valid;
-    int padding;
+    uint32_t bend_twist_valid = 1;
+    uint32_t connectivity_valid = 1;
 
-    float bending_alpha;
-    float twisting_alpha;
+    float bending_alpha = 0.0f;
+    float torsion_alpha = 0.0f;
     float max_bending_modulus;
     float max_torsion_modulus;
-
-    glm::vec4 bending_twist_bundle_strain;
-    glm::vec4 max_bending_twist_bundle_strain;
-    glm::vec4 bending_twist_bundle_limit;
 
     glm::vec4 segment0_particle0_offset;
     glm::vec4 segment0_particle1_offset;
@@ -347,7 +313,15 @@ class DynamicStrands {
     glm::vec4 segment1_particle1_offset;
 
     glm::quat rest_darboux_vector;
+
+    glm::vec3 bending_twist_bundle_strain;
+    float padding0;
+    glm::vec3 max_bending_twist_bundle_strain;
+    float padding1 = 0.f;
+    glm::vec3 bending_twist_bundle_limit;
+    float padding2;
   };
+
   struct GpuSegmentData {
     glm::vec3 particle0_position_correction;
     float padding0;
@@ -358,6 +332,7 @@ class DynamicStrands {
 
     int pair_handles[BUNDLE_MAX_CONNECTION];
   };
+
   struct GpuUniformParticle {
     glm::vec3 position;
     float t;
@@ -398,14 +373,13 @@ class DynamicStrands {
   };
 
   inline static std::shared_ptr<DescriptorSetLayout> strands_layout{};
-
+  uint32_t connection_segment_pair_size = 0;
   std::shared_ptr<Buffer> device_strands_buffer;
   std::shared_ptr<Buffer> device_segments_buffer;
   std::shared_ptr<Buffer> device_particles_buffer;
   std::shared_ptr<Buffer> device_segment_pairs_buffer;
   std::shared_ptr<Buffer> device_segment_data_list_buffer;
   std::shared_ptr<Buffer> device_uniform_particles_buffer;
-  std::shared_ptr<Buffer> device_connections_buffer;
   std::shared_ptr<Buffer> device_delaunay_tetrahedrons_buffer;
   std::shared_ptr<Buffer> device_hashed_grid_elements_buffer;
   std::shared_ptr<Buffer> device_hashed_grid_cell_starts_buffer;
@@ -416,7 +390,6 @@ class DynamicStrands {
   std::vector<GpuSegmentPair> segment_pairs;
   std::vector<GpuSegmentData> segment_data_list;
   std::vector<GpuUniformParticle> uniform_particles;
-  std::vector<GpuConnection> connections;
   std::vector<GpuDelaunayTetrahedron> delaunay_tetrahedrons;
   std::vector<GpuHashedGridElement> hashed_grid_elements;
   std::vector<GpuHashedGridCellStart> hashed_grid_cell_starts;
@@ -427,7 +400,7 @@ class DynamicStrands {
   void Upload();
   void Download();
 
-  void CalculateGroups() const;
+  void CalculateGroups(const PhysicsParameters& physics_parameters) const;
 
   void Clear();
 

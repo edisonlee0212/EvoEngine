@@ -53,23 +53,6 @@ class DsStiffRod final : public IDsConstraint {
  public:
   DsStiffRod();
   inline static std::shared_ptr<DescriptorSetLayout> layout{};
-
-  struct PerStrandData {
-    int front_propagate_begin_connection_handle = -1;
-    int back_propagate_begin_connection_handle = -1;
-    int front_propagate_begin_segment_handle = -1;
-    int back_propagate_begin_segment_handle = -1;
-
-    int alternative_front_propagate_begin_connection_handle = -1;
-    int alternative_back_propagate_begin_connection_handle = -1;
-    int alternative_front_propagate_begin_segment_handle = -1;
-    int alternative_back_propagate_begin_segment_handle = -1;
-  };
-
-  std::vector<PerStrandData> per_strand_data_list;
-
-  std::shared_ptr<Buffer> per_strand_data_list_buffer;
-
   struct ShearStretchConstraintConstant {
     uint32_t strand_size = 0;
     float inv_time_step;
@@ -82,10 +65,6 @@ class DsStiffRod final : public IDsConstraint {
     uint32_t frame_index;
   };
 
-  enum class ProjectMode { Forward, Backward, AlternatingDirection, Bilateral };
-
-  uint32_t project_mode = static_cast<uint32_t>(ProjectMode::Bilateral);
-
   int sub_iteration = 1;
   bool bend_twist = true;
   bool stretch_shear = true;
@@ -94,23 +73,8 @@ class DsStiffRod final : public IDsConstraint {
   inline static std::shared_ptr<ComputePipeline> bilateral_stretch_shear_constraint_pipeline{};
   inline static std::shared_ptr<ComputePipeline> bilateral_bend_twist_constraint_pipeline{};
 
-  inline static std::shared_ptr<ComputePipeline> forward_stretch_shear_constraint_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> forward_bend_twist_constraint_pipeline{};
-
-  inline static std::shared_ptr<ComputePipeline> backward_stretch_shear_constraint_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> backward_bend_twist_constraint_pipeline{};
-
-  std::vector<std::shared_ptr<DescriptorSet>> strands_physics_descriptor_sets{};
-
-  void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
-                      const StrandModelSkeleton& strand_model_skeleton, const DtsStrandGroup& subdivided_strand_group,
-                      const DynamicStrands& target_dynamic_strands) override;
-
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
-  void DownloadData() override;
-  void UploadData() override;
-  void UpdateBindings() override;
   static glm::vec3 ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1, float average_segment_length);
 };
 
@@ -139,7 +103,7 @@ class DsRandomBundle : public IDsConstraint {
   };
 
   struct RandomBundleApplyConnectionsConstant {
-    uint32_t connection_size = 0;
+    uint32_t segment_pair_size = 0;
     float inv_time_step = 0.0f;
   };
 

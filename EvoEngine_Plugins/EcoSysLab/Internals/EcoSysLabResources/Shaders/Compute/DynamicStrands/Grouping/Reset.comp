@@ -22,5 +22,5 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 void main() {
 	int segment_index = int(gl_GlobalInvocationID.x);
 	if (segment_index >= segment_size) return;
-	segments[segment_index].shear_stretch_strain.w = intBitsToFloat(segment_index);
+	segments[segment_index].group_index = segment_index;
 }

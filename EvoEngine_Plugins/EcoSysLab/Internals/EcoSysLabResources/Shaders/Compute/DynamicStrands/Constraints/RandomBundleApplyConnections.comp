@@ -22,7 +22,7 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint connection_size;
+	uint segment_pair_size;
 	float inv_time_step;
 };
 
@@ -32,22 +32,22 @@ void main(){
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint connection_index = baseID + local_index;
+		uint segment_pair_index = baseID + local_index;
 
-		if(connection_index >= connection_size) break;
+		if(segment_pair_index >= segment_pair_size) break;
 
-		Connection connection = connections[connection_index];
-		bool valid = connection.bend_twist_strain_valid.w != 0.0;
-		if(!valid) continue;
-		Segment segment0 = segments[connection.segment0_handle];
-		Segment segment1 = segments[connection.segment1_handle];
+		SegmentPair segment_pair = segment_pairs[segment_pair_index];
+		if(segment_pair.connectivity_valid == 0) continue;
+		Segment segment0 = segments[segment_pair.segment0_handle];
+		Segment segment1 = segments[segment_pair.segment1_handle];
+		int segment0_particle_handle = segment0.particle_1_handle;
+		int segment1_particle_handle = segment1.particle_0_handle;
+		Particle particle0 = particles[segment0_particle_handle];
+		Particle particle1 = particles[segment1_particle_handle];
 
-		Particle particle0 = particles[connection.segment0_particle_handle];
-		Particle particle1 = particles[connection.segment1_particle_handle];
+		vec3 new_position = (particle0.x * segment0.inv_mass + particle1.x * segment1.inv_mass) / (segment0.inv_mass + segment1.inv_mass);
 
-		vec3 new_position = (particle0.x_node_handle.xyz * segment0.inv_mass + particle1.x_node_handle.xyz * segment1.inv_mass) / (segment0.inv_mass + segment1.inv_mass);
-
-		particles[connection.segment0_particle_handle].x_node_handle.xyz = particles[connection.segment1_particle_handle].x_node_handle.xyz = new_position;
+		particles[segment0_particle_handle].x = particles[segment1_particle_handle].x = new_position;
 
 	}
 }

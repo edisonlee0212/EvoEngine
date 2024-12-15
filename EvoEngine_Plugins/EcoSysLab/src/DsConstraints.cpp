@@ -67,25 +67,13 @@ DsStiffRod::DsStiffRod() {
     layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     layout->Initialize();
   }
-  VkBufferCreateInfo storage_buffer_create_info{};
-  storage_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  storage_buffer_create_info.usage =
-      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-  storage_buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  storage_buffer_create_info.size = 1;
-  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
-  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
   const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
-  per_strand_data_list_buffer = std::make_shared<Buffer>(storage_buffer_create_info, buffer_vma_allocation_create_info);
-#ifdef USE_XPBD
-  std::string xpbd_prefix = "\n#define USE_XPBD\n";
-#else
-  std::string xpbd_prefix = "";
-#endif
+
   if (!bilateral_stretch_shear_constraint_pipeline) {
     static std::shared_ptr<Shader> stretch_shear_shader{};
     stretch_shear_shader = std::make_shared<Shader>();
-    stretch_shear_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
+    stretch_shear_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Compute/DynamicStrands/Constraints/StiffRodShearStretchBilateral.comp");
     bilateral_stretch_shear_constraint_pipeline = std::make_shared<ComputePipeline>();
@@ -104,7 +92,7 @@ DsStiffRod::DsStiffRod() {
 
     static std::shared_ptr<Shader> bend_twist_constraint_shader{};
     bend_twist_constraint_shader = std::make_shared<Shader>();
-    bend_twist_constraint_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
+    bend_twist_constraint_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
                                       std::filesystem::path("./EcoSysLabResources") /
                                           "Shaders/Compute/DynamicStrands/Constraints/StiffRodBendTwistBilateral.comp");
 
@@ -122,91 +110,6 @@ DsStiffRod::DsStiffRod() {
 
     bilateral_bend_twist_constraint_pipeline->Initialize();
   }
-  if (!forward_stretch_shear_constraint_pipeline) {
-    static std::shared_ptr<Shader> stretch_shear_shader{};
-    stretch_shear_shader = std::make_shared<Shader>();
-
-    stretch_shear_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
-                              std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Compute/DynamicStrands/Constraints/StiffRodShearStretchForward.comp");
-    forward_stretch_shear_constraint_pipeline = std::make_shared<ComputePipeline>();
-    forward_stretch_shear_constraint_pipeline->compute_shader = stretch_shear_shader;
-
-    forward_stretch_shear_constraint_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    forward_stretch_shear_constraint_pipeline->descriptor_set_layouts.emplace_back(layout);
-
-    auto& stretch_shear_push_constant_range =
-        forward_stretch_shear_constraint_pipeline->push_constant_ranges.emplace_back();
-    stretch_shear_push_constant_range.size = sizeof(ShearStretchConstraintConstant);
-    stretch_shear_push_constant_range.offset = 0;
-    stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    forward_stretch_shear_constraint_pipeline->Initialize();
-
-    static std::shared_ptr<Shader> bend_twist_constraint_shader{};
-    bend_twist_constraint_shader = std::make_shared<Shader>();
-    bend_twist_constraint_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
-                                      std::filesystem::path("./EcoSysLabResources") /
-                                          "Shaders/Compute/DynamicStrands/Constraints/StiffRodBendTwistForward.comp");
-
-    forward_bend_twist_constraint_pipeline = std::make_shared<ComputePipeline>();
-    forward_bend_twist_constraint_pipeline->compute_shader = bend_twist_constraint_shader;
-
-    forward_bend_twist_constraint_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    forward_bend_twist_constraint_pipeline->descriptor_set_layouts.emplace_back(layout);
-
-    auto& bend_twist_push_constant_range = forward_bend_twist_constraint_pipeline->push_constant_ranges.emplace_back();
-    bend_twist_push_constant_range.size = sizeof(BendTwistConstraintConstant);
-    bend_twist_push_constant_range.offset = 0;
-    bend_twist_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    forward_bend_twist_constraint_pipeline->Initialize();
-  }
-  if (!backward_stretch_shear_constraint_pipeline) {
-    static std::shared_ptr<Shader> stretch_shear_shader{};
-    stretch_shear_shader = std::make_shared<Shader>();
-    stretch_shear_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
-                              std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Compute/DynamicStrands/Constraints/StiffRodShearStretchBackward.comp");
-    backward_stretch_shear_constraint_pipeline = std::make_shared<ComputePipeline>();
-    backward_stretch_shear_constraint_pipeline->compute_shader = stretch_shear_shader;
-
-    backward_stretch_shear_constraint_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    backward_stretch_shear_constraint_pipeline->descriptor_set_layouts.emplace_back(layout);
-
-    auto& stretch_shear_push_constant_range =
-        backward_stretch_shear_constraint_pipeline->push_constant_ranges.emplace_back();
-    stretch_shear_push_constant_range.size = sizeof(ShearStretchConstraintConstant);
-    stretch_shear_push_constant_range.offset = 0;
-    stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    backward_stretch_shear_constraint_pipeline->Initialize();
-
-    static std::shared_ptr<Shader> bend_twist_constraint_shader{};
-    bend_twist_constraint_shader = std::make_shared<Shader>();
-    bend_twist_constraint_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines + xpbd_prefix,
-                                      std::filesystem::path("./EcoSysLabResources") /
-                                          "Shaders/Compute/DynamicStrands/Constraints/StiffRodBendTwistBackward.comp");
-
-    backward_bend_twist_constraint_pipeline = std::make_shared<ComputePipeline>();
-    backward_bend_twist_constraint_pipeline->compute_shader = bend_twist_constraint_shader;
-
-    backward_bend_twist_constraint_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    backward_bend_twist_constraint_pipeline->descriptor_set_layouts.emplace_back(layout);
-
-    auto& bend_twist_push_constant_range = backward_bend_twist_constraint_pipeline->push_constant_ranges.emplace_back();
-    bend_twist_push_constant_range.size = sizeof(BendTwistConstraintConstant);
-    bend_twist_push_constant_range.offset = 0;
-    bend_twist_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    backward_bend_twist_constraint_pipeline->Initialize();
-  }
-  if (strands_physics_descriptor_sets.empty()) {
-    strands_physics_descriptor_sets.resize(max_frame_in_flight);
-    for (auto& i : strands_physics_descriptor_sets) {
-      i = std::make_shared<DescriptorSet>(layout);
-    }
-  }
 }
 
 bool DsStiffRod::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -221,208 +124,50 @@ bool DsStiffRod::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         changed = true;
       if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100))
         changed = true;
-      if (ImGui::Combo("Project Mode", {"Forward", "Backward", "Alternating Direction", "Bilateral"}, project_mode))
-        changed = true;
     }
     ImGui::TreePop();
   }
   return changed;
 }
 
-void DsStiffRod::InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
-                                const StrandModelSkeleton& strand_model_skeleton,
-                                const DtsStrandGroup& subdivided_strand_group,
-                                const DynamicStrands& target_dynamic_strands) {
-  per_strand_data_list.resize(target_dynamic_strands.strands.size());
-  for (uint32_t strand_index = 0; strand_index < target_dynamic_strands.strands.size(); strand_index++) {
-    const auto& gpu_strand = target_dynamic_strands.strands[strand_index];
-    auto& stiff_rod_per_strand_data = per_strand_data_list[strand_index];
-    stiff_rod_per_strand_data.front_propagate_begin_segment_handle = -1;
-    stiff_rod_per_strand_data.back_propagate_begin_segment_handle = -1;
-    stiff_rod_per_strand_data.front_propagate_begin_connection_handle = -1;
-    stiff_rod_per_strand_data.back_propagate_begin_connection_handle = -1;
-    stiff_rod_per_strand_data.alternative_front_propagate_begin_connection_handle = -1;
-    stiff_rod_per_strand_data.alternative_back_propagate_begin_connection_handle = -1;
-    stiff_rod_per_strand_data.alternative_front_propagate_begin_segment_handle = -1;
-    stiff_rod_per_strand_data.alternative_back_propagate_begin_segment_handle = -1;
-    if (gpu_strand.begin_segment_handle == -1) {
-      continue;
-    }
-    stiff_rod_per_strand_data.front_propagate_begin_segment_handle = gpu_strand.begin_segment_handle;
-    if (gpu_strand.begin_segment_handle == gpu_strand.end_segment_handle) {
-      stiff_rod_per_strand_data.alternative_front_propagate_begin_segment_handle = gpu_strand.begin_segment_handle;
-      continue;
-    }
-    stiff_rod_per_strand_data.alternative_front_propagate_begin_segment_handle =
-        target_dynamic_strands.segments[gpu_strand.begin_segment_handle].next_handle;
-
-    stiff_rod_per_strand_data.front_propagate_begin_connection_handle = gpu_strand.begin_connection_handle;
-    if (gpu_strand.begin_connection_handle == gpu_strand.end_connection_handle) {
-      stiff_rod_per_strand_data.alternative_front_propagate_begin_connection_handle =
-          gpu_strand.begin_connection_handle;
-      continue;
-    }
-    stiff_rod_per_strand_data.alternative_front_propagate_begin_connection_handle =
-        target_dynamic_strands.connections[gpu_strand.begin_connection_handle].next_handle;
-
-    int connection_size = 0;
-    int connection_handle = stiff_rod_per_strand_data.front_propagate_begin_connection_handle;
-    while (connection_handle != -1) {
-      connection_size++;
-      connection_handle = target_dynamic_strands.connections[connection_handle].next_handle;
-    }
-
-    stiff_rod_per_strand_data.back_propagate_begin_connection_handle =
-        connection_size % 2 == 0 ? gpu_strand.end_connection_handle
-                                 : target_dynamic_strands.connections[gpu_strand.end_connection_handle].prev_handle;
-
-    stiff_rod_per_strand_data.alternative_back_propagate_begin_connection_handle =
-        connection_size % 2 == 0 ? target_dynamic_strands.connections[gpu_strand.end_connection_handle].prev_handle
-                                 : gpu_strand.end_connection_handle;
-
-    stiff_rod_per_strand_data.back_propagate_begin_segment_handle =
-        connection_size % 2 == 1 ? gpu_strand.end_segment_handle
-                                 : target_dynamic_strands.segments[gpu_strand.end_segment_handle].prev_handle;
-
-    stiff_rod_per_strand_data.alternative_back_propagate_begin_segment_handle =
-        connection_size % 2 == 1 ? target_dynamic_strands.segments[gpu_strand.end_segment_handle].prev_handle
-                                 : gpu_strand.end_segment_handle;
-  }
-}
-
 void DsStiffRod::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                            const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   ShearStretchConstraintConstant stretch_shear_constraint_constant;
-  stretch_shear_constraint_constant.strand_size = per_strand_data_list.size();
+  stretch_shear_constraint_constant.strand_size = target_dynamic_strands.strands.size();
   stretch_shear_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   stretch_shear_constraint_constant.frame_index = physics_parameters.frame_index;
   BendTwistConstraintConstant bend_twist_constraint_constant;
-  bend_twist_constraint_constant.strand_size = per_strand_data_list.size();
+  bend_twist_constraint_constant.strand_size = target_dynamic_strands.strands.size();
   bend_twist_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   bend_twist_constraint_constant.frame_index = physics_parameters.frame_index;
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {
-      const auto forward_projection = [&]() {
-        if (stretch_shear) {
-          forward_stretch_shear_constraint_pipeline->Bind(vk_command_buffer);
-          forward_stretch_shear_constraint_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0,
-              target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-          forward_stretch_shear_constraint_pipeline->BindDescriptorSet(
-              vk_command_buffer, 1, strands_physics_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
-          forward_stretch_shear_constraint_pipeline->PushConstant(vk_command_buffer, 0,
+      if (stretch_shear) {
+        bilateral_stretch_shear_constraint_pipeline->Bind(vk_command_buffer);
+        bilateral_stretch_shear_constraint_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0,
+            target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        bilateral_stretch_shear_constraint_pipeline->PushConstant(vk_command_buffer, 0,
                                                                   stretch_shear_constraint_constant);
-          vkCmdDispatch(vk_command_buffer,
-                        Platform::DivUp(stretch_shear_constraint_constant.strand_size, work_group_invocations), 1, 1);
-          Platform::EverythingBarrier(vk_command_buffer);
-        }
-        if (bend_twist) {
-          forward_bend_twist_constraint_pipeline->Bind(vk_command_buffer);
-          forward_bend_twist_constraint_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0,
-              target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-          forward_bend_twist_constraint_pipeline->BindDescriptorSet(
-              vk_command_buffer, 1, strands_physics_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        vkCmdDispatch(vk_command_buffer,
+                      Platform::DivUp(stretch_shear_constraint_constant.strand_size, work_group_invocations), 1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+      }
+      if (bend_twist) {
+        bilateral_bend_twist_constraint_pipeline->Bind(vk_command_buffer);
+        bilateral_bend_twist_constraint_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0,
+            target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
-          forward_bend_twist_constraint_pipeline->PushConstant(vk_command_buffer, 0, bend_twist_constraint_constant);
-          vkCmdDispatch(vk_command_buffer,
-                        Platform::DivUp(bend_twist_constraint_constant.strand_size, work_group_invocations), 1, 1);
-          Platform::EverythingBarrier(vk_command_buffer);
-        }
-      };
-      const auto& backward_projection = [&]() {
-        if (stretch_shear) {
-          backward_stretch_shear_constraint_pipeline->Bind(vk_command_buffer);
-          backward_stretch_shear_constraint_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0,
-              target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-          backward_stretch_shear_constraint_pipeline->BindDescriptorSet(
-              vk_command_buffer, 1, strands_physics_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
-          backward_stretch_shear_constraint_pipeline->PushConstant(vk_command_buffer, 0,
-                                                                   stretch_shear_constraint_constant);
-          vkCmdDispatch(vk_command_buffer,
-                        Platform::DivUp(stretch_shear_constraint_constant.strand_size, work_group_invocations), 1, 1);
-          Platform::EverythingBarrier(vk_command_buffer);
-        }
-        if (bend_twist) {
-          backward_bend_twist_constraint_pipeline->Bind(vk_command_buffer);
-          backward_bend_twist_constraint_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0,
-              target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-          backward_bend_twist_constraint_pipeline->BindDescriptorSet(
-              vk_command_buffer, 1, strands_physics_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
-          backward_bend_twist_constraint_pipeline->PushConstant(vk_command_buffer, 0, bend_twist_constraint_constant);
-          vkCmdDispatch(vk_command_buffer,
-                        Platform::DivUp(bend_twist_constraint_constant.strand_size, work_group_invocations), 1, 1);
-          Platform::EverythingBarrier(vk_command_buffer);
-        }
-      };
-      switch (static_cast<ProjectMode>(project_mode)) {
-        case ProjectMode::Bilateral:
-          if (stretch_shear) {
-            bilateral_stretch_shear_constraint_pipeline->Bind(vk_command_buffer);
-            bilateral_stretch_shear_constraint_pipeline->BindDescriptorSet(
-                vk_command_buffer, 0,
-                target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-            bilateral_stretch_shear_constraint_pipeline->BindDescriptorSet(
-                vk_command_buffer, 1, strands_physics_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
-            bilateral_stretch_shear_constraint_pipeline->PushConstant(vk_command_buffer, 0,
-                                                                      stretch_shear_constraint_constant);
-            vkCmdDispatch(vk_command_buffer,
-                          Platform::DivUp(stretch_shear_constraint_constant.strand_size, work_group_invocations), 1, 1);
-            Platform::EverythingBarrier(vk_command_buffer);
-          }
-          if (bend_twist) {
-            bilateral_bend_twist_constraint_pipeline->Bind(vk_command_buffer);
-            bilateral_bend_twist_constraint_pipeline->BindDescriptorSet(
-                vk_command_buffer, 0,
-                target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-            bilateral_bend_twist_constraint_pipeline->BindDescriptorSet(
-                vk_command_buffer, 1, strands_physics_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
-            bilateral_bend_twist_constraint_pipeline->PushConstant(vk_command_buffer, 0,
-                                                                   bend_twist_constraint_constant);
-            vkCmdDispatch(vk_command_buffer,
-                          Platform::DivUp(bend_twist_constraint_constant.strand_size, work_group_invocations), 1, 1);
-            Platform::EverythingBarrier(vk_command_buffer);
-          }
-          break;
-        case ProjectMode::AlternatingDirection: {
-          if (physics_parameters.frame_index % 2 == 0) {
-            forward_projection();
-          } else {
-            backward_projection();
-          }
-          break;
-        }
-        case ProjectMode::Forward:
-          forward_projection();
-          break;
-        case ProjectMode::Backward:
-          backward_projection();
-          break;
+        bilateral_bend_twist_constraint_pipeline->PushConstant(vk_command_buffer, 0, bend_twist_constraint_constant);
+        vkCmdDispatch(vk_command_buffer,
+                      Platform::DivUp(bend_twist_constraint_constant.strand_size, work_group_invocations), 1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
       }
     }
   });
-}
-
-void DsStiffRod::DownloadData() {
-  per_strand_data_list_buffer->DownloadVector(per_strand_data_list, per_strand_data_list.size());
-}
-
-void DsStiffRod::UploadData() {
-  per_strand_data_list_buffer->UploadVector(per_strand_data_list);
-}
-
-void DsStiffRod::UpdateBindings() {
-  strands_physics_descriptor_sets[Platform::GetCurrentFrameIndex()]->UpdateBufferDescriptorBinding(
-      0, per_strand_data_list_buffer);
 }
 
 glm::vec3 DsStiffRod::ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1,
@@ -547,8 +292,8 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
   constraint_apply_segments_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
 
   RandomBundleApplyConnectionsConstant constraint_apply_connections_constant;
-  constraint_apply_connections_constant.connection_size =
-      static_cast<uint32_t>(target_dynamic_strands.connections.size());
+  constraint_apply_connections_constant.segment_pair_size =
+      static_cast<uint32_t>(target_dynamic_strands.connection_segment_pair_size);
   constraint_apply_connections_constant.inv_time_step =
       1.f / (physics_parameters.time_step / physics_parameters.sub_step);
 
@@ -573,8 +318,8 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         connections_correction_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_connections_constant);
         vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(constraint_apply_connections_constant.connection_size, work_group_invocations), 1,
-                      1);
+                      Platform::DivUp(constraint_apply_connections_constant.segment_pair_size, work_group_invocations),
+                      1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
       const auto calculate_stretch_shear_offset = [&]() {

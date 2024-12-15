@@ -61,7 +61,7 @@ void main(){
 		SegmentPair segment_pair = segment_pairs[segment_pair_index_global];
 		Segment segment0 = segments[segment_pair.segment0_handle];
 		Segment segment1 = segments[segment_pair.segment1_handle];
-		bool render = !(segment_pair_index_global > segment_pairs_size - 1) && segment_pair.valid != 0 && segment0.strand_handle != segment1.strand_handle;
+		bool render = !(segment_pair_index_global >= segment_pairs_size) && segment_pair.connectivity_valid == 1 && segment0.strand_handle != segment1.strand_handle;
 
 		uvec4 vote_segment_pairs = subgroupBallot(render);
 		uint num_segment_pairs  = subgroupBallotBitCount(vote_segment_pairs);

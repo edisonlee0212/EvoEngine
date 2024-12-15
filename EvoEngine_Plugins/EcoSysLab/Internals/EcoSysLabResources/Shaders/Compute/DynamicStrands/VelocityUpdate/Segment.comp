@@ -44,6 +44,6 @@ void main(){
 			vec4 rot = quat_mul(segment.q, conjugate(segment.last_q));
 			angular_velocity = rot.xyz * 2.0f * inv_time_step;
 		}
-		segments[segment_index].angular_v_shear_stretch_valid.xyz = angular_velocity;
+		segments[segment_index].angular_v = angular_velocity;
 	}
 }

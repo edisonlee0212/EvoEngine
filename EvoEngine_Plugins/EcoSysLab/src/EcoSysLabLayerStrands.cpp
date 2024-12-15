@@ -98,17 +98,6 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
   }
 }
 
-void EcoSysLabLayer::ReGroupDynamicStrandSegments() const {
-  const auto scene = GetScene();
-  if (const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
-      dts_entities && !dts_entities->empty()) {
-    for (auto dts_entity : *dts_entities) {
-      const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(dts_entity).lock();
-      ds->dynamic_strands->CalculateGroups();
-    }
-  }
-}
-
 void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLayer>& editor_layer) const {
   const auto scene = GetScene();
   const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
@@ -164,7 +153,8 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
       // Draw border and background color
       // draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
       draw_list->PushClipRect(canvas_p0, canvas_p1, true);
-      if (!tree_visualization_settings_.enable || tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Disabled) ||
+      if (!tree_visualization_settings_.enable ||
+          tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Disabled) ||
           tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Select)) {
         if (visualization_camera_window_focused_ &&
             editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold &&

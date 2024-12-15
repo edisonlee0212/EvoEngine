@@ -25,9 +25,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 };
 
 #define DYNAMIC_STRANDS_SET 0
-#define DYNAMIC_STRANDS_PER_STRAND_DATA_SET 1
 #include "DynamicStrandsPhysics.glsl"
-#include "DynamicStrandsPerStrandData.glsl"
 
 void main(){
 
@@ -39,9 +37,9 @@ void main(){
 
 		if(strand_index >= strand_size) break;
 
-		PerStrandData strand_data = per_strand_data_list[strand_index];
-		int front_propagate_handle = frame_index % 2 == 0 ? strand_data.front_propagate_begin_segment_handle : strand_data.alternative_front_propagate_begin_segment_handle;
-		int back_propagate_handle = frame_index % 2 == 0 ? strand_data.back_propagate_begin_segment_handle : strand_data.alternative_back_propagate_begin_segment_handle;
+		Strand strand = strands[strand_index];
+		int front_propagate_handle = frame_index % 2 == 0 ? strand.front_propagate_begin_segment_handle : strand.alternative_front_propagate_begin_segment_handle;
+		int back_propagate_handle = frame_index % 2 == 0 ? strand.back_propagate_begin_segment_handle : strand.alternative_back_propagate_begin_segment_handle;
 		
 		while(front_propagate_handle != -1 || back_propagate_handle != -1){
 			if(front_propagate_handle != -1) {
