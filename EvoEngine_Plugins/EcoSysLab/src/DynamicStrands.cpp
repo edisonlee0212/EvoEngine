@@ -15,7 +15,7 @@ inline glm::vec3 cgal_to_glm(const Point_CGAL& p) {
 }
 #endif
 void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
-                             const std::function<void()>& sub_step_action) const {
+                             const std::function<void()>& sub_step_action) {
   pre_step_action();
   for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
     if (pre_step)
@@ -65,9 +65,10 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
     segment_collision->Execute(physics_parameters, *this);
   }
 
-  if (physics_parameters.enable_grouping) {
+  if (physics_parameters.enable_grouping && frame_index > 0) {
     CalculateGroups(physics_parameters);
   }
+  frame_index++;
 }
 
 DynamicStrands::DynamicStrands() {
@@ -127,6 +128,10 @@ DynamicStrands::DynamicStrands() {
   velocity_update = std::make_shared<DsVelocityUpdate>();
   dynamic_hashed_grid = std::make_shared<DsDynamicHashedGrid>();
   segment_collision = std::make_shared<DsSegmentCollision>();
+}
+
+uint32_t DynamicStrands::GetFrameIndex() const {
+  return frame_index;
 }
 
 bool DynamicStrands::WaitForUpload() const {
@@ -197,6 +202,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
                                 const StrandModelStrandGroup& strand_model_strand_group,
                                 const DtsStrandGroup& strand_group) {
   Clear();
+  frame_index = 0;
   assert(initialize_parameters.root_transform.GetScale() == glm::vec3(1.0f));
   const auto& target_strands = strand_group.PeekStrands();
   const auto& target_strand_segments = strand_group.PeekStrandSegments();

@@ -103,7 +103,7 @@ class DsDynamicHashedGrid {
   inline static std::shared_ptr<Shader> big_flip_shader;
   inline static std::shared_ptr<Shader> local_disperse_shader;
   inline static std::shared_ptr<Shader> global_disperse_shader;
-  float grid_cell_size = 0.03f;
+  float grid_cell_size = 0.1f;
 
   DsDynamicHashedGrid();
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);

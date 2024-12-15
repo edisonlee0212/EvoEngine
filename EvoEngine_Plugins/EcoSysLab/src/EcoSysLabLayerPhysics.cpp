@@ -63,7 +63,6 @@ void EcoSysLabLayer::StrandPhysics() {
         if (dts->enable_physics)
           dts->PhysicsStep(dynamic_strands_settings_.physics_parameters);
       });
-      dynamic_strands_settings_.physics_parameters.frame_index++;
     }
     if (dynamic_strands_settings_.enable) {
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
