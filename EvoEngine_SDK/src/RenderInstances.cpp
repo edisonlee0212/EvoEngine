@@ -494,6 +494,7 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
   StrandsRenderInstance render_instance;
   render_instance.command_type = RenderCommandType::FromRenderer;
   render_instance.owner = owner;
+  render_instance.renderer_handle = strands_renderer->GetHandle();
   render_instance.model = gt;
   render_instance.strands = strands;
   render_instance.material = material;
@@ -558,7 +559,7 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
   render_instance.mesh = mesh;
   render_instance.material = material;
   render_instance.model = gt;
-
+  render_instance.renderer_handle = mesh_renderer->GetHandle();
   render_instance.cast_shadow = mesh_renderer->cast_shadow;
   render_instance.meshlet_size = mesh->meshlet_range_->range;
   render_instance.instance_index = instance_index;
@@ -635,6 +636,7 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner,
   SkinnedMeshRenderInstance render_instance;
   render_instance.command_type = RenderCommandType::FromRenderer;
   render_instance.owner = owner;
+  render_instance.renderer_handle = skinned_mesh_renderer->GetHandle();
   render_instance.model = gt;
   render_instance.skinned_mesh = skinned_mesh;
   render_instance.material = material;
@@ -698,6 +700,7 @@ bool RenderInstances::TryRegisterRenderer(const Entity& owner, const std::shared
   render_instance.command_type = RenderCommandType::FromRenderer;
   render_instance.model = gt;
   render_instance.owner = owner;
+  render_instance.renderer_handle = particles->GetHandle();
   render_instance.mesh = mesh;
   render_instance.material = material;
   render_instance.cast_shadow = particles->cast_shadow;

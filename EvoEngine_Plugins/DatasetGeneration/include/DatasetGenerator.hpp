@@ -52,26 +52,30 @@ class DatasetGenerator {
                                            const SorghumPointCloudPointSettings& point_settings,
                                            const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                            const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                           bool avoid_occlusion, const std::filesystem::path& point_cloud_output_path);
+                                           bool avoid_occlusion, bool generate_ground,
+                                           const std::filesystem::path& point_cloud_output_path);
 
   static void GeneratePointCloudForSorghum(const std::shared_ptr<SorghumState>& sorghum_state,
                                            const SorghumPointCloudPointSettings& point_settings,
                                            const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                            const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                           bool avoid_occlusion, const std::filesystem::path& point_cloud_output_path);
+                                           bool avoid_occlusion, bool generate_ground,
+                                           const std::filesystem::path& point_cloud_output_path);
 
   static void GenerateMeshAndPointCloudForSorghum(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
                                                   const SorghumPointCloudPointSettings& point_settings,
                                                   const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                                   const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                                  bool avoid_occlusion, const std::filesystem::path& mesh_output_path,
+                                                  bool avoid_occlusion, bool generate_ground,
+                                                  const std::filesystem::path& mesh_output_path,
                                                   const std::filesystem::path& point_cloud_output_path);
 
   static void GenerateMeshAndPointCloudForSorghum(const std::shared_ptr<SorghumState>& sorghum_state,
                                                   const SorghumPointCloudPointSettings& point_settings,
                                                   const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                                   const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                                  bool avoid_occlusion, const std::filesystem::path& mesh_output_path,
+                                                  bool avoid_occlusion, bool generate_ground,
+                                                  const std::filesystem::path& mesh_output_path,
                                                   const std::filesystem::path& point_cloud_output_path);
 
   static void GenerateMeshForSorghum(const std::shared_ptr<SorghumState>& sorghum_state,

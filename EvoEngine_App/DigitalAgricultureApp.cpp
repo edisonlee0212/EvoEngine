@@ -3,7 +3,7 @@
 //
 #include <Application.hpp>
 
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
@@ -74,7 +74,7 @@ int main() {
   Application::PushLayer<WindowLayer>();
   Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
   Application::PushLayer<RayTracerLayer>();
 #endif
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
@@ -89,7 +89,7 @@ int main() {
       std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test.eveproj");
   Application::Initialize(application_configs);
 
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 
   auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
 #endif

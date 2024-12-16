@@ -4,14 +4,14 @@
 
 #include "CBTFGroup.hpp"
 
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include "CompressedBTF.hpp"
 #endif
 
 using namespace digital_agriculture_plugin;
 bool CBTFGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
   static AssetRef temp;
   if (editor_layer->DragAndDropButton<CompressedBTF>(temp, ("Drop to add..."))) {
     btfs.emplace_back(temp);
@@ -56,7 +56,7 @@ void CBTFGroup::Deserialize(const YAML::Node& in) {
     }
   }
 }
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 std::shared_ptr<CompressedBTF> CBTFGroup::GetRandom() {
   if (!btfs.empty()) {
     return btfs[glm::linearRand(0, static_cast<int>(btfs.size()) - 1)].Get<CompressedBTF>();

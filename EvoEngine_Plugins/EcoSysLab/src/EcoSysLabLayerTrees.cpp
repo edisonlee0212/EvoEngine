@@ -3,7 +3,7 @@
 //
 
 #include "EcoSysLabLayer.hpp"
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include <RayTracerLayer.hpp>
 #endif
 #include "BarkDescriptor.hpp"
@@ -122,7 +122,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
       auto& tree_model = tree->tree_model;
       auto& tree_visualizer = tree->tree_visualizer;
       const auto global_transform = scene->GetDataComponent<GlobalTransform>(selected_tree);
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
       const auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
 #endif
       if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Release &&
@@ -243,7 +243,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                 ImGui::End();
                 ImGui::PopStyleVar();
               }
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
               else if (ray_tracer_layer) {
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
                 if (ImGui::Begin("Scene (RT)")) {

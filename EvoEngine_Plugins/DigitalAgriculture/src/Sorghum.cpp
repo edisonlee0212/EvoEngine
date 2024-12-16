@@ -2,7 +2,7 @@
 
 #include "SorghumGenerator.hpp"
 #include "SorghumLayer.hpp"
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include "BTFMeshRenderer.hpp"
 #  include "CBTFGroup.hpp"
 #  include "CompressedBTF.hpp"
@@ -106,7 +106,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
   }
   if (sorghum_mesh_generator_settings.enable_leaves) {
     if (sorghum_mesh_generator_settings.leaf_separated) {
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
       const auto btf_group = sorghum_layer->leaf_cbtf_group.Get<CBTFGroup>()->GetRandom();
 #endif
       if (sorghum_mesh_generator_settings.single_leaf_index != -1) {
@@ -115,7 +115,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
           const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
           const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
           if (sorghum_layer->enable_compressed_btf) {
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
             const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
             btf_renderer->mesh = mesh;
             btf_renderer->btf = btf_group;
@@ -148,7 +148,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
           const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
           const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
           if (sorghum_layer->enable_compressed_btf) {
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
             const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
             btf_renderer->mesh = mesh;
             btf_renderer->btf = btf_group;
@@ -181,7 +181,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
       const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
       const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
       if (sorghum_layer->enable_compressed_btf) {
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
         const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
         btf_renderer->mesh = mesh;
         const auto btf_group = sorghum_layer->leaf_cbtf_group.Get<CBTFGroup>()->GetRandom();

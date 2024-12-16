@@ -11,7 +11,7 @@
 using namespace digital_agriculture_plugin;
 #endif
 #include "WindowLayer.hpp"
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
@@ -53,7 +53,7 @@ void push_layers(bool enable_window_layer, bool enable_editor_layer) {
 #ifdef ECOSYSLAB_PLUGIN
   Application::PushLayer<EcoSysLabLayer>();
 #endif
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
   Application::PushLayer<RayTracerLayer>();
 #endif
 }
@@ -77,7 +77,7 @@ void forest_patch_point_cloud() {
 #ifndef ECOSYSLAB_PLUGIN
   throw std::runtime_error("EcoSysLab plugin missing!");
 #else
-#  ifndef OPTIX_RAY_TRACER_PLUGIN
+#  ifndef CUDA_MODULE_PLUGIN
   throw std::runtime_error("OptixRayTracer plugin missing!");
 #  else
 #    ifndef DATASET_GENERATION_PLUGIN
@@ -155,7 +155,7 @@ void generate_tree_mesh(const int count, const std::filesystem::path& tree_param
 #ifndef ECOSYSLAB_PLUGIN
   throw std::runtime_error("EcoSysLab plugin missing!");
 #else
-#  ifndef OPTIX_RAY_TRACER_PLUGIN
+#  ifndef CUDA_MODULE_PLUGIN
   throw std::runtime_error("OptixRayTracer plugin missing!");
 #  else
 #    ifndef DATASET_GENERATION_PLUGIN
@@ -192,7 +192,7 @@ void forest_patch_point_cloud_joined(const std::string& folder_name, const bool 
 #ifndef ECOSYSLAB_PLUGIN
   throw std::runtime_error("EcoSysLab plugin missing!");
 #else
-#  ifndef OPTIX_RAY_TRACER_PLUGIN
+#  ifndef CUDA_MODULE_PLUGIN
   throw std::runtime_error("OptixRayTracer plugin missing!");
 #  else
 #    ifndef DATASET_GENERATION_PLUGIN

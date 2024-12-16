@@ -21,7 +21,7 @@ using namespace universe_plugin;
 
 #include "PostProcessingStack.hpp"
 #include "Resources.hpp"
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
@@ -88,7 +88,7 @@ int main() {
   PrivateComponentRegistration<TextureBaking>("TextureBaking");
 #  endif
 #endif
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
   Application::PushLayer<RayTracerLayer>();
 #endif
 #ifdef PHYSX_PHYSICS_PLUGIN
@@ -108,7 +108,7 @@ int main() {
 
   Application::Initialize(application_info);
 
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
   const auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
   ray_tracer_layer->show_camera_window = false;
   ray_tracer_layer->show_scene_window = false;

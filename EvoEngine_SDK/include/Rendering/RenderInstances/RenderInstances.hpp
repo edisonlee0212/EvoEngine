@@ -28,6 +28,7 @@ struct MeshRenderInstance {
   uint32_t instance_index = 0;
   RenderCommandType command_type = RenderCommandType::Unknown;
   Entity owner = Entity();
+  Handle renderer_handle = 0;
   bool entity_selected = false;
   GlobalTransform model = {};
   uint32_t material_version;
@@ -49,6 +50,7 @@ struct SkinnedMeshRenderInstance {
   uint32_t instance_index = 0;
   RenderCommandType command_type = RenderCommandType::Unknown;
   Entity owner = Entity();
+  Handle renderer_handle = 0;
   bool entity_selected = false;
   GlobalTransform model = {};
   uint32_t material_version;
@@ -71,6 +73,7 @@ struct InstancedRenderInstance {
   uint32_t instance_index = 0;
   RenderCommandType command_type = RenderCommandType::Unknown;
   Entity owner = Entity();
+  Handle renderer_handle = 0;
   bool entity_selected = false;
   GlobalTransform model = {};
   uint32_t material_version;
@@ -93,6 +96,7 @@ struct StrandsRenderInstance {
   uint32_t instance_index = 0;
   RenderCommandType command_type = RenderCommandType::Unknown;
   Entity owner = Entity();
+  Handle renderer_handle = 0;
   bool entity_selected = false;
   GlobalTransform model = {};
   uint32_t material_version;

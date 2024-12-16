@@ -1,5 +1,5 @@
 #include "TreePointCloudScanner.hpp"
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <OptiXRayTracer.hpp>
 #  include <RayTracerLayer.hpp>
@@ -266,15 +266,15 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
 bool TreePointCloudGridCaptureSettings::SampleFilter(const PointCloudSample& sample) {
   if (m_boundingBoxSize == 0.f)
     return true;
-  return glm::abs(sample.m_hitInfo.position.x) < m_boundingBoxSize &&
-         glm::abs(sample.m_hitInfo.position.z) < m_boundingBoxSize;
+  return glm::abs(sample.hit_info.position.x) < m_boundingBoxSize &&
+         glm::abs(sample.hit_info.position.z) < m_boundingBoxSize;
 }
 #pragma endregion
 
 void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_generator_settings,
                                     const std::filesystem::path& save_path,
                                     const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const {
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
@@ -359,11 +359,11 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
   std::vector<int> type_index;
 
   for (const auto& sample : pc_samples) {
-    if (!sample.m_hit)
+    if (!sample.hit)
       continue;
     if (!capture_settings->SampleFilter(sample))
       continue;
-    auto& position = sample.m_hitInfo.position;
+    auto& position = sample.hit_info.position;
     if (position.x < (plant_bound.min.x - m_pointSettings.m_boundingBoxLimit) ||
         position.y < (plant_bound.min.y - m_pointSettings.m_boundingBoxLimit) ||
         position.z < (plant_bound.min.z - m_pointSettings.m_boundingBoxLimit) ||
@@ -375,30 +375,30 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
     if (m_pointSettings.m_ballRandRadius > 0.0f) {
       ball_rand = glm::ballRand(m_pointSettings.m_ballRandRadius);
     }
-    const auto distance = glm::distance(sample.m_hitInfo.position, sample.start);
-    points.emplace_back(sample.m_hitInfo.position +
+    const auto distance = glm::distance(sample.hit_info.position, sample.start);
+    points.emplace_back(sample.hit_info.position +
                         distance * glm::vec3(glm::gaussRand(0.0f, m_pointSettings.m_variance),
                                              glm::gaussRand(0.0f, m_pointSettings.m_variance),
                                              glm::gaussRand(0.0f, m_pointSettings.m_variance)) +
                         ball_rand);
 
     if (m_pointSettings.m_internodeIndex) {
-      internode_index.emplace_back(static_cast<int>(sample.m_hitInfo.data.x + 0.1f));
+      internode_index.emplace_back(static_cast<int>(sample.hit_info.data.x + 0.1f));
     }
     if (m_pointSettings.m_branchIndex) {
-      branch_index.emplace_back(static_cast<int>(sample.m_hitInfo.data.y + 0.1f));
+      branch_index.emplace_back(static_cast<int>(sample.hit_info.data.y + 0.1f));
     }
     if (m_pointSettings.m_lineIndex) {
-      line_index.emplace_back(static_cast<int>(sample.m_hitInfo.data.z + 0.1f));
+      line_index.emplace_back(static_cast<int>(sample.hit_info.data.z + 0.1f));
     }
     if (m_pointSettings.m_treePartIndex) {
-      tree_part_index.emplace_back(static_cast<int>(sample.m_hitInfo.data2.x + 0.1f));
+      tree_part_index.emplace_back(static_cast<int>(sample.hit_info.data2.x + 0.1f));
     }
     if (m_pointSettings.m_treePartTypeIndex) {
-      tree_part_type_index.emplace_back(static_cast<int>(sample.m_hitInfo.data2.y + 0.1f));
+      tree_part_type_index.emplace_back(static_cast<int>(sample.hit_info.data2.y + 0.1f));
     }
-    auto branch_search = branch_mesh_renderer_handles.find(sample.m_handle);
-    auto foliage_search = foliage_mesh_renderer_handles.find(sample.m_handle);
+    auto branch_search = branch_mesh_renderer_handles.find(sample.handle);
+    auto foliage_search = foliage_mesh_renderer_handles.find(sample.handle);
     if (m_pointSettings.m_instanceIndex) {
       if (branch_search != branch_mesh_renderer_handles.end()) {
         instance_index.emplace_back(branch_search->second);
@@ -414,7 +414,7 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
         type_index.emplace_back(0);
       } else if (foliage_search != foliage_mesh_renderer_handles.end()) {
         type_index.emplace_back(1);
-      } else if (sample.m_handle == ground_mesh_renderer_handle) {
+      } else if (sample.handle == ground_mesh_renderer_handle) {
         type_index.emplace_back(2);
       } else {
         type_index.emplace_back(-1);

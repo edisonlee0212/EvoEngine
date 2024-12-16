@@ -1,5 +1,6 @@
 #include "CpuRayTracer.hpp"
 
+#include "Application.hpp"
 #include "Material.hpp"
 #include "MeshRenderer.hpp"
 #include "ProjectManager.hpp"
@@ -191,6 +192,138 @@ void CpuRayTracer::Trace(const RayDescriptor& ray_descriptor,
   } else {
     miss_func();
   }
+}
+
+void CpuRayTracer::Trace(const RayDescriptor& ray_descriptor, HitInfo& closest_hit_info) const {
+  closest_hit_info.has_hit = false;
+  closest_hit_info.distance = FLT_MAX;
+  const auto flags = static_cast<unsigned>(ray_descriptor.flags);
+  const bool cull_back_face = flags & static_cast<unsigned>(TraceFlags::CullBackFace);
+  const bool cull_front_face = flags & static_cast<unsigned>(TraceFlags::CullFrontFace);
+  float test_distance = ray_descriptor.t_max;
+
+  const auto scene_space_ray_direction = glm::normalize(ray_descriptor.direction);
+  const auto& scene_space_ray_origin = ray_descriptor.origin;
+  const auto scene_space_inv_ray_direction = glm::vec3(
+      1.f / scene_space_ray_direction.x, 1.f / scene_space_ray_direction.y, 1.f / scene_space_ray_direction.z);
+
+  uint32_t node_group_index = 0;
+  while (node_group_index < flattened_bvh_node_group_.nodes.size()) {
+    const auto& node_group = flattened_bvh_node_group_.nodes[node_group_index];
+    if (!RayAabb(scene_space_ray_origin, scene_space_inv_ray_direction, node_group.aabb)) {
+      node_group_index = node_group.alternate_node_index;
+      continue;
+    }
+    for (uint32_t test_node_index = node_group.begin_next_level_element_index;
+         test_node_index < node_group.end_next_level_element_index; ++test_node_index) {
+      uint32_t mesh_group_index = 0;
+      const auto& node_index = flattened_bvh_node_group_.element_indices[test_node_index];
+      const auto& node_instance = node_instances_[node_index];
+      const auto& node_global_transform = node_instance.transformation;
+      const auto& node_inverse_global_transform = node_instance.inverse_transformation;
+      const auto instance_index = node_instance.instance_index;
+      const auto node_space_ray_origin = node_inverse_global_transform.TransformPoint(scene_space_ray_origin);
+      const auto node_space_ray_direction =
+          glm::normalize(node_inverse_global_transform.TransformVector(scene_space_ray_direction));
+      const auto node_space_inv_ray_direction = glm::vec3(
+          1.f / node_space_ray_direction.x, 1.f / node_space_ray_direction.y, 1.f / node_space_ray_direction.z);
+
+      while (mesh_group_index < node_instance.flattened_bvh_mesh_group.nodes.size()) {
+        const auto& mesh_group = node_instance.flattened_bvh_mesh_group.nodes[mesh_group_index];
+        if (!RayAabb(node_space_ray_origin, node_space_inv_ray_direction, mesh_group.aabb)) {
+          mesh_group_index = mesh_group.alternate_node_index;
+          continue;
+        }
+        for (uint32_t test_mesh_index = mesh_group.begin_next_level_element_index;
+             test_mesh_index < mesh_group.end_next_level_element_index; ++test_mesh_index) {
+          uint32_t triangle_group_index = 0;
+          const auto& mesh_index = node_instance.flattened_bvh_mesh_group.element_indices[test_mesh_index];
+          const auto& mesh_instance = geometry_instances_[mesh_index];
+          while (triangle_group_index < mesh_instance.flattened_bvh_triangle_group.nodes.size()) {
+            const auto& triangle_group = mesh_instance.flattened_bvh_triangle_group.nodes[triangle_group_index];
+            if (!RayAabb(node_space_ray_origin, node_space_inv_ray_direction, triangle_group.aabb)) {
+              triangle_group_index = triangle_group.alternate_node_index;
+              continue;
+            }
+            for (uint32_t test_triangle_index = triangle_group.begin_next_level_element_index;
+                 test_triangle_index < triangle_group.end_next_level_element_index; ++test_triangle_index) {
+              const auto& triangle_index =
+                  mesh_instance.flattened_bvh_triangle_group.element_indices[test_triangle_index];
+              const auto& triangle = mesh_instance.triangles[triangle_index];
+              const auto& p0 = mesh_instance.vertices[triangle.x].position;
+              const auto& p1 = mesh_instance.vertices[triangle.y].position;
+              const auto& p2 = mesh_instance.vertices[triangle.z].position;
+              if (p0 == p1 && p1 == p2)
+                continue;
+              const auto node_space_triangle_normal = glm::normalize(glm::cross(p1 - p0, p2 - p0));
+              const auto normal_test = glm::dot(node_space_ray_direction, node_space_triangle_normal);
+              if ((cull_back_face && normal_test > 0.f) || (cull_front_face && normal_test < 0.f) || normal_test == 0.f)
+                continue;
+
+              // node_space_hit_distance > 0 instead of node_space_hit_distance >= 0 to avoid self-intersection
+              if (const auto node_space_hit_distance = (glm::dot(p0, node_space_triangle_normal) -
+                                                        glm::dot(node_space_ray_origin, node_space_triangle_normal)) /
+                                                       normal_test;
+                  node_space_hit_distance > 0) {
+                const auto node_space_hit = node_space_ray_origin + node_space_ray_direction * node_space_hit_distance;
+                const auto scene_space_hit = node_global_transform.TransformPoint(node_space_hit);
+                if (const auto scene_hit_distance = glm::distance(scene_space_ray_origin, scene_space_hit);
+                    scene_hit_distance >= ray_descriptor.t_min && scene_hit_distance <= test_distance) {
+                  if (const auto barycentric = Barycentric(node_space_hit, p0, p1, p2);
+                      barycentric.x >= 0.f && barycentric.x <= 1.f && barycentric.y >= 0.f && barycentric.y <= 1.f &&
+                      barycentric.z >= 0.f && barycentric.z <= 1.f) {
+                    HitInfo any_hit_info;
+                    any_hit_info.has_hit = true;
+                    any_hit_info.hit = scene_space_hit;
+                    any_hit_info.normal = node_global_transform.TransformVector(node_space_triangle_normal);
+                    any_hit_info.distance = scene_hit_distance;
+                    any_hit_info.barycentric = barycentric;
+                    any_hit_info.back_face = normal_test > 0.f;
+                    any_hit_info.triangle_index = triangle_index;
+                    any_hit_info.mesh_index = mesh_index;
+                    any_hit_info.node_index = node_index;
+                    any_hit_info.instance_index = instance_index;
+                    test_distance = scene_hit_distance;
+                    if (any_hit_info.distance < closest_hit_info.distance) {
+                      closest_hit_info = any_hit_info;
+                    }
+                  }
+                }
+              }
+            }
+            triangle_group_index++;
+          }
+        }
+        mesh_group_index++;
+      }
+    }
+    node_group_index++;
+  }
+}
+
+void CpuRayTracer::SamplePointCloud(std::vector<PointCloudSample>& samples) const {
+  std::vector<HitInfo> hit_infos(samples.size());
+  Jobs::RunParallelFor(samples.size(), [&](const size_t index) {
+    auto& sample = samples[index];
+    sample.hit = false;
+  });
+  Jobs::RunParallelFor(samples.size(), [&](const size_t index) {
+    RayDescriptor ray_descriptor{};
+    auto& sample = samples[index];
+    ray_descriptor.origin = sample.start;
+    ray_descriptor.direction = sample.direction;
+    sample.hit = false;
+    Trace(ray_descriptor, hit_infos[index]);
+  });
+  Jobs::RunParallelFor(samples.size(), [&](const size_t index) {
+    auto& sample = samples[index];
+    if (const auto& hit_info = hit_infos[index]; hit_info.has_hit) {
+      sample.hit = true;
+      sample.hit_info.position = hit_info.hit;
+      sample.hit_info.normal = hit_info.normal;
+      sample.handle = GetRendererHandle(hit_info.node_index);
+    }
+  });
 }
 
 void CpuRayTracer::Clear() noexcept {
@@ -905,6 +1038,32 @@ void CpuRayTracer::AggregatedScene::TraceGpu(const std::vector<RayDescriptor>& r
   });
 }
 
+void CpuRayTracer::AggregatedScene::SamplePointCloudGpu(const CpuRayTracer& cpu_ray_tracer,
+                                                        std::vector<PointCloudSample>& samples) {
+  const auto scene = Application::GetActiveScene();
+  std::vector<RayDescriptor> ray_descriptors(samples.size());
+  std::vector<HitInfo> hit_infos(samples.size());
+  Jobs::RunParallelFor(samples.size(), [&](const size_t index) {
+    auto& ray_descriptor = ray_descriptors[index];
+    auto& sample = samples[index];
+    ray_descriptor.origin = sample.start;
+    ray_descriptor.direction = sample.direction;
+    sample.hit = false;
+  });
+
+  TraceGpu(ray_descriptors, hit_infos, {});
+  Jobs::RunParallelFor(samples.size(), [&](const size_t index) {
+    auto& sample = samples[index];
+    const auto& hit_info = hit_infos[index];
+    if (hit_info.has_hit) {
+      sample.hit = true;
+      sample.hit_info.position = hit_info.hit;
+      sample.hit_info.normal = hit_info.normal;
+      sample.handle = cpu_ray_tracer.GetRendererHandle(hit_info.node_index);
+    }
+  });
+}
+
 CpuRayTracer::AggregatedScene CpuRayTracer::Aggregate() const {
   AggregateSceneInternal aggregated_scene_internal;
   aggregated_scene_internal.scene_level_bvh_nodes = flattened_bvh_node_group_.nodes;
@@ -1155,6 +1314,10 @@ Entity CpuRayTracer::GetEntity(const uint32_t node_index) const {
   return node_instances_[node_index].entity;
 }
 
+Handle CpuRayTracer::GetRendererHandle(const uint32_t node_index) const {
+  return node_instances_[node_index].renderer_handle;
+}
+
 void CpuRayTracer::GeometryInstance::Initialize(const std::shared_ptr<Mesh>& input_mesh) {
   Clear();
   const auto& input_vertices = input_mesh->UnsafeGetVertices();
@@ -1206,6 +1369,7 @@ void CpuRayTracer::NodeInstance::Initialize(const std::shared_ptr<RenderInstance
   instance_index = render_instance.instance_index;
   inverse_transformation.value = glm::inverse(transformation.value);
   entity = render_instance.owner;
+  renderer_handle = render_instance.renderer_handle;
   Bvh node_bvh;
   node_bvh.element_indices.resize(1);
   std::vector<Bound> element_aabbs(1);
