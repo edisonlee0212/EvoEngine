@@ -2,6 +2,7 @@
 #include <glm/gtx/intersect.hpp>
 #include <glm/gtx/io.hpp>
 #include "MeshGenUtils.hpp"
+#include "UVMapUtils.hpp"
 
 #define DEBUG_OUTPUT false
 
@@ -38,11 +39,6 @@ SkeletonNodeHandle GetNodeHandle(const StrandModelStrandGroup& pipe_group, const
   return strand_segment_data.node_handle;
 }
 
-bool IsValidPipeParam(const StrandModel& strand_model, const StrandHandle& pipe_handle, float t) {
-  const auto& pipe = strand_model.strand_model_skeleton.data.strand_group.PeekStrand(pipe_handle);
-  return pipe.PeekStrandSegmentHandles().size() > glm::floor(t);
-}
-
 glm::vec3 GetPipeDir(const StrandModel& strand_model, const StrandHandle& pipe_handle, float t) {
   const auto& pipe = strand_model.strand_model_skeleton.data.strand_group.PeekStrand(pipe_handle);
   const auto seg_handle = pipe.PeekStrandSegmentHandles()[t];
@@ -50,91 +46,6 @@ glm::vec3 GetPipeDir(const StrandModel& strand_model, const StrandHandle& pipe_h
 }
 
 void SetStrandColor(StrandModel& strand_model, const StrandHandle& pipe_handle, float t, glm::vec4 color) {
-}
-
-const Particle2D<CellParticlePhysicsData>& GetEndParticle(const StrandModel& strand_model,
-                                                          const StrandHandle& pipe_handle, size_t index) {
-  if (!IsValidPipeParam(strand_model, pipe_handle, index)) {
-    EVOENGINE_ERROR("Error: Strand " << pipe_handle << " does not exist at " << index);
-  }
-
-  const auto& skeleton = strand_model.strand_model_skeleton;
-  const auto& pipe = skeleton.data.strand_group.PeekStrand(pipe_handle);
-  StrandSegmentHandle seg_handle = pipe.PeekStrandSegmentHandles()[index];
-  auto& pipe_segment_data = skeleton.data.strand_group.PeekStrandSegmentData(seg_handle);
-
-  const auto& node = skeleton.PeekNode(pipe_segment_data.node_handle);
-  const auto& start_profile = node.data.profile;
-  // To access the user's defined constraints (attractors, etc.)
-  const auto& profile_constraints = node.data.profile_constraints;
-
-  // To access the position of the start of the pipe segment within a boundary:
-  const auto parent_handle = node.GetParentHandle();
-  const auto& end_particle = start_profile.PeekParticle(pipe_segment_data.profile_particle_handle);
-
-  return end_particle;
-}
-
-const Particle2D<CellParticlePhysicsData>& GetStartParticle(const StrandModel& strand_model,
-                                                            const StrandHandle& pipe_handle, size_t index) {
-  if (!IsValidPipeParam(strand_model, pipe_handle, index)) {
-    EVOENGINE_ERROR("Strand " << pipe_handle << " does not exist at " << index);
-  }
-
-  const auto& skeleton = strand_model.strand_model_skeleton;
-  const auto& pipe = skeleton.data.strand_group.PeekStrand(pipe_handle);
-  const auto seg_handle = pipe.PeekStrandSegmentHandles()[index];
-  auto& strand_segment_data = skeleton.data.strand_group.PeekStrandSegmentData(seg_handle);
-
-  const auto& node = skeleton.PeekNode(strand_segment_data.node_handle);
-  const auto& start_profile = node.data.profile;
-  // To access the user's defined constraints (attractors, etc.)
-  const auto& profile_constraints = node.data.profile_constraints;
-  // To access the position of the start of the pipe segment within a boundary:
-  const auto& start_particle = start_profile.PeekParticle(strand_segment_data.profile_particle_handle);
-  return start_particle;
-}
-
-float GetPipePolar(const StrandModel& strand_model, const StrandHandle& pipe_handle, float t) {
-  // cheap interpolation, maybe improve this later ?
-  const auto& p0 = GetStartParticle(strand_model, pipe_handle, std::floor(t));
-  const auto& p1 = GetEndParticle(strand_model, pipe_handle, std::floor(t));
-  float a1 = p1.GetPolarPosition().y;
-
-  if (IsValidPipeParam(strand_model, pipe_handle, std::ceil(t))) {
-    const auto& p1 = GetStartParticle(strand_model, pipe_handle, std::ceil(t));
-    a1 = p1.GetPolarPosition().y;
-  }
-
-  float a0 = p0.GetPolarPosition().y;
-
-  float interpolation_param = fmod(t, 1.0f);
-
-  // we will just assume that the difference cannot exceed 180 degrees
-  if (a1 < a0) {
-    std::swap(a0, a1);
-    interpolation_param = 1 - interpolation_param;
-  }
-
-  float angle;
-
-  if (a1 - a0 > glm::pi<float>()) {
-    // rotation wraps around
-    angle =
-        fmod((a0 + 2 * glm::pi<float>()) * (1 - interpolation_param) + a1 * interpolation_param, 2 * glm::pi<float>());
-
-    if (angle > glm::pi<float>()) {
-      angle -= 2 * glm::pi<float>();
-    }
-  } else {
-    angle = a0 * (1 - interpolation_param) + a1 * interpolation_param;
-
-    if (angle > glm::pi<float>()) {
-      angle -= 2 * glm::pi<float>();
-    }
-  }
-
-  return angle;
 }
 
 std::vector<size_t> CollectComponent(const Graph& g, size_t start_index) {
@@ -185,7 +96,7 @@ std::pair<Graph, std::vector<size_t>> ComputeCluster(const StrandModel& strand_m
                                                      const PipeCluster& pipes_in_previous, size_t index,
                                                      std::vector<bool>& visited, float t, float max_dist,
                                                      size_t min_strand_count) {
-  if (!IsValidPipeParam(strand_model, pipes_in_previous[index], t)) {
+  if (!UVMapUtils::IsValidPipeParam(strand_model, pipes_in_previous[index], t)) {
     return std::make_pair<>(Graph(), std::vector<size_t>());
   }
   // sweep over tree from root to leaves to reconstruct a skeleton with bark outlines
@@ -223,7 +134,7 @@ std::pair<Graph, std::vector<size_t>> ComputeCluster(const StrandModel& strand_m
   glm::vec3 max(-std::numeric_limits<float>::infinity());
 
   for (auto& pipe_handle : pipes_in_previous) {
-    if (!IsValidPipeParam(strand_model, pipe_handle, t)) {
+    if (!UVMapUtils::IsValidPipeParam(strand_model, pipe_handle, t)) {
       // discard this pipe
       size_t v_index = strand_graph.addVertex();
       visited[v_index] = true;
@@ -780,7 +691,7 @@ void CreateTwigTip(const StrandModel& strand_model, std::pair<Slice, PipeCluster
   glm::vec3 pos(0, 0, 0);
 
   for (auto& el : prev_slice.second) {
-    if (!IsValidPipeParam(strand_model, el, t)) {
+    if (!UVMapUtils::IsValidPipeParam(strand_model, el, t)) {
       t -= 0.01;
     }
 
@@ -875,7 +786,8 @@ std::vector<SlicingData> Slicing(const StrandModel& strand_model, std::vector<Sl
 
       glm::vec2 tex_coord;
       tex_coord.y = t * settings.v_multiplier;
-      tex_coord.x = (GetPipePolar(strand_model, el.first, t) / (2 * glm::pi<float>()) + accumulated_angle / 360.0f) *
+      tex_coord.x =
+          (UVMapUtils::GetPipePolar(strand_model, el.first, t) / (2 * glm::pi<float>()) + accumulated_angle / 360.0f) *
                     settings.u_multiplier;
 
       // add twisting to uv-Coordinates
@@ -1107,7 +1019,8 @@ void IterativeSlicingMeshGenerator::Generate(const StrandModel& strand_model, st
 
       glm::vec2 tex_coord;
       tex_coord.y = 0.0;
-      tex_coord.x = GetPipePolar(strand_model, el.first, 0.0) / (2 * glm::pi<float>()) * settings.u_multiplier;
+      tex_coord.x =
+          UVMapUtils::GetPipePolar(strand_model, el.first, 0.0) / (2 * glm::pi<float>()) * settings.u_multiplier;
 
       // add twisting to uv-Coordinates
       auto node_handle = GetNodeHandle(pipe_group, el.first, 0);

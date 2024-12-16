@@ -22,6 +22,9 @@ struct Strand {
 
 struct Node {
   int prev_handle;
+  int padding0;
+  int padding1;
+  int padding2;
 };
 
 struct Segment {
@@ -124,6 +127,9 @@ struct SegmentData {
 
 struct UniformParticle {
   vec4 position_t;
+  vec4 normal_deg;
+  vec4 tangent;
+  vec4 tex_coord;
   int segment_handle;
   int node_index;
   int segment_index;

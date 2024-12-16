@@ -4,6 +4,7 @@
 #include "DsPhysics.hpp"
 #include "DynamicStrandUtils.hpp"
 #include "Shader.hpp"
+#include "UVMapUtils.hpp"
 #include "glm/gtc/matrix_access.hpp"
 #include "glm/gtx/quaternion.hpp"
 using namespace eco_sys_lab_plugin;
@@ -188,6 +189,19 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
       changed = true;
     PlottedDistributionSettings max_twist_strain_settings{};
     if (max_twist_strain.OnInspect("Max twist strain", max_twist_strain_settings))
+      changed = true;
+
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Meshing Properties")) {
+#ifdef USE_CGAL
+    if (ImGui::Checkbox("Use CGAL", &use_cgal))
+      changed = true;
+#endif  // USE_CGAL
+    if (ImGui::DragInt("u-coordinate multiplier", &u_multiplier, 2, 2, 20))
+      changed = true;
+
+    if (ImGui::DragFloat("v-coordinate multiplier", &v_multiplier, 0.001f, 0.0f, 100.0f))
       changed = true;
 
     ImGui::TreePop();
@@ -440,6 +454,17 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     const auto& particle1 = particles[segment.particle1_handle];
 
     uniform_particle.position = glm::mix(particle0.x0, particle1.x0, uniform_particle.t);
+    uniform_particle.normal = glm::vec3(0.0f);
+    uniform_particle.deg = 0.0f;
+
+    // set up UV map
+    const auto& p0 = UVMapUtils::GetEndParticle(strand_model_skeleton, uniform_particle.strand_index,
+                                                glm::floor(uniform_particle.t));
+    const auto& p1 = UVMapUtils::GetStartParticle(strand_model_skeleton, uniform_particle.strand_index,
+                                                  glm::floor(uniform_particle.t));
+    uniform_particle.tex_coord.x = UVMapUtils::GetPipePolar(p0, p1, uniform_particle.t) / (2 * glm::pi<float>()) *
+                                   initialize_parameters.u_multiplier;
+    uniform_particle.tex_coord.y = uniform_particle.node_index * initialize_parameters.v_multiplier;
   });
   segment_data_list.resize(segments.size());
   std::vector<glm::vec3> max_bounds(Jobs::GetWorkerSize());
