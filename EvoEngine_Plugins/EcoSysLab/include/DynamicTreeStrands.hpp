@@ -31,6 +31,8 @@ class DynamicTreeStrands : public IPrivateComponent {
   std::vector<EntityTransform> transform_operators;
 
   std::shared_ptr<DsBoxSelection> box_selection_operator;
+  std::shared_ptr<DsLineCut> line_cut_operator;
+  std::shared_ptr<DsSaw> saw_operator;
   std::shared_ptr<DsDrag> drag_operator;
   std::shared_ptr<DsGravity> gravity;
   void UpdateDynamicStrands();

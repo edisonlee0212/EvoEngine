@@ -87,8 +87,11 @@ class EcoSysLabLayer : public ILayer {
     DynamicStrands::VisualizationParameters visualization_parameters{};
 
     float drag_multiplier = 1.f;
-    enum class DynamicStrandsTransformMode { Disabled, Translate, Rotate };
-    unsigned transform_mode = static_cast<unsigned>(DynamicStrandsTransformMode::Translate);
+    enum class TransformMode { Disabled, Translate, Rotate };
+    unsigned transform_mode = static_cast<unsigned>(TransformMode::Translate);
+    enum class OperatorMode { Drag, Saw, LineCut };
+    unsigned operator_mode = static_cast<unsigned>(OperatorMode::Drag);
+    bool cut_bend_twist_bundle_only = false;
     bool enable = true;
     bool enable_physics = true;
     bool enable_rendering = true;

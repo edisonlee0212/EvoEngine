@@ -249,9 +249,16 @@ void DynamicTreeStrands::OnCreate() {
 
   box_selection_operator = std::make_shared<DsBoxSelection>();
   drag_operator = std::make_shared<DsDrag>();
+  line_cut_operator = std::make_shared<DsLineCut>();
+  saw_operator = std::make_shared<DsSaw>();
 }
 
 void DynamicTreeStrands::OnDestroy() {
+  dynamic_strands.reset();
+  gravity.reset();
+  box_selection_operator.reset();
+  drag_operator.reset();
+  saw_operator.reset();
 }
 
 void DynamicTreeStrands::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -508,6 +515,13 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
 
             if (drag_operator->enabled) {
               drag_operator->Execute(physics_parameters, dynamic_strands);
+            }
+
+            if (line_cut_operator->enabled) {
+              line_cut_operator->Execute(dynamic_strands);
+            }
+            if (saw_operator->enabled) {
+              saw_operator->Execute(dynamic_strands);
             }
           });
     }

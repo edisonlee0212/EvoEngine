@@ -265,8 +265,8 @@ class DynamicStrands {
 
     glm::vec3 shear_stretch_strain = glm::vec3(0.f);
     int32_t group_index = 0;
-    glm::vec4 max_shear_stretch_strain;
-    glm::vec4 shear_stretch_strain_limit;
+    glm::vec2 max_shear_stretch_strain;
+    glm::vec2 shear_stretch_strain_limit;
   };
 
   struct GpuParticle {
@@ -300,7 +300,7 @@ class DynamicStrands {
   struct GpuSegmentPair {
     int segment0_handle;
     int segment1_handle;
-    uint32_t bend_twist_valid = 1;
+    uint32_t bend_twist_bundle_valid = 1;
     uint32_t connectivity_valid = 1;
 
     float bending_alpha = 0.0f;
