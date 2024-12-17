@@ -101,8 +101,9 @@ void main(){
 	mat4 instance_matrix = translate(center_position) * scale(uniform_particle_size);
 	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 	
-	Particle particle0 = particles[segment.particle_0_handle];
-	Particle particle1 = particles[segment.particle_1_handle];
+	Particle particle0 = segment.particle0;
+	Particle particle1 = segment.particle1;
+
 	float highlight1_ratio = 0.0f;
 	float highlight2_ratio = 0.0f;
 	float selected_ratio = 0.0f;

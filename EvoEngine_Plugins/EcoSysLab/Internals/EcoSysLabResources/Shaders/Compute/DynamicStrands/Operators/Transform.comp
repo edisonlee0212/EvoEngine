@@ -22,10 +22,20 @@ layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 memoryBarrierShared(); \
 barrier();
 
+struct SegmentUpdate{
+	vec4 new_rotation;
+	vec3 new_particle0_position;
+	uint segment_index;
+	vec3 new_particle1_position;
+	uint padding0;
+};
+
+layout(std430, set = 1, binding = 0) readonly buffer SEGMENT_UPDATE_BLOCK {
+  SegmentUpdate segment_updates[];
+};
+
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint particle_size;
-	float time_step;
-	float inv_time_step;
+	uint command_size;
 };
 
 void main(){
@@ -33,15 +43,22 @@ void main(){
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint particle_index = baseID + local_index;
+		uint global_index = baseID + local_index;
 
-		if(particle_index >= particle_size) break;
+		if(global_index >= command_size) break;
 
-		Particle particle = particles[particle_index];
-		
-		//Reset acceration
-		particle.acceleration = vec4(0.0, 0.0, 0.0, 0.0);
+		SegmentUpdate segment_update = segment_updates[global_index];
+		uint segment_index = segment_update.segment_index;
+		Segment segment = segments[segment_index];
+		segment.q = segment.last_q = segment_update.new_rotation;
+		segment.torque = vec3(0, 0, 0);
+		segment.inv_mass = 0.0;
 
-		particles[particle_index] = particle;
+		segment.particle0.x = segment.particle0.last_x = segment_update.new_particle0_position;
+		segment.particle0.acceleration.xyz = vec3(0, 0, 0);
+		segment.particle1.x = segment.particle1.last_x = segment_update.new_particle1_position;
+		segment.particle1.acceleration.xyz = vec3(0, 0, 0);
+
+		segments[segment_index] = segment;
 	}
 }

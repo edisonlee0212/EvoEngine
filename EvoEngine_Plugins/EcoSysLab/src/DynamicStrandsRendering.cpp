@@ -16,9 +16,9 @@ bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLay
 
   ImGui::Text("Use vertex color for visualization");
 
-  ImGui::RadioButton("Disabled", (int*) &vertex_colors, Default);
-  ImGui::RadioButton("Normals", (int*) &vertex_colors, Normals);
-  ImGui::RadioButton("Tangents", (int*) &vertex_colors, Tangents);
+  ImGui::RadioButton("Disabled", (int*)&vertex_colors, Default);
+  ImGui::RadioButton("Normals", (int*)&vertex_colors, Normals);
+  ImGui::RadioButton("Tangents", (int*)&vertex_colors, Tangents);
   ImGui::RadioButton("Texture coordinates", (int*)&vertex_colors, TexCoords);
 
   return false;

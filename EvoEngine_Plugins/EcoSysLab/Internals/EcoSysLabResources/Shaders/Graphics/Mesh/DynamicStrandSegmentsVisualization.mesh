@@ -90,8 +90,8 @@ void main(){
 	
 	Segment segment = segments[segment_id];
 
-	Particle particle0 = particles[segment.particle_0_handle];
-	Particle particle1 = particles[segment.particle_1_handle];
+	Particle particle0 = segment.particle0;
+	Particle particle1 = segment.particle1;
 
 	vec3 start_position = particle0.x;
 	vec3 end_position = particle1.x;

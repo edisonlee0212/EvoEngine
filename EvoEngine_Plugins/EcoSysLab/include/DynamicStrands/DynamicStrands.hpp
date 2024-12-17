@@ -138,7 +138,6 @@ class DynamicStrands {
   };
 
   struct VisualizationParameters {
-    enum class ParticleRenderMode { Default, SegmentColor };
     enum class SegmentRenderMode {
       Default,
       SegmentColor,
@@ -150,21 +149,14 @@ class DynamicStrands {
     };
 
     enum class UniformParticleRenderMode { Default, SegmentColor };
-
     enum class SegmentPairRenderMode { Default, BendingStrain, TwistStrain, BundleStrain };
-    bool render_particles = true;
     bool render_segments = true;
     bool render_segment_pairs = true;
-
     bool render_uniform_particles = true;
 
-    uint32_t particle_render_mode = 0;
     uint32_t segment_render_mode = 6;
     uint32_t segment_pair_render_mode = 0;
     uint32_t uniform_particle_render_mode = 0;
-
-    glm::vec4 particle_color_main = glm::vec4(0.6, 0.3, 0, 0.5);
-    float particle_radius_multiplier = 0.9f;
 
     glm::vec4 segment_color_min = glm::vec4(0, 0, 1, 1);
     glm::vec4 segment_color_max = glm::vec4(1, 0, 0, 1);
@@ -190,7 +182,7 @@ class DynamicStrands {
     bool wireframe = false;
     float alpha = 1.0 / 10000.0f;
     float bifurcation_alpha = 1.0 / 10000.0f;
-    enum VertexColors {Default, Normals, Tangents, TexCoords};
+    enum VertexColors { Default, Normals, Tangents, TexCoords };
     VertexColors vertex_colors = Default;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -230,12 +222,30 @@ class DynamicStrands {
     int padding2;
   };
 
+  struct GpuParticle {
+    // Initial position
+    glm::vec3 x0;
+    float padding0 = 0.f;
+    // Current position
+    glm::vec3 x;
+    int selected = 0;
+    // Last frame position
+    glm::vec3 last_x;
+    int highlighted = 0;
+
+    // Velocity
+    glm::vec3 v;
+    int hop_distance_to_root = -1;
+
+    glm::vec3 acceleration = glm::vec3(0.f);
+    int node_handle = -1;
+  };
+
   struct GpuSegment {
     int prev_handle = -1;
     int next_handle = -1;
     int strand_handle = -1;
     float inv_mass;
-
     glm::vec4 color;
 
     // Initial rotation
@@ -246,15 +256,10 @@ class DynamicStrands {
     glm::quat last_q;
     // Angular velocity
     glm::vec3 angular_v;
-    int shear_stretch_valid = 1;
+    float radius;
 
     glm::vec3 torque = glm::vec3(0.f);
     float rest_length;
-
-    float radius;
-    float shearing_alpha;
-    float stretching_alpha;
-    float original_inv_mass = 0.0f;
 
     float max_shearing_modulus;
     float max_stretching_modulus;
@@ -262,46 +267,23 @@ class DynamicStrands {
     float boundary_distance;
 
     glm::vec3 inertia_tensor;
-    int particle0_handle = -1;
+    float shearing_alpha;
 
     glm::vec3 inv_inertia_tensor;
-    int particle1_handle = -1;
+    float stretching_alpha;
 
     glm::mat4 inertia_w;
     glm::mat4 inv_inertia_w;
 
-    glm::vec3 shear_stretch_strain = glm::vec3(0.f);
+    glm::vec2 shear_stretch_strain = glm::vec2(0.f);
+    float original_inv_mass = 0.0f;
     int32_t group_index = 0;
+
     glm::vec2 max_shear_stretch_strain;
     glm::vec2 shear_stretch_strain_limit;
-  };
 
-  struct GpuParticle {
-    // Initial position
-    glm::vec3 x0;
-    float padding0;
-    // Current position
-    glm::vec3 x;
-    int node_handle = -1;
-    // Last frame position
-    glm::vec3 last_x;
-    int strand_handle = -1;
-    // Velocity
-    glm::vec3 v;
-    int segment_handle = -1;
-
-    glm::vec3 acceleration = glm::vec3(0.f);
-    float padding1;
-
-    int selected = 0;
-    int highlighted = 0;
-    int connection_handle = 0;
-    int hop_distance_to_root = -1;
-
-    int node_handle2 = -1;
-    int strand_handle2 = -1;
-    int segment_handle2 = -1;
-    int padding3 = 0;
+    GpuParticle particle0{};
+    GpuParticle particle1{};
   };
 
   struct GpuSegmentPair {
@@ -390,7 +372,6 @@ class DynamicStrands {
   uint32_t connection_segment_pair_size = 0;
   std::shared_ptr<Buffer> device_strands_buffer;
   std::shared_ptr<Buffer> device_segments_buffer;
-  std::shared_ptr<Buffer> device_particles_buffer;
   std::shared_ptr<Buffer> device_segment_pairs_buffer;
   std::shared_ptr<Buffer> device_segment_data_list_buffer;
   std::shared_ptr<Buffer> device_uniform_particles_buffer;
@@ -400,7 +381,6 @@ class DynamicStrands {
 
   std::vector<GpuStrand> strands;
   std::vector<GpuSegment> segments;
-  std::vector<GpuParticle> particles;
   std::vector<GpuSegmentPair> segment_pairs;
   std::vector<GpuSegmentData> segment_data_list;
   std::vector<GpuUniformParticle> uniform_particles;

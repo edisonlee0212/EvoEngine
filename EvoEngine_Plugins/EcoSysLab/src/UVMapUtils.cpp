@@ -13,7 +13,8 @@ bool UVMapUtils::IsValidPipeParam(const StrandModel& strand_model, const StrandH
   return pipe.PeekStrandSegmentHandles().size() > glm::floor(t);
 }
 
-float UVMapUtils::GetPipePolar(const Particle2D<CellParticlePhysicsData>& p0, const Particle2D<CellParticlePhysicsData>& p1, float t) {
+float UVMapUtils::GetPipePolar(const Particle2D<CellParticlePhysicsData>& p0,
+                               const Particle2D<CellParticlePhysicsData>& p1, float t) {
   float a0 = p0.GetPolarPosition().y;
   float a1 = p1.GetPolarPosition().y;
 
@@ -70,7 +71,7 @@ const Particle2D<CellParticlePhysicsData>& UVMapUtils::GetEndParticle(const Stra
 }
 
 const Particle2D<CellParticlePhysicsData>& UVMapUtils::GetEndParticle(const StrandModelSkeleton& skeleton,
-                                                          const StrandHandle& pipe_handle, size_t index) {  
+                                                                      const StrandHandle& pipe_handle, size_t index) {
   const auto& pipe = skeleton.data.strand_group.PeekStrand(pipe_handle);
   StrandSegmentHandle seg_handle = pipe.PeekStrandSegmentHandles()[index];
   auto& pipe_segment_data = skeleton.data.strand_group.PeekStrandSegmentData(seg_handle);
@@ -98,8 +99,8 @@ const Particle2D<CellParticlePhysicsData>& UVMapUtils::GetStartParticle(const St
   return GetStartParticle(skeleton, pipe_handle, index);
 }
 
-const Particle2D<CellParticlePhysicsData>& UVMapUtils::GetStartParticle(
-    const StrandModelSkeleton& skeleton, const StrandHandle& pipe_handle, size_t index) {
+const Particle2D<CellParticlePhysicsData>& UVMapUtils::GetStartParticle(const StrandModelSkeleton& skeleton,
+                                                                        const StrandHandle& pipe_handle, size_t index) {
   const auto& pipe = skeleton.data.strand_group.PeekStrand(pipe_handle);
   const auto seg_handle = pipe.PeekStrandSegmentHandles()[index];
   auto& strand_segment_data = skeleton.data.strand_group.PeekStrandSegmentData(seg_handle);

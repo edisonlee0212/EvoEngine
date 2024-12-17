@@ -4,24 +4,6 @@
 
 using namespace eco_sys_lab_plugin;
 DsPreStep::DsPreStep() {
-  if (!particle_pre_step_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/PreStep/Particle.comp");
-
-    particle_pre_step_pipeline = std::make_shared<ComputePipeline>();
-    particle_pre_step_pipeline->compute_shader = shader;
-    particle_pre_step_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-
-    auto& push_constant_range = particle_pre_step_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(ParticlePreStepPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    particle_pre_step_pipeline->Initialize();
-  }
-
   if (!segment_pre_step_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -43,10 +25,6 @@ DsPreStep::DsPreStep() {
 void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                         const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  ParticlePreStepPushConstant particle_push_constant;
-  particle_push_constant.particle_size = target_dynamic_strands.particles.size();
-  particle_push_constant.time_step = physics_parameters.time_step;
-  particle_push_constant.inv_time_step = 1.f / particle_push_constant.time_step;
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
   SegmentPreStepPushConstant segment_push_constant;
@@ -54,18 +32,7 @@ void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
   segment_push_constant.time_step = physics_parameters.time_step;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
 
-  
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    particle_pre_step_pipeline->Bind(vk_command_buffer);
-    particle_pre_step_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
-    particle_pre_step_pipeline->PushConstant(vk_command_buffer, 0, particle_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(particle_push_constant.particle_size, work_group_invocations), 1,
-                  1);
-    Platform::EverythingBarrier(vk_command_buffer);
-
     segment_pre_step_pipeline->Bind(vk_command_buffer);
     segment_pre_step_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
@@ -78,24 +45,6 @@ void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
 }
 
 DsPrediction::DsPrediction() {
-  if (!particle_prediction_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->Set(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Prediction/Particle.comp");
-
-    particle_prediction_pipeline = std::make_shared<ComputePipeline>();
-    particle_prediction_pipeline->compute_shader = shader;
-    particle_prediction_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-
-    auto& push_constant_range = particle_prediction_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(ParticlePredictionPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    particle_prediction_pipeline->Initialize();
-  }
   if (!segment_prediction_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -153,11 +102,6 @@ DsPrediction::DsPrediction() {
 void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                            const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  ParticlePredictionPushConstant particle_push_constant;
-  particle_push_constant.particle_size = target_dynamic_strands.particles.size();
-  particle_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
-  particle_push_constant.inv_time_step = 1.f / particle_push_constant.time_step;
-  particle_push_constant.velocity_damping = physics_parameters.velocity_damping;
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
   UniformParticlePredictionPushConstant uniform_particle_push_constant;
@@ -168,22 +112,13 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
   segment_push_constant.angular_velocity_damping = physics_parameters.angular_velocity_damping;
-  
+  segment_push_constant.velocity_damping = physics_parameters.velocity_damping;
+
   SegmentPairPredictionPushConstant segment_pair_push_constant;
   segment_pair_push_constant.segment_pair_size = target_dynamic_strands.segment_pairs.size();
   segment_pair_push_constant.allow_breaking = physics_parameters.enable_breaking ? 1 : 0;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    particle_prediction_pipeline->Bind(vk_command_buffer);
-    particle_prediction_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
-    particle_prediction_pipeline->PushConstant(vk_command_buffer, 0, particle_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(particle_push_constant.particle_size, work_group_invocations), 1,
-                  1);
-    Platform::EverythingBarrier(vk_command_buffer);
-
     segment_prediction_pipeline->Bind(vk_command_buffer);
     segment_prediction_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
@@ -216,24 +151,6 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
 }
 
 DsVelocityUpdate::DsVelocityUpdate() {
-  if (!particle_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->Set(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/VelocityUpdate/Particle.comp");
-
-    particle_pipeline = std::make_shared<ComputePipeline>();
-    particle_pipeline->compute_shader = shader;
-    particle_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-
-    auto& push_constant_range = particle_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(ParticlePushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    particle_pipeline->Initialize();
-  }
   if (!segment_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -256,28 +173,13 @@ DsVelocityUpdate::DsVelocityUpdate() {
 void DsVelocityUpdate::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                                const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  ParticlePushConstant particle_push_constant;
-  particle_push_constant.particle_size = target_dynamic_strands.particles.size();
-  particle_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
-  particle_push_constant.inv_time_step = 1.f / particle_push_constant.time_step;
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
-
   SegmentPushConstant segment_push_constant;
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    particle_pipeline->Bind(vk_command_buffer);
-    particle_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
-    particle_pipeline->PushConstant(vk_command_buffer, 0, particle_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(particle_push_constant.particle_size, work_group_invocations), 1,
-                  1);
-    Platform::EverythingBarrier(vk_command_buffer);
-
     segment_pipeline->Bind(vk_command_buffer);
     segment_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
@@ -532,7 +434,6 @@ void DsDynamicHashedGrid::BuildGrid(const DynamicStrands::PhysicsParameters& phy
 }
 
 DsSegmentCollision::DsSegmentCollision() {
-
   if (!spherical_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -554,7 +455,7 @@ DsSegmentCollision::DsSegmentCollision() {
 }
 
 void DsSegmentCollision::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-    const DynamicStrands& target_dynamic_strands) {
+                                 const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
@@ -568,7 +469,8 @@ void DsSegmentCollision::Execute(const DynamicStrands::PhysicsParameters& physic
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     spherical_pipeline->PushConstant(vk_command_buffer, 0, spherical_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(spherical_push_constant.segment_size, work_group_invocations), 1, 1);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(spherical_push_constant.segment_size, work_group_invocations), 1,
+                  1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }

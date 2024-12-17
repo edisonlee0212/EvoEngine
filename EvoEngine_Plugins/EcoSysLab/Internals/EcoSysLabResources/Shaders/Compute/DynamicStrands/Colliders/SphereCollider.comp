@@ -46,10 +46,8 @@ void main(){
 		if(segment_index >= segment_size) break;
 
 		Segment segment = segments[segment_index];
-		int particle0_handle = segment.particle_0_handle;
-		int particle1_handle = segment.particle_1_handle;
-		Particle particle0 = particles[particle0_handle];
-		Particle particle1 = particles[particle1_handle];
+		Particle particle0 = segment.particle0;
+		Particle particle1 = segment.particle1;
 
 		vec3 p0 = particle0.x;
 		vec3 p1 = particle1.x;
@@ -57,7 +55,7 @@ void main(){
 		p0 = process_point(p0);
 		p1 = process_point(p1);
 
-		particles[particle0_handle].x = p0;
-		particles[particle1_handle].x = p1;
+		segments[segment_index].particle0.x = p0;
+		segments[segment_index].particle1.x = p1;
 	}
 }

@@ -37,13 +37,12 @@ void main(){
 		SegmentData segment_data = segment_data_list[segment_handle];
 		
 		Segment segment = segments[segment_handle];
-		int particle0_handle = segment.particle_0_handle;
-		int particle1_handle = segment.particle_1_handle;
-		Particle particle0 = particles[particle0_handle];
-		Particle particle1 = particles[particle1_handle];
+		Particle particle0 = segment.particle0;
+		Particle particle1 = segment.particle1;
 
 		vec3 p0 = particle0.x;
 		vec3 p1 = particle1.x;
+
 		vec3 segment_center_position = (p0 + p1) * 0.5f;
 
 		ivec3 coordinate;
@@ -63,10 +62,12 @@ void main(){
 						uint neighbor_segment_handle = hashed_grid_elements[start_index].segment_handle;
 						Segment neighbor_segment = segments[neighbor_segment_handle];
 						if(neighbor_segment.group_index != group_index){
-							Particle neighbor_particle0 = particles[neighbor_segment.particle_0_handle];
-							Particle neighbor_particle1 = particles[neighbor_segment.particle_1_handle];
+							Particle neighbor_particle0 = neighbor_segment.particle0;
+							Particle neighbor_particle1 = neighbor_segment.particle1;
+
 							vec3 neighbor_p0 = neighbor_particle0.x;
 							vec3 neighbor_p1 = neighbor_particle1.x;
+
 							vec3 neighbor_segment_center_position = (neighbor_p0 + neighbor_p1) * 0.5f;
 
 							vec3 diff = segment_center_position - neighbor_segment_center_position;
@@ -86,8 +87,8 @@ void main(){
 		}
 		if(sum != 0){
 			position_offset /= sum;
-			particles[particle0_handle].x += position_offset;
-			particles[particle1_handle].x += position_offset;
+			segments[segment_handle].particle0.x += position_offset;
+			segments[segment_handle].particle1.x += position_offset;
 		}
 	}
 }

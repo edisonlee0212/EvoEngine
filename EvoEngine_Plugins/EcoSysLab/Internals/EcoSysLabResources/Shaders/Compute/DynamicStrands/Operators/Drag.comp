@@ -24,7 +24,7 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	vec4 acceleration;
-	uint particle_size;
+	uint segment_size;
 };
 
 void main(){
@@ -32,15 +32,16 @@ void main(){
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint particle_index = baseID + local_index;
+		uint segment_index = baseID + local_index;
 
-		if(particle_index >= particle_size) break;
+		if(segment_index >= segment_size) break;
 
-		Particle particle = particles[particle_index];
-		if(particle.selected == 1){
-			Segment segment = segments[particle.segment_handle];
-			particle.acceleration.xyz += acceleration.xyz;
+		Segment segment = segments[segment_index];
+		if(segment.particle0.selected == 1){
+			segments[segment_index].particle0.acceleration.xyz += acceleration.xyz;
 		}
-		particles[particle_index] = particle;
+		if(segment.particle1.selected == 1){
+			segments[segment_index].particle1.acceleration.xyz += acceleration.xyz;
+		}
 	}
 }

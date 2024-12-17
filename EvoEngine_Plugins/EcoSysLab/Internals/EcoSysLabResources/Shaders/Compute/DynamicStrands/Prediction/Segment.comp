@@ -26,6 +26,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	float time_step;
 	float inv_time_step;
 	float angular_velocity_damping;
+	float velocity_damping;
 };
 
 void update_inertia_w(inout Segment segment){
@@ -76,6 +77,12 @@ void main(){
 		if(segment.inv_mass != 0.0f){
 			angular_velocity *= 1.0f - angular_velocity_damping * length(angular_velocity);
 			angular_velocity += time_step * mat3(segment.inv_inertia_w) * (segment.torque - cross(angular_velocity, mat3(segment.inertia_w) * angular_velocity));
+		
+			segment.particle0.v *= 1.0f - velocity_damping * length(segment.particle0.v);
+			segment.particle0.v += segment.particle0.acceleration.xyz * time_step;
+
+			segment.particle1.v *= 1.0f - velocity_damping * length(segment.particle1.v);
+			segment.particle1.v += segment.particle1.acceleration.xyz * time_step;
 		}
 		//Shift rotation values
 		segment.last_q = segment.q;
@@ -88,8 +95,8 @@ void main(){
 		//Update w
 		update_inertia_w(segment);
 		vec2 shear_stretch_strain = shear_stretch_strain(
-			particles[segment.particle_0_handle].x, 
-			particles[segment.particle_1_handle].x, 
+			segment.particle0.x, 
+			segment.particle1.x, 
 			segment.q, segment.rest_length);
 
 		segment.shear_stretch_strain = shear_stretch_strain;
@@ -97,6 +104,16 @@ void main(){
 
 		//Update shear_stretch_strain_limit
 		segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain;
+
+		//Shift position values
+		segment.particle0.last_x = segment.particle0.x;
+		//Apply velocity
+		segment.particle0.x += time_step * segment.particle0.v;
+		
+		//Shift position values
+		segment.particle1.last_x = segment.particle1.x;
+		//Apply velocity
+		segment.particle1.x += time_step * segment.particle1.v;
 
 		segments[segment_index] = segment;
 	}

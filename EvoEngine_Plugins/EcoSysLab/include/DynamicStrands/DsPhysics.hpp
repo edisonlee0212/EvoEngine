@@ -7,19 +7,12 @@ class DsPreStep {
  public:
   DsPreStep();
 
-  struct ParticlePreStepPushConstant {
-    uint32_t particle_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-  };
-
   struct SegmentPreStepPushConstant {
     uint32_t segment_size = 0;
     float time_step = 0.01f;
     float inv_time_step = 100.f;
   };
 
-  inline static std::shared_ptr<ComputePipeline> particle_pre_step_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_pre_step_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
@@ -28,18 +21,12 @@ class DsPrediction {
  public:
   DsPrediction();
 
-  struct ParticlePredictionPushConstant {
-    uint32_t particle_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-    float velocity_damping;
-  };
-
   struct SegmentPredictionPushConstant {
     uint32_t segment_size = 0;
     float time_step = 0.01f;
     float inv_time_step = 100.f;
     float angular_velocity_damping;
+    float velocity_damping;
   };
 
   struct SegmentPairPredictionPushConstant {
@@ -50,7 +37,6 @@ class DsPrediction {
     uint32_t uniform_particle_size = 0;
   };
 
-  inline static std::shared_ptr<ComputePipeline> particle_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> uniform_particle_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_pair_prediction_pipeline;
@@ -60,12 +46,6 @@ class DsPrediction {
 
 class DsVelocityUpdate {
  public:
-  struct ParticlePushConstant {
-    uint32_t particle_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-  };
-
   struct SegmentPushConstant {
     uint32_t segment_size = 0;
     float time_step = 0.01f;
@@ -74,7 +54,6 @@ class DsVelocityUpdate {
 
   DsVelocityUpdate();
 
-  inline static std::shared_ptr<ComputePipeline> particle_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_pipeline;
 
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,

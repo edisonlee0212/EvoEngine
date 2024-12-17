@@ -64,7 +64,6 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
   if (physics_parameters.enable_segment_collision) {
     segment_collision->Execute(physics_parameters, *this);
   }
-
   if (physics_parameters.enable_grouping && frame_index > 0) {
     CalculateGroups(physics_parameters);
   }
@@ -93,7 +92,6 @@ DynamicStrands::DynamicStrands() {
     strands_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->Initialize();
   }
   wait_for_upload = true;
@@ -109,7 +107,6 @@ DynamicStrands::DynamicStrands() {
   device_strands_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_nodes_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segments_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  device_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_pairs_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_data_list_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_uniform_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
@@ -234,16 +231,15 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       strand.end_segment_handle = -1;
     }
   });
-
   segments.resize(target_strand_segments.size());
-  Jobs::RunParallelFor(target_strand_segments.size(), [&](const size_t i) {
-    auto& segment = segments[i];
-    const auto& target_strand_segment = target_strand_segments[i];
-    const auto& target_strand_segment_data = target_strand_segment_data_list[i];
+  Jobs::RunParallelFor(target_strand_segments.size(), [&](const size_t segment_handle) {
+    auto& segment = segments[segment_handle];
+    const auto& target_strand_segment = target_strand_segments[segment_handle];
+    const auto& target_strand_segment_data = target_strand_segment_data_list[segment_handle];
     segment.prev_handle = target_strand_segment.GetPrevHandle();
     segment.next_handle = target_strand_segment.GetNextHandle();
     segment.strand_handle = target_strand_segment.GetStrandHandle();
-    segment.rest_length = strand_group.GetStrandSegmentLength(static_cast<int>(i));
+    segment.rest_length = strand_group.GetStrandSegmentLength(static_cast<int>(segment_handle));
     segment.color = target_strand_segment.end_color;
 
     segment.radius = target_strand_segment.end_thickness * .5f;
@@ -270,34 +266,20 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     const float max_stretch_strain = glm::max(0.001f, initialize_parameters.max_stretch_strain.GetValue(ratio));
     segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain =
         glm::vec2(max_shear_strain, max_stretch_strain);
-  });
-  particles.resize(segments.size() * 2);
-  Jobs::RunParallelFor(segments.size(), [&](const size_t segment_handle) {
-    auto& segment = segments[segment_handle];
+
     const auto& strand_segment = strand_group.PeekStrandSegment(static_cast<int>(segment_handle));
     const auto& strand_segment_data = strand_group.PeekStrandSegmentData(static_cast<int>(segment_handle));
-    auto& particle0 = particles[segment_handle * 2];
-    auto& particle1 = particles[segment_handle * 2 + 1];
+    auto& particle0 = segment.particle0;
+    auto& particle1 = segment.particle1;
     segment.group_index = 0;
-    segment.particle0_handle = static_cast<int>(segment_handle) * 2;
-    segment.particle1_handle = static_cast<int>(segment_handle) * 2 + 1;
-    particle0.x0 = particle0.x = particle0.last_x =
-        glm::vec4(initialize_parameters.root_transform.TransformPoint(
-                      strand_group.GetStrandSegmentStart(static_cast<int>(segment_handle))),
-                  0.0);
+    particle0.x0 = particle0.x = particle0.last_x = glm::vec3(initialize_parameters.root_transform.TransformPoint(
+        strand_group.GetStrandSegmentStart(static_cast<int>(segment_handle))));
 
     particle1.x0 = particle1.x = particle1.last_x =
-        glm::vec4(initialize_parameters.root_transform.TransformPoint(strand_segment.end_position), 0.0);
+        glm::vec3(initialize_parameters.root_transform.TransformPoint(strand_segment.end_position));
 
     particle0.acceleration = particle1.acceleration = glm::vec3(0.0);
-    particle0.strand_handle = particle1.strand_handle = segment.strand_handle;
     particle0.node_handle = particle1.node_handle = strand_segment_data.node_handle;
-    particle0.segment_handle = particle1.segment_handle = static_cast<int>(segment_handle);
-
-    // set them again at the end of struct
-    particle0.strand_handle2 = particle1.strand_handle2 = segment.strand_handle;
-    particle0.node_handle2 = particle1.node_handle2 = strand_segment_data.node_handle;
-    particle0.segment_handle2 = particle1.segment_handle2 = static_cast<int>(segment_handle);
   });
 
   DtsStrandGroup uniformly_subdivided_strand_group;
@@ -450,8 +432,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   Jobs::RunParallelFor(uniform_particles.size(), [&](const size_t uniform_particle_index) {
     auto& uniform_particle = uniform_particles[uniform_particle_index];
     const auto& segment = segments[uniform_particle.segment_handle];
-    const auto& particle0 = particles[segment.particle0_handle];
-    const auto& particle1 = particles[segment.particle1_handle];
+    const auto& particle0 = segment.particle0;
+    const auto& particle1 = segment.particle1;
 
     uniform_particle.position = glm::mix(particle0.x0, particle1.x0, uniform_particle.t);
     uniform_particle.normal = glm::vec3(0.0f);
@@ -542,8 +524,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       segment0_data.pair_handles[1] = segment_pair_handle;
       segment1_data.pair_handles[0] = segment_pair_handle;
 
-      particles[segment0.particle1_handle].connection_handle = segment_pair_handle;
-      particles[segment1.particle0_handle].connection_handle = segment_pair_handle;
+      // particles[segment0.particle1_handle].connection_handle = segment_pair_handle;
+      // particles[segment1.particle0_handle].connection_handle = segment_pair_handle;
     }
   }
 
@@ -735,10 +717,10 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     auto& segment0 = segments[segment_pair.segment0_handle];
     auto& segment1 = segments[segment_pair.segment1_handle];
     bool direct_connection = segment_data_list[segment_pair.segment0_handle].pair_handles[1] == pair_index;
-    auto& segment0_particle0 = particles[segment0.particle0_handle];
-    auto& segment0_particle1 = particles[segment0.particle1_handle];
-    auto& segment1_particle0 = particles[segment1.particle0_handle];
-    auto& segment1_particle1 = particles[segment1.particle1_handle];
+    auto& segment0_particle0 = segment0.particle0;
+    auto& segment0_particle1 = segment0.particle1;
+    auto& segment1_particle0 = segment1.particle0;
+    auto& segment1_particle1 = segment1.particle1;
     const auto segment0_center_position = (segment0_particle0.x0 + segment0_particle1.x0) * .5f;
     const auto segment1_center_position = (segment1_particle0.x0 + segment1_particle1.x0) * .5f;
     segment_pair.segment0_particle0_offset =
@@ -834,29 +816,26 @@ void DynamicStrands::UpdateBindings() const {
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_strands_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_nodes_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(2, device_segments_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_particles_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(4, device_segment_pairs_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_segment_data_list_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_segment_pairs_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(4, device_segment_data_list_buffer, 0);
 
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(6, device_uniform_particles_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_delaunay_tetrahedrons_buffer,
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_uniform_particles_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(6, device_delaunay_tetrahedrons_buffer,
                                                                               0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(8, device_hashed_grid_elements_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(9, device_hashed_grid_cell_starts_buffer,
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_hashed_grid_elements_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(8, device_hashed_grid_cell_starts_buffer,
                                                                               0);
 
   for (const auto& c : constraints) {
     c->UpdateBindings();
   }
 }
-
 void DynamicStrands::Upload() {
   wait_for_upload = true;
   Platform::AddTemporaryBufferSyncAction([&]() {
     device_strands_buffer->UploadVector(strands);
     device_nodes_buffer->UploadVector(nodes);
     device_segments_buffer->UploadVector(segments);
-    device_particles_buffer->UploadVector(particles);
     device_segment_pairs_buffer->UploadVector(segment_pairs);
     device_segment_data_list_buffer->UploadVector(segment_data_list);
     device_uniform_particles_buffer->UploadVector(uniform_particles);
@@ -878,8 +857,6 @@ void DynamicStrands::Download() {
       device_nodes_buffer->DownloadVector(nodes, nodes.size());
     if (!segments.empty())
       device_segments_buffer->DownloadVector(segments, segments.size());
-    if (!particles.empty())
-      device_particles_buffer->DownloadVector(particles, particles.size());
     if (!segment_pairs.empty())
       device_segment_pairs_buffer->DownloadVector(segment_pairs, segment_pairs.size());
     if (!segment_data_list.empty())
@@ -1043,7 +1020,6 @@ void DynamicStrands::Clear() {
   strands.clear();
   nodes.clear();
   segments.clear();
-  particles.clear();
   segment_pairs.clear();
   segment_data_list.clear();
   uniform_particles.clear();

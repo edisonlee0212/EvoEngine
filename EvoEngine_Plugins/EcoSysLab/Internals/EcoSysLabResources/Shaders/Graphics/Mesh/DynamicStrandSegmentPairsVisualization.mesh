@@ -91,22 +91,11 @@ void main(){
 	Segment segment0 = segments[segment_pair.segment0_handle];
 	Segment segment1 = segments[segment_pair.segment1_handle];
 
-	int segment0_particle0_handle = segment0.particle_0_handle;
-    int segment0_particle1_handle = segment0.particle_1_handle;
-
-    int segment1_particle0_handle = segment1.particle_0_handle;
-    int segment1_particle1_handle = segment1.particle_1_handle;
-
-    Particle segment0_particle0 = particles[segment0_particle0_handle];
-    Particle segment0_particle1 = particles[segment0_particle1_handle];
-    Particle segment1_particle0 = particles[segment1_particle0_handle];
-    Particle segment1_particle1 = particles[segment1_particle1_handle];
-
 	vec3 start_position =
-        (segment0_particle0.x + segment0_particle1.x) * 0.5f;
+        (segment0.particle0.x + segment0.particle1.x) * 0.5f;
 
     vec3 end_position =
-        (segment1_particle0.x + segment1_particle1.x) * 0.5f;
+        (segment1.particle0.x + segment1.particle1.x) * 0.5f;
 
 	vec3 center_position = (start_position + end_position) * 0.5f;
 	float center_thickness = (segment0.radius + segment1.radius) * 0.1f * multiplier;
@@ -131,11 +120,11 @@ void main(){
 	}
 
 
-	if(segment0_particle0.highlighted == 1 || segment0_particle1.highlighted == 1 || segment1_particle0.highlighted == 1 || segment1_particle1.highlighted == 1){
+	if(segment0.particle0.highlighted == 1 || segment0.particle1.highlighted == 1 || segment1.particle0.highlighted == 1 || segment1.particle1.highlighted == 1){
 		color = mix(color, vec4(0, 1, 0, 1), 0.8f);
-	}else if(segment0_particle0.highlighted == 2 || segment0_particle1.highlighted == 2 || segment1_particle0.highlighted == 2 || segment1_particle1.highlighted == 2){
+	}else if(segment0.particle0.highlighted == 2 || segment0.particle1.highlighted == 2 || segment1.particle0.highlighted == 2 || segment1.particle1.highlighted == 2){
 		color = mix(color, vec4(1, 0, 0, 1), 0.8f);
-	}else if(segment0_particle0.selected == 1 || segment0_particle1.selected == 1 || segment1_particle0.selected == 1 || segment1_particle1.selected == 1){
+	}else if(segment0.particle0.selected == 1 || segment0.particle1.selected == 1 || segment1.particle0.selected == 1 || segment1.particle1.selected == 1){
 		color = mix(color, vec4(1, 1, 1, 1), 0.8f);
 	}
 
