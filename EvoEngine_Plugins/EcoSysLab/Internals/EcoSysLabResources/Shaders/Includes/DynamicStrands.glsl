@@ -1,6 +1,4 @@
 
-
-
 struct Strand {
   int begin_segment_handle;
   int end_segment_handle;
@@ -27,6 +25,23 @@ struct Node {
   int padding2;
 };
 
+struct Particle {
+  vec3 x0;
+  int padding0;
+
+  vec3 x;
+  int selected;
+
+  vec3 last_x;
+  int highlighted;
+
+  vec3 v;
+  int hop_distance_to_root;
+
+  vec3 acceleration;
+  int node_handle;
+};
+
 struct Segment {
   int prev_handle;
   int next_handle;
@@ -39,15 +54,10 @@ struct Segment {
   vec4 last_q;
 
   vec3 angular_v;
-  float shear_stretch_valid;
+  float radius;
 
   vec3 torque;
   float rest_length;
-
-  float radius;
-  float shearing_alpha;
-  float stretching_alpha;
-  float original_inv_mass;
 
   float max_shearing_modulus;
   float max_stretching_modulus;
@@ -55,42 +65,22 @@ struct Segment {
   float boundary_distance;
 
   vec3 inertia_tensor;
-  int particle_0_handle;
+  float shearing_alpha;
   vec3 inv_inertia_tensor;
-  int particle_1_handle;
+  float stretching_alpha;
   
   mat4 inertia_w;
   mat4 inv_inertia_w;
 
   vec2 shear_stretch_strain;
-  float padding;
+  float original_inv_mass;
   int group_index;
 
   vec2 max_shear_stretch_strain;
   vec2 shear_stretch_strain_limit;
-};
 
-struct Particle {
-  vec4 x0;
-  vec3 x;
-  int node_handle2;
-  vec3 last_x;
-  int strand_handle2;
-
-  vec3 v;
-  int segment_handle2;
-
-  vec4 acceleration;
-
-  int selected;
-  int highlighted;
-  int connection_handle;
-  int hop_distance_to_root;
-
-  int node_handle;
-  int strand_handle;
-  int segment_handle;
-  int padding3;
+  Particle particle0;
+  Particle particle1;
 };
 
 struct SegmentPair {
@@ -178,31 +168,27 @@ layout(std430, set = DYNAMIC_STRANDS_SET, binding = 2) buffer SEGMENTS_BLOCK {
   Segment segments[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 3) buffer PARTICLES_BLOCK {
-  Particle particles[];
-};
-
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 4) buffer SEGMENT_PAIR_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 3) buffer SEGMENT_PAIR_BLOCK {
   SegmentPair segment_pairs[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 5) buffer SEGMENT_DATA_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 4) buffer SEGMENT_DATA_BLOCK {
   SegmentData segment_data_list[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 6) buffer UNIFORM_PARTICLES_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 5) buffer UNIFORM_PARTICLES_BLOCK {
   UniformParticle uniform_particles[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 7) buffer DELAUNAY_TETRAHEDRON_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 6) buffer DELAUNAY_TETRAHEDRON_BLOCK {
   DelaunayTetrahedron delaunay_tetrahedrons[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 8) buffer HASHED_GRID_ELEMENTS_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 7) buffer HASHED_GRID_ELEMENTS_BLOCK {
   HashedGridElement hashed_grid_elements[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 9) buffer HASHED_GRID_CELL_STARTS_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 8) buffer HASHED_GRID_CELL_STARTS_BLOCK {
   HashedGridCellStart hashed_grid_cell_starts[];
 };
 

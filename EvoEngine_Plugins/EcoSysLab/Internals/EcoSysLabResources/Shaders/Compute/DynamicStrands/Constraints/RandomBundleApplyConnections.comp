@@ -40,14 +40,9 @@ void main(){
 		if(segment_pair.connectivity_valid == 0) continue;
 		Segment segment0 = segments[segment_pair.segment0_handle];
 		Segment segment1 = segments[segment_pair.segment1_handle];
-		int segment0_particle_handle = segment0.particle_1_handle;
-		int segment1_particle_handle = segment1.particle_0_handle;
-		Particle particle0 = particles[segment0_particle_handle];
-		Particle particle1 = particles[segment1_particle_handle];
-
-		vec3 new_position = (particle0.x * segment0.inv_mass + particle1.x * segment1.inv_mass) / (segment0.inv_mass + segment1.inv_mass);
-
-		particles[segment0_particle_handle].x = particles[segment1_particle_handle].x = new_position;
-
+		
+		vec3 new_position = (segment0.particle1.x * segment0.inv_mass + segment1.particle0.x * segment1.inv_mass) / (segment0.inv_mass + segment1.inv_mass);
+		segments[segment_pair.segment0_handle].particle1.x = new_position;
+		segments[segment_pair.segment1_handle].particle0.x = new_position;
 	}
 }

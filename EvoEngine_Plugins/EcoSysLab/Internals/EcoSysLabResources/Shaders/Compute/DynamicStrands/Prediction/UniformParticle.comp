@@ -38,8 +38,8 @@ void main(){
 
 		Segment segment = segments[uniform_particle.segment_handle];
 
-		Particle particle0 = particles[segment.particle_0_handle];
-		Particle particle1 = particles[segment.particle_1_handle];
+		Particle particle0 = segment.particle0;
+		Particle particle1 = segment.particle1;
 
 		uniform_particles[uniform_particle_index].position_t.xyz = 
 			mix(particle0.x, particle1.x, uniform_particle.position_t.w);

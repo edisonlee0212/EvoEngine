@@ -18,37 +18,24 @@ class DsTransform final : public IDsPhysicsOperator {
  public:
   GlobalTransform inverse_base_global_transform{};
   GlobalTransform base_global_transform{};
-  // Position
-  struct PositionUpdate {
-    glm::vec3 new_position = glm::vec3(0.f);
-    uint32_t particle_index = 0;
-  };
-  inline static std::shared_ptr<DescriptorSetLayout> position_layout{};
-  std::vector<PositionUpdate> position_commands;
-  std::vector<std::shared_ptr<Buffer>> position_commands_buffer;
-  struct PositionUpdatePushConstant {
-    uint32_t commands_size = 0;
-  };
-  inline static std::shared_ptr<ComputePipeline> position_update_pipeline;
-  std::vector<std::shared_ptr<DescriptorSet>> position_commands_descriptor_sets;
-  // Rotation
-  struct RotationUpdate {
-    glm::quat new_rotation = glm::vec3(0.f);
-    uint32_t segment_index = 0;
-    uint32_t padding0 = 0;
-    uint32_t padding1 = 0;
-    uint32_t padding2 = 0;
-  };
-  inline static std::shared_ptr<DescriptorSetLayout> rotation_layout{};
-  std::vector<RotationUpdate> rotation_commands;
-  std::vector<std::shared_ptr<Buffer>> rotation_commands_buffer;
 
-  struct RotationUpdatePushConstant {
+  struct SegmentUpdate {
+    glm::quat new_rotation;
+    glm::vec3 new_particle0_position;
+    uint32_t segment_index;
+    glm::vec3 new_particle1_position;
+    uint32_t padding0;
+  };
+  inline static std::shared_ptr<DescriptorSetLayout> layout{};
+  std::vector<SegmentUpdate> commands;
+  std::vector<std::shared_ptr<Buffer>> segment_update_commands_buffer;
+
+  struct SegmentUpdatePushConstant {
     uint32_t commands_size = 0;
   };
 
-  inline static std::shared_ptr<ComputePipeline> rotation_update_pipeline;
-  std::vector<std::shared_ptr<DescriptorSet>> rotation_commands_descriptor_sets;
+  inline static std::shared_ptr<ComputePipeline> segment_update_pipeline;
+  std::vector<std::shared_ptr<DescriptorSet>> segment_commands_descriptor_sets;
 
   DsTransform();
   void Initialize(const GlobalTransform& target_base_global_transform,
@@ -64,7 +51,7 @@ class DsGravity final : public IDsPhysicsOperator {
  public:
   struct GravityPushConstant {
     glm::vec3 acceleration;
-    uint32_t particle_size = 0;
+    uint32_t segment_size = 0;
     float ground_height = -1.0f;
   };
 
@@ -120,7 +107,7 @@ class DsBoxSelection : public IDsOperator {
     glm::vec2 box_max;
     glm::mat4 projection_view;
     uint32_t selection_mode;
-    uint32_t particle_size;
+    uint32_t segment_size;
   };
 
   inline static std::shared_ptr<ComputePipeline> pipeline{};
@@ -137,7 +124,7 @@ class DsDrag : public IDsPhysicsOperator {
   struct DragPushConstant {
     glm::vec3 acceleration;
     float padding;
-    uint32_t particle_size;
+    uint32_t segment_size;
   };
   inline static std::shared_ptr<ComputePipeline> pipeline{};
 

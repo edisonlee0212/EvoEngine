@@ -65,8 +65,8 @@ void main(){
 		Segment segment0 = segments[segment_pair.segment0_handle];
 		Segment segment1 = segments[segment_pair.segment1_handle];
 
-		vec3 segment0_center_position = (particles[segment0.particle_0_handle].x + particles[segment0.particle_1_handle].x) * 0.5f;
-		vec3 segment1_center_position = (particles[segment1.particle_0_handle].x + particles[segment1.particle_1_handle].x) * 0.5f;
+		vec3 segment0_center_position = (segment0.particle0.x + segment0.particle1.x) * 0.5f;
+		vec3 segment1_center_position = (segment1.particle0.x + segment1.particle1.x) * 0.5f;
 
 		vec4 segment0_screen_space_coord = projection_view * vec4(segment0_center_position, 1.0f);
 		vec3 segment0_screen_space_position = segment0_screen_space_coord.xyz / segment0_screen_space_coord.w;

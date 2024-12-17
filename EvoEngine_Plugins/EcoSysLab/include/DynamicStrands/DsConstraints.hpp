@@ -33,7 +33,7 @@ class IDsConstraint {
 class DsGroundPlane final : public IDsConstraint {
  public:
   struct GroundPlanePushConstant {
-    uint32_t particle_size;
+    uint32_t segment_size;
     float ground_height;
     float ground_softness;
     float ground_friction;

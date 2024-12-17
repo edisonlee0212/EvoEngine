@@ -23,7 +23,7 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint particle_size;
+	uint segment_size;
 	float ground_height;
 	float ground_softness;
 	float ground_friction;
@@ -34,19 +34,13 @@ void main(){
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint particle_index = baseID + local_index;
+		uint segment_index = baseID + local_index;
 
-		if(particle_index >= particle_size) break;
-		Particle particle = particles[particle_index];
-
-		Segment segment = segments[particle.segment_handle];
+		if(segment_index >= segment_size) break;
+		Segment segment = segments[segment_index];
 		if(segment.inv_mass == 0.0f) return;
-		float diff = max(0.0f, ground_height - particle.x.y);
 
-
-
-		particle.x.y += (1.f + ground_softness) * diff;
-
-		particles[particle_index] = particle;
+		segments[segment_index].particle0.x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment.particle0.x.y);
+		segments[segment_index].particle1.x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment.particle1.x.y);
 	}
 }

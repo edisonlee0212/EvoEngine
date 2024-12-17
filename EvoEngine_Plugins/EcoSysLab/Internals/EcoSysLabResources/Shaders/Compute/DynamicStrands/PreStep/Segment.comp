@@ -42,6 +42,8 @@ void main(){
 		segment.inv_mass = segment.original_inv_mass;
 
 		segment.shear_stretch_strain = vec2(0.0, 0.0);
+		segment.particle0.acceleration = vec3(0.0, 0.0, 0.0);
+		segment.particle1.acceleration = vec3(0.0, 0.0, 0.0);
 
 		segments[segment_index] = segment;
 	}

@@ -31,10 +31,8 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
 
   Segment segment = segments[segment_handle];
   
-  int particle0_handle = segment.particle_0_handle;
-  int particle1_handle = segment.particle_1_handle;
-  Particle particle0 = particles[particle0_handle];
-  Particle particle1 = particles[particle1_handle];
+  Particle particle0 = segment.particle0;
+  Particle particle1 = segment.particle1;
 
   vec3 p0 = particle0.x;
   vec3 p1 = particle1.x;
@@ -56,23 +54,23 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha,
                                    rest_length, x0_correction, x1_correction, q_correction);
 
-  vec3 particle0_new_position = particles[particle0_handle].x + x0_correction;
-  vec3 particle1_new_position = particles[particle1_handle].x + x1_correction;
-  particles[particle0_handle].x = particle0_new_position;
-  particles[particle1_handle].x = particle1_new_position;
+  vec3 particle0_new_position = p0 + x0_correction;
+  vec3 particle1_new_position = p1 + x1_correction;
+  segments[segment_handle].particle0.x = particle0_new_position;
+  segments[segment_handle].particle1.x = particle1_new_position;
   segments[segment_handle].q = normalize(q_correction + segment.q);
 
   SegmentData segment_data = segment_data_list[segment_handle];
-
+  
   if (segment.prev_handle != -1) {
-    int copy_particle_handle = segments[segment.prev_handle].particle_1_handle;
-    if (segment_pairs[segment_data.pair_handles[0]].connectivity_valid == 1)
-      particles[copy_particle_handle].x = particle0_new_position;
+    if (segment_pairs[segment_data.pair_handles[0]].connectivity_valid == 1) {
+      segments[segment.prev_handle].particle1.x = particle0_new_position;
+    }
   }
   if (segment.next_handle != -1) {
-    int copy_particle_handle = segments[segment.next_handle].particle_0_handle;
-    if (segment_pairs[segment_data.pair_handles[1]].connectivity_valid == 1)
-      particles[copy_particle_handle].x = particle1_new_position;
+    if (segment_pairs[segment_data.pair_handles[1]].connectivity_valid == 1) {
+      segments[segment.next_handle].particle0.x = particle1_new_position;
+    }
   }
 }
 
@@ -80,10 +78,9 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
                                       out vec3 x1_correction,
                                     out vec4 q_correction) {
   Segment segment = segments[segment_handle];
-  int particle0_handle = segment.particle_0_handle;
-  int particle1_handle = segment.particle_1_handle;
-  Particle particle0 = particles[particle0_handle];
-  Particle particle1 = particles[particle1_handle];
+
+  Particle particle0 = segment.particle0;
+  Particle particle1 = segment.particle1;
 
   vec3 p0 = particle0.x;
   vec3 p1 = particle1.x;
@@ -221,10 +218,8 @@ vec2 bend_twist_strain(in vec4 q0, in vec4 q1, in vec4 rest_darboux_vector) {
 
 void BundleSegment(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
   Segment segment0 = segments[segment_handle];
-  int segment0_particle0_handle = segment0.particle_0_handle;
-  int segment0_particle1_handle = segment0.particle_1_handle;
-  Particle segment0_particle0 = particles[segment0_particle0_handle];
-  Particle segment0_particle1 = particles[segment0_particle1_handle];
+  Particle segment0_particle0 = segment0.particle0;
+  Particle segment0_particle1 = segment0.particle1;
 
   SegmentData segment_data = segment_data_list[segment_handle];
   vec3 movement0_sum = vec3(0.0f, 0.0f, 0.0f);
@@ -241,12 +236,9 @@ void BundleSegment(in uint segment_handle, in float inv_time_step, in float over
       continue;
     bool is_segment0 = segment_handle == segment_pair.segment0_handle;
     Segment segment1 = segments[is_segment0 ? segment_pair.segment1_handle : segment_pair.segment0_handle];
-    
-    int segment1_particle0_handle = segment1.particle_0_handle;
-    int segment1_particle1_handle = segment1.particle_1_handle;
 
-    Particle segment1_particle0 = particles[segment1_particle0_handle];
-    Particle segment1_particle1 = particles[segment1_particle1_handle];
+    Particle segment1_particle0 = segment1.particle0;
+    Particle segment1_particle1 = segment1.particle1;
 
     vec3 segment1_center_position =
         (segment1_particle0.x + segment1_particle1.x) * 0.5f;
@@ -331,10 +323,8 @@ void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
   vec4 q_correction;
 
   Segment segment = segments[segment_handle];
-  int particle0_handle = segment.particle_0_handle;
-  int particle1_handle = segment.particle_1_handle;
-  Particle particle0 = particles[particle0_handle];
-  Particle particle1 = particles[particle1_handle];
+  Particle particle0 = segment.particle0;
+  Particle particle1 = segment.particle1;
 
   vec3 p0 = particle0.x;
   vec3 p1 = particle1.x;

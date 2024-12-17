@@ -7,7 +7,7 @@ void DsGroundPlane::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
                                               const DynamicStrands& target_dynamic_strands) {
   GroundPlanePushConstant push_constant;
   push_constant.ground_height = ground_height;
-  push_constant.particle_size = target_dynamic_strands.particles.size();
+  push_constant.segment_size = target_dynamic_strands.segments.size();
   push_constant.ground_softness = ground_softness;
   push_constant.ground_friction = ground_friction;
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
@@ -20,7 +20,7 @@ void DsGroundPlane::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
 
     pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.particle_size, work_group_invocations), 1, 1);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }

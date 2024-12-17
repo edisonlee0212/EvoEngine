@@ -35,15 +35,10 @@ void main(){
 		uint segment_index = baseID + local_index;
 
 		if(segment_index >= segment_size) break;
-
-		Segment segment = segments[segment_index];
-		int particle0_handle = segment.particle_0_handle;
-		int particle1_handle = segment.particle_1_handle;
 		
 		SegmentData segment_data = segment_data_list[segment_index];
-		particles[particle0_handle].x += segment_data.particle0_position_correction.xyz;
-		particles[particle1_handle].x += segment_data.particle1_position_correction.xyz;
-
+		segments[segment_index].particle0.x += segment_data.particle0_position_correction.xyz;
+		segments[segment_index].particle1.x += segment_data.particle1_position_correction.xyz;
 		segments[segment_index].q = normalize(segment_data.q_correction + segments[segment_index].q);
 	}
 }

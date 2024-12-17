@@ -754,6 +754,7 @@ void Platform::SelectPhysicalDevice() {
 #ifdef __APPLE__
   required_device_extension_names_.emplace_back("VK_KHR_portability_subset");
 #endif
+  required_device_extension_names_.emplace_back(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
 
   required_device_extension_names_.emplace_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
   required_device_extension_names_.emplace_back(VK_EXT_EXTENDED_DYNAMIC_STATE_2_EXTENSION_NAME);
@@ -964,9 +965,20 @@ void Platform::CreateLogicalDevice() {
     c_required_layers.emplace_back(i.c_str());
 
 #pragma region Logical Device
+
+  VkPhysicalDeviceShaderAtomicFloatFeaturesEXT vk_physical_device_shader_atomic_float_features{};
+  vk_physical_device_shader_atomic_float_features.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT;
+  vk_physical_device_shader_atomic_float_features.pNext = nullptr;
+  vk_physical_device_shader_atomic_float_features.shaderBufferFloat32Atomics = VK_TRUE;
+  vk_physical_device_shader_atomic_float_features.shaderBufferFloat32AtomicAdd = VK_TRUE;
+  vk_physical_device_shader_atomic_float_features.shaderSharedFloat32Atomics = VK_TRUE;
+  vk_physical_device_shader_atomic_float_features.shaderSharedFloat32AtomicAdd = VK_TRUE;
+  vk_physical_device_shader_atomic_float_features.shaderImageFloat32Atomics = VK_TRUE;
+  vk_physical_device_shader_atomic_float_features.shaderImageFloat32AtomicAdd = VK_TRUE;
 #ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
   VkDeviceDiagnosticsConfigCreateInfoNV vk_device_diagnostics_config_create_info_nv{};
-  vk_device_diagnostics_config_create_info_nv.pNext = nullptr;
+  vk_device_diagnostics_config_create_info_nv.pNext = &vk_physical_device_shader_atomic_float_features;
   vk_device_diagnostics_config_create_info_nv.sType = VK_STRUCTURE_TYPE_DEVICE_DIAGNOSTICS_CONFIG_CREATE_INFO_NV;
   vk_device_diagnostics_config_create_info_nv.flags = VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_RESOURCE_TRACKING_BIT_NV |
                                                       VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_AUTOMATIC_CHECKPOINTS_BIT_NV |
@@ -977,9 +989,9 @@ void Platform::CreateLogicalDevice() {
   vk_physical_device_ray_tracing_pipeline_features_khr.sType =
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
 #ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
-  vk_device_diagnostics_config_create_info_nv.pNext = nullptr;
+  vk_physical_device_ray_tracing_pipeline_features_khr.pNext = &vk_device_diagnostics_config_create_info_nv;
 #else
-  vk_physical_device_ray_tracing_pipeline_features_khr.pNext = nullptr;
+  vk_physical_device_ray_tracing_pipeline_features_khr.pNext = &vk_physical_device_shader_atomic_float_features;
 #endif
 
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipeline = VK_TRUE;
@@ -1036,8 +1048,6 @@ void Platform::CreateLogicalDevice() {
   dynamic_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
   dynamic_rendering_features.dynamicRendering = VK_TRUE;
   dynamic_rendering_features.pNext = &shader_draw_parameters_features;
-
- 
 
   VkPhysicalDeviceMultiviewFeatures physical_device_multiview_features{};
   physical_device_multiview_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
