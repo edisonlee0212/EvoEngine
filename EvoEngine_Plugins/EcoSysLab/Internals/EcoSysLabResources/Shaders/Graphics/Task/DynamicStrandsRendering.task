@@ -5,6 +5,7 @@
 #extension GL_KHR_shader_subgroup_ballot : require
 #extension GL_KHR_shader_subgroup_vote : require
 #extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_shader_atomic_float : require
 
 #define DYNAMIC_STRANDS_SET 1
 #include "DynamicStrands.glsl"
@@ -34,6 +35,18 @@ taskPayloadSharedEXT Task ts_out;
 	barrier();
 
 #include "AlphaShape.glsl"
+
+vec3 ComputeTriangleNormal(vec3 v0, vec3 v1, vec3 v2) {
+    // Compute the two edges of the triangle
+    vec3 edge1 = v1 - v0;
+    vec3 edge2 = v2 - v0;
+
+    // Compute the cross product of the two edges to get the normal
+    vec3 normal = cross(edge1, edge2);
+
+    // Normalize the result to ensure the normal has unit length
+    return normalize(normal);
+}
 
 void main(){
 	
@@ -72,6 +85,51 @@ void main(){
 			{
 				delaunay_tetrahedrons[tetrahedron_index_global].color = vec4(0.0, 1.0, min_distance_squared, 1.0);
 				delaunay_tetrahedrons[tetrahedron_index_global].inside = 1;
+
+				// determine which triangles need to be rendered
+				[[unroll]]
+				for (uint i = 0; i < 4; ++i)
+				{
+					uint triangle_index = i;
+
+					float min_distance_squared = 200000.0f;
+					// check if we are at the boundary of the alpha shape
+					if(render_complex == 0){
+						delaunay_tetrahedrons[tetrahedron_index_global].render_neighbor[triangle_index] = InsideAlpha(tet, int(triangle_index % 4), min_distance_squared) ? 0 : 1;
+					}
+					else {
+						delaunay_tetrahedrons[tetrahedron_index_global].render_neighbor[triangle_index] = 1;
+					}
+					delaunay_tetrahedrons[tetrahedron_index_global].neighbor_circumference[triangle_index] = min_distance_squared;
+					if(delaunay_tetrahedrons[tetrahedron_index_global].render_neighbor[triangle_index] == 1){
+						atomicAdd(delaunay_tetrahedrons[tetrahedron_index_global].triangles_accepted, 1);
+						//atomicAdd(delaunay_tetrahedrons[tetrahedron_index_global].mesh_looked_at, 1);
+
+						// compute triangle normal
+						vec3 v[3];
+
+						int index = 0;
+						for(int j = 0; j < 4; j++){
+							if(j != triangle_index){
+								v[index] = uniform_particles[tet.indices[j]].position_t.xyz;
+								index++;
+							}
+						}
+
+						vec4 normal_deg = vec4(ComputeTriangleNormal(v[0], v[1], v[2]), 1.0f);
+
+						// add normal to all triangle vertices, so we can later compute an average
+						for(int j = 0; j < 4; j++){
+							if(j != triangle_index){
+								atomicAdd(uniform_particles[tet.indices[j]].normal_deg.x, normal_deg.x);
+								atomicAdd(uniform_particles[tet.indices[j]].normal_deg.y, normal_deg.y);
+								atomicAdd(uniform_particles[tet.indices[j]].normal_deg.z, normal_deg.z);
+								atomicAdd(uniform_particles[tet.indices[j]].normal_deg.w, normal_deg.w);
+								//uniform_particles[tet.indices[j]].normal_deg = normal_deg;
+							}
+						}
+					}
+				}
 			}
 
 			// should be gray if it works
