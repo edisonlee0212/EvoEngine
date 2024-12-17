@@ -48,7 +48,8 @@ class SorghumLeafDescriptor {
   void Deserialize(const YAML::Node& in);
 
   void GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned int>& indices,
-                        const SorghumMeshGeneratorSettings& mesh_generator_settings, bool current_bottom_face = false) const;
+                        const SorghumMeshGeneratorSettings& mesh_generator_settings,
+                        bool current_bottom_face = false) const;
 };
 
 class SorghumDescriptor : public IAsset {

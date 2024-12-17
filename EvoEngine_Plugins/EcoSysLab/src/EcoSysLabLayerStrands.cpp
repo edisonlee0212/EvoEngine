@@ -3,7 +3,7 @@
 //
 
 #include "EcoSysLabLayer.hpp"
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include <RayTracerLayer.hpp>
 #endif
 

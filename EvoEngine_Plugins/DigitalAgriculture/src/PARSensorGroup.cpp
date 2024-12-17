@@ -2,14 +2,14 @@
 // Created by lllll on 2/23/2022.
 //
 #include <Jobs.hpp>
-#ifdef OPTIX_RAY_TRACER_PLUGIN
-#  include "Platform.hpp"
+#ifdef CUDA_MODULE_PLUGIN
 #  include "PARSensorGroup.hpp"
+#  include "Platform.hpp"
 #  include "RayTracerLayer.hpp"
 
 using namespace digital_agriculture_plugin;
 void digital_agriculture_plugin::PARSensorGroup::CalculateIllumination(const RayProperties& ray_properties, int seed,
-                                                        float push_normal_distance) {
+                                                                       float push_normal_distance) {
   if (m_samplers.empty())
     return;
   CudaModule::EstimateIlluminationRayTracing(Application::GetLayer<RayTracerLayer>()->environment_properties,
@@ -42,10 +42,10 @@ bool PARSensorGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
         float y = ((i / sz) % sy) * step + min_range.y;
         float x = ((i / sz / sy) % sx) * step + min_range.x;
         glm::vec3 start = {x, y, z};
-        m_samplers[i].m_a.position = m_samplers[i].m_b.position = m_samplers[i].m_c.position = start;
-        m_samplers[i].m_frontFace = true;
-        m_samplers[i].m_backFace = false;
-        m_samplers[i].m_a.normal = m_samplers[i].m_b.normal = m_samplers[i].m_c.normal = glm::vec3(0, 1, 0);
+        m_samplers[i].v_0.position = m_samplers[i].v_1.position = m_samplers[i].v_2.position = start;
+        m_samplers[i].front_face = true;
+        m_samplers[i].back_face = false;
+        m_samplers[i].v_0.normal = m_samplers[i].v_1.normal = m_samplers[i].v_2.normal = glm::vec3(0, 1, 0);
       });
     }
     ImGui::TreePop();
@@ -84,9 +84,9 @@ bool PARSensorGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     ImGui::DragFloat("Point Size", &point_size, 0.01f);
     ImGui::ColorEdit4("Point Color", &point_color.x);
     Jobs::RunParallelFor(m_samplers.size(), [&](unsigned i) {
-      const auto start = m_samplers[i].m_a.position;
+      const auto start = m_samplers[i].v_0.position;
       starts[i] = start;
-      ends[i] = start + m_samplers[i].m_direction * line_length_factor * m_samplers[i].m_energy;
+      ends[i] = start + m_samplers[i].direction * line_length_factor * m_samplers[i].energy;
       point_particle_infos[i].instance_matrix.value = glm::translate(start) * glm::scale(glm::vec3(point_size));
       point_particle_infos[i].instance_color = point_color;
     });

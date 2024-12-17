@@ -2,6 +2,9 @@
 #include "Mesh.hpp"
 #include "RenderInstances.hpp"
 #include "Scene.hpp"
+
+#include "PointCloudSample.hpp"
+
 namespace evo_engine {
 /**
  * @class CpuRayTracer
@@ -109,6 +112,14 @@ class CpuRayTracer final {
              const std::function<void(const HitInfo& hit_info)>& any_hit_func) const;
 
   /**
+   * @brief Trace a ray within the scene. Function is thread-safe.
+   * @param ray_descriptor Configuration for the ray.
+   * @param closest_hit_info Hit information for closest hit.
+   */
+  void Trace(const RayDescriptor& ray_descriptor, HitInfo& closest_hit_info) const;
+  void SamplePointCloud(std::vector<PointCloudSample>& samples) const;
+
+  /**
    * @brief Clear all data in the ray tracer.
    */
   void Clear() noexcept;
@@ -146,7 +157,7 @@ class CpuRayTracer final {
                const std::function<void(const HitInfo& hit_info)>& any_hit_func) const;
 
     void TraceGpu(const std::vector<RayDescriptor>& rays, std::vector<HitInfo>& hit_infos, TraceFlags flags);
-
+    void SamplePointCloudGpu(const CpuRayTracer& cpu_ray_tracer, std::vector<PointCloudSample>& samples);
     //=========================================================================================
     //| GPU Related                                                                           |
     //=========================================================================================
@@ -164,7 +175,7 @@ class CpuRayTracer final {
 
       uint32_t triangle_indices_offset = 0;        // 2_x
       uint32_t triangles_offset = 0;               // 2_y
-      uint32_t vertices_offset = 0;        // 2_z
+      uint32_t vertices_offset = 0;                // 2_z
       uint32_t local_triangle_indices_offset = 0;  // 2_w
     };
 
@@ -184,6 +195,8 @@ class CpuRayTracer final {
    */
   [[nodiscard]] AggregatedScene Aggregate() const;
   [[nodiscard]] Entity GetEntity(uint32_t node_index) const;
+  [[nodiscard]] Handle GetRendererHandle(uint32_t node_index) const;
+
  private:
   struct FlattenedBvh {
     std::vector<BvhNode> nodes{};
@@ -203,6 +216,7 @@ class CpuRayTracer final {
     Bound aabb{};
     uint32_t instance_index = 0;
     Entity entity{};
+    Handle renderer_handle = 0;
     GlobalTransform transformation{};
     GlobalTransform inverse_transformation{};
     FlattenedBvh flattened_bvh_mesh_group;

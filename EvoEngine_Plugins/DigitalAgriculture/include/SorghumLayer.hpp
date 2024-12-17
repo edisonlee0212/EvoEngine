@@ -1,5 +1,5 @@
 #pragma once
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include <CUDAModule.hpp>
 #endif
 #include "ILayer.hpp"
@@ -14,7 +14,7 @@ class SorghumLayer : public ILayer {
 
  public:
   bool enable_compressed_btf = false;
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  pragma region Illumination
   int m_seed = 0;
   float push_distance = 0.001f;

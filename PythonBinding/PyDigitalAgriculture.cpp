@@ -24,7 +24,7 @@
 #  include "WindowLayer.hpp"
 #  include "pybind11/pybind11.h"
 #  include "pybind11/stl/filesystem.h"
-#  ifdef OPTIX_RAY_TRACER_PLUGIN
+#  ifdef CUDA_MODULE_PLUGIN
 #    include <CUDAModule.hpp>
 #    include <RayTracerLayer.hpp>
 #  endif
@@ -54,7 +54,7 @@ void push_layers(const bool enable_window_layer, const bool enable_editor_layer)
     Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
   Application::PushLayer<SorghumLayer>();
-#  ifdef OPTIX_RAY_TRACER_PLUGIN
+#  ifdef CUDA_MODULE_PLUGIN
   Application::PushLayer<RayTracerLayer>();
 #  endif
 }
@@ -166,7 +166,7 @@ void sorghum_state_to_mesh(const std::string& sorghum_state_path,
 void sorghum_descriptor_to_point_cloud(const std::string& sorghum_descriptor_path,
                                        const SorghumPointCloudPointSettings& point_settings,
                                        const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                       const bool avoid_occlusion,
+                                       const bool avoid_occlusion, const bool generate_ground,
                                        const std::filesystem::path& point_cloud_output_path) {
   std::shared_ptr<SorghumDescriptor> sorghum_descriptor;
   if (const auto path = std::filesystem::path(sorghum_descriptor_path); path.is_absolute()) {
@@ -185,14 +185,15 @@ void sorghum_descriptor_to_point_cloud(const std::string& sorghum_descriptor_pat
   capture_settings->output_spline_info = true;
 
   DatasetGenerator::GeneratePointCloudForSorghum(sorghum_descriptor, point_settings, capture_settings,
-                                                 sorghum_mesh_generator_settings, avoid_occlusion,
+                                                 sorghum_mesh_generator_settings, avoid_occlusion, generate_ground,
                                                  point_cloud_output_path);
 }
 
 void sorghum_state_to_point_cloud(const std::string& sorghum_state_path,
                                   const SorghumPointCloudPointSettings& point_settings,
                                   const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                  const bool avoid_occlusion, const std::filesystem::path& point_cloud_output_path) {
+                                  const bool avoid_occlusion, const bool generate_ground,
+                                  const std::filesystem::path& point_cloud_output_path) {
   std::shared_ptr<SorghumState> sorghum_state;
   if (const auto path = std::filesystem::path(sorghum_state_path); path.is_absolute()) {
     sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
@@ -210,14 +211,15 @@ void sorghum_state_to_point_cloud(const std::string& sorghum_state_path,
   capture_settings->output_spline_info = true;
 
   DatasetGenerator::GeneratePointCloudForSorghum(sorghum_state, point_settings, capture_settings,
-                                                 sorghum_mesh_generator_settings, avoid_occlusion,
+                                                 sorghum_mesh_generator_settings, avoid_occlusion, generate_ground,
                                                  point_cloud_output_path);
 }
 
 void sorghum_descriptor_to_mesh_and_point_cloud(const std::string& sorghum_descriptor_path,
                                                 const SorghumPointCloudPointSettings& point_settings,
                                                 const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                                bool avoid_occlusion, const std::filesystem::path& mesh_output_path,
+                                                bool avoid_occlusion, const bool generate_ground,
+                                                const std::filesystem::path& mesh_output_path,
                                                 const std::filesystem::path& point_cloud_output_path) {
   std::shared_ptr<SorghumDescriptor> sorghum_descriptor;
   if (const auto path = std::filesystem::path(sorghum_descriptor_path); path.is_absolute()) {
@@ -237,13 +239,14 @@ void sorghum_descriptor_to_mesh_and_point_cloud(const std::string& sorghum_descr
 
   DatasetGenerator::GenerateMeshAndPointCloudForSorghum(sorghum_descriptor, point_settings, capture_settings,
                                                         sorghum_mesh_generator_settings, avoid_occlusion,
-                                                        mesh_output_path, point_cloud_output_path);
+                                                        generate_ground, mesh_output_path, point_cloud_output_path);
 }
 
 void sorghum_state_to_mesh_and_point_cloud(const std::string& sorghum_state_path,
                                            const SorghumPointCloudPointSettings& point_settings,
                                            const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                           bool avoid_occlusion, const std::filesystem::path& mesh_output_path,
+                                           bool avoid_occlusion, const bool generate_ground,
+                                           const std::filesystem::path& mesh_output_path,
                                            const std::filesystem::path& point_cloud_output_path) {
   std::shared_ptr<SorghumState> sorghum_state;
   if (const auto path = std::filesystem::path(sorghum_state_path); path.is_absolute()) {
@@ -263,7 +266,7 @@ void sorghum_state_to_mesh_and_point_cloud(const std::string& sorghum_state_path
 
   DatasetGenerator::GenerateMeshAndPointCloudForSorghum(sorghum_state, point_settings, capture_settings,
                                                         sorghum_mesh_generator_settings, avoid_occlusion,
-                                                        mesh_output_path, point_cloud_output_path);
+                                                        generate_ground, mesh_output_path, point_cloud_output_path);
 }
 
 PYBIND11_MODULE(PyDigitalAgriculture, m) {

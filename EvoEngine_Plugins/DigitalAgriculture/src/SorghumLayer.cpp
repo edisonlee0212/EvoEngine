@@ -1,4 +1,4 @@
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include <TriangleIlluminationEstimator.hpp>
 #  include "BTFMeshRenderer.hpp"
 #  include "RayTracerLayer.hpp"
@@ -14,7 +14,7 @@
 #include "Sorghum.hpp"
 #include "SorghumCoordinates.hpp"
 #include "SorghumDescriptor.hpp"
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include "CBTFGroup.hpp"
 #  include "PARSensorGroup.hpp"
 #endif
@@ -29,7 +29,7 @@ AssetRegistration<SorghumState> ss_registry("SorghumState", {".ss"});
 
 AssetRegistration<SorghumGenerator> sdg_registry("SorghumGenerator", {".sg"});
 AssetRegistration<SorghumField> sf_registry("SorghumField", {".sorghumfield"});
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 AssetRegistration<PARSensorGroup> parssg_registry("PARSensorGroup", {".parsensorgroup"});
 AssetRegistration<CBTFGroup> cbtfg_registry("CBTFGroup", {".cbtfgroup"});
 #endif
@@ -108,7 +108,7 @@ void SorghumLayer::GenerateMeshForAllSorghums(
 void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = GetScene();
   if (ImGui::Begin("Sorghum Layer")) {
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
     if (ImGui::TreeNodeEx("Illumination Estimation")) {
       ImGui::DragInt("Seed", &m_seed);
       ImGui::DragFloat("Push distance along normal", &push_distance, 0.0001f, -1.0f, 1.0f, "%.5f");
@@ -190,7 +190,7 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         false);
 
     static bool opened = false;
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
     if (processing && !opened) {
       ImGui::OpenPopup("Illumination Estimation");
       opened = true;
@@ -306,7 +306,7 @@ void SorghumLayer::ExportAllSorghumsModel(const std::string& filename) const {
   }
 }
 
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 void SorghumLayer::CalculateIlluminationFrameByFrame() {
   const auto scene = GetScene();
   const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<TriangleIlluminationEstimator>();
@@ -343,7 +343,7 @@ void SorghumLayer::CalculateIllumination() {
 #endif
 void SorghumLayer::Update() {
   const auto scene = GetScene();
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
   if (processing) {
     processing_index--;
     if (processing_index == -1) {

@@ -41,8 +41,8 @@ mesh_settings.enable_leaf_sheath = False
 mesh_settings.single_leaf_index = -1
 #Should leaf mesh contain 2 faces
 mesh_settings.bottom_face = False
-#Should all leaves be generated in separated meshes or combined as one single mesh
-mesh_settings.leaf_separated = False
+#Should all leaves be generated in separated meshes or combined as one single mesh, if set to false, you will not get leaf index in point cloud.
+mesh_settings.leaf_separated = True
 #If bottom_face is ON, this sets the distance between top and bottom face of each leaf
 mesh_settings.leaf_thickness = 0.001
 
@@ -70,6 +70,8 @@ sorghum_framework.sorghum_descriptor_to_mesh_and_point_cloud(
 	mesh_settings,
 	#Whether generate 2 point clouds (with/without occclusion) for the sorghum
 	False,
+	#Whether generate ground surface mesh
+	False,
 	#Where to store the 3d model
 	output_root + "\\SD_Sample0.obj",
 	#Where to save the point cloud
@@ -94,6 +96,8 @@ sorghum_framework.sorghum_state_to_mesh_and_point_cloud(
 	#Sorghum Mesh Generator Settings
 	mesh_settings,
 	#Whether generate 2 point clouds (with/without occclusion) for the sorghum
+	False,
+	#Whether generate ground surface mesh
 	False,
 	#Where to store the 3d model
 	output_root + "\\SS_Sample0.obj",

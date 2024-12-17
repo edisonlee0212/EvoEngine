@@ -20,7 +20,7 @@
 #include "WindowLayer.hpp"
 #include "pybind11/pybind11.h"
 #include "pybind11/stl/filesystem.h"
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
@@ -68,7 +68,7 @@ void push_layers(const bool enable_window_layer, const bool enable_editor_layer)
     Application::PushLayer<EditorLayer>();
   Application::PushLayer<RenderLayer>();
   Application::PushLayer<EcoSysLabLayer>();
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
   Application::PushLayer<RayTracerLayer>();
 #endif
 }

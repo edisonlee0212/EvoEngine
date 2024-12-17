@@ -11,7 +11,7 @@
 using namespace digital_agriculture_plugin;
 #endif
 #include "WindowLayer.hpp"
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
@@ -44,7 +44,7 @@ void push_layers(bool enable_window_layer, bool enable_editor_layer) {
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
   Application::PushLayer<SorghumLayer>();
 #endif
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
   Application::PushLayer<RayTracerLayer>();
 #endif
 }
@@ -75,27 +75,23 @@ void run_windowless(const std::filesystem::path& project_path) {
   ApplicationInfo application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
-  const auto new_scene = std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset("DigitalAgriculture.evescene"));
+  const auto new_scene =
+      std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset("DigitalAgriculture.evescene"));
   Application::Attach(new_scene);
   Application::Start();
 }
 
-void sorghum_field_point_cloud(int grid_size, float grid_distance,
-    float random_shift, float variance, uint32_t size,
-                               const std::shared_ptr<SorghumGantryCaptureSettings> &sorghum_gantry_capture_settings,
-    const std::filesystem::path& sorghum_descriptor_generator_relative_path, 
-    const std::filesystem::path& output_folder) {
+void sorghum_field_point_cloud(int grid_size, float grid_distance, float random_shift, float variance, uint32_t size,
+                               const std::shared_ptr<SorghumGantryCaptureSettings>& sorghum_gantry_capture_settings,
+                               const std::filesystem::path& sorghum_descriptor_generator_relative_path,
+                               const std::filesystem::path& output_folder) {
 #ifndef DIGITAL_AGRICULTURE_PLUGIN
   throw std::runtime_error("DigitalAgriculture plugin missing!");
-#else
-#  ifndef OPTIX_RAY_TRACER_PLUGIN
-  throw std::runtime_error("OptixRayTracer plugin missing!");
-#  else
-#    ifndef DATASET_GENERATION_PLUGIN
+#endif
+#ifndef DATASET_GENERATION_PLUGIN
   throw std::runtime_error("DatasetGeneration plugin missing!");
-#    endif
-#  endif
-  
+#endif
+
   SorghumMeshGeneratorSettings sorghum_mesh_generator_settings{};
   std::filesystem::create_directories(output_folder);
   SorghumPointCloudPointSettings sorghum_point_cloud_point_settings{};
@@ -104,6 +100,7 @@ void sorghum_field_point_cloud(int grid_size, float grid_distance,
   sorghum_point_cloud_point_settings.instance_index = true;
   sorghum_point_cloud_point_settings.type_index = true;
   sorghum_point_cloud_point_settings.leaf_index = true;
+  sorghum_mesh_generator_settings.leaf_separated = true;
   std::filesystem::path resource_folder_path("../../../../../Resources");
   if (!std::filesystem::exists(resource_folder_path)) {
     resource_folder_path = "../../../../Resources";
@@ -138,22 +135,17 @@ void sorghum_field_point_cloud(int grid_size, float grid_distance,
         sorghum_mesh_generator_settings, target_tree_point_cloud_path.string());
     index++;
   }
-#endif
 }
-void sorghum_point_cloud(const uint32_t size, const bool avoid_occlusion,
+void sorghum_point_cloud(const uint32_t size, const bool avoid_occlusion, const bool generate_ground,
                          const std::shared_ptr<SorghumGantryCaptureSettings>& sorghum_gantry_capture_settings,
                          const std::filesystem::path& sorghum_descriptor_generator_relative_path,
                          const std::filesystem::path& output_folder) {
 #ifndef DIGITAL_AGRICULTURE_PLUGIN
   throw std::runtime_error("DigitalAgriculture plugin missing!");
-#else
-#  ifndef OPTIX_RAY_TRACER_PLUGIN
-  throw std::runtime_error("OptixRayTracer plugin missing!");
-#  else
-#    ifndef DATASET_GENERATION_PLUGIN
+#endif
+#ifndef DATASET_GENERATION_PLUGIN
   throw std::runtime_error("DatasetGeneration plugin missing!");
-#    endif
-#  endif
+#endif
 
   SorghumMeshGeneratorSettings sorghum_mesh_generator_settings{};
   std::filesystem::create_directories(output_folder);
@@ -163,6 +155,7 @@ void sorghum_point_cloud(const uint32_t size, const bool avoid_occlusion,
   sorghum_point_cloud_point_settings.instance_index = true;
   sorghum_point_cloud_point_settings.type_index = true;
   sorghum_point_cloud_point_settings.leaf_index = true;
+  sorghum_mesh_generator_settings.leaf_separated = true;
   std::filesystem::path resource_folder_path("../../../../../Resources");
   if (!std::filesystem::exists(resource_folder_path)) {
     resource_folder_path = "../../../../Resources";
@@ -178,7 +171,7 @@ void sorghum_point_cloud(const uint32_t size, const bool avoid_occlusion,
   }
   sorghum_gantry_capture_settings->grid_size = {1, 1};
   sorghum_gantry_capture_settings->grid_distance = {2.0, 2.0};
-  
+
   int index = 0;
   for (int i = 0; i < size; i++) {
     std::filesystem::path target_descriptor_folder_path =
@@ -186,34 +179,31 @@ void sorghum_point_cloud(const uint32_t size, const bool avoid_occlusion,
     const auto sorghum_descriptor_generator = std::dynamic_pointer_cast<SorghumGenerator>(
         ProjectManager::GetOrCreateAsset(sorghum_descriptor_generator_relative_path));
     const auto sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
-    sorghum_descriptor_generator->Apply(sorghum_descriptor,  i + 1);
+    sorghum_descriptor_generator->Apply(sorghum_descriptor, i + 1);
     std::string name = "Sorghum_" + std::to_string(i);
     std::filesystem::path target_tree_point_cloud_path = output_folder / (name + ".ply");
-    DatasetGenerator::GeneratePointCloudForSorghum(sorghum_descriptor, sorghum_point_cloud_point_settings, sorghum_gantry_capture_settings,
-        sorghum_mesh_generator_settings, avoid_occlusion, target_tree_point_cloud_path.string());
+    DatasetGenerator::GeneratePointCloudForSorghum(
+        sorghum_descriptor, sorghum_point_cloud_point_settings, sorghum_gantry_capture_settings,
+        sorghum_mesh_generator_settings, avoid_occlusion, generate_ground, target_tree_point_cloud_path.string());
     index++;
   }
-#endif
 }
 
-void sorghum_mesh_point_cloud(const uint32_t size, const bool avoid_occlusion,
-                         const std::shared_ptr<SorghumGantryCaptureSettings>& sorghum_gantry_capture_settings,
-                         const std::filesystem::path& sorghum_descriptor_generator_relative_path,
-                         const std::filesystem::path& output_folder) {
+void sorghum_mesh_point_cloud(const uint32_t size, const bool avoid_occlusion, const bool generate_ground,
+                              const std::shared_ptr<SorghumGantryCaptureSettings>& sorghum_gantry_capture_settings,
+                              const std::filesystem::path& sorghum_descriptor_generator_relative_path,
+                              const std::filesystem::path& output_folder) {
 #ifndef DIGITAL_AGRICULTURE_PLUGIN
   throw std::runtime_error("DigitalAgriculture plugin missing!");
-#else
-#  ifndef OPTIX_RAY_TRACER_PLUGIN
-  throw std::runtime_error("OptixRayTracer plugin missing!");
-#  else
-#    ifndef DATASET_GENERATION_PLUGIN
+#endif
+#ifndef DATASET_GENERATION_PLUGIN
   throw std::runtime_error("DatasetGeneration plugin missing!");
-#    endif
-#  endif
+#endif
 
   SorghumMeshGeneratorSettings sorghum_mesh_generator_settings{};
   sorghum_mesh_generator_settings.bottom_face = false;
   sorghum_mesh_generator_settings.enable_leaf_sheath = true;
+  sorghum_mesh_generator_settings.leaf_separated = true;
   std::filesystem::create_directories(output_folder);
   SorghumPointCloudPointSettings sorghum_point_cloud_point_settings{};
   sorghum_point_cloud_point_settings.ball_rand_radius = 0.005f;
@@ -249,11 +239,11 @@ void sorghum_mesh_point_cloud(const uint32_t size, const bool avoid_occlusion,
     std::filesystem::path target_tree_point_cloud_path = output_folder / (name + ".ply");
     std::filesystem::path target_tree_mesh_path = output_folder / (name + ".obj");
     DatasetGenerator::GenerateMeshAndPointCloudForSorghum(
-        sorghum_descriptor, sorghum_point_cloud_point_settings,
-                                                   sorghum_gantry_capture_settings, sorghum_mesh_generator_settings, avoid_occlusion, target_tree_mesh_path, target_tree_point_cloud_path);
+        sorghum_descriptor, sorghum_point_cloud_point_settings, sorghum_gantry_capture_settings,
+        sorghum_mesh_generator_settings, avoid_occlusion, generate_ground, target_tree_mesh_path,
+        target_tree_point_cloud_path);
     index++;
   }
-#endif
 }
 
 int main() {
@@ -273,18 +263,19 @@ int main() {
   resource_folder_path = std::filesystem::absolute(resource_folder_path);
 
   const std::filesystem::path project_path = resource_folder_path / "DigitalAgricultureProject" / "test.eveproj";
-  //start_project(project_path);
+  // start_project(project_path);
   run_windowless(project_path);
   std::shared_ptr<SorghumGantryCaptureSettings> capture_settings = std::make_shared<SorghumGantryCaptureSettings>();
-  capture_settings->step = glm::vec2(0.005f); //Smaller -> more points.
+  capture_settings->step = glm::vec2(0.005f);  // Smaller -> more points.
   capture_settings->scanner_angles = {30, 60};
   capture_settings->output_spline_info = true;
-  //capture_settings->spline_subdivision_count = 32;
+  capture_settings->use_gpu = true;
+  // capture_settings->spline_subdivision_count = 32;
 
   const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Random.sg";
-  //sorghum_field_point_cloud(1, 0.75f, 0, 0, 128, capture_settings, sdg_relative_path, "D:\\SorghumPointCloudData\\");
+  // sorghum_field_point_cloud(1, 0.75f, 0, 0, 128, capture_settings, sdg_relative_path, "D:\\SorghumPointCloudData\\");
 
-  sorghum_mesh_point_cloud(32, true, capture_settings, sg_relative_path, "D:\\SorghumPointCloudData\\");
-  
+  sorghum_mesh_point_cloud(32, true, false, capture_settings, sg_relative_path, "D:\\SorghumPointCloudData\\");
+
   Application::Run();
 }

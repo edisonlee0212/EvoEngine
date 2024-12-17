@@ -1,9 +1,10 @@
 #include "SorghumPointCloudScanner.hpp"
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <OptiXRayTracer.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
+#include "CpuRayTracer.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "Sorghum.hpp"
 #include "Tinyply.hpp"
@@ -70,8 +71,8 @@ void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointClou
 }
 
 bool SorghumPointCloudGridCaptureSettings::SampleFilter(const PointCloudSample& sample) {
-  return glm::abs(sample.m_hitInfo.position.x) < bounding_box_size &&
-         glm::abs(sample.m_hitInfo.position.z) < bounding_box_size;
+  return glm::abs(sample.hit_info.position.x) < bounding_box_size &&
+         glm::abs(sample.hit_info.position.z) < bounding_box_size;
 }
 
 bool SorghumGantryCaptureSettings::OnInspect() {
@@ -114,21 +115,23 @@ void SorghumGantryCaptureSettings::GenerateSamples(std::vector<PointCloudSample>
 }
 
 bool SorghumGantryCaptureSettings::SampleFilter(const PointCloudSample& sample) {
-  return glm::abs(sample.m_hitInfo.position.x) < bounding_box_size &&
-         glm::abs(sample.m_hitInfo.position.z) < bounding_box_size;
+  return glm::abs(sample.hit_info.position.x) < bounding_box_size &&
+         glm::abs(sample.hit_info.position.z) < bounding_box_size;
 }
 
 void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                     std::vector<glm::vec3>& points, std::vector<int>& leaf_indices,
                                     std::vector<int>& instance_indices, std::vector<int>& type_indices) const {
-
+  const auto render_layer = Application::GetLayer<RenderLayer>();
+  if (!render_layer)
+    return;
   const auto digital_agriculture_layer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
   if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
     soil = soil_candidate.lock();
   Bound plant_bound{};
-  std::unordered_map<Handle, Handle> leaf_mesh_renderer_handles, stem_mesh_renderer_handles,
-      panicle_mesh_renderer_handles;
+  std::unordered_map<Handle, std::pair<Handle, int>> leaf_mesh_renderer_handles;
+  std::unordered_map<Handle, Handle> stem_mesh_renderer_handles, panicle_mesh_renderer_handles;
   const auto scene = GetScene();
   const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
   if (sorghum_entities == nullptr) {
@@ -138,11 +141,13 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
 
   for (const auto& sorghum_entity : *sorghum_entities) {
     if (scene->IsEntityValid(sorghum_entity)) {
+      int leaf_index = 0;
       scene->ForEachChild(sorghum_entity, [&](const Entity child) {
         if (scene->GetEntityName(child) == "Leaf Mesh" && scene->HasPrivateComponent<MeshRenderer>(child)) {
           const auto leaf_mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock();
-          leaf_mesh_renderer_handles.insert({leaf_mesh_renderer->GetHandle(), sorghum_entity.GetIndex()});
-
+          leaf_mesh_renderer_handles.insert(
+              {leaf_mesh_renderer->GetHandle(), std::make_pair(sorghum_entity.GetIndex(), leaf_index)});
+          leaf_index++;
           const auto global_transform = scene->GetDataComponent<GlobalTransform>(child);
           const auto mesh = leaf_mesh_renderer->mesh.Get<Mesh>();
           plant_bound.min =
@@ -187,20 +192,57 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
   }
   std::vector<PointCloudSample> pc_samples;
   capture_settings->GenerateSamples(pc_samples);
-#ifdef OPTIX_RAY_TRACER_PLUGIN
+#ifdef CUDA_MODULE_PLUGIN
   CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
 #else
+  /**
+   * You may take a look at render instances, to see what it contains. RenderLayer will prepare a RenderInstance every
+   * frame that contains all needed information for rendering everything for current scene. It's used in rasterization
+   * rendering, and here we also use it for ray tracing. It also detects updates of the scene, like transformation,
+   * mesh, material changes.
+   */
+  std::shared_ptr<RenderInstances> render_instances;
+  render_instances = render_layer->render_instances_list[Platform::GetCurrentFrameIndex()];
+  CpuRayTracer cpu_ray_tracer;
+  /**
+   * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS based
+   * on them.
+   */
+  cpu_ray_tracer.Initialize(
+      render_instances,
+      [&](uint32_t, const std::shared_ptr<Mesh>&) {
 
+      },
+      [&](const uint32_t node_index, const Entity& entity) {
+
+      });
+
+  if (capture_settings->use_gpu) {
+    /**
+     * The cpu_ray_tracer will aggregate and flatten TLAS and BLAS so from its hierarcal structure to vectors so we can
+     * use it on GPU.
+     */
+    auto aggregate_scene = cpu_ray_tracer.Aggregate();
+    /**
+     * Upload prepared data to GPU, these data will be linked to the compute pipeline via Descriptors (collectively
+     * DescriptorSet) so we can read them in shader. You may take a look at its implementation to see how easy to send
+     * data to GPU.
+     */
+    aggregate_scene.InitializeBuffers();
+    aggregate_scene.SamplePointCloudGpu(cpu_ray_tracer, pc_samples);
+  } else {
+    cpu_ray_tracer.SamplePointCloud(pc_samples);
+  }
 #endif
   glm::vec3 left_offset = glm::linearRand(-left_random_offset, left_random_offset);
   glm::vec3 right_offset = glm::linearRand(-right_random_offset, right_random_offset);
   for (int sample_index = 0; sample_index < pc_samples.size(); sample_index++) {
     const auto& sample = pc_samples.at(sample_index);
-    if (!sample.m_hit)
+    if (!sample.hit)
       continue;
     if (!capture_settings->SampleFilter(sample))
       continue;
-    auto& position = sample.m_hitInfo.position;
+    auto& position = sample.hit_info.position;
     if (position.x < (plant_bound.min.x - sorghum_point_cloud_point_settings.bounding_box_limit) ||
         position.y < (plant_bound.min.y - sorghum_point_cloud_point_settings.bounding_box_limit) ||
         position.z < (plant_bound.min.z - sorghum_point_cloud_point_settings.bounding_box_limit) ||
@@ -212,24 +254,33 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
     if (sorghum_point_cloud_point_settings.ball_rand_radius > 0.0f) {
       ball_rand = glm::ballRand(sorghum_point_cloud_point_settings.ball_rand_radius);
     }
-    const auto distance = glm::distance(sample.m_hitInfo.position, sample.start);
+    const auto distance = glm::distance(sample.hit_info.position, sample.start);
 
-    points.emplace_back(sample.m_hitInfo.position +
+    points.emplace_back(sample.hit_info.position +
                         distance * glm::vec3(glm::gaussRand(0.0f, sorghum_point_cloud_point_settings.variance),
                                              glm::gaussRand(0.0f, sorghum_point_cloud_point_settings.variance),
                                              glm::gaussRand(0.0f, sorghum_point_cloud_point_settings.variance)) +
                         ball_rand + (sample_index >= pc_samples.size() / 2 ? left_offset : right_offset));
 
     if (sorghum_point_cloud_point_settings.leaf_index) {
-      leaf_indices.emplace_back(glm::floatBitsToUint(sample.m_hitInfo.data.x));
+#ifdef CUDA_MODULE_PLUGIN
+      leaf_indices.emplace_back(glm::floatBitsToUint(sample.hit_info.data.x));
+#else
+      if (const auto search = leaf_mesh_renderer_handles.find(sample.handle);
+          search != leaf_mesh_renderer_handles.end()) {
+        leaf_indices.emplace_back(search->second.second);
+      } else {
+        leaf_indices.emplace_back(0);
+      }
+#endif
     }
 
-    auto leaf_search = leaf_mesh_renderer_handles.find(sample.m_handle);
-    auto stem_search = stem_mesh_renderer_handles.find(sample.m_handle);
-    auto panicle_search = panicle_mesh_renderer_handles.find(sample.m_handle);
+    auto leaf_search = leaf_mesh_renderer_handles.find(sample.handle);
+    auto stem_search = stem_mesh_renderer_handles.find(sample.handle);
+    auto panicle_search = panicle_mesh_renderer_handles.find(sample.handle);
     if (sorghum_point_cloud_point_settings.instance_index) {
       if (leaf_search != leaf_mesh_renderer_handles.end()) {
-        instance_indices.emplace_back(leaf_search->second);
+        instance_indices.emplace_back(leaf_search->second.first);
       } else if (stem_search != stem_mesh_renderer_handles.end()) {
         instance_indices.emplace_back(stem_search->second);
       } else if (panicle_search != panicle_mesh_renderer_handles.end()) {
@@ -246,7 +297,7 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
         type_indices.emplace_back(1);
       } else if (panicle_search != panicle_mesh_renderer_handles.end()) {
         type_indices.emplace_back(2);
-      } else if (sample.m_handle == ground_mesh_renderer_handle) {
+      } else if (sample.handle == ground_mesh_renderer_handle) {
         type_indices.emplace_back(3);
       } else {
         type_indices.emplace_back(-1);
@@ -354,7 +405,6 @@ void SorghumPointCloudScanner::WriteSplineInfo(const std::filesystem::path& save
 
 void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
                                        const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const {
-#ifdef OPTIX_RAY_TRACER_PLUGIN
   const auto scene = Application::GetActiveScene();
   const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
   if (sorghum_entities == nullptr) {
@@ -372,7 +422,6 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
   if (capture_settings->output_spline_info) {
     WriteSplineInfo(save_path, capture_settings);
   }
-#endif
 }
 
 bool SorghumPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
