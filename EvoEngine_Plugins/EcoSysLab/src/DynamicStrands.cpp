@@ -439,15 +439,23 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     uniform_particle.normal = glm::vec3(0.0f);
     uniform_particle.deg = 0.0f;
 
+    const auto& pipe = strand_model_skeleton.data.strand_group.PeekStrand(uniform_particle.strand_index);
     // set up UV map
-    const auto& p0 = UVMapUtils::GetEndParticle(strand_model_skeleton, uniform_particle.strand_index,
+    const auto& p0_ptr = UVMapUtils::GetEndParticle(strand_model_skeleton, uniform_particle.strand_index,
                                                 glm::floor(uniform_particle.t));
-    const auto& p1 = UVMapUtils::GetStartParticle(strand_model_skeleton, uniform_particle.strand_index,
+    const auto& p1_ptr = UVMapUtils::GetStartParticle(strand_model_skeleton, uniform_particle.strand_index,
                                                   glm::floor(uniform_particle.t));
-    uniform_particle.tex_coord.x = UVMapUtils::GetPipePolar(p0, p1, uniform_particle.t) / (2 * glm::pi<float>()) *
-                                   initialize_parameters.u_multiplier;
-    uniform_particle.tex_coord.y = uniform_particle.node_index * initialize_parameters.v_multiplier;
+
+    if (p0_ptr && p1_ptr){
+      uniform_particle.tex_coord.x = UVMapUtils::GetPipePolar(*p0_ptr, *p1_ptr, uniform_particle.t) / (2 * glm::pi<float>()) *
+                                     initialize_parameters.u_multiplier;
+      uniform_particle.tex_coord.y = uniform_particle.node_index * initialize_parameters.v_multiplier;
+    } else {
+      uniform_particle.tex_coord.x = 0.0f;
+      uniform_particle.tex_coord.y = uniform_particle.node_index * initialize_parameters.v_multiplier;
+    }
   });
+
   segment_data_list.resize(segments.size());
   std::vector<glm::vec3> max_bounds(Jobs::GetWorkerSize());
   std::vector<glm::vec3> min_bounds(Jobs::GetWorkerSize());

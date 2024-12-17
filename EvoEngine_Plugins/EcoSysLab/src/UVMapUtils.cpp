@@ -49,17 +49,22 @@ float UVMapUtils::GetPipePolar(const Particle2D<CellParticlePhysicsData>& p0,
 
 float UVMapUtils::GetPipePolar(const StrandModel& strand_model, const StrandHandle& pipe_handle, float t) {
   // cheap interpolation, maybe improve this later ?
-  const auto& p0 = GetStartParticle(strand_model, pipe_handle, std::floor(t));
-  const auto& p1 = GetEndParticle(strand_model, pipe_handle, std::floor(t));
+  const auto& p0_ptr = GetStartParticle(strand_model, pipe_handle, std::floor(t));
+  const auto& p1_ptr = GetEndParticle(strand_model, pipe_handle, std::floor(t));
+
+  if (!p0_ptr || !p1_ptr)
+  {
+    return 0.0f;
+  }
 
   if (IsValidPipeParam(strand_model, pipe_handle, std::ceil(t))) {
     const auto& p1 = GetStartParticle(strand_model, pipe_handle, std::ceil(t));
   }
 
-  return GetPipePolar(p0, p1, t);
+  return GetPipePolar(*p0_ptr, *p1_ptr, t);
 }
 
-const Particle2D<CellParticlePhysicsData>& UVMapUtils::GetEndParticle(const StrandModel& strand_model,
+const Particle2D<CellParticlePhysicsData>* UVMapUtils::GetEndParticle(const StrandModel& strand_model,
                                                                       const StrandHandle& pipe_handle, size_t index) {
   if (!IsValidPipeParam(strand_model, pipe_handle, index)) {
     EVOENGINE_ERROR("Error: Strand " << pipe_handle << " does not exist at " << index);
@@ -70,25 +75,23 @@ const Particle2D<CellParticlePhysicsData>& UVMapUtils::GetEndParticle(const Stra
   return GetEndParticle(skeleton, pipe_handle, index);
 }
 
-const Particle2D<CellParticlePhysicsData>& UVMapUtils::GetEndParticle(const StrandModelSkeleton& skeleton,
+const Particle2D<CellParticlePhysicsData>* UVMapUtils::GetEndParticle(const StrandModelSkeleton& skeleton,
                                                                       const StrandHandle& pipe_handle, size_t index) {
   const auto& pipe = skeleton.data.strand_group.PeekStrand(pipe_handle);
   StrandSegmentHandle seg_handle = pipe.PeekStrandSegmentHandles()[index];
   auto& pipe_segment_data = skeleton.data.strand_group.PeekStrandSegmentData(seg_handle);
+  if (pipe_segment_data.profile_particle_handle == -1){
+    return nullptr;
+  }
 
   const auto& node = skeleton.PeekNode(pipe_segment_data.node_handle);
   const auto& start_profile = node.data.profile;
-  // To access the user's defined constraints (attractors, etc.)
-  const auto& profile_constraints = node.data.profile_constraints;
-
-  // To access the position of the start of the pipe segment within a boundary:
-  const auto parent_handle = node.GetParentHandle();
   const auto& end_particle = start_profile.PeekParticle(pipe_segment_data.profile_particle_handle);
 
-  return end_particle;
+  return &end_particle;
 }
 
-const Particle2D<CellParticlePhysicsData>& UVMapUtils::GetStartParticle(const StrandModel& strand_model,
+const Particle2D<CellParticlePhysicsData>* UVMapUtils::GetStartParticle(const StrandModel& strand_model,
                                                                         const StrandHandle& pipe_handle, size_t index) {
   if (!IsValidPipeParam(strand_model, pipe_handle, index)) {
     EVOENGINE_ERROR("Strand " << pipe_handle << " does not exist at " << index);
@@ -99,17 +102,17 @@ const Particle2D<CellParticlePhysicsData>& UVMapUtils::GetStartParticle(const St
   return GetStartParticle(skeleton, pipe_handle, index);
 }
 
-const Particle2D<CellParticlePhysicsData>& UVMapUtils::GetStartParticle(const StrandModelSkeleton& skeleton,
+const Particle2D<CellParticlePhysicsData>* UVMapUtils::GetStartParticle(const StrandModelSkeleton& skeleton,
                                                                         const StrandHandle& pipe_handle, size_t index) {
   const auto& pipe = skeleton.data.strand_group.PeekStrand(pipe_handle);
   const auto seg_handle = pipe.PeekStrandSegmentHandles()[index];
   auto& strand_segment_data = skeleton.data.strand_group.PeekStrandSegmentData(seg_handle);
-
+  if (strand_segment_data.profile_particle_handle == -1) {
+    return nullptr;
+  }
   const auto& node = skeleton.PeekNode(strand_segment_data.node_handle);
   const auto& start_profile = node.data.profile;
-  // To access the user's defined constraints (attractors, etc.)
-  const auto& profile_constraints = node.data.profile_constraints;
-  // To access the position of the start of the pipe segment within a boundary:
   const auto& start_particle = start_profile.PeekParticle(strand_segment_data.profile_particle_handle);
-  return start_particle;
+
+  return &start_particle;
 }
