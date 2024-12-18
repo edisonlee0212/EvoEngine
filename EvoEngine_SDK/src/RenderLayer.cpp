@@ -100,13 +100,15 @@ void RenderLayer::RenderAllCameras() {
     meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, GeometryStorage::GetVertexBuffer());
     meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1,
                                                                                  GeometryStorage::GetMeshletBuffer());
-    if (render_instances_list[current_frame_index]->mesh_top_level_acceleration_structure) {
-      ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-          0, GeometryStorage::GetVertexBuffer());
-      ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-          1, GeometryStorage::GetTriangleBuffer());
-      ray_tracing_descriptor_sets_[current_frame_index]->UpdateAccelerationStructureDescriptorBinding(
-          2, render_instances_list[current_frame_index]->mesh_top_level_acceleration_structure);
+    if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
+      if (render_instances_list[current_frame_index]->mesh_top_level_acceleration_structure) {
+        ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+            0, GeometryStorage::GetVertexBuffer());
+        ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+            1, GeometryStorage::GetTriangleBuffer());
+        ray_tracing_descriptor_sets_[current_frame_index]->UpdateAccelerationStructureDescriptorBinding(
+            2, render_instances_list[current_frame_index]->mesh_top_level_acceleration_structure);
+      }
     }
   }
 
@@ -1409,9 +1411,11 @@ void RenderLayer::CreateDescriptorSets() {
   }
 
   ray_tracing_descriptor_sets_.clear();
-  for (size_t i = 0; i < max_frames_in_flight; i++) {
-    auto descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("RAY_TRACING_LAYOUT"));
-    ray_tracing_descriptor_sets_.emplace_back(descriptor_set);
+  if (Platform::Constants::support_ray_tracing) {
+    for (size_t i = 0; i < max_frames_in_flight; i++) {
+      auto descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("RAY_TRACING_LAYOUT"));
+      ray_tracing_descriptor_sets_.emplace_back(descriptor_set);
+    }
   }
 }
 
