@@ -148,15 +148,18 @@ void forest_patch_point_cloud() {
 #endif
 }
 
-void generate_tree_mesh(const int count, const std::filesystem::path& tree_parameters_path, const float low_branch_pruning, 
-                        const std::vector<int> &target_tree_node_count,
+void generate_tree_data(const int count, const std::filesystem::path& tree_parameters_path,
+                        const DatasetGenerator::TreeGrowthLimitation& tree_growth_limitation,
                         const TreeMeshGeneratorSettings& mesh_generator_settings,
-                        const std::filesystem::path &folder_path) {
+                        const std::filesystem::path& folder_path, const bool export_mesh, const bool export_point_cloud,
+                        const bool export_skeleton) {
 #ifndef ECOSYSLAB_PLUGIN
   throw std::runtime_error("EcoSysLab plugin missing!");
 #else
 #  ifndef CUDA_MODULE_PLUGIN
-  throw std::runtime_error("OptixRayTracer plugin missing!");
+  if (export_point_cloud) {
+    throw std::runtime_error("OptixRayTracer plugin missing!");
+  }
 #  else
 #    ifndef DATASET_GENERATION_PLUGIN
   throw std::runtime_error("DatasetGeneration plugin missing!");
@@ -175,17 +178,42 @@ void generate_tree_mesh(const int count, const std::filesystem::path& tree_param
   if (!std::filesystem::exists(resource_folder_path)) {
     resource_folder_path = "../Resources";
   }
-  
+  bool export_junction = false;
+  TreePointCloudPointSettings tree_point_cloud_point_settings{};
+  std::shared_ptr<TreePointCloudCircularCaptureSettings> tree_point_cloud_circular_capture_settings =
+      std::make_shared<TreePointCloudCircularCaptureSettings>();
+  std::shared_ptr<TreePointCloudGridCaptureSettings> tree_point_cloud_grid_capture_settings =
+      std::make_shared<TreePointCloudGridCaptureSettings>();
+  tree_point_cloud_point_settings.m_ballRandRadius = 0.0f;
+  tree_point_cloud_point_settings.m_treePartIndex = export_junction;
+  tree_point_cloud_point_settings.m_instanceIndex = true;
+  tree_point_cloud_point_settings.m_typeIndex = true;
+  tree_point_cloud_point_settings.m_treePartTypeIndex = export_junction;
+  tree_point_cloud_point_settings.m_branchIndex = false;
+  tree_point_cloud_point_settings.m_lineIndex = export_junction;
+  tree_point_cloud_circular_capture_settings->m_distance = 4.0f;
+  tree_point_cloud_circular_capture_settings->m_height = 3.0f;
+
+  const glm::ivec2 grid_size = {3, 3};
+  tree_point_cloud_grid_capture_settings->m_gridSize = {grid_size.x + 1, grid_size.y + 1};
+  tree_point_cloud_grid_capture_settings->m_backpackSample = 1024;
+  tree_point_cloud_grid_capture_settings->m_droneSample = 256;
+
   std::filesystem::create_directories(folder_path);
 
   for (int index = 0; index < count; index++) {
-    std::filesystem::path output_path = folder_path / (std::to_string(index) + ".obj");
-    DatasetGenerator::GenerateTreeMesh(tree_parameters_path, low_branch_pruning, 0.0822f, 999,
-                                       target_tree_node_count, mesh_generator_settings, output_path.string());
+    std::filesystem::path point_cloud_output_path =
+        folder_path / (tree_parameters_path.stem().string() + "_" + std::to_string(index) + ".ply");
+    std::filesystem::path skeleton_output_path =
+        folder_path / (tree_parameters_path.stem().string() + "_" + std::to_string(index) + ".yml");
+    std::filesystem::path mesh_output_path =
+        folder_path / (tree_parameters_path.stem().string() + "_" + std::to_string(index) + ".obj");
+    DatasetGenerator::GenerateDataForTree(
+        tree_point_cloud_point_settings, tree_point_cloud_circular_capture_settings, tree_parameters_path, 0.0822f, tree_growth_limitation, mesh_generator_settings, export_point_cloud, point_cloud_output_path.string(),
+        export_mesh, mesh_output_path.string(), export_skeleton, skeleton_output_path.string());
   }
 #endif
 }
-
 
 void forest_patch_point_cloud_joined(const std::string& folder_name, const bool export_junction, const int count,
                                      const int grid_side_count) {
@@ -392,11 +420,17 @@ int main() {
   */
 
   TreeMeshGeneratorSettings tmgs{};
-  //tmgs.branch_y_subdivision = 0.05f;
-  //tmgs.trunk_y_subdivision = 0.05f;
+  // tmgs.branch_y_subdivision = 0.05f;
+  // tmgs.trunk_y_subdivision = 0.05f;
   tmgs.enable_foliage = false;
   tmgs.vertex_color_mode = static_cast<unsigned>(TreeMeshGeneratorSettings::VertexColorMode::InternodeColor);
+  DatasetGenerator::TreeGrowthLimitation tree_growth_limitation{};
+  //Max amount of branches
+  tree_growth_limitation.max_flow_count = 1024;
+  //Trunk length (branches will br pruned)
+  tree_growth_limitation.low_branch_pruning = 0.2f;
 
-  generate_tree_mesh(1024, std::filesystem::path("./TreeDescriptors/Oak.tree"), 0.2f, {10000}, tmgs,
-                     "D:\\TreeMeshData\\");
+  generate_tree_data(32, std::filesystem::path("./TreeDescriptors/Maple.tree"), tree_growth_limitation, tmgs,
+                     "D:\\TreeData\\", true,
+                     true, true);
 }

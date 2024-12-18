@@ -2653,6 +2653,43 @@ void Tree::GenerateTreeParts(const TreeMeshGeneratorSettings& mesh_generator_set
 void Tree::ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, nlohmann::json& out) {
 }
 
+void Tree::ExportFlowGraph(YAML::Emitter& out) const {
+  out << YAML::Key << "Skeleton" << YAML::Value << YAML::BeginMap;
+  {
+    out << YAML::Key << "Flows" << YAML::Value << YAML::BeginSeq;
+    const auto& skeleton = tree_model.PeekShootSkeleton();
+    for (const auto& flow_handle : skeleton.PeekSortedFlowList()) {
+      const auto& flow = skeleton.PeekFlow(flow_handle);
+      out << YAML::BeginMap;
+      out << YAML::Key << "I" << YAML::Value << flow_handle;
+      out << YAML::Key << "PI" << YAML::Value << flow.GetParentHandle();
+      out << YAML::Key << "SP" << YAML::Value << flow.info.global_start_position;
+      out << YAML::Key << "EP" << YAML::Value << flow.info.global_end_position;
+      out << YAML::Key << "SD" << YAML::Value << flow.info.global_start_rotation * glm::vec3(0, 0, -1);
+      out << YAML::Key << "ED" << YAML::Value << flow.info.global_end_rotation * glm::vec3(0, 0, -1);
+      out << YAML::Key << "SR" << YAML::Value << flow.info.start_thickness;
+      out << YAML::Key << "ER" << YAML::Value << flow.info.end_thickness;
+      out << YAML::EndMap;
+    }
+  }
+}
+
+void Tree::ExportFlowGraph(const std::filesystem::path& path) const {
+  try {
+    std::filesystem::path yaml_path = path;
+    yaml_path.replace_extension(".yml");
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    ExportFlowGraph(out);
+    out << YAML::EndMap;
+    std::ofstream output_file(yaml_path.string());
+    output_file << out.c_str();
+    output_file.flush();
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to save!");
+  }
+}
+
 void Tree::ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, YAML::Emitter& out) {
   out << YAML::Key << "Tree" << YAML::Value << YAML::BeginMap;
   {

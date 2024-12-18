@@ -197,66 +197,96 @@ void DatasetGenerator::GenerateTreeMesh(const std::filesystem::path& tree_parame
   Application::Loop();
 }
 
-void DatasetGenerator::GeneratePointCloudForTree(const TreePointCloudPointSettings& point_settings,
-                                                 const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-                                                 const std::string& tree_parameters_path, const float delta_time,
-                                                 const int max_iterations, const int max_tree_node_count,
-                                                 const TreeMeshGeneratorSettings& mesh_generator_settings,
-                                                 const std::string& point_cloud_output_path, bool export_tree_mesh,
-                                                 const std::string& tree_mesh_output_path) {
+void DatasetGenerator::GenerateDataForTree(const TreePointCloudPointSettings& point_settings,
+                                           const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
+                                           const std::filesystem::path& tree_parameters_path, const float delta_time,
+                                           const TreeGrowthLimitation& tree_growth_limitation,
+                                           const TreeMeshGeneratorSettings& mesh_generator_settings,
+                                           const bool export_point_cloud, const std::string& point_cloud_output_path,
+                                           const bool export_mesh, const std::string& mesh_output_path,
+                                           bool export_skeleton, const std::string& skeleton_output_path) {
   if (!CheckApplication()) {
     return;
   }
   const auto scene = Application::GetActiveScene();
-  const auto ecoSysLabLayer = Application::GetLayer<EcoSysLabLayer>();
-  if (!ecoSysLabLayer) {
+  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  if (!eco_sys_lab_layer) {
     EVOENGINE_ERROR("Application doesn't contain EcoSysLab layer!");
     return;
   }
-  std::shared_ptr<TreeDescriptor> treeDescriptor;
-  if (ProjectManager::IsInProjectFolder(tree_parameters_path)) {
-    treeDescriptor = std::dynamic_pointer_cast<TreeDescriptor>(
-        ProjectManager::GetOrCreateAsset(ProjectManager::GetPathRelativeToProject(tree_parameters_path)));
+  std::shared_ptr<TreeDescriptor> tree_descriptor;
+  if (tree_parameters_path.is_relative()) {
+    const auto absolute_path = ProjectManager::GetProjectPath().parent_path() / tree_parameters_path;
+    if (std::filesystem::exists(absolute_path)) {
+      tree_descriptor =
+          std::dynamic_pointer_cast<TreeDescriptor>(ProjectManager::GetOrCreateAsset(tree_parameters_path));
+    } else {
+      EVOENGINE_ERROR("Tree Descriptor doesn't exist!");
+      return;
+    }
   } else {
-    EVOENGINE_ERROR("Tree Descriptor doesn't exist!");
-    return;
+    if (ProjectManager::IsInProjectFolder(tree_parameters_path)) {
+      tree_descriptor = std::dynamic_pointer_cast<TreeDescriptor>(
+          ProjectManager::GetOrCreateAsset(ProjectManager::GetPathRelativeToProject(tree_parameters_path)));
+    } else {
+      EVOENGINE_ERROR("Tree Descriptor doesn't exist!");
+      return;
+    }
   }
-  if (const std::vector<Entity>* treeEntities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-      treeEntities && !treeEntities->empty()) {
-    for (const auto& treeEntity : *treeEntities) {
-      scene->DeleteEntity(treeEntity);
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    for (const auto& tree_entity : *tree_entities) {
+      scene->DeleteEntity(tree_entity);
     }
   }
 
-  const auto treeEntity = scene->CreateEntity("Tree");
-  const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-
-  tree->tree_descriptor = treeDescriptor;
+  const auto tree_entity = scene->CreateEntity("Tree");
+  const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+  tree->low_branch_pruning = tree_growth_limitation.low_branch_pruning;
+  tree->tree_descriptor = tree_descriptor;
   tree->tree_model.tree_growth_settings.use_space_colonization = false;
   Application::Loop();
-  ecoSysLabLayer->simulation_settings.delta_time = delta_time;
-
+  eco_sys_lab_layer->simulation_settings.delta_time = delta_time;
+  int max_iterations = INT_MAX;
+  if (tree_growth_limitation.max_iteration > 0) {
+    max_iterations = tree_growth_limitation.max_iteration;
+  }
+  int max_tree_node_count = 100000;
+  if (tree_growth_limitation.max_node_count > 0) {
+    max_tree_node_count = tree_growth_limitation.max_node_count;
+  }
+  int max_tree_flow_count = 100000;
+  if (tree_growth_limitation.max_flow_count > 0) {
+    max_tree_flow_count = tree_growth_limitation.max_flow_count;
+  }
+  const auto& skeleton = tree->tree_model.PeekShootSkeleton();
   for (int i = 0; i < max_iterations; i++) {
-    ecoSysLabLayer->Simulate();
-    if (tree->tree_model.RefShootSkeleton().PeekSortedNodeList().size() >= max_tree_node_count) {
+    eco_sys_lab_layer->Simulate();
+    if (skeleton.PeekSortedNodeList().size() >= max_tree_node_count ||
+        skeleton.PeekSortedFlowList().size() >= max_tree_flow_count) {
       break;
     }
   }
   tree->GenerateGeometryEntities(mesh_generator_settings);
   Application::Loop();
-  if (export_tree_mesh) {
-    tree->ExportObj(tree_mesh_output_path, mesh_generator_settings);
+  if (export_mesh) {
+    tree->ExportObj(mesh_output_path, mesh_generator_settings);
   }
+  if (export_skeleton) {
+    tree->ExportFlowGraph(skeleton_output_path);
+  }
+  if (export_point_cloud) {
+    const auto scanner_entity = scene->CreateEntity("Scanner");
+    const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
+    scanner->m_pointSettings = point_settings;
+    Application::Loop();
+    Application::Loop();
+    scanner->Capture(mesh_generator_settings, point_cloud_output_path, capture_settings);
+    Application::Loop();
+    scene->DeleteEntity(scanner_entity);
+  }
+  scene->DeleteEntity(tree_entity);
 
-  const auto scanner_entity = scene->CreateEntity("Scanner");
-  const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
-  scanner->m_pointSettings = point_settings;
-  Application::Loop();
-  Application::Loop();
-  scanner->Capture(mesh_generator_settings, point_cloud_output_path, capture_settings);
-  Application::Loop();
-  scene->DeleteEntity(treeEntity);
-  scene->DeleteEntity(scanner_entity);
   Application::Loop();
 }
 

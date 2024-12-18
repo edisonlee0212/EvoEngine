@@ -26,7 +26,7 @@ gravity_bending_strength: 0
 gravity_bending_thickness_factor: 1
 gravity_bending_max: 1
 internode_length: 0.0299999993
-internode_length_thickness_factor: 0.150000006
+internode_length_thickness_factor: 0.25
 end_node_thickness: 0.00200000009
 thickness_accumulation_factor: 0.449999988
 thickness_age_factor: 0
@@ -35,7 +35,7 @@ lateral_bud_count: 2
 max_order: -1
 apical_bud_extinction_rate: 0
 lateral_bud_flushing_rate: 0.100000001
-apical_control: 1.10000002
+apical_control: 1.05999994
 height_control: 0
 root_distance_control: 0
 apical_dominance: 0.5

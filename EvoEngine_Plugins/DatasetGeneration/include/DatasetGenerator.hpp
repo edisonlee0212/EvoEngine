@@ -12,6 +12,13 @@ using namespace digital_agriculture_plugin;
 namespace dataset_generation_plugin {
 class DatasetGenerator {
  public:
+  struct TreeGrowthLimitation {
+    int max_iteration = -1;
+    int max_node_count = -1;
+    int max_flow_count = -1;
+    float low_branch_pruning = 0.f;
+  };
+
   static void GenerateTreeTrunkMesh(const std::string& tree_parameters_path, float delta_time, int max_iterations,
                                     int max_tree_node_count, const TreeMeshGeneratorSettings& mesh_generator_settings,
                                     const std::string& tree_mesh_output_path, const std::string& tree_trunk_output_path,
@@ -22,13 +29,14 @@ class DatasetGenerator {
                                const TreeMeshGeneratorSettings& mesh_generator_settings,
                                const std::string& tree_mesh_output_path);
 
-  static void GeneratePointCloudForTree(const TreePointCloudPointSettings& point_settings,
-                                        const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-                                        const std::string& tree_parameters_path, float delta_time, int max_iterations,
-                                        int max_tree_node_count,
-                                        const TreeMeshGeneratorSettings& mesh_generator_settings,
-                                        const std::string& point_cloud_output_path, bool export_tree_mesh,
-                                        const std::string& tree_mesh_output_path);
+  static void GenerateDataForTree(const TreePointCloudPointSettings& point_settings,
+                                  const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
+                                  const std::filesystem::path& tree_parameters_path, float delta_time,
+                                  const TreeGrowthLimitation& tree_growth_limitation,
+                                  const TreeMeshGeneratorSettings& mesh_generator_settings, bool export_point_cloud,
+                                  const std::string& point_cloud_output_path, bool export_mesh,
+                                  const std::string& mesh_output_path, bool export_skeleton,
+                                  const std::string& skeleton_output_path);
   static void GeneratePointCloudForForest(int grid_size, float grid_distance, float random_shift,
                                           const TreePointCloudPointSettings& point_settings,
                                           const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,

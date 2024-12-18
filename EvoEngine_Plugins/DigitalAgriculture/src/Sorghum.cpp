@@ -107,7 +107,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
   if (sorghum_mesh_generator_settings.enable_leaves) {
     if (sorghum_mesh_generator_settings.leaf_separated) {
 #ifdef CUDA_MODULE_PLUGIN
-      const auto btf_group = sorghum_layer->leaf_cbtf_group.Get<CBTFGroup>()->GetRandom();
+      const auto btf_group = sorghum_layer->leaf_cbtf_group.Get<CBTFGroup>();
 #endif
       if (sorghum_mesh_generator_settings.single_leaf_index != -1) {
         if (sorghum_mesh_generator_settings.single_leaf_index < target_sorghum_descriptor->leaves.size()) {
@@ -116,9 +116,11 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
           const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
           if (sorghum_layer->enable_compressed_btf) {
 #ifdef CUDA_MODULE_PLUGIN
-            const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
-            btf_renderer->mesh = mesh;
-            btf_renderer->btf = btf_group;
+            if (btf_group) {
+              const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
+              btf_renderer->mesh = mesh;
+              btf_renderer->btf = btf_group->GetRandom();
+            }
 #endif
           } else {
             const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
@@ -149,9 +151,11 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
           const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
           if (sorghum_layer->enable_compressed_btf) {
 #ifdef CUDA_MODULE_PLUGIN
-            const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
-            btf_renderer->mesh = mesh;
-            btf_renderer->btf = btf_group;
+            if (btf_group) {
+              const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
+              btf_renderer->mesh = mesh;
+              btf_renderer->btf = btf_group->GetRandom();
+            }
 #endif
           } else {
             const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
@@ -182,10 +186,11 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
       const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
       if (sorghum_layer->enable_compressed_btf) {
 #ifdef CUDA_MODULE_PLUGIN
-        const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
-        btf_renderer->mesh = mesh;
-        const auto btf_group = sorghum_layer->leaf_cbtf_group.Get<CBTFGroup>()->GetRandom();
-        btf_renderer->btf = btf_group;
+        if (const auto btf_group = sorghum_layer->leaf_cbtf_group.Get<CBTFGroup>()) {
+          const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
+          btf_renderer->mesh = mesh;
+          btf_renderer->btf = btf_group->GetRandom();
+        }
 #endif
       } else {
         const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
