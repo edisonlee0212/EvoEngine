@@ -435,7 +435,14 @@ void generate_point_cloud_for_tree(const TreePointCloudPointSettings& point_sett
                                    const TreeMeshGeneratorSettings& mesh_generator_settings,
                                    const std::string& point_cloud_output_path, bool export_tree_mesh,
                                    const std::string& tree_mesh_output_path) {
-  DatasetGenerator::GeneratePointCloudForTree(point_settings, capture_settings, tree_parameters_path, delta_time, max_iterations, max_tree_node_count, mesh_generator_settings, point_cloud_output_path, export_tree_mesh, tree_mesh_output_path);
+  DatasetGenerator::TreeGrowthLimitation tree_growth_limitation{};
+  // Max amount of branches
+  tree_growth_limitation.max_flow_count = 1024;
+  // Trunk length (branches will br pruned)
+  tree_growth_limitation.low_branch_pruning = 0.2f;
+  DatasetGenerator::GenerateDataForTree(point_settings, capture_settings, tree_parameters_path, delta_time,
+                                        tree_growth_limitation, mesh_generator_settings, true, point_cloud_output_path,
+                                        export_tree_mesh, tree_mesh_output_path, false, "");
 }
 
 PYBIND11_MODULE(PyEcoSysLab, m) {

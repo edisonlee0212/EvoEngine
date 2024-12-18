@@ -1,7 +1,7 @@
-base_internode_count: 2
+base_internode_count: 1
 straight_trunk: 0
 base_node_apical_angle_mean_variance: [0, 0]
-growth_rate: 0.200000003
+growth_rate: 0.25
 roll_angle:
   asset_handle_: 0
   asset_type_name_: ""
@@ -34,7 +34,7 @@ gravity_bending_strength: 0.5
 gravity_bending_thickness_factor: 3
 gravity_bending_max: 1
 internode_length: 0.0299999993
-internode_length_thickness_factor: 0.150000006
+internode_length_thickness_factor: 0.25
 end_node_thickness: 0.00300000003
 thickness_accumulation_factor: 0.400000006
 thickness_age_factor: 0
@@ -42,11 +42,11 @@ internode_shadow_factor: 0.0199999996
 lateral_bud_count: 2
 max_order: -1
 apical_bud_extinction_rate: 0
-lateral_bud_flushing_rate: 0.109999999
-apical_control: 1.11000001
+lateral_bud_flushing_rate: 0.0399999991
+apical_control: 1.25
 height_control: 0
 root_distance_control: 0.5
-apical_dominance: 0
+apical_dominance: 0.0500000007
 apical_dominance_loss: 0.00999999978
 trunk_protection: false
 max_flow_length: 0

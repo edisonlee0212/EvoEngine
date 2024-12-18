@@ -193,7 +193,8 @@ class Tree : public IPrivateComponent {
   void FromTreeGraphV2(const std::shared_ptr<TreeGraphV2>& tree_graph_v2);
   void ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, YAML::Emitter& out);
   void ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, nlohmann::json& out);
-
+  void ExportFlowGraph(YAML::Emitter& out) const;
+  void ExportFlowGraph(const std::filesystem::path& path) const;
   void ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, const std::filesystem::path& path);
   [[maybe_unused]] bool ExportIoTree(const std::filesystem::path& path) const;
   void ExportRadialBoundingVolume(const std::shared_ptr<RadialBoundingVolume>& rbv) const;

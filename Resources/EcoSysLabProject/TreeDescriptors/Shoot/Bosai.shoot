@@ -43,7 +43,7 @@ gravity_bending_strength: 0
 gravity_bending_thickness_factor: 1
 gravity_bending_max: 1
 internode_length: 0.0299999993
-internode_length_thickness_factor: 0.150000006
+internode_length_thickness_factor: 0.25
 end_node_thickness: 0.00300000003
 thickness_accumulation_factor: 0.449999988
 thickness_age_factor: 0
