@@ -233,7 +233,7 @@ class Platform final {
    public:
     inline static bool support_mesh_shader = true;
     inline static bool support_ray_tracing = true;
-    inline static bool support_ray_tracing_validation = true;
+    inline static bool support_ray_tracing_validation = false;
     constexpr static uint32_t initial_descriptor_pool_max_size = 16384;
     constexpr static uint32_t initial_descriptor_pool_max_sets = 16384;
     constexpr static uint32_t initial_camera_size = 1;

@@ -803,9 +803,10 @@ void Platform::SelectPhysicalDevice() {
   }
 #pragma endregion
 
-  if (selected_physical_device->CheckExtensionSupport(VK_EXT_MESH_SHADER_EXTENSION_NAME)) {
+  if (Constants::support_mesh_shader &&
+      selected_physical_device->CheckExtensionSupport(VK_EXT_MESH_SHADER_EXTENSION_NAME) &&
+      selected_physical_device->CheckExtensionSupport(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME)) {
     required_device_extension_names_.emplace_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
-    required_device_extension_names_.emplace_back(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
     required_device_extension_names_.emplace_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
     Constants::support_mesh_shader = true;
     EVOENGINE_LOG("Target device supports mesh shader!");
@@ -814,7 +815,8 @@ void Platform::SelectPhysicalDevice() {
     EVOENGINE_LOG("Target device doesn't support mesh shader!");
   }
 
-  if (selected_physical_device->CheckExtensionSupport(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
+  if (Constants::support_ray_tracing &&
+      selected_physical_device->CheckExtensionSupport(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
       selected_physical_device->CheckExtensionSupport(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
 
       selected_physical_device->CheckExtensionSupport(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME) &&
@@ -1055,6 +1057,7 @@ void Platform::CreateLogicalDevice() {
   physical_device_multiview_features.multiview = VK_FALSE;
   physical_device_multiview_features.multiviewGeometryShader = VK_FALSE;
   physical_device_multiview_features.multiviewTessellationShader = VK_FALSE;
+
   VkPhysicalDeviceFragmentShadingRateFeaturesKHR physical_device_fragment_shading_rate_features{};
   physical_device_fragment_shading_rate_features.sType =
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
@@ -1066,8 +1069,8 @@ void Platform::CreateLogicalDevice() {
   VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features_ext{};
   mesh_shader_features_ext.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
   mesh_shader_features_ext.pNext = &physical_device_fragment_shading_rate_features;
-  mesh_shader_features_ext.meshShader = Constants::support_mesh_shader ? VK_TRUE : VK_FALSE;
-  mesh_shader_features_ext.taskShader = Constants::support_mesh_shader ? VK_TRUE : VK_FALSE;
+  mesh_shader_features_ext.meshShader = VK_TRUE;
+  mesh_shader_features_ext.taskShader = VK_TRUE;
   mesh_shader_features_ext.multiviewMeshShader = VK_FALSE;
   mesh_shader_features_ext.primitiveFragmentShadingRateMeshShader = VK_FALSE;
   mesh_shader_features_ext.meshShaderQueries = VK_FALSE;
@@ -1075,7 +1078,12 @@ void Platform::CreateLogicalDevice() {
   VkPhysicalDeviceSynchronization2Features physical_device_synchronization2_features{};
   physical_device_synchronization2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;
   physical_device_synchronization2_features.synchronization2 = VK_TRUE;
-  physical_device_synchronization2_features.pNext = &mesh_shader_features_ext;
+
+  if (Constants::support_mesh_shader) {
+    physical_device_synchronization2_features.pNext = &mesh_shader_features_ext;
+  } else {
+    physical_device_synchronization2_features.pNext = &physical_device_multiview_features;
+  }
 
   VkPhysicalDeviceExtendedDynamicState3FeaturesEXT extended_dynamic_state3_features{};
   extended_dynamic_state3_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
