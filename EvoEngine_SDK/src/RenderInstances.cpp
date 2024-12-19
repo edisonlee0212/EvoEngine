@@ -33,6 +33,23 @@ bool MeshRenderInstance::operator!=(const MeshRenderInstance& other) const {
   return false;
 }
 
+uint32_t MeshRenderInstance::Render(const VkCommandBuffer vk_command_buffer,
+                                    const RenderInstancePushConstant& render_instance_push_constant,
+                                    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
+  if (Platform::Settings::use_mesh_shader) {
+    graphics_pipeline->states.ApplyAllStates(vk_command_buffer);
+    const uint32_t count =
+        (meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
+    vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  } else {
+    mesh->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
+  }
+  return mesh->GetTriangleAmount();
+}
+
 bool SkinnedMeshRenderInstance::operator!=(const SkinnedMeshRenderInstance& other) const {
   if (entity_selected != other.entity_selected)
     return true;
@@ -65,6 +82,16 @@ bool SkinnedMeshRenderInstance::operator!=(const SkinnedMeshRenderInstance& othe
   if (polygon_mode != other.polygon_mode)
     return true;
   return false;
+}
+
+uint32_t SkinnedMeshRenderInstance::Render(VkCommandBuffer vk_command_buffer,
+    const RenderInstancePushConstant& render_instance_push_constant,
+    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
+  graphics_pipeline->BindDescriptorSet(
+      vk_command_buffer, 1, bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
+  graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
+  skinned_mesh->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
+  return skinned_mesh->GetTriangleAmount();
 }
 
 bool InstancedRenderInstance::operator!=(const InstancedRenderInstance& other) const {
@@ -101,6 +128,18 @@ bool InstancedRenderInstance::operator!=(const InstancedRenderInstance& other) c
   return false;
 }
 
+uint32_t InstancedRenderInstance::Render(const VkCommandBuffer vk_command_buffer,
+                                         const RenderInstancePushConstant& render_instance_push_constant,
+                                         const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
+  graphics_pipeline->BindDescriptorSet(
+      vk_command_buffer, 1, particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
+  graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
+  mesh->DrawIndexed(vk_command_buffer, graphics_pipeline->states,
+                    particle_infos->PeekParticleInfoList().size());
+  return mesh->UnsafeGetTriangles().size() * particle_infos->PeekParticleInfoList().size();
+}
+
+
 bool StrandsRenderInstance::operator!=(const StrandsRenderInstance& other) const {
   if (entity_selected != other.entity_selected)
     return true;
@@ -131,6 +170,14 @@ bool StrandsRenderInstance::operator!=(const StrandsRenderInstance& other) const
   if (polygon_mode != other.polygon_mode)
     return true;
   return false;
+}
+
+uint32_t StrandsRenderInstance::Render(const VkCommandBuffer vk_command_buffer,
+                                       const RenderInstancePushConstant& render_instance_push_constant,
+                                       const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
+  graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
+  strands->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
+  return strands->GetSegmentAmount();
 }
 
 bool MeshRenderInstanceCollection::operator!=(const MeshRenderInstanceCollection& other) const {

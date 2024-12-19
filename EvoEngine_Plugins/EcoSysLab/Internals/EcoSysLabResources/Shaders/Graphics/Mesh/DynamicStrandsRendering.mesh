@@ -7,7 +7,7 @@
 
 #include "PerFrame.glsl"
 
-#define DYNAMIC_STRANDS_SET 1
+#define DYNAMIC_STRANDS_SET 2
 #include "DynamicStrands.glsl"
 
 const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
@@ -24,13 +24,15 @@ const uint TETRAHEDRON_VERTEX_ITERATIONS    = ((TETRAHEDRON_VERTICES_SIZE	+ WORK
 const uint TETRAHEDRON_PRIMITIVE_ITERATIONS = ((TETRAHEDRON_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
 layout(location = 0) out MS_V_OUT {
-	vec3 frag_pos;
-	vec3 normal;
-	vec3 tangent;
-	vec4 color;
+	vec3 FragPos;
+	vec3 Normal;
+	vec3 Tangent;
+	vec2 TexCoord;
+	vec4 Color;
 } ms_v_out[];
 
 struct Task{
+	uint	instanceIndex;
 	uint	baseID;
 	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
@@ -53,6 +55,8 @@ taskPayloadSharedEXT Task ts_in;
 uint tet_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
 uint laneID = gl_LocalInvocationID.x;
 
+layout(location = 5) out flat uint currentInstanceIndex[];
+
 #include "AlphaShape.glsl"
 
 void main(){
@@ -61,7 +65,7 @@ void main(){
 	SetMeshOutputsEXT(TETRAHEDRON_VERTICES_SIZE, delaunay_tetrahedrons[tet_id].triangles_accepted);
 	DelaunayTetrahedron tet = delaunay_tetrahedrons[tet_id];
 	// set up vertex properties
-	mat4 transform = EE_CAMERAS[camera_index].projection_view;
+	mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
 	
 	[[unroll]]
 	for (uint i = 0; i < uint(TETRAHEDRON_VERTEX_ITERATIONS); ++i)
@@ -71,22 +75,24 @@ void main(){
 		vec3 vertex_position = uniform_particles[tet.indices[vertex_index]].position_t.xyz;
 		vec3 vertex_normal = normalize(uniform_particles[tet.indices[vertex_index]].normal_deg.xyz);
 
-		ms_v_out[vertex_index].frag_pos = vertex_position;
-		ms_v_out[vertex_index].normal = vertex_normal;
-		ms_v_out[vertex_index].tangent = uniform_particles[tet.indices[vertex_index]].tangent.xyz;
+		ms_v_out[vertex_index].FragPos = vertex_position;
+		ms_v_out[vertex_index].Normal = vertex_normal;
+		ms_v_out[vertex_index].Tangent = uniform_particles[tet.indices[vertex_index]].tangent.xyz;
+		ms_v_out[vertex_index].TexCoord = vec2(uniform_particles[tet.indices[vertex_index]].tex_coord.x, uniform_particles[tet.indices[vertex_index]].tex_coord.y);
 		if(vertex_colors == 0){
-			ms_v_out[vertex_index].color = vec4(0.5, 0.5, 0.5, 1.0);
+			ms_v_out[vertex_index].Color = vec4(0.5, 0.5, 0.5, 1.0);
 		} else if(vertex_colors == 1){
-			ms_v_out[vertex_index].color = vec4(abs(vertex_normal.xyz), 1.0f);
+			ms_v_out[vertex_index].Color = vec4(abs(vertex_normal.xyz), 1.0f);
 		} else if(vertex_colors == 2){
-			ms_v_out[vertex_index].color = vec4(abs(uniform_particles[tet.indices[vertex_index]].tangent.xyz), 1.0f);
+			ms_v_out[vertex_index].Color = vec4(abs(uniform_particles[tet.indices[vertex_index]].tangent.xyz), 1.0f);
 		} else if(vertex_colors == 3){
-			ms_v_out[vertex_index].color = vec4(mod(uniform_particles[tet.indices[vertex_index]].tex_coord.x, 1.0f),
+			ms_v_out[vertex_index].Color = vec4(mod(uniform_particles[tet.indices[vertex_index]].tex_coord.x, 1.0f),
 				mod(uniform_particles[tet.indices[vertex_index]].tex_coord.y, 1.0f),
 				mod(uniform_particles[tet.indices[vertex_index]].tex_coord.z, 1.0f), 1.0f);
 		}
 
 		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
+		currentInstanceIndex[vertex_index] = ts_in.instanceIndex;
 	}
 
 	// assign all accepted triangles

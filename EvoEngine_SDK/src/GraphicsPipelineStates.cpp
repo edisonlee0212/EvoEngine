@@ -90,8 +90,8 @@ void GraphicsPipelineStates::ApplyAllStates(const VkCommandBuffer vk_command_buf
   }
   if (force_set || depth_bias_constant_clamp_slope_applied_ != depth_bias_constant_clamp_slope) {
     depth_bias_constant_clamp_slope_applied_ = depth_bias_constant_clamp_slope;
-    vkCmdSetDepthBias(vk_command_buffer, depth_bias_constant_clamp_slope_applied_.x, depth_bias_constant_clamp_slope_applied_.y,
-                      depth_bias_constant_clamp_slope_applied_.z);
+    vkCmdSetDepthBias(vk_command_buffer, depth_bias_constant_clamp_slope_applied_.x,
+                      depth_bias_constant_clamp_slope_applied_.y, depth_bias_constant_clamp_slope_applied_.z);
   }
   if (force_set || line_width_applied_ != line_width) {
     line_width_applied_ = line_width;
@@ -129,8 +129,8 @@ void GraphicsPipelineStates::ApplyAllStates(const VkCommandBuffer vk_command_buf
     stencil_pass_op_applied_ = stencil_pass_op;
     stencil_depth_fail_op_applied_ = stencil_depth_fail_op;
     stencil_compare_op_applied_ = stencil_compare_op;
-    vkCmdSetStencilOpEXT(vk_command_buffer, stencil_face_mask_applied_, stencil_fail_op_applied_, stencil_pass_op_applied_,
-                         stencil_depth_fail_op_applied_, stencil_compare_op_applied_);
+    vkCmdSetStencilOpEXT(vk_command_buffer, stencil_face_mask_applied_, stencil_fail_op_applied_,
+                         stencil_pass_op_applied_, stencil_depth_fail_op_applied_, stencil_compare_op_applied_);
   }
 
   if (force_set || logic_op_enable_applied_ != logic_op_enable) {
@@ -176,4 +176,17 @@ void GraphicsPipelineStates::ApplyAllStates(const VkCommandBuffer vk_command_buf
     int a = 0;
   }
   vkCmdSetBlendConstants(vk_command_buffer, blend_constants_applied_);
+}
+
+void GraphicsPipelineStates::SetViewportScissor(const glm::ivec4& value, const float min_depth, const float max_depth) {
+  view_port.x = value.x;
+  view_port.y = value.y;
+  view_port.width = value.z;
+  view_port.height = value.w;
+  view_port.minDepth = min_depth;
+  view_port.maxDepth = max_depth;
+  scissor.offset.x = 0;
+  scissor.offset.y = 0;
+  scissor.extent.width = view_port.width;
+  scissor.extent.height = view_port.height;
 }

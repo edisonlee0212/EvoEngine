@@ -5,6 +5,17 @@
 #include "StrandsRenderer.hpp"
 
 namespace evo_engine {
+
+struct RenderInstancePushConstant {
+  int instance_index = 0;
+  int camera_index = 0;
+  int light_split_index = 0;
+};
+struct RayTracingPushConstant {
+  uint32_t camera_index = 0;
+  uint32_t frame_id = 0;
+};
+
 enum class RenderCommandType {
   Unknown,
   FromRenderer,
@@ -24,93 +35,72 @@ struct InstanceInfoBlock {
   uint32_t padding2 = 0;
 };
 
-struct MeshRenderInstance {
+struct IRenderCommand {
   uint32_t instance_index = 0;
   RenderCommandType command_type = RenderCommandType::Unknown;
   Entity owner = Entity();
   Handle renderer_handle = 0;
   bool entity_selected = false;
   GlobalTransform model = {};
+  float line_width = 1.0f;
+  VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
+  VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
+  bool cast_shadow = true;
+
+  virtual uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+                  const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const = 0;
+};
+
+struct MeshRenderInstance : IRenderCommand {
   uint32_t material_version;
   uint32_t mesh_version;
   std::shared_ptr<Material> material;
   std::shared_ptr<Mesh> mesh;
-
-  bool cast_shadow = true;
-
   uint32_t meshlet_size = 0;
-
-  float line_width = 1.0f;
-  VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
-  VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
   bool operator!=(const MeshRenderInstance& other) const;
+  uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+                  const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
 };
 
-struct SkinnedMeshRenderInstance {
-  uint32_t instance_index = 0;
-  RenderCommandType command_type = RenderCommandType::Unknown;
-  Entity owner = Entity();
-  Handle renderer_handle = 0;
-  bool entity_selected = false;
-  GlobalTransform model = {};
+struct SkinnedMeshRenderInstance : IRenderCommand {
   uint32_t material_version;
   uint32_t skinned_mesh_version;
   uint32_t bone_matrices_version;
   std::shared_ptr<Material> material;
   std::shared_ptr<SkinnedMesh> skinned_mesh;
-  bool cast_shadow = true;
   std::shared_ptr<BoneMatrices> bone_matrices;  // We require the skinned mesh renderer to provide bones.
 
   uint32_t skinned_meshlet_size = 0;
-
-  float line_width = 1.0f;
-  VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
-  VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
   bool operator!=(const SkinnedMeshRenderInstance& other) const;
+  uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+                  const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
 };
 
-struct InstancedRenderInstance {
-  uint32_t instance_index = 0;
-  RenderCommandType command_type = RenderCommandType::Unknown;
-  Entity owner = Entity();
-  Handle renderer_handle = 0;
-  bool entity_selected = false;
-  GlobalTransform model = {};
+struct InstancedRenderInstance : IRenderCommand {
   uint32_t material_version;
   uint32_t mesh_version;
   uint32_t particle_info_list_version;
   std::shared_ptr<Material> material;
   std::shared_ptr<Mesh> mesh;
-  bool cast_shadow = true;
   std::shared_ptr<ParticleInfoList> particle_infos;
 
   uint32_t meshlet_size = 0;
 
-  float line_width = 1.0f;
-  VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
-  VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
   bool operator!=(const InstancedRenderInstance& other) const;
+  uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+                  const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
+  
 };
 
-struct StrandsRenderInstance {
-  uint32_t instance_index = 0;
-  RenderCommandType command_type = RenderCommandType::Unknown;
-  Entity owner = Entity();
-  Handle renderer_handle = 0;
-  bool entity_selected = false;
-  GlobalTransform model = {};
+struct StrandsRenderInstance : IRenderCommand {
   uint32_t material_version;
   uint32_t strands_version;
   std::shared_ptr<Material> material;
   std::shared_ptr<Strands> strands;
-  bool cast_shadow = true;
-
   uint32_t strand_meshlet_size = 0;
-
-  float line_width = 1.0f;
-  VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
-  VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
   bool operator!=(const StrandsRenderInstance& other) const;
+  uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+                  const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
 };
 
 struct MeshRenderInstanceCollection {

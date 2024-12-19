@@ -8,16 +8,6 @@
 #include "RenderInstances.hpp"
 namespace evo_engine {
 #pragma region Enums Structs
-
-struct RenderInstancePushConstant {
-  int instance_index = 0;
-  int camera_index = 0;
-  int light_split_index = 0;
-};
-struct RayTracingPushConstant {
-  uint32_t camera_index = 0;
-  uint32_t frame_id = 0;
-};
 struct RenderInfoBlock {
   glm::vec4 split_distances = {};
   alignas(4) int pcf_sample_amount = 32;
@@ -99,7 +89,7 @@ class RenderLayer final : public ILayer {
                 bool cast_shadow);
 
   [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetPerFrameDescriptorSet() const;
-
+  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetLightingDescriptorSet() const;
  private:
   bool need_fade_ = false;
 #pragma region Render procedure
