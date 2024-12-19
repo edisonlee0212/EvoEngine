@@ -192,7 +192,8 @@ class Platform final {
   static void AddBufferSyncAction(const std::string& action_name, std::function<void()>&& action);
   static void RemoveBufferSyncAction(const std::string& action_name);
   static void RecordCommandsMainQueue(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
-
+  static void RecordRenderCommands(const VkRenderingInfo& rendering_info, const VkCommandBuffer vk_command_buffer,
+                                   const std::function<void()>& action);
   double cpu_wait_time = 0.0f;
   static void WaitForDeviceIdle();
 

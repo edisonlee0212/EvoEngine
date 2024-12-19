@@ -286,6 +286,13 @@ void Platform::RecordCommandsMainQueue(const std::function<void(VkCommandBuffer 
   graphics.used_command_buffer_size_++;
 }
 
+void Platform::RecordRenderCommands(const VkRenderingInfo& rendering_info, const VkCommandBuffer vk_command_buffer,
+                                    const std::function<void()>& action) {
+  vkCmdBeginRendering(vk_command_buffer, &rendering_info);
+  action();
+  vkCmdEndRendering(vk_command_buffer);
+}
+
 void Platform::WaitForDeviceIdle() {
   const auto& graphics = GetInstance();
   vkDeviceWaitIdle(graphics.vk_device_);

@@ -1,13 +1,6 @@
 #extension GL_EXT_control_flow_attributes : require
 
-layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
-  uint camera_index;
-  uint tetrahedrons_size;
-  float alpha;
-  float bifurcation_alpha;
-  int render_complex;
-  int vertex_colors;
-};
+#include "DynamicStrandsRenderingConstants.glsl"
 
 void SortFourElements(inout uint a[4]) {
   uint min1, min2, max1, max2;

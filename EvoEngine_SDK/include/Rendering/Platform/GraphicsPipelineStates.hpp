@@ -62,5 +62,6 @@ class GraphicsPipelineStates {
   std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachment_states = {};
   float blend_constants[4] = {0, 0, 0, 0};
   void ApplyAllStates(VkCommandBuffer vk_command_buffer, bool force_set = false);
+  void SetViewportScissor(const glm::ivec4& value, float min_depth = 0.0f, float max_depth = 1.0f);
 };
 }  // namespace evo_engine

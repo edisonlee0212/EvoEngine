@@ -43,7 +43,8 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
 
   static std::shared_ptr<GraphicsPipeline> render_pipeline{};
   struct RenderPushConstant {
-    uint32_t camera_index = 0;
+    int instance_index = 0;
+    int camera_index = 0;
     uint32_t tetrahedrons_size = 0;
     float alpha = 0.0f;
     float bifurcation_alpha = 0.0f;
@@ -71,7 +72,6 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsRendering.frag");
     // Descriptor set layout
-
     render_pipeline = std::make_shared<GraphicsPipeline>();
     render_pipeline->task_shader = task_shader;
     render_pipeline->mesh_shader = mesh_shader;
@@ -80,7 +80,10 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
     render_pipeline->geometry_type = GeometryType::Mesh;
 
     auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
+    auto lighting_layout = Platform::GetDescriptorSetLayout("LIGHTING_LAYOUT");
+    
     render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
+    render_pipeline->descriptor_set_layouts.emplace_back(lighting_layout);
     render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
     render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -97,6 +100,8 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   RenderPushConstant push_constant;
+  // TODO: Assign instance index here.
+  push_constant.instance_index = 0;
   push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
   push_constant.alpha = render_parameters.alpha;
@@ -142,6 +147,8 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
           render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                              render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
           render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                             render_layer->GetLightingDescriptorSet()->GetVkDescriptorSet());
+          render_pipeline->BindDescriptorSet(vk_command_buffer, 2,
                                              strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
           render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
           const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
