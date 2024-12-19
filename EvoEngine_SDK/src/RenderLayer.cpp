@@ -17,14 +17,60 @@
 #include "Utilities.hpp"
 using namespace evo_engine;
 
+void RenderLayer::RenderToPointLightShadowMap(
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>&& func) {
+  point_light_shadow_map_external_functions.emplace_back(func);
+}
+
+void RenderLayer::RenderToSpotLightShadowMap(
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>&& func) {
+  spot_light_shadow_map_external_functions.emplace_back(func);
+}
+
+void RenderLayer::RenderToDirectionalLightShadowMap(
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>&&
+        func) {
+  directional_light_shadow_map_external_functions.emplace_back(func);
+}
+
 void RenderLayer::OnCreate() {
-  const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
-  render_instances_list.resize(max_frame_in_flight);
-  for (auto& i : render_instances_list) {
-    i = std::make_shared<RenderInstances>();
+  const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
+  render_instances_list_.resize(max_frames_in_flight);
+  for (auto& i : render_instances_list_) {
+    i = std::make_shared<RenderInstanceStorage>();
   }
-  CreateStandardDescriptorBuffers();
-  CreateDescriptorSets();
+  kernel_descriptor_buffers_.clear();
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
+  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
+  for (size_t i = 0; i < max_frame_in_flight; i++) {
+    buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    buffer_create_info.size = sizeof(glm::vec4) * Platform::Constants::max_kernel_amount * 2;
+    kernel_descriptor_buffers_.emplace_back(
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+  }
+  per_frame_descriptor_sets_.clear();
+  for (size_t i = 0; i < max_frames_in_flight; i++) {
+    auto descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT"));
+    per_frame_descriptor_sets_.emplace_back(descriptor_set);
+  }
+
+  meshlet_descriptor_sets_.clear();
+  for (size_t i = 0; i < max_frames_in_flight; i++) {
+    auto descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("MESHLET_LAYOUT"));
+    meshlet_descriptor_sets_.emplace_back(descriptor_set);
+  }
+
+  ray_tracing_descriptor_sets_.clear();
+  if (Platform::Constants::support_ray_tracing) {
+    for (size_t i = 0; i < max_frames_in_flight; i++) {
+      auto descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("RAY_TRACING_LAYOUT"));
+      ray_tracing_descriptor_sets_.emplace_back(descriptor_set);
+    }
+  }
 
   std::vector<glm::vec4> kernels;
   for (uint32_t i = 0; i < Platform::Constants::max_kernel_amount; i++) {
@@ -37,27 +83,21 @@ void RenderLayer::OnCreate() {
   for (int i = 0; i < Platform::GetMaxFramesInFlight(); i++) {
     kernel_descriptor_buffers_[i]->UploadVector(kernels);
   }
-
   PrepareEnvironmentalBrdfLut();
-
   lighting_ = std::make_unique<Lighting>();
   lighting_->Initialize();
 }
 
-void RenderLayer::OnDestroy() {
-  render_info_descriptor_buffers_.clear();
-  environment_info_descriptor_buffers_.clear();
-  camera_info_descriptor_buffers_.clear();
-}
-
-void RenderLayer::ClearAllCameras() {
+void RenderLayer::ClearAll() const {
   const auto scene = GetScene();
   if (!scene)
     return;
-  collected_cameras_.clear();
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto current_render_instances = render_instances_list_[current_frame_index];
+  current_render_instances->Clear();
 
   std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
-  CollectCameras(scene, cameras);
+  RenderInstanceStorage::CollectCameras(scene, cameras);
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (const auto& i : cameras) {
@@ -67,7 +107,7 @@ void RenderLayer::ClearAllCameras() {
   });
 }
 
-void RenderLayer::RenderAllCameras() {
+void RenderLayer::RenderAll() {
   const auto scene = GetScene();
   if (!scene)
     return;
@@ -76,67 +116,60 @@ void RenderLayer::RenderAllCameras() {
   graphics.triangles[current_frame_index] = 0;
   graphics.strands_segments[current_frame_index] = 0;
   graphics.draw_call[current_frame_index] = 0;
-  if (UpdateRenderInfo(scene, current_frame_index)) {
+  const auto current_render_instances = render_instances_list_[current_frame_index];
+  ApplyAnimators();
+  if (UpdateRenderInstanceStorage(scene, current_frame_index)) {
     per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        0, render_info_descriptor_buffers_[current_frame_index]);
-  }
-
-  if (UpdateEnvironmentInfo(scene, current_frame_index)) {
+        0, current_render_instances->render_info_descriptor_buffer);
     per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        1, environment_info_descriptor_buffers_[current_frame_index]);
-  }
-
-  if (UpdateCameras(scene, current_frame_index)) {
+        1, current_render_instances->environment_info_descriptor_buffer);
     per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        2, camera_info_descriptor_buffers_[current_frame_index]);
-  }
-
-  if (UpdateRenderInstances(scene, current_frame_index) || true) {
+        2, current_render_instances->camera_info_descriptor_buffer);
     per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        3, render_instances_list[current_frame_index]->material_info_descriptor_buffer);
+        3, current_render_instances->material_info_descriptor_buffer);
     per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        4, render_instances_list[current_frame_index]->instance_info_descriptor_buffer);
+        4, current_render_instances->instance_info_descriptor_buffer);
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        5, kernel_descriptor_buffers_[current_frame_index]);
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        6, current_render_instances->directional_light_info_descriptor_buffer);
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        7, current_render_instances->point_light_info_descriptor_buffer);
+    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        8, current_render_instances->spot_light_info_descriptor_buffer);
 
     meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, GeometryStorage::GetVertexBuffer());
     meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1,
                                                                                  GeometryStorage::GetMeshletBuffer());
     if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
-      if (render_instances_list[current_frame_index]->mesh_top_level_acceleration_structure) {
+      current_render_instances->UpdateTopLevelAccelerationStructure(scene);
+      if (current_render_instances->mesh_top_level_acceleration_structure) {
         ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
             0, GeometryStorage::GetVertexBuffer());
         ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
             1, GeometryStorage::GetTriangleBuffer());
         ray_tracing_descriptor_sets_[current_frame_index]->UpdateAccelerationStructureDescriptorBinding(
-            2, render_instances_list[current_frame_index]->mesh_top_level_acceleration_structure);
+            2, current_render_instances->mesh_top_level_acceleration_structure);
       }
     }
   }
-
-  if (UpdateLighting(scene, current_frame_index, collected_cameras_)) {
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        5, kernel_descriptor_buffers_[current_frame_index]);
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        6, directional_light_info_descriptor_buffers_[current_frame_index]);
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        7, point_light_info_descriptor_buffers_[current_frame_index]);
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        8, spot_light_info_descriptor_buffers_[current_frame_index]);
-  }
-
   TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
   TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
-
   PreparePointAndSpotLightShadowMap();
-
-  for (const auto& [cameraGlobalTransform, camera] : collected_cameras_) {
+  for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
     camera->rendered_ = false;
     if (camera->require_rendering_) {
       RenderToCamera(cameraGlobalTransform, camera);
     }
   }
+
+  point_light_shadow_map_external_functions.clear();
+  spot_light_shadow_map_external_functions.clear();
+  directional_light_shadow_map_external_functions.clear();
+
   if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing &&
-      render_instances_list[current_frame_index]->mesh_top_level_acceleration_structure) {
-    for (const auto& [cameraGlobalTransform, camera] : collected_cameras_) {
+      current_render_instances->mesh_top_level_acceleration_structure) {
+    for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
       if (camera->require_rendering_) {
         RenderToCameraRayTracing(cameraGlobalTransform, camera);
       }
@@ -144,12 +177,11 @@ void RenderLayer::RenderAllCameras() {
   }
 }
 
-void RenderLayer::RenderGizmos() {
-  const auto scene = GetScene();
-  if (!scene)
+void RenderLayer::RenderGizmos() const {
+  if (const auto scene = GetScene(); !scene)
     return;
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
-    // Gizmos rendering
+    const auto current_render_instances = render_instances_list_[Platform::GetCurrentFrameIndex()];
     for (const auto& i : editor_layer->gizmo_mesh_tasks_) {
       if (editor_layer->editor_cameras_.find(i.editor_camera_component->GetHandle()) ==
           editor_layer->editor_cameras_.end()) {
@@ -182,7 +214,8 @@ void RenderLayer::RenderGizmos() {
                 push_constant.model = i.model;
                 push_constant.color = i.color;
                 push_constant.size = i.size;
-                push_constant.camera_index = GetCameraIndex(i.editor_camera_component->GetHandle());
+                push_constant.camera_index =
+                    current_render_instances->GetCameraIndex(i.editor_camera_component->GetHandle());
                 gizmos_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
                 GeometryStorage::BindVertices(vk_command_buffer);
                 i.mesh->DrawIndexed(vk_command_buffer, gizmos_pipeline->states, 1);
@@ -213,7 +246,8 @@ void RenderLayer::RenderGizmos() {
                 push_constant.model = i.model;
                 push_constant.color = glm::vec4(0.0f);
                 push_constant.size = i.size;
-                push_constant.camera_index = GetCameraIndex(i.editor_camera_component->GetHandle());
+                push_constant.camera_index =
+                    current_render_instances->GetCameraIndex(i.editor_camera_component->GetHandle());
                 gizmos_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
                 GeometryStorage::BindVertices(vk_command_buffer);
                 i.mesh->DrawIndexed(vk_command_buffer, gizmos_pipeline->states,
@@ -255,7 +289,8 @@ void RenderLayer::RenderGizmos() {
                 push_constant.model = i.model;
                 push_constant.color = i.color;
                 push_constant.size = i.m_size;
-                push_constant.camera_index = GetCameraIndex(i.editor_camera_component->GetHandle());
+                push_constant.camera_index =
+                    current_render_instances->GetCameraIndex(i.editor_camera_component->GetHandle());
                 gizmos_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
                 GeometryStorage::BindStrandPoints(vk_command_buffer);
                 i.m_strands->DrawIndexed(vk_command_buffer, gizmos_pipeline->states, 1);
@@ -267,9 +302,15 @@ void RenderLayer::RenderGizmos() {
   }
 }
 
-void RenderLayer::ForEachCollectedCamera(const std::function<void(const std::shared_ptr<Camera>& camera)>& action) {
-  for (const auto& camera : collected_cameras_)
+void RenderLayer::ForEachCollectedCamera(
+    const std::function<void(const std::shared_ptr<Camera>& camera)>& action) const {
+  const auto current_render_instances = render_instances_list_[Platform::GetCurrentFrameIndex()];
+  for (const auto& camera : current_render_instances->cameras)
     action(camera.second);
+}
+
+std::shared_ptr<RenderInstanceStorage> RenderLayer::GetCurrentRenderInstances() const {
+  return render_instances_list_[Platform::GetCurrentFrameIndex()];
 }
 
 void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -289,420 +330,9 @@ void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (Platform::Constants::support_mesh_shader)
       ImGui::Checkbox("Meshlet", &Platform::Settings::use_mesh_shader);
     ImGui::Checkbox("Indirect Rendering", &enable_indirect_rendering);
-    ImGui::Checkbox("Show entities", &enable_debug_visualization);
-    ImGui::DragFloat("Gamma", &render_info_block.gamma, 0.01f, 1.0f, 3.0f);
-    if (ImGui::CollapsingHeader("Shadow", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if (ImGui::TreeNode("Distance")) {
-        ImGui::DragFloat("Max shadow distance", &max_shadow_distance, 1.0f, 0.1f);
-        ImGui::DragFloat("Split 1", &shadow_cascade_split[0], 0.01f, 0.0f, shadow_cascade_split[1]);
-        ImGui::DragFloat("Split 2", &shadow_cascade_split[1], 0.01f, shadow_cascade_split[0], shadow_cascade_split[2]);
-        ImGui::DragFloat("Split 3", &shadow_cascade_split[2], 0.01f, shadow_cascade_split[1], shadow_cascade_split[3]);
-        ImGui::DragFloat("Split 4", &shadow_cascade_split[3], 0.01f, shadow_cascade_split[2], 1.0f);
-        ImGui::TreePop();
-      }
-      if (ImGui::TreeNode("PCSS")) {
-        ImGui::DragInt("Blocker search side amount", &render_info_block.blocker_search_amount, 1, 1, 8);
-        ImGui::DragInt("PCF Sample Size", &render_info_block.pcf_sample_amount, 1, 1, 64);
-        ImGui::TreePop();
-      }
-      ImGui::DragFloat("Seam fix ratio", &render_info_block.seam_fix_ratio, 0.001f, 0.0f, 0.1f);
-      ImGui::Checkbox("Stable fit", &stable_fit);
-    }
-#ifdef EVOENGINE_WINDOWS
-    if (ImGui::TreeNodeEx("Strands settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-      ImGui::DragFloat("Curve subdivision factor", &render_info_block.strands_subdivision_x_factor, 1.0f, 1.0f,
-                       1000.0f);
-      ImGui::DragFloat("Ring subdivision factor", &render_info_block.strands_subdivision_y_factor, 1.0f, 1.0f, 1000.0f);
-      ImGui::DragInt("Max curve subdivision", &render_info_block.strands_subdivision_max_x, 1, 1, 15);
-      ImGui::DragInt("Max ring subdivision", &render_info_block.strands_subdivision_max_y, 1, 1, 15);
-
-      ImGui::TreePop();
-    }
-#endif
+    render_settings.OnInspect(editor_layer);
     ImGui::End();
   }
-}
-
-uint32_t RenderLayer::GetCameraIndex(const Handle& handle) {
-  const auto search = camera_indices_.find(handle);
-  if (search == camera_indices_.end()) {
-    throw std::runtime_error("Unable to find camera!");
-  }
-  return search->second;
-}
-
-uint32_t RenderLayer::RegisterCameraIndex(const Handle& handle, const CameraInfoBlock& camera_info_block) {
-  const auto search = camera_indices_.find(handle);
-  if (search == camera_indices_.end()) {
-    const uint32_t index = camera_info_blocks_.size();
-    camera_indices_[handle] = index;
-    camera_info_blocks_.emplace_back(camera_info_block);
-    return index;
-  }
-  return search->second;
-}
-
-bool RenderLayer::UpdateRenderInfo(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index) {
-  for (int split = 0; split < 4; split++) {
-    float split_end = max_shadow_distance;
-    if (split != 3)
-      split_end = max_shadow_distance * shadow_cascade_split[split];
-    render_info_block.split_distances[split] = split_end;
-  }
-  render_info_block.brdflut_texture_index = environmental_brdf_lut_->GetTextureStorageIndex();
-  if (enable_debug_visualization)
-    render_info_block.debug_visualization = 1;
-  else
-    render_info_block.debug_visualization = 0;
-
-  render_info_descriptor_buffers_[current_frame_index]->Upload(render_info_block);
-  return true;
-}
-
-bool RenderLayer::UpdateEnvironmentInfo(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index) {
-  switch (scene->environment.environment_type) {
-    case EnvironmentType::EnvironmentalMap: {
-      environment_info_block.background_color.w = 0.0f;
-    } break;
-    case EnvironmentType::Color: {
-      environment_info_block.background_color = glm::vec4(scene->environment.background_color, 1.0f);
-    } break;
-  }
-  environment_info_block.environmental_map_gamma = scene->environment.environment_gamma;
-  environment_info_block.environmental_lighting_intensity = scene->environment.ambient_light_intensity;
-  environment_info_block.background_intensity = scene->environment.background_intensity;
-
-  environment_info_descriptor_buffers_[current_frame_index]->Upload(environment_info_block);
-  return true;
-}
-void RenderLayer::CollectCameras(const std::shared_ptr<Scene>& scene,
-                                 std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
-  if (auto editor_layer = Application::GetLayer<EditorLayer>()) {
-    for (const auto& [cameraHandle, editorCamera] : editor_layer->editor_cameras_) {
-      if (editorCamera.camera || editorCamera.camera->IsEnabled()) {
-        CameraInfoBlock camera_info_block;
-        GlobalTransform scene_camera_gt;
-        scene_camera_gt.SetValue(editorCamera.position, editorCamera.rotation, glm::vec3(1.0f));
-        editorCamera.camera->UpdateCameraInfoBlock(camera_info_block, scene_camera_gt);
-        const auto index = RegisterCameraIndex(cameraHandle, camera_info_block);
-
-        cameras.emplace_back(scene_camera_gt, editorCamera.camera);
-      }
-    }
-  }
-  if (const std::vector<Entity>* camera_entities = scene->UnsafeGetPrivateComponentOwnersList<Camera>()) {
-    for (const auto& i : *camera_entities) {
-      if (!scene->IsEntityEnabled(i))
-        continue;
-      assert(scene->HasPrivateComponent<Camera>(i));
-      auto camera = scene->GetOrSetPrivateComponent<Camera>(i).lock();
-      if (!camera || !camera->IsEnabled())
-        continue;
-      auto camera_global_transform = scene->GetDataComponent<GlobalTransform>(i);
-      CameraInfoBlock camera_info_block;
-      camera->UpdateCameraInfoBlock(camera_info_block, camera_global_transform);
-      const auto index = RegisterCameraIndex(camera->GetHandle(), camera_info_block);
-
-      cameras.emplace_back(camera_global_transform, camera);
-    }
-  }
-}
-bool RenderLayer::UpdateCameras(const std::shared_ptr<Scene>& scene, const uint32_t current_frame_index) {
-  camera_indices_.clear();
-  camera_info_blocks_.clear();
-
-  CollectCameras(scene, collected_cameras_);
-
-  camera_info_descriptor_buffers_[current_frame_index]->UploadVector(camera_info_blocks_);
-  return true;
-}
-
-void RenderLayer::CollectDirectionalLights(
-    const std::shared_ptr<Scene>& scene,
-    const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
-  auto scene_bound = scene->GetBound();
-  auto& min_bound = scene_bound.min;
-  auto& max_bound = scene_bound.max;
-
-  const std::vector<Entity>* directional_light_entities =
-      scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>();
-  render_info_block.directional_light_size = 0;
-  if (directional_light_entities && !directional_light_entities->empty()) {
-    directional_light_info_blocks_.resize(Platform::Settings::max_directional_light_size * cameras.size());
-    for (const auto& light_entity : *directional_light_entities) {
-      if (!scene->IsEntityEnabled(light_entity))
-        continue;
-      const auto dlc = scene->GetOrSetPrivateComponent<DirectionalLight>(light_entity).lock();
-      if (!dlc->IsEnabled())
-        continue;
-      render_info_block.directional_light_size++;
-    }
-    std::vector<glm::uvec3> viewport_results;
-    Lighting::AllocateAtlas(render_info_block.directional_light_size,
-                            Platform::Settings::directional_light_shadow_map_resolution, viewport_results);
-    for (const auto& [cameraGlobalTransform, camera] : cameras) {
-      auto camera_index = GetCameraIndex(camera->GetHandle());
-      for (int i = 0; i < render_info_block.directional_light_size; i++) {
-        const auto block_index = camera_index * Platform::Settings::max_directional_light_size + i;
-        auto& viewport = directional_light_info_blocks_[block_index].viewport;
-        viewport.x = viewport_results[i].x;
-        viewport.y = viewport_results[i].y;
-        viewport.z = viewport_results[i].z;
-        viewport.w = viewport_results[i].z;
-      }
-    }
-
-    for (const auto& [cameraGlobalTransform, camera] : cameras) {
-      size_t directional_light_index = 0;
-      auto camera_index = GetCameraIndex(camera->GetHandle());
-      glm::vec3 main_camera_pos = cameraGlobalTransform.GetPosition();
-      glm::quat main_camera_rot = cameraGlobalTransform.GetRotation();
-      for (const auto& light_entity : *directional_light_entities) {
-        if (!scene->IsEntityEnabled(light_entity))
-          continue;
-        const auto dlc = scene->GetOrSetPrivateComponent<DirectionalLight>(light_entity).lock();
-        if (!dlc->IsEnabled())
-          continue;
-        glm::quat rotation = scene->GetDataComponent<GlobalTransform>(light_entity).GetRotation();
-        glm::vec3 light_dir = glm::normalize(rotation * glm::vec3(0, 0, 1));
-        float plane_distance = 0;
-        glm::vec3 center;
-        const auto block_index =
-            camera_index * Platform::Settings::max_directional_light_size + directional_light_index;
-        directional_light_info_blocks_[block_index].direction = glm::vec4(light_dir, 0.0f);
-        directional_light_info_blocks_[block_index].diffuse =
-            glm::vec4(dlc->diffuse * dlc->diffuse_brightness, dlc->cast_shadow);
-        directional_light_info_blocks_[block_index].m_specular = glm::vec4(0.0f);
-        for (int split = 0; split < 4; split++) {
-          float split_start = 0;
-          float split_end = max_shadow_distance;
-          if (split != 0)
-            split_start = max_shadow_distance * shadow_cascade_split[split - 1];
-          if (split != 4 - 1)
-            split_end = max_shadow_distance * shadow_cascade_split[split];
-          render_info_block.split_distances[split] = split_end;
-          glm::mat4 light_projection, light_view;
-          float max = 0;
-          glm::vec3 light_pos;
-          glm::vec3 corner_points[8];
-          Camera::CalculateFrustumPoints(camera, split_start, split_end, main_camera_pos, main_camera_rot,
-                                         corner_points);
-          glm::vec3 camera_frustum_center =
-              (main_camera_rot * glm::vec3(0, 0, -1)) * ((split_end - split_start) / 2.0f + split_start) +
-              main_camera_pos;
-          if (stable_fit) {
-            // Less detail but no shimmering when rotating the camera.
-            // max = glm::distance(cornerPoints[4], cameraFrustumCenter);
-            max = split_end;
-          } else {
-            // More detail but cause shimmering when rotating camera.
-            max = (glm::max)(
-                max, glm::distance(corner_points[0], Ray::ClosestPointOnLine(corner_points[0], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[1], Ray::ClosestPointOnLine(corner_points[1], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[2], Ray::ClosestPointOnLine(corner_points[2], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[3], Ray::ClosestPointOnLine(corner_points[3], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[4], Ray::ClosestPointOnLine(corner_points[4], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[5], Ray::ClosestPointOnLine(corner_points[5], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[6], Ray::ClosestPointOnLine(corner_points[6], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[7], Ray::ClosestPointOnLine(corner_points[7], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-          }
-
-          glm::vec3 p0 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, max_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p7 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, min_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d0 = glm::distance(p0, p7);
-
-          glm::vec3 p1 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, max_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p6 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, min_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d1 = glm::distance(p1, p6);
-
-          glm::vec3 p2 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, min_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p5 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, max_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d2 = glm::distance(p2, p5);
-
-          glm::vec3 p3 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, min_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p4 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, max_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d3 = glm::distance(p3, p4);
-
-          center =
-              Ray::ClosestPointOnLine(scene_bound.Center(), camera_frustum_center, camera_frustum_center + light_dir);
-          plane_distance = (glm::max)((glm::max)(d0, d1), (glm::max)(d2, d3));
-          light_pos = center - light_dir * plane_distance;
-          light_view = glm::lookAt(light_pos, light_pos + light_dir, glm::normalize(rotation * glm::vec3(0, 1, 0)));
-          light_projection = glm::ortho(-max, max, -max, max, 0.0f, plane_distance * 2.0f);
-#pragma region Fix Shimmering due to the movement of the camera
-          glm::mat4 shadow_matrix = light_projection * light_view;
-          glm::vec4 shadow_origin = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-          shadow_origin = shadow_matrix * shadow_origin;
-          shadow_origin =
-              shadow_origin * static_cast<float>(directional_light_info_blocks_[block_index].viewport.z) / 2.0f;
-          glm::vec4 rounded_origin = glm::round(shadow_origin);
-          glm::vec4 round_offset = rounded_origin - shadow_origin;
-          round_offset =
-              round_offset * 2.0f / static_cast<float>(directional_light_info_blocks_[block_index].viewport.z);
-          round_offset.z = 0.0f;
-          round_offset.w = 0.0f;
-          glm::mat4 shadow_proj = light_projection;
-          shadow_proj[3] += round_offset;
-          light_projection = shadow_proj;
-#pragma endregion
-          directional_light_info_blocks_[block_index].light_space_matrix[split] = light_projection * light_view;
-          directional_light_info_blocks_[block_index].light_frustum_width[split] = max;
-          directional_light_info_blocks_[block_index].light_frustum_distance[split] = plane_distance;
-          if (split == 4 - 1)
-            directional_light_info_blocks_[block_index].reserved_parameters =
-                glm::vec4(dlc->light_size, 0, dlc->bias, dlc->normal_offset);
-        }
-        directional_light_index++;
-      }
-    }
-  }
-}
-
-void RenderLayer::CollectPointLights(const std::shared_ptr<Scene>& scene, const GlobalTransform& view_point_gt) {
-  const glm::vec3 main_camera_position = view_point_gt.GetPosition();
-  const std::vector<Entity>* point_light_entities = scene->UnsafeGetPrivateComponentOwnersList<PointLight>();
-  render_info_block.point_light_size = 0;
-  if (point_light_entities && !point_light_entities->empty()) {
-    point_light_info_blocks_.resize(point_light_entities->size());
-    std::multimap<float, size_t> sorted_point_light_indices;
-    for (int i = 0; i < point_light_entities->size(); i++) {
-      Entity light_entity = point_light_entities->at(i);
-      if (!scene->IsEntityEnabled(light_entity))
-        continue;
-      const auto plc = scene->GetOrSetPrivateComponent<PointLight>(light_entity).lock();
-      if (!plc->IsEnabled())
-        continue;
-      glm::vec3 position = scene->GetDataComponent<GlobalTransform>(light_entity).value[3];
-      point_light_info_blocks_[render_info_block.point_light_size].position = glm::vec4(position, 0);
-      point_light_info_blocks_[render_info_block.point_light_size].constant_linear_quad_far_plane.x = plc->constant;
-      point_light_info_blocks_[render_info_block.point_light_size].constant_linear_quad_far_plane.y = plc->linear;
-      point_light_info_blocks_[render_info_block.point_light_size].constant_linear_quad_far_plane.z = plc->quadratic;
-      point_light_info_blocks_[render_info_block.point_light_size].diffuse =
-          glm::vec4(plc->diffuse * plc->diffuse_brightness, plc->cast_shadow);
-      point_light_info_blocks_[render_info_block.point_light_size].specular = glm::vec4(0);
-      point_light_info_blocks_[render_info_block.point_light_size].constant_linear_quad_far_plane.w =
-          plc->GetFarPlane();
-
-      glm::mat4 shadow_proj = glm::perspective(
-          glm::radians(90.0f), 1.0f, 1.0f,
-          point_light_info_blocks_[render_info_block.point_light_size].constant_linear_quad_far_plane.w);
-      point_light_info_blocks_[render_info_block.point_light_size].light_space_matrix[0] =
-          shadow_proj * glm::lookAt(position, position + glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
-      point_light_info_blocks_[render_info_block.point_light_size].light_space_matrix[1] =
-          shadow_proj * glm::lookAt(position, position + glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
-      point_light_info_blocks_[render_info_block.point_light_size].light_space_matrix[2] =
-          shadow_proj * glm::lookAt(position, position + glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-      point_light_info_blocks_[render_info_block.point_light_size].light_space_matrix[3] =
-          shadow_proj * glm::lookAt(position, position + glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f));
-      point_light_info_blocks_[render_info_block.point_light_size].light_space_matrix[4] =
-          shadow_proj * glm::lookAt(position, position + glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f));
-      point_light_info_blocks_[render_info_block.point_light_size].light_space_matrix[5] =
-          shadow_proj * glm::lookAt(position, position + glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f));
-      point_light_info_blocks_[render_info_block.point_light_size].reserved_parameters =
-          glm::vec4(plc->bias, plc->light_size, 0, 0);
-
-      sorted_point_light_indices.insert(
-          {glm::distance(main_camera_position, position), render_info_block.point_light_size});
-      render_info_block.point_light_size++;
-    }
-    std::vector<glm::uvec3> view_port_results;
-    Lighting::AllocateAtlas(render_info_block.point_light_size, Platform::Settings::point_light_shadow_map_resolution,
-                            view_port_results);
-    int allocation_index = 0;
-    for (const auto& point_light_index : sorted_point_light_indices) {
-      auto& viewport = point_light_info_blocks_[point_light_index.second].viewport;
-      viewport.x = view_port_results[allocation_index].x;
-      viewport.y = view_port_results[allocation_index].y;
-      viewport.z = view_port_results[allocation_index].z;
-      viewport.w = view_port_results[allocation_index].z;
-
-      allocation_index++;
-    }
-  }
-  point_light_info_blocks_.resize(render_info_block.point_light_size);
-}
-
-void RenderLayer::CollectSpotLights(const std::shared_ptr<Scene>& scene, const GlobalTransform& view_point_gt) {
-  const glm::vec3 main_camera_position = view_point_gt.GetPosition();
-  render_info_block.spot_light_size = 0;
-  const std::vector<Entity>* spot_light_entities = scene->UnsafeGetPrivateComponentOwnersList<SpotLight>();
-  if (spot_light_entities && !spot_light_entities->empty()) {
-    spot_light_info_blocks_.resize(spot_light_entities->size());
-    std::multimap<float, size_t> sorted_spot_light_indices;
-    for (auto light_entity : *spot_light_entities) {
-      if (!scene->IsEntityEnabled(light_entity))
-        continue;
-      const auto slc = scene->GetOrSetPrivateComponent<SpotLight>(light_entity).lock();
-      if (!slc->IsEnabled())
-        continue;
-      auto ltw = scene->GetDataComponent<GlobalTransform>(light_entity);
-      glm::vec3 position = ltw.value[3];
-      glm::vec3 front = ltw.GetRotation() * glm::vec3(0, 0, -1);
-      glm::vec3 up = ltw.GetRotation() * glm::vec3(0, 1, 0);
-      spot_light_info_blocks_[render_info_block.spot_light_size].position = glm::vec4(position, 0);
-      spot_light_info_blocks_[render_info_block.spot_light_size].direction = glm::vec4(front, 0);
-      spot_light_info_blocks_[render_info_block.spot_light_size].constant_linear_quad_far_plane.x = slc->constant;
-      spot_light_info_blocks_[render_info_block.spot_light_size].constant_linear_quad_far_plane.y = slc->linear;
-      spot_light_info_blocks_[render_info_block.spot_light_size].constant_linear_quad_far_plane.z = slc->quadratic;
-      spot_light_info_blocks_[render_info_block.spot_light_size].constant_linear_quad_far_plane.w = slc->GetFarPlane();
-      spot_light_info_blocks_[render_info_block.spot_light_size].diffuse =
-          glm::vec4(slc->diffuse * slc->diffuse_brightness, slc->cast_shadow);
-      spot_light_info_blocks_[render_info_block.spot_light_size].specular = glm::vec4(0);
-
-      glm::mat4 shadow_proj =
-          glm::perspective(glm::radians(slc->outer_degrees * 2.0f), 1.0f, 1.0f,
-                           spot_light_info_blocks_[render_info_block.spot_light_size].constant_linear_quad_far_plane.w);
-      spot_light_info_blocks_[render_info_block.spot_light_size].light_space_matrix =
-          shadow_proj * glm::lookAt(position, position + front, up);
-      spot_light_info_blocks_[render_info_block.spot_light_size].cut_off_outer_cut_off_light_size_bias =
-          glm::vec4(glm::cos(glm::radians(slc->inner_degrees)), glm::cos(glm::radians(slc->outer_degrees)),
-                    slc->light_size, slc->bias);
-
-      sorted_spot_light_indices.insert(
-          {glm::distance(main_camera_position, position), render_info_block.spot_light_size});
-      render_info_block.spot_light_size++;
-    }
-    std::vector<glm::uvec3> view_port_results;
-    Lighting::AllocateAtlas(render_info_block.spot_light_size, Platform::Settings::spot_light_shadow_map_resolution,
-                            view_port_results);
-    int allocation_index = 0;
-    for (const auto& spot_light_index : sorted_spot_light_indices) {
-      auto& view_port = spot_light_info_blocks_[spot_light_index.second].viewport;
-      view_port.x = view_port_results[allocation_index].x;
-      view_port.y = view_port_results[allocation_index].y;
-      view_port.z = view_port_results[allocation_index].z;
-      view_port.w = view_port_results[allocation_index].z;
-      allocation_index++;
-    }
-  }
-  spot_light_info_blocks_.resize(render_info_block.spot_light_size);
 }
 
 void RenderLayer::ApplyAnimators() const {
@@ -759,8 +389,17 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
   const auto& point_light_shadow_strands_pipeline = Platform::GetGraphicsPipeline("POINT_LIGHT_SHADOW_MAP_STRANDS");
   const auto& spot_light_shadow_strands_pipeline = Platform::GetGraphicsPipeline("SPOT_LIGHT_SHADOW_MAP_STRANDS");
   auto& graphics = Platform::GetInstance();
+  const auto current_render_instances = render_instances_list_[current_frame_index];
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    const auto prepare_graphics_pipeline = [&](const std::shared_ptr<GraphicsPipeline>& target_pipeline,
+                                               const glm::ivec4& view_port) {
+      target_pipeline->states.ResetAllStates(0);
+      target_pipeline->Bind(vk_command_buffer);
+      target_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                         per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+      target_pipeline->states.SetViewportScissor(view_port);
+    };
 
-  Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
     VkRect2D render_area;
     render_area.offset = {0, 0};
     render_area.extent.width = lighting_->point_light_shadow_map_->GetExtent().width;
@@ -778,21 +417,17 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       render_info.pColorAttachments = nullptr;
       render_info.pDepthAttachment = &depth_attachment;
       Platform::RecordRenderCommands(render_info, vk_command_buffer, [&]() {
-        for (int i = 0; i < point_light_info_blocks_.size(); i++) {
+        for (int i = 0; i < current_render_instances->point_light_info_blocks_.size(); i++) {
           GeometryStorage::BindVertices(vk_command_buffer);
           {
-            point_light_shadow_pipeline->states.ResetAllStates(0);
-            point_light_shadow_pipeline->Bind(vk_command_buffer);
-            point_light_shadow_pipeline->BindDescriptorSet(
-                vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+            prepare_graphics_pipeline(point_light_shadow_pipeline,
+                                      current_render_instances->point_light_info_blocks_[i].viewport);
             if (use_mesh_shader) {
               point_light_shadow_pipeline->BindDescriptorSet(
                   vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
             }
-            const auto& point_light_info_block = point_light_info_blocks_[i];
-            point_light_shadow_pipeline->states.SetViewportScissor(point_light_info_block.viewport);
             if (enable_indirect_rendering &&
-                !render_instances_list[current_frame_index]->deferred_render_instances.render_commands.empty()) {
+                !current_render_instances->deferred_render_instances.render_commands.empty()) {
               RenderInstancePushConstant push_constant;
               push_constant.camera_index = i;
               push_constant.light_split_index = face;
@@ -802,26 +437,22 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
               if (count_draw_calls)
                 graphics.draw_call[current_frame_index]++;
               if (count_draw_calls)
-                graphics.triangles[current_frame_index] +=
-                    render_instances_list[current_frame_index]->total_mesh_triangles;
+                graphics.triangles[current_frame_index] += current_render_instances->total_mesh_triangles;
               if (use_mesh_shader) {
                 vkCmdDrawMeshTasksIndirectEXT(
                     vk_command_buffer,
-                    render_instances_list[current_frame_index]
-                        ->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(),
-                    0, render_instances_list[current_frame_index]->mesh_draw_mesh_tasks_indirect_commands.size(),
+                    current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(), 0,
+                    current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
                     sizeof(VkDrawMeshTasksIndirectCommandEXT));
               } else {
                 vkCmdDrawIndexedIndirect(
                     vk_command_buffer,
-                    render_instances_list[current_frame_index]
-                        ->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(),
-                    0, render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands.size(),
+                    current_render_instances->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(), 0,
+                    current_render_instances->mesh_draw_indexed_indirect_commands.size(),
                     sizeof(VkDrawIndexedIndirectCommand));
               }
             } else {
-              for (const auto& render_command :
-                   render_instances_list[current_frame_index]->deferred_render_instances.render_commands) {
+              for (const auto& render_command : current_render_instances->deferred_render_instances.render_commands) {
                 if (!render_command.cast_shadow)
                   continue;
                 RenderInstancePushConstant push_constant;
@@ -838,15 +469,10 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             }
           }
           {
-            point_light_shadow_instanced_pipeline->states.ResetAllStates(0);
-            point_light_shadow_instanced_pipeline->Bind(vk_command_buffer);
-            point_light_shadow_instanced_pipeline->BindDescriptorSet(
-                vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-
-            const auto& point_light_info_block = point_light_info_blocks_[i];
-            point_light_shadow_instanced_pipeline->states.SetViewportScissor(point_light_info_block.viewport);
+            prepare_graphics_pipeline(point_light_shadow_instanced_pipeline,
+                                      current_render_instances->point_light_info_blocks_[i].viewport);
             for (const auto& render_command :
-                 render_instances_list[current_frame_index]->deferred_instanced_render_instances.render_commands) {
+                 current_render_instances->deferred_instanced_render_instances.render_commands) {
               if (!render_command.cast_shadow)
                 continue;
               RenderInstancePushConstant push_constant;
@@ -863,15 +489,10 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           }
           GeometryStorage::BindSkinnedVertices(vk_command_buffer);
           {
-            point_light_shadow_skinned_pipeline->states.ResetAllStates(0);
-            point_light_shadow_skinned_pipeline->Bind(vk_command_buffer);
-            point_light_shadow_skinned_pipeline->BindDescriptorSet(
-                vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-
-            const auto& point_light_info_block = point_light_info_blocks_[i];
-            point_light_shadow_skinned_pipeline->states.SetViewportScissor(point_light_info_block.viewport);
+            prepare_graphics_pipeline(point_light_shadow_skinned_pipeline,
+                                      current_render_instances->point_light_info_blocks_[i].viewport);
             for (const auto& render_command :
-                 render_instances_list[current_frame_index]->deferred_skinned_render_instances.render_commands) {
+                 current_render_instances->deferred_skinned_render_instances.render_commands) {
               if (!render_command.cast_shadow)
                 continue;
               RenderInstancePushConstant push_constant;
@@ -889,16 +510,10 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
 #ifdef EVOENGINE_WINDOWS
           GeometryStorage::BindStrandPoints(vk_command_buffer);
           {
-            point_light_shadow_strands_pipeline->states.ResetAllStates(0);
-            point_light_shadow_strands_pipeline->Bind(vk_command_buffer);
-            point_light_shadow_strands_pipeline->BindDescriptorSet(
-                vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-
-            const auto& point_light_info_block = point_light_info_blocks_[i];
-            point_light_shadow_strands_pipeline->states.SetViewportScissor(point_light_info_block.viewport);
-
+            prepare_graphics_pipeline(point_light_shadow_strands_pipeline,
+                                      current_render_instances->point_light_info_blocks_[i].viewport);
             for (const auto& render_command :
-                 render_instances_list[current_frame_index]->deferred_strands_render_instances.render_commands) {
+                 current_render_instances->deferred_strands_render_instances.render_commands) {
               if (!render_command.cast_shadow)
                 continue;
               RenderInstancePushConstant push_constant;
@@ -914,6 +529,9 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             }
           }
 #endif
+          for (const auto& func : point_light_shadow_map_external_functions) {
+            func(vk_command_buffer, {i, face, current_render_instances->point_light_info_blocks_[i].viewport});
+          }
         }
       });
     }
@@ -935,21 +553,17 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
     render_info.pColorAttachments = nullptr;
     render_info.pDepthAttachment = &depth_attachment;
     Platform::RecordRenderCommands(render_info, vk_command_buffer, [&]() {
-      for (int i = 0; i < spot_light_info_blocks_.size(); i++) {
+      for (int i = 0; i < current_render_instances->spot_light_info_blocks_.size(); i++) {
         GeometryStorage::BindVertices(vk_command_buffer);
         {
-          spot_light_shadow_pipeline->states.ResetAllStates(0);
-          spot_light_shadow_pipeline->Bind(vk_command_buffer);
-          spot_light_shadow_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+          prepare_graphics_pipeline(spot_light_shadow_pipeline,
+                                    current_render_instances->spot_light_info_blocks_[i].viewport);
           if (use_mesh_shader) {
             spot_light_shadow_pipeline->BindDescriptorSet(
                 vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
           }
-          const auto& spot_light_info_block = spot_light_info_blocks_[i];
-          spot_light_shadow_pipeline->states.SetViewportScissor(spot_light_info_block.viewport);
           if (enable_indirect_rendering &&
-              !render_instances_list[current_frame_index]->deferred_render_instances.render_commands.empty()) {
+              !current_render_instances->deferred_render_instances.render_commands.empty()) {
             RenderInstancePushConstant push_constant;
             push_constant.camera_index = i;
             push_constant.light_split_index = 0;
@@ -959,25 +573,22 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             if (count_draw_calls)
               graphics.draw_call[current_frame_index]++;
             if (count_draw_calls)
-              graphics.triangles[current_frame_index] +=
-                  render_instances_list[current_frame_index]->total_mesh_triangles;
+              graphics.triangles[current_frame_index] += current_render_instances->total_mesh_triangles;
             if (use_mesh_shader) {
               vkCmdDrawMeshTasksIndirectEXT(
                   vk_command_buffer,
-                  render_instances_list[current_frame_index]
-                      ->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(),
-                  0, render_instances_list[current_frame_index]->mesh_draw_mesh_tasks_indirect_commands.size(),
+                  current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(), 0,
+                  current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
                   sizeof(VkDrawMeshTasksIndirectCommandEXT));
             } else {
               vkCmdDrawIndexedIndirect(
                   vk_command_buffer,
-                  render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(),
-                  0, render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands.size(),
+                  current_render_instances->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(), 0,
+                  current_render_instances->mesh_draw_indexed_indirect_commands.size(),
                   sizeof(VkDrawIndexedIndirectCommand));
             }
           } else {
-            for (const auto& render_command :
-                 render_instances_list[current_frame_index]->deferred_render_instances.render_commands) {
+            for (const auto& render_command : current_render_instances->deferred_render_instances.render_commands) {
               if (!render_command.cast_shadow)
                 return;
               RenderInstancePushConstant push_constant;
@@ -994,15 +605,10 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           }
         }
         {
-          spot_light_shadow_instanced_pipeline->states.ResetAllStates(0);
-          spot_light_shadow_instanced_pipeline->Bind(vk_command_buffer);
-          spot_light_shadow_instanced_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          const auto& spot_light_info_block = spot_light_info_blocks_[i];
-          spot_light_shadow_instanced_pipeline->states.SetViewportScissor(spot_light_info_block.viewport);
-
+          prepare_graphics_pipeline(spot_light_shadow_instanced_pipeline,
+                                    current_render_instances->spot_light_info_blocks_[i].viewport);
           for (const auto& render_command :
-               render_instances_list[current_frame_index]->deferred_instanced_render_instances.render_commands) {
+               current_render_instances->deferred_instanced_render_instances.render_commands) {
             if (!render_command.cast_shadow)
               continue;
             RenderInstancePushConstant push_constant;
@@ -1019,15 +625,10 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         }
         GeometryStorage::BindSkinnedVertices(vk_command_buffer);
         {
-          spot_light_shadow_skinned_pipeline->states.ResetAllStates(0);
-          spot_light_shadow_skinned_pipeline->Bind(vk_command_buffer);
-          spot_light_shadow_skinned_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          const auto& spot_light_info_block = spot_light_info_blocks_[i];
-          spot_light_shadow_skinned_pipeline->states.SetViewportScissor(spot_light_info_block.viewport);
-
+          prepare_graphics_pipeline(spot_light_shadow_skinned_pipeline,
+                                    current_render_instances->spot_light_info_blocks_[i].viewport);
           for (const auto& render_command :
-               render_instances_list[current_frame_index]->deferred_skinned_render_instances.render_commands) {
+               current_render_instances->deferred_skinned_render_instances.render_commands) {
             if (!render_command.cast_shadow)
               return;
             RenderInstancePushConstant push_constant;
@@ -1045,15 +646,10 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
 #ifdef EVOENGINE_WINDOWS
         GeometryStorage::BindStrandPoints(vk_command_buffer);
         {
-          spot_light_shadow_strands_pipeline->states.ResetAllStates(0);
-          spot_light_shadow_strands_pipeline->Bind(vk_command_buffer);
-          spot_light_shadow_strands_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          const auto& spot_light_info_block = spot_light_info_blocks_[i];
-          spot_light_shadow_strands_pipeline->states.SetViewportScissor(spot_light_info_block.viewport);
-
+          prepare_graphics_pipeline(spot_light_shadow_strands_pipeline,
+                                    current_render_instances->spot_light_info_blocks_[i].viewport);
           for (const auto& render_command :
-               render_instances_list[current_frame_index]->deferred_strands_render_instances.render_commands) {
+               current_render_instances->deferred_strands_render_instances.render_commands) {
             if (!render_command.cast_shadow)
               continue;
             RenderInstancePushConstant push_constant;
@@ -1069,6 +665,9 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           }
         }
 #endif
+        for (const auto& func : spot_light_shadow_map_external_functions) {
+          func(vk_command_buffer, {i, current_render_instances->point_light_info_blocks_[i].viewport});
+        }
       }
     });
     lighting_->point_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -1076,9 +675,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
   });
 }
 
-bool RenderLayer::UpdateRenderInstances(const std::shared_ptr<Scene>& scene, const uint32_t current_frame_index) {
-  ApplyAnimators();
-
+bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scene, const uint32_t current_frame_index) {
   auto lod_center = glm::vec3(0.f);
   float lod_max_distance = FLT_MAX;
   bool lod_set = false;
@@ -1097,18 +694,20 @@ bool RenderLayer::UpdateRenderInstances(const std::shared_ptr<Scene>& scene, con
       }
     }
   }
-
-  RenderInstances::CalculateLodFactor(scene, lod_center, lod_max_distance);
-
+  RenderInstanceStorage::CalculateLodFactor(scene, lod_center, lod_max_distance);
   Bound world_bound{};
-
   need_fade_ = false;
+  const auto current_render_instances = render_instances_list_[current_frame_index];
+  current_render_instances->BuildFromScene(render_settings, scene, world_bound);
   const bool render_instance_updated =
-      render_instances_list[current_frame_index]->UpdateRenderInstances(scene, world_bound);
-
+      current_render_instances != render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
+                                                         Platform::GetMaxFramesInFlight()];
+  if (render_instance_updated) {
+    current_render_instances->Upload();
+  }
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
     if (scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
-      for (const auto& i : render_instances_list[current_frame_index]->instance_info_blocks_) {
+      for (const auto& i : current_render_instances->instance_info_blocks_) {
         if (i.entity_selected) {
           need_fade_ = true;
         }
@@ -1116,108 +715,13 @@ bool RenderLayer::UpdateRenderInstances(const std::shared_ptr<Scene>& scene, con
     }
     editor_layer->MouseEntitySelection();
   }
-
   if (render_instance_updated) {
     world_bound.min -= glm::vec3(0.1f);
     world_bound.max += glm::vec3(0.1f);
     scene->SetBound(world_bound);
-    render_instances_list[current_frame_index]->Upload();
+    current_render_instances->Upload();
   }
   return render_instance_updated;
-}
-
-bool RenderLayer::UpdateLighting(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
-                                 const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
-  const auto main_camera = scene->main_camera.Get<Camera>();
-  GlobalTransform main_camera_gt{};
-  if (main_camera) {
-    if (const auto main_camera_owner = main_camera->GetOwner(); scene->IsEntityValid(main_camera_owner)) {
-      main_camera_gt = scene->GetDataComponent<GlobalTransform>(main_camera_owner);
-    }
-  }
-  directional_light_info_blocks_.clear();
-  point_light_info_blocks_.clear();
-  spot_light_info_blocks_.clear();
-  CollectDirectionalLights(scene, cameras);
-  CollectPointLights(scene, main_camera_gt);
-  CollectSpotLights(scene, main_camera_gt);
-  directional_light_info_descriptor_buffers_[current_frame_index]->UploadVector(directional_light_info_blocks_);
-  point_light_info_descriptor_buffers_[current_frame_index]->UploadVector(point_light_info_blocks_);
-  spot_light_info_descriptor_buffers_[current_frame_index]->UploadVector(spot_light_info_blocks_);
-
-  return true;
-}
-
-void RenderLayer::CreateStandardDescriptorBuffers() {
-#pragma region Standard Descrioptor Layout
-  render_info_descriptor_buffers_.clear();
-  environment_info_descriptor_buffers_.clear();
-  camera_info_descriptor_buffers_.clear();
-
-  kernel_descriptor_buffers_.clear();
-  directional_light_info_descriptor_buffers_.clear();
-  point_light_info_descriptor_buffers_.clear();
-  spot_light_info_descriptor_buffers_.clear();
-
-  VkBufferCreateInfo buffer_create_info{};
-  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-
-  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
-  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
-  for (size_t i = 0; i < max_frame_in_flight; i++) {
-    buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    buffer_create_info.size = sizeof(RenderInfoBlock);
-    render_info_descriptor_buffers_.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-    buffer_create_info.size = sizeof(EnvironmentInfoBlock);
-    environment_info_descriptor_buffers_.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-    buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    buffer_create_info.size = sizeof(CameraInfoBlock) * Platform::Constants::initial_camera_size;
-    camera_info_descriptor_buffers_.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-    buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    buffer_create_info.size = sizeof(glm::vec4) * Platform::Constants::max_kernel_amount * 2;
-    kernel_descriptor_buffers_.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-    buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    buffer_create_info.size = sizeof(DirectionalLightInfo) * Platform::Settings::max_directional_light_size *
-                              Platform::Constants::initial_camera_size;
-    directional_light_info_descriptor_buffers_.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-    buffer_create_info.size = sizeof(PointLightInfo) * Platform::Settings::max_point_light_size;
-    point_light_info_descriptor_buffers_.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-    buffer_create_info.size = sizeof(SpotLightInfo) * Platform::Settings::max_spot_light_size;
-    spot_light_info_descriptor_buffers_.emplace_back(
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
-  }
-#pragma endregion
-}
-
-void RenderLayer::CreateDescriptorSets() {
-  const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
-  per_frame_descriptor_sets_.clear();
-  for (size_t i = 0; i < max_frames_in_flight; i++) {
-    auto descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT"));
-    per_frame_descriptor_sets_.emplace_back(descriptor_set);
-  }
-
-  meshlet_descriptor_sets_.clear();
-  for (size_t i = 0; i < max_frames_in_flight; i++) {
-    auto descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("MESHLET_LAYOUT"));
-    meshlet_descriptor_sets_.emplace_back(descriptor_set);
-  }
-
-  ray_tracing_descriptor_sets_.clear();
-  if (Platform::Constants::support_ray_tracing) {
-    for (size_t i = 0; i < max_frames_in_flight; i++) {
-      auto descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("RAY_TRACING_LAYOUT"));
-      ray_tracing_descriptor_sets_.emplace_back(descriptor_set);
-    }
-  }
 }
 
 void RenderLayer::PrepareEnvironmentalBrdfLut() {
@@ -1335,9 +839,10 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
   });
 }
 void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
-                                 const std::shared_ptr<Camera>& camera) {
+                                 const std::shared_ptr<Camera>& camera) const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const int camera_index = GetCameraIndex(camera->GetHandle());
+  const auto current_render_instances = render_instances_list_[current_frame_index];
+  const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
   const auto scene = Application::GetActiveScene();
   if (camera->camera_render_mode == Camera::CameraRenderMode::Rasterization) {
     const bool count_draw_calls = count_shadow_rendering_draw_calls;
@@ -1373,22 +878,26 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
         render_info.pColorAttachments = nullptr;
         render_info.pDepthAttachment = &depth_attachment;
         Platform::RecordRenderCommands(render_info, vk_command_buffer, [&]() {
-          for (int i = 0; i < render_info_block.directional_light_size; i++) {
+          if (use_mesh_shader) {
+            directional_light_shadow_pipeline->BindDescriptorSet(
+                vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+          }
+          for (int i = 0; i < current_render_instances->render_info_block.directional_light_size; i++) {
             const auto& directional_light_info_block =
-                directional_light_info_blocks_[camera_index * Platform::Settings::max_directional_light_size + i];
+                current_render_instances
+                    ->directional_light_info_blocks_[camera_index * Platform::Settings::max_directional_light_size + i];
+            const auto prepare_graphics_pipeline = [&](const std::shared_ptr<GraphicsPipeline>& target_pipeline) {
+              target_pipeline->states.ResetAllStates(0);
+              target_pipeline->Bind(vk_command_buffer);
+              target_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                 per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+              target_pipeline->states.SetViewportScissor(directional_light_info_block.viewport);
+            };
             GeometryStorage::BindVertices(vk_command_buffer);
             {
-              directional_light_shadow_pipeline->states.ResetAllStates(0);
-              directional_light_shadow_pipeline->Bind(vk_command_buffer);
-              directional_light_shadow_pipeline->BindDescriptorSet(
-                  vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-              if (use_mesh_shader) {
-                directional_light_shadow_pipeline->BindDescriptorSet(
-                    vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-              }
-              directional_light_shadow_pipeline->states.SetViewportScissor(directional_light_info_block.viewport);
+              prepare_graphics_pipeline(directional_light_shadow_pipeline);
               if (enable_indirect_rendering &&
-                  !render_instances_list[current_frame_index]->deferred_render_instances.render_commands.empty()) {
+                  !current_render_instances->deferred_render_instances.render_commands.empty()) {
                 RenderInstancePushConstant push_constant;
                 push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
                 push_constant.light_split_index = split;
@@ -1398,26 +907,22 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 if (count_draw_calls)
                   graphics.draw_call[current_frame_index]++;
                 if (count_draw_calls)
-                  graphics.triangles[current_frame_index] +=
-                      render_instances_list[current_frame_index]->total_mesh_triangles;
+                  graphics.triangles[current_frame_index] += current_render_instances->total_mesh_triangles;
                 if (use_mesh_shader) {
                   vkCmdDrawMeshTasksIndirectEXT(
                       vk_command_buffer,
-                      render_instances_list[current_frame_index]
-                          ->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(),
-                      0, render_instances_list[current_frame_index]->mesh_draw_mesh_tasks_indirect_commands.size(),
+                      current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(), 0,
+                      current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
                       sizeof(VkDrawMeshTasksIndirectCommandEXT));
                 } else {
                   vkCmdDrawIndexedIndirect(
                       vk_command_buffer,
-                      render_instances_list[current_frame_index]
-                          ->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(),
-                      0, render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands.size(),
+                      current_render_instances->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(), 0,
+                      current_render_instances->mesh_draw_indexed_indirect_commands.size(),
                       sizeof(VkDrawIndexedIndirectCommand));
                 }
               } else {
-                for (const auto& render_command :
-                     render_instances_list[current_frame_index]->deferred_render_instances.render_commands) {
+                for (const auto& render_command : current_render_instances->deferred_render_instances.render_commands) {
                   if (!render_command.cast_shadow)
                     continue;
                   RenderInstancePushConstant push_constant;
@@ -1434,16 +939,9 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
               }
             }
             {
-              directional_light_shadow_pipeline_instanced->states.ResetAllStates(0);
-              directional_light_shadow_pipeline_instanced->Bind(vk_command_buffer);
-              directional_light_shadow_pipeline_instanced->BindDescriptorSet(
-                  vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-              directional_light_shadow_pipeline_instanced->states.cull_mode = VK_CULL_MODE_NONE;
-              GeometryStorage::BindVertices(vk_command_buffer);
-              directional_light_shadow_pipeline_instanced->states.SetViewportScissor(
-                  directional_light_info_block.viewport);
+              prepare_graphics_pipeline(directional_light_shadow_pipeline_instanced);
               for (const auto& render_command :
-                   render_instances_list[current_frame_index]->deferred_instanced_render_instances.render_commands) {
+                   current_render_instances->deferred_instanced_render_instances.render_commands) {
                 if (!render_command.cast_shadow)
                   continue;
                 RenderInstancePushConstant push_constant;
@@ -1460,15 +958,9 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             }
             GeometryStorage::BindSkinnedVertices(vk_command_buffer);
             {
-              directional_light_shadow_pipeline_skinned->states.ResetAllStates(0);
-              directional_light_shadow_pipeline_skinned->Bind(vk_command_buffer);
-              directional_light_shadow_pipeline_skinned->BindDescriptorSet(
-                  vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-              directional_light_shadow_pipeline_skinned->states.cull_mode = VK_CULL_MODE_NONE;
-              directional_light_shadow_pipeline_skinned->states.SetViewportScissor(
-                  directional_light_info_block.viewport);
+              prepare_graphics_pipeline(directional_light_shadow_pipeline_skinned);
               for (const auto& render_command :
-                   render_instances_list[current_frame_index]->deferred_skinned_render_instances.render_commands) {
+                   current_render_instances->deferred_skinned_render_instances.render_commands) {
                 if (!render_command.cast_shadow)
                   continue;
                 RenderInstancePushConstant push_constant;
@@ -1486,15 +978,9 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
 #ifdef EVOENGINE_WINDOWS
             GeometryStorage::BindStrandPoints(vk_command_buffer);
             {
-              directional_light_shadow_pipeline_strands->states.ResetAllStates(0);
-              directional_light_shadow_pipeline_strands->Bind(vk_command_buffer);
-              directional_light_shadow_pipeline_strands->BindDescriptorSet(
-                  vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-              directional_light_shadow_pipeline_strands->states.cull_mode = VK_CULL_MODE_NONE;
-              directional_light_shadow_pipeline_strands->states.SetViewportScissor(
-                  directional_light_info_block.viewport);
+              prepare_graphics_pipeline(directional_light_shadow_pipeline_strands);
               for (const auto& render_command :
-                   render_instances_list[current_frame_index]->deferred_strands_render_instances.render_commands) {
+                   current_render_instances->deferred_strands_render_instances.render_commands) {
                 if (!render_command.cast_shadow)
                   continue;
                 RenderInstancePushConstant push_constant;
@@ -1510,6 +996,9 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
               }
             }
 #endif
+            for (const auto& func : directional_light_shadow_map_external_functions) {
+              func(vk_command_buffer, {i, split, current_render_instances->point_light_info_blocks_[i].viewport});
+            }
           }
         });
       }
@@ -1574,7 +1063,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
           }
           if (enable_indirect_rendering &&
-              !render_instances_list[current_frame_index]->deferred_render_instances.render_commands.empty()) {
+              !current_render_instances->deferred_render_instances.render_commands.empty()) {
             RenderInstancePushConstant push_constant;
             push_constant.camera_index = camera_index;
             push_constant.instance_index = 0;
@@ -1583,25 +1072,22 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             if (count_draw_calls)
               graphics.draw_call[current_frame_index]++;
             if (count_draw_calls)
-              graphics.triangles[current_frame_index] +=
-                  render_instances_list[current_frame_index]->total_mesh_triangles;
+              graphics.triangles[current_frame_index] += current_render_instances->total_mesh_triangles;
             if (use_mesh_shader) {
               vkCmdDrawMeshTasksIndirectEXT(
                   vk_command_buffer,
-                  render_instances_list[current_frame_index]
-                      ->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(),
-                  0, render_instances_list[current_frame_index]->mesh_draw_mesh_tasks_indirect_commands.size(),
+                  current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(), 0,
+                  current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
                   sizeof(VkDrawMeshTasksIndirectCommandEXT));
             } else {
               vkCmdDrawIndexedIndirect(
                   vk_command_buffer,
-                  render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(),
-                  0, render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands.size(),
+                  current_render_instances->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(), 0,
+                  current_render_instances->mesh_draw_indexed_indirect_commands.size(),
                   sizeof(VkDrawIndexedIndirectCommand));
             }
           } else {
-            for (const auto& render_command :
-                 render_instances_list[current_frame_index]->deferred_render_instances.render_commands) {
+            for (const auto& render_command : current_render_instances->deferred_render_instances.render_commands) {
               RenderInstancePushConstant push_constant;
               push_constant.camera_index = camera_index;
               push_constant.instance_index = render_command.instance_index;
@@ -1626,7 +1112,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           deferred_instanced_prepass_pipeline->BindDescriptorSet(
               vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
           for (const auto& render_command :
-               render_instances_list[current_frame_index]->deferred_instanced_render_instances.render_commands) {
+               current_render_instances->deferred_instanced_render_instances.render_commands) {
             RenderInstancePushConstant push_constant;
             push_constant.camera_index = camera_index;
             push_constant.instance_index = render_command.instance_index;
@@ -1653,7 +1139,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
               vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
 
           for (const auto& render_command :
-               render_instances_list[current_frame_index]->deferred_skinned_render_instances.render_commands) {
+               current_render_instances->deferred_skinned_render_instances.render_commands) {
             RenderInstancePushConstant push_constant;
             push_constant.camera_index = camera_index;
             push_constant.instance_index = render_command.instance_index;
@@ -1680,7 +1166,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           deferred_strands_prepass_pipeline->BindDescriptorSet(
               vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
           for (const auto& render_command :
-               render_instances_list[current_frame_index]->deferred_strands_render_instances.render_commands) {
+               current_render_instances->deferred_strands_render_instances.render_commands) {
             RenderInstancePushConstant push_constant;
             push_constant.camera_index = camera_index;
             push_constant.instance_index = render_command.instance_index;
@@ -1759,9 +1245,10 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
 }
 
 void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_transform,
-                                           const std::shared_ptr<Camera>& camera) {
+                                           const std::shared_ptr<Camera>& camera) const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const int camera_index = GetCameraIndex(camera->GetHandle());
+  const auto current_render_instances = render_instances_list_[current_frame_index];
+  const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
   const auto scene = Application::GetActiveScene();
   if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
     const auto& ray_tracing_pipeline = Platform::GetRayTracingPipeline("RAY_TRACING_CAMERA");
@@ -1790,57 +1277,11 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
   }
 }
 
-void RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
-                           glm::mat4 model, bool cast_shadow) {
-  if (!material || !mesh || !mesh->meshlet_range_ || !mesh->triangle_range_)
-    return;
-  if (mesh->UnsafeGetVertices().empty() || mesh->UnsafeGetTriangles().empty())
-    return;
-  auto scene = Application::GetActiveScene();
-  MaterialInfoBlock material_info_block;
-  material->UpdateMaterialInfoBlock(material_info_block);
+uint32_t RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
+                               const GlobalTransform& global_transform, const bool cast_shadow) const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  auto material_index =
-      render_instances_list[current_frame_index]->RegisterMaterialIndex(material->GetHandle(), material_info_block);
-  InstanceInfoBlock instance_info_block;
-  instance_info_block.model.value = model;
-  instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = 0;
-  instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
-  instance_info_block.meshlet_size = mesh->meshlet_range_->range;
-
-  auto entity_handle = Handle();
-  auto instance_index =
-      render_instances_list[current_frame_index]->RegisterInstanceIndex(entity_handle, instance_info_block);
-  MeshRenderInstance render_instance;
-  render_instance.command_type = RenderCommandType::FromApi;
-  render_instance.owner = Entity();
-  render_instance.mesh = mesh;
-  render_instance.cast_shadow = cast_shadow;
-  render_instance.meshlet_size = mesh->meshlet_range_->range;
-  render_instance.instance_index = instance_index;
-  if (instance_info_block.entity_selected == 1)
-    need_fade_ = true;
-  if (material->draw_settings.blending) {
-    render_instances_list[current_frame_index]->transparent_render_instances.render_commands.push_back(render_instance);
-  } else {
-    render_instances_list[current_frame_index]->deferred_render_instances.render_commands.push_back(render_instance);
-  }
-
-  auto& new_mesh_task =
-      render_instances_list[current_frame_index]->mesh_draw_mesh_tasks_indirect_commands.emplace_back();
-  new_mesh_task.groupCountX = 1;
-  new_mesh_task.groupCountY = 1;
-  new_mesh_task.groupCountZ = 1;
-
-  auto& new_draw_task = render_instances_list[current_frame_index]->mesh_draw_indexed_indirect_commands.emplace_back();
-  new_draw_task.instanceCount = 1;
-  new_draw_task.firstIndex = mesh->triangle_range_->offset * 3;
-  new_draw_task.indexCount = static_cast<uint32_t>(mesh->triangles_.size() * 3);
-  new_draw_task.vertexOffset = 0;
-  new_draw_task.firstInstance = 0;
-
-  render_instances_list[current_frame_index]->total_mesh_triangles += mesh->triangles_.size();
+  const auto current_render_instances = render_instances_list_[current_frame_index];
+  return current_render_instances->RegisterMeshDrawCommand(mesh, material, global_transform, cast_shadow);
 }
 
 const std::shared_ptr<DescriptorSet>& RenderLayer::GetPerFrameDescriptorSet() const {

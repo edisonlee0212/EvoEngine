@@ -5,26 +5,7 @@
 #include "MaterialProperties.hpp"
 #include "Texture2D.hpp"
 namespace evo_engine {
-struct MaterialInfoBlock {
-  alignas(4) int albedo_texture_index = -1;
-  alignas(4) int normal_texture_index = -1;
-  alignas(4) int metallic_texture_index = -1;
-  alignas(4) int roughness_texture_index = -1;
 
-  alignas(4) int ao_texture_index = -1;
-  alignas(4) int cast_shadow = true;
-  alignas(4) int receive_shadow = true;
-  alignas(4) int enable_shadow = true;
-
-  glm::vec4 albedo_color_val = glm::vec4(1.0f);
-  glm::vec4 subsurface_color = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
-  glm::vec4 subsurface_radius = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
-
-  alignas(4) float metallic_val = 0.5f;
-  alignas(4) float roughness_val = 0.5f;
-  alignas(4) float ao_val = 1.0f;
-  alignas(4) float emission_val = 0.0f;
-};
 
 struct DrawSettings {
   float line_width = 1.0f;
@@ -68,8 +49,6 @@ class Material final : public IAsset {
   bool vertex_color_only = false;
   MaterialProperties material_properties;
   DrawSettings draw_settings;
-
-  void UpdateMaterialInfoBlock(MaterialInfoBlock& material_info_block);
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
   void Serialize(YAML::Emitter& out) const override;

@@ -3,15 +3,17 @@
 #include "IPrivateComponent.hpp"
 
 namespace evo_engine {
-struct DirectionalLightInfo {
+struct DirectionalLightInfoBlock {
   glm::vec4 direction;
   glm::vec4 diffuse;
-  glm::vec4 m_specular;
+  glm::vec4 specular;
   glm::mat4 light_space_matrix[4];
   glm::vec4 light_frustum_width;
   glm::vec4 light_frustum_distance;
   glm::vec4 reserved_parameters;
   glm::ivec4 viewport;
+
+  bool operator!=(const DirectionalLightInfoBlock& other) const;
 };
 class DirectionalLight : public IPrivateComponent {
  public:
@@ -27,7 +29,7 @@ class DirectionalLight : public IPrivateComponent {
   void Deserialize(const YAML::Node& in) override;
   void PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) override;
 };
-struct PointLightInfo {
+struct PointLightInfoBlock {
   glm::vec4 position;
   glm::vec4 constant_linear_quad_far_plane;
   glm::vec4 diffuse;
@@ -35,6 +37,8 @@ struct PointLightInfo {
   glm::mat4 light_space_matrix[6];
   glm::vec4 reserved_parameters;
   glm::ivec4 viewport;
+
+  bool operator!=(const PointLightInfoBlock& other) const;
 };
 
 class PointLight : public IPrivateComponent {
@@ -54,7 +58,7 @@ class PointLight : public IPrivateComponent {
   [[nodiscard]] float GetFarPlane() const;
   void PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) override;
 };
-struct SpotLightInfo {
+struct SpotLightInfoBlock {
   glm::vec4 position;
   glm::vec4 direction;
   glm::mat4 light_space_matrix;
@@ -63,6 +67,8 @@ struct SpotLightInfo {
   glm::vec4 diffuse;
   glm::vec4 specular;
   glm::ivec4 viewport;
+
+  bool operator!=(const SpotLightInfoBlock& other) const;
 };
 class SpotLight : public IPrivateComponent {
  public:

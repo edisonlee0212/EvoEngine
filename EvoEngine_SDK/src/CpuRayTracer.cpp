@@ -8,7 +8,7 @@
 
 using namespace evo_engine;
 void CpuRayTracer::Initialize(
-    const std::shared_ptr<RenderInstances>& render_instances,
+    const std::shared_ptr<RenderInstanceStorage>& render_instances,
     const std::function<void(uint32_t mesh_index, const std::shared_ptr<Mesh>& mesh)>& mesh_binding,
     const std::function<void(uint32_t node_index, const Entity& entity)>& node_binding) {
   Clear();
@@ -1359,13 +1359,13 @@ void CpuRayTracer::GeometryInstance::Clear() noexcept {
   vertices.clear();
 }
 
-void CpuRayTracer::NodeInstance::Initialize(const std::shared_ptr<RenderInstances>& render_instances,
+void CpuRayTracer::NodeInstance::Initialize(const std::shared_ptr<RenderInstanceStorage>& render_instances,
                                             const MeshRenderInstance& render_instance,
                                             const std::vector<GeometryInstance>& mesh_instances,
                                             const std::map<Handle, uint32_t>& mesh_instances_map) {
   const auto mesh_index = mesh_instances_map.at(render_instance.instance_index);
   const auto& mesh_instance = mesh_instances[mesh_index];
-  transformation = render_instances->target_scene->GetDataComponent<GlobalTransform>(render_instance.owner);
+  transformation = render_instance.model;
   instance_index = render_instance.instance_index;
   inverse_transformation.value = glm::inverse(transformation.value);
   entity = render_instance.owner;

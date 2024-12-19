@@ -26,14 +26,14 @@ void PlanetTerrainSystem::Update() {
         // planetTransform, cameraLtw); }).share());
         CheckLod(mesh_gen_lock, chunk, planet_info, planet_transform, camera_ltw);
       }
-
-      glm::mat4 matrix = glm::scale(
+      GlobalTransform global_transform;
+      global_transform.value = glm::scale(
           glm::translate(glm::mat4_cast(planet_transform.GetRotation()), glm::vec3(planet_transform.GetPosition())),
           glm::vec3(1.0f));
       auto material = planet_terrain->surface_material.Get<Material>();
       if (material) {
         for (auto j = 0; j < planet_chunks.size(); j++) {
-          RenderChunk(planet_chunks[j], material, matrix, true);
+          RenderChunk(planet_chunks[j], material, global_transform, true);
         }
       }
     }
@@ -71,7 +71,7 @@ void PlanetTerrainSystem::CheckLod(std::mutex &mutex, const std::shared_ptr<Terr
 }
 
 void PlanetTerrainSystem::RenderChunk(const std::shared_ptr<TerrainChunk> &chunk,
-                                      const std::shared_ptr<Material> &material, glm::mat4 &matrix,
+                                      const std::shared_ptr<Material> &material, const GlobalTransform &matrix,
                                       bool receive_shadow) {
   if (chunk->active) {
     const auto render_layer = Application::GetLayer<RenderLayer>();

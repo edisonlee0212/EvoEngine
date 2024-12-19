@@ -274,7 +274,8 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   UniformParticleRenderPushConstant uniform_particle_push_constant;
   uniform_particle_push_constant.render_mode = visualization_parameters.uniform_particle_render_mode;
   uniform_particle_push_constant.min_color = visualization_parameters.uniform_particle_main;
-  uniform_particle_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
+  uniform_particle_push_constant.camera_index =
+      render_layer->GetCurrentRenderInstances()->GetCameraIndex(target_camera->GetHandle());
   uniform_particle_push_constant.multiplier = visualization_parameters.uniform_particle_radius_multiplier;
   uniform_particle_push_constant.strand_uniform_particle_size = uniform_particles.size();
 
@@ -284,7 +285,8 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
                                         ? visualization_parameters.segment_color_main
                                         : visualization_parameters.segment_color_min;
   segment_push_constant.max_color = visualization_parameters.segment_color_max;
-  segment_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
+  segment_push_constant.camera_index =
+      render_layer->GetCurrentRenderInstances()->GetCameraIndex(target_camera->GetHandle());
   segment_push_constant.multiplier = visualization_parameters.segment_radius_multiplier;
   segment_push_constant.boundary_distance_modular = visualization_parameters.segment_boundary_distance_modular;
   segment_push_constant.strand_segment_size = segments.size();
@@ -295,7 +297,8 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
                                              ? visualization_parameters.segment_pair_color_main
                                              : visualization_parameters.segment_pair_color_min;
   segment_pair_push_constant.max_color = visualization_parameters.segment_pair_color_max;
-  segment_pair_push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
+  segment_pair_push_constant.camera_index =
+      render_layer->GetCurrentRenderInstances()->GetCameraIndex(target_camera->GetHandle());
   segment_pair_push_constant.multiplier = visualization_parameters.segment_pair_radius_multiplier;
   segment_pair_push_constant.strand_segment_pair_size = segment_pairs.size();
 

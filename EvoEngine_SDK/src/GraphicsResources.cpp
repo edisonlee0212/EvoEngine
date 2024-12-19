@@ -4,7 +4,7 @@
 #include "Console.hpp"
 #include "Mesh.hpp"
 #include "Platform.hpp"
-#include "RenderInstances.hpp"
+#include "RenderInstanceStorage.hpp"
 #include "Utilities.hpp"
 
 using namespace evo_engine;

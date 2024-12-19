@@ -2,46 +2,56 @@
 #include "Camera.hpp"
 #include "IGeometry.hpp"
 #include "ILayer.hpp"
-#include "Lights.hpp"
+
 #include "Material.hpp"
 #include "Mesh.hpp"
-#include "RenderInstances.hpp"
+#include "RenderInstanceStorage.hpp"
 namespace evo_engine {
-#pragma region Enums Structs
-struct RenderInfoBlock {
-  glm::vec4 split_distances = {};
-  alignas(4) int pcf_sample_amount = 32;
-  alignas(4) int blocker_search_amount = 8;
-  alignas(4) float seam_fix_ratio = 0.1f;
-  alignas(4) float gamma = 1.f;
-
-  alignas(4) float strands_subdivision_x_factor = 50.0f;
-  alignas(4) float strands_subdivision_y_factor = 50.0f;
-  alignas(4) int strands_subdivision_max_x = 15;
-  alignas(4) int strands_subdivision_max_y = 8;
-
-  alignas(4) int directional_light_size = 0;
-  alignas(4) int point_light_size = 0;
-  alignas(4) int spot_light_size = 0;
-  alignas(4) int brdflut_texture_index = 0;
-
-  alignas(4) int debug_visualization = 0;
-  alignas(4) int padding0 = 0;
-  alignas(4) int padding1 = 0;
-  alignas(4) int padding2 = 0;
-};
-
-struct EnvironmentInfoBlock {
-  glm::vec4 background_color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-  alignas(4) float environmental_map_gamma = 2.2f;
-  alignas(4) float environmental_lighting_intensity = 0.8f;
-  alignas(4) float background_intensity = 1.0f;
-  alignas(4) float environmental_padding2 = 0.0f;
-};
-
-#pragma endregion
-
 class RenderLayer final : public ILayer {
+ public:
+  void ForEachCollectedCamera(const std::function<void(const std::shared_ptr<Camera>& camera)>& action) const;
+  [[nodiscard]] std::shared_ptr<RenderInstanceStorage> GetCurrentRenderInstances() const;
+  bool wire_frame = false;
+  bool count_shadow_rendering_draw_calls = true;
+  bool enable_indirect_rendering = true;
+  bool enable_render_menu = false;
+  RenderSettings render_settings{};
+  [[nodiscard]] uint32_t DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
+                                  const GlobalTransform& global_transform, bool cast_shadow) const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetPerFrameDescriptorSet() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetLightingDescriptorSet() const;
+
+  struct PointLightShadowMapView {
+    int light_index;
+    int face;
+    glm::ivec4 viewport;
+  };
+  struct SpotLightShadowMapView {
+    int light_index;
+    glm::ivec4 viewport;
+  };
+  struct DirectionalLightShadowMapView {
+    int light_index;
+    int split;
+    glm::ivec4 viewport;
+  };
+  void RenderToPointLightShadowMap(std::function<uint32_t(VkCommandBuffer vk_command_buffer,
+                                                          const PointLightShadowMapView& shadow_map_view)>&& func);
+  void RenderToSpotLightShadowMap(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>&& func);
+  void RenderToDirectionalLightShadowMap(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>&&
+          func);
+ private:
+  std::vector<
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>>
+      point_light_shadow_map_external_functions;
+  std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>>
+      spot_light_shadow_map_external_functions;
+  std::vector<
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>>
+      directional_light_shadow_map_external_functions;
+
   friend class Resources;
   friend class Camera;
   friend class GraphicsPipeline;
@@ -51,92 +61,26 @@ class RenderLayer final : public ILayer {
   friend class PostProcessingStack;
   friend class Application;
   void OnCreate() override;
-  void OnDestroy() override;
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
   void PreparePointAndSpotLightShadowMap() const;
-
   void PrepareEnvironmentalBrdfLut();
-  void RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera);
-  void RenderToCameraRayTracing(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera);
-
-  void CollectCameras(const std::shared_ptr<Scene>& scene,
-                      std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
-  void ClearAllCameras();
-  void RenderAllCameras();
-  void RenderGizmos();
- public:
-  void ForEachCollectedCamera(const std::function<void(const std::shared_ptr<Camera>& camera)>& action);
-
-  std::vector<std::shared_ptr<RenderInstances>> render_instances_list;
-
-  bool wire_frame = false;
-
-  bool count_shadow_rendering_draw_calls = true;
-  bool enable_indirect_rendering = true;
-  bool enable_debug_visualization = false;
-  bool enable_render_menu = false;
-  bool stable_fit = true;
-  float max_shadow_distance = 100;
-  float shadow_cascade_split[4] = {0.075f, 0.15f, 0.3f, 1.0f};
-
-  [[nodiscard]] uint32_t GetCameraIndex(const Handle& handle);
-  [[nodiscard]] uint32_t RegisterCameraIndex(const Handle& handle, const CameraInfoBlock& camera_info_block);
-
-  RenderInfoBlock render_info_block = {};
-  EnvironmentInfoBlock environment_info_block = {};
-  void DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material, glm::mat4 model,
-                bool cast_shadow);
-
-  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetPerFrameDescriptorSet() const;
-  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetLightingDescriptorSet() const;
- private:
+  void RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera) const;
+  void RenderToCameraRayTracing(const GlobalTransform& camera_global_transform,
+                                const std::shared_ptr<Camera>& camera) const;
+  void ClearAll() const;
+  void RenderAll();
+  void RenderGizmos() const;
+  std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;
   bool need_fade_ = false;
-#pragma region Render procedure
-  bool UpdateRenderInfo(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
-  bool UpdateEnvironmentInfo(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
-  bool UpdateCameras(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
-
-  bool UpdateRenderInstances(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
-  bool UpdateLighting(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
-                      const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
-
-  void CollectDirectionalLights(const std::shared_ptr<Scene>& scene,
-                                const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
-  void CollectPointLights(const std::shared_ptr<Scene>& scene, const GlobalTransform& view_point_gt);
-  void CollectSpotLights(const std::shared_ptr<Scene>& scene, const GlobalTransform& view_point_gt);
-
+  bool UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
   std::unique_ptr<Lighting> lighting_;
+  friend class RenderInstanceStorage;
   std::shared_ptr<Texture2D> environmental_brdf_lut_ = {};
-
   void ApplyAnimators() const;
-
-#pragma endregion
-#pragma region Per Frame Descriptor Sets
   friend class TextureStorage;
   std::vector<std::shared_ptr<DescriptorSet>> per_frame_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> meshlet_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> ray_tracing_descriptor_sets_ = {};
-
-  std::vector<std::shared_ptr<Buffer>> render_info_descriptor_buffers_ = {};
-  std::vector<std::shared_ptr<Buffer>> environment_info_descriptor_buffers_ = {};
-  std::vector<std::shared_ptr<Buffer>> camera_info_descriptor_buffers_ = {};
-
   std::vector<std::shared_ptr<Buffer>> kernel_descriptor_buffers_ = {};
-  std::vector<std::shared_ptr<Buffer>> directional_light_info_descriptor_buffers_ = {};
-  std::vector<std::shared_ptr<Buffer>> point_light_info_descriptor_buffers_ = {};
-  std::vector<std::shared_ptr<Buffer>> spot_light_info_descriptor_buffers_ = {};
-
-  void CreateStandardDescriptorBuffers();
-  void CreateDescriptorSets();
-  std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> collected_cameras_;
-  std::unordered_map<Handle, uint32_t> camera_indices_;
-
-  std::vector<CameraInfoBlock> camera_info_blocks_{};
-  std::vector<DirectionalLightInfo> directional_light_info_blocks_;
-  std::vector<PointLightInfo> point_light_info_blocks_;
-  std::vector<SpotLightInfo> spot_light_info_blocks_;
-
-#pragma endregion
 };
 }  // namespace evo_engine

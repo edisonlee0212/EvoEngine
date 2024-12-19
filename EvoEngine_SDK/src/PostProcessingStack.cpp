@@ -3,8 +3,8 @@
 #include "Application.hpp"
 #include "Camera.hpp"
 #include "GeometryStorage.hpp"
-#include "Platform.hpp"
 #include "Mesh.hpp"
+#include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 using namespace evo_engine;
@@ -75,7 +75,6 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
       image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
       image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
       ssr_reflect_descriptor_set_->UpdateImageDescriptorBinding(20, image_info);
-      
     }
     {
       VkDescriptorImageInfo image_info;
@@ -131,7 +130,8 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
         push_constant.num_binary_search_steps = ssr_settings.num_binary_search_steps;
         push_constant.step = ssr_settings.step;
         push_constant.max_steps = ssr_settings.max_steps;
-        push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
+        push_constant.camera_index =
+            render_layer->GetCurrentRenderInstances()->GetCameraIndex(target_camera->GetHandle());
         const auto mesh = Resources::GetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
         std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
         VkRenderingInfo render_info2{};
@@ -169,8 +169,10 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
           }
           ssr_reflect_pipeline->Bind(vk_command_buffer);
           ssr_reflect_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0, render_layer->per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          ssr_reflect_pipeline->BindDescriptorSet(vk_command_buffer, 1, ssr_reflect_descriptor_set_->GetVkDescriptorSet());
+              vk_command_buffer, 0,
+              render_layer->per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+          ssr_reflect_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                                  ssr_reflect_descriptor_set_->GetVkDescriptorSet());
           ssr_reflect_pipeline->states.view_port = viewport;
           ssr_reflect_pipeline->states.scissor = scissor;
 
@@ -179,7 +181,8 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
           vkCmdEndRendering(vk_command_buffer);
         }
         // Input texture
-        render_texture1_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        render_texture1_->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         // Attachments
         color_attachment_infos.clear();
         render_texture2_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
@@ -209,7 +212,8 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
           vkCmdEndRendering(vk_command_buffer);
         }
         // Input texture
-        render_texture2_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        render_texture2_->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         // Attachments
         color_attachment_infos.clear();
         render_texture1_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
@@ -239,8 +243,10 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
           vkCmdEndRendering(vk_command_buffer);
         }
         // Input texture
-        render_texture0_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        render_texture1_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        render_texture0_->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        render_texture1_->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         // Attachments
         color_attachment_infos.clear();
         target_camera->render_texture_->GetColorImage()->TransitImageLayout(vk_command_buffer,
@@ -261,7 +267,8 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
             i.blendEnable = VK_FALSE;
           }
           ssr_combine_pipeline->Bind(vk_command_buffer);
-          ssr_combine_pipeline->BindDescriptorSet(vk_command_buffer, 0, ssr_combine_descriptor_set_->GetVkDescriptorSet());
+          ssr_combine_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                  ssr_combine_descriptor_set_->GetVkDescriptorSet());
           ssr_combine_pipeline->states.view_port = viewport;
           ssr_combine_pipeline->states.scissor = scissor;
           ssr_combine_pipeline->PushConstant(vk_command_buffer, 0, push_constant);

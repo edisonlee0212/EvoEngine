@@ -21,7 +21,7 @@ void GpuRayTracerCamera::OnCreate() {
 void GpuRayTracerCamera::LateUpdate() {
   /**
    * If per_frame_capture is set to TRUE, we will trace scene for every frame.
-   * Reason we are doing it in LateUpdate, is because the render_instances_list will only be updated right before
+   * Reason we are doing it in LateUpdate, is because the render_instances_list_ will only be updated right before
    * LateUpdate during a frame. RenderLayer will collect all MeshRenderers in the scene and build a collections that
    * represents what needs to be rendered for current frame.
    *
@@ -64,9 +64,9 @@ void GpuRayTracerCamera::Capture() {
    * rendering, and here we also use it for ray tracing. It also detects updates of the scene, like transformation,
    * mesh, material changes.
    */
-  std::shared_ptr<RenderInstances> render_instances;
+  std::shared_ptr<RenderInstanceStorage> render_instances;
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
-    render_instances = render_layer->render_instances_list[Platform::GetCurrentFrameIndex()];
+    render_instances = render_layer->GetCurrentRenderInstances();
   } else
     return;
   CameraInfoBlock camera_info_block;

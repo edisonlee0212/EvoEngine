@@ -83,7 +83,7 @@ class Strands final : public IAsset, public IGeometry {
 
   friend class StrandsRenderer;
   friend class RenderLayer;
-  friend class RenderInstances;
+  friend class RenderInstanceStorage;
   Bound bound_;
 
   void PrepareStrands(const StrandPointAttributes& strand_point_attributes);
