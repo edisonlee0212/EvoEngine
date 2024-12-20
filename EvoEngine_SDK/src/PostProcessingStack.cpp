@@ -131,7 +131,7 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
         push_constant.step = ssr_settings.step;
         push_constant.max_steps = ssr_settings.max_steps;
         push_constant.camera_index =
-            render_layer->GetCurrentRenderInstances()->GetCameraIndex(target_camera->GetHandle());
+            render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
         const auto mesh = Resources::GetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
         std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
         VkRenderingInfo render_info2{};

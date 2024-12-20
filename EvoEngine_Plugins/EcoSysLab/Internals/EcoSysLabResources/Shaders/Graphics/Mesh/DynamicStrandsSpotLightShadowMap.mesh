@@ -62,7 +62,7 @@ void main(){
 	SetMeshOutputsEXT(TETRAHEDRON_VERTICES_SIZE, delaunay_tetrahedrons[tet_id].triangles_accepted);
 	DelaunayTetrahedron tet = delaunay_tetrahedrons[tet_id];
 	// set up vertex properties
-	mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
+	mat4 transform = EE_SPOT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix;
 	
 	[[unroll]]
 	for (uint i = 0; i < uint(TETRAHEDRON_VERTEX_ITERATIONS); ++i)

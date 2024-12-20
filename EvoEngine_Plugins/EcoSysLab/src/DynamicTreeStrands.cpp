@@ -128,15 +128,17 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
   }
 }
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
+  material_ref.Save("material_ref", out);
 }
 
 void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
+  material_ref.Load("material_ref", in);
 }
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  editor_layer->DragAndDropButton<Material>(material_ref, "Material");
   if (ImGui::TreeNode("Initialization settings")) {
     initialize_parameters.OnInspect(editor_layer);
-
     ImGui::Checkbox("Limit strand length", &limit_strand_length);
     if (limit_strand_length) {
       ImGui::DragFloat("Max strand length", &max_strand_length, 0.01f, 0.01f, 10.0f);
@@ -251,6 +253,10 @@ void DynamicTreeStrands::OnCreate() {
   drag_operator = std::make_shared<DsDrag>();
   line_cut_operator = std::make_shared<DsLineCut>();
   saw_operator = std::make_shared<DsSaw>();
+
+  if (!material_ref.Get<Material>()) {
+    material_ref = ProjectManager::CreateTemporaryAsset<Material>();
+  }
 }
 
 void DynamicTreeStrands::OnDestroy() {
@@ -536,10 +542,29 @@ void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_cam
   }
 }
 
-void DynamicTreeStrands::Render(const std::shared_ptr<Camera>& target_camera) const {
-  if (!dynamic_strands->segments.empty()) {
-    if (!dynamic_strands->WaitForUpload()) {
-      dynamic_strands->Render(target_camera, render_parameters);
+void DynamicTreeStrands::RenderShadowMap() {
+  if (const auto material = material_ref.Get<Material>()) {
+    if (!dynamic_strands->segments.empty()) {
+      if (!dynamic_strands->WaitForUpload()) {
+        dynamic_strands->RenderShadowMap(render_parameters);
+      }
+    }
+  }
+}
+
+void DynamicTreeStrands::RegisterMaterial() {
+  if (const auto material = material_ref.Get<Material>()) {
+    const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+    material_index = current_render_storage->RegisterMaterial(material);
+  }
+}
+
+void DynamicTreeStrands::Render() {
+  if (const auto material = material_ref.Get<Material>()) {
+    if (!dynamic_strands->segments.empty()) {
+      if (!dynamic_strands->WaitForUpload()) {
+        dynamic_strands->Render(material_index, render_parameters);
+      }
     }
   }
 }

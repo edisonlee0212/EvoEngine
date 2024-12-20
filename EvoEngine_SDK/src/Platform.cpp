@@ -135,8 +135,7 @@ void Platform::Initialize() {
   GeometryStorage::Initialize();
   TextureStorage::Initialize();
   graphics.draw_call.resize(graphics.max_frame_in_flight_);
-  graphics.triangles.resize(graphics.max_frame_in_flight_);
-  graphics.strands_segments.resize(graphics.max_frame_in_flight_);
+  graphics.prim_count.resize(graphics.max_frame_in_flight_);
 
   const uint32_t subgroup_size = selected_physical_device->vulkan11_properties.subgroupSize;
 

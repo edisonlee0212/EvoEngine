@@ -35,6 +35,7 @@ AssetRegistration<ForestPatch> forest_patch_registry("ForestPatch", {".forestpat
 #ifdef BILLBOARD_CLOUDS_PLUGIN
 PrivateComponentRegistration<BillboardCloudsConverter> billboard_clouds_converter_register("BillboardCloudsConverter");
 #endif
+
 void EcoSysLabLayer::OnCreate() {
   Shader::RegisterShaderIncludePath(std::filesystem::path("./EcoSysLabResources/Shaders/Includes"));
   if (random_colors_.empty()) {
@@ -608,6 +609,12 @@ void EcoSysLabLayer::PreUpdate() {
   visualization_camera_->Resize({visualization_camera_resolution_x, visualization_camera_resolution_y});
 }
 
+void EcoSysLabLayer::Update() {
+  StrandShadowMapRendering();
+  StrandRegisterMaterial();
+}
+
 void EcoSysLabLayer::LateUpdate() {
+  StrandRendering();
   StrandPhysics();
 }

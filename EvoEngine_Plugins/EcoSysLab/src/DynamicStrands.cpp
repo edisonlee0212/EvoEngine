@@ -1036,6 +1036,8 @@ void DynamicStrands::Clear() {
   hashed_grid_cell_starts.clear();
 }
 
+
+
 glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height,
                                                   const float depth) {
   return {

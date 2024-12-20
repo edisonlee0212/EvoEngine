@@ -807,12 +807,12 @@ void EditorLayer::SceneCameraWindow() {
           ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
           std::string draw_call_info = {};
           const auto current_frame_index = Platform::GetCurrentFrameIndex();
-          if (graphics.triangles[current_frame_index] < 999)
-            draw_call_info += std::to_string(graphics.triangles[current_frame_index]);
-          else if (graphics.triangles[current_frame_index] < 999999)
-            draw_call_info += std::to_string(static_cast<int>(graphics.triangles[current_frame_index] / 1000)) + "K";
+          if (graphics.prim_count[current_frame_index] < 999)
+            draw_call_info += std::to_string(graphics.prim_count[current_frame_index]);
+          else if (graphics.prim_count[current_frame_index] < 999999)
+            draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
           else
-            draw_call_info += std::to_string(static_cast<int>(graphics.triangles[current_frame_index] / 1000000)) + "M";
+            draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
           draw_call_info += " tris";
           ImGui::Text(draw_call_info.c_str());
           ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);
@@ -1012,12 +1012,12 @@ void EditorLayer::MainCameraWindow() {
           ImGui::PopItemWidth();
           std::string draw_call_info = {};
           const auto current_frame_index = Platform::GetCurrentFrameIndex();
-          if (graphics.triangles[current_frame_index] < 999)
-            draw_call_info += std::to_string(graphics.triangles[current_frame_index]);
-          else if (graphics.triangles[current_frame_index] < 999999)
-            draw_call_info += std::to_string(static_cast<int>(graphics.triangles[current_frame_index] / 1000)) + "K";
+          if (graphics.prim_count[current_frame_index] < 999)
+            draw_call_info += std::to_string(graphics.prim_count[current_frame_index]);
+          else if (graphics.prim_count[current_frame_index] < 999999)
+            draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
           else
-            draw_call_info += std::to_string(static_cast<int>(graphics.triangles[current_frame_index] / 1000000)) + "M";
+            draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
           draw_call_info += " tris";
           ImGui::Text(draw_call_info.c_str());
           ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);
@@ -1454,7 +1454,7 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
         instance_index_with_one_added > 0) {
       const auto render_layer = Application::GetLayer<RenderLayer>();
       const auto scene = GetScene();
-      const auto handle = render_layer->GetCurrentRenderInstances()->GetInstanceHandle(
+      const auto handle = render_layer->GetCurrentRenderInstanceStorage()->GetInstanceHandle(
           static_cast<uint32_t>(instance_index_with_one_added - 1));
       if (handle != 0)
         ret_val = scene->GetEntity(handle);

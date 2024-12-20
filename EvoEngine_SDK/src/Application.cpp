@@ -288,9 +288,11 @@ void Application::LateUpdateInternal() {
       for (const auto& layer : application.layers_)
         layer->OnInspect(editor_layer);
     }
+
     if (render_layer) {
-      render_layer->RenderAll();
+      render_layer->PrepareForRendering();
     }
+
     application.application_execution_status_ = ApplicationExecutionStatus::LateUpdate;
 
     for (const auto& i : application.external_late_update_functions_)
@@ -304,6 +306,7 @@ void Application::LateUpdateInternal() {
       (*i)->LateUpdate();
     }
     if (render_layer) {
+      render_layer->RenderAll();
       render_layer->RenderGizmos();
     }
     if (editor_layer) {

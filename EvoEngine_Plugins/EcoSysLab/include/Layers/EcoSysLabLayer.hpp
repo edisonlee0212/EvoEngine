@@ -170,9 +170,9 @@ class EcoSysLabLayer : public ILayer {
   bool visualization_camera_window_focused_ = false;
 
   void PreUpdate() override;
-  void OnCreate() override;
-
+  void Update() override;
   void LateUpdate() override;
+  void OnCreate() override;
   void TreeVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
   void DynamicStrandsVisualization(const std::shared_ptr<EditorLayer>& editor_layer) const;
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
@@ -184,6 +184,9 @@ class EcoSysLabLayer : public ILayer {
   void SoilVisualizationScalar(const VoxelSoilModel& soil_model);  // called during LateUpdate()
   void SoilVisualizationVector(const VoxelSoilModel& soil_model);  // called during LateUpdate()
 
-  void StrandPhysics();
+  void StrandShadowMapRendering() const;
+  void StrandRegisterMaterial() const;
+  void StrandPhysics() const;
+  void StrandRendering() const;
 };
 }  // namespace eco_sys_lab_plugin
