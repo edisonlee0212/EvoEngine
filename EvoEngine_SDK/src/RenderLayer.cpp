@@ -33,6 +33,12 @@ void RenderLayer::RenderToDirectionalLightShadowMap(
   directional_light_shadow_map_external_functions.emplace_back(func);
 }
 
+void RenderLayer::ForwardRenderingAllCameras(
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
+                           const ForwardRenderingView& forward_rendering_view)>&& func) {
+  forward_rendering_external_functions.emplace_back(func);
+}
+
 void RenderLayer::OnCreate() {
   const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
   render_instances_list_.resize(max_frames_in_flight);
@@ -107,14 +113,13 @@ void RenderLayer::ClearAll() const {
   });
 }
 
-void RenderLayer::RenderAll() {
+void RenderLayer::PrepareForRendering() {
   const auto scene = GetScene();
   if (!scene)
     return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   auto& graphics = Platform::GetInstance();
-  graphics.triangles[current_frame_index] = 0;
-  graphics.strands_segments[current_frame_index] = 0;
+  graphics.prim_count[current_frame_index] = 0;
   graphics.draw_call[current_frame_index] = 0;
   const auto current_render_instances = render_instances_list_[current_frame_index];
   ApplyAnimators();
@@ -155,6 +160,11 @@ void RenderLayer::RenderAll() {
   }
   TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
   TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
+}
+
+void RenderLayer::RenderAll() {
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto current_render_instances = render_instances_list_[current_frame_index];
   PreparePointAndSpotLightShadowMap();
   for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
     camera->rendered_ = false;
@@ -166,6 +176,7 @@ void RenderLayer::RenderAll() {
   point_light_shadow_map_external_functions.clear();
   spot_light_shadow_map_external_functions.clear();
   directional_light_shadow_map_external_functions.clear();
+  forward_rendering_external_functions.clear();
 
   if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing &&
       current_render_instances->mesh_top_level_acceleration_structure) {
@@ -181,6 +192,7 @@ void RenderLayer::RenderGizmos() const {
   if (const auto scene = GetScene(); !scene)
     return;
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+    const auto current_frame_index = Platform::GetCurrentFrameIndex();
     const auto current_render_instances = render_instances_list_[Platform::GetCurrentFrameIndex()];
     for (const auto& i : editor_layer->gizmo_mesh_tasks_) {
       if (editor_layer->editor_cameras_.find(i.editor_camera_component->GetHandle()) ==
@@ -206,7 +218,8 @@ void RenderLayer::RenderGizmos() const {
           i.gizmo_settings.ApplySettings(gizmos_pipeline->states);
 
           gizmos_pipeline->Bind(vk_command_buffer);
-          gizmos_pipeline->BindDescriptorSet(vk_command_buffer, 0, GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+          gizmos_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                             per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
 
           i.editor_camera_component->GetRenderTexture()->Render(
               vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&]() {
@@ -236,7 +249,8 @@ void RenderLayer::RenderGizmos() const {
           i.gizmo_settings.ApplySettings(gizmos_pipeline->states);
 
           gizmos_pipeline->Bind(vk_command_buffer);
-          gizmos_pipeline->BindDescriptorSet(vk_command_buffer, 0, GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+          gizmos_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                             per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
           gizmos_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                              i.instanced_data->GetDescriptorSet()->GetVkDescriptorSet());
 
@@ -281,7 +295,8 @@ void RenderLayer::RenderGizmos() const {
           i.gizmo_settings.ApplySettings(gizmos_pipeline->states);
 
           gizmos_pipeline->Bind(vk_command_buffer);
-          gizmos_pipeline->BindDescriptorSet(vk_command_buffer, 0, GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+          gizmos_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                             per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
 
           i.editor_camera_component->GetRenderTexture()->Render(
               vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
@@ -309,7 +324,7 @@ void RenderLayer::ForEachCollectedCamera(
     action(camera.second);
 }
 
-std::shared_ptr<RenderInstanceStorage> RenderLayer::GetCurrentRenderInstances() const {
+std::shared_ptr<RenderInstanceStorage> RenderLayer::GetCurrentRenderInstanceStorage() const {
   return render_instances_list_[Platform::GetCurrentFrameIndex()];
 }
 
@@ -388,7 +403,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
 
   const auto& point_light_shadow_strands_pipeline = Platform::GetGraphicsPipeline("POINT_LIGHT_SHADOW_MAP_STRANDS");
   const auto& spot_light_shadow_strands_pipeline = Platform::GetGraphicsPipeline("SPOT_LIGHT_SHADOW_MAP_STRANDS");
-  auto& graphics = Platform::GetInstance();
+  auto& platform = Platform::GetInstance();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     const auto prepare_graphics_pipeline = [&](const std::shared_ptr<GraphicsPipeline>& target_pipeline,
@@ -435,9 +450,9 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
               point_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
               point_light_shadow_pipeline->states.ApplyAllStates(vk_command_buffer);
               if (count_draw_calls)
-                graphics.draw_call[current_frame_index]++;
+                platform.draw_call[current_frame_index]++;
               if (count_draw_calls)
-                graphics.triangles[current_frame_index] += current_render_instances->total_mesh_triangles;
+                platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
               if (use_mesh_shader) {
                 vkCmdDrawMeshTasksIndirectEXT(
                     vk_command_buffer,
@@ -459,11 +474,11 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                 push_constant.camera_index = i;
                 push_constant.light_split_index = face;
                 push_constant.instance_index = render_command.instance_index;
-                const auto tri_count =
+                const auto prim_count =
                     render_command.Render(vk_command_buffer, push_constant, point_light_shadow_pipeline);
                 if (count_draw_calls) {
-                  graphics.draw_call[current_frame_index]++;
-                  graphics.triangles[current_frame_index] += tri_count;
+                  platform.draw_call[current_frame_index]++;
+                  platform.prim_count[current_frame_index] += prim_count;
                 }
               }
             }
@@ -479,11 +494,11 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
               push_constant.camera_index = i;
               push_constant.light_split_index = face;
               push_constant.instance_index = render_command.instance_index;
-              const auto tri_count =
+              const auto prim_count =
                   render_command.Render(vk_command_buffer, push_constant, point_light_shadow_instanced_pipeline);
               if (count_draw_calls) {
-                graphics.draw_call[current_frame_index]++;
-                graphics.triangles[current_frame_index] += tri_count;
+                platform.draw_call[current_frame_index]++;
+                platform.prim_count[current_frame_index] += prim_count;
               }
             }
           }
@@ -499,11 +514,11 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
               push_constant.camera_index = i;
               push_constant.light_split_index = face;
               push_constant.instance_index = render_command.instance_index;
-              const auto tri_count =
+              const auto prim_count =
                   render_command.Render(vk_command_buffer, push_constant, point_light_shadow_skinned_pipeline);
               if (count_draw_calls) {
-                graphics.draw_call[current_frame_index]++;
-                graphics.triangles[current_frame_index] += tri_count;
+                platform.draw_call[current_frame_index]++;
+                platform.prim_count[current_frame_index] += prim_count;
               }
             }
           }
@@ -520,17 +535,22 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
               push_constant.camera_index = i;
               push_constant.light_split_index = face;
               push_constant.instance_index = render_command.instance_index;
-              const auto tri_count =
+              const auto prim_count =
                   render_command.Render(vk_command_buffer, push_constant, point_light_shadow_strands_pipeline);
               if (count_draw_calls) {
-                graphics.draw_call[current_frame_index]++;
-                graphics.strands_segments[current_frame_index] += tri_count;
+                platform.draw_call[current_frame_index]++;
+                platform.prim_count[current_frame_index] += prim_count;
               }
             }
           }
 #endif
           for (const auto& func : point_light_shadow_map_external_functions) {
-            func(vk_command_buffer, {i, face, current_render_instances->point_light_info_blocks_[i].viewport});
+            const auto prim_count =
+                func(vk_command_buffer, {i, face, current_render_instances->point_light_info_blocks_[i].viewport});
+            if (count_draw_calls) {
+              platform.draw_call[current_frame_index]++;
+              platform.prim_count[current_frame_index] += prim_count;
+            }
           }
         }
       });
@@ -571,9 +591,9 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             spot_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
             spot_light_shadow_pipeline->states.ApplyAllStates(vk_command_buffer);
             if (count_draw_calls)
-              graphics.draw_call[current_frame_index]++;
+              platform.draw_call[current_frame_index]++;
             if (count_draw_calls)
-              graphics.triangles[current_frame_index] += current_render_instances->total_mesh_triangles;
+              platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
             if (use_mesh_shader) {
               vkCmdDrawMeshTasksIndirectEXT(
                   vk_command_buffer,
@@ -595,11 +615,11 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
               push_constant.camera_index = i;
               push_constant.light_split_index = 0;
               push_constant.instance_index = render_command.instance_index;
-              const auto tri_count =
+              const auto prim_count =
                   render_command.Render(vk_command_buffer, push_constant, spot_light_shadow_pipeline);
               if (count_draw_calls) {
-                graphics.draw_call[current_frame_index]++;
-                graphics.triangles[current_frame_index] += tri_count;
+                platform.draw_call[current_frame_index]++;
+                platform.prim_count[current_frame_index] += prim_count;
               }
             }
           }
@@ -615,11 +635,11 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             push_constant.camera_index = i;
             push_constant.light_split_index = 0;
             push_constant.instance_index = render_command.instance_index;
-            const auto tri_count =
+            const auto prim_count =
                 render_command.Render(vk_command_buffer, push_constant, spot_light_shadow_instanced_pipeline);
             if (count_draw_calls) {
-              graphics.draw_call[current_frame_index]++;
-              graphics.triangles[current_frame_index] += tri_count;
+              platform.draw_call[current_frame_index]++;
+              platform.prim_count[current_frame_index] += prim_count;
             }
           }
         }
@@ -635,11 +655,11 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             push_constant.camera_index = i;
             push_constant.light_split_index = 0;
             push_constant.instance_index = render_command.instance_index;
-            const auto tri_count =
+            const auto prim_count =
                 render_command.Render(vk_command_buffer, push_constant, spot_light_shadow_skinned_pipeline);
             if (count_draw_calls) {
-              graphics.draw_call[current_frame_index]++;
-              graphics.triangles[current_frame_index] += tri_count;
+              platform.draw_call[current_frame_index]++;
+              platform.prim_count[current_frame_index] += prim_count;
             }
           }
         }
@@ -656,17 +676,22 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             push_constant.camera_index = i;
             push_constant.light_split_index = 0;
             push_constant.instance_index = render_command.instance_index;
-            const auto tri_count =
+            const auto prim_count =
                 render_command.Render(vk_command_buffer, push_constant, spot_light_shadow_strands_pipeline);
             if (count_draw_calls) {
-              graphics.draw_call[current_frame_index]++;
-              graphics.triangles[current_frame_index] += tri_count;
+              platform.draw_call[current_frame_index]++;
+              platform.prim_count[current_frame_index] += prim_count;
             }
           }
         }
 #endif
         for (const auto& func : spot_light_shadow_map_external_functions) {
-          func(vk_command_buffer, {i, current_render_instances->point_light_info_blocks_[i].viewport});
+          const auto prim_count =
+              func(vk_command_buffer, {i, current_render_instances->spot_light_info_blocks_[i].viewport});
+          if (count_draw_calls) {
+            platform.draw_call[current_frame_index]++;
+            platform.prim_count[current_frame_index] += prim_count;
+          }
         }
       }
     });
@@ -857,7 +882,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
         Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_INSTANCED");
     const auto& directional_light_shadow_pipeline_strands =
         Platform::GetGraphicsPipeline("DIRECTIONAL_LIGHT_SHADOW_MAP_STRANDS");
-    auto& graphics = Platform::GetInstance();
+    auto& platform = Platform::GetInstance();
     Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
       VkRect2D render_area;
@@ -905,9 +930,9 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 directional_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
                 directional_light_shadow_pipeline->states.ApplyAllStates(vk_command_buffer);
                 if (count_draw_calls)
-                  graphics.draw_call[current_frame_index]++;
+                  platform.draw_call[current_frame_index]++;
                 if (count_draw_calls)
-                  graphics.triangles[current_frame_index] += current_render_instances->total_mesh_triangles;
+                  platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
                 if (use_mesh_shader) {
                   vkCmdDrawMeshTasksIndirectEXT(
                       vk_command_buffer,
@@ -929,11 +954,11 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                   push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
                   push_constant.light_split_index = split;
                   push_constant.instance_index = render_command.instance_index;
-                  const auto tri_count =
+                  const auto prim_count =
                       render_command.Render(vk_command_buffer, push_constant, directional_light_shadow_pipeline);
                   if (count_draw_calls) {
-                    graphics.draw_call[current_frame_index]++;
-                    graphics.triangles[current_frame_index] += tri_count;
+                    platform.draw_call[current_frame_index]++;
+                    platform.prim_count[current_frame_index] += prim_count;
                   }
                 }
               }
@@ -948,11 +973,11 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
                 push_constant.light_split_index = split;
                 push_constant.instance_index = render_command.instance_index;
-                const auto tri_count = render_command.Render(vk_command_buffer, push_constant,
-                                                             directional_light_shadow_pipeline_instanced);
+                const auto prim_count = render_command.Render(vk_command_buffer, push_constant,
+                                                              directional_light_shadow_pipeline_instanced);
                 if (count_draw_calls) {
-                  graphics.draw_call[current_frame_index]++;
-                  graphics.triangles[current_frame_index] += tri_count;
+                  platform.draw_call[current_frame_index]++;
+                  platform.prim_count[current_frame_index] += prim_count;
                 }
               }
             }
@@ -967,11 +992,11 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
                 push_constant.light_split_index = split;
                 push_constant.instance_index = render_command.instance_index;
-                const auto tri_count =
+                const auto prim_count =
                     render_command.Render(vk_command_buffer, push_constant, directional_light_shadow_pipeline_skinned);
                 if (count_draw_calls) {
-                  graphics.draw_call[current_frame_index]++;
-                  graphics.triangles[current_frame_index] += tri_count;
+                  platform.draw_call[current_frame_index]++;
+                  platform.prim_count[current_frame_index] += prim_count;
                 }
               }
             }
@@ -987,17 +1012,22 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
                 push_constant.light_split_index = split;
                 push_constant.instance_index = render_command.instance_index;
-                const auto tri_count =
+                const auto prim_count =
                     render_command.Render(vk_command_buffer, push_constant, directional_light_shadow_pipeline_strands);
                 if (count_draw_calls) {
-                  graphics.draw_call[current_frame_index]++;
-                  graphics.triangles[current_frame_index] += tri_count;
+                  platform.draw_call[current_frame_index]++;
+                  platform.prim_count[current_frame_index] += prim_count;
                 }
               }
             }
 #endif
             for (const auto& func : directional_light_shadow_map_external_functions) {
-              func(vk_command_buffer, {i, split, current_render_instances->point_light_info_blocks_[i].viewport});
+              const auto prim_count = func(
+                  vk_command_buffer, {i, split, current_render_instances->directional_light_info_blocks_[i].viewport});
+              if (count_draw_calls) {
+                platform.draw_call[current_frame_index]++;
+                platform.prim_count[current_frame_index] += prim_count;
+              }
             }
           }
         });
@@ -1014,7 +1044,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
       if (need_fade_ && editor_layer->highlight_selection_)
         need_fade = true;
     }
-#pragma region Deferred Rendering
+
     Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
       VkRect2D render_area;
@@ -1036,6 +1066,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
       geometry_pass_render_info.renderArea = render_area;
       geometry_pass_render_info.layerCount = 1;
 #pragma endregion
+#pragma region Deferred Rendering
 #pragma region Geometry pass
 
       const auto geometry_pass_depth_attachment =
@@ -1070,9 +1101,9 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             deferred_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
             deferred_prepass_pipeline->states.ApplyAllStates(vk_command_buffer);
             if (count_draw_calls)
-              graphics.draw_call[current_frame_index]++;
+              platform.draw_call[current_frame_index]++;
             if (count_draw_calls)
-              graphics.triangles[current_frame_index] += current_render_instances->total_mesh_triangles;
+              platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
             if (use_mesh_shader) {
               vkCmdDrawMeshTasksIndirectEXT(
                   vk_command_buffer,
@@ -1095,10 +1126,11 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                   wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
               deferred_prepass_pipeline->states.cull_mode = render_command.cull_mode;
               deferred_prepass_pipeline->states.line_width = render_command.line_width;
-              const auto tri_count = render_command.Render(vk_command_buffer, push_constant, deferred_prepass_pipeline);
+              const auto prim_count =
+                  render_command.Render(vk_command_buffer, push_constant, deferred_prepass_pipeline);
               if (count_draw_calls) {
-                graphics.draw_call[current_frame_index]++;
-                graphics.triangles[current_frame_index] += tri_count;
+                platform.draw_call[current_frame_index]++;
+                platform.prim_count[current_frame_index] += prim_count;
               }
             }
           }
@@ -1120,11 +1152,11 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
             deferred_instanced_prepass_pipeline->states.cull_mode = render_command.cull_mode;
             deferred_instanced_prepass_pipeline->states.line_width = render_command.line_width;
-            const auto tri_count =
+            const auto prim_count =
                 render_command.Render(vk_command_buffer, push_constant, deferred_instanced_prepass_pipeline);
             if (count_draw_calls) {
-              graphics.draw_call[current_frame_index]++;
-              graphics.triangles[current_frame_index] += tri_count;
+              platform.draw_call[current_frame_index]++;
+              platform.prim_count[current_frame_index] += prim_count;
             }
           }
         }
@@ -1147,11 +1179,11 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
             deferred_skinned_prepass_pipeline->states.cull_mode = render_command.cull_mode;
             deferred_skinned_prepass_pipeline->states.line_width = render_command.line_width;
-            const auto tri_count =
+            const auto prim_count =
                 render_command.Render(vk_command_buffer, push_constant, deferred_skinned_prepass_pipeline);
             if (count_draw_calls) {
-              graphics.draw_call[current_frame_index]++;
-              graphics.triangles[current_frame_index] += tri_count;
+              platform.draw_call[current_frame_index]++;
+              platform.prim_count[current_frame_index] += prim_count;
             }
           }
         }
@@ -1174,11 +1206,11 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 wire_frame ? VK_POLYGON_MODE_LINE : render_command.polygon_mode;
             deferred_strands_prepass_pipeline->states.cull_mode = render_command.cull_mode;
             deferred_strands_prepass_pipeline->states.line_width = render_command.line_width;
-            const auto tri_count =
+            const auto prim_count =
                 render_command.Render(vk_command_buffer, push_constant, deferred_strands_prepass_pipeline);
             if (count_draw_calls) {
-              graphics.draw_call[current_frame_index]++;
-              graphics.triangles[current_frame_index] += tri_count;
+              platform.draw_call[current_frame_index]++;
+              platform.prim_count[current_frame_index] += prim_count;
             }
           }
         }
@@ -1230,11 +1262,19 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
         });
       }
 #pragma endregion
-    });
 #pragma endregion
-#pragma region ForwardRendering
 
+#pragma region Forward Rendering
+      for (const auto& func : forward_rendering_external_functions) {
+        const auto prim_count = func(vk_command_buffer, camera, {camera_index, view_port});
+        if (count_draw_calls) {
+          platform.draw_call[current_frame_index]++;
+          platform.prim_count[current_frame_index] += prim_count;
+        }
+      }
 #pragma endregion
+    });
+
     // Post processing
     if (const auto post_processing_stack = camera->post_processing_stack.Get<PostProcessingStack>()) {
       post_processing_stack->Process(camera);
@@ -1284,10 +1324,10 @@ uint32_t RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::sha
   return current_render_instances->RegisterMeshDrawCommand(mesh, material, global_transform, cast_shadow);
 }
 
-const std::shared_ptr<DescriptorSet>& RenderLayer::GetPerFrameDescriptorSet() const {
-  return per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()];
+const std::shared_ptr<DescriptorSet>& RenderLayer::GetPerFrameDescriptorSet() {
+  return Application::GetLayer<RenderLayer>()->per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()];
 }
 
-const std::shared_ptr<DescriptorSet>& RenderLayer::GetLightingDescriptorSet() const {
-  return lighting_->lighting_descriptor_set;
+const std::shared_ptr<DescriptorSet>& RenderLayer::GetLightingDescriptorSet() {
+  return Application::GetLayer<RenderLayer>()->lighting_->lighting_descriptor_set;
 }

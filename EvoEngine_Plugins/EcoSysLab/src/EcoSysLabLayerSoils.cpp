@@ -300,7 +300,6 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
                                               glm::mat4(1.0f), 1.0f, gizmo_settings);
 }
 
-
 EcoSysLabLayer::SoilVisualizationSettings::SoilVisualizationSettings() {
   if (soil_layer_colors.empty()) {
     for (int i = 0; i < 10; i++) {

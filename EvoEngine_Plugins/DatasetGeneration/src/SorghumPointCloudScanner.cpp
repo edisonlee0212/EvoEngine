@@ -202,7 +202,7 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
    * mesh, material changes.
    */
   std::shared_ptr<RenderInstanceStorage> render_instances;
-  render_instances = render_layer->GetCurrentRenderInstances();
+  render_instances = render_layer->GetCurrentRenderInstanceStorage();
   CpuRayTracer cpu_ray_tracer;
   /**
    * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS based

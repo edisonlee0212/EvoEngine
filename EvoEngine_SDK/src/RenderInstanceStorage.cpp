@@ -1091,6 +1091,12 @@ uint32_t RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Me
   return instance_index;
 }
 
+int RenderInstanceStorage::RegisterMaterial(const std::shared_ptr<Material>& material) {
+  MaterialInfoBlock material_info_block;
+  material_info_block.Apply(material);
+  return RegisterMaterial(material->GetHandle(), material_info_block);
+}
+
 void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene,
                                            Bound& world_bound) {
   this->render_settings = render_settings;
@@ -1379,10 +1385,10 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   return true;
 }
 
-uint32_t RenderInstanceStorage::RegisterMaterial(const Handle& handle, const MaterialInfoBlock& material_info_block) {
+int RenderInstanceStorage::RegisterMaterial(const Handle& handle, const MaterialInfoBlock& material_info_block) {
   const auto search = material_indices_.find(handle);
   if (search == material_indices_.end()) {
-    const uint32_t index = material_info_blocks_.size();
+    const int index = material_info_blocks_.size();
     material_indices_[handle] = index;
     material_info_blocks_.emplace_back(material_info_block);
     return index;
@@ -1390,10 +1396,10 @@ uint32_t RenderInstanceStorage::RegisterMaterial(const Handle& handle, const Mat
   return search->second;
 }
 
-uint32_t RenderInstanceStorage::RegisterInstance(const Handle& handle, const InstanceInfoBlock& instance_info_block) {
+int RenderInstanceStorage::RegisterInstance(const Handle& handle, const InstanceInfoBlock& instance_info_block) {
   const auto search = instance_indices_.find(handle);
   if (search == instance_indices_.end()) {
-    const uint32_t index = instance_info_blocks_.size();
+    const int index = instance_info_blocks_.size();
     instance_indices_[handle] = index;
     instance_handles_[index] = handle;
     instance_info_blocks_.emplace_back(instance_info_block);
@@ -1402,10 +1408,10 @@ uint32_t RenderInstanceStorage::RegisterInstance(const Handle& handle, const Ins
   return search->second;
 }
 
-uint32_t RenderInstanceStorage::RegisterCamera(const Handle& handle, const CameraInfoBlock& camera_info_block) {
+int RenderInstanceStorage::RegisterCamera(const Handle& handle, const CameraInfoBlock& camera_info_block) {
   const auto search = camera_indices_.find(handle);
   if (search == camera_indices_.end()) {
-    const uint32_t index = camera_info_blocks_.size();
+    const int index = camera_info_blocks_.size();
     camera_indices_[handle] = index;
     camera_info_blocks_.emplace_back(camera_info_block);
     return index;
@@ -1413,7 +1419,7 @@ uint32_t RenderInstanceStorage::RegisterCamera(const Handle& handle, const Camer
   return search->second;
 }
 
-uint32_t RenderInstanceStorage::GetMaterialIndex(const Handle& handle) {
+int RenderInstanceStorage::GetMaterialIndex(const Handle& handle) {
   const auto search = material_indices_.find(handle);
   if (search == material_indices_.end()) {
     throw std::runtime_error("Unable to find material!");
@@ -1421,7 +1427,7 @@ uint32_t RenderInstanceStorage::GetMaterialIndex(const Handle& handle) {
   return search->second;
 }
 
-uint32_t RenderInstanceStorage::GetInstanceIndex(const Handle& handle) {
+int RenderInstanceStorage::GetInstanceIndex(const Handle& handle) {
   const auto search = instance_indices_.find(handle);
   if (search == instance_indices_.end()) {
     throw std::runtime_error("Unable to find instance!");
@@ -1429,7 +1435,7 @@ uint32_t RenderInstanceStorage::GetInstanceIndex(const Handle& handle) {
   return search->second;
 }
 
-uint32_t RenderInstanceStorage::GetCameraIndex(const Handle& handle) {
+int RenderInstanceStorage::GetCameraIndex(const Handle& handle) {
   const auto search = camera_indices_.find(handle);
   if (search == camera_indices_.end()) {
     throw std::runtime_error("Unable to find camera!");
@@ -1437,7 +1443,7 @@ uint32_t RenderInstanceStorage::GetCameraIndex(const Handle& handle) {
   return search->second;
 }
 
-Handle RenderInstanceStorage::GetInstanceHandle(uint32_t index) {
+Handle RenderInstanceStorage::GetInstanceHandle(const int index) {
   const auto search = instance_handles_.find(index);
   if (search == instance_handles_.end()) {
     return 0;

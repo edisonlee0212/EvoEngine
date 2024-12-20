@@ -10,7 +10,7 @@ namespace evo_engine {
 class RenderLayer final : public ILayer {
  public:
   void ForEachCollectedCamera(const std::function<void(const std::shared_ptr<Camera>& camera)>& action) const;
-  [[nodiscard]] std::shared_ptr<RenderInstanceStorage> GetCurrentRenderInstances() const;
+  [[nodiscard]] std::shared_ptr<RenderInstanceStorage> GetCurrentRenderInstanceStorage() const;
   bool wire_frame = false;
   bool count_shadow_rendering_draw_calls = true;
   bool enable_indirect_rendering = true;
@@ -18,12 +18,12 @@ class RenderLayer final : public ILayer {
   RenderSettings render_settings{};
   [[nodiscard]] uint32_t DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
                                   const GlobalTransform& global_transform, bool cast_shadow) const;
-  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetPerFrameDescriptorSet() const;
-  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetLightingDescriptorSet() const;
+  [[nodiscard]] static const std::shared_ptr<DescriptorSet>& GetPerFrameDescriptorSet();
+  [[nodiscard]] static const std::shared_ptr<DescriptorSet>& GetLightingDescriptorSet();
 
   struct PointLightShadowMapView {
     int light_index;
-    int face;
+    int face_index;
     glm::ivec4 viewport;
   };
   struct SpotLightShadowMapView {
@@ -32,16 +32,42 @@ class RenderLayer final : public ILayer {
   };
   struct DirectionalLightShadowMapView {
     int light_index;
-    int split;
+    int split_index;
     glm::ivec4 viewport;
   };
+  struct ForwardRenderingView {
+    int camera_index;
+    glm::ivec4 viewport;
+  };
+  /**
+   * \brief Register per-frame function to render to all point light shadow maps.
+   * \param func Render function targeting point light shadow map. Return primitive count.
+   */
   void RenderToPointLightShadowMap(std::function<uint32_t(VkCommandBuffer vk_command_buffer,
                                                           const PointLightShadowMapView& shadow_map_view)>&& func);
+  /**
+   * \brief Register per-frame function to render to all spot light shadow maps.
+   * \param func Render function targeting point light shadow map. Return primitive count.
+   */
   void RenderToSpotLightShadowMap(
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>&& func);
+
+  /**
+   * \brief Register per-frame function to render to all directional light shadow maps.
+   * \param func Render function targeting point light shadow map. Return primitive count.
+   */
   void RenderToDirectionalLightShadowMap(
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>&&
           func);
+
+  /**
+   * \brief Register per-frame function to render to all cameras.
+   * \param func Render function targeting all cameras. Return primitive count.
+   */
+  void ForwardRenderingAllCameras(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
+                             const ForwardRenderingView& forward_rendering_view)>&& func);
+
  private:
   std::vector<
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>>
@@ -51,6 +77,9 @@ class RenderLayer final : public ILayer {
   std::vector<
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>>
       directional_light_shadow_map_external_functions;
+  std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
+                                     const ForwardRenderingView& forward_rendering_view)>>
+      forward_rendering_external_functions;
 
   friend class Resources;
   friend class Camera;
@@ -68,6 +97,7 @@ class RenderLayer final : public ILayer {
   void RenderToCameraRayTracing(const GlobalTransform& camera_global_transform,
                                 const std::shared_ptr<Camera>& camera) const;
   void ClearAll() const;
+  void PrepareForRendering();
   void RenderAll();
   void RenderGizmos() const;
   std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;

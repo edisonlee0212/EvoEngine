@@ -211,8 +211,7 @@ class Platform final {
                                           const std::shared_ptr<DescriptorSetLayout>& descriptor_set_layout);
   [[nodiscard]] static const std::shared_ptr<DescriptorSetLayout>& GetDescriptorSetLayout(const std::string& name);
 
-  std::vector<size_t> triangles;
-  std::vector<size_t> strands_segments;
+  std::vector<size_t> prim_count;
   std::vector<size_t> draw_call;
 
   class Settings {

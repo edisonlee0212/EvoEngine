@@ -17,6 +17,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   DynamicStrands::InitializeParameters initialize_parameters{};
   bool enable_physics = true;
 
+  int material_index = 0;
   DynamicStrands::RenderParameters render_parameters{};
   std::shared_ptr<DynamicStrands> dynamic_strands{};
 
@@ -29,7 +30,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   float max_strand_length = 1.f;
 
   std::vector<EntityTransform> transform_operators;
-
+  AssetRef material_ref;
   std::shared_ptr<DsBoxSelection> box_selection_operator;
   std::shared_ptr<DsLineCut> line_cut_operator;
   std::shared_ptr<DsSaw> saw_operator;
@@ -68,7 +69,8 @@ class DynamicTreeStrands : public IPrivateComponent {
 
   void Visualization(const std::shared_ptr<Camera>& target_camera,
                      const DynamicStrands::VisualizationParameters& visualization_parameters) const;
-
-  void Render(const std::shared_ptr<Camera>& target_camera) const;
+  void RenderShadowMap();
+  void RegisterMaterial();
+  void Render();
 };
 }  // namespace eco_sys_lab_plugin

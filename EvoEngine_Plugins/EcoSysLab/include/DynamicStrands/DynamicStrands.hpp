@@ -174,7 +174,7 @@ class DynamicStrands {
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
-
+  
   struct RenderParameters {
     bool render_alpha_shape_mesh = true;
     bool render_complex = false;
@@ -399,8 +399,8 @@ class DynamicStrands {
   void Clear();
 
   std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets;
-
-  void Render(const std::shared_ptr<Camera>& target_camera, const RenderParameters& render_parameters) const;
+  void RenderShadowMap(const RenderParameters& render_parameters) const;
+  void Render(const int& material_index, const RenderParameters& render_parameters) const;
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const VisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,

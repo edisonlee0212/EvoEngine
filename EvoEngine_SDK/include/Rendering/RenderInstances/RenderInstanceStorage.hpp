@@ -195,19 +195,19 @@ class RenderInstanceStorage {
     bool operator!=(const MaterialInfoBlock& other) const;
   };
 
-  std::unordered_map<Handle, uint32_t> material_indices_;
+  std::unordered_map<Handle, int> material_indices_;
   /**
    * \brief Use this to find render instance via entity handle.
    */
-  std::unordered_map<Handle, uint32_t> instance_indices_;
+  std::unordered_map<Handle, int> instance_indices_;
   /**
    * \brief Use this to find entity via render instance index.
    */
-  std::unordered_map<uint32_t, Handle> instance_handles_;
+  std::unordered_map<int, Handle> instance_handles_;
   /**
    * \brief Use this to find camera via camera index.
    */
-  std::unordered_map<Handle, uint32_t> camera_indices_;
+  std::unordered_map<Handle, int> camera_indices_;
 
   std::vector<MaterialInfoBlock> material_info_blocks_{};
   std::vector<InstanceInfoBlock> instance_info_blocks_{};
@@ -247,12 +247,16 @@ class RenderInstanceStorage {
   bool RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
                       const std::shared_ptr<StrandsRenderer>& strands_renderer, glm::vec3& min_bound,
                       glm::vec3& max_bound);
+  [[nodiscard]] int RegisterMaterial(const Handle& handle, const MaterialInfoBlock& material_info_block);
+  [[nodiscard]] int RegisterInstance(const Handle& handle, const InstanceInfoBlock& instance_info_block);
+  [[nodiscard]] int RegisterCamera(const Handle& handle, const CameraInfoBlock& camera_info_block);
 
  public:
   RenderInstanceStorage();
   bool operator!=(const RenderInstanceStorage& other) const;
   uint32_t RegisterMeshDrawCommand(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
                                    const GlobalTransform& model, bool cast_shadow);
+  [[nodiscard]] int RegisterMaterial(const std::shared_ptr<Material>& material);
   std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
   RenderSettings render_settings{};
   std::shared_ptr<Buffer> material_info_descriptor_buffer = {};
@@ -285,14 +289,10 @@ class RenderInstanceStorage {
   void BuildFromScene(const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene, Bound& world_bound);
   void UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene);
 
-  [[nodiscard]] uint32_t RegisterMaterial(const Handle& handle, const MaterialInfoBlock& material_info_block);
-  [[nodiscard]] uint32_t RegisterInstance(const Handle& handle, const InstanceInfoBlock& instance_info_block);
-  [[nodiscard]] uint32_t RegisterCamera(const Handle& handle, const CameraInfoBlock& camera_info_block);
-
-  [[nodiscard]] uint32_t GetMaterialIndex(const Handle& handle);
-  [[nodiscard]] uint32_t GetInstanceIndex(const Handle& handle);
-  [[nodiscard]] uint32_t GetCameraIndex(const Handle& handle);
-  [[nodiscard]] Handle GetInstanceHandle(uint32_t index);
+  [[nodiscard]] int GetMaterialIndex(const Handle& handle);
+  [[nodiscard]] int GetInstanceIndex(const Handle& handle);
+  [[nodiscard]] int GetCameraIndex(const Handle& handle);
+  [[nodiscard]] Handle GetInstanceHandle(int index);
 
   void Upload() const;
 
