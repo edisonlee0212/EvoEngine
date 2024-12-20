@@ -1,6 +1,6 @@
 #pragma once
 #include "Mesh.hpp"
-#include "RenderInstances.hpp"
+#include "RenderInstanceStorage.hpp"
 #include "Scene.hpp"
 
 #include "PointCloudSample.hpp"
@@ -96,7 +96,7 @@ class CpuRayTracer final {
    * @param mesh_binding Action to set up mesh record for each mesh.
    * @param node_binding Action to set up node record for each node.
    */
-  void Initialize(const std::shared_ptr<RenderInstances>& render_instances,
+  void Initialize(const std::shared_ptr<RenderInstanceStorage>& render_instances,
                   const std::function<void(uint32_t mesh_index, const std::shared_ptr<Mesh>& mesh)>& mesh_binding,
                   const std::function<void(uint32_t node_index, const Entity& entity)>& node_binding);
   /**
@@ -220,7 +220,7 @@ class CpuRayTracer final {
     GlobalTransform transformation{};
     GlobalTransform inverse_transformation{};
     FlattenedBvh flattened_bvh_mesh_group;
-    void Initialize(const std::shared_ptr<RenderInstances>& render_instances, const MeshRenderInstance& render_instance,
+    void Initialize(const std::shared_ptr<RenderInstanceStorage>& render_instances, const MeshRenderInstance& render_instance,
                     const std::vector<GeometryInstance>& mesh_instances,
                     const std::map<Handle, uint32_t>& mesh_instances_map);
     void Clear() noexcept;

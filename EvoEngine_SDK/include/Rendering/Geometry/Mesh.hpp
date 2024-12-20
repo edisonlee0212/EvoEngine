@@ -46,7 +46,7 @@ class Mesh final : public IAsset, public IGeometry {
 
   VertexAttributes vertex_attributes_ = {};
   friend class RenderLayer;
-  friend class RenderInstances;
+  friend class RenderInstanceStorage;
   friend class TopLevelAccelerationStructure;
   std::shared_ptr<RangeDescriptor> triangle_range_;
   std::shared_ptr<RangeDescriptor> meshlet_range_;

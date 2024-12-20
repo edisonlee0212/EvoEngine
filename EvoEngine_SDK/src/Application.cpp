@@ -9,9 +9,9 @@
 #include "Input.hpp"
 #include "Jobs.hpp"
 #include "Json.hpp"
-#include "LodGroup.hpp"
 #include "LightProbe.hpp"
 #include "Lights.hpp"
+#include "LodGroup.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
 #include "Particles.hpp"
@@ -288,12 +288,14 @@ void Application::LateUpdateInternal() {
       for (const auto& layer : application.layers_)
         layer->OnInspect(editor_layer);
     }
+    if (render_layer) {
+      render_layer->RenderAll();
+    }
     application.application_execution_status_ = ApplicationExecutionStatus::LateUpdate;
+
     for (const auto& i : application.external_late_update_functions_)
       i();
-    if (render_layer) {
-      render_layer->RenderAllCameras();
-    }
+
     if (application.application_status_ == ApplicationStatus::Playing ||
         application.application_status_ == ApplicationStatus::Step) {
       application.active_scene_->LateUpdate();
@@ -308,7 +310,7 @@ void Application::LateUpdateInternal() {
       editor_layer->RenderGui();
     }
     if (render_layer) {
-      render_layer->ClearAllCameras();
+      render_layer->ClearAll();
     }
     if (application.application_status_ == ApplicationStatus::Step)
       application.application_status_ = ApplicationStatus::Pause;

@@ -81,7 +81,7 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
 
     auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
     auto lighting_layout = Platform::GetDescriptorSetLayout("LIGHTING_LAYOUT");
-    
+
     render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
     render_pipeline->descriptor_set_layouts.emplace_back(lighting_layout);
     render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
@@ -102,7 +102,7 @@ void DynamicStrands::Render(const std::shared_ptr<Camera>& target_camera,
   RenderPushConstant push_constant;
   // TODO: Assign instance index here.
   push_constant.instance_index = 0;
-  push_constant.camera_index = render_layer->GetCameraIndex(target_camera->GetHandle());
+  push_constant.camera_index = render_layer->GetCurrentRenderInstances()->GetCameraIndex(target_camera->GetHandle());
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
   push_constant.alpha = render_parameters.alpha;
   push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;

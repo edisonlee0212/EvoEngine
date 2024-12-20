@@ -201,8 +201,8 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
    * rendering, and here we also use it for ray tracing. It also detects updates of the scene, like transformation,
    * mesh, material changes.
    */
-  std::shared_ptr<RenderInstances> render_instances;
-  render_instances = render_layer->render_instances_list[Platform::GetCurrentFrameIndex()];
+  std::shared_ptr<RenderInstanceStorage> render_instances;
+  render_instances = render_layer->GetCurrentRenderInstances();
   CpuRayTracer cpu_ray_tracer;
   /**
    * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS based

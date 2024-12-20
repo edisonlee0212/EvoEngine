@@ -212,45 +212,6 @@ std::shared_ptr<Texture2D> Material::GetAoTexture() {
   return ao_texture_.Get<Texture2D>();
 }
 
-void Material::UpdateMaterialInfoBlock(MaterialInfoBlock& material_info_block) {
-  if (const auto albedo_texture = albedo_texture_.Get<Texture2D>(); albedo_texture && albedo_texture->GetVkSampler()) {
-    material_info_block.albedo_texture_index = albedo_texture->GetTextureStorageIndex();
-  } else {
-    material_info_block.albedo_texture_index = -1;
-  }
-  if (const auto normal_texture = normal_texture_.Get<Texture2D>(); normal_texture && normal_texture->GetVkSampler()) {
-    material_info_block.normal_texture_index = normal_texture->GetTextureStorageIndex();
-  } else {
-    material_info_block.normal_texture_index = -1;
-  }
-  if (const auto metallic_texture = metallic_texture_.Get<Texture2D>();
-      metallic_texture && metallic_texture->GetVkSampler()) {
-    material_info_block.metallic_texture_index = metallic_texture->GetTextureStorageIndex();
-  } else {
-    material_info_block.metallic_texture_index = -1;
-  }
-  if (const auto roughness_texture = roughness_texture_.Get<Texture2D>();
-      roughness_texture && roughness_texture->GetVkSampler()) {
-    material_info_block.roughness_texture_index = roughness_texture->GetTextureStorageIndex();
-  } else {
-    material_info_block.roughness_texture_index = -1;
-  }
-  if (const auto ao_texture = ao_texture_.Get<Texture2D>(); ao_texture && ao_texture->GetVkSampler()) {
-    material_info_block.ao_texture_index = ao_texture->GetTextureStorageIndex();
-  } else {
-    material_info_block.ao_texture_index = -1;
-  }
-  material_info_block.cast_shadow = true;
-  material_info_block.subsurface_color = {material_properties.subsurface_color, 0.0f};
-  material_info_block.subsurface_radius = {material_properties.subsurface_radius, 0.0f};
-  material_info_block.albedo_color_val = glm::vec4(
-      material_properties.albedo_color, draw_settings.blending ? (1.0f - material_properties.transmission) : 1.0f);
-  material_info_block.metallic_val = material_properties.metallic;
-  material_info_block.roughness_val = material_properties.roughness;
-  material_info_block.ao_val = 1.0f;
-  material_info_block.emission_val = material_properties.emission;
-}
-
 bool Material::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 

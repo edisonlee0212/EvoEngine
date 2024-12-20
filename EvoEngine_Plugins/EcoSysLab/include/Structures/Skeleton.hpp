@@ -598,7 +598,7 @@ void Skeleton<SkeletonData, FlowData, NodeData>::RemoveNodes(const std::vector<S
   for (auto i = collected_flow_handle_set.rbegin(); i != collected_flow_handle_set.rend(); ++i) {
     auto& flow = flows_[*i];
 
-    if (flow.parent_handle_ != -1) {
+    if (flow.parent_handle_ != -1 && flow.parent_handle_ < flows_.size()) {
       auto& parent_flow = flows_[flow.parent_handle_];
       for (int32_t child_handle_i = parent_flow.child_handles_.size() - 1; child_handle_i >= 0; --child_handle_i) {
         if (parent_flow.child_handles_[child_handle_i] == *i) {

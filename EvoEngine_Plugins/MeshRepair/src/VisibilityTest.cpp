@@ -5,8 +5,8 @@
 using namespace mesh_repair_plugin;
 
 void VisibilityTest::GenerateSamples(const std::shared_ptr<Mesh>& mesh,
-                                        const VisibilityTestParams& visibility_test_params,
-                                        std::vector<VisibilityTestSample>& output_samples) {
+                                     const VisibilityTestParams& visibility_test_params,
+                                     std::vector<VisibilityTestSample>& output_samples) {
   const auto& input_triangles = mesh->UnsafeGetTriangles();
   const auto& input_vertices = mesh->UnsafeGetVertices();
   auto triangle_areas = std::vector<float>(input_triangles.size());
@@ -40,10 +40,9 @@ void VisibilityTest::GenerateSamples(const std::shared_ptr<Mesh>& mesh,
   EVOENGINE_LOG("Total Generated Samples: " + std::to_string(total_samples))
 }
 
-void VisibilityTest::Execute(const std::shared_ptr<Mesh>& mesh,
-                                       const std::vector<VisibilityTestSample>& input_samples,
-                                       const VisibilityTestParams& visibility_test_params,
-                                       std::vector<Visibility>& visibility_results) {
+void VisibilityTest::Execute(const std::shared_ptr<Mesh>& mesh, const std::vector<VisibilityTestSample>& input_samples,
+                             const VisibilityTestParams& visibility_test_params,
+                             std::vector<Visibility>& visibility_results) {
   const auto& input_triangles = mesh->UnsafeGetTriangles();
   const auto& input_vertices = mesh->UnsafeGetVertices();
   CpuRayTracer cpu_ray_tracer;
@@ -57,8 +56,7 @@ void VisibilityTest::Execute(const std::shared_ptr<Mesh>& mesh,
     RandomSampler random_sampler;
     CpuRayTracer::RayDescriptor current_ray_descriptor{};
     if (visibility_test_params.cull_back_faces)
-      current_ray_descriptor.flags =
-          CpuRayTracer::TraceFlags::CullBackFace;
+      current_ray_descriptor.flags = CpuRayTracer::TraceFlags::CullBackFace;
     random_sampler.SetSeed(triangle_index);
     glm::vec3 current_ray_direction;
     bool visible = false;
@@ -138,9 +136,8 @@ void VisibilityTest::Execute(const std::shared_ptr<Mesh>& mesh,
   });
 }
 
-void VisibilityTest::Execute(const std::shared_ptr<Mesh>& mesh,
-                                       const VisibilityTestParams& visibility_test_params,
-                                       std::vector<Visibility>& visibility_results) {
+void VisibilityTest::Execute(const std::shared_ptr<Mesh>& mesh, const VisibilityTestParams& visibility_test_params,
+                             std::vector<Visibility>& visibility_results) {
   std::vector<VisibilityTestSample> samples;
   GenerateSamples(mesh, visibility_test_params, samples);
   const auto time = Times::Now();
@@ -150,8 +147,8 @@ void VisibilityTest::Execute(const std::shared_ptr<Mesh>& mesh,
 }
 
 void VisibilityTest::Execute(const std::shared_ptr<Scene>& scene, const Entity& entity,
-                                       const VisibilityTestParams& visibility_test_params,
-                                       std::vector<Visibility>& visibility_results) {
+                             const VisibilityTestParams& visibility_test_params,
+                             std::vector<Visibility>& visibility_results) {
   const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
   const auto mesh = mesh_renderer->mesh.Get<Mesh>();
   std::vector<VisibilityTestSample> input_samples;
@@ -169,7 +166,7 @@ void VisibilityTest::Execute(const std::shared_ptr<Scene>& scene, const Entity& 
   CpuRayTracer cpu_ray_tracer;
 
   cpu_ray_tracer.Initialize(
-      Application::GetLayer<RenderLayer>()->render_instances_list[Platform::GetCurrentFrameIndex()],
+      Application::GetLayer<RenderLayer>()->GetCurrentRenderInstances(),
       [](uint32_t, const std::shared_ptr<Mesh>&) {
       },
       [](uint32_t, const Entity&) {
@@ -181,8 +178,7 @@ void VisibilityTest::Execute(const std::shared_ptr<Scene>& scene, const Entity& 
     RandomSampler random_sampler;
     CpuRayTracer::RayDescriptor current_ray_descriptor{};
     if (visibility_test_params.cull_back_faces)
-      current_ray_descriptor.flags =
-          CpuRayTracer::TraceFlags::CullBackFace;
+      current_ray_descriptor.flags = CpuRayTracer::TraceFlags::CullBackFace;
     random_sampler.SetSeed(triangle_index);
     glm::vec3 current_ray_direction;
     bool visible = false;

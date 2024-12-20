@@ -94,7 +94,7 @@ class EditorLayer : public ILayer {
   bool enable_console_errors_ = true;
   bool enable_console_warnings_ = true;
   friend class Console;
-
+  friend class RenderInstanceStorage;
  public:
   bool show_console_window = true;
   std::vector<ConsoleMessage>& GetConsoleMessages();

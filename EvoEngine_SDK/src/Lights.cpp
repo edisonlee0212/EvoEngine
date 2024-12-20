@@ -126,6 +126,26 @@ void PointLight::Deserialize(const YAML::Node& in) {
   light_size = in["light_size"].as<float>();
 }
 
+bool DirectionalLightInfoBlock::operator!=(const DirectionalLightInfoBlock& other) const {
+  if (direction != other.direction)
+    return true;
+  if (diffuse != other.diffuse)
+    return true;
+  if (specular != other.specular)
+    return true;
+  if (light_space_matrix != other.light_space_matrix)
+    return true;
+  if (light_frustum_width != other.light_frustum_width)
+    return true;
+  if (light_frustum_distance != other.light_frustum_distance)
+    return true;
+  if (reserved_parameters != other.reserved_parameters)
+    return true;
+  if (viewport != other.viewport)
+    return true;
+  return false;
+}
+
 void DirectionalLight::OnCreate() {
   SetEnabled(true);
 }
@@ -167,7 +187,46 @@ void DirectionalLight::Deserialize(const YAML::Node& in) {
 void DirectionalLight::PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) {
 }
 
+bool PointLightInfoBlock::operator!=(const PointLightInfoBlock& other) const {
+  if (position != other.position)
+    return true;
+  if (constant_linear_quad_far_plane != other.constant_linear_quad_far_plane)
+    return true;
+  if (diffuse != other.diffuse)
+    return true;
+  if (specular != other.specular)
+    return true;
+  if (light_space_matrix != other.light_space_matrix)
+    return true;
+  if (reserved_parameters != other.reserved_parameters)
+    return true;
+  if (viewport != other.viewport)
+    return true;
+  return false;
+}
+
 void PointLight::PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) {
+}
+
+bool SpotLightInfoBlock::operator!=(const SpotLightInfoBlock& other) const {
+  if (position != other.position)
+    return true;
+  if (direction != other.direction)
+    return true;
+  if (light_space_matrix != other.light_space_matrix)
+    return true;
+  if (cut_off_outer_cut_off_light_size_bias != other.cut_off_outer_cut_off_light_size_bias)
+    return true;
+  if (constant_linear_quad_far_plane != other.constant_linear_quad_far_plane)
+    return true;
+  if (diffuse != other.diffuse)
+    return true;
+  if (specular != other.specular)
+    return true;
+  if (viewport != other.viewport)
+    return true;
+
+  return false;
 }
 
 void SpotLight::PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) {

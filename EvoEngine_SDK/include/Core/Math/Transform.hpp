@@ -12,6 +12,9 @@ struct GlobalTransform : IDataComponent {
   bool operator==(const GlobalTransform &other) const {
     return other.value == value;
   }
+  bool operator!=(const GlobalTransform &other) const {
+    return other.value != value;
+  }
   bool Decompose(glm::vec3 &translation, glm::vec3 &euler_angles, glm::vec3 &scale) const {
     using namespace glm;
     using T = float;
@@ -258,8 +261,11 @@ struct GlobalTransform : IDataComponent {
 struct Transform : IDataComponent {
   glm::mat4 value =
       glm::translate(glm::vec3(0.0f)) * glm::mat4_cast(glm::quat(glm::vec3(0.0f))) * glm::scale(glm::vec3(1.0f));
-  bool operator==(const GlobalTransform &other) const {
+  bool operator==(const Transform &other) const {
     return other.value == value;
+  }
+  bool operator!=(const Transform &other) const {
+    return other.value != value;
   }
   bool Decompose(glm::vec3 &translation, glm::vec3 &euler_angles, glm::vec3 &scale) const {
     using namespace glm;

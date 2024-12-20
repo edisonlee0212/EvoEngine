@@ -15,6 +15,6 @@ class PlanetTerrainSystem : public ISystem {
   static void CheckLod(std::mutex &mutex, const std::shared_ptr<TerrainChunk> &chunk, const PlanetInfo &info,
                        const GlobalTransform &planet_transform, const GlobalTransform &camera_transform);
   static void RenderChunk(const std::shared_ptr<TerrainChunk> &chunk, const std::shared_ptr<Material> &material,
-                          glm::mat4 &matrix, bool receive_shadow);
+                          const GlobalTransform &matrix, bool receive_shadow);
 };
 }  // namespace universe_plugin
