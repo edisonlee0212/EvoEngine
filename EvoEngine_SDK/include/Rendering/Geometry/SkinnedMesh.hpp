@@ -23,6 +23,8 @@ class BoneMatrices {
   void UploadData();
 
  public:
+  inline static std::shared_ptr<DescriptorSetLayout> bone_matrices_layout;
+
   [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetDescriptorSet() const;
   BoneMatrices();
   [[nodiscard]] uint32_t GetVersion() const;

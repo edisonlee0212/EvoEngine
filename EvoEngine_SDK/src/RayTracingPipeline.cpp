@@ -1,4 +1,6 @@
 #include "RayTracingPipeline.hpp"
+
+#include "Console.hpp"
 #include "Platform.hpp"
 #include "Shader.hpp"
 using namespace evo_engine;
@@ -11,6 +13,114 @@ RayTracingPipeline::~RayTracingPipeline() {
 }
 
 void RayTracingPipeline::Initialize() {
+  if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE) {
+    vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
+    vk_ray_tracing_pipeline_ = nullptr;
+  }
+
+  std::vector<VkPipelineShaderStageCreateInfo> shader_stages{};
+  std::vector<VkRayTracingShaderGroupCreateInfoKHR> shader_groups{};
+
+  if (raygen_shader && raygen_shader->GetShaderType() == ShaderType::RayGen) {
+    if (!raygen_shader->Compiled())
+      raygen_shader->TryCompile();
+    if (raygen_shader->Compiled()) {
+      VkPipelineShaderStageCreateInfo shader_stage_info{};
+      shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      shader_stage_info.stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+      shader_stage_info.module = raygen_shader->GetShaderModule()->GetVkShaderModule();
+      shader_stage_info.pName = "main";
+      shader_stages.emplace_back(shader_stage_info);
+
+      VkRayTracingShaderGroupCreateInfoKHR raygen_group_ci{};
+      raygen_group_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+      raygen_group_ci.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+      raygen_group_ci.generalShader = static_cast<uint32_t>(shader_stages.size()) - 1;
+      raygen_group_ci.closestHitShader = VK_SHADER_UNUSED_KHR;
+      raygen_group_ci.anyHitShader = VK_SHADER_UNUSED_KHR;
+      raygen_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
+      shader_groups.push_back(raygen_group_ci);
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled vertex shader!")
+      return;
+    }
+  }
+
+  if (miss_shader && miss_shader->GetShaderType() == ShaderType::Miss) {
+    if (!miss_shader->Compiled())
+      miss_shader->TryCompile();
+    if (miss_shader->Compiled()) {
+      VkPipelineShaderStageCreateInfo shader_stage_info{};
+      shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      shader_stage_info.stage = VK_SHADER_STAGE_MISS_BIT_KHR;
+      shader_stage_info.module = miss_shader->GetShaderModule()->GetVkShaderModule();
+      shader_stage_info.pName = "main";
+      shader_stages.emplace_back(shader_stage_info);
+
+      VkRayTracingShaderGroupCreateInfoKHR miss_group_ci{};
+      miss_group_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+      miss_group_ci.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+      miss_group_ci.generalShader = static_cast<uint32_t>(shader_stages.size()) - 1;
+      miss_group_ci.closestHitShader = VK_SHADER_UNUSED_KHR;
+      miss_group_ci.anyHitShader = VK_SHADER_UNUSED_KHR;
+      miss_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
+      shader_groups.push_back(miss_group_ci);
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled vertex shader!")
+      return;
+    }
+  }
+
+  if (closest_hit_shader && closest_hit_shader->GetShaderType() == ShaderType::ClosestHit) {
+    if (!closest_hit_shader->Compiled())
+      closest_hit_shader->TryCompile();
+    if (closest_hit_shader->Compiled()) {
+      VkPipelineShaderStageCreateInfo shader_stage_info{};
+      shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      shader_stage_info.stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+      shader_stage_info.module = closest_hit_shader->GetShaderModule()->GetVkShaderModule();
+      shader_stage_info.pName = "main";
+      shader_stages.emplace_back(shader_stage_info);
+
+      VkRayTracingShaderGroupCreateInfoKHR closes_hit_group_ci{};
+      closes_hit_group_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+      closes_hit_group_ci.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+      closes_hit_group_ci.generalShader = VK_SHADER_UNUSED_KHR;
+      closes_hit_group_ci.closestHitShader = static_cast<uint32_t>(shader_stages.size()) - 1;
+      closes_hit_group_ci.anyHitShader = VK_SHADER_UNUSED_KHR;
+      closes_hit_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
+      shader_groups.push_back(closes_hit_group_ci);
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled vertex shader!")
+      return;
+    }
+  }
+
+  if (any_hit_shader && any_hit_shader->GetShaderType() == ShaderType::AnyHit) {
+    if (!any_hit_shader->Compiled())
+      any_hit_shader->TryCompile();
+    if (any_hit_shader->Compiled()) {
+      VkPipelineShaderStageCreateInfo shader_stage_info{};
+      shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      shader_stage_info.stage = VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+      shader_stage_info.module = any_hit_shader->GetShaderModule()->GetVkShaderModule();
+      shader_stage_info.pName = "main";
+      shader_stages.emplace_back(shader_stage_info);
+
+      VkRayTracingShaderGroupCreateInfoKHR closes_hit_group_ci{};
+      closes_hit_group_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+      closes_hit_group_ci.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+      closes_hit_group_ci.generalShader = VK_SHADER_UNUSED_KHR;
+      closes_hit_group_ci.closestHitShader = VK_SHADER_UNUSED_KHR;
+      closes_hit_group_ci.anyHitShader = static_cast<uint32_t>(shader_stages.size()) - 1;
+      closes_hit_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
+      shader_groups.push_back(closes_hit_group_ci);
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled vertex shader!")
+      return;
+    }
+  }
+
   std::vector<VkDescriptorSetLayout> set_layouts = {};
   set_layouts.reserve(descriptor_set_layouts.size());
   for (const auto& i : descriptor_set_layouts) {
@@ -25,82 +135,6 @@ void RayTracingPipeline::Initialize() {
 
   pipeline_layout_ = std::make_unique<PipelineLayout>(pipeline_layout_info);
 
-  std::vector<VkPipelineShaderStageCreateInfo> shader_stages{};
-  std::vector<VkRayTracingShaderGroupCreateInfoKHR> shader_groups{};
-
-  if (raygen_shader && raygen_shader->GetShaderType() == ShaderType::RayGen && raygen_shader->Compiled()) {
-    VkPipelineShaderStageCreateInfo shader_stage_info{};
-    shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    shader_stage_info.stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
-    shader_stage_info.module = raygen_shader->GetShaderModule()->GetVkShaderModule();
-    shader_stage_info.pName = "main";
-    shader_stages.emplace_back(shader_stage_info);
-
-    VkRayTracingShaderGroupCreateInfoKHR raygen_group_ci{};
-    raygen_group_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-    raygen_group_ci.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-    raygen_group_ci.generalShader = static_cast<uint32_t>(shader_stages.size()) - 1;
-    raygen_group_ci.closestHitShader = VK_SHADER_UNUSED_KHR;
-    raygen_group_ci.anyHitShader = VK_SHADER_UNUSED_KHR;
-    raygen_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
-    shader_groups.push_back(raygen_group_ci);
-  }
-
-  if (miss_shader && miss_shader->GetShaderType() == ShaderType::Miss && miss_shader->Compiled()) {
-    VkPipelineShaderStageCreateInfo shader_stage_info{};
-    shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    shader_stage_info.stage = VK_SHADER_STAGE_MISS_BIT_KHR;
-    shader_stage_info.module = miss_shader->GetShaderModule()->GetVkShaderModule();
-    shader_stage_info.pName = "main";
-    shader_stages.emplace_back(shader_stage_info);
-
-    VkRayTracingShaderGroupCreateInfoKHR miss_group_ci{};
-    miss_group_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-    miss_group_ci.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-    miss_group_ci.generalShader = static_cast<uint32_t>(shader_stages.size()) - 1;
-    miss_group_ci.closestHitShader = VK_SHADER_UNUSED_KHR;
-    miss_group_ci.anyHitShader = VK_SHADER_UNUSED_KHR;
-    miss_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
-    shader_groups.push_back(miss_group_ci);
-  }
-
-  if (closest_hit_shader && closest_hit_shader->GetShaderType() == ShaderType::ClosestHit &&
-      closest_hit_shader->Compiled()) {
-    VkPipelineShaderStageCreateInfo shader_stage_info{};
-    shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    shader_stage_info.stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
-    shader_stage_info.module = closest_hit_shader->GetShaderModule()->GetVkShaderModule();
-    shader_stage_info.pName = "main";
-    shader_stages.emplace_back(shader_stage_info);
-
-    VkRayTracingShaderGroupCreateInfoKHR closes_hit_group_ci{};
-    closes_hit_group_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-    closes_hit_group_ci.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
-    closes_hit_group_ci.generalShader = VK_SHADER_UNUSED_KHR;
-    closes_hit_group_ci.closestHitShader = static_cast<uint32_t>(shader_stages.size()) - 1;
-    closes_hit_group_ci.anyHitShader = VK_SHADER_UNUSED_KHR;
-    closes_hit_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
-    shader_groups.push_back(closes_hit_group_ci);
-  }
-
-  if (any_hit_shader && any_hit_shader->GetShaderType() == ShaderType::AnyHit && any_hit_shader->Compiled()) {
-    VkPipelineShaderStageCreateInfo shader_stage_info{};
-    shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    shader_stage_info.stage = VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
-    shader_stage_info.module = any_hit_shader->GetShaderModule()->GetVkShaderModule();
-    shader_stage_info.pName = "main";
-    shader_stages.emplace_back(shader_stage_info);
-
-    VkRayTracingShaderGroupCreateInfoKHR closes_hit_group_ci{};
-    closes_hit_group_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-    closes_hit_group_ci.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
-    closes_hit_group_ci.generalShader = VK_SHADER_UNUSED_KHR;
-    closes_hit_group_ci.closestHitShader = VK_SHADER_UNUSED_KHR;
-    closes_hit_group_ci.anyHitShader = static_cast<uint32_t>(shader_stages.size()) - 1;
-    closes_hit_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
-    shader_groups.push_back(closes_hit_group_ci);
-  }
-
   VkRayTracingPipelineCreateInfoKHR raytracing_pipeline_create_info{};
   raytracing_pipeline_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
   raytracing_pipeline_create_info.layout = pipeline_layout_->GetVkPipelineLayout();
@@ -111,11 +145,15 @@ void RayTracingPipeline::Initialize() {
   raytracing_pipeline_create_info.pGroups = shader_groups.data();
 
   raytracing_pipeline_create_info.maxPipelineRayRecursionDepth = 1;
-
-  Platform::CheckVk(vkCreateRayTracingPipelinesKHR(Platform::GetVkDevice(), VK_NULL_HANDLE, VK_NULL_HANDLE, 1,
-                                                   &raytracing_pipeline_create_info, nullptr,
-                                                   &vk_ray_tracing_pipeline_));
-
+  try {
+    Platform::CheckVk(vkCreateRayTracingPipelinesKHR(Platform::GetVkDevice(), VK_NULL_HANDLE, VK_NULL_HANDLE, 1,
+                                                     &raytracing_pipeline_create_info, nullptr,
+                                                     &vk_ray_tracing_pipeline_));
+  } catch (const std::runtime_error& error) {
+    EVOENGINE_ERROR(std::string("Failed to build ray tracing pipeline: ") + error.what());
+    vk_ray_tracing_pipeline_ = nullptr;
+    return;
+  }
   const auto aligned_size = [&](const uint32_t value, const uint32_t alignment) {
     return value + alignment - 1 & ~(alignment - 1);
   };
@@ -144,9 +182,14 @@ void RayTracingPipeline::Initialize() {
 
   // Copy the pipeline's shader handles into a host buffer
   std::vector<uint8_t> shader_handle_storage(sbt_size);
-  Platform::CheckVk(vkGetRayTracingShaderGroupHandlesKHR(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, 0,
-                                                         group_count, sbt_size, shader_handle_storage.data()));
-
+  try {
+    Platform::CheckVk(vkGetRayTracingShaderGroupHandlesKHR(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, 0,
+                                                           group_count, sbt_size, shader_handle_storage.data()));
+  } catch (const std::runtime_error& error) {
+    EVOENGINE_ERROR(std::string("Failed to create ray tracing shader group handles: ") + error.what());
+    vk_ray_tracing_pipeline_ = nullptr;
+    return;
+  }
   // Copy the shader handles from the host buffer to the binding tables
   raygen_shader_binding_table_->UploadData(handle_size, shader_handle_storage.data());
   miss_shader_binding_table_->UploadData(handle_size, shader_handle_storage.data() + handle_size_aligned_);

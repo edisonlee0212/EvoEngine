@@ -6,8 +6,124 @@
 using namespace evo_engine;
 
 void GraphicsPipeline::Initialize() {
+  if (vk_graphics_pipeline_ != VK_NULL_HANDLE) {
+    vkDestroyPipeline(Platform::GetVkDevice(), vk_graphics_pipeline_, nullptr);
+    vk_graphics_pipeline_ = nullptr;
+  }
+  VkPipelineInputAssemblyStateCreateInfo input_assembly{};
+  input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  input_assembly.primitiveRestartEnable = VK_FALSE;
+  std::vector<VkPipelineShaderStageCreateInfo> shader_stages{};
+  if (vertex_shader && vertex_shader->GetShaderType() == ShaderType::Vertex) {
+    if (!vertex_shader->Compiled())
+      vertex_shader->TryCompile();
+    if (vertex_shader->Compiled()) {
+      VkPipelineShaderStageCreateInfo vert_shader_stage_info{};
+      vert_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      vert_shader_stage_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
+      vert_shader_stage_info.module = vertex_shader->GetShaderModule()->GetVkShaderModule();
+      vert_shader_stage_info.pName = "main";
+      shader_stages.emplace_back(vert_shader_stage_info);
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled vertex shader!")
+      return;
+    }
+  }
+  if (tessellation_control_shader && tessellation_control_shader->GetShaderType() == ShaderType::TessellationControl) {
+    if (!tessellation_control_shader->Compiled())
+      tessellation_control_shader->TryCompile();
+    if (tessellation_control_shader->Compiled()) {
+      VkPipelineShaderStageCreateInfo tess_control_shader_stage_info{};
+      tess_control_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      tess_control_shader_stage_info.stage = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+      tess_control_shader_stage_info.module = tessellation_control_shader->GetShaderModule()->GetVkShaderModule();
+      tess_control_shader_stage_info.pName = "main";
+      shader_stages.emplace_back(tess_control_shader_stage_info);
+      input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled tessellation control shader!")
+      return;
+    }
+  }
+  if (tessellation_evaluation_shader &&
+      tessellation_evaluation_shader->GetShaderType() == ShaderType::TessellationEvaluation) {
+    if (!tessellation_evaluation_shader->Compiled())
+      tessellation_evaluation_shader->TryCompile();
+    if (tessellation_evaluation_shader->Compiled()) {
+      VkPipelineShaderStageCreateInfo tess_evaluation_shader_stage_info{};
+      tess_evaluation_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      tess_evaluation_shader_stage_info.stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+      tess_evaluation_shader_stage_info.module = tessellation_evaluation_shader->GetShaderModule()->GetVkShaderModule();
+      tess_evaluation_shader_stage_info.pName = "main";
+      shader_stages.emplace_back(tess_evaluation_shader_stage_info);
+      input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled tessellation evaluation shader!")
+      return;
+    }
+  }
+  if (geometry_shader && geometry_shader->GetShaderType() == ShaderType::Geometry) {
+    if (!geometry_shader->Compiled())
+      geometry_shader->TryCompile();
+    if (geometry_shader->Compiled()) {
+      VkPipelineShaderStageCreateInfo geometry_shader_stage_info{};
+      geometry_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      geometry_shader_stage_info.stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+      geometry_shader_stage_info.module = geometry_shader->GetShaderModule()->GetVkShaderModule();
+      geometry_shader_stage_info.pName = "main";
+      shader_stages.emplace_back(geometry_shader_stage_info);
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled geometry shader!")
+      return;
+    }
+  }
+  if (task_shader && task_shader->GetShaderType() == ShaderType::Task) {
+    if (!task_shader->Compiled())
+      task_shader->TryCompile();
+    if (task_shader->Compiled()) {
+      VkPipelineShaderStageCreateInfo task_shader_stage_info{};
+      task_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      task_shader_stage_info.stage = VK_SHADER_STAGE_TASK_BIT_EXT;
+      task_shader_stage_info.module = task_shader->GetShaderModule()->GetVkShaderModule();
+      task_shader_stage_info.pName = "main";
+      shader_stages.emplace_back(task_shader_stage_info);
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled task shader!")
+      return;
+    }
+  }
+  if (mesh_shader && mesh_shader->GetShaderType() == ShaderType::Mesh) {
+    if (!mesh_shader->Compiled())
+      mesh_shader->TryCompile();
+    if (mesh_shader->Compiled()) {
+      VkPipelineShaderStageCreateInfo mesh_shader_stage_info{};
+      mesh_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      mesh_shader_stage_info.stage = VK_SHADER_STAGE_MESH_BIT_EXT;
+      mesh_shader_stage_info.module = mesh_shader->GetShaderModule()->GetVkShaderModule();
+      mesh_shader_stage_info.pName = "main";
+      shader_stages.emplace_back(mesh_shader_stage_info);
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled mesh shader!")
+      return;
+    }
+  }
+  if (fragment_shader && fragment_shader->GetShaderType() == ShaderType::Fragment) {
+    if (!fragment_shader->Compiled())
+      fragment_shader->TryCompile();
+    if (fragment_shader->Compiled()) {
+      VkPipelineShaderStageCreateInfo fragment_shader_stage_info{};
+      fragment_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      fragment_shader_stage_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+      fragment_shader_stage_info.module = fragment_shader->GetShaderModule()->GetVkShaderModule();
+      fragment_shader_stage_info.pName = "main";
+      shader_stages.emplace_back(fragment_shader_stage_info);
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled fragment shader!")
+      return;
+    }
+  }
   const auto render_layer = Application::GetLayer<RenderLayer>();
-
   std::vector<VkDescriptorSetLayout> set_layouts = {};
   set_layouts.reserve(descriptor_set_layouts.size());
   for (const auto& i : descriptor_set_layouts) {
@@ -19,77 +135,7 @@ void GraphicsPipeline::Initialize() {
   pipeline_layout_info.pSetLayouts = set_layouts.data();
   pipeline_layout_info.pushConstantRangeCount = push_constant_ranges.size();
   pipeline_layout_info.pPushConstantRanges = push_constant_ranges.data();
-
   pipeline_layout_ = std::make_unique<PipelineLayout>(pipeline_layout_info);
-
-  std::vector<VkPipelineShaderStageCreateInfo> shader_stages{};
-
-  VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-  input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-  input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-  input_assembly.primitiveRestartEnable = VK_FALSE;
-
-  if (vertex_shader && vertex_shader->GetShaderType() == ShaderType::Vertex && vertex_shader->Compiled()) {
-    VkPipelineShaderStageCreateInfo vert_shader_stage_info{};
-    vert_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    vert_shader_stage_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
-    vert_shader_stage_info.module = vertex_shader->GetShaderModule()->GetVkShaderModule();
-    vert_shader_stage_info.pName = "main";
-    shader_stages.emplace_back(vert_shader_stage_info);
-  }
-  if (tessellation_control_shader && tessellation_control_shader->GetShaderType() == ShaderType::TessellationControl &&
-      tessellation_control_shader->Compiled()) {
-    VkPipelineShaderStageCreateInfo tess_control_shader_stage_info{};
-    tess_control_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    tess_control_shader_stage_info.stage = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
-    tess_control_shader_stage_info.module = tessellation_control_shader->GetShaderModule()->GetVkShaderModule();
-    tess_control_shader_stage_info.pName = "main";
-    shader_stages.emplace_back(tess_control_shader_stage_info);
-    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
-  }
-  if (tessellation_evaluation_shader &&
-      tessellation_evaluation_shader->GetShaderType() == ShaderType::TessellationEvaluation &&
-      tessellation_evaluation_shader->Compiled()) {
-    VkPipelineShaderStageCreateInfo tess_evaluation_shader_stage_info{};
-    tess_evaluation_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    tess_evaluation_shader_stage_info.stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
-    tess_evaluation_shader_stage_info.module = tessellation_evaluation_shader->GetShaderModule()->GetVkShaderModule();
-    tess_evaluation_shader_stage_info.pName = "main";
-    shader_stages.emplace_back(tess_evaluation_shader_stage_info);
-    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
-  }
-  if (geometry_shader && geometry_shader->GetShaderType() == ShaderType::Geometry && geometry_shader->Compiled()) {
-    VkPipelineShaderStageCreateInfo geometry_shader_stage_info{};
-    geometry_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    geometry_shader_stage_info.stage = VK_SHADER_STAGE_GEOMETRY_BIT;
-    geometry_shader_stage_info.module = geometry_shader->GetShaderModule()->GetVkShaderModule();
-    geometry_shader_stage_info.pName = "main";
-    shader_stages.emplace_back(geometry_shader_stage_info);
-  }
-  if (task_shader && task_shader->GetShaderType() == ShaderType::Task && task_shader->Compiled()) {
-    VkPipelineShaderStageCreateInfo task_shader_stage_info{};
-    task_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    task_shader_stage_info.stage = VK_SHADER_STAGE_TASK_BIT_EXT;
-    task_shader_stage_info.module = task_shader->GetShaderModule()->GetVkShaderModule();
-    task_shader_stage_info.pName = "main";
-    shader_stages.emplace_back(task_shader_stage_info);
-  }
-  if (mesh_shader && mesh_shader->GetShaderType() == ShaderType::Mesh && mesh_shader->Compiled()) {
-    VkPipelineShaderStageCreateInfo mesh_shader_stage_info{};
-    mesh_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    mesh_shader_stage_info.stage = VK_SHADER_STAGE_MESH_BIT_EXT;
-    mesh_shader_stage_info.module = mesh_shader->GetShaderModule()->GetVkShaderModule();
-    mesh_shader_stage_info.pName = "main";
-    shader_stages.emplace_back(mesh_shader_stage_info);
-  }
-  if (fragment_shader && fragment_shader->GetShaderType() == ShaderType::Fragment && fragment_shader->Compiled()) {
-    VkPipelineShaderStageCreateInfo fragment_shader_stage_info{};
-    fragment_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    fragment_shader_stage_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    fragment_shader_stage_info.module = fragment_shader->GetShaderModule()->GetVkShaderModule();
-    fragment_shader_stage_info.pName = "main";
-    shader_stages.emplace_back(fragment_shader_stage_info);
-  }
 
   VkPipelineVertexInputStateCreateInfo vertex_input_info{};
   vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -203,8 +249,13 @@ void GraphicsPipeline::Initialize() {
   pipeline_info.layout = pipeline_layout_->GetVkPipelineLayout();
   pipeline_info.pNext = &rendering_create_info;
   pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
-  Platform::CheckVk(vkCreateGraphicsPipelines(Platform::GetVkDevice(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
-                                              &vk_graphics_pipeline_));
+  try {
+    Platform::CheckVk(vkCreateGraphicsPipelines(Platform::GetVkDevice(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
+                                                &vk_graphics_pipeline_));
+  } catch (const std::runtime_error& error) {
+    EVOENGINE_ERROR(std::string("Failed to build graphics pipeline: ") + error.what());
+    vk_graphics_pipeline_ = nullptr;
+  }
   states.ResetAllStates(1);
 }
 
@@ -213,6 +264,9 @@ bool GraphicsPipeline::Initialized() const {
 }
 
 void GraphicsPipeline::Bind(const VkCommandBuffer vk_command_buffer) {
+  if (!Initialized()) {
+    throw std::runtime_error("Failed to bind graphics pipeline: Pipeline not initialized!");
+  }
   vkCmdBindPipeline(vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_graphics_pipeline_);
   states.ApplyAllStates(vk_command_buffer, true);
 }

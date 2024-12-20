@@ -28,7 +28,7 @@ entity_metadata_list:
         background_intensity: 1
         exposure: 1
         skybox:
-          asset_handle_: 77
+          asset_handle_: 0
           asset_type_name_: Mesh
         post_processing_stack:
           asset_handle_: 0
@@ -88,6 +88,9 @@ entity_metadata_list:
     pc:
       - tn: DynamicTreeStrands
         e: true
+        material_ref:
+          asset_handle_: 1209974618059807616
+          asset_type_name_: Material
   - n: BoxCollider
     h: 5594278585294077197
     e: true
@@ -98,7 +101,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 72
+          asset_handle_: 9
           asset_type_name_: Mesh
         material:
           asset_handle_: 9351133328134294989
@@ -118,7 +121,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 74
+          asset_handle_: 11
           asset_type_name_: Mesh
         material:
           asset_handle_: 9269403427852511889
@@ -139,7 +142,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 71
+          asset_handle_: 8
           asset_type_name_: Mesh
         material:
           asset_handle_: 14316066197675944754
@@ -160,7 +163,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 72
+          asset_handle_: 9
           asset_type_name_: Mesh
         material:
           asset_handle_: 1878344000892373111
@@ -181,7 +184,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 72
+          asset_handle_: 9
           asset_type_name_: Mesh
         material:
           asset_handle_: 571672489586621582
@@ -202,7 +205,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 72
+          asset_handle_: 9
           asset_type_name_: Mesh
         material:
           asset_handle_: 4977678215339870791
@@ -223,7 +226,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 72
+          asset_handle_: 9
           asset_type_name_: Mesh
         material:
           asset_handle_: 9799836859279381246

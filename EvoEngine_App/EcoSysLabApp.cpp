@@ -76,9 +76,10 @@ int main() {
 
   EngineSetup();
 
+  Application::PushLayer<RenderLayer>();
   Application::PushLayer<WindowLayer>();
   Application::PushLayer<EditorLayer>();
-  Application::PushLayer<RenderLayer>();
+
 #ifdef CUDA_MODULE_PLUGIN
   Application::PushLayer<RayTracerLayer>();
 #endif

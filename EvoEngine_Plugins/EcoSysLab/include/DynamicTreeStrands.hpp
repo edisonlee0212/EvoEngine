@@ -1,4 +1,5 @@
 #pragma once
+#include "DsConstraints.hpp"
 #include "DsOperators.hpp"
 #include "DynamicStrands.hpp"
 #include "StrandModelData.hpp"
@@ -18,17 +19,19 @@ class DynamicTreeStrands : public IPrivateComponent {
   bool enable_physics = true;
 
   int material_index = 0;
-  DynamicStrands::RenderParameters render_parameters{};
   std::shared_ptr<DynamicStrands> dynamic_strands{};
 
   struct EntityTransform {
     Entity target_entity;
     std::shared_ptr<DsTransform> ds_transform;
   };
-
+  struct EntityPivot {
+    Entity target_entity;
+    std::shared_ptr<DsPivot> ds_pivot;
+  };
   bool limit_strand_length = true;
   float max_strand_length = 1.f;
-
+  std::vector<EntityPivot> pivot_operators;
   std::vector<EntityTransform> transform_operators;
   AssetRef material_ref;
   std::shared_ptr<DsBoxSelection> box_selection_operator;
@@ -37,6 +40,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   std::shared_ptr<DsDrag> drag_operator;
   std::shared_ptr<DsGravity> gravity;
   void UpdateDynamicStrands();
+  void CreateStaticRoot();
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
@@ -48,7 +52,8 @@ class DynamicTreeStrands : public IPrivateComponent {
     float segment_length = 0.05f;
     float radius = 0.002f;
     glm::ivec3 rod_dimension = {10, 40, 20};
-    bool add_operator = true;
+    bool add_left_pivot = true;
+    bool add_right_pivot = true;
   };
   struct LogExperimentSetupSettings {
     float segment_length = 0.05f;
@@ -56,7 +61,8 @@ class DynamicTreeStrands : public IPrivateComponent {
     int rod_size = 400;
     int rod_segment_count = 10;
     float center_attraction_strength = 40000;
-    bool add_operator = true;
+    bool add_left_operator = true;
+    bool add_right_operator = false;
   };
   void BoardExperimentSetup(const BoardExperimentSetupSettings& settings);
   void LogExperimentSetup(const LogExperimentSetupSettings& settings);
@@ -69,8 +75,8 @@ class DynamicTreeStrands : public IPrivateComponent {
 
   void Visualization(const std::shared_ptr<Camera>& target_camera,
                      const DynamicStrands::VisualizationParameters& visualization_parameters) const;
-  void RenderShadowMap();
+  void RenderShadowMap(const DynamicStrands::RenderParameters& render_parameters);
   void RegisterMaterial();
-  void Render();
+  void Render(const DynamicStrands::RenderParameters& render_parameters);
 };
 }  // namespace eco_sys_lab_plugin

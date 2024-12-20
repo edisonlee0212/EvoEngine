@@ -1483,15 +1483,15 @@ void Scene::SetPrivateComponent(const Entity& entity, const std::shared_ptr<IPri
   assert(ptr && IsEntityValid(entity));
   const auto type_name = ptr->GetTypeName();
   auto& elements = scene_data_storage_.entity_metadata_list.at(entity.index_).private_component_elements;
-  for (auto& element : elements) {
+  for (const auto& element : elements) {
     if (type_name == element.private_component_data->GetTypeName()) {
       return;
     }
   }
-
-  auto id = Serialization::GetSerializableTypeId(type_name);
+  const auto id = Serialization::GetSerializableTypeId(type_name);
   scene_data_storage_.entity_private_component_storage.SetPrivateComponent(entity, id);
-  elements.emplace_back(id, ptr, entity, std::dynamic_pointer_cast<Scene>(GetSelf()));
+  PrivateComponentElement private_component_element(id, ptr, entity, std::dynamic_pointer_cast<Scene>(GetSelf()));
+  elements.emplace_back(private_component_element);
   SetUnsaved();
 }
 

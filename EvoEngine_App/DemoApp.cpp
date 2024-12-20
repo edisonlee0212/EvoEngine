@@ -284,7 +284,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
 #pragma region Set main camera to correct position and rotation
         const auto main_camera = scene->main_camera.Get<Camera>();
         main_camera->Resize({640, 480});
-        main_camera->post_processing_stack = ProjectManager::CreateTemporaryAsset<PostProcessingStack>();
+        main_camera->post_processing_stack_ref = ProjectManager::CreateTemporaryAsset<PostProcessingStack>();
         const auto main_camera_entity = main_camera->GetOwner();
         auto main_camera_transform = scene->GetDataComponent<Transform>(main_camera_entity);
         main_camera_transform.SetPosition(glm::vec3(0, 0, 4));

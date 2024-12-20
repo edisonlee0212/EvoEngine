@@ -179,10 +179,10 @@ void GpuRayTracerCamera::Capture() {
      * Load shader from path. Note the the CMake will copy the everything under .../EvoEngine_SDK/Internals/ to the
      * executable folder after compilation. If you are going to write your own shader, put it under
      * .../EvoEngine_Plugins/EcoSysLab/Internals/EcoSysLabResources/Shaders/ and CMake will also copy it to the
-     * excutable folder. In that case, you will write something like: xxx_shader->Set(ShaderType::Compute,
+     * excutable folder. In that case, you will write something like: xxx_shader->TryCompile(ShaderType::Compute,
      * std::filesystem::path("./EcoSysLabResources/Shaders/Compute/AlphaShape.comp"));
      */
-    ray_tracer_camera_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    ray_tracer_camera_shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                                   std::filesystem::path("./DefaultResources") / "Shaders/Compute/RayTracerCamera.comp");
   }
   /**

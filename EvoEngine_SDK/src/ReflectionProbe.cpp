@@ -1,7 +1,9 @@
 #include "ReflectionProbe.hpp"
 #include "EditorLayer.hpp"
 #include "Mesh.hpp"
+#include "RenderLayer.hpp"
 #include "Resources.hpp"
+#include "Shader.hpp"
 #include "TextureStorage.hpp"
 using namespace evo_engine;
 struct EquirectangularToCubemapConstant {
@@ -44,6 +46,10 @@ std::shared_ptr<Cubemap> ReflectionProbe::GetCubemap() const {
   return cubemap_;
 }
 void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cubemap) {
+  const auto render_layer = Application::GetLayer<RenderLayer>();
+  if (!render_layer)
+    return;
+
   if (!cubemap_)
     Initialize();
 
@@ -87,7 +93,7 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
 #pragma endregion
 
   const std::unique_ptr<DescriptorSet> temp_set =
-      std::make_unique<DescriptorSet>(Platform::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
+      std::make_unique<DescriptorSet>(RenderTexture::render_texture_present_layout);
   VkDescriptorImageInfo descriptor_image_info;
   descriptor_image_info.imageView = target_cubemap->GetImageView()->GetVkImageView();
   descriptor_image_info.imageLayout = target_cubemap->GetImage()->GetLayout();
@@ -105,7 +111,30 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
   const auto max_mip_levels = cubemap_->RefStorage().image->GetMipLevels();
 
-  const auto prefilter_construct = Platform::GetGraphicsPipeline("PREFILTER_CONSTRUCT");
+  static std::shared_ptr<GraphicsPipeline> prefilter_construct;
+  if (!prefilter_construct) {
+    prefilter_construct = std::make_shared<GraphicsPipeline>();
+    prefilter_construct->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                "Shaders/Graphics/Vertex/Lighting/EquirectangularMapToCubemap.vert");
+    prefilter_construct->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
+                                  "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.frag");
+    prefilter_construct->geometry_type = GeometryType::Mesh;
+
+    prefilter_construct->depth_attachment_format = Platform::Constants::shadow_map;
+    prefilter_construct->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+
+    prefilter_construct->color_attachment_formats = {1, Platform::Constants::texture_2d};
+    prefilter_construct->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
+
+    auto& push_constant_range = prefilter_construct->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(glm::mat4) + sizeof(float);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+
+    prefilter_construct->Initialize();
+  }
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 

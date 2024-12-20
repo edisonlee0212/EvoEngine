@@ -377,11 +377,17 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
     physics_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
   }
-
   ImGui::Checkbox("Visualization", &enable);
   if (ImGui::TreeNode("Visualization settings")) {
     visualization_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
   }
   ImGui::Checkbox("Rendering", &enable_rendering);
+  if (ImGui::TreeNode("Render settings")) {
+    if (ImGui::Button("Rebuild pipelines")) {
+      DynamicStrands::BuildRenderingPipelines();
+    }
+    render_parameters.OnInspect(editor_layer);
+    ImGui::TreePop();
+  }
 }

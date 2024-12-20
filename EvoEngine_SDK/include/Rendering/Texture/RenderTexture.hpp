@@ -1,4 +1,5 @@
 #pragma once
+#include "GraphicsPipeline.hpp"
 #include "GraphicsPipelineStates.hpp"
 #include "GraphicsResources.hpp"
 namespace evo_engine {
@@ -29,8 +30,12 @@ class RenderTexture {
   void Initialize(const RenderTextureCreateInfo& render_texture_create_info);
   std::shared_ptr<DescriptorSet> present_descriptor_set_;
   std::shared_ptr<DescriptorSet> storage_descriptor_set_;
+
  public:
-  void Clear(VkCommandBuffer vk_command_buffer ) const;
+  inline static std::shared_ptr<DescriptorSetLayout> render_texture_storage_layout;
+  inline static std::shared_ptr<DescriptorSetLayout> render_texture_present_layout;
+
+  void Clear(VkCommandBuffer vk_command_buffer) const;
   explicit RenderTexture(const RenderTextureCreateInfo& render_texture_create_info);
   void Resize(VkExtent3D extent);
   void AppendColorAttachmentInfos(std::vector<VkRenderingAttachmentInfo>& attachment_infos, VkAttachmentLoadOp load_op,
@@ -47,7 +52,7 @@ class RenderTexture {
   [[nodiscard]] const std::shared_ptr<ImageView>& GetColorImageView();
   [[nodiscard]] const std::shared_ptr<ImageView>& GetDepthImageView();
   void Render(VkCommandBuffer vk_command_buffer, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op,
-                      const std::function<void()>& func) const;
+              const std::function<void()>& func) const;
   [[nodiscard]] ImTextureID GetColorImTextureId() const;
   void ApplyGraphicsPipelineStates(GraphicsPipelineStates& global_pipeline_state) const;
   [[maybe_unused]] bool Save(const std::filesystem::path& path) const;

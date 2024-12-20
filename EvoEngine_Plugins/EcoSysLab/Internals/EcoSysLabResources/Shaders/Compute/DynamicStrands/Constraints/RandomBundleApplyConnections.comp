@@ -37,7 +37,7 @@ void main(){
 		if(segment_pair_index >= segment_pair_size) break;
 
 		SegmentPair segment_pair = segment_pairs[segment_pair_index];
-		if(segment_pair.connectivity_valid == 0) continue;
+		if(segment_pair.connectivity_integrity <= 0.f) continue;
 		Segment segment0 = segments[segment_pair.segment0_handle];
 		Segment segment1 = segments[segment_pair.segment1_handle];
 		

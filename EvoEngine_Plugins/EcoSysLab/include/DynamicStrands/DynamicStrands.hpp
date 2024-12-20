@@ -64,16 +64,12 @@ struct DtsStrandSegmentData {
 typedef StrandGroup<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData> DtsStrandGroup;
 
 class DynamicStrands {
-  bool wait_for_upload = true;
-  uint32_t frame_index = 0;
-
  public:
   DynamicStrands();
   uint32_t GetFrameIndex() const;
   [[nodiscard]] bool WaitForUpload() const;
 #pragma region Initialization
   struct InitializeParameters {
-    bool static_root = true;
     float min_segment_length = 0.03f;
     float max_segment_length = 0.06f;
     int uniform_subdivision = 1;
@@ -128,6 +124,7 @@ class DynamicStrands {
     int sub_step = 10;
 
     int constraint_iteration = 5;
+    bool enable_disconnection = true;
     bool enable_breaking = true;
     float velocity_damping = 0.005f;
     float angular_velocity_damping = 0.0005f;
@@ -174,7 +171,7 @@ class DynamicStrands {
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
-  
+
   struct RenderParameters {
     bool render_alpha_shape_mesh = true;
     bool render_complex = false;
@@ -289,9 +286,8 @@ class DynamicStrands {
   struct GpuSegmentPair {
     int segment0_handle;
     int segment1_handle;
-    uint32_t bend_twist_bundle_valid = 1;
-    uint32_t connectivity_valid = 1;
-
+    float bend_twist_bundle_integrity = 1.f;
+    float connectivity_integrity = 1.f;
     float bending_alpha = 0.0f;
     float torsion_alpha = 0.0f;
     float max_bending_modulus;
@@ -405,8 +401,16 @@ class DynamicStrands {
                  const VisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
                const std::function<void()>& sub_step_action);
+  static void BuildRenderingPipelines();
 
  private:
+  inline static std::shared_ptr<GraphicsPipeline> point_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> spot_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> directional_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> render_pipeline{};
+  bool wait_for_upload = true;
+  uint32_t frame_index = 0;
+
 #ifdef USE_CGAL
   void CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned>>& points,
                     std::vector<GpuDelaunayTetrahedron>& tetrahedrons);

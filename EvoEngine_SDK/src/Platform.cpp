@@ -175,6 +175,92 @@ void Platform::Initialize() {
       std::to_string(Constants::task_subgroup_count) + "\n#define EXT_MESH_SUBGROUP_COUNT " +
       std::to_string(Constants::mesh_subgroup_count) + "\n#define EXT_TASK_WORK_GROUP_INVOCATIONS " +
       std::to_string(Constants::task_work_group_invocations) + "\n";
+
+#pragma region DescriptorSet Layouts
+  if (!RenderLayer::per_frame_layout) {
+    RenderLayer::per_frame_layout = std::make_shared<DescriptorSetLayout>();
+    RenderLayer::per_frame_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    RenderLayer::per_frame_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    RenderLayer::per_frame_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    RenderLayer::per_frame_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    RenderLayer::per_frame_layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    RenderLayer::per_frame_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    RenderLayer::per_frame_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    RenderLayer::per_frame_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    RenderLayer::per_frame_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    RenderLayer::per_frame_layout->PushDescriptorBinding(
+        9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, Platform::Settings::max_texture_2d_resource_size);
+    RenderLayer::per_frame_layout->PushDescriptorBinding(
+        10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, Platform::Settings::max_cubemap_resource_size);
+    RenderLayer::per_frame_layout->Initialize();
+  }
+  if (!RenderLayer::meshlet_layout) {
+    RenderLayer::meshlet_layout = std::make_shared<DescriptorSetLayout>();
+    RenderLayer::meshlet_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
+    RenderLayer::meshlet_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
+    RenderLayer::meshlet_layout->Initialize();
+  }
+
+  if (!RenderLayer::lighting_layout) {
+    RenderLayer::lighting_layout = std::make_shared<DescriptorSetLayout>();
+    RenderLayer::lighting_layout->PushDescriptorBinding(14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                        VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    RenderLayer::lighting_layout->PushDescriptorBinding(15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                        VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    RenderLayer::lighting_layout->PushDescriptorBinding(16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                        VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    RenderLayer::lighting_layout->Initialize();
+  }
+  if (!RenderLayer::ray_tracing_layout) {
+    RenderLayer::ray_tracing_layout = std::make_shared<DescriptorSetLayout>();
+    RenderLayer::ray_tracing_layout->PushDescriptorBinding(
+        0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    RenderLayer::ray_tracing_layout->PushDescriptorBinding(
+        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    RenderLayer::ray_tracing_layout->PushDescriptorBinding(
+        2, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    RenderLayer::ray_tracing_layout->Initialize();
+  }
+  if (!ParticleInfoList::instanced_data_layout) {
+    ParticleInfoList::instanced_data_layout = std::make_shared<DescriptorSetLayout>();
+    ParticleInfoList::instanced_data_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                                   VK_SHADER_STAGE_ALL, 0);
+    ParticleInfoList::instanced_data_layout->Initialize();
+  }
+  if (!BoneMatrices::bone_matrices_layout) {
+    BoneMatrices::bone_matrices_layout = std::make_shared<DescriptorSetLayout>();
+    BoneMatrices::bone_matrices_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                              VK_SHADER_STAGE_VERTEX_BIT, 0);
+    BoneMatrices::bone_matrices_layout->Initialize();
+  }
+  if (!Camera::g_buffer_layout) {
+    Camera::g_buffer_layout = std::make_shared<DescriptorSetLayout>();
+    Camera::g_buffer_layout->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    Camera::g_buffer_layout->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    Camera::g_buffer_layout->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    Camera::g_buffer_layout->Initialize();
+  }
+  if (!RenderTexture::render_texture_storage_layout) {
+    RenderTexture::render_texture_storage_layout = std::make_shared<DescriptorSetLayout>();
+    RenderTexture::render_texture_storage_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                                        VK_SHADER_STAGE_ALL, 0);
+    RenderTexture::render_texture_storage_layout->Initialize();
+  }
+  if (!RenderTexture::render_texture_present_layout) {
+    RenderTexture::render_texture_present_layout = std::make_shared<DescriptorSetLayout>();
+    RenderTexture::render_texture_present_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                                        VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    RenderTexture::render_texture_present_layout->Initialize();
+  }
+#pragma endregion
 }
 
 VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
@@ -295,67 +381,6 @@ void Platform::RecordRenderCommands(const VkRenderingInfo& rendering_info, const
 void Platform::WaitForDeviceIdle() {
   const auto& graphics = GetInstance();
   vkDeviceWaitIdle(graphics.vk_device_);
-}
-
-void Platform::RegisterGraphicsPipeline(const std::string& name,
-                                        const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) {
-  auto& graphics = GetInstance();
-  if (graphics.graphics_pipelines_.find(name) != graphics.graphics_pipelines_.end()) {
-    EVOENGINE_ERROR("GraphicsPipeline with same name exists!");
-    return;
-  }
-  graphics.graphics_pipelines_[name] = graphics_pipeline;
-}
-
-void Platform::RegisterComputePipeline(const std::string& name,
-                                       const std::shared_ptr<ComputePipeline>& compute_pipeline) {
-  auto& graphics = GetInstance();
-  if (graphics.compute_pipelines_.find(name) != graphics.compute_pipelines_.end()) {
-    EVOENGINE_ERROR("ComputePipeline with same name exists!");
-    return;
-  }
-  graphics.compute_pipelines_[name] = compute_pipeline;
-}
-
-void Platform::RegisterRayTracingPipeline(const std::string& name,
-                                          const std::shared_ptr<RayTracingPipeline>& ray_tracing_pipeline) {
-  auto& graphics = GetInstance();
-  if (graphics.ray_tracing_pipelines_.find(name) != graphics.ray_tracing_pipelines_.end()) {
-    EVOENGINE_ERROR("RayTracingPipeline with same name exists!");
-    return;
-  }
-  graphics.ray_tracing_pipelines_[name] = ray_tracing_pipeline;
-}
-
-const std::shared_ptr<GraphicsPipeline>& Platform::GetGraphicsPipeline(const std::string& name) {
-  const auto& graphics = GetInstance();
-  return graphics.graphics_pipelines_.at(name);
-}
-
-const std::shared_ptr<ComputePipeline>& Platform::GetComputePipeline(const std::string& name) {
-  const auto& graphics = GetInstance();
-  return graphics.compute_pipelines_.at(name);
-}
-
-const std::shared_ptr<RayTracingPipeline>& Platform::GetRayTracingPipeline(const std::string& name) {
-  const auto& graphics = GetInstance();
-  return graphics.ray_tracing_pipelines_.at(name);
-}
-
-const std::shared_ptr<DescriptorSetLayout>& Platform::GetDescriptorSetLayout(const std::string& name) {
-  const auto& graphics = GetInstance();
-
-  return graphics.descriptor_set_layouts_.at(name);
-}
-
-void Platform::RegisterDescriptorSetLayout(const std::string& name,
-                                           const std::shared_ptr<DescriptorSetLayout>& descriptor_set_layout) {
-  auto& graphics = GetInstance();
-  if (graphics.descriptor_set_layouts_.find(name) != graphics.descriptor_set_layouts_.end()) {
-    EVOENGINE_ERROR("GraphicsPipeline with same name exists!");
-    return;
-  }
-  graphics.descriptor_set_layouts_[name] = descriptor_set_layout;
 }
 
 void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkImage target_image,
@@ -1577,12 +1602,6 @@ void Platform::ResetCommandBuffers() {
 
 #pragma endregion
 
-void Platform::PostResourceLoadingInitialization() {
-  const auto& graphics = GetInstance();
-  PrepareDescriptorSetLayouts();
-  graphics.CreateGraphicsPipelines();
-}
-
 void Platform::Destroy() {
   auto& graphics = GetInstance();
   graphics.OnDestroy();
@@ -1658,11 +1677,12 @@ void Platform::PreUpdate() {
 void Platform::LateUpdate() {
   auto& graphics = GetInstance();
   if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
-    if (Application::GetLayer<RenderLayer>() && !Application::GetLayer<EditorLayer>()) {
+    if (const auto render_layer = Application::GetLayer<RenderLayer>();
+        render_layer && !Application::GetLayer<EditorLayer>()) {
       if (const auto scene = Application::GetActiveScene()) {
         if (const auto main_camera = scene->main_camera.Get<Camera>();
             main_camera->IsEnabled() && main_camera->rendered_) {
-          const auto& render_texture_present = graphics.graphics_pipelines_["RENDER_TEXTURE_PRESENT"];
+          const auto& render_texture_present = render_layer->render_texture_present_pipeline;
           RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
             EverythingBarrier(vk_command_buffer);
             TransitImageLayout(vk_command_buffer, graphics.swapchain_->GetVkImage(),

@@ -149,16 +149,14 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
   image_view_type_ = render_texture_create_info.image_view_type;
 
   if (color_) {
-    present_descriptor_set_ =
-        std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
+    present_descriptor_set_ = std::make_shared<DescriptorSet>(render_texture_present_layout);
     VkDescriptorImageInfo present_info;
     present_info.imageLayout = color_image_->GetLayout();
     present_info.imageView = color_image_view_->GetVkImageView();
     present_info.sampler = color_sampler_->GetVkSampler();
     present_descriptor_set_->UpdateImageDescriptorBinding(0, present_info);
 
-    storage_descriptor_set_ =
-        std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("RENDER_TEXTURE_STORAGE_LAYOUT"));
+    storage_descriptor_set_ = std::make_shared<DescriptorSet>(render_texture_storage_layout);
     VkDescriptorImageInfo storage_info;
     storage_info.imageLayout = color_image_->GetLayout();
     storage_info.imageView = color_image_view_->GetVkImageView();
@@ -284,8 +282,7 @@ const std::shared_ptr<ImageView>& RenderTexture::GetDepthImageView() {
 }
 
 void RenderTexture::Render(const VkCommandBuffer vk_command_buffer, const VkAttachmentLoadOp load_op,
-                                   const VkAttachmentStoreOp store_op, const
-                                       std::function<void()>& func) const {
+                           const VkAttachmentStoreOp store_op, const std::function<void()>& func) const {
   if (depth_)
     depth_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   if (color_)
@@ -318,7 +315,6 @@ void RenderTexture::Render(const VkCommandBuffer vk_command_buffer, const VkAtta
   func();
   vkCmdEndRendering(vk_command_buffer);
 }
-
 
 ImTextureID RenderTexture::GetColorImTextureId() const {
   return color_im_texture_id_;

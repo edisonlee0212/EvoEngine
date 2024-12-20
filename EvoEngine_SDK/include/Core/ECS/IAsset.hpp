@@ -67,7 +67,7 @@ class IAsset : public ISerializable {
    * @param path The target path of the asset, must be absolute path and outside project folder.
    * @return If the asset is successfully imported.
    */
-  bool Import(const std::filesystem::path& path);
+  [[maybe_unused]] bool Import(const std::filesystem::path& path);
 
   /**
    * The GUI of the asset when inspected in the editor.

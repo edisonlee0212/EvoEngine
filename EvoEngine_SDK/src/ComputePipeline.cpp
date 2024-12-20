@@ -1,4 +1,6 @@
 #include "ComputePipeline.hpp"
+
+#include "Console.hpp"
 #include "Platform.hpp"
 #include "Shader.hpp"
 using namespace evo_engine;
@@ -11,6 +13,27 @@ ComputePipeline::~ComputePipeline() {
 }
 
 void ComputePipeline::Initialize() {
+  if (vk_compute_pipeline_ != VK_NULL_HANDLE) {
+    vkDestroyPipeline(Platform::GetVkDevice(), vk_compute_pipeline_, nullptr);
+    vk_compute_pipeline_ = nullptr;
+  }
+  VkPipelineShaderStageCreateInfo shader_stage_create_info{};
+  if (compute_shader && compute_shader->GetShaderType() == ShaderType::Compute) {
+    if (!compute_shader->Compiled())
+      compute_shader->TryCompile();
+    if (compute_shader->Compiled()) {
+      shader_stage_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      shader_stage_create_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+      shader_stage_create_info.module = compute_shader->GetShaderModule()->GetVkShaderModule();
+      shader_stage_create_info.pName = "main";
+      shader_stage_create_info.flags = 0;
+      shader_stage_create_info.pNext = nullptr;
+    } else {
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled vertex shader!")
+      return;
+    }
+  }
+
   std::vector<VkDescriptorSetLayout> set_layouts = {};
   set_layouts.reserve(descriptor_set_layouts.size());
   for (const auto& i : descriptor_set_layouts) {
@@ -22,16 +45,7 @@ void ComputePipeline::Initialize() {
   pipeline_layout_info.pSetLayouts = set_layouts.data();
   pipeline_layout_info.pushConstantRangeCount = push_constant_ranges.size();
   pipeline_layout_info.pPushConstantRanges = push_constant_ranges.data();
-
   pipeline_layout_ = std::make_unique<PipelineLayout>(pipeline_layout_info);
-
-  VkPipelineShaderStageCreateInfo shader_stage_create_info{};
-  shader_stage_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  shader_stage_create_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  shader_stage_create_info.module = compute_shader->GetShaderModule()->GetVkShaderModule();
-  shader_stage_create_info.pName = "main";
-  shader_stage_create_info.flags = 0;
-  shader_stage_create_info.pNext = nullptr;
 
   VkSpecializationInfo vk_specialization_info{};
   std::vector<VkSpecializationMapEntry> specialization_map_entries;
@@ -54,8 +68,13 @@ void ComputePipeline::Initialize() {
   pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
   pipeline_info.layout = pipeline_layout_->GetVkPipelineLayout();
   pipeline_info.stage = shader_stage_create_info;
-  Platform::CheckVk(vkCreateComputePipelines(Platform::GetVkDevice(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
-                                             &vk_compute_pipeline_));
+  try {
+    Platform::CheckVk(vkCreateComputePipelines(Platform::GetVkDevice(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
+                                               &vk_compute_pipeline_));
+  } catch (const std::runtime_error& error) {
+    EVOENGINE_ERROR(std::string("Failed to build compute pipeline: ") + error.what());
+    vk_compute_pipeline_ = nullptr;
+  }
 }
 
 bool ComputePipeline::Initialized() const {

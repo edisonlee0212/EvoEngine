@@ -68,7 +68,8 @@ const auto registry = AssetRegistration<LightProbe>("LightProbe", {".evelightpro
 const auto reflection_probe_registry = AssetRegistration<ReflectionProbe>("ReflectionProbe", {".evereflectionprobe"});
 const auto environmental_map_registry =
     AssetRegistration<EnvironmentalMap>("EnvironmentalMap", {".eveenvironmentalmap"});
-const auto shader_registry = AssetRegistration<Shader>("Shader", {".eveshader"});
+const auto shader_registry = AssetRegistration<Shader>(
+    "Shader", {".eveshader", ".glsl", ".vert", ".frag", ".comp", ".geom", ".task", ".mesh", ".tesc", ".tese"});
 const auto mesh_registry = AssetRegistration<Mesh>("Mesh", {".evemesh"});
 const auto strands_registry = AssetRegistration<Strands>("Strands", {".evestrands", ".hair"});
 const auto prefab_registry = AssetRegistration<Prefab>(
@@ -367,12 +368,12 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   TransformGraph::Initialize();
   Platform::Initialize();
   Resources::Initialize();
-  Platform::PostResourceLoadingInitialization();
   Resources::InitializeEnvironmentalMap();
 
   for (const auto& layer : application.layers_) {
     layer->OnCreate();
   }
+  
 
   if (!application.application_info_.project_path.empty()) {
     ProjectManager::GetOrCreateProject(application.application_info_.project_path);

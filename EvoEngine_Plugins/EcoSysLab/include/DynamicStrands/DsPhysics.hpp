@@ -31,6 +31,7 @@ class DsPrediction {
 
   struct SegmentPairPredictionPushConstant {
     uint32_t segment_pair_size = 0;
+    uint32_t allow_disconnection;
     uint32_t allow_breaking;
   };
   struct UniformParticlePredictionPushConstant {
