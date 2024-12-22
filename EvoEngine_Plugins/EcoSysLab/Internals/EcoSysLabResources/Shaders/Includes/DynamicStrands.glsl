@@ -86,8 +86,8 @@ struct Segment {
 struct SegmentPair {
   int segment0_handle;
   int segment1_handle;
-  uint bend_twist_bundle_valid;
-  uint connectivity_valid;
+  float bend_twist_bundle_integrity;
+  float connectivity_integrity;
 
   float bending_alpha;
   float twisting_alpha;

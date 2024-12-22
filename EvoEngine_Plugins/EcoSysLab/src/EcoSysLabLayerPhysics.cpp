@@ -93,7 +93,7 @@ void EcoSysLabLayer::StrandShadowMapRendering() const {
     if (dynamic_strands_settings_.enable_rendering) {
       const auto editor_layer = Application::GetLayer<EditorLayer>();
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        dts->RenderShadowMap();
+        dts->RenderShadowMap(dynamic_strands_settings_.render_parameters);
       });
     }
   }
@@ -137,7 +137,7 @@ void EcoSysLabLayer::StrandRendering() const {
     if (dynamic_strands_settings_.enable_rendering) {
       const auto editor_layer = Application::GetLayer<EditorLayer>();
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        dts->Render();
+        dts->Render(dynamic_strands_settings_.render_parameters);
       });
     }
   }

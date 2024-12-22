@@ -23,6 +23,7 @@ bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLay
 
   return false;
 }
+
 struct RenderPushConstant {
   union Index1 {
     int material_index;
@@ -38,11 +39,99 @@ struct RenderPushConstant {
   int render_complex = 0;
   int vertex_colors = 0;
 };
+void DynamicStrands::BuildRenderingPipelines() {
+  // Descriptor set layout
+  point_light_render_pipeline = std::make_shared<GraphicsPipeline>();
+  point_light_render_pipeline->task_shader = Shader::CreateTemporary(
+      ShaderType::Task, Platform::Constants::shader_global_defines,
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsRendering.task");
+  point_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
+      ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandsPointLightShadowMap.mesh");
+  point_light_render_pipeline->fragment_shader =
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+  point_light_render_pipeline->geometry_type = GeometryType::Mesh;
+  point_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  point_light_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+  point_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
+  point_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  auto& point_light_push_constant_range = point_light_render_pipeline->push_constant_ranges.emplace_back();
+  point_light_push_constant_range.size = sizeof(RenderPushConstant);
+  point_light_push_constant_range.offset = 0;
+  point_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  point_light_render_pipeline->Initialize();
+  // Descriptor set layout
+  spot_light_render_pipeline = std::make_shared<GraphicsPipeline>();
+  spot_light_render_pipeline->task_shader = Shader::CreateTemporary(
+      ShaderType::Task, Platform::Constants::shader_global_defines,
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsRendering.task");
+  spot_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
+      ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandsSpotLightShadowMap.mesh");
+  spot_light_render_pipeline->fragment_shader =
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+  spot_light_render_pipeline->geometry_type = GeometryType::Mesh;
+  spot_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  spot_light_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+  spot_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
+  spot_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  auto& spot_light_push_constant_range = spot_light_render_pipeline->push_constant_ranges.emplace_back();
+  spot_light_push_constant_range.size = sizeof(RenderPushConstant);
+  spot_light_push_constant_range.offset = 0;
+  spot_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  spot_light_render_pipeline->Initialize();
+  // Descriptor set layout
+  directional_light_render_pipeline = std::make_shared<GraphicsPipeline>();
+  directional_light_render_pipeline->task_shader = Shader::CreateTemporary(
+      ShaderType::Task, Platform::Constants::shader_global_defines,
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsRendering.task");
+  directional_light_render_pipeline->mesh_shader =
+      Shader::CreateTemporary(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+                              std::filesystem::path("./EcoSysLabResources") /
+                                  "Shaders/Graphics/Mesh/DynamicStrandsDirectionalLightShadowMap.mesh");
+  directional_light_render_pipeline->fragment_shader =
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+  directional_light_render_pipeline->geometry_type = GeometryType::Mesh;
+  directional_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  directional_light_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+  directional_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
+  directional_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  auto& directional_light_push_constant_range = directional_light_render_pipeline->push_constant_ranges.emplace_back();
+  directional_light_push_constant_range.size = sizeof(RenderPushConstant);
+  directional_light_push_constant_range.offset = 0;
+  directional_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  directional_light_render_pipeline->Initialize();
+  // Descriptor set layout
+  render_pipeline = std::make_shared<GraphicsPipeline>();
+  render_pipeline->task_shader = Shader::CreateTemporary(
+      ShaderType::Task, Platform::Constants::shader_global_defines,
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsRendering.task");
+  render_pipeline->mesh_shader = Shader::CreateTemporary(
+      ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandsRendering.mesh");
+  render_pipeline->fragment_shader = Shader::CreateTemporary(
+      ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsRendering.frag");
+  render_pipeline->geometry_type = GeometryType::Mesh;
+  render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+  render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::lighting_layout);
+  render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+  render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+  auto& push_constant_range = render_pipeline->push_constant_ranges.emplace_back();
+  push_constant_range.size = sizeof(RenderPushConstant);
+  push_constant_range.offset = 0;
+  push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  render_pipeline->Initialize();
+}
 void DynamicStrands::RenderShadowMap(const RenderParameters& render_parameters) const {
   if (!render_parameters.render_alpha_shape_mesh) {
     return;
   }
-
   if (!Platform::Constants::support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return;
@@ -52,133 +141,14 @@ void DynamicStrands::RenderShadowMap(const RenderParameters& render_parameters) 
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
   }
-
-  static std::shared_ptr<GraphicsPipeline> point_light_render_pipeline{};
-  static std::shared_ptr<GraphicsPipeline> spot_light_render_pipeline{};
-  static std::shared_ptr<GraphicsPipeline> directional_light_render_pipeline{};
-
-  if (!point_light_render_pipeline) {
-    static std::shared_ptr<Shader> task_shader{};
-    static std::shared_ptr<Shader> mesh_shader{};
-    static std::shared_ptr<Shader> frag_shader{};
-    // Load shader
-    task_shader = std::make_shared<Shader>();
-    task_shader->Set(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsRendering.task");
-
-    mesh_shader = std::make_shared<Shader>();
-    mesh_shader->Set(
-        ShaderType::Mesh, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandsPointLightShadowMap.mesh");
-
-    frag_shader = std::make_shared<Shader>();
-    frag_shader->Set(ShaderType::Fragment, Platform::Constants::shader_global_defines,
-                     std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
-    // Descriptor set layout
-    point_light_render_pipeline = std::make_shared<GraphicsPipeline>();
-    point_light_render_pipeline->task_shader = task_shader;
-    point_light_render_pipeline->mesh_shader = mesh_shader;
-
-    point_light_render_pipeline->fragment_shader = frag_shader;
-    point_light_render_pipeline->geometry_type = GeometryType::Mesh;
-
-    auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
-    auto lighting_layout = Platform::GetDescriptorSetLayout("LIGHTING_LAYOUT");
-
-    point_light_render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    point_light_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    point_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
-    point_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-
-    auto& push_constant_range = point_light_render_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RenderPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-
-    point_light_render_pipeline->Initialize();
+  if (!point_light_render_pipeline || !point_light_render_pipeline->Initialized()) {
+    return;
   }
-  if (!spot_light_render_pipeline) {
-    static std::shared_ptr<Shader> task_shader{};
-    static std::shared_ptr<Shader> mesh_shader{};
-    static std::shared_ptr<Shader> frag_shader{};
-    // Load shader
-    task_shader = std::make_shared<Shader>();
-    task_shader->Set(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsRendering.task");
-
-    mesh_shader = std::make_shared<Shader>();
-    mesh_shader->Set(
-        ShaderType::Mesh, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandsSpotLightShadowMap.mesh");
-
-    frag_shader = std::make_shared<Shader>();
-    frag_shader->Set(ShaderType::Fragment, Platform::Constants::shader_global_defines,
-                     std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
-    // Descriptor set layout
-    spot_light_render_pipeline = std::make_shared<GraphicsPipeline>();
-    spot_light_render_pipeline->task_shader = task_shader;
-    spot_light_render_pipeline->mesh_shader = mesh_shader;
-
-    spot_light_render_pipeline->fragment_shader = frag_shader;
-    spot_light_render_pipeline->geometry_type = GeometryType::Mesh;
-
-    auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
-    auto lighting_layout = Platform::GetDescriptorSetLayout("LIGHTING_LAYOUT");
-
-    spot_light_render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    spot_light_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    spot_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
-    spot_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-
-    auto& push_constant_range = spot_light_render_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RenderPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-
-    spot_light_render_pipeline->Initialize();
+  if (!spot_light_render_pipeline || !spot_light_render_pipeline->Initialized()) {
+    return;
   }
-  if (!directional_light_render_pipeline) {
-    static std::shared_ptr<Shader> task_shader{};
-    static std::shared_ptr<Shader> mesh_shader{};
-    static std::shared_ptr<Shader> frag_shader{};
-    // Load shader
-    task_shader = std::make_shared<Shader>();
-    task_shader->Set(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsRendering.task");
-
-    mesh_shader = std::make_shared<Shader>();
-    mesh_shader->Set(ShaderType::Mesh, Platform::Constants::shader_global_defines,
-                     std::filesystem::path("./EcoSysLabResources") /
-                         "Shaders/Graphics/Mesh/DynamicStrandsDirectionalLightShadowMap.mesh");
-
-    frag_shader = std::make_shared<Shader>();
-    frag_shader->Set(ShaderType::Fragment, Platform::Constants::shader_global_defines,
-                     std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
-    // Descriptor set layout
-    directional_light_render_pipeline = std::make_shared<GraphicsPipeline>();
-    directional_light_render_pipeline->task_shader = task_shader;
-    directional_light_render_pipeline->mesh_shader = mesh_shader;
-
-    directional_light_render_pipeline->fragment_shader = frag_shader;
-    directional_light_render_pipeline->geometry_type = GeometryType::Mesh;
-
-    auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
-    auto lighting_layout = Platform::GetDescriptorSetLayout("LIGHTING_LAYOUT");
-
-    directional_light_render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    directional_light_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    directional_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
-    directional_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-
-    auto& push_constant_range = directional_light_render_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RenderPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-
-    directional_light_render_pipeline->Initialize();
+  if (!directional_light_render_pipeline || !directional_light_render_pipeline->Initialized()) {
+    return;
   }
 
   render_layer->RenderToPointLightShadowMap(
@@ -270,58 +240,13 @@ void DynamicStrands::Render(const int& material_index, const RenderParameters& r
   if (!render_parameters.render_alpha_shape_mesh) {
     return;
   }
-
   if (!Platform::Constants::support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return;
   }
-
-  static std::shared_ptr<GraphicsPipeline> render_pipeline{};
-
-  if (!render_pipeline) {
-    static std::shared_ptr<Shader> task_shader{};
-    static std::shared_ptr<Shader> mesh_shader{};
-    static std::shared_ptr<Shader> frag_shader{};
-    // Load shader
-    task_shader = std::make_shared<Shader>();
-    task_shader->Set(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsRendering.task");
-    mesh_shader = std::make_shared<Shader>();
-    mesh_shader->Set(
-        ShaderType::Mesh, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandsRendering.mesh");
-    frag_shader = std::make_shared<Shader>();
-    frag_shader->Set(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsRendering.frag");
-    // Descriptor set layout
-    render_pipeline = std::make_shared<GraphicsPipeline>();
-    render_pipeline->task_shader = task_shader;
-    render_pipeline->mesh_shader = mesh_shader;
-
-    render_pipeline->fragment_shader = frag_shader;
-    render_pipeline->geometry_type = GeometryType::Mesh;
-
-    auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
-    auto lighting_layout = Platform::GetDescriptorSetLayout("LIGHTING_LAYOUT");
-
-    render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    render_pipeline->descriptor_set_layouts.emplace_back(lighting_layout);
-
-    render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
-    render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-
-    auto& push_constant_range = render_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RenderPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-
-    render_pipeline->Initialize();
+  if (!render_pipeline || !render_pipeline->Initialized()) {
+    return;
   }
-
   Application::GetLayer<RenderLayer>()->ForwardRenderingAllCameras([&](const VkCommandBuffer vk_command_buffer,
                                                                        const std::shared_ptr<Camera>& target_camera,
                                                                        const RenderLayer::ForwardRenderingView& view) {

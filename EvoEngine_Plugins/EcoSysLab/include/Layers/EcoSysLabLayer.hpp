@@ -83,6 +83,7 @@ class EcoSysLabLayer : public ILayer {
   };
 
   struct DynamicStrandsSettings {
+    DynamicStrands::RenderParameters render_parameters{};
     DynamicStrands::PhysicsParameters physics_parameters{};
     DynamicStrands::VisualizationParameters visualization_parameters{};
 

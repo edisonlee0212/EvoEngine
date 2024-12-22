@@ -1,11 +1,99 @@
 #include "Shader.hpp"
 
 #include "Console.hpp"
+#include "ProjectManager.hpp"
 #include "ResourceLimits.h"
 #include "SPIRV/GlslangToSpv.h"
 #include "ShaderLang.h"
 #include "Utilities.hpp"
+
 using namespace evo_engine;
+int string_resize_callback(ImGuiInputTextCallbackData* data) {
+  if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
+    const auto my_str = static_cast<std::string*>(data->UserData);
+    IM_ASSERT(my_str->data() == data->Buf);
+    my_str->resize(data->BufSize);  // NB: On resizing calls, generally data->BufSize == data->BufTextLen + 1
+    data->Buf = my_str->data();
+  }
+  return 0;
+};
+bool Shader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
+  ImGui::Text(
+      (std::string("Current Status: ") + std::string(shader_module != nullptr ? "Compiled" : "Not compiled")).c_str());
+  if (ImGui::Button("TryCompile")) {
+    TryCompile();
+  }
+  if (ImGui::Combo(
+          "Type",
+          {"Vertex", "Tessellation Control", "Tessellation Evaluation", "Geometry", "Task", "Mesh", "Fragment",
+           "Compute", "Ray Generation", "Closest Hit", "Miss", "Any Hit", "Intersection", "Callable", "Unknown"},
+          shader_type)) {
+    changed = true;
+  }
+  if (ImGui::InputTextMultiline("Code", shader_code.data(), shader_code.size(), ImGui::GetContentRegionAvail(),
+                                ImGuiInputTextFlags_CallbackResize, string_resize_callback, &shader_code)) {
+    changed = true;
+  }
+  return changed;
+}
+
+bool Shader::SaveInternal(const std::filesystem::path& path) const {
+  try {
+    if (path.extension() == ".eveshader") {
+      YAML::Emitter out;
+      out << YAML::BeginMap;
+      Serialize(out);
+      out << YAML::EndMap;
+      std::ofstream file_output(path.string());
+      file_output << out.c_str();
+      file_output.close();
+    } else {
+      std::ofstream file_output(path.string());
+      file_output << shader_code.c_str();
+      file_output.close();
+    }
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to save!")
+    return false;
+  }
+  return true;
+}
+
+bool Shader::LoadInternal(const std::filesystem::path& path) {
+  if (!std::filesystem::exists(path)) {
+    EVOENGINE_ERROR("Not exist!")
+    return false;
+  }
+  try {
+    const std::ifstream stream(path.string());
+    std::stringstream string_stream;
+    string_stream << stream.rdbuf();
+    if (path.extension() == ".eveshader") {
+      const YAML::Node in = YAML::Load(string_stream.str());
+      Deserialize(in);
+    } else {
+      shader_type = static_cast<unsigned>(ShaderType::Unknown);
+      shader_code = string_stream.str();
+    }
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to load!")
+    return false;
+  }
+  return true;
+}
+
+void Shader::Serialize(YAML::Emitter& out) const {
+  out << YAML::Key << "shader_type" << YAML::Value << shader_type;
+  out << YAML::Key << "shader_code" << YAML::Value << shader_code;
+}
+
+void Shader::Deserialize(const YAML::Node& in) {
+  if (in["shader_code"])
+    shader_code = in["shader_code"].as<std::string>();
+  if (in["shader_type"])
+    shader_type = in["shader_type"].as<unsigned>();
+}
 
 void Shader::RegisterShaderIncludePath(const std::filesystem::path& path) {
   shader_include_paths.emplace(path);
@@ -16,19 +104,19 @@ const std::set<std::filesystem::path>& Shader::GetRegisteredShaderIncludePaths()
 }
 
 bool Shader::Compiled() const {
-  return shader_module_ != nullptr;
+  return shader_module != nullptr;
 }
 
-void Shader::Set(const ShaderType shader_type, const std::filesystem::path& path) {
-  Set(shader_type, "", path);
+bool Shader::TryCompile(const ShaderType target_shader_type, const std::filesystem::path& path) {
+  return TryCompile(target_shader_type, "", path);
 }
 
-void Shader::Set(const ShaderType shader_type, const std::string& header, const std::filesystem::path& path) {
+bool Shader::TryCompile(const ShaderType target_shader_type, const std::string& header,
+                        const std::filesystem::path& path) {
   std::stringstream shader_code_stream;
-
   shader_code_stream << header;
   shader_code_stream << FileUtils::LoadFileAsString(path);
-  Set(shader_type, shader_code_stream.str());
+  return TryCompile(target_shader_type, shader_code_stream.str());
 }
 
 class GlslShaderIncluder : public glslang::TShader::Includer {
@@ -111,20 +199,19 @@ void GlslShaderIncluder::releaseInclude(IncludeResult* result) {
 
 GlslShaderIncluder glsl_shader_includer{};
 
-std::vector<uint32_t> CompileGlsl(const ShaderType shader_type, const std::string& source) {
+bool CompileGlsl(const ShaderType shader_type, const std::string& source, std::vector<uint32_t>& binaries) {
   // 1. Look for compiled resource.
   const auto binary_search_path =
       std::filesystem::path("./ShaderBinaries") / (std::to_string(std::hash<std::string>{}(source)) + ".yml");
-  std::vector<uint32_t> ret_val;
   if (std::filesystem::exists(binary_search_path)) {
     const std::ifstream stream(binary_search_path.string());
     std::stringstream string_stream;
     string_stream << stream.rdbuf();
     const YAML::Node in = YAML::Load(string_stream.str());
     assert(in["CompiledBinaries"]);
-    const auto binaries = in["CompiledBinaries"].as<YAML::Binary>();
-    ret_val.resize(binaries.size() / sizeof(uint32_t));
-    std::memcpy(ret_val.data(), binaries.data(), binaries.size());
+    const auto in_binaries = in["CompiledBinaries"].as<YAML::Binary>();
+    binaries.resize(in_binaries.size() / sizeof(uint32_t));
+    std::memcpy(binaries.data(), in_binaries.data(), in_binaries.size());
   } else {
     glslang::InitializeProcess();
     EShLanguage sh_language;
@@ -173,7 +260,7 @@ std::vector<uint32_t> CompileGlsl(const ShaderType shader_type, const std::strin
         break;
       case ShaderType::Unknown:
         EVOENGINE_ERROR("Unknown type shader!");
-        return {};
+        return false;
     }
     glslang::TShader shader(sh_language);
     std::string actual_code = std::string("#version 460\n") + source;
@@ -196,6 +283,7 @@ std::vector<uint32_t> CompileGlsl(const ShaderType shader_type, const std::strin
     if (!shader.preprocess(resources, default_version, default_profile, false, forward_compatible, message_flags,
                            &preprocessedStr, glsl_shader_includer)) {
       EVOENGINE_ERROR("Failed to preprocess shader: " + std::string(shader.getInfoLog()));
+      return false;
     }
     const char* preprocessedSources[1] = {preprocessedStr.c_str()};
     shader.setStrings(preprocessedSources, 1);
@@ -203,11 +291,13 @@ std::vector<uint32_t> CompileGlsl(const ShaderType shader_type, const std::strin
     if (!shader.parse(resources, default_version, default_profile, false, forward_compatible, message_flags,
                       glsl_shader_includer)) {
       EVOENGINE_ERROR("Failed to parse shader: " + std::string(shader.getInfoLog()));
+      return false;
     }
     glslang::TProgram program;
     program.addShader(&shader);
     if (!program.link(message_flags)) {
       EVOENGINE_ERROR("Failed to link shader: " + std::string(program.getInfoLog()));
+      return false;
     }
 
     // Convert the intermediate generated by glslang to Spir-V
@@ -216,34 +306,65 @@ std::vector<uint32_t> CompileGlsl(const ShaderType shader_type, const std::strin
     options.validate = true;
 
     spv::SpvBuildLogger logger;
-    GlslangToSpv(intermediate_ref, ret_val, &logger, &options);
+    GlslangToSpv(intermediate_ref, binaries, &logger, &options);
 
     YAML::Emitter out;
     out << YAML::BeginMap;
     out << YAML::Key << "CompiledBinaries" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(ret_val.data()), ret_val.size() * sizeof(uint32_t));
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(binaries.data()), binaries.size() * sizeof(uint32_t));
     out << YAML::EndMap;
     std::filesystem::create_directories(std::filesystem::path("./ShaderBinaries"));
     std::ofstream file_output(binary_search_path);
     file_output << out.c_str();
     file_output.close();
   }
-  return ret_val;
+  return true;
 }
-void Shader::Set(const ShaderType shader_type, const std::string& shader_code) {
-  shader_type_ = shader_type;
-  code_ = shader_code;
+bool Shader::TryCompile(const ShaderType target_shader_type, const std::string& target_shader_code) {
+  shader_type = static_cast<unsigned>(target_shader_type);
+  shader_code = target_shader_code;
+  return TryCompile();
+}
+
+bool Shader::TryCompile() {
   VkShaderModuleCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  const auto binary = CompileGlsl(shader_type, code_);
-  create_info.pCode = binary.data();
-  create_info.codeSize = binary.size() * sizeof(uint32_t);
-  shader_module_ = std::make_unique<ShaderModule>(create_info);
+  std::vector<uint32_t> binaries;
+  if (CompileGlsl(static_cast<ShaderType>(shader_type), shader_code, binaries)) {
+    create_info.pCode = binaries.data();
+    create_info.codeSize = binaries.size() * sizeof(uint32_t);
+    shader_module = std::make_unique<ShaderModule>(create_info);
+    version_++;
+    return true;
+  }
+  return false;
 }
+
 const std::unique_ptr<ShaderModule>& Shader::GetShaderModule() const {
-  return shader_module_;
+  return shader_module;
 }
 
 ShaderType Shader::GetShaderType() const {
-  return shader_type_;
+  return static_cast<ShaderType>(shader_type);
+}
+
+std::shared_ptr<Shader> Shader::CreateTemporary(const ShaderType target_shader_type,
+                                                const std::string& target_shader_code) {
+  const auto ret_val = ProjectManager::CreateTemporaryAsset<Shader>();
+  ret_val->TryCompile(target_shader_type, target_shader_code);
+  return ret_val;
+}
+
+std::shared_ptr<Shader> Shader::CreateTemporary(const ShaderType target_shader_type, const std::string& header,
+                                                const std::filesystem::path& path) {
+  const auto ret_val = ProjectManager::CreateTemporaryAsset<Shader>();
+  ret_val->TryCompile(target_shader_type, header, path);
+  return ret_val;
+}
+
+std::shared_ptr<Shader> Shader::CreateTemporary(const ShaderType target_shader_type,
+                                                const std::filesystem::path& path) {
+  const auto ret_val = ProjectManager::CreateTemporaryAsset<Shader>();
+  ret_val->TryCompile(target_shader_type, path);
+  return ret_val;
 }

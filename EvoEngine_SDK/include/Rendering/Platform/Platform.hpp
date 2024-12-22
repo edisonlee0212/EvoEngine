@@ -163,7 +163,6 @@ class Platform final {
 
   void ResetCommandBuffers();
   static void Initialize();
-  static void PostResourceLoadingInitialization();
   static void Destroy();
   static void PreUpdate();
   static void LateUpdate();
@@ -171,16 +170,8 @@ class Platform final {
   bool recreate_swap_chain_ = false;
   unsigned swapchain_version_ = 0;
 
-  std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>> graphics_pipelines_;
-  std::unordered_map<std::string, std::shared_ptr<RayTracingPipeline>> ray_tracing_pipelines_;
-  std::unordered_map<std::string, std::shared_ptr<ComputePipeline>> compute_pipelines_;
-
   std::shared_ptr<GraphicsPipeline> bound_graphics_pipeline;
   std::shared_ptr<ComputePipeline> bound_compute_pipeline;
-
-  std::unordered_map<std::string, std::shared_ptr<DescriptorSetLayout>> descriptor_set_layouts_;
-  void CreateGraphicsPipelines() const;
-  static void PrepareDescriptorSetLayouts();
   int used_command_buffer_size_ = 0;
   std::vector<std::vector<std::shared_ptr<CommandBuffer>>> command_buffer_pool_ = {};
   std::shared_ptr<CommandBuffer> immediate_submit_command_buffer;
@@ -196,21 +187,6 @@ class Platform final {
                                    const std::function<void()>& action);
   double cpu_wait_time = 0.0f;
   static void WaitForDeviceIdle();
-
-  static void RegisterGraphicsPipeline(const std::string& name,
-                                       const std::shared_ptr<GraphicsPipeline>& graphics_pipeline);
-  static void RegisterComputePipeline(const std::string& name,
-                                      const std::shared_ptr<ComputePipeline>& compute_pipeline);
-  static void RegisterRayTracingPipeline(const std::string& name,
-                                         const std::shared_ptr<RayTracingPipeline>& ray_tracing_pipeline);
-  [[nodiscard]] static const std::shared_ptr<GraphicsPipeline>& GetGraphicsPipeline(const std::string& name);
-  [[nodiscard]] static const std::shared_ptr<ComputePipeline>& GetComputePipeline(const std::string& name);
-  [[nodiscard]] static const std::shared_ptr<RayTracingPipeline>& GetRayTracingPipeline(const std::string& name);
-
-  static void RegisterDescriptorSetLayout(const std::string& name,
-                                          const std::shared_ptr<DescriptorSetLayout>& descriptor_set_layout);
-  [[nodiscard]] static const std::shared_ptr<DescriptorSetLayout>& GetDescriptorSetLayout(const std::string& name);
-
   std::vector<size_t> prim_count;
   std::vector<size_t> draw_call;
 

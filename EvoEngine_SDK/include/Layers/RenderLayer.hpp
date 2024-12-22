@@ -68,6 +68,14 @@ class RenderLayer final : public ILayer {
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                              const ForwardRenderingView& forward_rendering_view)>&& func);
 
+#pragma region DescriptorSet Layouts
+  inline static std::shared_ptr<DescriptorSetLayout> per_frame_layout;
+  inline static std::shared_ptr<DescriptorSetLayout> meshlet_layout;
+
+  inline static std::shared_ptr<DescriptorSetLayout> lighting_layout;
+  inline static std::shared_ptr<DescriptorSetLayout> ray_tracing_layout;
+
+#pragma endregion
  private:
   std::vector<
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>>
@@ -80,7 +88,7 @@ class RenderLayer final : public ILayer {
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                                      const ForwardRenderingView& forward_rendering_view)>>
       forward_rendering_external_functions;
-
+  friend class Platform;
   friend class Resources;
   friend class Camera;
   friend class GraphicsPipeline;
@@ -112,5 +120,51 @@ class RenderLayer final : public ILayer {
   std::vector<std::shared_ptr<DescriptorSet>> meshlet_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> ray_tracing_descriptor_sets_ = {};
   std::vector<std::shared_ptr<Buffer>> kernel_descriptor_buffers_ = {};
+
+#pragma region Graphics Pipelines
+  // Shadow map pre-pass
+  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_normal;
+  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_mesh_shader;
+  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_normal;
+  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_mesh_shader;
+  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_normal;
+  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader;
+
+  std::shared_ptr<GraphicsPipeline> instanced_point_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> instanced_spot_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> instanced_directional_light_shadow_pipeline;
+
+  std::shared_ptr<GraphicsPipeline> skinned_point_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> skinned_spot_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> skinned_directional_light_shadow_pipeline;
+
+  std::shared_ptr<GraphicsPipeline> strands_point_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> strands_spot_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> strands_directional_light_shadow_pipeline;
+
+  // Deferred shading GBuffer pre-pass
+  std::shared_ptr<GraphicsPipeline> deferred_prepass_pipeline_normal;
+  std::shared_ptr<GraphicsPipeline> deferred_prepass_pipeline_mesh;
+  std::shared_ptr<GraphicsPipeline> instanced_deferred_prepass_pipeline;
+  std::shared_ptr<GraphicsPipeline> skinned_deferred_prepass_pipeline;
+  std::shared_ptr<GraphicsPipeline> strands_deferred_prepass_pipeline;
+  // Deferred shading lighting pass
+  std::shared_ptr<GraphicsPipeline> deferred_lighting_pass_pipeline;
+  std::shared_ptr<GraphicsPipeline> deferred_lighting_pass_pipeline_scene_camera;
+
+  // Gizmos rendering
+  std::shared_ptr<GraphicsPipeline> gizmos;
+  std::shared_ptr<GraphicsPipeline> gizmos_normal_colored;
+  std::shared_ptr<GraphicsPipeline> gizmos_vertex_colored;
+  std::shared_ptr<GraphicsPipeline> gizmos_instanced_colored;
+  std::shared_ptr<GraphicsPipeline> gizmos_strands;
+  std::shared_ptr<GraphicsPipeline> gizmos_strands_normal_colored;
+  std::shared_ptr<GraphicsPipeline> gizmos_strands_vertex_colored;
+
+  std::shared_ptr<GraphicsPipeline> render_texture_present_pipeline;
+#pragma endregion
+#pragma region Ray Tracing Pipelines
+  std::shared_ptr<RayTracingPipeline> ray_tracing_camera_pipeline;
+#pragma endregion
 };
 }  // namespace evo_engine

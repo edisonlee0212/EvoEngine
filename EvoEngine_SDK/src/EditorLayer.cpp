@@ -812,7 +812,8 @@ void EditorLayer::SceneCameraWindow() {
           else if (graphics.prim_count[current_frame_index] < 999999)
             draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
           else
-            draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
+            draw_call_info +=
+                std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
           draw_call_info += " tris";
           ImGui::Text(draw_call_info.c_str());
           ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);
@@ -1017,7 +1018,8 @@ void EditorLayer::MainCameraWindow() {
           else if (graphics.prim_count[current_frame_index] < 999999)
             draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
           else
-            draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
+            draw_call_info +=
+                std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
           draw_call_info += " tris";
           ImGui::Text(draw_call_info.c_str());
           ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);

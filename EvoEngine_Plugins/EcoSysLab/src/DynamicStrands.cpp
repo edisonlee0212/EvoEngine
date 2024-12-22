@@ -70,6 +70,8 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
   frame_index++;
 }
 
+
+
 DynamicStrands::DynamicStrands() {
 #ifdef USE_RENDERDOC
   if (rdoc_api == nullptr) {
@@ -125,6 +127,8 @@ DynamicStrands::DynamicStrands() {
   velocity_update = std::make_shared<DsVelocityUpdate>();
   dynamic_hashed_grid = std::make_shared<DsDynamicHashedGrid>();
   segment_collision = std::make_shared<DsSegmentCollision>();
+
+  BuildRenderingPipelines();
 }
 
 uint32_t DynamicStrands::GetFrameIndex() const {
@@ -137,10 +141,6 @@ bool DynamicStrands::WaitForUpload() const {
 
 bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (ImGui::Checkbox("Static root", &static_root)) {
-    changed = true;
-  }
-
   if (ImGui::DragFloat("Min segment length", &min_segment_length, 0.001f, 0.001f, max_segment_length))
     changed = true;
   if (ImGui::DragFloat("Max segment length", &max_segment_length, 0.001f, min_segment_length, 1.0f))
@@ -724,7 +724,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     auto& segment_pair = segment_pairs[pair_index];
     auto& segment0 = segments[segment_pair.segment0_handle];
     auto& segment1 = segments[segment_pair.segment1_handle];
-    bool direct_connection = segment_data_list[segment_pair.segment0_handle].pair_handles[1] == pair_index;
+    const bool direct_connection = segment_data_list[segment_pair.segment0_handle].pair_handles[1] == pair_index;
     auto& segment0_particle0 = segment0.particle0;
     auto& segment0_particle1 = segment0.particle1;
     auto& segment1_particle0 = segment1.particle0;
@@ -742,8 +742,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
         glm::vec4(glm::inverse(segment0.q0) * (segment1_particle1.x0 - segment0_center_position), 0.0f);
 
     segment_pair.rest_darboux_vector = glm::conjugate(segment0.q0) * segment1.q0;
-    segment_pair.bend_twist_bundle_valid = true;
-    segment_pair.connectivity_valid = direct_connection;
+    segment_pair.bend_twist_bundle_integrity = 1.0f;
+    segment_pair.connectivity_integrity = direct_connection ? 1.0f : 0.0f;
 
     const float ratio0 =
         segment0.boundary_distance * segment0.radius * 2.f / initialize_parameters.max_distance_to_boundary;
@@ -799,6 +799,9 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     changed = true;
   }
   if (ImGui::Checkbox("Breaking", &enable_breaking)) {
+    changed = true;
+  }
+  if (ImGui::Checkbox("Disconnection", &enable_disconnection)) {
     changed = true;
   }
   if (ImGui::Checkbox("Grouping", &enable_grouping)) {
@@ -896,7 +899,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
   if (!reset_pipeline) {
     std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Reset.comp");
     reset_pipeline = std::make_shared<ComputePipeline>();
     reset_pipeline->compute_shader = shader;
@@ -915,10 +918,11 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     feedback_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     feedback_layout->Initialize();
   }
+
   if (!step_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Step.comp");
     step_pipeline = std::make_shared<ComputePipeline>();
     step_pipeline->compute_shader = shader;
@@ -932,10 +936,11 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
 
     step_pipeline->Initialize();
   }
+
   if (!apply_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Apply.comp");
     apply_pipeline = std::make_shared<ComputePipeline>();
     apply_pipeline->compute_shader = shader;

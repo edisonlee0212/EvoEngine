@@ -1,4 +1,5 @@
 #include "GeometryStorage.hpp"
+#include "RenderLayer.hpp"
 #include "meshoptimizer.h"
 using namespace evo_engine;
 
@@ -676,7 +677,7 @@ void GeometryStorage::AllocateParticleInfo(const Handle& handle,
   VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   info_data.m_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  info_data.descriptor_set = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("INSTANCED_DATA_LAYOUT"));
+  info_data.descriptor_set = std::make_shared<DescriptorSet>(ParticleInfoList::instanced_data_layout);
   info_data.m_status = ParticleInfoListDataStatus::UpdatePending;
 }
 

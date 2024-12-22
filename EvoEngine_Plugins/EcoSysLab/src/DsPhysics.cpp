@@ -7,7 +7,7 @@ DsPreStep::DsPreStep() {
   if (!segment_pre_step_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/PreStep/Segment.comp");
     segment_pre_step_pipeline = std::make_shared<ComputePipeline>();
     segment_pre_step_pipeline->compute_shader = shader;
@@ -48,7 +48,7 @@ DsPrediction::DsPrediction() {
   if (!segment_prediction_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(
+    shader->TryCompile(
         ShaderType::Compute, Platform::Constants::shader_global_defines,
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Prediction/Segment.comp");
     segment_prediction_pipeline = std::make_shared<ComputePipeline>();
@@ -62,10 +62,11 @@ DsPrediction::DsPrediction() {
 
     segment_prediction_pipeline->Initialize();
   }
+
   if (!segment_pair_prediction_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(
+    shader->TryCompile(
         ShaderType::Compute, Platform::Constants::shader_global_defines,
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Prediction/SegmentPair.comp");
     segment_pair_prediction_pipeline = std::make_shared<ComputePipeline>();
@@ -79,10 +80,11 @@ DsPrediction::DsPrediction() {
 
     segment_pair_prediction_pipeline->Initialize();
   }
+
   if (!uniform_particle_prediction_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
                     "Shaders/Compute/DynamicStrands/Prediction/UniformParticle.comp");
 
@@ -117,6 +119,7 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   SegmentPairPredictionPushConstant segment_pair_push_constant;
   segment_pair_push_constant.segment_pair_size = target_dynamic_strands.segment_pairs.size();
   segment_pair_push_constant.allow_breaking = physics_parameters.enable_breaking ? 1 : 0;
+  segment_pair_push_constant.allow_disconnection = physics_parameters.enable_disconnection ? 1 : 0;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_prediction_pipeline->Bind(vk_command_buffer);
@@ -154,7 +157,7 @@ DsVelocityUpdate::DsVelocityUpdate() {
   if (!segment_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(
+    shader->TryCompile(
         ShaderType::Compute, Platform::Constants::shader_global_defines,
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/VelocityUpdate/Segment.comp");
     segment_pipeline = std::make_shared<ComputePipeline>();
@@ -195,7 +198,7 @@ DsDynamicHashedGrid::DsDynamicHashedGrid() {
   if (!partition_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
                     "Shaders/Compute/DynamicStrands/DynamicHashedGrid/Partition.comp");
 
@@ -213,28 +216,28 @@ DsDynamicHashedGrid::DsDynamicHashedGrid() {
 
   if (!local_merge_sort_shader) {
     local_merge_sort_shader = std::make_shared<Shader>();
-    local_merge_sort_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    local_merge_sort_shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                                  std::filesystem::path("./EcoSysLabResources") /
                                      "Shaders/Compute/DynamicStrands/DynamicHashedGrid/Sort/LocalMergeSort.comp");
   }
 
   if (!big_flip_shader) {
     big_flip_shader = std::make_shared<Shader>();
-    big_flip_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    big_flip_shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                          std::filesystem::path("./EcoSysLabResources") /
                              "Shaders/Compute/DynamicStrands/DynamicHashedGrid/Sort/BigFlip.comp");
   }
 
   if (!local_disperse_shader) {
     local_disperse_shader = std::make_shared<Shader>();
-    local_disperse_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    local_disperse_shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                                std::filesystem::path("./EcoSysLabResources") /
                                    "Shaders/Compute/DynamicStrands/DynamicHashedGrid/Sort/LocalDisperse.comp");
   }
 
   if (!global_disperse_shader) {
     global_disperse_shader = std::make_shared<Shader>();
-    global_disperse_shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    global_disperse_shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                                 std::filesystem::path("./EcoSysLabResources") /
                                     "Shaders/Compute/DynamicStrands/DynamicHashedGrid/Sort/GlobalDisperse.comp");
   }
@@ -242,7 +245,7 @@ DsDynamicHashedGrid::DsDynamicHashedGrid() {
   if (!offset_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(
+    shader->TryCompile(
         ShaderType::Compute, Platform::Constants::shader_global_defines,
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/DynamicHashedGrid/Offset.comp");
 
@@ -437,7 +440,7 @@ DsSegmentCollision::DsSegmentCollision() {
   if (!spherical_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
                     "Shaders/Compute/DynamicStrands/SegmentCollision/Spherical.comp");
 

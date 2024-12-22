@@ -1,4 +1,5 @@
 #pragma once
+#include "GraphicsPipeline.hpp"
 #include "IAsset.hpp"
 #include "RenderTexture.hpp"
 namespace evo_engine {
@@ -8,40 +9,58 @@ struct SsaoSettings {};
 
 struct BloomSettings {};
 
-struct SsrSettings {
-  int num_binary_search_steps = 8;
-  float step = 0.5f;
-  float min_ray_step = 0.1f;
-  int max_steps = 16;
+class IPostProcessing {
+ public:
+  virtual void Process(const std::shared_ptr<RenderTexture>& render_texture0,
+                       const std::shared_ptr<RenderTexture>& render_texture1,
+                       const std::shared_ptr<RenderTexture>& render_texture2,
+                       const std::shared_ptr<Camera>& target_camera) const = 0;
+  virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+    return false;
+  };
 };
 
-struct SsaoPushConstant {};
+class ScreenSpaceReflection : public IPostProcessing {
+ public:
+  float max_distance = 0.5f;
+  float resolution = 0.3f;
+  int initial_steps = 5;
+  float thickness = 0.5f;
+  struct PushConstant {
+    int32_t camera_index = 0;
+    float max_distance;
+    float resolution;
+    int initial_steps;
+    float thickness;
+    int horizontal = false;
+    float weight[5] = {0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f};
+  };
+  inline static std::shared_ptr<DescriptorSetLayout> ssr_reflect_layout;
+  inline static std::shared_ptr<DescriptorSetLayout> ssr_blur_layout;
+  inline static std::shared_ptr<DescriptorSetLayout> ssr_combine_layout;
 
-struct BloomPushConstant {};
+  inline static std::shared_ptr<GraphicsPipeline> ssr_reflect_pipeline;
+  inline static std::shared_ptr<GraphicsPipeline> ssr_blur_pipeline;
+  inline static std::shared_ptr<GraphicsPipeline> ssr_combine_pipeline;
 
-struct SsrPushConstant {
-  int32_t camera_index = 0;
-  int num_binary_search_steps = 8;
-  float step = 0.5f;
-  float min_ray_step = 0.1f;
-  int max_steps = 16;
-  float reflection_specular_falloff_exponent = 3.0f;
-  int horizontal = false;
-  float weight[5] = {0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f};
+  inline static std::shared_ptr<DescriptorSet> ssr_reflect_descriptor_set;          // SSR_REFLECT_LAYOUT: 0, 1, 2, 3
+  inline static std::shared_ptr<DescriptorSet> ssr_blur_horizontal_descriptor_set;  // RENDER_TEXTURE_PRESENT_LAYOUT: 0
+  inline static std::shared_ptr<DescriptorSet> ssr_blur_vertical_descriptor_set;    // RENDER_TEXTURE_PRESENT_LAYOUT: 0
+  inline static std::shared_ptr<DescriptorSet> ssr_combine_descriptor_set;          // SSR_COMBINE: 0, 1
+
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  void Process(const std::shared_ptr<RenderTexture>& render_texture0,
+               const std::shared_ptr<RenderTexture>& render_texture1,
+               const std::shared_ptr<RenderTexture>& render_texture2,
+               const std::shared_ptr<Camera>& target_camera) const override;
+  static void BuildPipelines();
 };
 
 class PostProcessingStack : public IAsset {
   friend class Camera;
-  std::shared_ptr<RenderTexture> render_texture0_;
-  std::shared_ptr<RenderTexture> render_texture1_;
-  std::shared_ptr<RenderTexture> render_texture2_;
-
-  std::shared_ptr<DescriptorSet> ssr_reflect_descriptor_set_ = VK_NULL_HANDLE;  // SSR_REFLECT_LAYOUT: 0, 1, 2, 3
-  std::shared_ptr<DescriptorSet> ssr_blur_horizontal_descriptor_set_ =
-      VK_NULL_HANDLE;  // RENDER_TEXTURE_PRESENT_LAYOUT: 0
-  std::shared_ptr<DescriptorSet> ssr_blur_vertical_descriptor_set_ =
-      VK_NULL_HANDLE;                                                           // RENDER_TEXTURE_PRESENT_LAYOUT: 0
-  std::shared_ptr<DescriptorSet> ssr_combine_descriptor_set_ = VK_NULL_HANDLE;  // SSR_COMBINE: 0, 1
+  std::shared_ptr<RenderTexture> render_texture0;
+  std::shared_ptr<RenderTexture> render_texture1;
+  std::shared_ptr<RenderTexture> render_texture2;
   void Resize(const glm::uvec2& size) const;
 
  public:
@@ -50,10 +69,10 @@ class PostProcessingStack : public IAsset {
   void Process(const std::shared_ptr<Camera>& target_camera) const;
   SsaoSettings ssao_settings{};
   BloomSettings bloom_settings{};
-  SsrSettings ssr_settings{};
+  ScreenSpaceReflection screen_space_reflection{};
 
-  bool ssao = false;
-  bool bloom = false;
-  bool ssr = false;
+  bool enable_screen_space_ambient_occlusion = false;
+  bool enable_bloom = false;
+  bool enable_screen_space_reflection = false;
 };
 }  // namespace evo_engine

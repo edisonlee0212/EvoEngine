@@ -132,15 +132,15 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     static std::shared_ptr<Shader> frag_shader{};
     // Load shader
     task_shader = std::make_shared<Shader>();
-    task_shader->Set(ShaderType::Task, Platform::Constants::shader_global_defines,
+    task_shader->TryCompile(ShaderType::Task, Platform::Constants::shader_global_defines,
                      std::filesystem::path("./EcoSysLabResources") /
                          "Shaders/Graphics/Task/DynamicStrandSegmentsVisualization.task");
     mesh_shader = std::make_shared<Shader>();
-    mesh_shader->Set(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+    mesh_shader->TryCompile(ShaderType::Mesh, Platform::Constants::shader_global_defines,
                      std::filesystem::path("./EcoSysLabResources") /
                          "Shaders/Graphics/Mesh/DynamicStrandSegmentsVisualization.mesh");
     frag_shader = std::make_shared<Shader>();
-    frag_shader->Set(
+    frag_shader->TryCompile(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsVisualization.frag");
     // Descriptor set layout
@@ -151,8 +151,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     segment_render_pipeline->fragment_shader = frag_shader;
     segment_render_pipeline->geometry_type = GeometryType::Mesh;
 
-    auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
-    segment_render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
+    segment_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
     segment_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
     segment_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     segment_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -182,15 +181,15 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     static std::shared_ptr<Shader> frag_shader{};
     // Load shader
     task_shader = std::make_shared<Shader>();
-    task_shader->Set(ShaderType::Task, Platform::Constants::shader_global_defines,
+    task_shader->TryCompile(ShaderType::Task, Platform::Constants::shader_global_defines,
                      std::filesystem::path("./EcoSysLabResources") /
                          "Shaders/Graphics/Task/DynamicStrandSegmentPairsVisualization.task");
     mesh_shader = std::make_shared<Shader>();
-    mesh_shader->Set(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+    mesh_shader->TryCompile(ShaderType::Mesh, Platform::Constants::shader_global_defines,
                      std::filesystem::path("./EcoSysLabResources") /
                          "Shaders/Graphics/Mesh/DynamicStrandSegmentPairsVisualization.mesh");
     frag_shader = std::make_shared<Shader>();
-    frag_shader->Set(
+    frag_shader->TryCompile(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsVisualization.frag");
     // Descriptor set layout
@@ -201,8 +200,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     segment_pair_render_pipeline->fragment_shader = frag_shader;
     segment_pair_render_pipeline->geometry_type = GeometryType::Mesh;
 
-    auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
-    segment_pair_render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
+    segment_pair_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
     segment_pair_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
     segment_pair_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     segment_pair_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -233,16 +231,16 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     static std::shared_ptr<Shader> frag_shader{};
     // Load shader
     task_shader = std::make_shared<Shader>();
-    task_shader->Set(ShaderType::Task, Platform::Constants::shader_global_defines,
+    task_shader->TryCompile(ShaderType::Task, Platform::Constants::shader_global_defines,
                      std::filesystem::path("./EcoSysLabResources") /
                          "Shaders/Graphics/Task/DynamicStrandUniformParticlesVisualization.task");
     mesh_shader = std::make_shared<Shader>();
-    mesh_shader->Set(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+    mesh_shader->TryCompile(ShaderType::Mesh, Platform::Constants::shader_global_defines,
                      std::filesystem::path("./EcoSysLabResources") /
                          "Shaders/Graphics/Mesh/DynamicStrandUniformParticlesVisualization.mesh");
 
     frag_shader = std::make_shared<Shader>();
-    frag_shader->Set(
+    frag_shader->TryCompile(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsVisualization.frag");
     // Descriptor set layout
@@ -253,8 +251,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     uniform_particle_render_pipeline->fragment_shader = frag_shader;
     uniform_particle_render_pipeline->geometry_type = GeometryType::Mesh;
 
-    auto per_frame_layout = Platform::GetDescriptorSetLayout("PER_FRAME_LAYOUT");
-    uniform_particle_render_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
+    uniform_particle_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
     uniform_particle_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
     uniform_particle_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     uniform_particle_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;

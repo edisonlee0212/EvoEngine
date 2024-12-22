@@ -113,8 +113,7 @@ void Camera::UpdateGBuffer() {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy =
-        Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
+    sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
@@ -240,6 +239,9 @@ void Camera::Resize(const glm::uvec2& size) {
     render_texture_->Resize({size_.x, size_.y, 1});
     UpdateGBuffer();
   }
+  if (const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>()) {
+    post_processing_stack->Resize({size_.x, size_.y});
+  }
 }
 
 void Camera::OnCreate() {
@@ -250,7 +252,7 @@ void Camera::OnCreate() {
   render_texture_create_info.extent.depth = 1;
   render_texture_ = std::make_unique<RenderTexture>(render_texture_create_info);
 
-  g_buffer_descriptor_set_ = std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("CAMERA_GBUFFER_LAYOUT"));
+  g_buffer_descriptor_set_ = std::make_shared<DescriptorSet>(g_buffer_layout);
   UpdateGBuffer();
 }
 
@@ -399,7 +401,7 @@ Ray Camera::ScreenPointToRay(GlobalTransform& ltw, glm::vec2 mouse_position) con
 
 void Camera::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "x" << YAML::Value << size_.x;
-  
+
   out << YAML::Key << "y" << YAML::Value << size_.y;
   out << YAML::Key << "use_clear_color" << YAML::Value << use_clear_color;
   out << YAML::Key << "clear_color" << YAML::Value << clear_color;
@@ -409,7 +411,7 @@ void Camera::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "background_intensity" << YAML::Value << background_intensity;
   out << YAML::Key << "exposure" << YAML::Value << exposure;
   skybox.Save("skybox", out);
-  post_processing_stack.Save("post_processing_stack", out);
+  post_processing_stack_ref.Save("post_processing_stack_ref", out);
 }
 
 void Camera::Deserialize(const YAML::Node& in) {
@@ -432,7 +434,7 @@ void Camera::Deserialize(const YAML::Node& in) {
     Resize({resolution_x, resolution_y});
   }
   skybox.Load("skybox", in);
-  post_processing_stack.Load("post_processing_stack", in);
+  post_processing_stack_ref.Load("post_processing_stack_ref", in);
   rendered_ = false;
   require_rendering_ = false;
 
@@ -472,19 +474,20 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
     ImGui::TreePop();
   }
+
   if (ImGui::TreeNodeEx("Background", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if(ImGui::DragFloat("Intensity", &background_intensity, 0.01f, 0.0f, 10.f)) {
+    if (ImGui::DragFloat("Intensity", &background_intensity, 0.01f, 0.0f, 10.f)) {
       changed = true;
     }
-    if(ImGui::Checkbox("Use clear color", &use_clear_color)) {
+    if (ImGui::Checkbox("Use clear color", &use_clear_color)) {
       changed = true;
     }
     if (use_clear_color) {
-      if(ImGui::ColorEdit3("Clear Color", (float*)(void*)&clear_color)) {
+      if (ImGui::ColorEdit3("Clear Color", (float*)(void*)&clear_color)) {
         changed = true;
       }
-    } else if(editor_layer->DragAndDropButton<Cubemap>(skybox, "Skybox")) {
-        changed = true;
+    } else if (editor_layer->DragAndDropButton<Cubemap>(skybox, "Skybox")) {
+      changed = true;
     }
     ImGui::TreePop();
   }
@@ -508,31 +511,18 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
   }
 
-  if(editor_layer->DragAndDropButton<PostProcessingStack>(post_processing_stack, "PostProcessingStack")) {
+  if (editor_layer->DragAndDropButton<PostProcessingStack>(post_processing_stack_ref, "PostProcessingStack")) {
     changed = true;
   }
-  const auto pps = post_processing_stack.Get<PostProcessingStack>();
-  if (pps && ImGui::TreeNode("Post Processing")) {
-    if(ImGui::Checkbox("SSAO", &pps->ssao)) {
-      changed = true;
-    }
-    if(ImGui::Checkbox("SSR", &pps->ssr)) {
-      changed = true;
-    }
-
-    if(ImGui::Checkbox("Bloom", &pps->bloom)) {
-      changed = true;
-    }
-    ImGui::TreePop();
-  }
+  const auto pps = post_processing_stack_ref.Get<PostProcessingStack>();
   if (ImGui::TreeNode("Intrinsic Settings")) {
-    if(ImGui::DragFloat("Near", &near_distance, near_distance / 10.0f, 0, far_distance)) {
+    if (ImGui::DragFloat("Near", &near_distance, near_distance / 10.0f, 0, far_distance)) {
       changed = true;
     }
-    if(ImGui::DragFloat("Far", &far_distance, far_distance / 10.0f, near_distance)) {
+    if (ImGui::DragFloat("Far", &far_distance, far_distance / 10.0f, near_distance)) {
       changed = true;
     }
-    if(ImGui::DragFloat("FOV", &fov, 1.0f, 1, 359)) {
+    if (ImGui::DragFloat("FOV", &fov, 1.0f, 1, 359)) {
       changed = true;
     }
     ImGui::TreePop();
@@ -549,5 +539,5 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
 void Camera::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(skybox);
-  list.push_back(post_processing_stack);
+  list.push_back(post_processing_stack_ref);
 }

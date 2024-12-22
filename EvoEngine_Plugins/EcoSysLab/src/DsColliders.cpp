@@ -31,7 +31,7 @@ DsBoxCollider::DsBoxCollider() {
   if (!pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
                     "Shaders/Compute/DynamicStrands/Colliders/BoxCollider.comp");
 
@@ -155,7 +155,7 @@ DsCylinderCollider::DsCylinderCollider() {
   if (!pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
                     "Shaders/Compute/DynamicStrands/Colliders/CylinderCollider.comp");
 
@@ -268,7 +268,7 @@ DsSphereCollider::DsSphereCollider() {
   if (!pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->Set(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                 std::filesystem::path("./EcoSysLabResources") /
                     "Shaders/Compute/DynamicStrands/Colliders/SphereCollider.comp");
 

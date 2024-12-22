@@ -38,8 +38,7 @@ BoneMatrices::BoneMatrices() {
   const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
   for (int i = 0; i < max_frames_in_flight; i++) {
     bone_matrices_buffer_.emplace_back(std::make_unique<Buffer>(bone_matrices_crate_info, allocation_create_info));
-    descriptor_set_.emplace_back(
-        std::make_shared<DescriptorSet>(Platform::GetDescriptorSetLayout("BONE_MATRICES_LAYOUT")));
+    descriptor_set_.emplace_back(std::make_shared<DescriptorSet>(bone_matrices_layout));
   }
 }
 
@@ -200,11 +199,11 @@ void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attr
   glm::vec3 max_bound = skinned_vertices_.at(0).position;
   for (const auto& skinned_vertex : skinned_vertices_) {
     min_bound = glm::vec3((glm::min)(min_bound.x, skinned_vertex.position.x),
-                         (glm::min)(min_bound.y, skinned_vertex.position.y),
-                         (glm::min)(min_bound.z, skinned_vertex.position.z));
+                          (glm::min)(min_bound.y, skinned_vertex.position.y),
+                          (glm::min)(min_bound.z, skinned_vertex.position.z));
     max_bound = glm::vec3((glm::max)(max_bound.x, skinned_vertex.position.x),
-                         (glm::max)(max_bound.y, skinned_vertex.position.y),
-                         (glm::max)(max_bound.z, skinned_vertex.position.z));
+                          (glm::max)(max_bound.y, skinned_vertex.position.y),
+                          (glm::max)(max_bound.z, skinned_vertex.position.z));
   }
   bound_.max = max_bound;
   bound_.min = min_bound;

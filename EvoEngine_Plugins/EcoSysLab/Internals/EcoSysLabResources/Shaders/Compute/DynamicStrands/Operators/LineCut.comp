@@ -77,8 +77,8 @@ void main(){
 		vec2 segment1_screen = vec2((segment1_screen_space_position.x + 1.0f) * 0.5f, (-segment1_screen_space_position.y + 1.0f) * 0.5f);
 
 		if(LineIntersect(segment0_screen, segment1_screen, line_start, line_end)){
-			if(cut_mode == 0) segment_pairs[segment_pair_index].connectivity_valid = 0;
-			segment_pairs[segment_pair_index].bend_twist_bundle_valid = 0;
+			if(cut_mode == 0) segment_pairs[segment_pair_index].connectivity_integrity = 0.f;
+			segment_pairs[segment_pair_index].bend_twist_bundle_integrity = 0.f;
 		}
 	}
 }

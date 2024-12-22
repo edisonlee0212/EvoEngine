@@ -105,28 +105,35 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
 
   dynamic_strands->Initialize(initialize_parameters, strand_model_skeleton, source_strand_group,
                               subdivided_strand_group);
-  if (initialize_parameters.static_root) {
-    transform_operators.emplace_back();
-    Jobs::RunParallelFor(subdivided_strand_group.PeekStrands().size(), [&](const size_t strand_index) {
-      const auto& strand = subdivided_strand_group.PeekStrands()[strand_index];
-      for (int sub_segment_index = 0; sub_segment_index < strand.PeekStrandSegmentHandles().size();
-           sub_segment_index++) {
-        auto& segment_data =
-            subdivided_strand_group.RefStrandSegmentData(strand.PeekStrandSegmentHandles()[sub_segment_index]);
-        segment_data.segment_index = sub_segment_index;
-      }
-    });
-    auto& transform_operator = transform_operators.back();
-    std::vector<uint32_t> segment_handles(dynamic_strands->strands.size());
-    Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
-      const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
-      segment_handles[i] = segment_handle;
-    });
-    transform_operator.target_entity = owner;
-    transform_operator.ds_transform = std::make_shared<DsTransform>();
-    transform_operator.ds_transform->Initialize(initialize_parameters.root_transform, dynamic_strands, segment_handles);
-  }
 }
+
+void DynamicTreeStrands::CreateStaticRoot() {
+  transform_operators.emplace_back();
+  const auto owner = GetOwner();
+  Jobs::RunParallelFor(subdivided_strand_group.PeekStrands().size(), [&](const size_t strand_index) {
+    const auto& strand = subdivided_strand_group.PeekStrands()[strand_index];
+    for (int sub_segment_index = 0; sub_segment_index < strand.PeekStrandSegmentHandles().size(); sub_segment_index++) {
+      auto& segment_data =
+          subdivided_strand_group.RefStrandSegmentData(strand.PeekStrandSegmentHandles()[sub_segment_index]);
+      segment_data.segment_index = sub_segment_index;
+    }
+  });
+
+  auto& transform_operator = transform_operators.back();
+  std::vector<std::pair<uint32_t, std::pair<bool, bool>>> segment_list(dynamic_strands->strands.size());
+  Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+    const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
+    segment_list[i].first = segment_handle;
+    segment_list[i].second.first = true;
+    segment_list[i].second.second = false;
+  });
+  transform_operator.target_entity = owner;
+  transform_operator.ds_transform = std::make_shared<DsTransform>();
+  transform_operator.ds_transform->Initialize(initialize_parameters.root_transform, dynamic_strands, segment_list);
+
+  dynamic_strands->constraints.emplace_back(transform_operator.ds_transform);
+}
+
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
   material_ref.Save("material_ref", out);
 }
@@ -150,6 +157,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       tree->BuildStrandModel();
       strand_model_skeleton = tree->strand_model.strand_model_skeleton;
       UpdateDynamicStrands();
+      CreateStaticRoot();
       tree_ref.Clear();
     }
   }
@@ -164,7 +172,8 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       ImGui::DragFloat("Rod length", &multiple_rod_experiment_setup_settings.segment_length, 0.01f, 0.01f, 10.0f);
       ImGui::DragFloat("Rod radius", &multiple_rod_experiment_setup_settings.radius, 0.001f, 0.001f, 1.0f);
       ImGui::DragInt3("Rod dimension (3D)", &multiple_rod_experiment_setup_settings.rod_dimension.x, 1, 1, 1000);
-      ImGui::Checkbox("Operator", &multiple_rod_experiment_setup_settings.add_operator);
+      ImGui::Checkbox("Left pivot", &multiple_rod_experiment_setup_settings.add_left_pivot);
+      ImGui::Checkbox("Right pivot", &multiple_rod_experiment_setup_settings.add_right_pivot);
       if (ImGui::Button("Initialize")) {
         BoardExperimentSetup(multiple_rod_experiment_setup_settings);
       }
@@ -176,7 +185,8 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       ImGui::DragFloat("Rod radius", &log_experiment_setup_settings.radius, 0.001f, 0.001f, 1.0f);
       ImGui::DragInt("Rod size", &log_experiment_setup_settings.rod_size, 1, 1, 1000);
       ImGui::DragInt("Rod segment size", &log_experiment_setup_settings.rod_segment_count, 1, 1, 1000);
-      ImGui::Checkbox("Operator", &log_experiment_setup_settings.add_operator);
+      ImGui::Checkbox("Left operator", &log_experiment_setup_settings.add_left_operator);
+      ImGui::Checkbox("Right operator", &log_experiment_setup_settings.add_right_operator);
       if (ImGui::Button("Initialize")) {
         LogExperimentSetup(log_experiment_setup_settings);
       }
@@ -228,10 +238,6 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     ImGui::TreePop();
   }
 
-  if (ImGui::TreeNode("Render settings")) {
-    render_parameters.OnInspect(editor_layer);
-    ImGui::TreePop();
-  }
   if (ImGui::Button("Download strands")) {
     dynamic_strands->Download();
     EVOENGINE_LOG("Downloaded data from GPU")
@@ -316,35 +322,35 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
   limit_strand_length = false;
   UpdateDynamicStrands();
   limit_strand_length = saved_strand_length_limit;
-  if (settings.add_operator) {
+
+  if (settings.add_right_pivot) {
     const auto scene = Application::GetActiveScene();
     const auto children = scene->GetChildren(GetOwner());
-    Entity operator_entity{};
     for (const auto& child : children) {
-      if (scene->GetEntityName(child) == "Operator") {
-        operator_entity = child;
-        break;
+      if (scene->GetEntityName(child) == "Right Pivot") {
+        scene->DeleteEntity(child);
       }
     }
-    if (!scene->IsEntityValid(operator_entity))
-      operator_entity = scene->CreateEntity("Operator");
-    transform_operators.emplace_back();
-    auto& transform_operator = transform_operators.back();
+    const Entity operator_entity = scene->CreateEntity("Right Pivot");
+    pivot_operators.emplace_back();
+    auto& pivot_operator = pivot_operators.back();
 
     auto operator_root_transform = GlobalTransform();
     operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
-        glm::vec3(static_cast<float>(settings.rod_dimension.z + 1) * settings.segment_length, 0, 0)));
+        glm::vec3(static_cast<float>(settings.rod_dimension.z + 2) * settings.segment_length, 0, 0)));
     scene->SetDataComponent(operator_entity, operator_root_transform);
     scene->SetParent(operator_entity, GetOwner());
 
-    std::vector<uint32_t> segment_handles(dynamic_strands->strands.size());
+    std::vector<std::pair<uint32_t, bool>> segment_list(dynamic_strands->strands.size());
     Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
       const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
-      segment_handles[i] = segment_handle;
+      segment_list[i].first = segment_handle;
+      segment_list[i].second = false;
     });
-    transform_operator.target_entity = operator_entity;
-    transform_operator.ds_transform = std::make_shared<DsTransform>();
-    transform_operator.ds_transform->Initialize(operator_root_transform, dynamic_strands, segment_handles);
+    pivot_operator.target_entity = operator_entity;
+    pivot_operator.ds_pivot = std::make_shared<DsPivot>();
+    pivot_operator.ds_pivot->Initialize(operator_root_transform, dynamic_strands, segment_list);
+    dynamic_strands->constraints.emplace_back(pivot_operator.ds_pivot);
   }
 }
 
@@ -420,18 +426,20 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   limit_strand_length = false;
   UpdateDynamicStrands();
   limit_strand_length = saved_strand_length_limit;
-  if (settings.add_operator) {
+
+  if (settings.add_left_operator) {
+    CreateStaticRoot();
+  }
+
+  if (settings.add_right_operator) {
     const auto scene = Application::GetActiveScene();
     const auto children = scene->GetChildren(GetOwner());
-    Entity operator_entity{};
     for (const auto& child : children) {
-      if (scene->GetEntityName(child) == "Operator") {
-        operator_entity = child;
-        break;
+      if (scene->GetEntityName(child) == "Right Operator") {
+        scene->DeleteEntity(child);
       }
     }
-    if (!scene->IsEntityValid(operator_entity))
-      operator_entity = scene->CreateEntity("Operator");
+    const Entity operator_entity = scene->CreateEntity("Right Operator");
     transform_operators.emplace_back();
     auto& transform_operator = transform_operators.back();
 
@@ -441,14 +449,17 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     scene->SetDataComponent(operator_entity, operator_root_transform);
     scene->SetParent(operator_entity, GetOwner());
 
-    std::vector<uint32_t> segment_handles(dynamic_strands->strands.size());
+    std::vector<std::pair<uint32_t, std::pair<bool, bool>>> segment_list(dynamic_strands->strands.size());
     Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
       const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
-      segment_handles[i] = segment_handle;
+      segment_list[i].first = segment_handle;
+      segment_list[i].second.first = false;
+      segment_list[i].second.second = true;
     });
     transform_operator.target_entity = operator_entity;
     transform_operator.ds_transform = std::make_shared<DsTransform>();
-    transform_operator.ds_transform->Initialize(operator_root_transform, dynamic_strands, segment_handles);
+    transform_operator.ds_transform->Initialize(operator_root_transform, dynamic_strands, segment_list);
+    dynamic_strands->constraints.emplace_back(transform_operator.ds_transform);
   }
 }
 
@@ -505,17 +516,18 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
           transform_operator.ds_transform->Update(global_transform, dynamic_strands);
         }
       }
+      for (const auto& pivot_operator : pivot_operators) {
+        if (scene->IsEntityValid(pivot_operator.target_entity)) {
+          const auto global_transform = scene->GetDataComponent<GlobalTransform>(pivot_operator.target_entity);
+          pivot_operator.ds_pivot->Update(global_transform);
+        }
+      }
       dynamic_strands->Physics(
           physics_parameters,
           [&]() {
 
           },
           [&]() {
-            for (const auto& transform_operator : transform_operators) {
-              if (transform_operator.ds_transform->enabled && scene->IsEntityValid(transform_operator.target_entity)) {
-                transform_operator.ds_transform->Execute(physics_parameters, dynamic_strands);
-              }
-            }
             if (gravity->enabled)
               gravity->Execute(physics_parameters, dynamic_strands);
 
@@ -542,7 +554,7 @@ void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_cam
   }
 }
 
-void DynamicTreeStrands::RenderShadowMap() {
+void DynamicTreeStrands::RenderShadowMap(const DynamicStrands::RenderParameters& render_parameters) {
   if (const auto material = material_ref.Get<Material>()) {
     if (!dynamic_strands->segments.empty()) {
       if (!dynamic_strands->WaitForUpload()) {
@@ -559,7 +571,7 @@ void DynamicTreeStrands::RegisterMaterial() {
   }
 }
 
-void DynamicTreeStrands::Render() {
+void DynamicTreeStrands::Render(const DynamicStrands::RenderParameters& render_parameters) {
   if (const auto material = material_ref.Get<Material>()) {
     if (!dynamic_strands->segments.empty()) {
       if (!dynamic_strands->WaitForUpload()) {

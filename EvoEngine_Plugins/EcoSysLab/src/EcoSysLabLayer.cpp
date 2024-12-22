@@ -610,11 +610,11 @@ void EcoSysLabLayer::PreUpdate() {
 }
 
 void EcoSysLabLayer::Update() {
-  StrandShadowMapRendering();
   StrandRegisterMaterial();
 }
 
 void EcoSysLabLayer::LateUpdate() {
+  StrandShadowMapRendering();
   StrandRendering();
   StrandPhysics();
 }

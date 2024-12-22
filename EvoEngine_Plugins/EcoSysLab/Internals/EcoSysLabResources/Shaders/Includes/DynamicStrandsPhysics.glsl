@@ -63,12 +63,12 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   SegmentData segment_data = segment_data_list[segment_handle];
   
   if (segment.prev_handle != -1) {
-    if (segment_pairs[segment_data.pair_handles[0]].connectivity_valid == 1) {
+    if (segment_pairs[segment_data.pair_handles[0]].connectivity_integrity > 0.f) {
       segments[segment.prev_handle].particle1.x = particle0_new_position;
     }
   }
   if (segment.next_handle != -1) {
-    if (segment_pairs[segment_data.pair_handles[1]].connectivity_valid == 1) {
+    if (segment_pairs[segment_data.pair_handles[1]].connectivity_integrity > 0.f) {
       segments[segment.next_handle].particle0.x = particle1_new_position;
     }
   }
@@ -136,7 +136,7 @@ void project_shear_stretch_constraint(in float inv_time_step, in vec3 p0, in vec
 
 void project_bend_twist_constraint(in float inv_time_step, in int segment_pair_handle) {
   SegmentPair segment_pair = segment_pairs[segment_pair_handle];
-  if (segment_pair.bend_twist_bundle_valid == 0)
+  if (segment_pair.bend_twist_bundle_integrity <= 0.f)
     return;
 
   vec4 q0_correction, q1_correction;
@@ -159,7 +159,7 @@ void project_bend_twist_constraint(in float inv_time_step, in int segment_pair_h
 void project_bend_twist_constraint(in float inv_time_step, in int segment_pair_handle, out vec4 q0_correction,
                                    out vec4 q1_correction) {
   SegmentPair segment_pair = segment_pairs[segment_pair_handle];
-  if (segment_pair.bend_twist_bundle_valid == 0)
+  if (segment_pair.bend_twist_bundle_integrity <= 0.f)
     return;
   int segment0_handle = segment_pair.segment0_handle;
   int segment1_handle = segment_pair.segment1_handle;
@@ -232,7 +232,7 @@ void BundleSegment(in uint segment_handle, in float inv_time_step, in float over
     if (pair_handle < 0)
       continue;
     SegmentPair segment_pair = segment_pairs[pair_handle];
-    if (segment_pair.bend_twist_bundle_valid == 0)
+    if (segment_pair.bend_twist_bundle_integrity <= 0.f)
       continue;
     bool is_segment0 = segment_handle == segment_pair.segment0_handle;
     Segment segment1 = segments[is_segment0 ? segment_pair.segment1_handle : segment_pair.segment0_handle];
@@ -288,7 +288,7 @@ void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in f
     if (pair_handle < 0)
       continue;
     SegmentPair segment_pair = segment_pairs[pair_handle];
-    if (segment_pair.bend_twist_bundle_valid == 0)
+    if (segment_pair.bend_twist_bundle_integrity <= 0.f)
       continue;
     bool is_segment0 = segment_handle == segment_pair.segment0_handle;
     vec4 q0_correction, q1_correction;

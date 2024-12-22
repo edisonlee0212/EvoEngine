@@ -29,6 +29,78 @@ class IDsConstraint {
 };
 
 #pragma region Constraints
+class DsPivot final : public IDsConstraint {
+ public:
+  GlobalTransform inverse_base_global_transform{};
+  GlobalTransform base_global_transform{};
+
+  struct SegmentUpdate {
+    float axis_offset;
+    float axis_distance;
+    uint32_t segment_index;
+    uint32_t particle0_closer;
+  };
+  inline static std::shared_ptr<DescriptorSetLayout> layout{};
+  std::vector<SegmentUpdate> commands;
+  std::shared_ptr<Buffer> segment_update_commands_buffer;
+
+  struct SegmentUpdatePushConstant {
+    glm::vec3 pivot_position;
+    uint32_t commands_size = 0;
+    glm::vec3 axis;
+  };
+  SegmentUpdatePushConstant push_constant;
+  inline static std::shared_ptr<ComputePipeline> segment_update_pipeline;
+  std::vector<std::shared_ptr<DescriptorSet>> segment_commands_descriptor_sets;
+
+  DsPivot();
+  void Initialize(const GlobalTransform& target_base_global_transform,
+                  const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
+                  const std::vector<std::pair<uint32_t, bool>>& segment_list);
+  void Update(const GlobalTransform& new_global_transform);
+
+  void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                 const DynamicStrands& target_dynamic_strands) override;
+};
+
+class DsTransform final : public IDsConstraint {
+ public:
+  GlobalTransform inverse_base_global_transform{};
+  GlobalTransform base_global_transform{};
+
+  struct SegmentUpdate {
+    glm::quat new_rotation;
+    glm::vec3 new_particle0_position;
+    uint32_t fix_particle0;
+    glm::vec3 new_particle1_position;
+    uint32_t fix_particle1;
+    uint32_t segment_index;
+
+    uint32_t padding0;
+    uint32_t padding1;
+    uint32_t padding2;
+  };
+  inline static std::shared_ptr<DescriptorSetLayout> layout{};
+  std::vector<SegmentUpdate> commands;
+  std::vector<std::shared_ptr<Buffer>> segment_update_commands_buffer;
+
+  struct SegmentUpdatePushConstant {
+    uint32_t commands_size = 0;
+  };
+
+  inline static std::shared_ptr<ComputePipeline> segment_update_pipeline;
+  std::vector<std::shared_ptr<DescriptorSet>> segment_commands_descriptor_sets;
+
+  DsTransform();
+  void Initialize(const GlobalTransform& target_base_global_transform,
+                  const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
+                  const std::vector<std::pair<uint32_t, std::pair<bool, bool>>>& segment_list);
+  void Update(const GlobalTransform& new_global_transform,
+              const std::shared_ptr<DynamicStrands>& target_dynamic_strands);
+
+  void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                 const DynamicStrands& target_dynamic_strands) override;
+};
 
 class DsGroundPlane final : public IDsConstraint {
  public:

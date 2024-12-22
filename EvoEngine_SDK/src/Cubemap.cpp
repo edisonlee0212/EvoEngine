@@ -1,10 +1,10 @@
 #include "Cubemap.hpp"
-
 #include "Application.hpp"
 #include "Console.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
+#include "Shader.hpp"
 #include "TextureStorage.hpp"
 using namespace evo_engine;
 #include "EditorLayer.hpp"
@@ -34,6 +34,9 @@ uint32_t Cubemap::GetTextureStorageIndex() const {
 }
 
 void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>& target_texture) const {
+  const auto render_layer = Application::GetLayer<RenderLayer>();
+  if (!render_layer)
+    return;
   Initialize(1024);
   auto& storage = RefStorage();
   if (!target_texture->GetImage()) {
@@ -75,7 +78,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
 #pragma endregion
 
   const std::unique_ptr<DescriptorSet> temp_set =
-      std::make_unique<DescriptorSet>(Platform::GetDescriptorSetLayout("RENDER_TEXTURE_PRESENT_LAYOUT"));
+      std::make_unique<DescriptorSet>(RenderTexture::render_texture_present_layout);
   VkDescriptorImageInfo descriptor_image_info{};
   descriptor_image_info.imageView = target_texture->GetVkImageView();
   descriptor_image_info.imageLayout = target_texture->GetLayout();
@@ -92,7 +95,30 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
 
-  const auto equirectangular_to_cubemap = Platform::GetGraphicsPipeline("EQUIRECTANGULAR_TO_CUBEMAP");
+  static std::shared_ptr<GraphicsPipeline> equirectangular_to_cubemap;
+  if (!equirectangular_to_cubemap) {
+    equirectangular_to_cubemap = std::make_shared<GraphicsPipeline>();
+    equirectangular_to_cubemap->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                "Shaders/Graphics/Vertex/Lighting/EquirectangularMapToCubemap.vert");
+    equirectangular_to_cubemap->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
+                                  "Shaders/Graphics/Fragment/Lighting/EquirectangularMapToCubemap.frag");
+    equirectangular_to_cubemap->geometry_type = GeometryType::Mesh;
+
+    equirectangular_to_cubemap->depth_attachment_format = Platform::Constants::shadow_map;
+    equirectangular_to_cubemap->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+
+    equirectangular_to_cubemap->color_attachment_formats = {1, Platform::Constants::texture_2d};
+    equirectangular_to_cubemap->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
+
+    auto& push_constant_range = equirectangular_to_cubemap->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(glm::mat4) + sizeof(float);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+
+    equirectangular_to_cubemap->Initialize();
+  }
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 #pragma region Viewport and scissor

@@ -14,39 +14,6 @@ class IDsPhysicsOperator {
   bool enabled = true;
 };
 
-class DsTransform final : public IDsPhysicsOperator {
- public:
-  GlobalTransform inverse_base_global_transform{};
-  GlobalTransform base_global_transform{};
-
-  struct SegmentUpdate {
-    glm::quat new_rotation;
-    glm::vec3 new_particle0_position;
-    uint32_t segment_index;
-    glm::vec3 new_particle1_position;
-    uint32_t padding0;
-  };
-  inline static std::shared_ptr<DescriptorSetLayout> layout{};
-  std::vector<SegmentUpdate> commands;
-  std::vector<std::shared_ptr<Buffer>> segment_update_commands_buffer;
-
-  struct SegmentUpdatePushConstant {
-    uint32_t commands_size = 0;
-  };
-
-  inline static std::shared_ptr<ComputePipeline> segment_update_pipeline;
-  std::vector<std::shared_ptr<DescriptorSet>> segment_commands_descriptor_sets;
-
-  DsTransform();
-  void Initialize(const GlobalTransform& target_base_global_transform,
-                  const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
-                  const std::vector<uint32_t>& segment_handles);
-  void Update(const GlobalTransform& new_global_transform,
-              const std::shared_ptr<DynamicStrands>& target_dynamic_strands);
-  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
-};
-
 class DsGravity final : public IDsPhysicsOperator {
  public:
   struct GravityPushConstant {

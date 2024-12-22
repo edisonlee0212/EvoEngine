@@ -21,6 +21,8 @@ class ParticleInfoList final : public IAsset {
   std::shared_ptr<RangeDescriptor> range_descriptor_;
 
  public:
+  inline static std::shared_ptr<DescriptorSetLayout> instanced_data_layout;
+
   void OnCreate() override;
   ~ParticleInfoList() override;
   void Serialize(YAML::Emitter& out) const override;

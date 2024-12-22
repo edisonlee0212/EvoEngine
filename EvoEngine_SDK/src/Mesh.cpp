@@ -157,7 +157,7 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
     return;
   }
   vertices_ = vertices;
-  //triangles_ = triangles;
+  // triangles_ = triangles;
   triangles_.clear();
   triangles_.reserve(triangles.size());
   for (const auto& triangle : triangles) {

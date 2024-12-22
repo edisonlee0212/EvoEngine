@@ -25,10 +25,10 @@ void Particles::RecalculateBoundingBox() {
     const glm::vec3 center = i.instance_matrix.value * glm::vec4(mesh_bound.Center(), 1.0f);
     const glm::vec3 size = glm::vec4(mesh_bound.Size(), 0) * i.instance_matrix.value / 2.0f;
     min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
-                         (glm::min)(min_bound.z, center.z - size.z));
+                          (glm::min)(min_bound.z, center.z - size.z));
 
     max_bound = glm::vec3((glm::max)(max_bound.x, center.x + size.x), (glm::max)(max_bound.y, center.y + size.y),
-                         (glm::max)(max_bound.z, center.z + size.z));
+                          (glm::max)(max_bound.z, center.z + size.z));
   }
   bounding_box.max = max_bound;
   bounding_box.min = min_bound;
@@ -46,8 +46,7 @@ bool Particles::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     changed = true;
 
   if (const auto pil = particle_info_list.Get<ParticleInfoList>()) {
-    ImGui::Text(
-        ("Instance count##Particles" + std::to_string(pil->PeekParticleInfoList().size())).c_str());
+    ImGui::Text(("Instance count##Particles" + std::to_string(pil->PeekParticleInfoList().size())).c_str());
     if (ImGui::Button("Calculate bounds##Particles")) {
       RecalculateBoundingBox();
     }
