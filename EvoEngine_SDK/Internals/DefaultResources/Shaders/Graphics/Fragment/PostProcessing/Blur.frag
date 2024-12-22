@@ -1,9 +1,5 @@
 #extension GL_ARB_shading_language_include : enable
 
-#include "SSRConstants.glsl"
-
-precision highp float;
-
 layout (location = 0) out vec4 FragColor;
 
 layout (location = 0) in VS_OUT {
@@ -11,6 +7,12 @@ layout (location = 0) in VS_OUT {
 } fs_in;
 
 layout(set = 0, binding = 0) uniform sampler2D image;
+
+
+layout(push_constant) uniform BLUR_CONSTANTS{
+    int horizontal;
+    float weight[5];
+};
 
 void main()
 {

@@ -19,7 +19,7 @@ class DirectionalLight : public IPrivateComponent {
  public:
   bool cast_shadow = true;
   glm::vec3 diffuse = glm::vec3(1.0f);
-  float diffuse_brightness = 1.f;
+  float diffuse_brightness = 3.f;
   float bias = 0.1f;
   float normal_offset = 0.05f;
   float light_size = 0.01f;
@@ -49,7 +49,7 @@ class PointLight : public IPrivateComponent {
   float quadratic = 0.0015f;
   float bias = 0.05f;
   glm::vec3 diffuse = glm::vec3(1.0f);
-  float diffuse_brightness = 0.8f;
+  float diffuse_brightness = 3.f;
   float light_size = 0.01f;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void OnCreate() override;
@@ -80,7 +80,7 @@ class SpotLight : public IPrivateComponent {
   float quadratic = 0.0015f;
   float bias = 0.001f;
   glm::vec3 diffuse = glm::vec3(1.0f);
-  float diffuse_brightness = 0.8f;
+  float diffuse_brightness = 3.f;
   float light_size = 0.01f;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void OnCreate() override;

@@ -41,7 +41,6 @@ void RenderLayer::ForwardRenderingAllCameras(
 }
 
 void RenderLayer::OnCreate() {
-
 #pragma region Graphics Pipelines
   if (!point_light_shadow_pipeline_normal) {
     point_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();
@@ -1604,7 +1603,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
     const auto& directional_light_shadow_pipeline =
         use_mesh_shader ? directional_light_shadow_pipeline_mesh_shader : directional_light_shadow_pipeline_normal;
     auto& platform = Platform::GetInstance();
-    Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
       VkRect2D render_area;
       render_area.offset = {0, 0};

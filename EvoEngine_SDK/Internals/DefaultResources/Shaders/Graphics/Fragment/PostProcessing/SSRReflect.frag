@@ -1,9 +1,8 @@
 #extension GL_ARB_shading_language_include : enable
 
 #include "SSRConstants.glsl"
-#include "Basic.glsl"
+#include "PerFrame.glsl"
 
-precision highp float;
 layout (location = 0) out vec4 outSrcColor;
 layout (location = 1) out vec4 outDstColorVisibility;
 
@@ -15,16 +14,7 @@ layout (location = 0) in VS_OUT {
 layout(set = 1, binding = 17) uniform sampler2D inDepth;
 layout(set = 1, binding = 18) uniform sampler2D inNormal;
 layout(set = 1, binding = 19) uniform sampler2D inMaterial;
-layout(set = 1, binding = 20) uniform sampler2D inColor;
-
-
-vec3 EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(float cosTheta, vec3 F0, float roughness)
-{
-	return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
-}
-
-
-
+layout(set = 2, binding = 0) uniform sampler2D inColor;
 
 vec3 GetNormal(in vec2 texCoord){
 	return texture(inNormal, texCoord).rgb;
@@ -34,39 +24,10 @@ vec3 GetViewNormal(in vec2 texCoord){
 	return normalize((EE_CAMERAS[EE_CAMERA_INDEX].view * vec4(GetNormal(texCoord), 0.0f)).xyz);
 }
 
-bool GetPosition(in vec2 texCoord, out vec3 position){
-	float ndcDepth = texture(inDepth, texCoord).x;
-	if(ndcDepth == 1.0f) return false;
-	position = EE_DEPTH_TO_WORLD_POS(EE_CAMERA_INDEX, texCoord, ndcDepth);
-	return true;
-}
-
 bool GetViewPosition(in vec2 texCoord, out vec3 position){
 	float ndcDepth = texture(inDepth, texCoord).x;
 	if(ndcDepth == 1.0f) return false;
 	position = EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, texCoord, ndcDepth);
-	return true;
-}
-
-vec3 GetPosition(in vec2 texCoord){
-	float ndcDepth = texture(inDepth, texCoord).x;
-	return EE_DEPTH_TO_WORLD_POS(EE_CAMERA_INDEX, texCoord, ndcDepth);
-}
-
-vec3 GetViewPosition(in vec2 texCoord){
-	float ndcDepth = texture(inDepth, texCoord).x;
-	return EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, texCoord, ndcDepth);
-}
-
-vec3 GetScreenPosition(in vec2 texCoord){
-	float ndcDepth = texture(inDepth, texCoord).x;
-	return EE_DEPTH_TO_CLIP_POS(texCoord, ndcDepth);
-}
-
-bool GetScreenPosition(in vec2 texCoord, out vec3 position){
-	float ndcDepth = texture(inDepth, texCoord).x;
-	if(ndcDepth == 1.0f) return false;
-	position = EE_DEPTH_TO_CLIP_POS(texCoord, ndcDepth);
 	return true;
 }
 
@@ -107,11 +68,10 @@ void main()
 	
 	vec2 frag  = startFrag;
 	uv = frag / texSize;
-	outSrcColor = vec4(endFrag / texSize, 0, 1);
 	float deltaX    = endFrag.x - startFrag.x;
 	float deltaY    = endFrag.y - startFrag.y;
 	float useX      = abs(deltaX) >= abs(deltaY) ? 1.0 : 0.0;
-	float delta     = mix(abs(deltaY), abs(deltaX), useX) * clamp(resolution, 0.0, 1.0);
+	float delta     = min(maxIterationCount, mix(abs(deltaY), abs(deltaX), useX) * resolution);
 	vec2  increment = vec2(deltaX, deltaY) / max(delta, 0.001);
 
 	float search0 = 0;
@@ -120,7 +80,7 @@ void main()
 	int hit0 = 0;
 	int hit1 = 0;
 
-	float viewDistance = startView.y;
+	float viewDistance = startView.z;
 	float depth        = thickness;
 
 	float i = 0;
@@ -136,10 +96,10 @@ void main()
 
 		search1 = clamp(search1, 0.0, 1.0);
 
-		viewDistance = (startView.y * endView.y) / mix(endView.y, startView.y, search1);
-		depth        = viewDistance - positionTo.y;
+		viewDistance = (startView.z * endView.z) / mix(endView.z, startView.z, search1);
+		depth        = positionTo.z - viewDistance;
 
-		if (valid && depth > 0 && depth < thickness) {
+		if (depth > 0 && depth < thickness) {
 			hit0 = 1;
 			break;
 		} else {
@@ -156,10 +116,10 @@ void main()
 		uv.xy      = frag / texSize;
 		bool valid = GetViewPosition(uv, positionTo);
 
-		viewDistance = (startView.y * endView.y) / mix(endView.y, startView.y, search1);
-		depth        = viewDistance - positionTo.y;
+		viewDistance = (startView.z * endView.z) / mix(endView.z, startView.z, search1);
+		depth        = positionTo.z - viewDistance;
 
-		if (valid && depth > 0 && depth < thickness) {
+		if (depth > 0 && depth < thickness) {
 			hit1 = 1;
 			search1 = search0 + ((search1 - search0) / 2);
 		} else {
@@ -186,13 +146,12 @@ void main()
 		* (uv.x < 0 || uv.x > 1 ? 0 : 1)
 		* (uv.y < 0 || uv.y > 1 ? 0 : 1);
 
+	
 	visibility = clamp(visibility, 0, 1);
-
+	
 	if(visibility != 0){
-		outDstColorVisibility = clamp(vec4(texture(inColor, uv).rgb, visibility), vec4(0, 0, 0, 0), vec4(1, 1, 1, 1));
+		outDstColorVisibility = max(vec4(texture(inColor, uv).rgb, visibility), vec4(0.0f));
 	}else{
 		outDstColorVisibility = vec4(0, 0, 0, 0);
 	}
-	
-	
 }

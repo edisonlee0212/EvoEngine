@@ -280,7 +280,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
       application_info.application_name = "Rendering Demo";
       application_info.project_path = resource_folder_path / "Example Projects/Rendering/Rendering.eveproj";
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
-        scene->environment.ambient_light_intensity = 0.1f;
+        scene->environment.ambient_light_intensity = 0.4f;
 #pragma region Set main camera to correct position and rotation
         const auto main_camera = scene->main_camera.Get<Camera>();
         main_camera->Resize({640, 480});
@@ -311,10 +311,10 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         const auto point_light_right_material = ProjectManager::CreateTemporaryAsset<Material>();
         point_light_right_renderer->material.Set<Material>(point_light_right_material);
         point_light_right_material->material_properties.albedo_color = glm::vec3(1.0, 0.8, 0.0);
-        point_light_right_material->material_properties.emission = 100.0f;
+        point_light_right_material->material_properties.emission = 10.0f;
         point_light_right_renderer->mesh = Resources::GetResource<Mesh>("PRIMITIVE_SPHERE");
         const auto point_light_right = scene->GetOrSetPrivateComponent<PointLight>(point_light_right_entity).lock();
-        point_light_right->diffuse_brightness = 4;
+        point_light_right->diffuse_brightness = 30;
         point_light_right->light_size = 0.02f;
         point_light_right->linear = 0.5f;
         point_light_right->quadratic = 0.1f;
@@ -380,8 +380,6 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         main_camera_transform.SetPosition(glm::vec3(0, -4, 25));
         scene->SetDataComponent(main_camera_entity, main_camera_transform);
         scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
-        // auto postProcessing = scene->GetOrSetPrivateComponent<PostProcessing>(mainCameraEntity).lock();
-
         const auto surface_material = ProjectManager::CreateTemporaryAsset<Material>();
         const auto border_texture =
             std::dynamic_pointer_cast<Texture2D>(ProjectManager::GetOrCreateAsset("Textures/border.png"));
@@ -441,6 +439,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         Entity dle = scene->CreateEntity("Directional Light");
         auto dlc = scene->GetOrSetPrivateComponent<DirectionalLight>(dle).lock();
         dlc->diffuse = glm::vec3(1.0f);
+        dlc->diffuse_brightness = 3.f;
         ltw.SetScale(glm::vec3(0.5f));
 
         Entity ple = scene->CreateEntity("Point Light 1");

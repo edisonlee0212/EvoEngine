@@ -30,9 +30,15 @@ entity_metadata_list:
         skybox:
           asset_handle_: 0
           asset_type_name_: Mesh
-        post_processing_stack:
-          asset_handle_: 0
-          asset_type_name_: ""
+        post_processing_stack_ref:
+          asset_handle_: 15888462117146613974
+          asset_type_name_: PostProcessingStack
+      - tn: PlayerController
+        e: true
+        velocity: 20
+        sensitivity: 0.100000001
+        scene_camera_yaw_angle_: -89
+        scene_camera_pitch_angle_: 0
   - n: Directional Light
     h: 4980998256074025614
     e: true
@@ -254,6 +260,8 @@ entity_metadata_list:
 systems_:
   []
 LocalAssets:
+  - type_name: PostProcessingStack
+    handle: 15888462117146613974
   - type_name: Material
     handle: 9351133328134294989
     albedo_texture_:

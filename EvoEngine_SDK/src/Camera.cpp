@@ -541,3 +541,7 @@ void Camera::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(skybox);
   list.push_back(post_processing_stack_ref);
 }
+
+const std::shared_ptr<DescriptorSet>& Camera::GetGBufferDescriptorSet() const {
+  return g_buffer_descriptor_set_;
+}

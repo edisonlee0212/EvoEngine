@@ -7,6 +7,7 @@
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
 #include "Platform.hpp"
+#include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
@@ -116,6 +117,7 @@ void EditorLayer::OnCreate() {
   scene_camera->clear_color = glm::vec3(59.0f / 255.0f, 85 / 255.0f, 143 / 255.f);
   scene_camera->use_clear_color = false;
   scene_camera->OnCreate();
+  scene_camera->post_processing_stack_ref = ProjectManager::CreateTemporaryAsset<PostProcessingStack>();
   RegisterEditorCamera(scene_camera);
   scene_camera_handle_ = scene_camera->GetHandle();
 }

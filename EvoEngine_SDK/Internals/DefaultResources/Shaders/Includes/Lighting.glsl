@@ -1,3 +1,7 @@
+
+
+#include "VogelDisk.glsl"
+
 layout(set = EE_PER_GROUP_SET, binding = 14) uniform sampler2DArray EE_DIRECTIONAL_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 15) uniform sampler2DArray EE_POINT_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 16) uniform sampler2D EE_SPOT_LIGHT_SM;
@@ -221,18 +225,7 @@ vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fr
 	return (kD * albedo / PI + spec) * radiance * NdotL;
 }
 
-vec2 VogelDiskSample(int sampleIndex, int sampleCount, float phi)
-{
-	float goldenAngle = 2.4;
-	float r = sqrt(float(sampleIndex + 0.5)) / sqrt(float(sampleCount));
-	float theta = goldenAngle * sampleIndex + phi;
-	return r * vec2(cos(theta), sin(theta));
-}
 
-float InterleavedGradientNoise(vec3 fragCoords) {
-	vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
-	return fract(dot(fragCoords, magic));
-}
 
 float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3 normal, float cameraFragDistance)
 {
@@ -288,7 +281,7 @@ float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3
 	sampleAmount = int(EE_RENDER_INFO.shadow_sample_size * distanceFactor * distanceFactor);
 	for (int i = 0; i < sampleAmount; i++)
 	{
-		vec2 tex_coord = projCoords.xy + VogelDiskSample(i, sampleAmount, InterleavedGradientNoise(fragPos * 3141)) * (texelSize + 0.001);
+		vec2 tex_coord = projCoords.xy + EE_VOGEL_DISK_SAMPLE(i, sampleAmount, fragPos * 3141) * (texelSize + 0.001);
 		float closestDepth = texture(EE_DIRECTIONAL_LIGHT_SM, vec3(tex_coord * texScale + texBase, splitIndex)).r;
 		if (closestDepth == 0.0) continue;
 		shadow += projCoords.z < closestDepth ? 1.0 : 0.0;
@@ -334,7 +327,7 @@ float EE_FUNC_SPOT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance) {
 	float shadow = 0.0;
 	for (int i = 0; i < sampleAmount; i++)
 	{
-		vec2 tex_coord = projCoords.xy + VogelDiskSample(i, sampleAmount, InterleavedGradientNoise(fragPos * 3141)) * (penumbraWidth + 0.001);
+		vec2 tex_coord = projCoords.xy + EE_VOGEL_DISK_SAMPLE(i, sampleAmount, fragPos * 3141) * (penumbraWidth + 0.001);
 		float closestDepth = texture(EE_SPOT_LIGHT_SM, vec2(tex_coord * texScale + texBase)).r;
 		if (closestDepth == 0.0) continue;
 		shadow += projCoords.z < closestDepth ? 1.0 : 0.0;
@@ -412,7 +405,7 @@ float EE_FUNC_POINT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance)
 	sampleAmount = int(EE_RENDER_INFO.shadow_sample_size * distanceFactor * distanceFactor);
 	for (int i = 0; i < sampleAmount; i++)
 	{
-		vec2 tex_coord = projCoords.xy + VogelDiskSample(i, sampleAmount, InterleavedGradientNoise(fragPos * 3141)) * (penumbraWidth + 0.001);
+		vec2 tex_coord = projCoords.xy + EE_VOGEL_DISK_SAMPLE(i, sampleAmount, fragPos * 3141) * (penumbraWidth + 0.001);
 		tex_coord.x = clamp(tex_coord.x, 1.0 / float(light.viewport_x_size), 1.0 - 1.0 / float(light.viewport_x_size));
 		tex_coord.y = clamp(tex_coord.y, 1.0 / float(light.viewport_x_size), 1.0 - 1.0 / float(light.viewport_x_size));
 		float closestDepth = texture(EE_POINT_LIGHT_SM, vec3(tex_coord * texScale + texBase, slice)).r;
