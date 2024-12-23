@@ -5,13 +5,12 @@ layout (location = 0) in VS_OUT {
     vec2 TexCoord;
 } fs_in;
 
-layout(set = 0, binding = 0) uniform sampler2D originalColor;
-layout(set = 0, binding = 1) uniform sampler2D ambientOcclusion;
+layout(set = 1, binding = 0) uniform sampler2D originalColor;
+layout(set = 1, binding = 1) uniform sampler2D bloomColor;
 
 void main()
 {
 	vec2 texCoord = fs_in.TexCoord;
 	vec4 color = texture(originalColor, texCoord);
-	vec3 result = color.rgb * (texture(ambientOcclusion, texCoord).r);
-	FragColor = vec4(result, color.a);
+	FragColor = vec4(clamp(color.xyz, vec3(0.0f), vec3(1.0f)) + texture(bloomColor, texCoord).xyz, color.w);
 }

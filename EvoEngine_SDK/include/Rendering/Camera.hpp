@@ -70,15 +70,13 @@ class Camera final : public IPrivateComponent {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 
+  const std::shared_ptr<DescriptorSet>& GetGBufferDescriptorSet() const;
+
  private:
   friend class Platform;
   friend class RenderLayer;
   friend class EditorLayer;
   friend struct CameraInfoBlock;
-  friend class PostProcessingStack;
-  friend class ScreenSpaceReflection;
-  friend class Bloom;
-  friend class Ssao;
   std::shared_ptr<RenderTexture> render_texture_;
   // Deferred shading GBuffer
   std::shared_ptr<Image> g_buffer_normal_ = {};
