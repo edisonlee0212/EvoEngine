@@ -233,8 +233,12 @@ JobSystem::JobSystem() {
   ResizeWorker(1);
 }
 
-JobSystem::~JobSystem() {
+void JobSystem::OnDestroy() {
   StopAllWorkers();
+}
+
+JobSystem::~JobSystem() {
+  OnDestroy();
 }
 
 void JobSystem::ResizeWorker(const size_t worker_size) {

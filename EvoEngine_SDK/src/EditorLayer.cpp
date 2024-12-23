@@ -123,8 +123,15 @@ void EditorLayer::OnCreate() {
 }
 
 void EditorLayer::OnDestroy() {
+  editor_cameras_.clear();
+  gizmo_mesh_tasks_.clear();
+  gizmo_instanced_mesh_tasks_.clear();
+  gizmo_strands_tasks_.clear();
+  vmaUnmapMemory(Platform::GetVmaAllocator(), entity_index_read_buffer_->GetVmaAllocation());
+  entity_index_read_buffer_.reset();
   ImGui_ImplVulkan_Shutdown();
   ImGui_ImplGlfw_Shutdown();
+  ImNodes::DestroyContext();
   ImGui::DestroyContext();
 }
 

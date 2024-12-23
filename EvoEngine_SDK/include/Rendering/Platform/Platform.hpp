@@ -5,10 +5,10 @@
 #include "ISingleton.hpp"
 #include "RayTracingPipeline.hpp"
 
-#ifdef __APPLE__
-#  define ENABLE_EXTERNAL_MEMORY false
-#else
+#ifdef EVOENGINE_WINDOWS
 #  define ENABLE_EXTERNAL_MEMORY true
+#else
+#  define ENABLE_EXTERNAL_MEMORY false
 #endif
 #define ENABLE_NV_RAY_TRACING_VALIDATION false
 
@@ -118,6 +118,8 @@ class Platform final {
 
   std::shared_ptr<Swapchain> swapchain_ = {};
 
+  std::shared_ptr<GraphicsPipeline> render_texture_present_pipeline{};
+
   VkSurfaceFormatKHR vk_surface_format_ = {};
 
 #pragma endregion
@@ -157,13 +159,12 @@ class Platform final {
 
   void RecreateSwapChain();
 
-  void OnDestroy();
   void SubmitPresent();
   void Submit();
 
   void ResetCommandBuffers();
   static void Initialize();
-  static void Destroy();
+  static void OnDestroy();
   static void PreUpdate();
   static void LateUpdate();
 
@@ -200,7 +201,7 @@ class Platform final {
     inline static uint32_t max_texture_2d_resource_size = 2048;
     inline static uint32_t max_cubemap_resource_size = 256;
 
-    inline static uint32_t max_directional_light_size = 16;
+    inline static uint32_t max_directional_light_size = 4;
     inline static uint32_t max_point_light_size = 16;
     inline static uint32_t max_spot_light_size = 16;
   };
@@ -222,8 +223,8 @@ class Platform final {
     constexpr static VkFormat render_texture_depth = VK_FORMAT_D32_SFLOAT;
     constexpr static VkFormat render_texture_color = VK_FORMAT_R32G32B32A32_SFLOAT;
     constexpr static VkFormat g_buffer_depth = VK_FORMAT_D32_SFLOAT;
-    constexpr static VkFormat g_buffer_color = VK_FORMAT_R16G16B16A16_SFLOAT;
-    constexpr static VkFormat g_buffer_material = VK_FORMAT_R16G16B16A16_SFLOAT;
+    constexpr static VkFormat g_buffer_color = VK_FORMAT_R32G32B32A32_SFLOAT;
+    constexpr static VkFormat g_buffer_material = VK_FORMAT_R32G32B32A32_SFLOAT;
     constexpr static VkFormat shadow_map = VK_FORMAT_D32_SFLOAT;
     constexpr static uint32_t meshlet_max_vertices_size = 64;
     constexpr static uint32_t meshlet_max_triangles_size = 40;

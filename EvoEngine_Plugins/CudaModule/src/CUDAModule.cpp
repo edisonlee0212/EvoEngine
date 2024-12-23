@@ -32,7 +32,7 @@
 using namespace evo_engine;
 
 std::unique_ptr<OptiXRayTracer>& CudaModule::GetRayTracer() {
-  return GetInstance().m_rayTracer;
+  return GetInstance().ray_tracer_;
 }
 
 CudaModule& CudaModule::GetInstance() {
@@ -41,20 +41,20 @@ CudaModule& CudaModule::GetInstance() {
 }
 
 void CudaModule::Init() {
-  auto& cudaModule = GetInstance();
+  auto& cuda_module = GetInstance();
   // Choose which GPU to run on, change this on a multi-GPU system.
   CUDA_CHECK(SetDevice(0));
-  OPTIX_CHECK(optixInitWithHandle(&cudaModule.m_optixHandle));
-  cudaModule.m_rayTracer = std::make_unique<OptiXRayTracer>();
-  cudaModule.m_initialized = true;
+  OPTIX_CHECK(optixInitWithHandle(&cuda_module.optix_handle_));
+  cuda_module.ray_tracer_ = std::make_unique<OptiXRayTracer>();
+  cuda_module.initialized_ = true;
 }
 
 void CudaModule::Terminate() {
-  auto& cudaModule = GetInstance();
-  cudaModule.m_rayTracer.reset();
-  OPTIX_CHECK(optixUninitWithHandle(cudaModule.m_optixHandle));
+  auto& cuda_module = GetInstance();
+  cuda_module.ray_tracer_.reset();
+  OPTIX_CHECK(optixUninitWithHandle(cuda_module.optix_handle_));
   CUDA_CHECK(DeviceReset());
-  cudaModule.m_initialized = false;
+  cuda_module.initialized_ = false;
 }
 
 void CudaModule::EstimateIlluminationRayTracing(const EnvironmentProperties& environmentProperties,
@@ -67,7 +67,7 @@ void CudaModule::EstimateIlluminationRayTracing(const EnvironmentProperties& env
   CudaBuffer deviceLightProbes;
   deviceLightProbes.Upload(lightProbes);
 #pragma endregion
-  cudaModule.m_rayTracer->EstimateIllumination(size, environmentProperties, rayProperties, deviceLightProbes, seed,
+  cudaModule.ray_tracer_->EstimateIllumination(size, environmentProperties, rayProperties, deviceLightProbes, seed,
                                                pushNormalDistance);
   deviceLightProbes.Download(lightProbes.data(), size);
   deviceLightProbes.Free();
@@ -81,7 +81,7 @@ void CudaModule::SamplePointCloud(const EnvironmentProperties& environmentProper
   CudaBuffer deviceSamples;
   deviceSamples.Upload(samples);
 #pragma endregion
-  cudaModule.m_rayTracer->ScanPointCloud(size, environmentProperties, deviceSamples);
+  cudaModule.ray_tracer_->ScanPointCloud(size, environmentProperties, deviceSamples);
   deviceSamples.Download(samples.data(), size);
   deviceSamples.Free();
 }
@@ -117,10 +117,27 @@ std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo
   VkExtent3D imageExtent = image->GetExtent();
   cudaExtent extent = make_cudaExtent(imageExtent.width, imageExtent.height, 0);
   cudaChannelFormatDesc formatDesc;
-  formatDesc.x = 32;
-  formatDesc.y = 32;
-  formatDesc.z = 32;
-  formatDesc.w = 32;
+
+  int bit_size = 32;
+  switch (Platform::Constants::texture_2d) {
+    case VK_FORMAT_R64G64B64A64_SFLOAT: {
+      bit_size = 64;
+      break;
+    }
+    case VK_FORMAT_R32G32B32A32_SFLOAT: {
+      bit_size = 32;
+      break;
+    }
+    case VK_FORMAT_R16G16B16A16_SFLOAT: {
+      bit_size = 16;
+      break;
+    }
+  }
+
+  formatDesc.x = bit_size;
+  formatDesc.y = bit_size;
+  formatDesc.z = bit_size;
+  formatDesc.w = bit_size;
   formatDesc.f = cudaChannelFormatKindFloat;
 
   externalMemoryMipmappedArrayDesc.offset = 0;
@@ -208,10 +225,26 @@ std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_e
   VkExtent3D imageExtent = image->GetExtent();
   cudaExtent extent = make_cudaExtent(imageExtent.width, imageExtent.height, 6);
   cudaChannelFormatDesc formatDesc;
-  formatDesc.x = 32;
-  formatDesc.y = 32;
-  formatDesc.z = 32;
-  formatDesc.w = 32;
+  int bit_size = 32;
+  switch (Platform::Constants::texture_2d) {
+    case VK_FORMAT_R64G64B64A64_SFLOAT: {
+      bit_size = 64;
+      break;
+    }
+    case VK_FORMAT_R32G32B32A32_SFLOAT: {
+      bit_size = 32;
+      break;
+    }
+    case VK_FORMAT_R16G16B16A16_SFLOAT: {
+      bit_size = 16;
+      break;
+    }
+  }
+
+  formatDesc.x = bit_size;
+  formatDesc.y = bit_size;
+  formatDesc.z = bit_size;
+  formatDesc.w = bit_size;
   formatDesc.f = cudaChannelFormatKindFloat;
 
   externalMemoryMipmappedArrayDesc.offset = 0;
@@ -299,11 +332,28 @@ std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(
   memset(&externalMemoryMipmappedArrayDesc, 0, sizeof(externalMemoryMipmappedArrayDesc));
   VkExtent3D imageExtent = image->GetExtent();
   cudaExtent extent = make_cudaExtent(imageExtent.width, imageExtent.height, 0);
+  int bit_size = 32;
+  switch (Platform::Constants::render_texture_color) {
+    case VK_FORMAT_R64G64B64A64_SFLOAT: {
+      bit_size = 64;
+      break;
+    }
+    case VK_FORMAT_R32G32B32A32_SFLOAT: {
+      bit_size = 32;
+      break;
+    }
+    case VK_FORMAT_R16G16B16A16_SFLOAT: {
+      bit_size = 16;
+      break;
+    }
+  }
+
   cudaChannelFormatDesc formatDesc;
-  formatDesc.x = 32;
-  formatDesc.y = 32;
-  formatDesc.z = 32;
-  formatDesc.w = 32;
+  formatDesc.x = bit_size;
+  formatDesc.y = bit_size;
+  formatDesc.z = bit_size;
+  formatDesc.w = bit_size;
+
   formatDesc.f = cudaChannelFormatKindFloat;
 
   externalMemoryMipmappedArrayDesc.offset = 0;

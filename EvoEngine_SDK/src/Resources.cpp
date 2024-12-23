@@ -296,3 +296,12 @@ bool Resources::IsResource(const AssetRef& target) {
   auto& resources = GetInstance();
   return resources.resources_.find(target.GetAssetHandle()) != resources.resources_.end();
 }
+
+void Resources::OnDestroy() {
+  auto& resources = GetInstance();
+  resources.typed_resources_.clear();
+  resources.named_resources_.clear();
+  resources.shared_assets_.clear();
+  resources.resource_names_.clear();
+  resources.resources_.clear();
+}

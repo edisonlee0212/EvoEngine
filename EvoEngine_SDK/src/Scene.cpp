@@ -383,7 +383,6 @@ void Scene::Deserialize(const YAML::Node& in) {
     for (const auto& i : local_assets) {
       i.second->Deserialize(in_local_assets[i.first]);
     }
-
   }
 #ifdef _DEBUG
   EVOENGINE_LOG(std::string("Scene Deserialization: Loaded " + std::to_string(local_assets.size()) + " assets."))

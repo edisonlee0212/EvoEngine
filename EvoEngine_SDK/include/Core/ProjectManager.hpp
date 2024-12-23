@@ -111,7 +111,7 @@ class ProjectManager {
 
   [[nodiscard]] static std::shared_ptr<IAsset> CreateTemporaryAsset(const std::string& type_name);
   [[nodiscard]] static std::shared_ptr<IAsset> CreateTemporaryAsset(const std::string& type_name, const Handle& handle);
-
+  bool initialized = false;
   static void FolderHierarchyHelper(const std::shared_ptr<Folder>& folder);
 
  public:
@@ -141,6 +141,8 @@ class ProjectManager {
   template <typename T>
   [[nodiscard]] static std::shared_ptr<T> CreateTemporaryAsset();
   static void ScanProject();
+
+  static void Initialize();
   static void OnDestroy();
   [[nodiscard]] static std::filesystem::path GetPathRelativeToProject(const std::filesystem::path& absolute_path);
 };

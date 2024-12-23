@@ -110,7 +110,7 @@ int main() {
   Application::GetActiveScene()->GetOrCreateSystem<PhysicsSystem>(1);
 #endif
   // adjust default camera speed
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  auto editor_layer = Application::GetLayer<EditorLayer>();
   editor_layer->velocity = 2.f;
   editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
   // override default scene camera position etc.
@@ -118,7 +118,7 @@ int main() {
   editor_layer->show_scene_window = true;
   editor_layer->show_entity_explorer_window = true;
   editor_layer->show_entity_inspector_window = true;
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  auto render_layer = Application::GetLayer<RenderLayer>();
 #pragma region Engine Loop
   Application::Start();
   Application::Run();

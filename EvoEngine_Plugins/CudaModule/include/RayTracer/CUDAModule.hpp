@@ -29,9 +29,9 @@ class CudaModule {
   CudaModule &operator=(const CudaModule &) = default;
 
 #pragma endregion
-  void *m_optixHandle = nullptr;
-  bool m_initialized = false;
-  std::unique_ptr<OptiXRayTracer> m_rayTracer;
+  void *optix_handle_ = nullptr;
+  bool initialized_ = false;
+  std::unique_ptr<OptiXRayTracer> ray_tracer_;
 
   friend class RayTracerLayer;
 

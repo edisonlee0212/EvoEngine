@@ -731,6 +731,11 @@ void ProjectManager::ScanProject() {
   project_manager.project_folder_->Refresh(directory);
 }
 
+void ProjectManager::Initialize() {
+  auto& project_manager = GetInstance();
+  project_manager.initialized = true;
+}
+
 void ProjectManager::OnDestroy() {
   auto& project_manager = GetInstance();
 
@@ -748,6 +753,8 @@ void ProjectManager::OnDestroy() {
   project_manager.asset_thumbnail_storage_.clear();
 
   project_manager.inspecting_asset.reset();
+
+  project_manager.initialized = false;
 }
 
 void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {

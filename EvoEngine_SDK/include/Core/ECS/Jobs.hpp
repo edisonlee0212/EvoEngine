@@ -32,5 +32,6 @@ class Jobs final {
 
   static void Execute(const JobHandle& job_handle);
   static void Wait(const JobHandle& job_handle);
+  static void OnDestroy();
 };
 }  // namespace evo_engine

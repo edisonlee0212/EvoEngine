@@ -209,7 +209,8 @@ void generate_tree_data(const int count, const std::filesystem::path& tree_param
     std::filesystem::path mesh_output_path =
         folder_path / (tree_parameters_path.stem().string() + "_" + std::to_string(index) + ".obj");
     DatasetGenerator::GenerateDataForTree(
-        tree_point_cloud_point_settings, tree_point_cloud_circular_capture_settings, tree_parameters_path, 0.0822f, tree_growth_limitation, mesh_generator_settings, export_point_cloud, point_cloud_output_path.string(),
+        tree_point_cloud_point_settings, tree_point_cloud_circular_capture_settings, tree_parameters_path, 0.0822f,
+        tree_growth_limitation, mesh_generator_settings, export_point_cloud, point_cloud_output_path.string(),
         export_mesh, mesh_output_path.string(), export_skeleton, skeleton_output_path.string());
   }
 #endif
@@ -425,12 +426,15 @@ int main() {
   tmgs.enable_foliage = false;
   tmgs.vertex_color_mode = static_cast<unsigned>(TreeMeshGeneratorSettings::VertexColorMode::InternodeColor);
   DatasetGenerator::TreeGrowthLimitation tree_growth_limitation{};
-  //Max amount of branches
+  // Max amount of branches
   tree_growth_limitation.max_flow_count = 1024;
-  //Trunk length (branches will br pruned)
+  // Trunk length (branches will br pruned)
   tree_growth_limitation.low_branch_pruning = 0.2f;
 
-  generate_tree_data(32, std::filesystem::path("./TreeDescriptors/Maple.tree"), tree_growth_limitation, tmgs,
-                     "D:\\TreeData\\", true,
-                     true, true);
+  generate_tree_data(1, std::filesystem::path("./TreeDescriptors/Maple.tree"), tree_growth_limitation, tmgs,
+                     "D:\\TreeData\\", true, true, true);
+
+  EVOENGINE_LOG("Generation Finished!")
+
+  Application::Terminate();
 }

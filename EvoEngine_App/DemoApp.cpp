@@ -109,7 +109,7 @@ int main() {
   Application::Initialize(application_info);
 
 #ifdef CUDA_MODULE_PLUGIN
-  const auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
+  auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
   ray_tracer_layer->show_camera_window = false;
   ray_tracer_layer->show_scene_window = false;
   ray_tracer_layer->show_ray_tracer_settings_window = false;

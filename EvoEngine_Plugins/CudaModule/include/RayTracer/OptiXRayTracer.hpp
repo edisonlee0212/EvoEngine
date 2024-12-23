@@ -336,7 +336,7 @@ class OptiXRayTracer {
   void ScanPointCloud(const size_t& size, const EnvironmentProperties& environment_properties, CudaBuffer& samples);
 
   OptiXRayTracer();
-
+  ~OptiXRayTracer();
   /*! build an acceleration structure for the given triangle mesh */
   void BuildIas();
 

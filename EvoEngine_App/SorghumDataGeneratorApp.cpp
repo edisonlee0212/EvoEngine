@@ -275,7 +275,9 @@ int main() {
   const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Random.sg";
   // sorghum_field_point_cloud(1, 0.75f, 0, 0, 128, capture_settings, sdg_relative_path, "D:\\SorghumPointCloudData\\");
 
-  sorghum_mesh_point_cloud(32, true, false, capture_settings, sg_relative_path, "D:\\SorghumPointCloudData\\");
+  sorghum_mesh_point_cloud(1, true, false, capture_settings, sg_relative_path, "D:\\SorghumPointCloudData\\");
 
-  Application::Run();
+  EVOENGINE_LOG("Generation Finished!")
+
+  Application::Terminate();
 }

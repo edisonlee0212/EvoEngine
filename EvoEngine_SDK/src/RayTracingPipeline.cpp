@@ -6,14 +6,14 @@
 using namespace evo_engine;
 
 RayTracingPipeline::~RayTracingPipeline() {
-  if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE) {
+  if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
     vk_ray_tracing_pipeline_ = nullptr;
   }
 }
 
 void RayTracingPipeline::Initialize() {
-  if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE) {
+  if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
     vk_ray_tracing_pipeline_ = nullptr;
   }

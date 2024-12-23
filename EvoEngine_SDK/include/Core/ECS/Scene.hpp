@@ -1036,8 +1036,7 @@ void Scene::GetComponentDataArray(const EntityQuery& entity_query, const T1& fil
   }
   Jobs::RunParallelFor(
       size,
-      [&target_data_list, &component_data_list, filter, &collected_data_lists](size_t i,
-                                                                                                  size_t thread_index) {
+      [&target_data_list, &component_data_list, filter, &collected_data_lists](size_t i, size_t thread_index) {
         if (filter == component_data_list[i]) {
           collected_data_lists.at(thread_index)->push_back(target_data_list[i]);
         }

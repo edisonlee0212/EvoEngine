@@ -185,8 +185,8 @@ void GraphicsPipelineStates::SetViewportScissor(const glm::ivec4& value, const f
   view_port.height = value.w;
   view_port.minDepth = min_depth;
   view_port.maxDepth = max_depth;
-  scissor.offset.x = 0;
-  scissor.offset.y = 0;
+  scissor.offset.x = value.x;
+  scissor.offset.y = value.y;
   scissor.extent.width = view_port.width;
   scissor.extent.height = view_port.height;
 }

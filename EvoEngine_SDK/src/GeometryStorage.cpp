@@ -725,3 +725,38 @@ const StrandMeshlet& GeometryStorage::PeekStrandMeshlet(const uint32_t strand_me
   const auto& storage = GetInstance();
   return storage.strand_meshlets_[strand_meshlet_index];
 }
+
+void GeometryStorage::OnDestroy() {
+  auto& storage = GetInstance();
+  storage.vertex_data_chunks_.clear();
+  storage.meshlets_.clear();
+  storage.meshlet_range_descriptor_.clear();
+  storage.triangles_.clear();
+  storage.triangle_range_descriptor_.clear();
+
+  storage.vertex_buffer_.reset();
+  storage.meshlet_buffer_.reset();
+  storage.triangle_buffer_.reset();
+
+  storage.skinned_vertex_data_chunks_.clear();
+  storage.skinned_meshlets_.clear();
+  storage.skinned_meshlet_range_descriptor_.clear();
+  storage.skinned_triangles_.clear();
+  storage.skinned_triangle_range_descriptor_.clear();
+
+  storage.skinned_vertex_buffer_.reset();
+  storage.skinned_meshlet_buffer_.reset();
+  storage.skinned_triangle_buffer_.reset();
+
+  storage.strand_point_data_chunks_.clear();
+  storage.strand_meshlets_.clear();
+  storage.strand_meshlet_range_descriptor_.clear();
+  storage.segments_.clear();
+  storage.segment_range_descriptor_.clear();
+
+  storage.strand_point_buffer_.reset();
+  storage.strand_meshlet_buffer_.reset();
+  storage.segment_buffer_.reset();
+
+  storage.particle_info_list_data_list_.clear();
+}

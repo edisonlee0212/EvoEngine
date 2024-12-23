@@ -508,6 +508,12 @@ OptiXRayTracer::OptiXRayTracer() {
   std::cout << "#Optix: context, module, pipeline, etc, all set up ..." << std::endl;
 }
 
+OptiXRayTracer::~OptiXRayTracer() {
+  materials.clear();
+  geometries.clear();
+  instances.clear();
+}
+
 static void context_log_cb(const unsigned int level, const char *tag, const char *message, void *) {
   fprintf(stderr, "[%2d][%12s]: %s\n", static_cast<int>(level), tag, message);
 }

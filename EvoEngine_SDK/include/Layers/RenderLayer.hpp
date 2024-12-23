@@ -160,8 +160,6 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<GraphicsPipeline> gizmos_strands;
   std::shared_ptr<GraphicsPipeline> gizmos_strands_normal_colored;
   std::shared_ptr<GraphicsPipeline> gizmos_strands_vertex_colored;
-
-  std::shared_ptr<GraphicsPipeline> render_texture_present_pipeline;
 #pragma endregion
 #pragma region Ray Tracing Pipelines
   std::shared_ptr<RayTracingPipeline> ray_tracing_camera_pipeline;
