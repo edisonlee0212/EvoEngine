@@ -24,7 +24,7 @@ if not os.path.isdir(output_root):
 
 
 #Enable GPU
-use_gpu = True
+use_gpu = False
 
 #Start the framework without editor and window.
 sorghum_framework.engine_run_windowless(use_gpu, project_path)

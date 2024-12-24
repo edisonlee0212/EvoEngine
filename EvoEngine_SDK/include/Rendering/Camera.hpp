@@ -73,6 +73,8 @@ class Camera final : public IPrivateComponent {
   const std::shared_ptr<DescriptorSet>& GetGBufferDescriptorSet() const;
 
  private:
+
+  void DebugViews(float debug_scale) const;
   friend class Platform;
   friend class RenderLayer;
   friend class EditorLayer;
@@ -85,8 +87,13 @@ class Camera final : public IPrivateComponent {
   ImTextureID g_buffer_normal_im_texture_id_ = {};
   std::shared_ptr<Image> g_buffer_material_ = {};
   std::shared_ptr<ImageView> g_buffer_material_view_ = {};
+  std::shared_ptr<ImageView> g_buffer_material_tex_coord_view_ = {};
+  std::shared_ptr<ImageView> g_buffer_material_indices_view_ = {};
+
   std::shared_ptr<Sampler> g_buffer_material_sampler_ = {};
-  ImTextureID g_buffer_material_im_texture_id_ = {};
+  ImTextureID g_buffer_material_tex_coord_im_texture_id_ = {};
+  ImTextureID g_buffer_material_indices_im_texture_id_ = {};
+
   size_t frame_count_ = 0;
   bool rendered_ = false;
   bool require_rendering_ = false;

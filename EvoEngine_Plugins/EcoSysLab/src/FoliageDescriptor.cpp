@@ -72,30 +72,29 @@ void FoliageDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
     list.push_back(leaf_material);
 }
 
-void FoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internodeInfo,
-                                                const float treeSize) const {
-  if (internodeInfo.thickness < max_node_thickness && internodeInfo.root_distance > min_root_distance &&
-      internodeInfo.end_distance < max_end_distance) {
-    for (int i = 0; i < leaf_count_per_internode * internodeInfo.leaves; i++) {
-      const auto leafSize = leaf_size * treeSize * 0.1f;
-      glm::quat rotation = internodeInfo.global_rotation *
+void FoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internode_info,
+                                                const float tree_size) const {
+  if (internode_info.thickness <= max_node_thickness && internode_info.root_distance >= min_root_distance &&
+      internode_info.end_distance <= max_end_distance) {
+    for (int i = 0; i < leaf_count_per_internode * internode_info.leaves; i++) {
+      const auto current_leaf_size = leaf_size * tree_size * 0.1f;
+      glm::quat rotation = internode_info.global_rotation *
                            glm::quat(glm::radians(glm::vec3(glm::gaussRand(0.0f, rotation_variance), branching_angle,
                                                             glm::linearRand(0.0f, 360.0f))));
       auto front = rotation * glm::vec3(0, 0, -1);
       auto up = rotation * glm::vec3(0, 1, 0);
       TreeModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
-      const auto horizontalDirection = glm::vec3(front.x, 0.0f, front.z);
-      if (glm::length(horizontalDirection) > glm::epsilon<float>()) {
-        TreeModel::ApplyTropism(glm::normalize(horizontalDirection), horizontal_tropism, front, up);
+      if (const auto horizontal_direction = glm::vec3(front.x, 0.0f, front.z); glm::length(horizontal_direction) > glm::epsilon<float>()) {
+        TreeModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, front, up);
       }
-      auto foliagePosition =
-          glm::mix(internodeInfo.global_position, internodeInfo.GetGlobalEndPosition(), glm::linearRand(0.f, 1.f)) +
-          front * (leafSize.y + glm::linearRand(0.0f, position_variance) * treeSize * 0.1f);
-      if (glm::any(glm::isnan(foliagePosition)) || glm::any(glm::isnan(front)) || glm::any(glm::isnan(up)))
+      auto foliage_position =
+          glm::mix(internode_info.global_position, internode_info.GetGlobalEndPosition(), glm::linearRand(0.f, 1.f)) +
+          front * (current_leaf_size.y + glm::linearRand(0.0f, position_variance) * tree_size * 0.1f);
+      if (glm::any(glm::isnan(foliage_position)) || glm::any(glm::isnan(front)) || glm::any(glm::isnan(up)))
         continue;
-      const auto leafTransform = glm::translate(foliagePosition) * glm::mat4_cast(glm::quatLookAt(front, up)) *
-                                 glm::scale(glm::vec3(leafSize.x, 1.0f, leafSize.y));
-      matrices.emplace_back(leafTransform);
+      const auto leaf_transform = glm::translate(foliage_position) * glm::mat4_cast(glm::quatLookAt(front, up)) *
+                                  glm::scale(glm::vec3(current_leaf_size.x, 1.0f, current_leaf_size.y));
+      matrices.emplace_back(leaf_transform);
     }
   }
 }

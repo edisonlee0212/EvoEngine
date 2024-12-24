@@ -1,6 +1,6 @@
 
 layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
-  int base_index;
+  int EE_INSTANCE_INDEX;
   int EE_CAMERA_INDEX;
   uint tetrahedrons_size;
   float alpha;

@@ -26,7 +26,7 @@ bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLay
 
 struct RenderPushConstant {
   union Index1 {
-    int material_index;
+    int instance_index;
     int sub_light_index;
   } index1;
   union Index2 {
@@ -121,14 +121,14 @@ void DynamicStrands::BuildRenderingPipelines() {
   render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::lighting_layout);
   render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
   render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+  render_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
   auto& push_constant_range = render_pipeline->push_constant_ranges.emplace_back();
   push_constant_range.size = sizeof(RenderPushConstant);
   push_constant_range.offset = 0;
   push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
   render_pipeline->Initialize();
 }
-void DynamicStrands::RenderShadowMap(const RenderParameters& render_parameters) const {
+void DynamicStrands::RegisterShadowMapRendering(const RenderParameters& render_parameters) const {
   if (!render_parameters.render_alpha_shape_mesh) {
     return;
   }
@@ -236,7 +236,8 @@ void DynamicStrands::RenderShadowMap(const RenderParameters& render_parameters) 
       });
 }
 
-void DynamicStrands::Render(const int& material_index, const RenderParameters& render_parameters) const {
+void DynamicStrands::RegisterRenderFunction(const Handle& renderer_handle,
+                                            const RenderParameters& render_parameters) const {
   if (!render_parameters.render_alpha_shape_mesh) {
     return;
   }
@@ -247,55 +248,53 @@ void DynamicStrands::Render(const int& material_index, const RenderParameters& r
   if (!render_pipeline || !render_pipeline->Initialized()) {
     return;
   }
-  Application::GetLayer<RenderLayer>()->ForwardRenderingAllCameras([&](const VkCommandBuffer vk_command_buffer,
-                                                                       const std::shared_ptr<Camera>& target_camera,
-                                                                       const RenderLayer::ForwardRenderingView& view) {
-    const auto current_frame_index = Platform::GetCurrentFrameIndex();
-    const uint32_t task_work_group_invocations =
-        Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-    RenderPushConstant push_constant;
-    push_constant.index1.material_index = material_index;
-    push_constant.index2.camera_index = view.camera_index;
-    push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
-    push_constant.alpha = render_parameters.alpha;
-    push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
-    push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
-    push_constant.vertex_colors = render_parameters.vertex_colors;
+  Application::GetLayer<RenderLayer>()->DeferredRenderingAllCameras(
+      [&, renderer_handle](const VkCommandBuffer vk_command_buffer,
+                           const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                           const RenderLayer::ForwardRenderingView& view) {
+        const auto current_frame_index = Platform::GetCurrentFrameIndex();
+        const uint32_t task_work_group_invocations =
+            Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+        RenderPushConstant push_constant;
+        push_constant.index1.instance_index =
+            Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(
+                renderer_handle);
+        push_constant.index2.camera_index = view.camera_index;
+        push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
+        push_constant.alpha = render_parameters.alpha;
+        push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
+        push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
+        push_constant.vertex_colors = render_parameters.vertex_colors;
 
-    std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
-    target_camera->GetRenderTexture()->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD,
-                                                                  VK_ATTACHMENT_STORE_OP_STORE);
-    render_pipeline->states.ResetAllStates(color_attachment_infos.size());
-    render_pipeline->states.SetViewportScissor(view.viewport);
-    render_pipeline->states.polygon_mode = render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-    render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
+        render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+        render_pipeline->states.SetViewportScissor(view.viewport);
+        render_pipeline->states.polygon_mode =
+            render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
 
-    render_pipeline->states.ApplyAllStates(vk_command_buffer);
-    target_camera->GetRenderTexture()->Render(
-        vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
+        render_pipeline->states.ApplyAllStates(vk_command_buffer);
+
 #ifdef USE_RENDERDOC
-          if (rdoc_api) {
-            rdoc_api->StartFrameCapture(NULL, NULL);
-            EVOENGINE_LOG("RDOC API detected!");
-          }
+        if (rdoc_api) {
+          rdoc_api->StartFrameCapture(NULL, NULL);
+          EVOENGINE_LOG("RDOC API detected!");
+        }
 #endif  //  USERENDERDOC
-          render_pipeline->Bind(vk_command_buffer);
-          render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                             RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-          render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                             strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-          render_pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                             RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
+        render_pipeline->Bind(vk_command_buffer);
+        render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                           RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+        render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                           strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        render_pipeline->BindDescriptorSet(vk_command_buffer, 2,
+                                           RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
 
-          render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+        render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-          const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
-          vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+        const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
+        vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
 #ifdef USE_RENDERDOC
-          if (rdoc_api)
-            rdoc_api->EndFrameCapture(NULL, NULL);
+        if (rdoc_api)
+          rdoc_api->EndFrameCapture(NULL, NULL);
 #endif
-        });
-    return segments.size();
-  });
+        return segments.size();
+      });
 }

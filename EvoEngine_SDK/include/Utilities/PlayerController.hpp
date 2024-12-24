@@ -9,7 +9,7 @@ class PlayerController : public IPrivateComponent {
   float scene_camera_pitch_angle_ = 0;
 
  public:
-  float velocity = 20.0f;
+  float velocity = 1.0f;
   float sensitivity = 0.1f;
   void OnCreate() override;
   void LateUpdate() override;

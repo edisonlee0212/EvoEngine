@@ -212,10 +212,10 @@ void Texture2DStorage::UploadData(const std::vector<glm::vec4>& data, const glm:
   if (!Platform::Initialized())
     return;
   Initialize(resolution);
-  const auto image_size = resolution.x * resolution.y * sizeof(glm::vec4);
+  
   VkBufferCreateInfo staging_buffer_create_info{};
   staging_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  staging_buffer_create_info.size = image_size;
+  
   staging_buffer_create_info.usage =
       VK_IMAGE_USAGE_STORAGE_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   staging_buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -223,18 +223,47 @@ void Texture2DStorage::UploadData(const std::vector<glm::vec4>& data, const glm:
   staging_buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
   staging_buffer_vma_allocation_create_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
-  const Buffer staging_buffer{staging_buffer_create_info, staging_buffer_vma_allocation_create_info};
-  void* device_data = nullptr;
-  vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.GetVmaAllocation(), &device_data);
-  memcpy(device_data, data.data(), image_size);
-  vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.GetVmaAllocation());
-
-  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    image->CopyFromBuffer(vk_command_buffer, staging_buffer.GetVkBuffer());
-    image->GenerateMipmaps(vk_command_buffer);
-    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-  });
+  switch (Platform::Constants::texture_2d) {
+    case VK_FORMAT_R32G32B32A32_SFLOAT: {
+      const auto image_size = resolution.x * resolution.y * sizeof(glm::vec4);
+      staging_buffer_create_info.size = image_size;
+      const Buffer staging_buffer{staging_buffer_create_info, staging_buffer_vma_allocation_create_info};
+      void* device_data = nullptr;
+      vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.GetVmaAllocation(), &device_data);
+      memcpy(device_data, data.data(), image_size);
+      vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.GetVmaAllocation());
+      Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+        image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        image->CopyFromBuffer(vk_command_buffer, staging_buffer.GetVkBuffer());
+        image->GenerateMipmaps(vk_command_buffer);
+        image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      });
+      break;
+    }
+    case VK_FORMAT_R16G16B16A16_SFLOAT: {
+      const auto image_size = resolution.x * resolution.y * 4 * sizeof(glm::detail::hdata);
+      staging_buffer_create_info.size = image_size;
+      const Buffer staging_buffer{staging_buffer_create_info, staging_buffer_vma_allocation_create_info};
+      void* device_data = nullptr;
+      std::vector<glm::detail::hdata> half_size_data(4 * data.size());
+      Jobs::RunParallelFor(resolution.x * resolution.y, [&](const auto i) {
+        half_size_data[i * 4] = glm::detail::toFloat16(data[i][0]);
+        half_size_data[i * 4 + 1] = glm::detail::toFloat16(data[i][1]);
+        half_size_data[i * 4 + 2] = glm::detail::toFloat16(data[i][2]);
+        half_size_data[i * 4 + 3] = glm::detail::toFloat16(data[i][3]);
+      });
+      vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.GetVmaAllocation(), &device_data);
+      memcpy(device_data, half_size_data.data(), image_size);
+      vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.GetVmaAllocation());
+      Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+        image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        image->CopyFromBuffer(vk_command_buffer, staging_buffer.GetVkBuffer());
+        image->GenerateMipmaps(vk_command_buffer);
+        image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      });
+      break;
+    }
+  }
 }
 
 void Texture2DStorage::Clear() {

@@ -107,6 +107,18 @@ void Camera::UpdateGBuffer() {
 
     g_buffer_material_view_ = std::make_unique<ImageView>(view_info);
 
+    view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    view_info.components.g = VK_COMPONENT_SWIZZLE_ZERO;
+    view_info.components.b = VK_COMPONENT_SWIZZLE_G;
+    view_info.components.a = VK_COMPONENT_SWIZZLE_ONE;
+    g_buffer_material_tex_coord_view_ = std::make_unique<ImageView>(view_info);
+
+    view_info.components.r = VK_COMPONENT_SWIZZLE_B;
+    view_info.components.g = VK_COMPONENT_SWIZZLE_ZERO;
+    view_info.components.b = VK_COMPONENT_SWIZZLE_A;
+    view_info.components.a = VK_COMPONENT_SWIZZLE_ONE;
+    g_buffer_material_indices_view_ = std::make_unique<ImageView>(view_info);
+
     VkSamplerCreateInfo sampler_info{};
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampler_info.magFilter = VK_FILTER_LINEAR;
@@ -130,8 +142,10 @@ void Camera::UpdateGBuffer() {
 
   EditorLayer::UpdateTextureId(g_buffer_normal_im_texture_id_, g_buffer_normal_sampler_->GetVkSampler(),
                                g_buffer_normal_view_->GetVkImageView(), g_buffer_normal_->GetLayout());
-  EditorLayer::UpdateTextureId(g_buffer_material_im_texture_id_, g_buffer_material_sampler_->GetVkSampler(),
-                               g_buffer_material_view_->GetVkImageView(), g_buffer_material_->GetLayout());
+  EditorLayer::UpdateTextureId(g_buffer_material_tex_coord_im_texture_id_, g_buffer_material_sampler_->GetVkSampler(),
+                               g_buffer_material_tex_coord_view_->GetVkImageView(), g_buffer_material_->GetLayout());
+  EditorLayer::UpdateTextureId(g_buffer_material_indices_im_texture_id_, g_buffer_material_sampler_->GetVkSampler(),
+                               g_buffer_material_indices_view_->GetVkImageView(), g_buffer_material_->GetLayout());
   {
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -461,20 +475,26 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::DragFloat("Exposure", &exposure, 0.01f, 0.01f, 2.0f)) {
     changed = true;
   }
-  if (ImGui::TreeNode("Contents")) {
+  if (ImGui::TreeNode("Debug")) {
     require_rendering_ = true;
+    static bool external_window = false;
+    
+    ImGui::Checkbox("Display in external window", &external_window);
+
     static float debug_scale = 0.25f;
-    ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
-    debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
     if (rendered_) {
-      ImGui::Image(render_texture_->GetColorImTextureId(), ImVec2(size_.x * debug_scale, size_.y * debug_scale),
-                   ImVec2(0, 1), ImVec2(1, 0));
-      ImGui::SameLine();
-      ImGui::Image(g_buffer_normal_im_texture_id_, ImVec2(size_.x * debug_scale, size_.y * debug_scale), ImVec2(0, 1),
-                   ImVec2(1, 0));
-      ImGui::SameLine();
-      ImGui::Image(g_buffer_material_im_texture_id_, ImVec2(size_.x * debug_scale, size_.y * debug_scale), ImVec2(0, 1),
-                   ImVec2(1, 0));
+      if (external_window) {
+        if(ImGui::Begin("Camera Debug")) {
+          ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
+          debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
+          DebugViews(debug_scale);
+        }
+        ImGui::End();
+      } else {
+        ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
+        debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
+        DebugViews(debug_scale);
+      }
     }
     ImGui::TreePop();
   }
@@ -548,4 +568,27 @@ void Camera::CollectAssetRef(std::vector<AssetRef>& list) {
 
 const std::shared_ptr<DescriptorSet>& Camera::GetGBufferDescriptorSet() const {
   return g_buffer_descriptor_set_;
+}
+
+void Camera::DebugViews(const float debug_scale) const {
+  if (ImGui::TreeNodeEx("Normal", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Image(g_buffer_normal_im_texture_id_, ImVec2(size_.x * debug_scale, size_.y * debug_scale), ImVec2(0, 1),
+                 ImVec2(1, 0));
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNodeEx("UV", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Image(g_buffer_material_tex_coord_im_texture_id_, ImVec2(size_.x * debug_scale, size_.y * debug_scale),
+                 ImVec2(0, 1), ImVec2(1, 0));
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Instance/Material Index")) {
+    ImGui::Image(g_buffer_material_indices_im_texture_id_, ImVec2(size_.x * debug_scale, size_.y * debug_scale),
+                 ImVec2(0, 1), ImVec2(1, 0));
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Depth")) {
+    ImGui::Image(render_texture_->GetDepthImTextureId(), ImVec2(size_.x * debug_scale, size_.y * debug_scale),
+                 ImVec2(0, 1), ImVec2(1, 0));
+    ImGui::TreePop();
+  }
 }

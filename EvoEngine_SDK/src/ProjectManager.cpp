@@ -5,6 +5,7 @@
 #include "Resources.hpp"
 #include "Scene.hpp"
 #include "TransformGraph.hpp"
+#include "WindowLayer.hpp"
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
 #  include "shellapi.h"
@@ -1281,4 +1282,26 @@ std::filesystem::path ProjectManager::GetPathRelativeToProject(const std::filesy
   if (!IsInProjectFolder(absolute_path))
     return {};
   return std::filesystem::relative(absolute_path, project_manager.GetProjectPath().parent_path());
+}
+
+bool ProjectManager::StartupGui() {
+  bool project_loaded = false;
+  ImGuiFileDialog::Instance()->OpenDialog("ChooseProjectKey", "Choose Project", ".eveproj", ".");
+  ImGui::SetNextWindowDockID(EditorLayer::dock_space_id);
+  // display
+  if (ImGuiFileDialog::Instance()->Display("ChooseProjectKey")) {
+    // action if OK
+    if (ImGuiFileDialog::Instance()->IsOk()) {
+      // action
+      std::filesystem::path path = ImGuiFileDialog::Instance()->GetFilePathName();
+      GetOrCreateProject(path);
+      if (GetInstance().project_folder_) {
+        project_loaded = true;
+      }
+    }
+    // close
+    ImGuiFileDialog::Instance()->Close();
+  }
+
+  return project_loaded;
 }

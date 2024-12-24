@@ -92,7 +92,7 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
     copy_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                      render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
     copy_pipeline->BindDescriptorSet(
-        vk_command_buffer, 1, target_camera->GetRenderTexture()->GetPresentDescriptorSet()->GetVkDescriptorSet());
+        vk_command_buffer, 1, target_camera->GetRenderTexture()->GetColorPresentDescriptorSet()->GetVkDescriptorSet());
     copy_pipeline->states.view_port = viewport;
     copy_pipeline->states.scissor = scissor;
     mesh->DrawIndexed(vk_command_buffer, copy_pipeline->states, 1);

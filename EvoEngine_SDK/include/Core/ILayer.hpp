@@ -5,6 +5,7 @@ namespace evo_engine {
 class Scene;
 class EditorLayer;
 class ILayer {
+  std::string layer_name_ = "Unknown Layer";
   std::weak_ptr<Scene> scene_;
   std::weak_ptr<ILayer> subsequent_layer_;
   friend class Application;
@@ -25,8 +26,10 @@ class ILayer {
   virtual void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
   virtual void OnInputEvent(const Input::InputEvent& input_event);
-
+  
  public:
+  [[nodiscard]] std::string GetLayerName() const;
+  bool enable_inspection = false;
   [[nodiscard]] std::shared_ptr<Scene> GetScene() const;
 };
 }  // namespace evo_engine

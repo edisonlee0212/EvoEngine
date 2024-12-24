@@ -13,9 +13,7 @@
 #include "WindowLayer.hpp"
 
 #ifdef UNIVERSE_PLUGIN
-#  include "PerlinNoiseStage.hpp"
-#  include "PlanetTerrainSystem.hpp"
-#  include "StarClusterSystem.hpp"
+#  include "UniverseLayer.hpp"
 using namespace universe_plugin;
 #endif
 
@@ -32,6 +30,11 @@ using namespace universe_plugin;
 #ifdef TEXTURE_BAKING_PLUGIN
 #  include "TextureBaking.hpp"
 using namespace texture_baking_plugin;
+#endif
+
+#ifdef DIGITAL_AGRICULTURE_PLUGIN
+#  include "SorghumLayer.hpp"
+using namespace digital_agriculture_plugin;
 #endif
 
 #ifdef ECOSYSLAB_PLUGIN
@@ -69,36 +72,42 @@ Entity CreateSphere(const glm::vec3& color, const glm::vec3& position, const glm
                     const std::string& name);
 #endif
 
-enum class DemoSetup { Empty, Rendering, Galaxy, Planets };
+enum class DemoSetup { Empty, Rendering, Universe };
 Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name, bool add_spheres);
 void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info);
 Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name);
 #pragma endregion
 
 int main() {
-  constexpr DemoSetup demo_setup = DemoSetup::Rendering;
-  Application::PushLayer<RenderLayer>();
-  Application::PushLayer<WindowLayer>();
-  Application::PushLayer<EditorLayer>();
+  constexpr DemoSetup demo_setup = DemoSetup::Universe;
+  Application::PushLayer<RenderLayer>("Render Layer");
+  Application::PushLayer<WindowLayer>("Window Layer");
+  Application::PushLayer<EditorLayer>("Editor Layer");
 #ifdef UNIVERSE_PLUGIN
-  SystemRegistration<StarClusterSystem>("StarClusterSystem");
-  SystemRegistration<PlanetTerrainSystem>("PlanetTerrainSystem");
   PrivateComponentRegistration<PlanetTerrain>("PlanetTerrain");
 #  ifdef TEXTURE_BAKING_PLUGIN
   PrivateComponentRegistration<TextureBaking>("TextureBaking");
 #  endif
 #endif
 #ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>();
+  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
 #ifdef PHYSX_PHYSICS_PLUGIN
   Application::PushLayer<PhysicsLayer>();
 #endif
+
+#ifdef UNIVERSE_PLUGIN
+  Application::PushLayer<UniverseLayer>("Universe Layer");
+#endif
+
 #ifdef ECOSYSLAB_PLUGIN
-  Application::PushLayer<EcoSysLabLayer>();
+  Application::PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
   PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
   PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
+#endif
+#ifdef DIGITAL_AGRICULTURE_PLUGIN
+  Application::PushLayer<SorghumLayer>("Sorghum Layer");
 #endif
 #ifdef GPR_PLUGIN
   AssetRegistration<Gpr>("Gpr", {".evegpr", ".gpr", ".GPR"});
@@ -109,10 +118,9 @@ int main() {
   Application::Initialize(application_info);
 
 #ifdef CUDA_MODULE_PLUGIN
-  auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
+  const auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
   ray_tracer_layer->show_camera_window = false;
   ray_tracer_layer->show_scene_window = false;
-  ray_tracer_layer->show_ray_tracer_settings_window = false;
 #endif
 
   Application::Start();
@@ -350,26 +358,10 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
 #pragma endregion
       });
     } break;
-    case DemoSetup::Galaxy: {
+    case DemoSetup::Universe: {
       application_info.application_name = "Universe Demo";
 
       application_info.project_path = resource_folder_path / "Example Projects/Universe/Universe.eveproj";
-#ifdef UNIVERSE_PLUGIN
-      ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
-        const auto main_camera = scene->main_camera.Get<Camera>();
-        main_camera->Resize({640, 480});
-        const auto main_camera_entity = main_camera->GetOwner();
-        scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
-#  pragma region Star System
-        auto star_cluster_system = scene->GetOrCreateSystem<StarClusterSystem>(SystemGroup::SimulationSystemGroup);
-#  pragma endregion
-        main_camera->use_clear_color = true;
-      });
-#endif
-    } break;
-    case DemoSetup::Planets: {
-      application_info.application_name = "Planets Demo";
-      application_info.project_path = resource_folder_path / "Example Projects/Planet/Planet.eveproj";
 #ifdef UNIVERSE_PLUGIN
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
 #  pragma region Preparations
@@ -384,10 +376,6 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         const auto border_texture =
             std::dynamic_pointer_cast<Texture2D>(ProjectManager::GetOrCreateAsset("Textures/border.png"));
         surface_material->SetAlbedoTexture(border_texture);
-
-        auto pts = scene->GetOrCreateSystem<universe_plugin::PlanetTerrainSystem>(SystemGroup::SimulationSystemGroup);
-
-        pts->Enable();
 
         PlanetInfo pi;
         Transform planet_transform;

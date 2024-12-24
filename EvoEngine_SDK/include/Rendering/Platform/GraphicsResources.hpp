@@ -2,9 +2,7 @@
 #include "Vertex.hpp"
 #include "shaderc/shaderc.h"
 namespace evo_engine {
-struct MeshRenderInstanceCollection;
-struct IRenderInstanceCollection;
-struct MeshRenderInstance;
+class RenderInstanceStorage;
 class Scene;
 class CommandBuffer;
 
@@ -399,7 +397,7 @@ class TopLevelAccelerationStructure final : public IGraphicsResource {
 
  public:
   explicit TopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene,
-                                         const std::shared_ptr<MeshRenderInstanceCollection>& render_instances);
+                                         const std::shared_ptr<RenderInstanceStorage>& render_instance_storage);
   ~TopLevelAccelerationStructure() override;
 
   [[nodiscard]] VkAccelerationStructureKHR GetVkAccelerationStructure() const;

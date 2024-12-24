@@ -40,119 +40,8 @@ enum class RenderInstanceType {
   FromApi,
 };
 
-struct IRenderInstance {
-  uint32_t instance_index = 0;
-  RenderInstanceType command_type = RenderInstanceType::Unknown;
-  Entity owner = Entity();
-  Handle renderer_handle = 0;
-  bool entity_selected = false;
-  GlobalTransform model = {};
-  float line_width = 1.0f;
-  VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
-  VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
-  bool cast_shadow = true;
-
-  virtual uint32_t Render(VkCommandBuffer vk_command_buffer,
-                          const RenderInstancePushConstant& render_instance_push_constant,
-                          const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const = 0;
-};
-
-struct MeshRenderInstance : IRenderInstance {
-  uint32_t material_version;
-  uint32_t mesh_version;
-  std::shared_ptr<Material> material;
-  std::shared_ptr<Mesh> mesh;
-  uint32_t meshlet_size = 0;
-  bool operator!=(const MeshRenderInstance& other) const;
-  uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
-                  const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
-};
-
-struct SkinnedMeshRenderInstance : IRenderInstance {
-  uint32_t material_version;
-  uint32_t skinned_mesh_version;
-  uint32_t bone_matrices_version;
-  std::shared_ptr<Material> material;
-  std::shared_ptr<SkinnedMesh> skinned_mesh;
-  std::shared_ptr<BoneMatrices> bone_matrices;  // We require the skinned mesh renderer to provide bones.
-
-  uint32_t skinned_meshlet_size = 0;
-  bool operator!=(const SkinnedMeshRenderInstance& other) const;
-  uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
-                  const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
-};
-
-struct InstancedRenderInstance : IRenderInstance {
-  uint32_t material_version;
-  uint32_t mesh_version;
-  uint32_t particle_info_list_version;
-  std::shared_ptr<Material> material;
-  std::shared_ptr<Mesh> mesh;
-  std::shared_ptr<ParticleInfoList> particle_infos;
-
-  uint32_t meshlet_size = 0;
-
-  bool operator!=(const InstancedRenderInstance& other) const;
-  uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
-                  const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
-};
-
-struct StrandsRenderInstance : IRenderInstance {
-  uint32_t material_version;
-  uint32_t strands_version;
-  std::shared_ptr<Material> material;
-  std::shared_ptr<Strands> strands;
-  uint32_t strand_meshlet_size = 0;
-  bool operator!=(const StrandsRenderInstance& other) const;
-  uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
-                  const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
-};
-
-class IRenderInstanceCollection {
- public:
-  virtual bool Empty() const = 0;
-  virtual void Register(const std::shared_ptr<IRenderInstance>& render_instance) = 0;
-  virtual void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) = 0;
-};
-
-class MeshRenderInstanceCollection : public IRenderInstanceCollection {
-  std::vector<std::shared_ptr<MeshRenderInstance>> render_commands;
-
- public:
-  bool operator!=(const MeshRenderInstanceCollection& other) const;
-  bool Empty() const override;
-  void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
-  void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
-};
-class SkinnedMeshRenderInstanceCollection : public IRenderInstanceCollection {
-  std::vector<std::shared_ptr<SkinnedMeshRenderInstance>> render_commands;
-
- public:
-  bool Empty() const override;
-  void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
-  bool operator!=(const SkinnedMeshRenderInstanceCollection& other) const;
-  void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
-};
-class StrandsRenderInstanceCollection : public IRenderInstanceCollection {
-  std::vector<std::shared_ptr<StrandsRenderInstance>> render_commands;
-
- public:
-  bool Empty() const override;
-  void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
-  bool operator!=(const StrandsRenderInstanceCollection& other) const;
-  void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
-};
-class InstancedRenderInstanceCollection : public IRenderInstanceCollection {
-  std::vector<std::shared_ptr<InstancedRenderInstance>> render_commands;
-
- public:
-  bool Empty() const override;
-  void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
-  bool operator!=(const InstancedRenderInstanceCollection& other) const;
-  void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
-};
-
 class RenderInstanceStorage {
+ public:
   struct RenderInfoBlock {
     glm::vec4 split_distances = {};
     alignas(4) int pcf_sample_amount = 32;
@@ -178,6 +67,7 @@ class RenderInstanceStorage {
 
     bool operator!=(const RenderInfoBlock& other) const;
   };
+
   struct EnvironmentInfoBlock {
     glm::vec4 background_color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
     alignas(4) float environmental_map_gamma = 2.2f;
@@ -186,6 +76,7 @@ class RenderInstanceStorage {
     alignas(4) float environmental_padding2 = 0.0f;
     bool operator!=(const EnvironmentInfoBlock& other) const;
   };
+
   struct InstanceInfoBlock {
     GlobalTransform model = {};
     uint32_t material_index = 0;
@@ -199,6 +90,7 @@ class RenderInstanceStorage {
     uint32_t padding2 = 0;
     bool operator!=(const InstanceInfoBlock& other) const;
   };
+
   struct MaterialInfoBlock {
     alignas(4) int albedo_texture_index = -1;
     alignas(4) int normal_texture_index = -1;
@@ -222,72 +114,137 @@ class RenderInstanceStorage {
     bool operator!=(const MaterialInfoBlock& other) const;
   };
 
-  std::unordered_map<Handle, int> material_indices_;
-  /**
-   * \brief Use this to find render instance via entity handle.
-   */
-  std::unordered_map<Handle, int> instance_indices_;
-  /**
-   * \brief Use this to find entity via render instance index.
-   */
-  std::unordered_map<int, Handle> instance_handles_;
-  /**
-   * \brief Use this to find camera via camera index.
-   */
-  std::unordered_map<Handle, int> camera_indices_;
+  struct IRenderInstance {
+    uint32_t instance_index = 0;
+    uint32_t material_index = 0;
+    RenderInstanceType command_type = RenderInstanceType::Unknown;
+    Entity owner = Entity();
+    Handle entity_handle;
+    Handle renderer_handle = 0;
+    bool entity_selected = false;
+    GlobalTransform model = {};
+    float line_width = 1.0f;
+    VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
+    VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
+    bool cast_shadow = true;
+    uint32_t material_version;
+    uint32_t geometry_version;
+    std::shared_ptr<Material> material;
+    virtual void Apply(InstanceInfoBlock& instance_info_block) const = 0;
+    virtual uint32_t Render(VkCommandBuffer vk_command_buffer,
+                            const RenderInstancePushConstant& render_instance_push_constant,
+                            const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const = 0;
+  };
 
-  std::vector<MaterialInfoBlock> material_info_blocks_{};
-  std::vector<InstanceInfoBlock> instance_info_blocks_{};
-  RenderInfoBlock render_info_block = {};
-  EnvironmentInfoBlock environment_info_block = {};
+  struct ExternalRenderInstance : IRenderInstance {
+    bool operator!=(const ExternalRenderInstance& other) const;
+    void Apply(InstanceInfoBlock& instance_info_block) const override;
+    uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+                    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
+  };
 
-  std::vector<DirectionalLightInfoBlock> directional_light_info_blocks_;
-  std::vector<PointLightInfoBlock> point_light_info_blocks_;
-  std::vector<SpotLightInfoBlock> spot_light_info_blocks_;
+  struct MeshRenderInstance : IRenderInstance {
+    std::shared_ptr<Mesh> mesh;
+    bool operator!=(const MeshRenderInstance& other) const;
+    void Apply(InstanceInfoBlock& instance_info_block) const override;
+    uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+                    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
+  };
 
-  std::vector<CameraInfoBlock> camera_info_blocks_{};
-  std::shared_ptr<MeshRenderInstanceCollection> deferred_render_instances;
-  std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_skinned_render_instances;
-  std::shared_ptr<InstancedRenderInstanceCollection> deferred_instanced_render_instances;
-  std::shared_ptr<StrandsRenderInstanceCollection> deferred_strands_render_instances;
+  struct SkinnedMeshRenderInstance : IRenderInstance {
+    uint32_t bone_matrices_version;
+    std::shared_ptr<SkinnedMesh> skinned_mesh;
+    std::shared_ptr<BoneMatrices> bone_matrices;  // We require the skinned mesh renderer to provide bones.
+    bool operator!=(const SkinnedMeshRenderInstance& other) const;
+    void Apply(InstanceInfoBlock& instance_info_block) const override;
+    uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+                    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
+  };
 
-  std::shared_ptr<MeshRenderInstanceCollection> forward_render_instances;
-  std::shared_ptr<SkinnedMeshRenderInstanceCollection> forward_skinned_render_instances;
-  std::shared_ptr<InstancedRenderInstanceCollection> forward_instanced_render_instances;
-  std::shared_ptr<StrandsRenderInstanceCollection> forward_strands_render_instances;
+  struct InstancedRenderInstance : IRenderInstance {
+    uint32_t particle_info_list_version;
+    std::shared_ptr<Mesh> mesh;
+    std::shared_ptr<ParticleInfoList> particle_infos;
+    bool operator!=(const InstancedRenderInstance& other) const;
+    void Apply(InstanceInfoBlock& instance_info_block) const override;
+    uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+                    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
+  };
 
-  std::shared_ptr<MeshRenderInstanceCollection> transparent_render_instances;
-  std::shared_ptr<SkinnedMeshRenderInstanceCollection> transparent_skinned_render_instances;
-  std::shared_ptr<InstancedRenderInstanceCollection> transparent_instanced_render_instances;
-  std::shared_ptr<StrandsRenderInstanceCollection> transparent_strands_render_instances;
+  struct StrandsRenderInstance : IRenderInstance {
+    std::shared_ptr<Strands> strands;
+    bool operator!=(const StrandsRenderInstance& other) const;
+    void Apply(InstanceInfoBlock& instance_info_block) const override;
+    uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+                    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
+  };
 
-  friend class RenderLayer;
-  friend class CpuRayTracer;
-  void CollectEntityRenderers(const std::shared_ptr<Scene>& target_scene, Bound& world_bound);
-  void CollectLights(const std::shared_ptr<Scene>& target_scene, const Bound& world_bound);
-  void CollectEnvironment(const std::shared_ptr<Scene>& target_scene);
-  uint32_t geometry_storage_version = 0;
-  uint32_t texture_storage_version = 0;
+  class IRenderInstanceCollection {
+   public:
+    virtual bool Empty() const = 0;
+    virtual void Register(const std::shared_ptr<IRenderInstance>& render_instance) = 0;
+    virtual void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) = 0;
+  };
 
-  bool RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
-                      const std::shared_ptr<MeshRenderer>& mesh_renderer, glm::vec3& min_bound, glm::vec3& max_bound);
-  bool RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
-                      const std::shared_ptr<SkinnedMeshRenderer>& skinned_mesh_renderer, glm::vec3& min_bound,
-                      glm::vec3& max_bound);
-  bool RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
-                      const std::shared_ptr<Particles>& particles, glm::vec3& min_bound, glm::vec3& max_bound);
-  bool RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
-                      const std::shared_ptr<StrandsRenderer>& strands_renderer, glm::vec3& min_bound,
-                      glm::vec3& max_bound);
-  [[nodiscard]] int RegisterMaterial(const Handle& handle, const MaterialInfoBlock& material_info_block);
-  [[nodiscard]] int RegisterInstance(const Handle& handle, const InstanceInfoBlock& instance_info_block);
-  [[nodiscard]] int RegisterCamera(const Handle& handle, const CameraInfoBlock& camera_info_block);
+  class ExternalRenderInstanceCollection : public IRenderInstanceCollection {
+    std::vector<std::shared_ptr<ExternalRenderInstance>> render_commands;
 
- public:
+   public:
+    bool operator!=(const ExternalRenderInstanceCollection& other) const;
+    bool Empty() const override;
+    void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
+    void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+  };
+
+  class MeshRenderInstanceCollection : public IRenderInstanceCollection {
+    std::vector<std::shared_ptr<MeshRenderInstance>> render_commands;
+
+   public:
+    bool operator!=(const MeshRenderInstanceCollection& other) const;
+    bool Empty() const override;
+    void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
+    void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+  };
+
+  class SkinnedMeshRenderInstanceCollection : public IRenderInstanceCollection {
+    std::vector<std::shared_ptr<SkinnedMeshRenderInstance>> render_commands;
+
+   public:
+    bool Empty() const override;
+    void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
+    bool operator!=(const SkinnedMeshRenderInstanceCollection& other) const;
+    void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+  };
+
+  class StrandsRenderInstanceCollection : public IRenderInstanceCollection {
+    std::vector<std::shared_ptr<StrandsRenderInstance>> render_commands;
+
+   public:
+    bool Empty() const override;
+    void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
+    bool operator!=(const StrandsRenderInstanceCollection& other) const;
+    void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+  };
+
+  class InstancedRenderInstanceCollection : public IRenderInstanceCollection {
+    std::vector<std::shared_ptr<InstancedRenderInstance>> render_commands;
+
+   public:
+    bool Empty() const override;
+    void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
+    bool operator!=(const InstancedRenderInstanceCollection& other) const;
+    void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+  };
+
   RenderInstanceStorage();
   bool operator!=(const RenderInstanceStorage& other) const;
-  uint32_t RegisterMeshDrawCommand(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
-                                   const GlobalTransform& model, bool cast_shadow);
+  bool RegisterMeshDrawCommand(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
+                               const GlobalTransform& model, bool cast_shadow);
+  bool RegisterMeshDrawInstancedCommand(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
+                                        const GlobalTransform& model,
+                                        const std::shared_ptr<ParticleInfoList>& particle_info_list, bool cast_shadow);
+  bool RegisterRenderInstance(const std::shared_ptr<Scene>& target_scene, const Entity& entity,
+                              const Handle& renderer_handle, const std::shared_ptr<Material>& material);
   [[nodiscard]] int RegisterMaterial(const std::shared_ptr<Material>& material);
   std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
   RenderSettings render_settings{};
@@ -320,15 +277,110 @@ class RenderInstanceStorage {
                                  float max_distance);
   void BuildFromScene(const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene, Bound& world_bound);
   void UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene);
-
-  [[nodiscard]] int GetMaterialIndex(const Handle& handle);
-  [[nodiscard]] int GetInstanceIndex(const Handle& handle);
-  [[nodiscard]] int GetCameraIndex(const Handle& handle);
-  [[nodiscard]] Handle GetInstanceHandle(int index);
-
+  /**
+   * \brief Find material index via material handle.
+   * \param material_handle Target material's handle.
+   * \return Index of the material.
+   */
+  [[nodiscard]] int GetMaterialIndex(const Handle& material_handle);
+  /**
+   * \brief Find renderer via render instance index.
+   * \param renderer_handle Target renderer's handle.
+   * \return Index of the render instance.
+   */
+  [[nodiscard]] int GetRenderInstanceIndex(const Handle& renderer_handle);
+  /**
+   * \brief Find camera via camera index.
+   * \param camera_handle Target camera's handle
+   * \return Index of the camera.
+   */
+  [[nodiscard]] int GetCameraIndex(const Handle& camera_handle);
+  /**
+   * \brief Find entity via render instance index.
+   * \param render_instance_index Index of the render instance.
+   * \return Handle of the entity.
+   */
+  [[nodiscard]] Handle GetInstanceEntityHandle(int render_instance_index);
+  /**
+   * \brief Find renderer via render instance index.
+   * \param render_instance_index Index of the render instance.
+   * \return Handle of the renderer.
+   */
+  [[nodiscard]] Handle GetInstanceRendererHandle(int render_instance_index);
   void Upload() const;
 
   [[nodiscard]] const std::vector<MaterialInfoBlock>& GetMaterialInfoBlocks() const;
   [[nodiscard]] const std::vector<InstanceInfoBlock>& GetInstanceInfoBlocks() const;
+
+ private:
+  /**
+   * \brief Use this to find instance index via renderer handle.
+   */
+  std::unordered_map<Handle, int> renderer_indices_;
+  /**
+   * \brief Use this to find material index via material handle.
+   */
+  std::unordered_map<Handle, int> material_indices_;
+  /**
+   * \brief Use this to find entity via render instance index.
+   */
+  std::unordered_map<int, Handle> instance_entity_handles_;
+  /**
+   * \brief Use this to find renderer via render instance index.
+   */
+  std::unordered_map<int, Handle> instance_renderer_handles_;
+  /**
+   * \brief Use this to find camera via camera index.
+   */
+  std::unordered_map<Handle, int> camera_indices_;
+
+  std::vector<MaterialInfoBlock> material_info_blocks_{};
+  std::vector<InstanceInfoBlock> instance_info_blocks_{};
+  RenderInfoBlock render_info_block = {};
+  EnvironmentInfoBlock environment_info_block = {};
+
+  std::vector<DirectionalLightInfoBlock> directional_light_info_blocks_;
+  std::vector<PointLightInfoBlock> point_light_info_blocks_;
+  std::vector<SpotLightInfoBlock> spot_light_info_blocks_;
+
+  std::vector<CameraInfoBlock> camera_info_blocks_{};
+  std::shared_ptr<MeshRenderInstanceCollection> deferred_render_instances;
+  std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_skinned_render_instances;
+  std::shared_ptr<InstancedRenderInstanceCollection> deferred_instanced_render_instances;
+  std::shared_ptr<StrandsRenderInstanceCollection> deferred_strands_render_instances;
+
+  std::shared_ptr<MeshRenderInstanceCollection> forward_render_instances;
+  std::shared_ptr<SkinnedMeshRenderInstanceCollection> forward_skinned_render_instances;
+  std::shared_ptr<InstancedRenderInstanceCollection> forward_instanced_render_instances;
+  std::shared_ptr<StrandsRenderInstanceCollection> forward_strands_render_instances;
+
+  std::shared_ptr<MeshRenderInstanceCollection> transparent_render_instances;
+  std::shared_ptr<SkinnedMeshRenderInstanceCollection> transparent_skinned_render_instances;
+  std::shared_ptr<InstancedRenderInstanceCollection> transparent_instanced_render_instances;
+  std::shared_ptr<StrandsRenderInstanceCollection> transparent_strands_render_instances;
+
+  std::shared_ptr<ExternalRenderInstanceCollection> external_render_instances;
+  friend class TopLevelAccelerationStructure;
+  friend class RenderLayer;
+  friend class CpuRayTracer;
+  void CollectEntityRenderers(const std::shared_ptr<Scene>& target_scene, Bound& world_bound);
+  void BuildRenderInstanceBlocks();
+  void CollectLights(const std::shared_ptr<Scene>& target_scene, const Bound& world_bound);
+  void CollectEnvironment(const std::shared_ptr<Scene>& target_scene);
+  uint32_t geometry_storage_version = 0;
+  uint32_t texture_storage_version = 0;
+
+  bool RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
+                      const std::shared_ptr<MeshRenderer>& mesh_renderer, glm::vec3& min_bound, glm::vec3& max_bound);
+  bool RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
+                      const std::shared_ptr<SkinnedMeshRenderer>& skinned_mesh_renderer, glm::vec3& min_bound,
+                      glm::vec3& max_bound);
+  bool RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
+                      const std::shared_ptr<Particles>& particles, glm::vec3& min_bound, glm::vec3& max_bound);
+  bool RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
+                      const std::shared_ptr<StrandsRenderer>& strands_renderer, glm::vec3& min_bound,
+                      glm::vec3& max_bound);
+  [[nodiscard]] int RegisterMaterial(const Handle& handle, const MaterialInfoBlock& material_info_block);
+  [[nodiscard]] int RegisterCamera(const Handle& handle, const CameraInfoBlock& camera_info_block);
 };
 }  // namespace evo_engine

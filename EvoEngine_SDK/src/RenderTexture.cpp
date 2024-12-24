@@ -16,6 +16,7 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
   depth_image_.reset();
   depth_sampler_.reset();
   color_im_texture_ids_.clear();
+  depth_im_texture_ids_.clear();
   int layer_count = render_texture_create_info.image_view_type == VK_IMAGE_VIEW_TYPE_CUBE ? 6 : 1;
   depth_ = render_texture_create_info.depth;
   color_ = render_texture_create_info.color;
@@ -136,6 +137,10 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
       depth_view_info.subresourceRange.levelCount = 1;
       depth_view_info.subresourceRange.baseArrayLayer = 0;
       depth_view_info.subresourceRange.layerCount = layer_count;
+      depth_view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+      depth_view_info.components.g = VK_COMPONENT_SWIZZLE_R;
+      depth_view_info.components.b = VK_COMPONENT_SWIZZLE_R;
+      depth_view_info.components.a = VK_COMPONENT_SWIZZLE_ONE;
       depth_image_views_.emplace_back(std::make_shared<ImageView>(depth_view_info));
     }
 
@@ -155,17 +160,22 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
     depth_sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
     depth_sampler_ = std::make_shared<Sampler>(depth_sampler_info);
+    depth_im_texture_ids_.resize(mip_levels);
+    for (unsigned int mip = 0; mip < mip_levels; ++mip) {
+      EditorLayer::UpdateTextureId(depth_im_texture_ids_[mip], depth_sampler_->GetVkSampler(),
+                                   depth_image_views_[mip]->GetVkImageView(), depth_image_->GetLayout());
+    }
   }
   extent_ = render_texture_create_info.extent;
   image_view_type_ = render_texture_create_info.image_view_type;
 
   if (color_) {
-    present_descriptor_set_ = std::make_shared<DescriptorSet>(render_texture_present_layout);
+    color_present_descriptor_set_ = std::make_shared<DescriptorSet>(render_texture_present_layout);
     VkDescriptorImageInfo present_info;
     present_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     present_info.imageView = color_image_views_[0]->GetVkImageView();
     present_info.sampler = color_sampler_->GetVkSampler();
-    present_descriptor_set_->UpdateImageDescriptorBinding(0, present_info);
+    color_present_descriptor_set_->UpdateImageDescriptorBinding(0, present_info);
 
     storage_descriptor_set_ = std::make_shared<DescriptorSet>(render_texture_storage_layout);
     VkDescriptorImageInfo storage_info;
@@ -173,6 +183,15 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
     storage_info.imageView = color_image_views_[0]->GetVkImageView();
     storage_info.sampler = color_sampler_->GetVkSampler();
     storage_descriptor_set_->UpdateImageDescriptorBinding(0, storage_info);
+  }
+
+  if (depth_) {
+    depth_present_descriptor_set_ = std::make_shared<DescriptorSet>(render_texture_present_layout);
+    VkDescriptorImageInfo present_info;
+    present_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    present_info.imageView = depth_image_views_[0]->GetVkImageView();
+    present_info.sampler = depth_sampler_->GetVkSampler();
+    depth_present_descriptor_set_->UpdateImageDescriptorBinding(0, present_info);
   }
 }
 
@@ -337,6 +356,10 @@ ImTextureID RenderTexture::GetColorImTextureId(const uint32_t mip_index) const {
   return color_im_texture_ids_[glm::clamp(mip_index, 0u, static_cast<uint32_t>(color_im_texture_ids_.size()) - 1)];
 }
 
+ImTextureID RenderTexture::GetDepthImTextureId(uint32_t mip_index) const {
+  return depth_im_texture_ids_[glm::clamp(mip_index, 0u, static_cast<uint32_t>(depth_im_texture_ids_.size()) - 1)];
+}
+
 void RenderTexture::ApplyGraphicsPipelineStates(GraphicsPipelineStates& global_pipeline_state) const {
   VkViewport viewport;
   viewport.x = 0.0f;
@@ -481,8 +504,12 @@ void RenderTexture::StoreToHdr(const std::string& path, int resize_x, int resize
   }
 }
 
-const std::shared_ptr<DescriptorSet>& RenderTexture::GetPresentDescriptorSet() const {
-  return present_descriptor_set_;
+const std::shared_ptr<DescriptorSet>& RenderTexture::GetColorPresentDescriptorSet() const {
+  return color_present_descriptor_set_;
+}
+
+const std::shared_ptr<DescriptorSet>& RenderTexture::GetDepthPresentDescriptorSet() const {
+  return depth_present_descriptor_set_;
 }
 
 const std::shared_ptr<DescriptorSet>& RenderTexture::GetStorageDescriptorSet() const {

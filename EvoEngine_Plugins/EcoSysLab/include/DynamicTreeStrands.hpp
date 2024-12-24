@@ -17,8 +17,6 @@ class DynamicTreeStrands : public IPrivateComponent {
 
   DynamicStrands::InitializeParameters initialize_parameters{};
   bool enable_physics = true;
-
-  int material_index = 0;
   std::shared_ptr<DynamicStrands> dynamic_strands{};
 
   struct EntityTransform {
@@ -75,8 +73,6 @@ class DynamicTreeStrands : public IPrivateComponent {
 
   void Visualization(const std::shared_ptr<Camera>& target_camera,
                      const DynamicStrands::VisualizationParameters& visualization_parameters) const;
-  void RenderShadowMap(const DynamicStrands::RenderParameters& render_parameters);
-  void RegisterMaterial();
-  void Render(const DynamicStrands::RenderParameters& render_parameters);
+  void RegisterRenderInstance(const DynamicStrands::RenderParameters& render_parameters);
 };
 }  // namespace eco_sys_lab_plugin

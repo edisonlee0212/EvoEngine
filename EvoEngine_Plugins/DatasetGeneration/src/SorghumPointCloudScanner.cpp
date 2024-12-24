@@ -294,16 +294,25 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
                         ball_rand + (sample_index >= pc_samples.size() / 2 ? left_offset : right_offset));
 
     if (sorghum_point_cloud_point_settings.leaf_index) {
+      if (capture_settings->use_gpu) {
 #ifdef CUDA_MODULE_PLUGIN
-      leaf_indices.emplace_back(glm::floatBitsToUint(sample.hit_info.data.x));
+        leaf_indices.emplace_back(glm::floatBitsToUint(sample.hit_info.data.x));
 #else
-      if (const auto search = leaf_mesh_renderer_handles.find(sample.handle);
-          search != leaf_mesh_renderer_handles.end()) {
-        leaf_indices.emplace_back(search->second.second);
-      } else {
-        leaf_indices.emplace_back(0);
-      }
+        if (const auto search = leaf_mesh_renderer_handles.find(sample.handle);
+            search != leaf_mesh_renderer_handles.end()) {
+          leaf_indices.emplace_back(search->second.second);
+        } else {
+          leaf_indices.emplace_back(0);
+        }
 #endif
+      }else {
+        if (const auto search = leaf_mesh_renderer_handles.find(sample.handle);
+            search != leaf_mesh_renderer_handles.end()) {
+          leaf_indices.emplace_back(search->second.second);
+        } else {
+          leaf_indices.emplace_back(0);
+        }
+      }
     }
 
     auto leaf_search = leaf_mesh_renderer_handles.find(sample.handle);

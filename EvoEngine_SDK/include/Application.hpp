@@ -18,7 +18,7 @@ enum class ApplicationStatus {
   Uninitialized,
   NoProject,
 
-  Stop,
+  NotPlaying,
   Pause,
   Step,
   Playing,
@@ -26,7 +26,7 @@ enum class ApplicationStatus {
   OnDestroy
 };
 
-enum class ApplicationExecutionStatus { Stop, PreUpdate, Update, LateUpdate };
+enum class ApplicationExecutionStatus { NotPlaying, PreUpdate, Update, LateUpdate };
 
 class Application final {
   EVOENGINE_SINGLETON_INSTANCE(Application)
@@ -48,7 +48,7 @@ class Application final {
 
   std::vector<std::function<void(const std::shared_ptr<Scene>& new_scene)>> post_attach_scene_functions_;
 
-  ApplicationExecutionStatus application_execution_status_ = ApplicationExecutionStatus::Stop;
+  ApplicationExecutionStatus application_execution_status_ = ApplicationExecutionStatus::NotPlaying;
 
  public:
   [[nodiscard]] static ApplicationExecutionStatus GetApplicationExecutionStatus();
@@ -61,7 +61,7 @@ class Application final {
   static const ApplicationInfo& GetApplicationInfo();
   static const ApplicationStatus& GetApplicationStatus();
   template <typename T>
-  static std::shared_ptr<T> PushLayer();
+  static std::shared_ptr<T> PushLayer(const std::string& layer_name);
   template <typename T>
   static std::shared_ptr<T> GetLayer();
   template <typename T>
@@ -84,7 +84,7 @@ class Application final {
 };
 
 template <typename T>
-std::shared_ptr<T> Application::PushLayer() {
+std::shared_ptr<T> Application::PushLayer(const std::string& layer_name) {
   auto& application = GetInstance();
   if (application.application_status_ != ApplicationStatus::Uninitialized) {
     EVOENGINE_ERROR("Unable to push layer! Application already started!");
@@ -101,6 +101,7 @@ std::shared_ptr<T> Application::PushLayer() {
       application.layers_.back()->subsequent_layer_ = test;
     application.layers_.push_back(std::dynamic_pointer_cast<ILayer>(test));
   }
+  std::dynamic_pointer_cast<ILayer>(test)->layer_name_ = layer_name;
   return test;
 }
 

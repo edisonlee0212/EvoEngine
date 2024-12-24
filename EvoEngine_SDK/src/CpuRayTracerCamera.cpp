@@ -39,7 +39,7 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& parameters,
   std::shared_ptr<RenderInstanceStorage> render_instances;
 
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
-    render_instances = render_layer->GetCurrentRenderInstanceStorage();
+    render_instances = render_layer->GetPreviousRenderInstanceStorage();
   } else {
     render_instances = std::make_shared<RenderInstanceStorage>();
   }

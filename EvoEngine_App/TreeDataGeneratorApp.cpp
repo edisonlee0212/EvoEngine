@@ -45,17 +45,17 @@ void register_classes() {
 }
 
 void push_layers(bool enable_window_layer, bool enable_editor_layer) {
-  Application::PushLayer<RenderLayer>();
+  Application::PushLayer<RenderLayer>("Render Layer");
   if (enable_window_layer)
-    Application::PushLayer<WindowLayer>();
+    Application::PushLayer<WindowLayer>("Window Layer");
   if (enable_window_layer && enable_editor_layer)
-    Application::PushLayer<EditorLayer>();
-  
+    Application::PushLayer<EditorLayer>("Editor Layer");
+
 #ifdef ECOSYSLAB_PLUGIN
-  Application::PushLayer<EcoSysLabLayer>();
+  Application::PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
 #endif
 #ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>();
+  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
 }
 

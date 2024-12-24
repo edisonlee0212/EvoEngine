@@ -94,6 +94,7 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
       const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
       ds->strand_model_skeleton = tree->strand_model.strand_model_skeleton;
       ds->UpdateDynamicStrands();
+      ds->CreateStaticRoot();
     }
   }
 }

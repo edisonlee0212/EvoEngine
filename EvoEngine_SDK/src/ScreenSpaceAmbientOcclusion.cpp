@@ -136,7 +136,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
     geometry_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                          target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
     geometry_pipeline->BindDescriptorSet(
-        vk_command_buffer, 2, target_camera->GetRenderTexture()->GetPresentDescriptorSet()->GetVkDescriptorSet());
+        vk_command_buffer, 2, target_camera->GetRenderTexture()->GetColorPresentDescriptorSet()->GetVkDescriptorSet());
     geometry_pipeline->states.view_port = viewport;
     geometry_pipeline->states.scissor = scissor;
 

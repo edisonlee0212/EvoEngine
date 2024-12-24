@@ -145,6 +145,8 @@ class ProjectManager {
   static void Initialize();
   static void OnDestroy();
   [[nodiscard]] static std::filesystem::path GetPathRelativeToProject(const std::filesystem::path& absolute_path);
+
+  static bool StartupGui();
 };
 template <typename T>
 std::shared_ptr<T> ProjectManager::CreateTemporaryAsset() {

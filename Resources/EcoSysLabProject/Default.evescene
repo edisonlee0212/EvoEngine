@@ -107,7 +107,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 9
+          asset_handle_: 5
           asset_type_name_: Mesh
         material:
           asset_handle_: 9351133328134294989
@@ -127,7 +127,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 11
+          asset_handle_: 7
           asset_type_name_: Mesh
         material:
           asset_handle_: 9269403427852511889
@@ -148,7 +148,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 8
+          asset_handle_: 4
           asset_type_name_: Mesh
         material:
           asset_handle_: 14316066197675944754
@@ -169,7 +169,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 9
+          asset_handle_: 5
           asset_type_name_: Mesh
         material:
           asset_handle_: 1878344000892373111
@@ -190,7 +190,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 9
+          asset_handle_: 5
           asset_type_name_: Mesh
         material:
           asset_handle_: 571672489586621582
@@ -211,7 +211,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 9
+          asset_handle_: 5
           asset_type_name_: Mesh
         material:
           asset_handle_: 4977678215339870791
@@ -232,7 +232,7 @@ entity_metadata_list:
         e: true
         cast_shadow: true
         mesh:
-          asset_handle_: 9
+          asset_handle_: 5
           asset_type_name_: Mesh
         material:
           asset_handle_: 9799836859279381246

@@ -38,7 +38,7 @@ void Platform::Initialize() {
   graphics.SetupVmaAllocator();
   Shader::RegisterShaderIncludePath(std::filesystem::path("./DefaultResources/Shaders/Includes"));
   const auto& selected_physical_device = graphics.selected_physical_device;
-  
+
   if (graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
 #pragma region Command pool
     VkCommandPoolCreateInfo pool_info{};
@@ -73,7 +73,7 @@ void Platform::Initialize() {
     render_layer_descriptor_pool_info.maxSets = Constants::initial_descriptor_pool_max_sets;
     graphics.descriptor_pool_ = std::make_unique<DescriptorPool>(render_layer_descriptor_pool_info);
   }
-  
+
   graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
   if (!RenderTexture::render_texture_present_layout) {
     RenderTexture::render_texture_present_layout = std::make_shared<DescriptorSetLayout>();
@@ -82,8 +82,7 @@ void Platform::Initialize() {
     RenderTexture::render_texture_present_layout->Initialize();
   }
 #pragma endregion
-  const auto window_layer = Application::GetLayer<WindowLayer>();
-  if (window_layer) {
+  if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
     if (selected_physical_device->queue_family_indices.present_family.has_value()) {
       graphics.CreateSwapChain();
       graphics.vk_surface_format_ = selected_physical_device->swap_chain_support_details.formats[0];
@@ -421,8 +420,7 @@ void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkIma
   if (image_format == Constants::texture_2d || image_format == Constants::render_texture_color ||
       image_format == Constants::g_buffer_color) {
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  } else if (image_format == Constants::render_texture_depth || image_format == Constants::g_buffer_depth ||
-             image_format == Constants::shadow_map) {
+  } else if (image_format == Constants::render_texture_depth || image_format == Constants::shadow_map) {
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
   } else if (const auto window_layer = Application::GetLayer<WindowLayer>();
              window_layer && image_format == GetSwapchain()->GetImageFormat()) {
@@ -1750,7 +1748,8 @@ void Platform::LateUpdate() {
             // From main camera to swap chain.
             render_texture_present->Bind(vk_command_buffer);
             render_texture_present->BindDescriptorSet(
-                vk_command_buffer, 0, main_camera->GetRenderTexture()->present_descriptor_set_->GetVkDescriptorSet());
+                vk_command_buffer, 0,
+                main_camera->GetRenderTexture()->color_present_descriptor_set_->GetVkDescriptorSet());
 
             const auto mesh = Resources::GetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
             GeometryStorage::BindVertices(vk_command_buffer);

@@ -107,113 +107,110 @@ void SorghumLayer::GenerateMeshForAllSorghums(
 
 void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = GetScene();
-  if (ImGui::Begin("Sorghum Layer")) {
 #ifdef CUDA_MODULE_PLUGIN
-    if (ImGui::TreeNodeEx("Illumination Estimation")) {
-      ImGui::DragInt("Seed", &m_seed);
-      ImGui::DragFloat("Push distance along normal", &push_distance, 0.0001f, -1.0f, 1.0f, "%.5f");
-      ray_properties.OnInspect();
+  if (ImGui::TreeNodeEx("Illumination Estimation")) {
+    ImGui::DragInt("Seed", &m_seed);
+    ImGui::DragFloat("Push distance along normal", &push_distance, 0.0001f, -1.0f, 1.0f, "%.5f");
+    ray_properties.OnInspect();
 
-      if (ImGui::Button("Calculate illumination")) {
-        CalculateIlluminationFrameByFrame();
-      }
-      if (ImGui::Button("Calculate illumination instantly")) {
-        CalculateIllumination();
-      }
-      ImGui::TreePop();
+    if (ImGui::Button("Calculate illumination")) {
+      CalculateIlluminationFrameByFrame();
     }
-    ImGui::Checkbox("Enable BTF", &enable_compressed_btf);
-    if (enable_compressed_btf) {
-      editor_layer->DragAndDropButton<CBTFGroup>(leaf_cbtf_group, "Leaf CBTFGroup");
+    if (ImGui::Button("Calculate illumination instantly")) {
+      CalculateIllumination();
     }
-#endif
-    ImGui::Separator();
-    sorghum_mesh_generator_settings.OnInspect(editor_layer);
-    if (ImGui::Button("Generate mesh for all sorghums")) {
-      GenerateMeshForAllSorghums(sorghum_mesh_generator_settings);
-    }
-    if (ImGui::DragFloat("Vertical subdivision max unit length", &vertical_subdivision_length, 0.001f, 0.001f, 1.0f,
-                         "%.4f")) {
-      vertical_subdivision_length = glm::max(0.0001f, vertical_subdivision_length);
-    }
-
-    if (ImGui::DragInt("Horizontal subdivision step", &horizontal_subdivision_step)) {
-      horizontal_subdivision_step = glm::max(2, horizontal_subdivision_step);
-    }
-
-    if (ImGui::DragFloat("Skeleton width", &skeleton_width, 0.001f, 0.001f, 1.0f, "%.4f")) {
-      skeleton_width = glm::max(0.0001f, skeleton_width);
-    }
-    ImGui::ColorEdit3("Skeleton color", &skeleton_color.x);
-
-    if (editor_layer->DragAndDropButton<Texture2D>(leaf_albedo_texture, "Replace Leaf Albedo Texture")) {
-      auto tex = leaf_albedo_texture.Get<Texture2D>();
-      if (tex) {
-        leaf_material.Get<Material>()->SetAlbedoTexture(leaf_albedo_texture.Get<Texture2D>());
-        if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
-            sorghum_entities && !sorghum_entities->empty()) {
-          for (const auto& sorghum_entity : *sorghum_entities) {
-            for (const auto child : scene->GetChildren(sorghum_entity)) {
-              if (scene->HasPrivateComponent<MeshRenderer>(child)) {
-                scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetAlbedoTexture(
-                    leaf_albedo_texture.Get<Texture2D>());
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (editor_layer->DragAndDropButton<Texture2D>(leaf_normal_texture, "Replace Leaf Normal Texture")) {
-      auto tex = leaf_normal_texture.Get<Texture2D>();
-      if (tex) {
-        leaf_material.Get<Material>()->SetNormalTexture(leaf_normal_texture.Get<Texture2D>());
-        if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
-            sorghum_entities && !sorghum_entities->empty()) {
-          for (const auto& sorghum_entity : *sorghum_entities) {
-            for (const auto child : scene->GetChildren(sorghum_entity)) {
-              if (scene->HasPrivateComponent<MeshRenderer>(child)) {
-                scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetNormalTexture(
-                    leaf_albedo_texture.Get<Texture2D>());
-              }
-            }
-          }
-        }
-      }
-    }
-
-    FileUtils::SaveFile(
-        "Export OBJ for all sorghums", "3D Model", {".obj"},
-        [this](const std::filesystem::path& path) {
-          ExportAllSorghumsModel(path.string());
-        },
-        false);
-
-    static bool opened = false;
-#ifdef CUDA_MODULE_PLUGIN
-    if (processing && !opened) {
-      ImGui::OpenPopup("Illumination Estimation");
-      opened = true;
-    }
-    if (ImGui::BeginPopupModal("Illumination Estimation", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-      ImGui::Text("Progress: ");
-      const float fraction = 1.0f - static_cast<float>(processing_index) / processing_entities.size();
-      const std::string text = std::to_string(static_cast<int>(fraction * 100.0f)) + "% - " +
-                               std::to_string(processing_entities.size() - processing_index) + "/" +
-                               std::to_string(processing_entities.size());
-      ImGui::ProgressBar(fraction, ImVec2(240, 0), text.c_str());
-      ImGui::SetItemDefaultFocus();
-      ImGui::Text(("Estimation time for 1 plant: " + std::to_string(per_plant_calculation_time) + " seconds").c_str());
-      if (ImGui::Button("Cancel") || processing == false) {
-        processing = false;
-        opened = false;
-        ImGui::CloseCurrentPopup();
-      }
-      ImGui::EndPopup();
-    }
-#endif
+    ImGui::TreePop();
   }
-  ImGui::End();
+  ImGui::Checkbox("Enable BTF", &enable_compressed_btf);
+  if (enable_compressed_btf) {
+    editor_layer->DragAndDropButton<CBTFGroup>(leaf_cbtf_group, "Leaf CBTFGroup");
+  }
+#endif
+  ImGui::Separator();
+  sorghum_mesh_generator_settings.OnInspect(editor_layer);
+  if (ImGui::Button("Generate mesh for all sorghums")) {
+    GenerateMeshForAllSorghums(sorghum_mesh_generator_settings);
+  }
+  if (ImGui::DragFloat("Vertical subdivision max unit length", &vertical_subdivision_length, 0.001f, 0.001f, 1.0f,
+                       "%.4f")) {
+    vertical_subdivision_length = glm::max(0.0001f, vertical_subdivision_length);
+  }
+
+  if (ImGui::DragInt("Horizontal subdivision step", &horizontal_subdivision_step)) {
+    horizontal_subdivision_step = glm::max(2, horizontal_subdivision_step);
+  }
+
+  if (ImGui::DragFloat("Skeleton width", &skeleton_width, 0.001f, 0.001f, 1.0f, "%.4f")) {
+    skeleton_width = glm::max(0.0001f, skeleton_width);
+  }
+  ImGui::ColorEdit3("Skeleton color", &skeleton_color.x);
+
+  if (editor_layer->DragAndDropButton<Texture2D>(leaf_albedo_texture, "Replace Leaf Albedo Texture")) {
+    auto tex = leaf_albedo_texture.Get<Texture2D>();
+    if (tex) {
+      leaf_material.Get<Material>()->SetAlbedoTexture(leaf_albedo_texture.Get<Texture2D>());
+      if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+          sorghum_entities && !sorghum_entities->empty()) {
+        for (const auto& sorghum_entity : *sorghum_entities) {
+          for (const auto child : scene->GetChildren(sorghum_entity)) {
+            if (scene->HasPrivateComponent<MeshRenderer>(child)) {
+              scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetAlbedoTexture(
+                  leaf_albedo_texture.Get<Texture2D>());
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (editor_layer->DragAndDropButton<Texture2D>(leaf_normal_texture, "Replace Leaf Normal Texture")) {
+    auto tex = leaf_normal_texture.Get<Texture2D>();
+    if (tex) {
+      leaf_material.Get<Material>()->SetNormalTexture(leaf_normal_texture.Get<Texture2D>());
+      if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+          sorghum_entities && !sorghum_entities->empty()) {
+        for (const auto& sorghum_entity : *sorghum_entities) {
+          for (const auto child : scene->GetChildren(sorghum_entity)) {
+            if (scene->HasPrivateComponent<MeshRenderer>(child)) {
+              scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetNormalTexture(
+                  leaf_albedo_texture.Get<Texture2D>());
+            }
+          }
+        }
+      }
+    }
+  }
+
+  FileUtils::SaveFile(
+      "Export OBJ for all sorghums", "3D Model", {".obj"},
+      [this](const std::filesystem::path& path) {
+        ExportAllSorghumsModel(path.string());
+      },
+      false);
+
+  static bool opened = false;
+#ifdef CUDA_MODULE_PLUGIN
+  if (processing && !opened) {
+    ImGui::OpenPopup("Illumination Estimation");
+    opened = true;
+  }
+  if (ImGui::BeginPopupModal("Illumination Estimation", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::Text("Progress: ");
+    const float fraction = 1.0f - static_cast<float>(processing_index) / processing_entities.size();
+    const std::string text = std::to_string(static_cast<int>(fraction * 100.0f)) + "% - " +
+                             std::to_string(processing_entities.size() - processing_index) + "/" +
+                             std::to_string(processing_entities.size());
+    ImGui::ProgressBar(fraction, ImVec2(240, 0), text.c_str());
+    ImGui::SetItemDefaultFocus();
+    ImGui::Text(("Estimation time for 1 plant: " + std::to_string(per_plant_calculation_time) + " seconds").c_str());
+    if (ImGui::Button("Cancel") || processing == false) {
+      processing = false;
+      opened = false;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+#endif
 }
 
 void SorghumLayer::ExportSorghum(const Entity& sorghum, std::ofstream& of, unsigned& start_index) {

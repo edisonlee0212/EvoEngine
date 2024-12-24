@@ -1,6 +1,7 @@
 #pragma once
-#include <Application.hpp>
-#include "Scene.hpp"
+#include "PlanetTerrain.hpp"
+#include "TerrainChunk.hpp"
+#include "PerlinNoiseStage.hpp"
 using namespace evo_engine;
 namespace universe_plugin {
 /// <summary>
@@ -215,8 +216,8 @@ class StarClusterPattern {
           core_color * (1 - static_cast<float>(actual_proportion)) + disk_color * static_cast<float>(actual_proportion);
     } else {
       const double actual_proportion = proportion / core_proportion;
-      color =
-          core_color * static_cast<float>(actual_proportion) + center_color * (1 - static_cast<float>(actual_proportion));
+      color = core_color * static_cast<float>(actual_proportion) +
+              center_color * (1 - static_cast<float>(actual_proportion));
     }
     return color;
   }
@@ -237,15 +238,18 @@ class StarClusterPattern {
   }
 };
 
-class StarClusterSystem : public ISystem {
-  EntityRef renderer_front_;
-  EntityRef renderer_back_;
+class UniverseLayer : public ILayer {
+ public:
+  void OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
+
+ private:
   EntityQuery star_query_;
   EntityArchetype star_archetype_;
   std::vector<StarClusterPattern> star_cluster_patterns_;
-  bool use_front_ = true;
   int counter_ = 0;
-
+  AssetRef particle_info_list_ref;
+  AssetRef star_material_ref;
+  bool cast_shadow = false;
   float apply_position_timer_ = 0;
   float copy_position_timer_ = 0;
   float calc_position_timer_ = 0;
@@ -255,21 +259,18 @@ class StarClusterSystem : public ISystem {
   float galaxy_time_ = 0.0;
   bool first_time_ = true;
 
- public:
-  void Serialize(YAML::Emitter &out) const override;
-  void Deserialize(const YAML::Node &in) override;
-  bool OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
+  void OnCreate() override;
+  void OnDestroy() override;
+  void PreUpdate() override;
+  void Update() override;
 
   void CalculateStarPositionSync();
   void ApplyPosition();
-  void CopyPosition(const bool &reverse = false);
-  void OnCreate() override;
-  void Start() override;
-  void Update() override;
+  void CopyPosition();
+
   void PushStars(StarClusterPattern &pattern, const size_t &amount = 10000);
   void RandomlyRemoveStars(const size_t &amount = 10000);
   void ClearAllStars();
-  void FixedUpdate() override;
-  void OnEnable() override;
 };
+
 }  // namespace universe_plugin

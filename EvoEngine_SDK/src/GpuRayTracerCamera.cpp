@@ -66,7 +66,7 @@ void GpuRayTracerCamera::Capture() {
    */
   std::shared_ptr<RenderInstanceStorage> render_instances;
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
-    render_instances = render_layer->GetCurrentRenderInstanceStorage();
+    render_instances = render_layer->GetPreviousRenderInstanceStorage();
   } else
     return;
   CameraInfoBlock camera_info_block;
@@ -182,8 +182,9 @@ void GpuRayTracerCamera::Capture() {
      * excutable folder. In that case, you will write something like: xxx_shader->TryCompile(ShaderType::Compute,
      * std::filesystem::path("./EcoSysLabResources/Shaders/Compute/AlphaShape.comp"));
      */
-    ray_tracer_camera_shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                                  std::filesystem::path("./DefaultResources") / "Shaders/Compute/RayTracerCamera.comp");
+    ray_tracer_camera_shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./DefaultResources") / "Shaders/Compute/RayTracerCamera.comp");
   }
   /**
    * Next, with description of resources and shader in place, we set up compute pipeline.

@@ -11,13 +11,18 @@ class RenderLayer final : public ILayer {
  public:
   void ForEachCollectedCamera(const std::function<void(const std::shared_ptr<Camera>& camera)>& action) const;
   [[nodiscard]] std::shared_ptr<RenderInstanceStorage> GetCurrentRenderInstanceStorage() const;
+  [[nodiscard]] std::shared_ptr<RenderInstanceStorage> GetPreviousRenderInstanceStorage() const;
   bool wire_frame = false;
   bool count_shadow_rendering_draw_calls = true;
   bool enable_indirect_rendering = true;
-  bool enable_render_menu = false;
   RenderSettings render_settings{};
-  [[nodiscard]] uint32_t DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
-                                  const GlobalTransform& global_transform, bool cast_shadow) const;
+  [[maybe_unused]] uint32_t DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
+                                     const GlobalTransform& global_transform, bool cast_shadow) const;
+  [[maybe_unused]] uint32_t DrawMeshInstanced(const std::shared_ptr<Mesh>& mesh,
+                                              const std::shared_ptr<Material>& material,
+                                              const GlobalTransform& global_transform,
+                                              const std::shared_ptr<ParticleInfoList>& particle_info_list,
+                                              bool cast_shadow) const;
   [[nodiscard]] static const std::shared_ptr<DescriptorSet>& GetPerFrameDescriptorSet();
   [[nodiscard]] static const std::shared_ptr<DescriptorSet>& GetLightingDescriptorSet();
 
@@ -64,6 +69,15 @@ class RenderLayer final : public ILayer {
    * \brief Register per-frame function to render to all cameras.
    * \param func Render function targeting all cameras. Return primitive count.
    */
+  void DeferredRenderingAllCameras(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer,
+                             const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                             const ForwardRenderingView& forward_rendering_view)>&& func);
+
+  /**
+   * \brief Register per-frame function to render to all cameras.
+   * \param func Render function targeting all cameras. Return primitive count.
+   */
   void ForwardRenderingAllCameras(
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                              const ForwardRenderingView& forward_rendering_view)>&& func);
@@ -85,6 +99,12 @@ class RenderLayer final : public ILayer {
   std::vector<
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>>
       directional_light_shadow_map_external_functions;
+
+  std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer,
+                                     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                                     const ForwardRenderingView& forward_rendering_view)>>
+      deferred_rendering_external_functions;
+
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                                      const ForwardRenderingView& forward_rendering_view)>>
       forward_rendering_external_functions;
@@ -104,6 +124,7 @@ class RenderLayer final : public ILayer {
   void RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera) const;
   void RenderToCameraRayTracing(const GlobalTransform& camera_global_transform,
                                 const std::shared_ptr<Camera>& camera) const;
+  void PreUpdate() override;
   void ClearAll() const;
   void PrepareForRendering();
   void RenderAll();

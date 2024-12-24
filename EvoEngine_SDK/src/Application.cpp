@@ -105,7 +105,9 @@ void Application::PreUpdateInternal() {
   Input::PreUpdate();
   if (const auto render_layer = GetLayer<RenderLayer>())
     Platform::PreUpdate();
-
+  if (const auto editor_layer = GetLayer<EditorLayer>()) {
+    EditorLayer::InitializeImGui();
+  }
   if (application.application_status_ == ApplicationStatus::NoProject)
     return;
   TransformGraph::CalculateTransformGraphs(application.active_scene_);
@@ -156,8 +158,16 @@ void Application::UpdateInternal() {
   }
   if (application.application_status_ == ApplicationStatus::OnDestroy)
     return;
-  if (application.application_status_ == ApplicationStatus::NoProject)
+  if (application.application_status_ == ApplicationStatus::NoProject) {
+    if (const auto window_layer = GetLayer<WindowLayer>()) {
+      if (ProjectManager::StartupGui()) {
+        window_layer->ResizeWindow(application.application_info_.default_window_size.x,
+                                   application.application_info_.default_window_size.y);
+        application.application_status_ = ApplicationStatus::NotPlaying;
+      }
+    }
     return;
+  }
   application.application_execution_status_ = ApplicationExecutionStatus::Update;
   for (const auto& i : application.external_update_functions_)
     i();
@@ -168,6 +178,33 @@ void Application::UpdateInternal() {
   if (application.application_status_ == ApplicationStatus::Playing ||
       application.application_status_ == ApplicationStatus::Step) {
     application.active_scene_->Update();
+  }
+  const auto render_layer = GetLayer<RenderLayer>();
+  if (const auto editor_layer = GetLayer<EditorLayer>()) {
+    if (ImGui::BeginMainMenuBar()) {
+      if (ImGui::BeginMenu("View")) {
+        if (ImGui::BeginMenu("Layer Inspection")) {
+          for (const auto& layer : application.layers_) {
+            ImGui::Checkbox(layer->layer_name_.c_str(), &layer->enable_inspection);
+          }
+          ImGui::EndMenu();
+        }
+        ImGui::EndMenu();
+      }
+      ImGui::EndMainMenuBar();
+    }
+
+    EditorLayer::OnGui(editor_layer);
+    for (const auto& layer : application.layers_) {
+      if (layer->enable_inspection) {
+        ImGui::Begin(layer->layer_name_.c_str());
+        layer->OnInspect(editor_layer);
+        ImGui::End();
+      }
+    }
+  }
+  if (render_layer) {
+    render_layer->PrepareForRendering();
   }
 }
 
@@ -180,123 +217,10 @@ void Application::LateUpdateInternal() {
   if (application.application_status_ == ApplicationStatus::OnDestroy)
     return;
   const auto render_layer = GetLayer<RenderLayer>();
-  if (application.application_status_ == ApplicationStatus::NoProject) {
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-    ImGuizmo::BeginFrame();
-    if (const auto window_layer = GetLayer<WindowLayer>()) {
-      ImGuiFileDialog::Instance()->OpenDialog("ChooseProjectKey", "Choose Project", ".eveproj", ".");
-#pragma region Dock
-      static bool opt_fullscreen_persistant = true;
-      bool opt_fullscreen = opt_fullscreen_persistant;
-      static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+  const auto editor_layer = GetLayer<EditorLayer>();
 
-      // We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
-      // because it would be confusing to have two docking targets within each others.
-      ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking;
-      if (opt_fullscreen) {
-        ImGuiViewport* viewport = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(viewport->WorkPos);
-        ImGui::SetNextWindowSize(viewport->WorkSize);
-        ImGui::SetNextWindowViewport(viewport->ID);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-        window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
-                        ImGuiWindowFlags_NoMove;
-        window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
-      }
-
-      // When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background
-      // and handle the pass-thru hole, so we ask Begin() to not render a background.
-      if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
-        window_flags |= ImGuiWindowFlags_NoBackground;
-
-      // Important: note that we proceed even if Begin() returns false (aka window is collapsed).
-      // This is because we want to keep our DockSpace() active. If a DockSpace() is inactive,
-      // all active windows docked into it will lose their parent and become undocked.
-      // We cannot preserve the docking relationship between an active window and an inactive docking, otherwise
-      // any change of dockspace/settings would lead to windows being stuck in limbo and never being visible.
-
-      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-      static bool open_dock = true;
-      ImGui::Begin("Root DockSpace", &open_dock, window_flags);
-      ImGui::PopStyleVar();
-      if (opt_fullscreen)
-        ImGui::PopStyleVar(2);
-      ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
-      ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
-      ImGui::End();
-#pragma endregion
-      ImGui::SetNextWindowDockID(dockspace_id);
-      // display
-      if (ImGuiFileDialog::Instance()->Display("ChooseProjectKey")) {
-        // action if OK
-        if (ImGuiFileDialog::Instance()->IsOk()) {
-          // action
-          std::filesystem::path path = ImGuiFileDialog::Instance()->GetFilePathName();
-          ProjectManager::GetOrCreateProject(path);
-          if (ProjectManager::GetInstance().project_folder_) {
-            window_layer->ResizeWindow(application.application_info_.default_window_size.x,
-                                       application.application_info_.default_window_size.y);
-            application.application_status_ = ApplicationStatus::Stop;
-          }
-        }
-        // close
-        ImGuiFileDialog::Instance()->Close();
-      }
-    }
-    if (render_layer) {
-      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-        Platform::EverythingBarrier(vk_command_buffer);
-        constexpr VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-        VkRect2D render_area;
-        render_area.offset = {0, 0};
-        render_area.extent = Platform::GetSwapchain()->GetImageExtent();
-        Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
-                                     Platform::GetSwapchain()->GetImageFormat(), 1, VK_IMAGE_LAYOUT_UNDEFINED,
-                                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-        VkRenderingAttachmentInfo color_attachment_info{};
-        color_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        color_attachment_info.imageView = Platform::GetSwapchain()->GetVkImageView();
-        color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
-        color_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        color_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        color_attachment_info.clearValue = clear_color;
-
-        VkRenderingInfo render_info{};
-        render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        render_info.renderArea = render_area;
-        render_info.layerCount = 1;
-        render_info.colorAttachmentCount = 1;
-        render_info.pColorAttachments = &color_attachment_info;
-
-        vkCmdBeginRendering(vk_command_buffer, &render_info);
-
-        ImGui::Render();
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), vk_command_buffer);
-
-        vkCmdEndRendering(vk_command_buffer);
-        Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
-                                     Platform::GetSwapchain()->GetImageFormat(), 1,
-                                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-      });
-    }
-  } else {
-    const auto editor_layer = GetLayer<EditorLayer>();
-
-    if (editor_layer) {
-      for (const auto& layer : application.layers_)
-        layer->OnInspect(editor_layer);
-    }
-
-    if (render_layer) {
-      render_layer->PrepareForRendering();
-    }
-
+  if (application.application_status_ != ApplicationStatus::NoProject) {
     application.application_execution_status_ = ApplicationExecutionStatus::LateUpdate;
-
     for (const auto& i : application.external_late_update_functions_)
       i();
 
@@ -311,15 +235,16 @@ void Application::LateUpdateInternal() {
       render_layer->RenderAll();
       render_layer->RenderGizmos();
     }
-    if (editor_layer) {
-      editor_layer->RenderGui();
-    }
-    if (render_layer) {
-      render_layer->ClearAll();
-    }
-    if (application.application_status_ == ApplicationStatus::Step)
-      application.application_status_ = ApplicationStatus::Pause;
   }
+
+  if (editor_layer) {
+    EditorLayer::RenderImGui();
+  }
+  if (render_layer) {
+    render_layer->ClearAll();
+  }
+  if (application.application_status_ == ApplicationStatus::Step)
+    application.application_status_ = ApplicationStatus::Pause;
   if (render_layer) {
     Platform::LateUpdate();
   }
@@ -342,7 +267,7 @@ std::shared_ptr<Scene> Application::GetActiveScene() {
 
 void Application::Reset() {
   auto& application = GetInstance();
-  application.application_status_ = ApplicationStatus::Stop;
+  application.application_status_ = ApplicationStatus::NotPlaying;
   Times::steps_ = Times::frames_ = 0;
 }
 
@@ -386,7 +311,7 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
         window_layer->ResizeWindow(application.application_info_.default_window_size.x,
                                    application.application_info_.default_window_size.y);
       }
-      application.application_status_ = ApplicationStatus::Stop;
+      application.application_status_ = ApplicationStatus::NotPlaying;
     }
   } else {
     application.application_status_ = ApplicationStatus::NoProject;
@@ -425,7 +350,7 @@ void Application::End() {
 
 void Application::Terminate() {
   auto& application = GetInstance();
-  bool has_render_layer = GetLayer<RenderLayer>() != nullptr;
+  const bool has_render_layer = GetLayer<RenderLayer>() != nullptr;
   for (auto i = application.layers_.rbegin(); i != application.layers_.rend(); ++i) {
     (*i)->OnDestroy();
   }
@@ -467,9 +392,9 @@ void Application::Play() {
       application.application_status_ == ApplicationStatus::OnDestroy)
     return;
   if (application.application_status_ != ApplicationStatus::Pause &&
-      application.application_status_ != ApplicationStatus::Stop)
+      application.application_status_ != ApplicationStatus::NotPlaying)
     return;
-  if (application.application_status_ == ApplicationStatus::Stop) {
+  if (application.application_status_ == ApplicationStatus::NotPlaying) {
     const auto copied_scene = ProjectManager::CreateTemporaryAsset<Scene>();
     Scene::Clone(ProjectManager::GetStartScene().lock(), copied_scene);
     Attach(copied_scene);
@@ -481,9 +406,9 @@ void Application::Stop() {
   if (application.application_status_ == ApplicationStatus::NoProject ||
       application.application_status_ == ApplicationStatus::OnDestroy)
     return;
-  if (application.application_status_ == ApplicationStatus::Stop)
+  if (application.application_status_ == ApplicationStatus::NotPlaying)
     return;
-  application.application_status_ = ApplicationStatus::Stop;
+  application.application_status_ = ApplicationStatus::NotPlaying;
   Attach(ProjectManager::GetStartScene().lock());
 }
 void Application::Pause() {
@@ -499,9 +424,9 @@ void Application::Pause() {
 void Application::Step() {
   auto& application = GetInstance();
   if (application.application_status_ != ApplicationStatus::Pause &&
-      application.application_status_ != ApplicationStatus::Stop)
+      application.application_status_ != ApplicationStatus::NotPlaying)
     return;
-  if (application.application_status_ == ApplicationStatus::Stop) {
+  if (application.application_status_ == ApplicationStatus::NotPlaying) {
     const auto copied_scene = ProjectManager::CreateTemporaryAsset<Scene>();
     Scene::Clone(ProjectManager::GetStartScene().lock(), copied_scene);
     Attach(copied_scene);

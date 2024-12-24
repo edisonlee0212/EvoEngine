@@ -1,8 +1,6 @@
 #include "ProjectManager.hpp"
-
-#include "PlanetTerrainSystem.hpp"
 #include "TerrainChunk.hpp"
-
+#include "PlanetTerrain.hpp"
 glm::dvec3 universe_plugin::TerrainChunk::ChunkCenterPosition(const glm::dvec3 &planet_position, const double radius,
                                                      const glm::quat rotation) const {
   const int actual_detail_level = (int)glm::pow(2, detail_level);

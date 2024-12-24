@@ -74,7 +74,10 @@ class EditorLayer : public ILayer {
   void OnDestroy() override;
   void PreUpdate() override;
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void RenderGui();
+  
+  inline static ImGuiID dock_space_id;
+  static void InitializeImGui();
+  static void RenderImGui();
 
   void SceneCameraWindow();
   void MainCameraWindow();
@@ -95,7 +98,10 @@ class EditorLayer : public ILayer {
   bool enable_console_warnings_ = true;
   friend class Console;
   friend class RenderInstanceStorage;
+  static void OnGui(const std::shared_ptr<EditorLayer>& editor_layer);
  public:
+
+
   bool show_console_window = true;
   std::vector<ConsoleMessage>& GetConsoleMessages();
 
@@ -127,6 +133,9 @@ class EditorLayer : public ILayer {
   [[nodiscard]] bool GetLockEntitySelection() const;
 
   void SetLockEntitySelection(bool value);
+
+  bool show_scene_camera_debug = false;
+
   bool show_scene_window = true;
   bool show_camera_window = true;
   bool show_camera_info = false;
@@ -165,7 +174,7 @@ class EditorLayer : public ILayer {
 
 #pragma region ImGui Helpers
   void CameraWindowDragAndDrop() const;
-  [[nodiscard]] bool DrawEntityMenu(const bool& enabled, const Entity& entity) const;
+  [[maybe_unused]] bool DrawEntityMenu(const bool& enabled, const Entity& entity) const;
   void DrawEntityNode(const Entity& entity, const unsigned& hierarchy_level);
   void InspectComponentData(Entity entity, IDataComponent* data, const DataComponentType& type, bool is_root);
 
@@ -274,7 +283,7 @@ class EditorLayer : public ILayer {
  private:
   int selection_alpha_ = 0;
   bool using_gizmo_ = false;
-  glm::detail::hdata* mapped_entity_index_data_;
+  void* mapped_entity_index_data_;
   std::unique_ptr<Buffer> entity_index_read_buffer_;
   void MouseEntitySelection();
   [[nodiscard]] Entity MouseEntitySelection(const std::shared_ptr<Camera>& target_camera,
