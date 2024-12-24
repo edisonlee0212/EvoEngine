@@ -6,6 +6,8 @@
 using namespace evo_engine;
 
 void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
+  if (!Platform::Initialized())
+    return;
   Clear();
   VkImageCreateInfo image_info{};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -140,6 +142,8 @@ std::shared_ptr<Image> CubemapStorage::GetImage() const {
 }
 
 void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
+  if (!Platform::Initialized())
+    return;
   Clear();
   constexpr uint32_t mip_levels = 1;
   VkImageCreateInfo image_info{};
@@ -205,6 +209,8 @@ void Texture2DStorage::SetDataImmediately(const std::vector<glm::vec4>& data, co
 }
 
 void Texture2DStorage::UploadData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution) {
+  if (!Platform::Initialized())
+    return;
   Initialize(resolution);
   const auto image_size = resolution.x * resolution.y * sizeof(glm::vec4);
   VkBufferCreateInfo staging_buffer_create_info{};
@@ -232,6 +238,8 @@ void Texture2DStorage::UploadData(const std::vector<glm::vec4>& data, const glm:
 }
 
 void Texture2DStorage::Clear() {
+  if (!Platform::Initialized())
+    return;
   if (im_texture_id != nullptr) {
     ImGui_ImplVulkan_RemoveTexture(static_cast<VkDescriptorSet>(im_texture_id));
     im_texture_id = nullptr;
@@ -242,6 +250,8 @@ void Texture2DStorage::Clear() {
 }
 
 void CubemapStorage::Clear() {
+  if (!Platform::Initialized())
+    return;
   for (auto& im_texture_id : im_texture_ids) {
     if (im_texture_id != nullptr) {
       ImGui_ImplVulkan_RemoveTexture(static_cast<VkDescriptorSet>(im_texture_id));
@@ -267,6 +277,8 @@ uint32_t TextureStorage::GetVersion() {
 }
 
 void TextureStorage::DeviceSync() {
+  if (!Platform::Initialized())
+    return;
   auto& storage = GetInstance();
   for (int texture_index = 0; texture_index < storage.texture_2ds_.size(); texture_index++) {
     if (const auto& texture_storage = storage.texture_2ds_[texture_index]; texture_storage.pending_delete) {

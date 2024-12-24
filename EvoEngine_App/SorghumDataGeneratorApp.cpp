@@ -35,17 +35,19 @@ void register_classes() {
 #endif
 }
 
-void push_layers(bool enable_window_layer, bool enable_editor_layer) {
+void push_layers(const bool enable_render_layer, const bool enable_window_layer, const bool enable_editor_layer) {
+  if (enable_render_layer)
+    Application::PushLayer<RenderLayer>();
   if (enable_window_layer)
     Application::PushLayer<WindowLayer>();
   if (enable_window_layer && enable_editor_layer)
     Application::PushLayer<EditorLayer>();
-  Application::PushLayer<RenderLayer>();
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
   Application::PushLayer<SorghumLayer>();
 #endif
 #ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>();
+  if (enable_render_layer)
+    Application::PushLayer<RayTracerLayer>();
 #endif
 }
 
@@ -55,7 +57,7 @@ void run_with_editor(const std::filesystem::path& project_path) {
     return;
   }
   register_classes();
-  push_layers(true, true);
+  push_layers(true, true, true);
   ApplicationInfo application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
@@ -65,13 +67,13 @@ void run_with_editor(const std::filesystem::path& project_path) {
   Application::Start();
 }
 
-void run_windowless(const std::filesystem::path& project_path) {
+void run_windowless(const bool use_gpu, const std::filesystem::path& project_path) {
   if (std::filesystem::path(project_path).extension().string() != ".eveproj") {
     EVOENGINE_ERROR("Project path doesn't point to a EvoEngine project!");
     return;
   }
   register_classes();
-  push_layers(false, false);
+  push_layers(use_gpu, false, false);
   ApplicationInfo application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
@@ -264,12 +266,15 @@ int main() {
 
   const std::filesystem::path project_path = resource_folder_path / "DigitalAgricultureProject" / "test.eveproj";
   // start_project(project_path);
-  run_windowless(project_path);
+
+  const bool use_gpu = true;
+
+  run_windowless(use_gpu, project_path);
   std::shared_ptr<SorghumGantryCaptureSettings> capture_settings = std::make_shared<SorghumGantryCaptureSettings>();
   capture_settings->step = glm::vec2(0.005f);  // Smaller -> more points.
   capture_settings->scanner_angles = {30, 60};
   capture_settings->output_spline_info = true;
-  capture_settings->use_gpu = true;
+  capture_settings->use_gpu = use_gpu;
   // capture_settings->spline_subdivision_count = 32;
 
   const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Random.sg";

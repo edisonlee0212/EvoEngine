@@ -35,7 +35,7 @@ class Platform final {
   friend class SpotLightShadowMap;
 #pragma region Vulkan
   VkInstance vk_instance_ = VK_NULL_HANDLE;
-
+  bool initialized = false;
   std::vector<std::string> required_layers_ = {};
   std::vector<VkLayerProperties> vk_supported_layers_;
 
@@ -180,6 +180,7 @@ class Platform final {
   std::vector<std::function<void()>> temporary_buffer_sync_actions;
 
  public:
+  static bool Initialized();
   static void AddTemporaryBufferSyncAction(std::function<void()>&& action);
   static void AddBufferSyncAction(const std::string& action_name, std::function<void()>&& action);
   static void RemoveBufferSyncAction(const std::string& action_name);

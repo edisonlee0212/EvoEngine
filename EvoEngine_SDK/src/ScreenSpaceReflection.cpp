@@ -202,7 +202,9 @@ void ScreenSpaceReflection::BuildPipelines() {
   combine_layout->Initialize();
 
   reflect_pipeline = std::make_shared<GraphicsPipeline>();
-  reflect_pipeline->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
+  reflect_pipeline->vertex_shader =
+      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
   reflect_pipeline->fragment_shader = Shader::CreateTemporary(
       ShaderType::Fragment, Platform::Constants::shader_global_defines,
       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRReflect.frag");
@@ -220,7 +222,9 @@ void ScreenSpaceReflection::BuildPipelines() {
   reflect_pipeline->Initialize();
 
   combine_pipeline = std::make_shared<GraphicsPipeline>();
-  combine_pipeline->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
+  combine_pipeline->vertex_shader =
+      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
   combine_pipeline->fragment_shader = Shader::CreateTemporary(
       ShaderType::Fragment, Platform::Constants::shader_global_defines,
       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRCombine.frag");

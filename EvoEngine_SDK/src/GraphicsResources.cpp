@@ -10,11 +10,15 @@
 using namespace evo_engine;
 
 Fence::Fence(const VkFenceCreateInfo& vk_fence_create_info) {
+  if (!Platform::Initialized())
+    return;
   Platform::CheckVk(vkCreateFence(Platform::GetVkDevice(), &vk_fence_create_info, nullptr, &vk_fence_));
   flags_ = vk_fence_create_info.flags;
 }
 
 Fence::~Fence() {
+  if (!Platform::Initialized())
+    return;
   if (vk_fence_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyFence(Platform::GetVkDevice(), vk_fence_, nullptr);
     vk_fence_ = nullptr;
@@ -26,11 +30,15 @@ const VkFence& Fence::GetVkFence() const {
 }
 
 Semaphore::Semaphore(const VkSemaphoreCreateInfo& semaphore_create_info) {
+  if (!Platform::Initialized())
+    return;
   Platform::CheckVk(vkCreateSemaphore(Platform::GetVkDevice(), &semaphore_create_info, nullptr, &vk_semaphore_));
   flags_ = semaphore_create_info.flags;
 }
 
 Semaphore::~Semaphore() {
+  if (!Platform::Initialized())
+    return;
   if (vk_semaphore_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroySemaphore(Platform::GetVkDevice(), vk_semaphore_, nullptr);
     vk_semaphore_ = VK_NULL_HANDLE;
@@ -74,6 +82,8 @@ int Semaphore::GetVkSemaphoreHandle(VkExternalSemaphoreHandleTypeFlagBitsKHR ext
 }
 #endif
 Swapchain::Swapchain(const VkSwapchainCreateInfoKHR& swap_chain_create_info) {
+  if (!Platform::Initialized())
+    return;
   const auto& device = Platform::GetVkDevice();
   Platform::CheckVk(vkCreateSwapchainKHR(Platform::GetVkDevice(), &swap_chain_create_info, nullptr, &vk_swapchain_));
   uint32_t image_count = 0;
@@ -117,6 +127,8 @@ Swapchain::Swapchain(const VkSwapchainCreateInfoKHR& swap_chain_create_info) {
 }
 
 Swapchain::~Swapchain() {
+  if (!Platform::Initialized())
+    return;
   vk_image_views_.clear();
   if (vk_swapchain_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroySwapchainKHR(Platform::GetVkDevice(), vk_swapchain_, nullptr);
@@ -153,6 +165,8 @@ VkExtent2D Swapchain::GetImageExtent() const {
 }
 
 ImageView::ImageView(const VkImageViewCreateInfo& image_view_create_info) {
+  if (!Platform::Initialized())
+    return;
   Platform::CheckVk(vkCreateImageView(Platform::GetVkDevice(), &image_view_create_info, nullptr, &vk_image_view_));
   image_ = nullptr;
   flags_ = image_view_create_info.flags;
@@ -163,6 +177,8 @@ ImageView::ImageView(const VkImageViewCreateInfo& image_view_create_info) {
 }
 
 ImageView::ImageView(const VkImageViewCreateInfo& image_view_create_info, const std::shared_ptr<Image>& image) {
+  if (!Platform::Initialized())
+    return;
   Platform::CheckVk(vkCreateImageView(Platform::GetVkDevice(), &image_view_create_info, nullptr, &vk_image_view_));
   image_ = image;
   flags_ = image_view_create_info.flags;
@@ -173,6 +189,8 @@ ImageView::ImageView(const VkImageViewCreateInfo& image_view_create_info, const 
 }
 
 ImageView::~ImageView() {
+  if (!Platform::Initialized())
+    return;
   if (vk_image_view_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyImageView(Platform::GetVkDevice(), vk_image_view_, nullptr);
     vk_image_view_ = VK_NULL_HANDLE;
@@ -188,6 +206,8 @@ const std::shared_ptr<Image>& ImageView::GetImage() const {
 }
 
 ShaderModule::~ShaderModule() {
+  if (!Platform::Initialized())
+    return;
   if (vk_shader_module_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyShaderModule(Platform::GetVkDevice(), vk_shader_module_, nullptr);
     vk_shader_module_ = VK_NULL_HANDLE;
@@ -195,6 +215,8 @@ ShaderModule::~ShaderModule() {
 }
 
 ShaderModule::ShaderModule(const VkShaderModuleCreateInfo& create_info) {
+  if (!Platform::Initialized())
+    return;
   Platform::CheckVk(vkCreateShaderModule(Platform::GetVkDevice(), &create_info, nullptr, &vk_shader_module_));
 }
 
@@ -203,6 +225,8 @@ VkShaderModule ShaderModule::GetVkShaderModule() const {
 }
 
 PipelineLayout::PipelineLayout(const VkPipelineLayoutCreateInfo& pipeline_layout_create_info) {
+  if (!Platform::Initialized())
+    return;
   Platform::CheckVk(
       vkCreatePipelineLayout(Platform::GetVkDevice(), &pipeline_layout_create_info, nullptr, &vk_pipeline_layout_));
 
@@ -213,6 +237,8 @@ PipelineLayout::PipelineLayout(const VkPipelineLayoutCreateInfo& pipeline_layout
 }
 
 PipelineLayout::~PipelineLayout() {
+  if (!Platform::Initialized())
+    return;
   if (vk_pipeline_layout_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipelineLayout(Platform::GetVkDevice(), vk_pipeline_layout_, nullptr);
     vk_pipeline_layout_ = VK_NULL_HANDLE;
@@ -224,11 +250,15 @@ VkPipelineLayout PipelineLayout::GetVkPipelineLayout() const {
 }
 
 CommandPool::CommandPool(const VkCommandPoolCreateInfo& command_pool_create_info) {
+  if (!Platform::Initialized())
+    return;
   Platform::CheckVk(
       vkCreateCommandPool(Platform::GetVkDevice(), &command_pool_create_info, nullptr, &vk_command_pool_));
 }
 
 CommandPool::~CommandPool() {
+  if (!Platform::Initialized())
+    return;
   if (vk_command_pool_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyCommandPool(Platform::GetVkDevice(), vk_command_pool_, nullptr);
     vk_command_pool_ = VK_NULL_HANDLE;
@@ -244,6 +274,8 @@ uint32_t Image::GetMipLevels() const {
 }
 
 Image::Image(VkImageCreateInfo image_create_info) {
+  if (!Platform::Initialized())
+    return;
 #if ENABLE_EXTERNAL_MEMORY
   VkExternalMemoryImageCreateInfo vk_external_mem_image_create_info = {};
   vk_external_mem_image_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
@@ -277,6 +309,8 @@ Image::Image(VkImageCreateInfo image_create_info) {
 }
 
 Image::Image(VkImageCreateInfo image_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info) {
+  if (!Platform::Initialized())
+    return;
 #if ENABLE_EXTERNAL_MEMORY
   VkExternalMemoryImageCreateInfo vk_external_mem_image_create_info = {};
   vk_external_mem_image_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
@@ -413,6 +447,8 @@ VkImageLayout Image::GetLayout() const {
 }
 
 Image::~Image() {
+  if (!Platform::Initialized())
+    return;
   if ((vk_image_ != VK_NULL_HANDLE || vma_allocation_ != VK_NULL_HANDLE) &&
       Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vmaDestroyImage(Platform::GetVmaAllocator(), vk_image_, vma_allocation_);
@@ -472,10 +508,14 @@ int Image::GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR externalMemory
 }
 #endif
 Sampler::Sampler(const VkSamplerCreateInfo& sampler_create_info) {
+  if (!Platform::Initialized())
+    return;
   Platform::CheckVk(vkCreateSampler(Platform::GetVkDevice(), &sampler_create_info, nullptr, &vk_sampler_));
 }
 
 Sampler::~Sampler() {
+  if (!Platform::Initialized())
+    return;
   if (vk_sampler_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroySampler(Platform::GetVkDevice(), vk_sampler_, nullptr);
     vk_sampler_ = VK_NULL_HANDLE;
@@ -546,6 +586,8 @@ void Buffer::Allocate(VkBufferCreateInfo buffer_create_info,
 }
 
 Buffer::Buffer(const size_t staging_buffer_size, bool random_access) {
+  if (!Platform::Initialized())
+    return;
   VkBufferCreateInfo staging_buffer_create_info{};
   staging_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   staging_buffer_create_info.size = staging_buffer_size;
@@ -560,6 +602,8 @@ Buffer::Buffer(const size_t staging_buffer_size, bool random_access) {
 }
 
 Buffer::Buffer(const VkBufferCreateInfo& buffer_create_info) {
+  if (!Platform::Initialized())
+    return;
   VmaAllocationCreateInfo alloc_info = {};
   alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
   Allocate(buffer_create_info, alloc_info);
@@ -567,6 +611,8 @@ Buffer::Buffer(const VkBufferCreateInfo& buffer_create_info) {
 
 Buffer::Buffer(const VkBufferCreateInfo& buffer_create_info,
                const VmaAllocationCreateInfo& vma_allocation_create_info) {
+  if (!Platform::Initialized())
+    return;
   Allocate(buffer_create_info, vma_allocation_create_info);
 }
 
@@ -608,6 +654,8 @@ void Buffer::Resize(const VkDeviceSize new_size) {
 }
 
 Buffer::~Buffer() {
+  if (!Platform::Initialized())
+    return;
   if ((vk_buffer_ != VK_NULL_HANDLE || vma_allocation_ != VK_NULL_HANDLE) &&
       Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vmaDestroyBuffer(Platform::GetVmaAllocator(), vk_buffer_, vma_allocation_);
@@ -679,6 +727,8 @@ const VmaAllocationInfo& Buffer::GetVmaAllocationInfo() const {
 }
 
 DescriptorSetLayout::~DescriptorSetLayout() {
+  if (!Platform::Initialized())
+    return;
   if (vk_descriptor_set_layout_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyDescriptorSetLayout(Platform::GetVkDevice(), vk_descriptor_set_layout_, nullptr);
     vk_descriptor_set_layout_ = VK_NULL_HANDLE;
@@ -701,6 +751,8 @@ void DescriptorSetLayout::PushDescriptorBinding(uint32_t binding_index, VkDescri
 }
 
 void DescriptorSetLayout::Initialize() {
+  if (!Platform::Initialized())
+    return;
   if (vk_descriptor_set_layout_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyDescriptorSetLayout(Platform::GetVkDevice(), vk_descriptor_set_layout_, nullptr);
     vk_descriptor_set_layout_ = VK_NULL_HANDLE;
@@ -732,6 +784,8 @@ const VkDescriptorSet& DescriptorSet::GetVkDescriptorSet() const {
 }
 
 DescriptorSet::~DescriptorSet() {
+  if (!Platform::Initialized())
+    return;
   if (descriptor_set_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     Platform::CheckVk(vkFreeDescriptorSets(Platform::GetVkDevice(),
                                            Platform::GetDescriptorPool()->GetVkDescriptorPool(), 1, &descriptor_set_));
@@ -740,6 +794,8 @@ DescriptorSet::~DescriptorSet() {
 }
 
 DescriptorSet::DescriptorSet(const std::shared_ptr<DescriptorSetLayout>& target_layout) {
+  if (!Platform::Initialized())
+    return;
   VkDescriptorSetAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
   alloc_info.descriptorPool = Platform::GetDescriptorPool()->GetVkDescriptorPool();
@@ -819,11 +875,15 @@ const VkDescriptorSetLayout& DescriptorSetLayout::GetVkDescriptorSetLayout() con
 }
 
 DescriptorPool::DescriptorPool(const VkDescriptorPoolCreateInfo& descriptor_pool_create_info) {
+  if (!Platform::Initialized())
+    return;
   Platform::CheckVk(
       vkCreateDescriptorPool(Platform::GetVkDevice(), &descriptor_pool_create_info, nullptr, &vk_descriptor_pool_));
 }
 
 DescriptorPool::~DescriptorPool() {
+  if (!Platform::Initialized())
+    return;
   if (vk_descriptor_pool_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyDescriptorPool(Platform::GetVkDevice(), vk_descriptor_pool_, nullptr);
     vk_descriptor_pool_ = VK_NULL_HANDLE;
@@ -835,6 +895,8 @@ VkDescriptorPool DescriptorPool::GetVkDescriptorPool() const {
 }
 
 ShaderExt::ShaderExt(const VkShaderCreateInfoEXT& shader_create_info_ext) {
+  if (!Platform::Initialized())
+    return;
   Platform::CheckVk(vkCreateShadersEXT(Platform::GetVkDevice(), 1, &shader_create_info_ext, nullptr, &shader_ext_));
   flags_ = shader_create_info_ext.flags;
   stage_ = shader_create_info_ext.stage;
@@ -849,6 +911,8 @@ ShaderExt::ShaderExt(const VkShaderCreateInfoEXT& shader_create_info_ext) {
 }
 
 ShaderExt::~ShaderExt() {
+  if (!Platform::Initialized())
+    return;
   if (shader_ext_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyShaderEXT(Platform::GetVkDevice(), shader_ext_, nullptr);
     shader_ext_ = VK_NULL_HANDLE;
@@ -864,6 +928,8 @@ CommandBufferStatus CommandBuffer::GetStatus() const {
 }
 
 CommandBuffer::CommandBuffer(const VkCommandBufferLevel& buffer_level) {
+  if (!Platform::Initialized())
+    return;
   VkCommandBufferAllocateInfo command_buffer_allocate_info = {};
   command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
   command_buffer_allocate_info.commandPool = Platform::GetVkCommandPool();
@@ -875,6 +941,8 @@ CommandBuffer::CommandBuffer(const VkCommandBufferLevel& buffer_level) {
 }
 
 CommandBuffer::~CommandBuffer() {
+  if (!Platform::Initialized())
+    return;
   if (vk_command_buffer_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkFreeCommandBuffers(Platform::GetVkDevice(), Platform::GetVkCommandPool(), 1, &vk_command_buffer_);
     vk_command_buffer_ = VK_NULL_HANDLE;
@@ -1083,8 +1151,14 @@ void CommandQueue::WaitIdle() const {
   vkQueueWaitIdle(vk_queue_);
 }
 
+VkQueue CommandQueue::GetVkQueue() const {
+  return vk_queue_;
+}
+
 BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices,
                                                                    const std::vector<glm::uvec3>& triangles) {
+  if (!Platform::Initialized())
+    return;
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_create_info.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
@@ -1202,7 +1276,10 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
 }
 
 BottomLevelAccelerationStructure::~BottomLevelAccelerationStructure() {
-  vkDestroyAccelerationStructureKHR(Platform::GetVkDevice(), vk_acceleration_structure_khr_, nullptr);
+  if (!Platform::Initialized())
+    return;
+  if (vk_acceleration_structure_khr_ != VK_NULL_HANDLE)
+    vkDestroyAccelerationStructureKHR(Platform::GetVkDevice(), vk_acceleration_structure_khr_, nullptr);
 }
 
 VkDeviceAddress BottomLevelAccelerationStructure::GetDeviceAddress() const {
@@ -1211,6 +1288,8 @@ VkDeviceAddress BottomLevelAccelerationStructure::GetDeviceAddress() const {
 
 TopLevelAccelerationStructure::TopLevelAccelerationStructure(
     const std::shared_ptr<Scene>& scene, const std::shared_ptr<MeshRenderInstanceCollection>& render_instances) {
+  if (!Platform::Initialized())
+    return;
   std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances;
   render_instances->ForEachRenderInstance([&](const std::shared_ptr<IRenderInstance>& render_instance) {
     auto& acceleration_structure_instance = acceleration_structure_instances.emplace_back();
@@ -1329,7 +1408,10 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(
 }
 
 TopLevelAccelerationStructure::~TopLevelAccelerationStructure() {
-  vkDestroyAccelerationStructureKHR(Platform::GetVkDevice(), vk_acceleration_structure_khr_, nullptr);
+  if (!Platform::Initialized())
+    return;
+  if (vk_acceleration_structure_khr_ != VK_NULL_HANDLE)
+    vkDestroyAccelerationStructureKHR(Platform::GetVkDevice(), vk_acceleration_structure_khr_, nullptr);
 }
 
 VkAccelerationStructureKHR TopLevelAccelerationStructure::GetVkAccelerationStructure() const {

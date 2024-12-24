@@ -72,6 +72,8 @@ void GeometryStorage::UploadData() {
 }
 
 void GeometryStorage::DeviceSync() {
+  if (!Platform::Initialized())
+    return;
   auto& storage = GetInstance();
   storage.UploadData();
 }

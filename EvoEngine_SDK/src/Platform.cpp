@@ -24,6 +24,7 @@ void Platform::Initialize() {
   if (volkInitialize() != VK_SUCCESS) {
     throw std::runtime_error("Volk failed to initialize!");
   }
+  graphics.initialized = true;
 #pragma endregion
 #pragma region Vulkan
   graphics.CreateInstance();
@@ -35,19 +36,9 @@ void Platform::Initialize() {
 #endif
   graphics.CreateLogicalDevice();
   graphics.SetupVmaAllocator();
-
+  Shader::RegisterShaderIncludePath(std::filesystem::path("./DefaultResources/Shaders/Includes"));
   const auto& selected_physical_device = graphics.selected_physical_device;
-  if (selected_physical_device->queue_family_indices.present_family.has_value()) {
-    graphics.CreateSwapChain();
-    graphics.vk_surface_format_ = selected_physical_device->swap_chain_support_details.formats[0];
-    for (const auto& available_format : selected_physical_device->swap_chain_support_details.formats) {
-      if (available_format.format == VK_FORMAT_B8G8R8A8_SRGB &&
-          available_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-        graphics.vk_surface_format_ = available_format;
-        break;
-      }
-    }
-  }
+  
   if (graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
 #pragma region Command pool
     VkCommandPoolCreateInfo pool_info{};
@@ -82,11 +73,28 @@ void Platform::Initialize() {
     render_layer_descriptor_pool_info.maxSets = Constants::initial_descriptor_pool_max_sets;
     graphics.descriptor_pool_ = std::make_unique<DescriptorPool>(render_layer_descriptor_pool_info);
   }
-
+  
   graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
+  if (!RenderTexture::render_texture_present_layout) {
+    RenderTexture::render_texture_present_layout = std::make_shared<DescriptorSetLayout>();
+    RenderTexture::render_texture_present_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                                        VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    RenderTexture::render_texture_present_layout->Initialize();
+  }
 #pragma endregion
   const auto window_layer = Application::GetLayer<WindowLayer>();
   if (window_layer) {
+    if (selected_physical_device->queue_family_indices.present_family.has_value()) {
+      graphics.CreateSwapChain();
+      graphics.vk_surface_format_ = selected_physical_device->swap_chain_support_details.formats[0];
+      for (const auto& available_format : selected_physical_device->swap_chain_support_details.formats) {
+        if (available_format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+            available_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+          graphics.vk_surface_format_ = available_format;
+          break;
+        }
+      }
+    }
     if (!graphics.render_texture_present_pipeline) {
       graphics.render_texture_present_pipeline = std::make_shared<GraphicsPipeline>();
       graphics.render_texture_present_pipeline->vertex_shader =
@@ -274,12 +282,6 @@ void Platform::Initialize() {
     RenderTexture::render_texture_storage_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                                                                         VK_SHADER_STAGE_ALL, 0);
     RenderTexture::render_texture_storage_layout->Initialize();
-  }
-  if (!RenderTexture::render_texture_present_layout) {
-    RenderTexture::render_texture_present_layout = std::make_shared<DescriptorSetLayout>();
-    RenderTexture::render_texture_present_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                                        VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    RenderTexture::render_texture_present_layout->Initialize();
   }
 
 #pragma endregion
@@ -1579,6 +1581,7 @@ void Platform::OnDestroy() {
   vkDestroyInstance(graphics.vk_instance_, nullptr);
 #pragma endregion
   graphics.vk_instance_ = nullptr;
+  graphics.initialized = false;
 }
 
 void Platform::SubmitPresent() {
@@ -1689,8 +1692,7 @@ void Platform::PreUpdate() {
 void Platform::LateUpdate() {
   auto& graphics = GetInstance();
   if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
-    if (const auto render_layer = Application::GetLayer<RenderLayer>();
-        render_layer && !Application::GetLayer<EditorLayer>()) {
+    if (!Application::GetLayer<EditorLayer>()) {
       if (const auto scene = Application::GetActiveScene()) {
         if (const auto main_camera = scene->main_camera.Get<Camera>();
             main_camera->IsEnabled() && main_camera->rendered_) {
@@ -1765,6 +1767,11 @@ void Platform::LateUpdate() {
   } else {
     graphics.Submit();
   }
+}
+
+bool Platform::Initialized() {
+  const auto& graphics = GetInstance();
+  return graphics.initialized;
 }
 
 bool Platform::CheckExtensionSupport(const std::string& extension_name) {

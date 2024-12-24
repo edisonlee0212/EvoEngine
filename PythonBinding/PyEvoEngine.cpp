@@ -19,11 +19,11 @@ using namespace evo_engine;
 namespace py = pybind11;
 
 void push_layers(const bool enable_window_layer, const bool enable_editor_layer) {
+  Application::PushLayer<RenderLayer>();
   if (enable_window_layer)
     Application::PushLayer<WindowLayer>();
   if (enable_window_layer && enable_editor_layer)
     Application::PushLayer<EditorLayer>();
-  Application::PushLayer<RenderLayer>();
 }
 
 void engine_run_windowless(const std::filesystem::path& project_path) {

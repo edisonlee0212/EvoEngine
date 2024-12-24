@@ -197,7 +197,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
       blur_pipeline->Bind(vk_command_buffer);
       blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_horizontal_descriptor_set->GetVkDescriptorSet());
       blur_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                           target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
+                                       target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
       blur_pipeline->states.view_port = viewport;
       blur_pipeline->states.scissor = scissor;
       blur_push_constant.horizontal = true;
@@ -224,7 +224,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
       blur_pipeline->Bind(vk_command_buffer);
       blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_vertical_descriptor_set->GetVkDescriptorSet());
       blur_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                           target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
+                                       target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
       blur_pipeline->states.view_port = viewport;
       blur_pipeline->states.scissor = scissor;
       blur_push_constant.horizontal = false;
@@ -300,7 +300,9 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines() {
   combine_layout->Initialize();
 
   geometry_pipeline = std::make_shared<GraphicsPipeline>();
-  geometry_pipeline->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
+  geometry_pipeline->vertex_shader =
+      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
   geometry_pipeline->fragment_shader = Shader::CreateTemporary(
       ShaderType::Fragment, Platform::Constants::shader_global_defines,
       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSAOGeometry.frag");
@@ -318,7 +320,9 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines() {
   geometry_pipeline->Initialize();
 
   combine_pipeline = std::make_shared<GraphicsPipeline>();
-  combine_pipeline->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
+  combine_pipeline->vertex_shader =
+      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
   combine_pipeline->fragment_shader = Shader::CreateTemporary(
       ShaderType::Fragment, Platform::Constants::shader_global_defines,
       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSAOCombine.frag");
@@ -348,7 +352,9 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines() {
 
   if (!blur_pipeline) {
     blur_pipeline = std::make_shared<GraphicsPipeline>();
-    blur_pipeline->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
+    blur_pipeline->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     blur_pipeline->fragment_shader =
         Shader::CreateTemporary(ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
                                                           "Shaders/Graphics/Fragment/PostProcessing/SSAOBlur.frag");

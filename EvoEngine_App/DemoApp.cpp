@@ -77,9 +77,9 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
 
 int main() {
   constexpr DemoSetup demo_setup = DemoSetup::Rendering;
+  Application::PushLayer<RenderLayer>();
   Application::PushLayer<WindowLayer>();
   Application::PushLayer<EditorLayer>();
-  Application::PushLayer<RenderLayer>();
 #ifdef UNIVERSE_PLUGIN
   SystemRegistration<StarClusterSystem>("StarClusterSystem");
   SystemRegistration<PlanetTerrainSystem>("PlanetTerrainSystem");

@@ -45,11 +45,12 @@ void register_classes() {
 }
 
 void push_layers(bool enable_window_layer, bool enable_editor_layer) {
+  Application::PushLayer<RenderLayer>();
   if (enable_window_layer)
     Application::PushLayer<WindowLayer>();
   if (enable_window_layer && enable_editor_layer)
     Application::PushLayer<EditorLayer>();
-  Application::PushLayer<RenderLayer>();
+  
 #ifdef ECOSYSLAB_PLUGIN
   Application::PushLayer<EcoSysLabLayer>();
 #endif

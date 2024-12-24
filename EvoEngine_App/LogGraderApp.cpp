@@ -69,9 +69,9 @@ int main() {
     }
   }
 
+  Application::PushLayer<RenderLayer>();
   Application::PushLayer<WindowLayer>();
   Application::PushLayer<EditorLayer>();
-  Application::PushLayer<RenderLayer>();
 #ifdef LOG_GRADING_PLUGIN
   PrivateComponentRegistration<LogGrader>("LogGrader");
 #endif

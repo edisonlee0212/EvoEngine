@@ -1027,6 +1027,8 @@ void RenderInstanceStorage::Clear() {
 }
 
 void RenderInstanceStorage::Upload() const {
+  if (!Platform::Initialized())
+    return;
   camera_info_descriptor_buffer->UploadVector(camera_info_blocks_);
   material_info_descriptor_buffer->UploadVector(material_info_blocks_);
   instance_info_descriptor_buffer->UploadVector(instance_info_blocks_);
@@ -1313,22 +1315,23 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   } else {
     deferred_render_instances->Register(render_instance);
   }
-  const uint32_t task_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands.emplace_back();
-  const uint32_t count =
-      (render_instance->meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
-  new_mesh_task.groupCountX = count;
-  new_mesh_task.groupCountY = 1;
-  new_mesh_task.groupCountZ = 1;
+  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+    const uint32_t task_work_group_invocations =
+        Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+    auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands.emplace_back();
+    const uint32_t count =
+        (render_instance->meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
+    new_mesh_task.groupCountX = count;
+    new_mesh_task.groupCountY = 1;
+    new_mesh_task.groupCountZ = 1;
 
-  auto& new_draw_task = mesh_draw_indexed_indirect_commands.emplace_back();
-  new_draw_task.instanceCount = 1;
-  new_draw_task.firstIndex = mesh->triangle_range_->offset * 3;
-  new_draw_task.indexCount = static_cast<uint32_t>(mesh->triangles_.size() * 3);
-  new_draw_task.vertexOffset = 0;
-  new_draw_task.firstInstance = 0;
-
+    auto& new_draw_task = mesh_draw_indexed_indirect_commands.emplace_back();
+    new_draw_task.instanceCount = 1;
+    new_draw_task.firstIndex = mesh->triangle_range_->offset * 3;
+    new_draw_task.indexCount = static_cast<uint32_t>(mesh->triangles_.size() * 3);
+    new_draw_task.vertexOffset = 0;
+    new_draw_task.firstInstance = 0;
+  }
   total_mesh_triangles += mesh->triangles_.size();
   return true;
 }
