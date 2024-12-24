@@ -224,3 +224,8 @@ void Jobs::Wait(const JobHandle& job_handle) {
   jobs.job_system_.ExecuteJob(job_handle);
   jobs.job_system_.Wait(job_handle);
 }
+
+void Jobs::OnDestroy() {
+  auto& jobs = GetInstance();
+  jobs.job_system_.OnDestroy();
+}

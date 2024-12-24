@@ -15,7 +15,7 @@ Fence::Fence(const VkFenceCreateInfo& vk_fence_create_info) {
 }
 
 Fence::~Fence() {
-  if (vk_fence_ != VK_NULL_HANDLE) {
+  if (vk_fence_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyFence(Platform::GetVkDevice(), vk_fence_, nullptr);
     vk_fence_ = nullptr;
   }
@@ -31,7 +31,7 @@ Semaphore::Semaphore(const VkSemaphoreCreateInfo& semaphore_create_info) {
 }
 
 Semaphore::~Semaphore() {
-  if (vk_semaphore_ != VK_NULL_HANDLE) {
+  if (vk_semaphore_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroySemaphore(Platform::GetVkDevice(), vk_semaphore_, nullptr);
     vk_semaphore_ = VK_NULL_HANDLE;
   }
@@ -118,7 +118,7 @@ Swapchain::Swapchain(const VkSwapchainCreateInfoKHR& swap_chain_create_info) {
 
 Swapchain::~Swapchain() {
   vk_image_views_.clear();
-  if (vk_swapchain_ != VK_NULL_HANDLE) {
+  if (vk_swapchain_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroySwapchainKHR(Platform::GetVkDevice(), vk_swapchain_, nullptr);
     vk_swapchain_ = VK_NULL_HANDLE;
   }
@@ -173,7 +173,7 @@ ImageView::ImageView(const VkImageViewCreateInfo& image_view_create_info, const 
 }
 
 ImageView::~ImageView() {
-  if (vk_image_view_ != VK_NULL_HANDLE) {
+  if (vk_image_view_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyImageView(Platform::GetVkDevice(), vk_image_view_, nullptr);
     vk_image_view_ = VK_NULL_HANDLE;
   }
@@ -188,7 +188,7 @@ const std::shared_ptr<Image>& ImageView::GetImage() const {
 }
 
 ShaderModule::~ShaderModule() {
-  if (vk_shader_module_ != VK_NULL_HANDLE) {
+  if (vk_shader_module_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyShaderModule(Platform::GetVkDevice(), vk_shader_module_, nullptr);
     vk_shader_module_ = VK_NULL_HANDLE;
   }
@@ -213,7 +213,7 @@ PipelineLayout::PipelineLayout(const VkPipelineLayoutCreateInfo& pipeline_layout
 }
 
 PipelineLayout::~PipelineLayout() {
-  if (vk_pipeline_layout_ != VK_NULL_HANDLE) {
+  if (vk_pipeline_layout_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipelineLayout(Platform::GetVkDevice(), vk_pipeline_layout_, nullptr);
     vk_pipeline_layout_ = VK_NULL_HANDLE;
   }
@@ -229,7 +229,7 @@ CommandPool::CommandPool(const VkCommandPoolCreateInfo& command_pool_create_info
 }
 
 CommandPool::~CommandPool() {
-  if (vk_command_pool_ != VK_NULL_HANDLE) {
+  if (vk_command_pool_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyCommandPool(Platform::GetVkDevice(), vk_command_pool_, nullptr);
     vk_command_pool_ = VK_NULL_HANDLE;
   }
@@ -413,7 +413,8 @@ VkImageLayout Image::GetLayout() const {
 }
 
 Image::~Image() {
-  if (vk_image_ != VK_NULL_HANDLE || vma_allocation_ != VK_NULL_HANDLE) {
+  if ((vk_image_ != VK_NULL_HANDLE || vma_allocation_ != VK_NULL_HANDLE) &&
+      Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vmaDestroyImage(Platform::GetVmaAllocator(), vk_image_, vma_allocation_);
     vk_image_ = VK_NULL_HANDLE;
     vma_allocation_ = VK_NULL_HANDLE;
@@ -475,7 +476,7 @@ Sampler::Sampler(const VkSamplerCreateInfo& sampler_create_info) {
 }
 
 Sampler::~Sampler() {
-  if (vk_sampler_ != VK_NULL_HANDLE) {
+  if (vk_sampler_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroySampler(Platform::GetVkDevice(), vk_sampler_, nullptr);
     vk_sampler_ = VK_NULL_HANDLE;
   }
@@ -572,7 +573,8 @@ Buffer::Buffer(const VkBufferCreateInfo& buffer_create_info,
 void Buffer::Resize(const VkDeviceSize new_size) {
   if (new_size == size_)
     return;
-  if (vk_buffer_ != VK_NULL_HANDLE || vma_allocation_ != VK_NULL_HANDLE) {
+  if ((vk_buffer_ != VK_NULL_HANDLE || vma_allocation_ != VK_NULL_HANDLE) &&
+      Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vmaDestroyBuffer(Platform::GetVmaAllocator(), vk_buffer_, vma_allocation_);
     vk_buffer_ = VK_NULL_HANDLE;
     vma_allocation_ = VK_NULL_HANDLE;
@@ -606,7 +608,8 @@ void Buffer::Resize(const VkDeviceSize new_size) {
 }
 
 Buffer::~Buffer() {
-  if (vk_buffer_ != VK_NULL_HANDLE || vma_allocation_ != VK_NULL_HANDLE) {
+  if ((vk_buffer_ != VK_NULL_HANDLE || vma_allocation_ != VK_NULL_HANDLE) &&
+      Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vmaDestroyBuffer(Platform::GetVmaAllocator(), vk_buffer_, vma_allocation_);
     vk_buffer_ = VK_NULL_HANDLE;
     vma_allocation_ = VK_NULL_HANDLE;
@@ -676,7 +679,7 @@ const VmaAllocationInfo& Buffer::GetVmaAllocationInfo() const {
 }
 
 DescriptorSetLayout::~DescriptorSetLayout() {
-  if (vk_descriptor_set_layout_ != VK_NULL_HANDLE) {
+  if (vk_descriptor_set_layout_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyDescriptorSetLayout(Platform::GetVkDevice(), vk_descriptor_set_layout_, nullptr);
     vk_descriptor_set_layout_ = VK_NULL_HANDLE;
   }
@@ -698,7 +701,7 @@ void DescriptorSetLayout::PushDescriptorBinding(uint32_t binding_index, VkDescri
 }
 
 void DescriptorSetLayout::Initialize() {
-  if (vk_descriptor_set_layout_ != VK_NULL_HANDLE) {
+  if (vk_descriptor_set_layout_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyDescriptorSetLayout(Platform::GetVkDevice(), vk_descriptor_set_layout_, nullptr);
     vk_descriptor_set_layout_ = VK_NULL_HANDLE;
   }
@@ -729,7 +732,7 @@ const VkDescriptorSet& DescriptorSet::GetVkDescriptorSet() const {
 }
 
 DescriptorSet::~DescriptorSet() {
-  if (descriptor_set_ != VK_NULL_HANDLE) {
+  if (descriptor_set_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     Platform::CheckVk(vkFreeDescriptorSets(Platform::GetVkDevice(),
                                            Platform::GetDescriptorPool()->GetVkDescriptorPool(), 1, &descriptor_set_));
     descriptor_set_ = VK_NULL_HANDLE;
@@ -821,7 +824,7 @@ DescriptorPool::DescriptorPool(const VkDescriptorPoolCreateInfo& descriptor_pool
 }
 
 DescriptorPool::~DescriptorPool() {
-  if (vk_descriptor_pool_ != VK_NULL_HANDLE) {
+  if (vk_descriptor_pool_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyDescriptorPool(Platform::GetVkDevice(), vk_descriptor_pool_, nullptr);
     vk_descriptor_pool_ = VK_NULL_HANDLE;
   }
@@ -846,7 +849,7 @@ ShaderExt::ShaderExt(const VkShaderCreateInfoEXT& shader_create_info_ext) {
 }
 
 ShaderExt::~ShaderExt() {
-  if (shader_ext_ != VK_NULL_HANDLE) {
+  if (shader_ext_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyShaderEXT(Platform::GetVkDevice(), shader_ext_, nullptr);
     shader_ext_ = VK_NULL_HANDLE;
   }
@@ -872,7 +875,7 @@ CommandBuffer::CommandBuffer(const VkCommandBufferLevel& buffer_level) {
 }
 
 CommandBuffer::~CommandBuffer() {
-  if (vk_command_buffer_ != VK_NULL_HANDLE) {
+  if (vk_command_buffer_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkFreeCommandBuffers(Platform::GetVkDevice(), Platform::GetVkCommandPool(), 1, &vk_command_buffer_);
     vk_command_buffer_ = VK_NULL_HANDLE;
   }
@@ -1206,21 +1209,22 @@ VkDeviceAddress BottomLevelAccelerationStructure::GetDeviceAddress() const {
   return device_address_;
 }
 
-TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene,
-                                                             const std::vector<MeshRenderInstance>& render_instances) {
-  std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances(render_instances.size());
-  Jobs::RunParallelFor(render_instances.size(), [&](const size_t i) {
-    const auto& render_instance = render_instances[i];
-    auto& acceleration_structure_instance = acceleration_structure_instances[i];
-    const auto global_transform = scene->GetDataComponent<GlobalTransform>(render_instance.owner);
+TopLevelAccelerationStructure::TopLevelAccelerationStructure(
+    const std::shared_ptr<Scene>& scene, const std::shared_ptr<MeshRenderInstanceCollection>& render_instances) {
+  std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances;
+  render_instances->ForEachRenderInstance([&](const std::shared_ptr<IRenderInstance>& render_instance) {
+    auto& acceleration_structure_instance = acceleration_structure_instances.emplace_back();
+    const auto global_transform = scene->GetDataComponent<GlobalTransform>(render_instance->owner);
     memcpy(&acceleration_structure_instance.transform.matrix[0][0], glm::value_ptr(global_transform.value),
            sizeof(VkTransformMatrixKHR));
-    acceleration_structure_instance.instanceCustomIndex = render_instance.instance_index;
+    acceleration_structure_instance.instanceCustomIndex = render_instance->instance_index;
     acceleration_structure_instance.mask = 0xFF;
     acceleration_structure_instance.instanceShaderBindingTableRecordOffset = 0;
     acceleration_structure_instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-    acceleration_structure_instance.accelerationStructureReference = render_instance.mesh->blas_->GetDeviceAddress();
+    acceleration_structure_instance.accelerationStructureReference =
+        std::dynamic_pointer_cast<MeshRenderInstance>(render_instance)->mesh->blas_->GetDeviceAddress();
   });
+
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_create_info.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |

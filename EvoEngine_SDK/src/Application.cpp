@@ -367,13 +367,13 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   Entities::Initialize();
   TransformGraph::Initialize();
   Platform::Initialize();
+  ProjectManager::Initialize();
   Resources::Initialize();
   Resources::InitializeEnvironmentalMap();
 
   for (const auto& layer : application.layers_) {
     layer->OnCreate();
   }
-  
 
   if (!application.application_info_.project_path.empty()) {
     ProjectManager::GetOrCreateProject(application.application_info_.project_path);
@@ -420,10 +420,18 @@ void Application::End() {
 }
 
 void Application::Terminate() {
-  const auto& application = GetInstance();
+  auto& application = GetInstance();
   for (auto i = application.layers_.rbegin(); i != application.layers_.rend(); ++i) {
     (*i)->OnDestroy();
   }
+  application.layers_.clear();
+  Jobs::OnDestroy();
+  ProjectManager::OnDestroy();
+  Resources::OnDestroy();
+  application.active_scene_.reset();
+  TextureStorage::OnDestroy();
+  GeometryStorage::OnDestroy();
+  Platform::OnDestroy();
 }
 
 const std::vector<std::shared_ptr<ILayer>>& Application::GetLayers() {

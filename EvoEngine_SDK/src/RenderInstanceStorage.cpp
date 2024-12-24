@@ -221,6 +221,29 @@ bool MeshRenderInstanceCollection::operator!=(const MeshRenderInstanceCollection
   return false;
 }
 
+bool MeshRenderInstanceCollection::Empty() const {
+  return render_commands.empty();
+}
+
+void MeshRenderInstanceCollection::Register(const std::shared_ptr<IRenderInstance>& render_instance) {
+  render_commands.emplace_back(std::dynamic_pointer_cast<MeshRenderInstance>(render_instance));
+}
+
+void MeshRenderInstanceCollection::ForEachRenderInstance(
+    const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) {
+  for (const auto& i : render_commands) {
+    action(i);
+  }
+}
+
+bool SkinnedMeshRenderInstanceCollection::Empty() const {
+  return render_commands.empty();
+}
+
+void SkinnedMeshRenderInstanceCollection::Register(const std::shared_ptr<IRenderInstance>& render_instance) {
+  render_commands.emplace_back(std::dynamic_pointer_cast<SkinnedMeshRenderInstance>(render_instance));
+}
+
 bool SkinnedMeshRenderInstanceCollection::operator!=(const SkinnedMeshRenderInstanceCollection& other) const {
   if (render_commands.size() != other.render_commands.size())
     return true;
@@ -229,6 +252,21 @@ bool SkinnedMeshRenderInstanceCollection::operator!=(const SkinnedMeshRenderInst
       return true;
   }
   return false;
+}
+
+void SkinnedMeshRenderInstanceCollection::ForEachRenderInstance(
+    const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) {
+  for (const auto& i : render_commands) {
+    action(i);
+  }
+}
+
+bool StrandsRenderInstanceCollection::Empty() const {
+  return render_commands.empty();
+}
+
+void StrandsRenderInstanceCollection::Register(const std::shared_ptr<IRenderInstance>& render_instance) {
+  render_commands.emplace_back(std::dynamic_pointer_cast<StrandsRenderInstance>(render_instance));
 }
 
 bool StrandsRenderInstanceCollection::operator!=(const StrandsRenderInstanceCollection& other) const {
@@ -241,6 +279,21 @@ bool StrandsRenderInstanceCollection::operator!=(const StrandsRenderInstanceColl
   return false;
 }
 
+void StrandsRenderInstanceCollection::ForEachRenderInstance(
+    const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) {
+  for (const auto& i : render_commands) {
+    action(i);
+  }
+}
+
+bool InstancedRenderInstanceCollection::Empty() const {
+  return render_commands.empty();
+}
+
+void InstancedRenderInstanceCollection::Register(const std::shared_ptr<IRenderInstance>& render_instance) {
+  render_commands.emplace_back(std::dynamic_pointer_cast<InstancedRenderInstance>(render_instance));
+}
+
 bool InstancedRenderInstanceCollection::operator!=(const InstancedRenderInstanceCollection& other) const {
   if (render_commands.size() != other.render_commands.size())
     return true;
@@ -249,6 +302,13 @@ bool InstancedRenderInstanceCollection::operator!=(const InstancedRenderInstance
       return true;
   }
   return false;
+}
+
+void InstancedRenderInstanceCollection::ForEachRenderInstance(
+    const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) {
+  for (const auto& i : render_commands) {
+    action(i);
+  }
 }
 
 void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_render_settings) {
@@ -907,6 +967,21 @@ RenderInstanceStorage::RenderInstanceStorage() {
                                                                  mesh_draw_mesh_tasks_indirect_commands.size());
   mesh_draw_mesh_tasks_indirect_commands_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
+  deferred_render_instances = std::make_shared<MeshRenderInstanceCollection>();
+  deferred_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
+  deferred_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
+  deferred_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
+
+  forward_render_instances = std::make_shared<MeshRenderInstanceCollection>();
+  forward_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
+  forward_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
+  forward_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
+
+  transparent_render_instances = std::make_shared<MeshRenderInstanceCollection>();
+  transparent_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
+  transparent_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
+  transparent_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
 }
 
 void RenderInstanceStorage::Clear() {
@@ -915,14 +990,20 @@ void RenderInstanceStorage::Clear() {
   total_instanced_mesh_triangles = 0;
   total_strands_segments = 0;
 
-  deferred_render_instances.render_commands.clear();
-  deferred_skinned_render_instances.render_commands.clear();
-  deferred_instanced_render_instances.render_commands.clear();
-  deferred_strands_render_instances.render_commands.clear();
-  transparent_render_instances.render_commands.clear();
-  transparent_skinned_render_instances.render_commands.clear();
-  transparent_instanced_render_instances.render_commands.clear();
-  transparent_strands_render_instances.render_commands.clear();
+  deferred_render_instances = std::make_shared<MeshRenderInstanceCollection>();
+  deferred_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
+  deferred_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
+  deferred_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
+
+  forward_render_instances = std::make_shared<MeshRenderInstanceCollection>();
+  forward_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
+  forward_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
+  forward_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
+
+  transparent_render_instances = std::make_shared<MeshRenderInstanceCollection>();
+  transparent_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
+  transparent_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
+  transparent_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
 
   instance_handles_.clear();
 
@@ -1041,37 +1122,36 @@ uint32_t RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Me
     return UINT32_MAX;
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
-  auto material_index = RegisterMaterial(material->GetHandle(), material_info_block);
+  const auto material_index = RegisterMaterial(material->GetHandle(), material_info_block);
   InstanceInfoBlock instance_info_block;
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = 0;
   instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
   instance_info_block.meshlet_size = mesh->meshlet_range_->range;
   instance_info_block.entity_selected = false;
-  uint32_t instance_index = instance_info_blocks_.size();
+  const uint32_t instance_index = instance_info_blocks_.size();
   instance_info_blocks_.emplace_back(instance_info_block);
-  MeshRenderInstance render_instance;
-  render_instance.command_type = RenderInstanceType::FromApi;
-  render_instance.owner = Entity();
-  render_instance.mesh = mesh;
-  render_instance.material = material;
-  render_instance.model = model;
-  render_instance.renderer_handle = 0;
-  render_instance.cast_shadow = cast_shadow;
-  render_instance.meshlet_size = mesh->meshlet_range_->range;
-  render_instance.instance_index = instance_index;
-  render_instance.mesh_version = mesh->GetVersion();
-  render_instance.material_version = material->GetVersion();
+  const auto render_instance = std::make_shared<MeshRenderInstance>();
+  render_instance->command_type = RenderInstanceType::FromApi;
+  render_instance->owner = Entity();
+  render_instance->mesh = mesh;
+  render_instance->material = material;
+  render_instance->model = model;
+  render_instance->renderer_handle = 0;
+  render_instance->cast_shadow = cast_shadow;
+  render_instance->meshlet_size = mesh->meshlet_range_->range;
+  render_instance->instance_index = instance_index;
+  render_instance->mesh_version = mesh->GetVersion();
+  render_instance->material_version = material->GetVersion();
 
-  render_instance.line_width = material->draw_settings.line_width;
-  render_instance.cull_mode = material->draw_settings.cull_mode;
-  render_instance.polygon_mode = material->draw_settings.polygon_mode;
-  render_instance.entity_selected = false;
+  render_instance->line_width = material->draw_settings.line_width;
+  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->polygon_mode = material->draw_settings.polygon_mode;
+  render_instance->entity_selected = false;
   if (material->draw_settings.blending) {
-    transparent_render_instances.render_commands.push_back(render_instance);
+    transparent_render_instances->Register(render_instance);
   } else {
-    deferred_render_instances.render_commands.push_back(render_instance);
+    deferred_render_instances->Register(render_instance);
   }
 
   auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands.emplace_back();
@@ -1114,7 +1194,7 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
 
 void RenderInstanceStorage::UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene) {
   mesh_top_level_acceleration_structure =
-      std::make_shared<TopLevelAccelerationStructure>(scene, deferred_render_instances.render_commands);
+      std::make_shared<TopLevelAccelerationStructure>(scene, deferred_render_instances);
 }
 
 bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
@@ -1148,28 +1228,28 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   auto entity_handle = target_scene->GetEntityHandle(owner);
   auto instance_index = RegisterInstance(entity_handle, instance_info_block);
 
-  StrandsRenderInstance render_instance;
-  render_instance.command_type = RenderInstanceType::FromRenderer;
-  render_instance.owner = owner;
-  render_instance.renderer_handle = strands_renderer->GetHandle();
-  render_instance.model = gt;
-  render_instance.strands = strands;
-  render_instance.material = material;
-  render_instance.cast_shadow = strands_renderer->cast_shadow;
-  render_instance.strand_meshlet_size = strands->strand_meshlet_range_->range;
-  render_instance.strands_version = strands->GetVersion();
-  render_instance.material_version = material->GetVersion();
+  const auto render_instance = std::make_shared<StrandsRenderInstance>();
+  render_instance->command_type = RenderInstanceType::FromRenderer;
+  render_instance->owner = owner;
+  render_instance->renderer_handle = strands_renderer->GetHandle();
+  render_instance->model = gt;
+  render_instance->strands = strands;
+  render_instance->material = material;
+  render_instance->cast_shadow = strands_renderer->cast_shadow;
+  render_instance->strand_meshlet_size = strands->strand_meshlet_range_->range;
+  render_instance->strands_version = strands->GetVersion();
+  render_instance->material_version = material->GetVersion();
 
-  render_instance.instance_index = instance_index;
-  render_instance.entity_selected = instance_info_block.entity_selected == 1;
-  render_instance.line_width = material->draw_settings.line_width;
-  render_instance.cull_mode = material->draw_settings.cull_mode;
-  render_instance.polygon_mode = material->draw_settings.polygon_mode;
+  render_instance->instance_index = instance_index;
+  render_instance->entity_selected = instance_info_block.entity_selected == 1;
+  render_instance->line_width = material->draw_settings.line_width;
+  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
   if (material->draw_settings.blending) {
-    transparent_strands_render_instances.render_commands.push_back(render_instance);
+    transparent_strands_render_instances->Register(render_instance);
   } else {
-    deferred_strands_render_instances.render_commands.push_back(render_instance);
+    deferred_strands_render_instances->Register(render_instance);
   }
 
   total_strands_segments += strands->segments_.size();
@@ -1211,32 +1291,33 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
 
   auto entity_handle = target_scene->GetEntityHandle(owner);
   auto instance_index = RegisterInstance(entity_handle, instance_info_block);
-  MeshRenderInstance render_instance;
-  render_instance.command_type = RenderInstanceType::FromRenderer;
-  render_instance.owner = owner;
-  render_instance.mesh = mesh;
-  render_instance.material = material;
-  render_instance.model = gt;
-  render_instance.renderer_handle = mesh_renderer->GetHandle();
-  render_instance.cast_shadow = mesh_renderer->cast_shadow;
-  render_instance.meshlet_size = mesh->meshlet_range_->range;
-  render_instance.instance_index = instance_index;
-  render_instance.mesh_version = mesh->GetVersion();
-  render_instance.material_version = material->GetVersion();
+  const auto render_instance = std::make_shared<MeshRenderInstance>();
+  render_instance->command_type = RenderInstanceType::FromRenderer;
+  render_instance->owner = owner;
+  render_instance->mesh = mesh;
+  render_instance->material = material;
+  render_instance->model = gt;
+  render_instance->renderer_handle = mesh_renderer->GetHandle();
+  render_instance->cast_shadow = mesh_renderer->cast_shadow;
+  render_instance->meshlet_size = mesh->meshlet_range_->range;
+  render_instance->instance_index = instance_index;
+  render_instance->mesh_version = mesh->GetVersion();
+  render_instance->material_version = material->GetVersion();
 
-  render_instance.line_width = material->draw_settings.line_width;
-  render_instance.cull_mode = material->draw_settings.cull_mode;
-  render_instance.polygon_mode = material->draw_settings.polygon_mode;
-  render_instance.entity_selected = instance_info_block.entity_selected == 1;
+  render_instance->line_width = material->draw_settings.line_width;
+  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->polygon_mode = material->draw_settings.polygon_mode;
+  render_instance->entity_selected = instance_info_block.entity_selected == 1;
   if (material->draw_settings.blending) {
-    transparent_render_instances.render_commands.push_back(render_instance);
+    transparent_render_instances->Register(render_instance);
   } else {
-    deferred_render_instances.render_commands.push_back(render_instance);
+    deferred_render_instances->Register(render_instance);
   }
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands.emplace_back();
-  const uint32_t count = (render_instance.meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
+  const uint32_t count =
+      (render_instance->meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
   new_mesh_task.groupCountX = count;
   new_mesh_task.groupCountY = 1;
   new_mesh_task.groupCountZ = 1;
@@ -1291,29 +1372,29 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   auto entity_handle = target_scene->GetEntityHandle(owner);
   auto instance_index = RegisterInstance(entity_handle, instance_info_block);
 
-  SkinnedMeshRenderInstance render_instance;
-  render_instance.command_type = RenderInstanceType::FromRenderer;
-  render_instance.owner = owner;
-  render_instance.renderer_handle = skinned_mesh_renderer->GetHandle();
-  render_instance.model = gt;
-  render_instance.skinned_mesh = skinned_mesh;
-  render_instance.material = material;
-  render_instance.cast_shadow = skinned_mesh_renderer->cast_shadow;
-  render_instance.bone_matrices = skinned_mesh_renderer->bone_matrices;
-  render_instance.skinned_meshlet_size = skinned_mesh->skinned_meshlet_range_->range;
-  render_instance.instance_index = instance_index;
-  render_instance.skinned_mesh_version = skinned_mesh->GetVersion();
-  render_instance.material_version = material->GetVersion();
-  render_instance.bone_matrices_version = skinned_mesh_renderer->bone_matrices->GetVersion();
-  render_instance.entity_selected = instance_info_block.entity_selected == 1;
-  render_instance.line_width = material->draw_settings.line_width;
-  render_instance.cull_mode = material->draw_settings.cull_mode;
-  render_instance.polygon_mode = material->draw_settings.polygon_mode;
+  const auto render_instance = std::make_shared<SkinnedMeshRenderInstance>();
+  render_instance->command_type = RenderInstanceType::FromRenderer;
+  render_instance->owner = owner;
+  render_instance->renderer_handle = skinned_mesh_renderer->GetHandle();
+  render_instance->model = gt;
+  render_instance->skinned_mesh = skinned_mesh;
+  render_instance->material = material;
+  render_instance->cast_shadow = skinned_mesh_renderer->cast_shadow;
+  render_instance->bone_matrices = skinned_mesh_renderer->bone_matrices;
+  render_instance->skinned_meshlet_size = skinned_mesh->skinned_meshlet_range_->range;
+  render_instance->instance_index = instance_index;
+  render_instance->skinned_mesh_version = skinned_mesh->GetVersion();
+  render_instance->material_version = material->GetVersion();
+  render_instance->bone_matrices_version = skinned_mesh_renderer->bone_matrices->GetVersion();
+  render_instance->entity_selected = instance_info_block.entity_selected == 1;
+  render_instance->line_width = material->draw_settings.line_width;
+  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
   if (material->draw_settings.blending) {
-    transparent_skinned_render_instances.render_commands.push_back(render_instance);
+    transparent_skinned_render_instances->Register(render_instance);
   } else {
-    deferred_skinned_render_instances.render_commands.push_back(render_instance);
+    deferred_skinned_render_instances->Register(render_instance);
   }
 
   total_skinned_mesh_triangles += skinned_mesh->skinned_triangles_.size();
@@ -1355,30 +1436,30 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   auto entity_handle = target_scene->GetEntityHandle(owner);
   auto instance_index = RegisterInstance(entity_handle, instance_info_block);
 
-  InstancedRenderInstance render_instance;
-  render_instance.command_type = RenderInstanceType::FromRenderer;
-  render_instance.model = gt;
-  render_instance.owner = owner;
-  render_instance.renderer_handle = particles->GetHandle();
-  render_instance.mesh = mesh;
-  render_instance.material = material;
-  render_instance.cast_shadow = particles->cast_shadow;
-  render_instance.particle_infos = particle_info_list;
-  render_instance.meshlet_size = mesh->meshlet_range_->range;
-  render_instance.mesh_version = mesh->GetVersion();
-  render_instance.material_version = material->GetVersion();
-  render_instance.particle_info_list_version = particle_info_list->GetVersion();
+  const auto render_instance = std::make_shared<InstancedRenderInstance>();
+  render_instance->command_type = RenderInstanceType::FromRenderer;
+  render_instance->model = gt;
+  render_instance->owner = owner;
+  render_instance->renderer_handle = particles->GetHandle();
+  render_instance->mesh = mesh;
+  render_instance->material = material;
+  render_instance->cast_shadow = particles->cast_shadow;
+  render_instance->particle_infos = particle_info_list;
+  render_instance->meshlet_size = mesh->meshlet_range_->range;
+  render_instance->mesh_version = mesh->GetVersion();
+  render_instance->material_version = material->GetVersion();
+  render_instance->particle_info_list_version = particle_info_list->GetVersion();
 
-  render_instance.instance_index = instance_index;
-  render_instance.entity_selected = instance_info_block.entity_selected == 1;
-  render_instance.line_width = material->draw_settings.line_width;
-  render_instance.cull_mode = material->draw_settings.cull_mode;
-  render_instance.polygon_mode = material->draw_settings.polygon_mode;
+  render_instance->instance_index = instance_index;
+  render_instance->entity_selected = instance_info_block.entity_selected == 1;
+  render_instance->line_width = material->draw_settings.line_width;
+  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
   if (material->draw_settings.blending) {
-    transparent_instanced_render_instances.render_commands.push_back(render_instance);
+    transparent_instanced_render_instances->Register(render_instance);
   } else {
-    deferred_instanced_render_instances.render_commands.push_back(render_instance);
+    deferred_instanced_render_instances->Register(render_instance);
   }
 
   total_instanced_mesh_triangles += mesh->triangles_.size() * particle_info_list->PeekParticleInfoList().size();

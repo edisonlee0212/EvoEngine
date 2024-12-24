@@ -6,6 +6,7 @@
 #include "Mesh.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
+#include "Shader.hpp"
 #include "TextureStorage.hpp"
 #include "Times.hpp"
 #include "Utilities.hpp"
@@ -84,52 +85,72 @@ void Platform::Initialize() {
 
   graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
 #pragma endregion
-  const auto& window_layer = Application::GetLayer<WindowLayer>();
-  if (const auto& editor_layer = Application::GetLayer<EditorLayer>(); window_layer && editor_layer) {
-    // Setup Dear ImGui context
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImNodes::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-    //  io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;
-    io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleFonts;
-    // io.ConfigFlags |= ImGuiConfigFlags_IsSRGB;
-    ImGui::StyleColorsDark();
+  const auto window_layer = Application::GetLayer<WindowLayer>();
+  if (window_layer) {
+    if (!graphics.render_texture_present_pipeline) {
+      graphics.render_texture_present_pipeline = std::make_shared<GraphicsPipeline>();
+      graphics.render_texture_present_pipeline->vertex_shader =
+          Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                          "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+      graphics.render_texture_present_pipeline->fragment_shader =
+          Shader::CreateTemporary(ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
+                                                            "Shaders/Graphics/Fragment/TexturePassThrough.frag");
+      graphics.render_texture_present_pipeline->geometry_type = GeometryType::Mesh;
+      graphics.render_texture_present_pipeline->descriptor_set_layouts.emplace_back(
+          RenderTexture::render_texture_present_layout);
 
-    // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular
-    // ones.
-    ImGuiStyle& style = ImGui::GetStyle();
-    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-      style.WindowRounding = 0.0f;
-      style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+      graphics.render_texture_present_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
+      graphics.render_texture_present_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+      graphics.render_texture_present_pipeline->color_attachment_formats = {1, graphics.swapchain_->GetImageFormat()};
+      graphics.render_texture_present_pipeline->Initialize();
     }
+    if (const auto editor_layer = Application::GetLayer<EditorLayer>(); editor_layer) {
+      // Setup Dear ImGui context
+      IMGUI_CHECKVERSION();
+      ImGui::CreateContext();
+      ImNodes::CreateContext();
+      ImGuiIO& io = ImGui::GetIO();
+      io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+      // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+      //  io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;
+      io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleFonts;
+      // io.ConfigFlags |= ImGuiConfigFlags_IsSRGB;
+      ImGui::StyleColorsDark();
 
-    ImGui_ImplGlfw_InitForVulkan(window_layer->GetGlfwWindow(), true);
-    ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = graphics.vk_instance_;
-    init_info.PhysicalDevice = selected_physical_device->vk_physical_device;
-    init_info.Device = graphics.vk_device_;
-    init_info.QueueFamily = graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
-    init_info.Queue = graphics.main_queue_->vk_queue_;
-    init_info.PipelineCache = VK_NULL_HANDLE;
-    init_info.DescriptorPool = graphics.descriptor_pool_->GetVkDescriptorPool();
-    init_info.MinImageCount = graphics.swapchain_->GetAllImageViews().size();
-    init_info.ImageCount = graphics.swapchain_->GetAllImageViews().size();
-    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-    init_info.UseDynamicRendering = true;
-    init_info.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
-    init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-    const auto format = graphics.swapchain_->GetImageFormat();
-    init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &format;
-    init_info.PipelineRenderingCreateInfo.pNext = nullptr;
-    // init_info.ColorAttachmentFormat = graphics.swapchain_->GetImageFormat();
+      // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular
+      // ones.
+      ImGuiStyle& style = ImGui::GetStyle();
+      if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+        style.WindowRounding = 0.0f;
+        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+      }
 
-    ImGui_ImplVulkan_LoadFunctions([](const char* function_name, void*) {
-      return vkGetInstanceProcAddr(GetVkInstance(), function_name);
-    });
-    ImGui_ImplVulkan_Init(&init_info);
+      ImGui_ImplGlfw_InitForVulkan(window_layer->GetGlfwWindow(), true);
+      ImGui_ImplVulkan_InitInfo init_info = {};
+      init_info.Instance = graphics.vk_instance_;
+      init_info.PhysicalDevice = selected_physical_device->vk_physical_device;
+      init_info.Device = graphics.vk_device_;
+      init_info.QueueFamily =
+          graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
+      init_info.Queue = graphics.main_queue_->vk_queue_;
+      init_info.PipelineCache = VK_NULL_HANDLE;
+      init_info.DescriptorPool = graphics.descriptor_pool_->GetVkDescriptorPool();
+      init_info.MinImageCount = graphics.swapchain_->GetAllImageViews().size();
+      init_info.ImageCount = graphics.swapchain_->GetAllImageViews().size();
+      init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+      init_info.UseDynamicRendering = true;
+      init_info.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+      init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+      const auto format = graphics.swapchain_->GetImageFormat();
+      init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &format;
+      init_info.PipelineRenderingCreateInfo.pNext = nullptr;
+      // init_info.ColorAttachmentFormat = graphics.swapchain_->GetImageFormat();
+
+      ImGui_ImplVulkan_LoadFunctions([](const char* function_name, void*) {
+        return vkGetInstanceProcAddr(GetVkInstance(), function_name);
+      });
+      ImGui_ImplVulkan_Init(&init_info);
+    }
   }
 
   GeometryStorage::Initialize();
@@ -260,6 +281,7 @@ void Platform::Initialize() {
                                                                         VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     RenderTexture::render_texture_present_layout->Initialize();
   }
+
 #pragma endregion
 }
 
@@ -1533,35 +1555,30 @@ void Platform::RecreateSwapChain() {
 }
 
 void Platform::OnDestroy() {
-  const auto& window_layer = Application::GetLayer<WindowLayer>();
-  if (const auto& editor_layer = Application::GetLayer<EditorLayer>(); window_layer && editor_layer) {
-    ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImNodes::DestroyContext();
-    ImGui::DestroyContext();
-  }
+  auto& graphics = GetInstance();
+  vkDeviceWaitIdle(graphics.vk_device_);
 
-  vkDeviceWaitIdle(vk_device_);
-
-  descriptor_pool_.reset();
+  graphics.descriptor_pool_.reset();
 
 #pragma region Vulkan
-  image_available_semaphores_.clear();
-  command_pool_.reset();
-  swapchain_.reset();
+  graphics.image_available_semaphores_.clear();
+  graphics.command_pool_.reset();
+  graphics.swapchain_.reset();
 
-  vkDestroyDevice(vk_device_, nullptr);
+  vkDestroyDevice(graphics.vk_device_, nullptr);
 #pragma region Debug Messenger
 #ifndef NDEBUG
-  DestroyDebugUtilsMessengerExt(vk_instance_, vk_debug_messenger_, nullptr);
+  DestroyDebugUtilsMessengerExt(graphics.vk_instance_, graphics.vk_debug_messenger_, nullptr);
 #endif
 #pragma endregion
 #pragma region Surface
-  vkDestroySurfaceKHR(vk_instance_, vk_surface_, nullptr);
+  if (const auto window_layer = Application::GetLayer<WindowLayer>())
+    vkDestroySurfaceKHR(graphics.vk_instance_, graphics.vk_surface_, nullptr);
 #pragma endregion
-  vmaDestroyAllocator(vma_allocator_);
-  vkDestroyInstance(vk_instance_, nullptr);
+  // vmaDestroyAllocator(graphics.vma_allocator_);
+  vkDestroyInstance(graphics.vk_instance_, nullptr);
 #pragma endregion
+  graphics.vk_instance_ = nullptr;
 }
 
 void Platform::SubmitPresent() {
@@ -1601,11 +1618,6 @@ void Platform::ResetCommandBuffers() {
 }
 
 #pragma endregion
-
-void Platform::Destroy() {
-  auto& graphics = GetInstance();
-  graphics.OnDestroy();
-}
 
 void Platform::PreUpdate() {
   auto& graphics = GetInstance();
@@ -1682,7 +1694,7 @@ void Platform::LateUpdate() {
       if (const auto scene = Application::GetActiveScene()) {
         if (const auto main_camera = scene->main_camera.Get<Camera>();
             main_camera->IsEnabled() && main_camera->rendered_) {
-          const auto& render_texture_present = render_layer->render_texture_present_pipeline;
+          const auto& render_texture_present = graphics.render_texture_present_pipeline;
           RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
             EverythingBarrier(vk_command_buffer);
             TransitImageLayout(vk_command_buffer, graphics.swapchain_->GetVkImage(),

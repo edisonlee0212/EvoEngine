@@ -34,6 +34,8 @@ class Resources {
   [[nodiscard]] static std::shared_ptr<T> GetResource(const std::string& name);
   template <class T>
   [[nodiscard]] static std::shared_ptr<T> GetResource(const Handle& handle);
+
+  static void OnDestroy();
 };
 
 template <class T>

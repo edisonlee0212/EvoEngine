@@ -46,8 +46,7 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
   sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   sampler_info.anisotropyEnable = VK_TRUE;
-  sampler_info.maxAnisotropy =
-      Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
+  sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
   sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
   sampler_info.unnormalizedCoordinates = VK_FALSE;
   sampler_info.compareEnable = VK_FALSE;
@@ -181,8 +180,7 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
   sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   sampler_info.anisotropyEnable = VK_TRUE;
-  sampler_info.maxAnisotropy =
-      Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
+  sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
   sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
   sampler_info.unnormalizedCoordinates = VK_FALSE;
   sampler_info.compareEnable = VK_FALSE;
@@ -363,12 +361,14 @@ CubemapStorage& TextureStorage::RefCubemapStorage(const std::shared_ptr<TextureS
 
 void TextureStorage::UnRegisterTexture2D(const std::shared_ptr<TextureStorageHandle>& handle) {
   auto& storage = GetInstance();
-  storage.texture_2ds_[handle->value].pending_delete = true;
+  if (storage.initialized)
+    storage.texture_2ds_[handle->value].pending_delete = true;
 }
 
 void TextureStorage::UnRegisterCubemap(const std::shared_ptr<TextureStorageHandle>& handle) {
   auto& storage = GetInstance();
-  storage.cubemaps_[handle->value].pending_delete = true;
+  if (storage.initialized)
+    storage.cubemaps_[handle->value].pending_delete = true;
 }
 
 std::shared_ptr<TextureStorageHandle> TextureStorage::RegisterTexture2D() {
@@ -394,4 +394,13 @@ std::shared_ptr<TextureStorageHandle> TextureStorage::RegisterCubemap() {
 }
 
 void TextureStorage::Initialize() {
+  auto& storage = GetInstance();
+  storage.initialized = true;
+}
+
+void TextureStorage::OnDestroy() {
+  auto& storage = GetInstance();
+  storage.texture_2ds_.clear();
+  storage.cubemaps_.clear();
+  storage.initialized = false;
 }

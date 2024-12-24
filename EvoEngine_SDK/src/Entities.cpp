@@ -45,7 +45,7 @@ EntityArchetype Entities::CreateEntityArchetype(const std::string &name, const s
   }
   entity_archetype_info.data_component_types = actual_types;
   entity_archetype_info.entity_size = entity_archetype_info.data_component_types.back().type_offset +
-                                    entity_archetype_info.data_component_types.back().type_size;
+                                      entity_archetype_info.data_component_types.back().type_size;
   entity_archetype_info.chunk_capacity = entities.archetype_chunk_size_ / entity_archetype_info.entity_size;
   return CreateEntityArchetypeHelper(entity_archetype_info);
 }
@@ -86,8 +86,7 @@ void Entities::Initialize() {
   entities.entity_archetype_infos_.emplace_back();
   entities.entity_query_infos_.emplace_back();
 
-  entities.basic_archetype_ =
-      CreateEntityArchetype("Basic", Transform(), GlobalTransform(), TransformUpdateFlag());
+  entities.basic_archetype_ = CreateEntityArchetype("Basic", Transform(), GlobalTransform(), TransformUpdateFlag());
 }
 
 EntityArchetype Entities::CreateEntityArchetypeHelper(const EntityArchetypeInfo &info) {

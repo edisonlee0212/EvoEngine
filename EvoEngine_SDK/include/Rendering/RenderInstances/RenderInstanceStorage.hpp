@@ -108,21 +108,48 @@ struct StrandsRenderInstance : IRenderInstance {
                   const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
 };
 
-struct MeshRenderInstanceCollection {
-  std::vector<MeshRenderInstance> render_commands;
+class IRenderInstanceCollection {
+ public:
+  virtual bool Empty() const = 0;
+  virtual void Register(const std::shared_ptr<IRenderInstance>& render_instance) = 0;
+  virtual void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) = 0;
+};
+
+class MeshRenderInstanceCollection : public IRenderInstanceCollection {
+  std::vector<std::shared_ptr<MeshRenderInstance>> render_commands;
+
+ public:
   bool operator!=(const MeshRenderInstanceCollection& other) const;
+  bool Empty() const override;
+  void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
+  void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
 };
-struct SkinnedMeshRenderInstanceCollection {
-  std::vector<SkinnedMeshRenderInstance> render_commands;
+class SkinnedMeshRenderInstanceCollection : public IRenderInstanceCollection {
+  std::vector<std::shared_ptr<SkinnedMeshRenderInstance>> render_commands;
+
+ public:
+  bool Empty() const override;
+  void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
   bool operator!=(const SkinnedMeshRenderInstanceCollection& other) const;
+  void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
 };
-struct StrandsRenderInstanceCollection {
-  std::vector<StrandsRenderInstance> render_commands;
+class StrandsRenderInstanceCollection : public IRenderInstanceCollection {
+  std::vector<std::shared_ptr<StrandsRenderInstance>> render_commands;
+
+ public:
+  bool Empty() const override;
+  void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
   bool operator!=(const StrandsRenderInstanceCollection& other) const;
+  void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
 };
-struct InstancedRenderInstanceCollection {
-  std::vector<InstancedRenderInstance> render_commands;
+class InstancedRenderInstanceCollection : public IRenderInstanceCollection {
+  std::vector<std::shared_ptr<InstancedRenderInstance>> render_commands;
+
+ public:
+  bool Empty() const override;
+  void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
   bool operator!=(const InstancedRenderInstanceCollection& other) const;
+  void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
 };
 
 class RenderInstanceStorage {
@@ -219,15 +246,20 @@ class RenderInstanceStorage {
   std::vector<SpotLightInfoBlock> spot_light_info_blocks_;
 
   std::vector<CameraInfoBlock> camera_info_blocks_{};
-  MeshRenderInstanceCollection deferred_render_instances;
-  SkinnedMeshRenderInstanceCollection deferred_skinned_render_instances;
-  InstancedRenderInstanceCollection deferred_instanced_render_instances;
-  StrandsRenderInstanceCollection deferred_strands_render_instances;
+  std::shared_ptr<MeshRenderInstanceCollection> deferred_render_instances;
+  std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_skinned_render_instances;
+  std::shared_ptr<InstancedRenderInstanceCollection> deferred_instanced_render_instances;
+  std::shared_ptr<StrandsRenderInstanceCollection> deferred_strands_render_instances;
 
-  MeshRenderInstanceCollection transparent_render_instances;
-  SkinnedMeshRenderInstanceCollection transparent_skinned_render_instances;
-  InstancedRenderInstanceCollection transparent_instanced_render_instances;
-  StrandsRenderInstanceCollection transparent_strands_render_instances;
+  std::shared_ptr<MeshRenderInstanceCollection> forward_render_instances;
+  std::shared_ptr<SkinnedMeshRenderInstanceCollection> forward_skinned_render_instances;
+  std::shared_ptr<InstancedRenderInstanceCollection> forward_instanced_render_instances;
+  std::shared_ptr<StrandsRenderInstanceCollection> forward_strands_render_instances;
+
+  std::shared_ptr<MeshRenderInstanceCollection> transparent_render_instances;
+  std::shared_ptr<SkinnedMeshRenderInstanceCollection> transparent_skinned_render_instances;
+  std::shared_ptr<InstancedRenderInstanceCollection> transparent_instanced_render_instances;
+  std::shared_ptr<StrandsRenderInstanceCollection> transparent_strands_render_instances;
 
   friend class RenderLayer;
   friend class CpuRayTracer;

@@ -6,7 +6,7 @@
 using namespace evo_engine;
 
 void GraphicsPipeline::Initialize() {
-  if (vk_graphics_pipeline_ != VK_NULL_HANDLE) {
+  if (vk_graphics_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipeline(Platform::GetVkDevice(), vk_graphics_pipeline_, nullptr);
     vk_graphics_pipeline_ = nullptr;
   }
@@ -380,7 +380,7 @@ void PipelineDynamicState::Apply(const VkPipelineDynamicStateCreateInfo& vk_pipe
 }
 
 GraphicsPipeline::~GraphicsPipeline() {
-  if (vk_graphics_pipeline_ != VK_NULL_HANDLE) {
+  if (vk_graphics_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipeline(Platform::GetVkDevice(), vk_graphics_pipeline_, nullptr);
     vk_graphics_pipeline_ = nullptr;
   }

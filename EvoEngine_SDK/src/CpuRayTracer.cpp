@@ -14,23 +14,29 @@ void CpuRayTracer::Initialize(
   Clear();
   uint32_t mesh_index = 0;
   std::map<Handle, uint32_t> mesh_instances_map;
-  for (const auto& render_instance : render_instances->deferred_render_instances.render_commands) {
-    mesh_instances_map[render_instance.instance_index] = mesh_index;
-    geometry_instances_.emplace_back();
-    auto& mesh_instance = geometry_instances_.back();
-    mesh_instance.Initialize(render_instance.mesh);
-    mesh_binding(mesh_index, render_instance.mesh);
-    mesh_index++;
-  }
+  render_instances->deferred_render_instances->ForEachRenderInstance(
+      [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+        mesh_instances_map[render_instance->instance_index] = mesh_index;
+        geometry_instances_.emplace_back();
+        auto& mesh_instance = geometry_instances_.back();
+        const auto mesh = std::dynamic_pointer_cast<MeshRenderInstance>(render_instance)->mesh;
+        mesh_instance.Initialize(mesh);
+        mesh_binding(mesh_index, mesh);
+        mesh_index++;
+      });
+
   uint32_t node_index = 0;
-  for (const auto& render_instance : render_instances->deferred_render_instances.render_commands) {
-    const auto mesh = render_instance.mesh;
-    node_instances_.emplace_back();
-    auto& node_instance = node_instances_.back();
-    node_instance.Initialize(render_instances, render_instance, geometry_instances_, mesh_instances_map);
-    node_binding(node_index, render_instance.owner);
-    node_index++;
-  }
+
+  render_instances->deferred_render_instances->ForEachRenderInstance(
+      [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+        const auto mesh = std::dynamic_pointer_cast<MeshRenderInstance>(render_instance)->mesh;
+        node_instances_.emplace_back();
+        auto& node_instance = node_instances_.back();
+        node_instance.Initialize(render_instances, std::dynamic_pointer_cast<MeshRenderInstance>(render_instance),
+                                 geometry_instances_, mesh_instances_map);
+        node_binding(node_index, render_instance->owner);
+        node_index++;
+      });
 
   Bvh scene_bvh;
   scene_bvh.element_indices.resize(node_instances_.size());
@@ -940,7 +946,7 @@ void CpuRayTracer::AggregatedScene::TraceGpu(const std::vector<RayDescriptor>& r
   if (!trace_shader) {
     trace_shader = ProjectManager::CreateTemporaryAsset<Shader>();
     trace_shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                      std::filesystem::path("./DefaultResources") / "Shaders/Compute/Trace.comp");
+                             std::filesystem::path("./DefaultResources") / "Shaders/Compute/Trace.comp");
   }
 
   if (!trace_pipeline) {
@@ -1360,16 +1366,16 @@ void CpuRayTracer::GeometryInstance::Clear() noexcept {
 }
 
 void CpuRayTracer::NodeInstance::Initialize(const std::shared_ptr<RenderInstanceStorage>& render_instances,
-                                            const MeshRenderInstance& render_instance,
+                                            const std::shared_ptr<MeshRenderInstance>& render_instance,
                                             const std::vector<GeometryInstance>& mesh_instances,
                                             const std::map<Handle, uint32_t>& mesh_instances_map) {
-  const auto mesh_index = mesh_instances_map.at(render_instance.instance_index);
+  const auto mesh_index = mesh_instances_map.at(render_instance->instance_index);
   const auto& mesh_instance = mesh_instances[mesh_index];
-  transformation = render_instance.model;
-  instance_index = render_instance.instance_index;
+  transformation = render_instance->model;
+  instance_index = render_instance->instance_index;
   inverse_transformation.value = glm::inverse(transformation.value);
-  entity = render_instance.owner;
-  renderer_handle = render_instance.renderer_handle;
+  entity = render_instance->owner;
+  renderer_handle = render_instance->renderer_handle;
   Bvh node_bvh;
   node_bvh.element_indices.resize(1);
   std::vector<Bound> element_aabbs(1);

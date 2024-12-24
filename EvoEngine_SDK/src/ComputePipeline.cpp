@@ -6,14 +6,14 @@
 using namespace evo_engine;
 
 ComputePipeline::~ComputePipeline() {
-  if (vk_compute_pipeline_ != VK_NULL_HANDLE) {
+  if (vk_compute_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipeline(Platform::GetVkDevice(), vk_compute_pipeline_, nullptr);
     vk_compute_pipeline_ = nullptr;
   }
 }
 
 void ComputePipeline::Initialize() {
-  if (vk_compute_pipeline_ != VK_NULL_HANDLE) {
+  if (vk_compute_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipeline(Platform::GetVkDevice(), vk_compute_pipeline_, nullptr);
     vk_compute_pipeline_ = nullptr;
   }

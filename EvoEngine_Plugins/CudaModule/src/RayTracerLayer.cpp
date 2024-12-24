@@ -489,6 +489,8 @@ void RayTracerLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
 }
 
 void RayTracerLayer::OnDestroy() {
+  environmental_map_image.reset();
+  scene_camera.reset();
   CudaModule::Terminate();
 }
 

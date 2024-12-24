@@ -220,7 +220,7 @@ class CpuRayTracer final {
     GlobalTransform transformation{};
     GlobalTransform inverse_transformation{};
     FlattenedBvh flattened_bvh_mesh_group;
-    void Initialize(const std::shared_ptr<RenderInstanceStorage>& render_instances, const MeshRenderInstance& render_instance,
+    void Initialize(const std::shared_ptr<RenderInstanceStorage>& render_instances, const std::shared_ptr<MeshRenderInstance>& render_instance,
                     const std::vector<GeometryInstance>& mesh_instances,
                     const std::map<Handle, uint32_t>& mesh_instances_map);
     void Clear() noexcept;

@@ -65,6 +65,7 @@ class JobSystem {
   void StopAllWorkers();
   [[nodiscard]] size_t IdleWorkerSize() const;
   JobSystem();
+  void OnDestroy();
   ~JobSystem();
   void ResizeWorker(size_t worker_size);
   [[nodiscard]] size_t GetWorkerSize() const;

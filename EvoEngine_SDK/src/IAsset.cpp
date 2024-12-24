@@ -144,5 +144,6 @@ std::string IAsset::GetTitle() const {
 }
 IAsset::~IAsset() {
   auto &project_manager = ProjectManager::GetInstance();
-  project_manager.asset_registry_.erase(handle_);
+  if (project_manager.initialized)
+    project_manager.asset_registry_.erase(handle_);
 }
