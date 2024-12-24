@@ -18,10 +18,10 @@
 #include "WindowLayer.hpp"
 using namespace evo_engine;
 void EditorLayer::OnCreate() {
-  if (!Application::GetLayer<WindowLayer>()) {
-    throw std::runtime_error("EditorLayer requires WindowLayer!");
+  const auto window_layer = Application::GetLayer<WindowLayer>();
+  if (!window_layer) {
+    throw std::runtime_error("WindowLayer not present!");
   }
-
   basic_entity_archetype_ = Entities::CreateEntityArchetype("General", GlobalTransform(), Transform());
   RegisterComponentDataInspector<GlobalTransform>([](Entity, IDataComponent* data, bool) {
     const auto* ltw = reinterpret_cast<GlobalTransform*>(data);

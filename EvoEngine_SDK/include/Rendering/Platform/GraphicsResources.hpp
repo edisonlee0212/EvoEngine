@@ -288,8 +288,6 @@ class DescriptorSetLayout final : public IGraphicsResource {
   void Initialize();
 };
 
-
-
 class DescriptorPool final : public IGraphicsResource {
   VkDescriptorPool vk_descriptor_pool_ = VK_NULL_HANDLE;
 
@@ -349,8 +347,8 @@ class CommandQueue final : public IGraphicsResource {
   VkQueue vk_queue_ = VK_NULL_HANDLE;
 
  public:
-  void Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers,
-              uint32_t offset, uint32_t buffer_count,
+  void Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers, uint32_t offset,
+              uint32_t buffer_count,
               const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
               const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores,
               const std::shared_ptr<Fence>& fence) const;
@@ -372,6 +370,8 @@ class CommandQueue final : public IGraphicsResource {
                const std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>>& targets) const;
 
   void WaitIdle() const;
+
+  VkQueue GetVkQueue() const;
 };
 
 class BottomLevelAccelerationStructure final : public IGraphicsResource {
@@ -384,7 +384,8 @@ class BottomLevelAccelerationStructure final : public IGraphicsResource {
   std::shared_ptr<Buffer> transform_buffer;
 
  public:
-  explicit BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices, const std::vector<glm::uvec3>& triangles);
+  explicit BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices,
+                                            const std::vector<glm::uvec3>& triangles);
   ~BottomLevelAccelerationStructure() override;
   [[nodiscard]] VkDeviceAddress GetDeviceAddress() const;
 };

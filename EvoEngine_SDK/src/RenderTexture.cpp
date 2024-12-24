@@ -7,6 +7,8 @@
 using namespace evo_engine;
 
 void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_create_info, uint32_t mip_levels) {
+  if (!Platform::Initialized())
+    return;
   color_image_views_.clear();
   color_image_.reset();
   color_sampler_.reset();

@@ -22,8 +22,12 @@ project_path = evoengine_directory + "Resources\\DigitalAgricultureProject\\test
 if not os.path.isdir(output_root):
 	os.mkdir(output_root)
 
+
+#Enable GPU
+use_gpu = True
+
 #Start the framework without editor and window.
-sorghum_framework.engine_run_windowless(project_path)
+sorghum_framework.engine_run_windowless(use_gpu, project_path)
 
 #Create settings for data generation
 mesh_settings = sorghum_framework.SorghumMeshGeneratorSettings()
@@ -62,6 +66,7 @@ point_cloud_settings.bounding_box_limit = 2.0
 
 #Now we generate and save mesh and point cloud for 2 sorghums with sorghum descriptor.
 sorghum_framework.sorghum_descriptor_to_mesh_and_point_cloud(
+	use_gpu,
 	#Path to sorghum descriptor [[!!!IF THE SORGHUM DESCRIPTOR IS IN PROJECT FOLDER, YOU SHOULD USE RELATIVE PATH, IF IT'S SAVED OUTSIDE THE FOLDER, USE ABSOLUTE PATH!!!]]
 	".\\SorghumGenerator\\Sample0.sorghum",
 	#Sorghum Point Cloud Point Settings
@@ -79,9 +84,13 @@ sorghum_framework.sorghum_descriptor_to_mesh_and_point_cloud(
 )
 #Note that you don't need to restart the framework to generate another sorghum data.
 sorghum_framework.sorghum_descriptor_to_mesh_and_point_cloud(
+	use_gpu,
 	".\\SorghumGenerator\\Sample1.sorghum",
 	point_cloud_settings,
 	mesh_settings,
+	#Whether generate 2 point clouds (with/without occclusion) for the sorghum
+	False,
+	#Whether generate ground surface mesh
 	False,
 	output_root + "\\SD_Sample1.obj",
 	output_root + "\\SD_Sample1.ply"
@@ -89,6 +98,7 @@ sorghum_framework.sorghum_descriptor_to_mesh_and_point_cloud(
 
 #Now we generate and save mesh and point cloud for 2 sorghums with sorghum state.
 sorghum_framework.sorghum_state_to_mesh_and_point_cloud(
+	use_gpu,
 	#Path to sorghum descriptor [[!!!IF THE SORGHUM DESCRIPTOR IS IN PROJECT FOLDER, YOU SHOULD USE RELATIVE PATH, IF IT'S SAVED OUTSIDE THE FOLDER, USE ABSOLUTE PATH!!!]]
 	".\\SorghumGenerator\\Sample0.ss",
 	#Sorghum Point Cloud Point Settings
@@ -106,9 +116,13 @@ sorghum_framework.sorghum_state_to_mesh_and_point_cloud(
 )
 #Note that you don't need to restart the framework to generate another sorghum data.
 sorghum_framework.sorghum_state_to_mesh_and_point_cloud(
+	use_gpu,
 	".\\SorghumGenerator\\Sample1.ss",
 	point_cloud_settings,
 	mesh_settings,
+	#Whether generate 2 point clouds (with/without occclusion) for the sorghum
+	False,
+	#Whether generate ground surface mesh
 	False,
 	output_root + "\\SS_Sample1.obj",
 	output_root + "\\SS_Sample1.ply"

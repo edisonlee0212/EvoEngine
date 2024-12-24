@@ -39,6 +39,9 @@ void WindowLayer::WindowFocusCallback(GLFWwindow* window, const int focused) {
 }
 
 void WindowLayer::OnCreate() {
+  if (const auto render_layer = Application::GetLayer<RenderLayer>(); !render_layer) {
+    throw std::runtime_error("RenderLayer not present!");
+  }
 }
 
 void WindowLayer::OnDestroy() {

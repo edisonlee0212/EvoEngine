@@ -12,11 +12,9 @@ class Resources {
 
   std::unordered_map<Handle, std::string> resource_names_;
   std::unordered_map<Handle, std::shared_ptr<IAsset>> resources_;
-  static void LoadShaders();
   static void LoadPrimitives();
   bool show_assets_ = true;
   static void Initialize();
-  static void InitializeEnvironmentalMap();
   [[nodiscard]] Handle GenerateNewHandle();
   friend class ProjectManager;
   friend class Application;

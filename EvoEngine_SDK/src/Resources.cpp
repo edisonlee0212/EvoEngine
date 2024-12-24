@@ -9,22 +9,6 @@
 #include "TextureStorage.hpp"
 #include "Utilities.hpp"
 using namespace evo_engine;
-
-void Resources::LoadShaders() {
-  Shader::RegisterShaderIncludePath(std::filesystem::path("./DefaultResources/Shaders/Includes"));
-  const auto tex_pass_vert = CreateResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
-  tex_pass_vert->TryCompile(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                    "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-
-  const auto tex_pass_frag = CreateResource<Shader>("TEXTURE_PASS_THROUGH_FRAG");
-  tex_pass_frag->TryCompile(ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
-                                                      "Shaders/Graphics/Fragment/TexturePassThrough.frag");
-
-  const auto empty_shader = CreateResource<Shader>("EMPTY_FRAG");
-  empty_shader->TryCompile(ShaderType::Fragment, Platform::Constants::shader_global_defines,
-                           std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
-}
-
 void Resources::LoadPrimitives() {
   {
     VertexAttributes attributes{};
@@ -127,19 +111,14 @@ void Resources::Initialize() {
   resources.typed_resources_.clear();
   resources.named_resources_.clear();
   resources.resources_.clear();
+  resources.current_max_handle_ = Handle(1);  
+  LoadPrimitives();
 
-  resources.current_max_handle_ = Handle(1);
-
-  resources.LoadShaders();
+  GeometryStorage::DeviceSync();
 
   const auto missing_texture = CreateResource<Texture2D>("TEXTURE_MISSING");
   missing_texture->LoadInternal(std::filesystem::path("./DefaultResources") / "Textures/texture-missing.png");
 
-  LoadPrimitives();
-}
-
-void Resources::InitializeEnvironmentalMap() {
-  GeometryStorage::DeviceSync();
   const auto default_environmental_map_texture = CreateResource<Texture2D>("DEFAULT_ENVIRONMENTAL_MAP_TEXTURE");
   default_environmental_map_texture->LoadInternal(std::filesystem::path("./DefaultResources") /
                                                   "Textures/Cubemaps/GrandCanyon/GCanyon_C_YumaPoint_3k.hdr");

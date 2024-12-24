@@ -103,7 +103,8 @@ void Application::PreUpdateInternal() {
 
   application.application_execution_status_ = ApplicationExecutionStatus::PreUpdate;
   Input::PreUpdate();
-  Platform::PreUpdate();
+  if (const auto render_layer = GetLayer<RenderLayer>())
+    Platform::PreUpdate();
 
   if (application.application_status_ == ApplicationStatus::NoProject)
     return;
@@ -178,7 +179,7 @@ void Application::LateUpdateInternal() {
   }
   if (application.application_status_ == ApplicationStatus::OnDestroy)
     return;
-
+  const auto render_layer = GetLayer<RenderLayer>();
   if (application.application_status_ == ApplicationStatus::NoProject) {
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -245,46 +246,46 @@ void Application::LateUpdateInternal() {
         ImGuiFileDialog::Instance()->Close();
       }
     }
+    if (render_layer) {
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+        Platform::EverythingBarrier(vk_command_buffer);
+        constexpr VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+        VkRect2D render_area;
+        render_area.offset = {0, 0};
+        render_area.extent = Platform::GetSwapchain()->GetImageExtent();
+        Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
+                                     Platform::GetSwapchain()->GetImageFormat(), 1, VK_IMAGE_LAYOUT_UNDEFINED,
+                                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-      Platform::EverythingBarrier(vk_command_buffer);
-      constexpr VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-      VkRect2D render_area;
-      render_area.offset = {0, 0};
-      render_area.extent = Platform::GetSwapchain()->GetImageExtent();
-      Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
-                                   Platform::GetSwapchain()->GetImageFormat(), 1, VK_IMAGE_LAYOUT_UNDEFINED,
-                                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VkRenderingAttachmentInfo color_attachment_info{};
+        color_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        color_attachment_info.imageView = Platform::GetSwapchain()->GetVkImageView();
+        color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
+        color_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        color_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        color_attachment_info.clearValue = clear_color;
 
-      VkRenderingAttachmentInfo color_attachment_info{};
-      color_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-      color_attachment_info.imageView = Platform::GetSwapchain()->GetVkImageView();
-      color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
-      color_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-      color_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-      color_attachment_info.clearValue = clear_color;
+        VkRenderingInfo render_info{};
+        render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        render_info.renderArea = render_area;
+        render_info.layerCount = 1;
+        render_info.colorAttachmentCount = 1;
+        render_info.pColorAttachments = &color_attachment_info;
 
-      VkRenderingInfo render_info{};
-      render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-      render_info.renderArea = render_area;
-      render_info.layerCount = 1;
-      render_info.colorAttachmentCount = 1;
-      render_info.pColorAttachments = &color_attachment_info;
+        vkCmdBeginRendering(vk_command_buffer, &render_info);
 
-      vkCmdBeginRendering(vk_command_buffer, &render_info);
+        ImGui::Render();
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), vk_command_buffer);
 
-      ImGui::Render();
-      ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), vk_command_buffer);
-
-      vkCmdEndRendering(vk_command_buffer);
-      Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
-                                   Platform::GetSwapchain()->GetImageFormat(), 1,
-                                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-    });
-
+        vkCmdEndRendering(vk_command_buffer);
+        Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
+                                     Platform::GetSwapchain()->GetImageFormat(), 1,
+                                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+      });
+    }
   } else {
     const auto editor_layer = GetLayer<EditorLayer>();
-    const auto render_layer = GetLayer<RenderLayer>();
+
     if (editor_layer) {
       for (const auto& layer : application.layers_)
         layer->OnInspect(editor_layer);
@@ -319,7 +320,9 @@ void Application::LateUpdateInternal() {
     if (application.application_status_ == ApplicationStatus::Step)
       application.application_status_ = ApplicationStatus::Pause;
   }
-  Platform::LateUpdate();
+  if (render_layer) {
+    Platform::LateUpdate();
+  }
 }
 
 const ApplicationInfo& Application::GetApplicationInfo() {
@@ -351,6 +354,7 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
     return;
   }
   application.application_info_ = application_create_info;
+  const auto render_layer = GetLayer<RenderLayer>();
   const auto window_layer = GetLayer<WindowLayer>();
   const auto editor_layer = GetLayer<EditorLayer>();
   if (!application.application_info_.project_path.empty()) {
@@ -366,11 +370,11 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   Jobs::Initialize(default_thread_size - 2);
   Entities::Initialize();
   TransformGraph::Initialize();
-  Platform::Initialize();
   ProjectManager::Initialize();
+  if (render_layer) {
+    Platform::Initialize();
+  }
   Resources::Initialize();
-  Resources::InitializeEnvironmentalMap();
-
   for (const auto& layer : application.layers_) {
     layer->OnCreate();
   }
@@ -421,6 +425,7 @@ void Application::End() {
 
 void Application::Terminate() {
   auto& application = GetInstance();
+  bool has_render_layer = GetLayer<RenderLayer>() != nullptr;
   for (auto i = application.layers_.rbegin(); i != application.layers_.rend(); ++i) {
     (*i)->OnDestroy();
   }
@@ -431,7 +436,9 @@ void Application::Terminate() {
   application.active_scene_.reset();
   TextureStorage::OnDestroy();
   GeometryStorage::OnDestroy();
-  Platform::OnDestroy();
+  if (has_render_layer) {
+    Platform::OnDestroy();
+  }
 }
 
 const std::vector<std::shared_ptr<ILayer>>& Application::GetLayers() {

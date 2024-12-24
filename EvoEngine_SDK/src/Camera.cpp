@@ -22,6 +22,8 @@ glm::vec3 CameraInfoBlock::UnProject(const glm::vec3& position) const {
 }
 
 void Camera::UpdateGBuffer() {
+  if (!Platform::Initialized())
+    return;
   g_buffer_normal_view_.reset();
   g_buffer_material_view_.reset();
 
@@ -178,20 +180,22 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
     const auto default_cubemap = Resources::GetResource<Cubemap>("DEFAULT_SKYBOX");
     camera_info_block.skybox_texture_index = default_cubemap->GetTextureStorageIndex();
   }
-
-  const auto camera_position = global_transform.GetPosition();
-  const auto scene = Application::GetActiveScene();
-  auto light_probe = scene->environment.GetLightProbe(camera_position);
-  auto reflection_probe = scene->environment.GetReflectionProbe(camera_position);
-  if (!light_probe) {
-    light_probe = Resources::GetResource<EnvironmentalMap>("DEFAULT_ENVIRONMENTAL_MAP")->light_probe.Get<LightProbe>();
+  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+    const auto camera_position = global_transform.GetPosition();
+    const auto scene = Application::GetActiveScene();
+    auto light_probe = scene->environment.GetLightProbe(camera_position);
+    auto reflection_probe = scene->environment.GetReflectionProbe(camera_position);
+    if (!light_probe) {
+      light_probe =
+          Resources::GetResource<EnvironmentalMap>("DEFAULT_ENVIRONMENTAL_MAP")->light_probe.Get<LightProbe>();
+    }
+    camera_info_block.environmental_irradiance_texture_index = light_probe->cubemap_->GetTextureStorageIndex();
+    if (!reflection_probe) {
+      reflection_probe = Resources::GetResource<EnvironmentalMap>("DEFAULT_ENVIRONMENTAL_MAP")
+                             ->reflection_probe.Get<ReflectionProbe>();
+    }
+    camera_info_block.environmental_prefiltered_index = reflection_probe->cubemap_->GetTextureStorageIndex();
   }
-  camera_info_block.environmental_irradiance_texture_index = light_probe->cubemap_->GetTextureStorageIndex();
-  if (!reflection_probe) {
-    reflection_probe =
-        Resources::GetResource<EnvironmentalMap>("DEFAULT_ENVIRONMENTAL_MAP")->reflection_probe.Get<ReflectionProbe>();
-  }
-  camera_info_block.environmental_prefiltered_index = reflection_probe->cubemap_->GetTextureStorageIndex();
 }
 
 void Camera::AppendGBufferColorAttachmentInfos(std::vector<VkRenderingAttachmentInfo>& attachment_infos,

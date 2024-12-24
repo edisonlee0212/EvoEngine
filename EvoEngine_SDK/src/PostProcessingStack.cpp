@@ -318,7 +318,9 @@ void Bloom::BuildPipelines() {
   sampling_layout->Initialize();
 
   downsampling_pipeline = std::make_shared<GraphicsPipeline>();
-  downsampling_pipeline->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
+  downsampling_pipeline->vertex_shader =
+      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
   downsampling_pipeline->fragment_shader = Shader::CreateTemporary(
       ShaderType::Fragment, Platform::Constants::shader_global_defines,
       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomDownsampling.frag");
@@ -336,7 +338,9 @@ void Bloom::BuildPipelines() {
   downsampling_pipeline->Initialize();
 
   upsampling_pipeline = std::make_shared<GraphicsPipeline>();
-  upsampling_pipeline->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
+  upsampling_pipeline->vertex_shader =
+      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
   upsampling_pipeline->fragment_shader = Shader::CreateTemporary(
       ShaderType::Fragment, Platform::Constants::shader_global_defines,
       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomUpsampling.frag");
@@ -354,7 +358,9 @@ void Bloom::BuildPipelines() {
   upsampling_pipeline->Initialize();
 
   copy_pipeline = std::make_shared<GraphicsPipeline>();
-  copy_pipeline->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
+  copy_pipeline->vertex_shader =
+      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
   copy_pipeline->fragment_shader = Shader::CreateTemporary(
       ShaderType::Fragment, Platform::Constants::shader_global_defines,
       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomCopy.frag");
@@ -367,7 +373,9 @@ void Bloom::BuildPipelines() {
   copy_pipeline->Initialize();
 
   mix_pipeline = std::make_shared<GraphicsPipeline>();
-  mix_pipeline->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
+  mix_pipeline->vertex_shader =
+      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
   mix_pipeline->fragment_shader = Shader::CreateTemporary(
       ShaderType::Fragment, Platform::Constants::shader_global_defines,
       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomMix.frag");
@@ -520,7 +528,9 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
   };
   if (!blur_pipeline) {
     blur_pipeline = std::make_shared<GraphicsPipeline>();
-    blur_pipeline->vertex_shader = Resources::GetResource<Shader>("TEXTURE_PASS_THROUGH_VERT");
+    blur_pipeline->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     blur_pipeline->fragment_shader =
         Shader::CreateTemporary(ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
                                                           "Shaders/Graphics/Fragment/PostProcessing/Blur.frag");

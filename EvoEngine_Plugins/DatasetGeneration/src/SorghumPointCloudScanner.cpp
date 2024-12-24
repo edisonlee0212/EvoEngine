@@ -123,7 +123,7 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
                                     std::vector<glm::vec3>& points, std::vector<int>& leaf_indices,
                                     std::vector<int>& instance_indices, std::vector<int>& type_indices) const {
   const auto render_layer = Application::GetLayer<RenderLayer>();
-  if (!render_layer)
+  if (!render_layer && capture_settings->use_gpu)
     return;
   const auto digital_agriculture_layer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
@@ -193,7 +193,38 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
   std::vector<PointCloudSample> pc_samples;
   capture_settings->GenerateSamples(pc_samples);
 #ifdef CUDA_MODULE_PLUGIN
-  CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
+  if (capture_settings->use_gpu) {
+    CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
+  } else {
+    /**
+     * You may take a look at render instances, to see what it contains. RenderLayer will prepare a RenderInstance every
+     * frame that contains all needed information for rendering everything for current scene. It's used in rasterization
+     * rendering, and here we also use it for ray tracing. It also detects updates of the scene, like transformation,
+     * mesh, material changes.
+     */
+    std::shared_ptr<RenderInstanceStorage> render_instances;
+    if (render_layer) {
+      render_instances = render_layer->GetCurrentRenderInstanceStorage();
+    } else {
+      render_instances = std::make_shared<RenderInstanceStorage>();
+      Bound world_bound;
+      render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
+    }
+    CpuRayTracer cpu_ray_tracer;
+    /**
+     * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS based
+     * on them.
+     */
+    cpu_ray_tracer.Initialize(
+        render_instances,
+        [&](uint32_t, const std::shared_ptr<Mesh>&) {
+
+        },
+        [&](const uint32_t node_index, const Entity& entity) {
+
+        });
+    cpu_ray_tracer.SamplePointCloud(pc_samples);
+  }
 #else
   /**
    * You may take a look at render instances, to see what it contains. RenderLayer will prepare a RenderInstance every
