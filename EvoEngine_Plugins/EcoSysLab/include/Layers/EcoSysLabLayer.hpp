@@ -184,11 +184,11 @@ class EcoSysLabLayer : public ILayer {
   void SoilVisualization();
   void SoilVisualizationScalar(const VoxelSoilModel& soil_model);  // called during LateUpdate()
   void SoilVisualizationVector(const VoxelSoilModel& soil_model);  // called during LateUpdate()
-  //This has to happen before LateUpdate.
+  // This has to happen before LateUpdate.
   void RegisterStrandRenderingProcedure() const;
   void StrandPhysics() const;
 
-  //This has to happen during LateUpdate.
+  // This has to happen during LateUpdate.
   void StrandVisualization() const;
 };
 }  // namespace eco_sys_lab_plugin

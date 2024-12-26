@@ -156,7 +156,7 @@ struct HashedGridCellStart {
   uint padding2;
 };
 
-struct GpuLeaf {
+struct Leaf {
   vec3 x0;
   int segment_handle;
   vec3 x;
@@ -166,6 +166,12 @@ struct GpuLeaf {
   vec4 q0;
   vec4 q;
   vec4 last_q;
+
+  vec3 scale;
+  float inv_mass;
+
+  vec3 position_offset;
+  float padding;
 };
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 0) buffer STRANDS_BLOCK {
@@ -205,7 +211,7 @@ layout(std430, set = DYNAMIC_STRANDS_SET, binding = 8) buffer HASHED_GRID_CELL_S
 };
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 9) buffer FOLIAGE_BLOCK {
-  GpuLeaf foliage[];
+  Leaf foliage[];
 };
 
 #define HASH_GRID_CELL_SIZE 2 << 15

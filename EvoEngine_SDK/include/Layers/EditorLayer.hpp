@@ -69,45 +69,13 @@ struct GizmoStrandsTask {
 };
 
 class EditorLayer : public ILayer {
-  void LoadIcons();
-  void OnCreate() override;
-  void OnDestroy() override;
-  void PreUpdate() override;
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  
-  inline static ImGuiID dock_space_id;
-  static void InitializeImGui();
-  static void RenderImGui();
-
-  void SceneCameraWindow();
-  void MainCameraWindow();
-  void OnInputEvent(const Input::InputEvent& input_event) override;
-  void ResizeCameras();
-  Handle scene_camera_handle_ = 0;
-  std::unordered_map<Handle, EditorCamera> editor_cameras_;
-
-  std::vector<GizmoMeshTask> gizmo_mesh_tasks_;
-  std::vector<GizmoInstancedMeshTask> gizmo_instanced_mesh_tasks_;
-  std::vector<GizmoStrandsTask> gizmo_strands_tasks_;
-
-  std::vector<ConsoleMessage> console_messages_;
-  std::mutex console_message_mutex_;
-
-  bool enable_console_logs_ = true;
-  bool enable_console_errors_ = true;
-  bool enable_console_warnings_ = true;
-  friend class Console;
-  friend class RenderInstanceStorage;
-  static void OnGui(const std::shared_ptr<EditorLayer>& editor_layer);
  public:
-
-
   bool show_console_window = true;
   std::vector<ConsoleMessage>& GetConsoleMessages();
 
   [[nodiscard]] bool SceneCameraWindowFocused() const;
   [[nodiscard]] bool MainCameraWindowFocused() const;
-  bool enable_view_gizmos = true;
+  bool enable_view_gizmos = false;
   bool enable_gizmos = true;
   bool transform_read_only = false;
 
@@ -280,9 +248,44 @@ class EditorLayer : public ILayer {
   void DrawGizmoCylinder(const glm::vec4& color = glm::vec4(1.0f), const glm::mat4& model = glm::mat4(1.0f),
                          const float& size = 1.0f, const GizmoSettings& gizmo_settings = {});
 #pragma endregion
+  [[nodiscard]] bool IsGizmosDisplaying() const;
+  [[nodiscard]] bool IsGizmosUsing() const;
+
  private:
+  void LoadIcons();
+  void OnCreate() override;
+  void OnDestroy() override;
+  void PreUpdate() override;
+  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+
+  inline static ImGuiID dock_space_id;
+  static void InitializeImGui();
+  static void RenderImGui();
+
+  void SceneCameraWindow();
+  void MainCameraWindow();
+  void OnInputEvent(const Input::InputEvent& input_event) override;
+  void ResizeCameras();
+  Handle scene_camera_handle_ = 0;
+  std::unordered_map<Handle, EditorCamera> editor_cameras_;
+
+  std::vector<GizmoMeshTask> gizmo_mesh_tasks_;
+  std::vector<GizmoInstancedMeshTask> gizmo_instanced_mesh_tasks_;
+  std::vector<GizmoStrandsTask> gizmo_strands_tasks_;
+
+  std::vector<ConsoleMessage> console_messages_;
+  std::mutex console_message_mutex_;
+
+  bool enable_console_logs_ = true;
+  bool enable_console_errors_ = true;
+  bool enable_console_warnings_ = true;
+  friend class Console;
+  friend class RenderInstanceStorage;
+  static void OnGui(const std::shared_ptr<EditorLayer>& editor_layer);
+
   int selection_alpha_ = 0;
-  bool using_gizmo_ = false;
+  bool gizmo_displaying_ = false;
+  bool gizmo_using_ = false;
   void* mapped_entity_index_data_;
   std::unique_ptr<Buffer> entity_index_read_buffer_;
   void MouseEntitySelection();

@@ -826,9 +826,11 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   const auto tree_dim = strand_model_skeleton.max - strand_model_skeleton.min;
 
   VoxelGrid<std::vector<SegmentInfo>> voxel_grid;
-  constexpr auto cell_size = 0.2f;
+  const auto current_leaf_size = fd->leaf_size * glm::length(tree_dim) * 0.1f;
+  const auto cell_size = 2.f * (current_leaf_size.y + fd->position_variance * glm::length(tree_dim) * 0.1f) +
+                         initialize_parameters.max_segment_length;
   voxel_grid.Initialize(cell_size, min_bound - glm::vec3(cell_size) * 2.f, max_bound + glm::vec3(cell_size) * 2.f, {});
-
+  std::unordered_set<int> enabled_node_handles;
   for (int segment_handle = 0; segment_handle < segments.size(); segment_handle++) {
     const auto& strand_segment_data = strand_group.PeekStrandSegmentData(segment_handle);
     SegmentInfo s_d;
@@ -837,6 +839,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     s_d.p1 = segment.particle1.x0;
     s_d.center_position = (s_d.p0 + s_d.p1) * 0.5f;
     s_d.node_handle = strand_segment_data.node_handle;
+    enabled_node_handles.emplace(s_d.node_handle);
     s_d.strand_handle = strand_group.PeekStrandSegment(segment_handle).GetStrandHandle();
     s_d.segment_handle = segment_handle;
     voxel_grid.Ref(s_d.center_position).emplace_back(s_d);
@@ -848,13 +851,15 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   };
   std::vector<LeafInfo> leaf_infos;
   for (const auto& internode_handle : node_list) {
+    if (enabled_node_handles.find(internode_handle) == enabled_node_handles.end())
+      continue;
     const auto& strand_model_node = strand_model_skeleton.PeekNode(internode_handle);
     std::vector<glm::mat4> leaf_matrices;
     fd->GenerateFoliageMatrices(leaf_matrices, strand_model_node.info, glm::length(tree_dim));
     for (const auto& matrix : leaf_matrices) {
       auto& leaf_info = leaf_infos.emplace_back();
       leaf_info.node_handle = internode_handle;
-      leaf_info.matrix.value = matrix;
+      leaf_info.matrix.value = initialize_parameters.root_transform.value * matrix;
     }
   }
   foliage.resize(leaf_infos.size());
@@ -865,28 +870,33 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     glm::vec3 center = leaf_info.matrix.GetPosition();
     int target_segment_handle = 0;
     float distance = FLT_MAX;
-    voxel_grid.ForEach(center, cell_size * 2, [&](const std::vector<SegmentInfo>& list) {
-      for (const auto& i : list) {
-        if (i.node_handle == leaf_info.node_handle) {
-          const auto new_distance = glm::distance(center, i.center_position);
-          if (new_distance < distance) {
-            found = true;
-            distance = new_distance;
-            target_segment_handle = i.segment_handle;
+
+    float min_radius = 0.f;
+    float max_radius = cell_size;
+    while (!found) {
+      voxel_grid.ForEach(center, min_radius, max_radius, [&](const std::vector<SegmentInfo>& list) {
+        for (const auto& i : list) {
+          if (i.node_handle == leaf_info.node_handle) {
+            if (const auto new_distance = glm::distance(center, i.center_position); new_distance < distance) {
+              found = true;
+              distance = new_distance;
+              target_segment_handle = i.segment_handle;
+            }
           }
         }
-      }
-    });
-
-    if (found) {
-      leaf.segment_handle = target_segment_handle;
-      leaf.attachment_integrity = 1.f;
-      leaf.q0 = leaf.q = leaf.last_q = leaf_info.matrix.GetRotation();
-      leaf.x0 = leaf.x = leaf.last_x = leaf_info.matrix.GetPosition();
-      leaf.rotation_integrity = 1.f;
-    } else {
-      EVOENGINE_LOG("Error!");
+      });
+      min_radius = max_radius;
+      max_radius += cell_size;
     }
+    leaf.segment_handle = target_segment_handle;
+    leaf.attachment_integrity = 1.f;
+    leaf.q0 = leaf.q = leaf.last_q = leaf_info.matrix.GetRotation();
+    leaf.x0 = leaf.x = leaf.last_x = leaf_info.matrix.GetPosition();
+    leaf.rotation_integrity = 1.f;
+    leaf.scale = leaf_info.matrix.GetScale();
+    const auto& segment = segments[target_segment_handle];
+    leaf.position_offset = glm::vec4(glm::inverse(segment.q0) * (leaf.x0 - segment.GetCenterX0()), 0.0f);
+
   });
   Upload();
 }

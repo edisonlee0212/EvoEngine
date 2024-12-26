@@ -607,10 +607,10 @@ void EcoSysLabLayer::PreUpdate() {
 }
 
 void EcoSysLabLayer::Update() {
-  StrandPhysics();
   RegisterStrandRenderingProcedure();
 }
 
 void EcoSysLabLayer::LateUpdate() {
+  StrandPhysics();
   StrandVisualization();
 }

@@ -27,7 +27,7 @@ class DynamicTreeStrands : public IPrivateComponent {
     Entity target_entity;
     std::shared_ptr<DsPivot> ds_pivot;
   };
-  bool limit_strand_length = true;
+  bool limit_strand_length = false;
   float max_strand_length = 1.f;
   std::vector<EntityPivot> pivot_operators;
   std::vector<EntityTransform> transform_operators;

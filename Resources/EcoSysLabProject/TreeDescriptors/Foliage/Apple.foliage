@@ -1,6 +1,6 @@
-leaf_size: [0.0199999996, 0.0299999993]
+leaf_size: [0.0399999991, 0.0599999987]
 leaf_count_per_internode: 5
-position_variance: 0
+position_variance: 0.100000001
 rotation_variance: 1
 branching_angle: 30
 max_node_thickness: 1

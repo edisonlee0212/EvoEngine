@@ -37,10 +37,18 @@ class DsPrediction {
   struct UniformParticlePredictionPushConstant {
     uint32_t uniform_particle_size = 0;
   };
-
+  struct LeafPredictionPushConstant {
+    uint32_t leaf_size = 0;
+    float time_step = 0.01f;
+    float inv_time_step = 100.f;
+    float angular_velocity_damping;
+    float velocity_damping;
+  };
   inline static std::shared_ptr<ComputePipeline> uniform_particle_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_pair_prediction_pipeline;
+
+  inline static std::shared_ptr<ComputePipeline> leaf_prediction_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };
@@ -85,6 +93,10 @@ class DsDynamicHashedGrid {
   inline static std::shared_ptr<Shader> global_disperse_shader;
   float grid_cell_size = 0.1f;
 
+  std::unique_ptr<ComputePipeline> local_merge_sort_pipeline;
+  std::unique_ptr<ComputePipeline> big_flip_pipeline;
+  std::unique_ptr<ComputePipeline> local_disperse_pipeline;
+  std::unique_ptr<ComputePipeline> global_disperse_pipeline;
   DsDynamicHashedGrid();
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   void BuildGrid(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -92,14 +104,12 @@ class DsDynamicHashedGrid {
 };
 
 class DsSegmentCollision {
-public:
-  enum class CollisionMode {
-    Spherical
+ public:
+  enum class CollisionMode { Spherical };
+  struct SphericalPushConstant {
+    uint32_t segment_size = 0;
+    float grid_cell_size;
   };
- struct SphericalPushConstant {
-   uint32_t segment_size = 0;
-   float grid_cell_size;
- };
   uint32_t collision_mode = static_cast<uint32_t>(CollisionMode::Spherical);
   inline static std::shared_ptr<ComputePipeline> spherical_pipeline;
   DsSegmentCollision();

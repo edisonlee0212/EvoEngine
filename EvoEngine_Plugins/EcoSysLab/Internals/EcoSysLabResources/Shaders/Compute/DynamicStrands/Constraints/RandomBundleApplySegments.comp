@@ -22,6 +22,8 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
+	uint skip_index;
+	uint skip_size;
 	uint segment_size;
 	float inv_time_step;
 };
@@ -32,8 +34,7 @@ void main(){
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint segment_index = baseID + local_index;
-
+		uint segment_index = (baseID + local_index) * skip_size + skip_index;
 		if(segment_index >= segment_size) break;
 		
 		SegmentData segment_data = segment_data_list[segment_index];

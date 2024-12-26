@@ -289,8 +289,8 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
     new_node.info.global_position = glm::vec3(settings.segment_length * (static_cast<float>(z) + 1.f), 0.0f, 0.0f);
     new_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
   }
-  strand_model_skeleton.CalculateRegulatedGlobalRotation();
   strand_model_skeleton.SortLists();
+  strand_model_skeleton.CalculateRegulatedGlobalRotation();
   for (int x = 0; x < settings.rod_dimension.x; x++) {
     for (int y = 0; y < settings.rod_dimension.y; y++) {
       const auto strand_handle = strand_group.AllocateStrand();
@@ -367,8 +367,8 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     new_node.info.global_position = glm::vec3(settings.segment_length * (static_cast<float>(z) + 1.f), 0.0f, 0.0f);
     new_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
   }
-  strand_model_skeleton.CalculateRegulatedGlobalRotation();
   strand_model_skeleton.SortLists();
+  strand_model_skeleton.CalculateRegulatedGlobalRotation();
 
   StrandModelProfile<CellParticlePhysicsData> profile;
   for (int i = 0; i < settings.rod_size; i++) {

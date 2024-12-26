@@ -124,8 +124,8 @@ class DynamicStrands {
     int sub_step = 10;
 
     int constraint_iteration = 5;
-    bool enable_disconnection = true;
-    bool enable_breaking = true;
+    bool enable_disconnection = false;
+    bool enable_breaking = false;
     float velocity_damping = 0.005f;
     float angular_velocity_damping = 0.0005f;
 
@@ -150,10 +150,12 @@ class DynamicStrands {
     bool render_segments = true;
     bool render_segment_pairs = true;
     bool render_uniform_particles = true;
+    bool render_foliage = true;
 
     uint32_t segment_render_mode = 6;
     uint32_t segment_pair_render_mode = 0;
     uint32_t uniform_particle_render_mode = 0;
+    uint32_t foliage_render_mode = 0;
 
     glm::vec4 segment_color_min = glm::vec4(0, 0, 1, 1);
     glm::vec4 segment_color_max = glm::vec4(1, 0, 0, 1);
@@ -169,6 +171,10 @@ class DynamicStrands {
     glm::vec4 uniform_particle_main = glm::vec4(1, 1, 1, 0.8f);
     float uniform_particle_radius_multiplier = 0.1f;
 
+    glm::vec4 foliage_color_min = glm::vec4(0, 0, 1, 1);
+    glm::vec4 foliage_color_max = glm::vec4(1, 0, 0, 1);
+    glm::vec4 foliage_color_main = glm::vec4(0, 1, 0, 1);
+
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -181,6 +187,10 @@ class DynamicStrands {
     float bifurcation_alpha = 1.0 / 10000.0f;
     enum VertexColors { Default, Normals, Tangents, TexCoords };
     VertexColors vertex_colors = Default;
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  };
+
+  struct FoliageRenderParameters {
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -362,6 +372,12 @@ class DynamicStrands {
     glm::quat q0;
     glm::quat q;
     glm::quat last_q;
+
+    glm::vec3 scale;
+    float inv_mass;
+
+    glm::vec3 position_offset;
+    float padding;
   };
 
   struct GpuHashedGridElement {
@@ -413,11 +429,17 @@ class DynamicStrands {
   std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets;
   void RegisterShadowMapRendering(const RenderParameters& render_parameters) const;
   void RegisterRenderFunction(const Handle& renderer_handle, const RenderParameters& render_parameters) const;
+
+  void RegisterFoliageShadowMapRendering(const FoliageRenderParameters& render_parameters) const;
+  void RegisterFoliageRenderFunction(const Handle& renderer_handle,
+                                     const FoliageRenderParameters& render_parameters) const;
+
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const VisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
                const std::function<void()>& sub_step_action);
   static void BuildRenderingPipelines();
+  static void BuildFoliageRenderingPipelines();
 
  private:
   inline static std::shared_ptr<GraphicsPipeline> point_light_render_pipeline{};

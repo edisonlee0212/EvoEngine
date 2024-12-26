@@ -18,7 +18,7 @@ Each voxel is dx wide.
 X-Coordinate:   -- 0 --- 1 --- 2 --- 3 -----
 
 The "min_bound_" stores the lower left corner of the lower left voxel.
-I.e. for min_bound_ = (0, 0) and resolution_= (2, 2), and m_size = 1,
+I.e. for min_bound_ = (0, 0) and resolution_= (2, 2), and voxel_size_ = 1,
 the voxel centers are at 0.5 and 1.5.
 
 */
@@ -63,6 +63,8 @@ class VoxelGrid {
   void ForEach(const glm::vec3& min_bound, const glm::vec3& max_bound,
                const std::function<void(VoxelData& data)>& func);
   void ForEach(const glm::vec3& center, float radius, const std::function<void(VoxelData& data)>& func);
+  void ForEach(const glm::vec3& center, float min_radius, float max_radius,
+               const std::function<void(VoxelData& data)>& func);
   [[nodiscard]] bool IsValid(const glm::vec3& position) const;
 
   [[nodiscard]] std::vector<VoxelData>& RefData();
@@ -227,11 +229,31 @@ void VoxelGrid<VoxelData>::ForEach(const glm::vec3& min_bound, const glm::vec3& 
 }
 
 template <typename VoxelData>
-void VoxelGrid<VoxelData>::ForEach(const glm::vec3& center, float radius,
+void VoxelGrid<VoxelData>::ForEach(const glm::vec3& center, const float radius,
                                    const std::function<void(VoxelData& data)>& func) {
   const auto actual_center = center - min_bound_;
   const auto actual_min_bound = actual_center - glm::vec3(radius);
   const auto actual_max_bound = actual_center + glm::vec3(radius);
+  const auto start = glm::ivec3(glm::floor(actual_min_bound / glm::vec3(voxel_size_)));
+  const auto end = glm::ivec3(glm::ceil(actual_max_bound / glm::vec3(voxel_size_)));
+  for (int i = start.x; i <= end.x; i++) {
+    for (int j = start.y; j <= end.y; j++) {
+      for (int k = start.z; k <= end.z; k++) {
+        if (i < 0 || i >= resolution_.x || j < 0 || j >= resolution_.y || k < 0 || k >= resolution_.z)
+          continue;
+        auto index = GetIndex(glm::ivec3(i, j, k));
+        func(Ref(index));
+      }
+    }
+  }
+}
+
+template <typename VoxelData>
+void VoxelGrid<VoxelData>::ForEach(const glm::vec3& center, const float min_radius, const float max_radius,
+                                   const std::function<void(VoxelData& data)>& func) {
+  const auto actual_center = center - min_bound_;
+  const auto actual_min_bound = actual_center - glm::vec3(max_radius);
+  const auto actual_max_bound = actual_center + glm::vec3(max_radius);
   const auto start = glm::ivec3(glm::floor(actual_min_bound / glm::vec3(voxel_size_)));
   const auto end = glm::ivec3(glm::ceil(actual_max_bound / glm::vec3(voxel_size_)));
   for (int i = start.x; i <= end.x; i++) {
