@@ -88,172 +88,169 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   static bool auto_time_grow = false;
   static float target_time = 0.0f;
   static float extra_time = 4.f;
-  if (ImGui::Begin("EcoSysLab Layer")) {
-    ImGui::Checkbox("Show Trees", &tree_visualization_settings_.enable);
-    if (tree_visualization_settings_.enable) {
-      const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-      if (ImGui::TreeNodeEx("Tree settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (tree_entities && !tree_entities->empty()) {
-          if (scene->IsEntityValid(selected_tree)) {
-            const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
-            auto& tree_visualizer = tree->tree_visualizer;
-            if (tree_visualizer.m_checkpointIteration == tree->tree_model.CurrentIteration()) {
-              if (ImGui::TreeNodeEx("Tree Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
-                if (ImGui::Combo("Mode", {"None", "Select", "Rotate", "Prune", "Invigorate", "Reduce"},
-                                 tree_operator_mode)) {
-                  tree_visualizer.m_selectedInternodeHandle = -1;
-                  tree_visualizer.m_selectedInternodeHierarchyList.clear();
-                }
-                switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
-                  case TreeOperatorMode::Select:
-                    ImGui::Text("Press T to cut off entire node, press R to cut at point of selection.");
-                    break;
-                  case TreeOperatorMode::Rotate:
-                    ImGui::Text("Press T to cut off entire node.");
-                    break;
-                  default:
-                    break;
-                }
-                if (tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Reduce)) {
-                  ImGui::DragFloat("Reduce speed", &tree_reduce_rate, 0.001f, 0.001f, 1.0f);
-                }
-
-                ImGui::TreePop();
+  ImGui::Checkbox("Show Trees", &tree_visualization_settings_.enable);
+  if (tree_visualization_settings_.enable) {
+    const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+    if (ImGui::TreeNodeEx("Tree settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (tree_entities && !tree_entities->empty()) {
+        if (scene->IsEntityValid(selected_tree)) {
+          const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
+          auto& tree_visualizer = tree->tree_visualizer;
+          if (tree_visualizer.m_checkpointIteration == tree->tree_model.CurrentIteration()) {
+            if (ImGui::TreeNodeEx("Tree Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
+              if (ImGui::Combo("Mode", {"None", "Select", "Rotate", "Prune", "Invigorate", "Reduce"},
+                               tree_operator_mode)) {
+                tree_visualizer.m_selectedInternodeHandle = -1;
+                tree_visualizer.m_selectedInternodeHierarchyList.clear();
               }
-            } else {
-              ImGui::Text("Go to current skeleton to enable operator!");
-            }
-            ImGui::Separator();
-            if (ImGui::TreeNodeEx("Tree Visualizer")) {
-              tree_visualizer.OnInspect(tree->tree_model);
+              switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
+                case TreeOperatorMode::Select:
+                  ImGui::Text("Press T to cut off entire node, press R to cut at point of selection.");
+                  break;
+                case TreeOperatorMode::Rotate:
+                  ImGui::Text("Press T to cut off entire node.");
+                  break;
+                default:
+                  break;
+              }
+              if (tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Reduce)) {
+                ImGui::DragFloat("Reduce speed", &tree_reduce_rate, 0.001f, 0.001f, 1.0f);
+              }
+
               ImGui::TreePop();
             }
           } else {
-            ImGui::Text("Select a tree entity to enable editing & visualization!");
+            ImGui::Text("Go to current skeleton to enable operator!");
           }
-          if (ImGui::TreeNodeEx("Tree Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (ImGui::TreeNode("Simulation Settings")) {
-              simulation_settings.OnInspect(editor_layer);
-              ImGui::TreePop();
-            }
-            if (ImGui::Button("Reset all trees")) {
-              ResetAllTrees(tree_entities);
-              ClearMeshes();
-              ClearGroundFruitAndLeaf();
-              target_time = 0.0f;
-            }
-            ImGui::Text(("Simulated time: " + std::to_string(simulated_time_) + " years").c_str());
-            ImGui::DragFloat("Target years", &extra_time, 0.1f, simulated_time_, 999);
-            if (auto_time_grow) {
-              if (ImGui::Button("Force stop")) {
-                auto_time_grow = false;
-                target_time = simulated_time_;
-              }
-            } else {
-              if (ImGui::Button(("Grow " + std::to_string(extra_time) + " years").c_str())) {
-                auto_time_grow = true;
-                target_time += extra_time;
-              }
-            }
-            if (ImGui::Button("Grow 1 iteration")) {
-              simulate = true;
-            }
+          ImGui::Separator();
+          if (ImGui::TreeNodeEx("Tree Visualizer")) {
+            tree_visualizer.OnInspect(tree->tree_model);
             ImGui::TreePop();
           }
-          if (!simulation_settings.auto_clear_fruit_and_leaves && ImGui::Button("Clear ground leaves and fruits")) {
-            ClearGroundFruitAndLeaf();
-          }
-          if (ImGui::TreeNode("Tree Geometries")) {
-            if (ImGui::TreeNode("Skeletal graph")) {
-              skeletal_graph_settings.OnInspect();
-              ImGui::TreePop();
-            }
-            if (ImGui::Button("Generate Skeletal graphs")) {
-              GenerateSkeletalGraphs(skeletal_graph_settings);
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Clear Skeletal graphs")) {
-              ClearSkeletalGraphs();
-            }
-            ImGui::Separator();
-            if (ImGui::TreeNodeEx("Mesh generation")) {
-              mesh_generator_settings.OnInspect(editor_layer);
-              ImGui::TreePop();
-            }
-            if (ImGui::Button("Generate Meshes")) {
-              GenerateMeshes(mesh_generator_settings);
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Clear Meshes")) {
-              ClearMeshes();
-            }
-            ImGui::Separator();
-            if (ImGui::TreeNodeEx("Strand Model Mesh generation")) {
-              strand_mesh_generator_settings.OnInspect(editor_layer);
-              ImGui::TreePop();
-            }
-            if (ImGui::Button("Build Strand Renderer")) {
-              GenerateStrandRenderers();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Clear Strand Renderer")) {
-              ClearStrandRenderers();
-            }
-            if (ImGui::Button("Generate Strand Model Meshes")) {
-              GenerateStrandModelMeshes(strand_mesh_generator_settings);
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Clear Strand Model Meshes")) {
-              ClearStrandModelMeshes();
-            }
-            ImGui::Separator();
-
-            if (ImGui::TreeNode("Auto geometry generation")) {
-              ImGui::Checkbox("Auto generate mesh", &auto_generate_mesh_after_editing_);
-              ImGui::Checkbox("Auto generate Skeletal Graph Per Frame", &auto_generate_skeletal_graph_every_frame_);
-              ImGui::Checkbox("Auto generate strands", &auto_generate_strands_after_editing_);
-              ImGui::Checkbox("Auto generate strands mesh", &auto_generate_strand_mesh_after_editing_);
-
-              ImGui::TreePop();
-            }
-            FileUtils::SaveFile(
-                "Export all trees as OBJ", "OBJ", {".obj"},
-                [&](const std::filesystem::path& path) {
-                  ExportAllTrees(path);
-                },
-                false);
-            ImGui::TreePop();
-          }
-          simulation_stats.OnInspect(editor_layer);
         } else {
-          ImGui::Text("No trees in the scene!");
-          ResetAllTrees(nullptr);
-          target_time = 0.0f;
+          ImGui::Text("Select a tree entity to enable editing & visualization!");
         }
-        ImGui::TreePop();
-      }
-      if (ImGui::TreeNodeEx("Tree Visualization settings")) {
-        if (ImGui::Button("Update")) {
-          need_full_flow_update = true;
+        if (ImGui::TreeNodeEx("Tree Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
+          if (ImGui::TreeNode("Simulation Settings")) {
+            simulation_settings.OnInspect(editor_layer);
+            ImGui::TreePop();
+          }
+          if (ImGui::Button("Reset all trees")) {
+            ResetAllTrees(tree_entities);
+            ClearMeshes();
+            ClearGroundFruitAndLeaf();
+            target_time = 0.0f;
+          }
+          ImGui::Text(("Simulated time: " + std::to_string(simulated_time_) + " years").c_str());
+          ImGui::DragFloat("Target years", &extra_time, 0.1f, simulated_time_, 999);
+          if (auto_time_grow) {
+            if (ImGui::Button("Force stop")) {
+              auto_time_grow = false;
+              target_time = simulated_time_;
+            }
+          } else {
+            if (ImGui::Button(("Grow " + std::to_string(extra_time) + " years").c_str())) {
+              auto_time_grow = true;
+              target_time += extra_time;
+            }
+          }
+          if (ImGui::Button("Grow 1 iteration")) {
+            simulate = true;
+          }
+          ImGui::TreePop();
         }
-        tree_visualization_settings_.OnInspect(editor_layer);
+        if (!simulation_settings.auto_clear_fruit_and_leaves && ImGui::Button("Clear ground leaves and fruits")) {
+          ClearGroundFruitAndLeaf();
+        }
+        if (ImGui::TreeNode("Tree Geometries")) {
+          if (ImGui::TreeNode("Skeletal graph")) {
+            skeletal_graph_settings.OnInspect();
+            ImGui::TreePop();
+          }
+          if (ImGui::Button("Generate Skeletal graphs")) {
+            GenerateSkeletalGraphs(skeletal_graph_settings);
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("Clear Skeletal graphs")) {
+            ClearSkeletalGraphs();
+          }
+          ImGui::Separator();
+          if (ImGui::TreeNodeEx("Mesh generation")) {
+            mesh_generator_settings.OnInspect(editor_layer);
+            ImGui::TreePop();
+          }
+          if (ImGui::Button("Generate Meshes")) {
+            GenerateMeshes(mesh_generator_settings);
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("Clear Meshes")) {
+            ClearMeshes();
+          }
+          ImGui::Separator();
+          if (ImGui::TreeNodeEx("Strand Model Mesh generation")) {
+            strand_mesh_generator_settings.OnInspect(editor_layer);
+            ImGui::TreePop();
+          }
+          if (ImGui::Button("Build Strand Renderer")) {
+            GenerateStrandRenderers();
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("Clear Strand Renderer")) {
+            ClearStrandRenderers();
+          }
+          if (ImGui::Button("Generate Strand Model Meshes")) {
+            GenerateStrandModelMeshes(strand_mesh_generator_settings);
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("Clear Strand Model Meshes")) {
+            ClearStrandModelMeshes();
+          }
+          ImGui::Separator();
 
-        ImGui::TreePop();
+          if (ImGui::TreeNode("Auto geometry generation")) {
+            ImGui::Checkbox("Auto generate mesh", &auto_generate_mesh_after_editing_);
+            ImGui::Checkbox("Auto generate Skeletal Graph Per Frame", &auto_generate_skeletal_graph_every_frame_);
+            ImGui::Checkbox("Auto generate strands", &auto_generate_strands_after_editing_);
+            ImGui::Checkbox("Auto generate strands mesh", &auto_generate_strand_mesh_after_editing_);
+
+            ImGui::TreePop();
+          }
+          FileUtils::SaveFile(
+              "Export all trees as OBJ", "OBJ", {".obj"},
+              [&](const std::filesystem::path& path) {
+                ExportAllTrees(path);
+              },
+              false);
+          ImGui::TreePop();
+        }
+        simulation_stats.OnInspect(editor_layer);
+      } else {
+        ImGui::Text("No trees in the scene!");
+        ResetAllTrees(nullptr);
+        target_time = 0.0f;
       }
-      if (ImGui::TreeNodeEx("Soil visualization settings")) {
-        soil_visualization_settings_.OnInspect(editor_layer);
-        ImGui::TreePop();
-      }
+      ImGui::TreePop();
     }
-    if (ImGui::TreeNodeEx("Dynamic Strands settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if (ImGui::Button("Initialize dynamic strands for all trees")) {
-        GenerateDynamicStrandsForAllTrees();
+    if (ImGui::TreeNodeEx("Tree Visualization settings")) {
+      if (ImGui::Button("Update")) {
+        need_full_flow_update = true;
       }
-      dynamic_strands_settings_.OnInspect(editor_layer);
+      tree_visualization_settings_.OnInspect(editor_layer);
+
+      ImGui::TreePop();
+    }
+    if (ImGui::TreeNodeEx("Soil visualization settings")) {
+      soil_visualization_settings_.OnInspect(editor_layer);
       ImGui::TreePop();
     }
   }
-  ImGui::End();
+  if (ImGui::TreeNodeEx("Dynamic Strands settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::Button("Initialize dynamic strands for all trees")) {
+      GenerateDynamicStrandsForAllTrees();
+    }
+    dynamic_strands_settings_.OnInspect(editor_layer);
+    ImGui::TreePop();
+  }
   if (simulate || auto_time_grow) {
     Simulate();
   }
@@ -610,11 +607,10 @@ void EcoSysLabLayer::PreUpdate() {
 }
 
 void EcoSysLabLayer::Update() {
-  StrandRegisterMaterial();
+  StrandPhysics();
+  RegisterStrandRenderingProcedure();
 }
 
 void EcoSysLabLayer::LateUpdate() {
-  StrandShadowMapRendering();
-  StrandRendering();
-  StrandPhysics();
+  StrandVisualization();
 }

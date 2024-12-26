@@ -677,8 +677,10 @@ void DatasetGenerator::GenerateMeshAndPointCloudForSorghum(
   }
   const auto scene = Application::GetActiveScene();
   std::shared_ptr<Soil> soil;
-  if (!CheckSoil(soil))
-    return;
+  if (generate_ground) {
+    if (!CheckSoil(soil))
+      return;
+  }
 
   const auto sorghum_entity = scene->CreateEntity("Sorghum");
   const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();

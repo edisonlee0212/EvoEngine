@@ -101,9 +101,9 @@ class DynamicStrands {
     PlottedDistribution<float> max_stretch_strain = {{0.01f, 0.01f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                      {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    PlottedDistribution<float> max_bend_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+    PlottedDistribution<float> max_bend_strain = {{0.1f, 0.1f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                   {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-    PlottedDistribution<float> max_twist_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+    PlottedDistribution<float> max_twist_strain = {{0.1f, 0.1f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
     GlobalTransform root_transform{};
@@ -111,7 +111,7 @@ class DynamicStrands {
     bool triangulate_per_bundle = false;
     int u_multiplier = 2;
     float v_multiplier = 0.25;
-
+    AssetRef foliage_descriptor;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   void Initialize(const InitializeParameters& initialize_parameters, const StrandModelSkeleton& strand_model_skeleton,
@@ -281,6 +281,8 @@ class DynamicStrands {
 
     GpuParticle particle0{};
     GpuParticle particle1{};
+
+    glm::vec3 GetCenterX0() const;
   };
 
   struct GpuSegmentPair {
@@ -350,6 +352,18 @@ class DynamicStrands {
     int triangles_accepted = 0;
   };
 
+  struct GpuLeaf {
+    glm::vec3 x0;
+    int segment_handle;
+    glm::vec3 x;
+    float attachment_integrity;
+    glm::vec3 last_x;
+    float rotation_integrity;
+    glm::quat q0;
+    glm::quat q;
+    glm::quat last_q;
+  };
+
   struct GpuHashedGridElement {
     uint32_t cell_id;
     uint32_t segment_handle;
@@ -374,6 +388,7 @@ class DynamicStrands {
   std::shared_ptr<Buffer> device_delaunay_tetrahedrons_buffer;
   std::shared_ptr<Buffer> device_hashed_grid_elements_buffer;
   std::shared_ptr<Buffer> device_hashed_grid_cell_starts_buffer;
+  std::shared_ptr<Buffer> device_foliage_buffer;
 
   std::vector<GpuStrand> strands;
   std::vector<GpuSegment> segments;
@@ -385,6 +400,7 @@ class DynamicStrands {
   std::vector<GpuHashedGridCellStart> hashed_grid_cell_starts;
   std::shared_ptr<Buffer> device_nodes_buffer;
   std::vector<GpuNode> nodes;
+  std::vector<GpuLeaf> foliage;
 #pragma endregion
 
   void Upload();
@@ -395,8 +411,8 @@ class DynamicStrands {
   void Clear();
 
   std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets;
-  void RenderShadowMap(const RenderParameters& render_parameters) const;
-  void Render(const int& material_index, const RenderParameters& render_parameters) const;
+  void RegisterShadowMapRendering(const RenderParameters& render_parameters) const;
+  void RegisterRenderFunction(const Handle& renderer_handle, const RenderParameters& render_parameters) const;
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const VisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,

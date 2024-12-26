@@ -24,11 +24,13 @@ class RenderTexture {
   std::shared_ptr<Sampler> color_sampler_ = {};
   std::shared_ptr<Sampler> depth_sampler_ = {};
   std::vector<ImTextureID> color_im_texture_ids_{};
+  std::vector<ImTextureID> depth_im_texture_ids_{};
 
   bool color_ = true;
   bool depth_ = true;
   void Initialize(const RenderTextureCreateInfo& render_texture_create_info, uint32_t mip_levels = 1);
-  std::shared_ptr<DescriptorSet> present_descriptor_set_;
+  std::shared_ptr<DescriptorSet> depth_present_descriptor_set_;
+  std::shared_ptr<DescriptorSet> color_present_descriptor_set_;
   std::shared_ptr<DescriptorSet> storage_descriptor_set_;
 
  public:
@@ -45,7 +47,7 @@ class RenderTexture {
                                                                  uint32_t mip_level = 0) const;
   [[nodiscard]] VkExtent3D GetExtent() const;
   [[nodiscard]] VkImageViewType GetImageViewType() const;
-  [[nodiscard]] uint32_t GetMipLevels() const; 
+  [[nodiscard]] uint32_t GetMipLevels() const;
   [[nodiscard]] const std::shared_ptr<Sampler>& GetColorSampler() const;
   [[nodiscard]] const std::shared_ptr<Sampler>& GetDepthSampler() const;
   [[nodiscard]] const std::shared_ptr<Image>& GetColorImage();
@@ -55,13 +57,15 @@ class RenderTexture {
   void Render(VkCommandBuffer vk_command_buffer, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op,
               const std::function<void()>& func, uint32_t mip_level = 0) const;
   [[nodiscard]] ImTextureID GetColorImTextureId(uint32_t mip_index = 0) const;
+  [[nodiscard]] ImTextureID GetDepthImTextureId(uint32_t mip_index = 0) const;
   void ApplyGraphicsPipelineStates(GraphicsPipelineStates& global_pipeline_state) const;
   [[maybe_unused]] bool Save(const std::filesystem::path& path) const;
   void StoreToPng(const std::string& path, int resize_x = -1, int resize_y = -1, unsigned compression_level = 8) const;
   void StoreToJpg(const std::string& path, int resize_x = -1, int resize_y = -1, unsigned quality = 100) const;
   void StoreToHdr(const std::string& path, int resize_x = -1, int resize_y = -1, unsigned quality = 100) const;
 
-  const std::shared_ptr<DescriptorSet>& GetPresentDescriptorSet() const;
+  const std::shared_ptr<DescriptorSet>& GetColorPresentDescriptorSet() const;
+  const std::shared_ptr<DescriptorSet>& GetDepthPresentDescriptorSet() const;
   const std::shared_ptr<DescriptorSet>& GetStorageDescriptorSet() const;
 };
 }  // namespace evo_engine

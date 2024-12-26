@@ -118,7 +118,7 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
     reflect_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                         target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
     reflect_pipeline->BindDescriptorSet(
-        vk_command_buffer, 2, target_camera->GetRenderTexture()->GetPresentDescriptorSet()->GetVkDescriptorSet());
+        vk_command_buffer, 2, target_camera->GetRenderTexture()->GetColorPresentDescriptorSet()->GetVkDescriptorSet());
     reflect_pipeline->states.view_port = viewport;
     reflect_pipeline->states.scissor = scissor;
 

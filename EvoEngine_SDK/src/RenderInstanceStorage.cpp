@@ -39,7 +39,7 @@ void RenderSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
 #endif
 }
 
-bool MeshRenderInstance::operator!=(const MeshRenderInstance& other) const {
+bool RenderInstanceStorage::ExternalRenderInstance::operator!=(const ExternalRenderInstance& other) const {
   if (entity_selected != other.entity_selected)
     return true;
   if (instance_index != other.instance_index)
@@ -50,11 +50,9 @@ bool MeshRenderInstance::operator!=(const MeshRenderInstance& other) const {
     return true;
   if (owner != other.owner)
     return true;
-  if (mesh != other.mesh)
-    return true;
   if (material != other.material)
     return true;
-  if (mesh_version != other.mesh_version)
+  if (geometry_version != other.geometry_version)
     return true;
   if (material_version != other.material_version)
     return true;
@@ -69,15 +67,70 @@ bool MeshRenderInstance::operator!=(const MeshRenderInstance& other) const {
   return false;
 }
 
-uint32_t MeshRenderInstance::Render(const VkCommandBuffer vk_command_buffer,
-                                    const RenderInstancePushConstant& render_instance_push_constant,
-                                    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
+void RenderInstanceStorage::ExternalRenderInstance::Apply(InstanceInfoBlock& instance_info_block) const {
+  instance_info_block.model = model;
+  instance_info_block.material_index = material_index;
+  instance_info_block.triangle_offset = 0;
+  instance_info_block.meshlet_index_offset = 0;
+  instance_info_block.meshlet_size = 0;
+  instance_info_block.entity_selected = entity_selected;
+}
+
+uint32_t RenderInstanceStorage::ExternalRenderInstance::Render(
+    VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
+  return 0;
+}
+
+bool RenderInstanceStorage::MeshRenderInstance::operator!=(const MeshRenderInstance& other) const {
+  if (entity_selected != other.entity_selected)
+    return true;
+  if (instance_index != other.instance_index)
+    return true;
+  if (command_type != other.command_type)
+    return true;
+  if (model.value != other.model.value)
+    return true;
+  if (owner != other.owner)
+    return true;
+  if (mesh != other.mesh)
+    return true;
+  if (material != other.material)
+    return true;
+  if (geometry_version != other.geometry_version)
+    return true;
+  if (material_version != other.material_version)
+    return true;
+  if (cast_shadow != other.cast_shadow)
+    return true;
+  if (line_width != other.line_width)
+    return true;
+  if (cull_mode != other.cull_mode)
+    return true;
+  if (polygon_mode != other.polygon_mode)
+    return true;
+  return false;
+}
+
+void RenderInstanceStorage::MeshRenderInstance::Apply(InstanceInfoBlock& instance_info_block) const {
+  instance_info_block.model = model;
+  instance_info_block.material_index = material_index;
+  instance_info_block.entity_selected = entity_selected;
+  instance_info_block.triangle_offset = mesh->triangle_range_->offset;
+  instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
+  instance_info_block.meshlet_size = mesh->meshlet_range_->range;
+}
+
+uint32_t RenderInstanceStorage::MeshRenderInstance::Render(
+    const VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
   if (Platform::Settings::use_mesh_shader) {
     graphics_pipeline->states.ApplyAllStates(vk_command_buffer);
-    const uint32_t count = (meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
+    const uint32_t count =
+        (mesh->meshlet_range_->range + task_work_group_invocations - 1) / task_work_group_invocations;
     vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
   } else {
     mesh->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
@@ -85,7 +138,7 @@ uint32_t MeshRenderInstance::Render(const VkCommandBuffer vk_command_buffer,
   return mesh->GetTriangleAmount();
 }
 
-bool SkinnedMeshRenderInstance::operator!=(const SkinnedMeshRenderInstance& other) const {
+bool RenderInstanceStorage::SkinnedMeshRenderInstance::operator!=(const SkinnedMeshRenderInstance& other) const {
   if (entity_selected != other.entity_selected)
     return true;
   if (instance_index != other.instance_index)
@@ -102,7 +155,7 @@ bool SkinnedMeshRenderInstance::operator!=(const SkinnedMeshRenderInstance& othe
     return true;
   if (bone_matrices != other.bone_matrices)
     return true;
-  if (skinned_mesh_version != other.skinned_mesh_version)
+  if (geometry_version != other.geometry_version)
     return true;
   if (material_version != other.material_version)
     return true;
@@ -119,16 +172,25 @@ bool SkinnedMeshRenderInstance::operator!=(const SkinnedMeshRenderInstance& othe
   return false;
 }
 
-uint32_t SkinnedMeshRenderInstance::Render(VkCommandBuffer vk_command_buffer,
-                                           const RenderInstancePushConstant& render_instance_push_constant,
-                                           const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
+void RenderInstanceStorage::SkinnedMeshRenderInstance::Apply(InstanceInfoBlock& instance_info_block) const {
+  instance_info_block.model = model;
+  instance_info_block.material_index = material_index;
+  instance_info_block.entity_selected = entity_selected;
+  instance_info_block.triangle_offset = skinned_mesh->skinned_triangle_range_->offset;
+  instance_info_block.meshlet_index_offset = skinned_mesh->skinned_meshlet_range_->offset;
+  instance_info_block.meshlet_size = skinned_mesh->skinned_meshlet_range_->range;
+}
+
+uint32_t RenderInstanceStorage::SkinnedMeshRenderInstance::Render(
+    VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
   graphics_pipeline->BindDescriptorSet(vk_command_buffer, 1, bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
   skinned_mesh->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
   return skinned_mesh->GetTriangleAmount();
 }
 
-bool InstancedRenderInstance::operator!=(const InstancedRenderInstance& other) const {
+bool RenderInstanceStorage::InstancedRenderInstance::operator!=(const InstancedRenderInstance& other) const {
   if (entity_selected != other.entity_selected)
     return true;
   if (instance_index != other.instance_index)
@@ -145,7 +207,7 @@ bool InstancedRenderInstance::operator!=(const InstancedRenderInstance& other) c
     return true;
   if (particle_infos != other.particle_infos)
     return true;
-  if (mesh_version != other.mesh_version)
+  if (geometry_version != other.geometry_version)
     return true;
   if (material_version != other.material_version)
     return true;
@@ -162,16 +224,25 @@ bool InstancedRenderInstance::operator!=(const InstancedRenderInstance& other) c
   return false;
 }
 
-uint32_t InstancedRenderInstance::Render(const VkCommandBuffer vk_command_buffer,
-                                         const RenderInstancePushConstant& render_instance_push_constant,
-                                         const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
+void RenderInstanceStorage::InstancedRenderInstance::Apply(InstanceInfoBlock& instance_info_block) const {
+  instance_info_block.model = model;
+  instance_info_block.material_index = material_index;
+  instance_info_block.entity_selected = entity_selected;
+  instance_info_block.triangle_offset = mesh->triangle_range_->offset;
+  instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
+  instance_info_block.meshlet_size = mesh->meshlet_range_->range;
+}
+
+uint32_t RenderInstanceStorage::InstancedRenderInstance::Render(
+    const VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
   graphics_pipeline->BindDescriptorSet(vk_command_buffer, 1, particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
   mesh->DrawIndexed(vk_command_buffer, graphics_pipeline->states, particle_infos->PeekParticleInfoList().size());
   return mesh->UnsafeGetTriangles().size() * particle_infos->PeekParticleInfoList().size();
 }
 
-bool StrandsRenderInstance::operator!=(const StrandsRenderInstance& other) const {
+bool RenderInstanceStorage::StrandsRenderInstance::operator!=(const StrandsRenderInstance& other) const {
   if (entity_selected != other.entity_selected)
     return true;
   if (instance_index != other.instance_index)
@@ -187,7 +258,7 @@ bool StrandsRenderInstance::operator!=(const StrandsRenderInstance& other) const
   if (strands != other.strands)
     return true;
 
-  if (strands_version != other.strands_version)
+  if (geometry_version != other.geometry_version)
     return true;
   if (material_version != other.material_version)
     return true;
@@ -203,15 +274,25 @@ bool StrandsRenderInstance::operator!=(const StrandsRenderInstance& other) const
   return false;
 }
 
-uint32_t StrandsRenderInstance::Render(const VkCommandBuffer vk_command_buffer,
-                                       const RenderInstancePushConstant& render_instance_push_constant,
-                                       const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
+void RenderInstanceStorage::StrandsRenderInstance::Apply(InstanceInfoBlock& instance_info_block) const {
+  instance_info_block.model = model;
+  instance_info_block.material_index = material_index;
+  instance_info_block.entity_selected = entity_selected;
+  instance_info_block.triangle_offset = strands->segment_range_->offset;
+  instance_info_block.meshlet_index_offset = strands->strand_meshlet_range_->offset;
+  instance_info_block.meshlet_size = strands->strand_meshlet_range_->range;
+}
+
+uint32_t RenderInstanceStorage::StrandsRenderInstance::Render(
+    const VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
   strands->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
   return strands->GetSegmentAmount();
 }
 
-bool MeshRenderInstanceCollection::operator!=(const MeshRenderInstanceCollection& other) const {
+bool RenderInstanceStorage::ExternalRenderInstanceCollection::operator!=(
+    const ExternalRenderInstanceCollection& other) const {
   if (render_commands.size() != other.render_commands.size())
     return true;
   for (uint32_t i = 0; i < render_commands.size(); i++) {
@@ -221,30 +302,59 @@ bool MeshRenderInstanceCollection::operator!=(const MeshRenderInstanceCollection
   return false;
 }
 
-bool MeshRenderInstanceCollection::Empty() const {
+bool RenderInstanceStorage::ExternalRenderInstanceCollection::Empty() const {
   return render_commands.empty();
 }
 
-void MeshRenderInstanceCollection::Register(const std::shared_ptr<IRenderInstance>& render_instance) {
+void RenderInstanceStorage::ExternalRenderInstanceCollection::Register(
+    const std::shared_ptr<IRenderInstance>& render_instance) {
+  render_commands.emplace_back(std::dynamic_pointer_cast<ExternalRenderInstance>(render_instance));
+}
+
+void RenderInstanceStorage::ExternalRenderInstanceCollection::ForEachRenderInstance(
+    const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) {
+  for (const auto& i : render_commands) {
+    action(i);
+  }
+}
+
+bool RenderInstanceStorage::MeshRenderInstanceCollection::operator!=(const MeshRenderInstanceCollection& other) const {
+  if (render_commands.size() != other.render_commands.size())
+    return true;
+  for (uint32_t i = 0; i < render_commands.size(); i++) {
+    if (render_commands[i] != other.render_commands[i])
+      return true;
+  }
+  return false;
+}
+
+bool RenderInstanceStorage::MeshRenderInstanceCollection::Empty() const {
+  return render_commands.empty();
+}
+
+void RenderInstanceStorage::MeshRenderInstanceCollection::Register(
+    const std::shared_ptr<IRenderInstance>& render_instance) {
   render_commands.emplace_back(std::dynamic_pointer_cast<MeshRenderInstance>(render_instance));
 }
 
-void MeshRenderInstanceCollection::ForEachRenderInstance(
+void RenderInstanceStorage::MeshRenderInstanceCollection::ForEachRenderInstance(
     const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) {
   for (const auto& i : render_commands) {
     action(i);
   }
 }
 
-bool SkinnedMeshRenderInstanceCollection::Empty() const {
+bool RenderInstanceStorage::SkinnedMeshRenderInstanceCollection::Empty() const {
   return render_commands.empty();
 }
 
-void SkinnedMeshRenderInstanceCollection::Register(const std::shared_ptr<IRenderInstance>& render_instance) {
+void RenderInstanceStorage::SkinnedMeshRenderInstanceCollection::Register(
+    const std::shared_ptr<IRenderInstance>& render_instance) {
   render_commands.emplace_back(std::dynamic_pointer_cast<SkinnedMeshRenderInstance>(render_instance));
 }
 
-bool SkinnedMeshRenderInstanceCollection::operator!=(const SkinnedMeshRenderInstanceCollection& other) const {
+bool RenderInstanceStorage::SkinnedMeshRenderInstanceCollection::operator!=(
+    const SkinnedMeshRenderInstanceCollection& other) const {
   if (render_commands.size() != other.render_commands.size())
     return true;
   for (uint32_t i = 0; i < render_commands.size(); i++) {
@@ -254,22 +364,24 @@ bool SkinnedMeshRenderInstanceCollection::operator!=(const SkinnedMeshRenderInst
   return false;
 }
 
-void SkinnedMeshRenderInstanceCollection::ForEachRenderInstance(
+void RenderInstanceStorage::SkinnedMeshRenderInstanceCollection::ForEachRenderInstance(
     const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) {
   for (const auto& i : render_commands) {
     action(i);
   }
 }
 
-bool StrandsRenderInstanceCollection::Empty() const {
+bool RenderInstanceStorage::StrandsRenderInstanceCollection::Empty() const {
   return render_commands.empty();
 }
 
-void StrandsRenderInstanceCollection::Register(const std::shared_ptr<IRenderInstance>& render_instance) {
+void RenderInstanceStorage::StrandsRenderInstanceCollection::Register(
+    const std::shared_ptr<IRenderInstance>& render_instance) {
   render_commands.emplace_back(std::dynamic_pointer_cast<StrandsRenderInstance>(render_instance));
 }
 
-bool StrandsRenderInstanceCollection::operator!=(const StrandsRenderInstanceCollection& other) const {
+bool RenderInstanceStorage::StrandsRenderInstanceCollection::operator!=(
+    const StrandsRenderInstanceCollection& other) const {
   if (render_commands.size() != other.render_commands.size())
     return true;
   for (uint32_t i = 0; i < render_commands.size(); i++) {
@@ -279,22 +391,24 @@ bool StrandsRenderInstanceCollection::operator!=(const StrandsRenderInstanceColl
   return false;
 }
 
-void StrandsRenderInstanceCollection::ForEachRenderInstance(
+void RenderInstanceStorage::StrandsRenderInstanceCollection::ForEachRenderInstance(
     const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) {
   for (const auto& i : render_commands) {
     action(i);
   }
 }
 
-bool InstancedRenderInstanceCollection::Empty() const {
+bool RenderInstanceStorage::InstancedRenderInstanceCollection::Empty() const {
   return render_commands.empty();
 }
 
-void InstancedRenderInstanceCollection::Register(const std::shared_ptr<IRenderInstance>& render_instance) {
+void RenderInstanceStorage::InstancedRenderInstanceCollection::Register(
+    const std::shared_ptr<IRenderInstance>& render_instance) {
   render_commands.emplace_back(std::dynamic_pointer_cast<InstancedRenderInstance>(render_instance));
 }
 
-bool InstancedRenderInstanceCollection::operator!=(const InstancedRenderInstanceCollection& other) const {
+bool RenderInstanceStorage::InstancedRenderInstanceCollection::operator!=(
+    const InstancedRenderInstanceCollection& other) const {
   if (render_commands.size() != other.render_commands.size())
     return true;
   for (uint32_t i = 0; i < render_commands.size(); i++) {
@@ -304,7 +418,7 @@ bool InstancedRenderInstanceCollection::operator!=(const InstancedRenderInstance
   return false;
 }
 
-void InstancedRenderInstanceCollection::ForEachRenderInstance(
+void RenderInstanceStorage::InstancedRenderInstanceCollection::ForEachRenderInstance(
     const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) {
   for (const auto& i : render_commands) {
     action(i);
@@ -595,9 +709,66 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
       }
     }
   }
+
   if (!has_render_instance) {
     min_bound = max_bound = glm::vec3(0.0f);
   }
+}
+
+void RenderInstanceStorage::BuildRenderInstanceBlocks() {
+  const auto register_render_instance = [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+    render_instance->instance_index = instance_info_blocks_.size();
+    if (render_instance->entity_handle != 0)
+      instance_entity_handles_[render_instance->instance_index] = render_instance->entity_handle;
+    if (render_instance->renderer_handle != 0) {
+      instance_renderer_handles_[render_instance->instance_index] = render_instance->renderer_handle;
+      renderer_indices_[render_instance->renderer_handle] = render_instance->instance_index;
+    }
+    auto& render_instance_block = instance_info_blocks_.emplace_back();
+    render_instance->Apply(render_instance_block);
+  };
+  deferred_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+  deferred_skinned_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+  deferred_instanced_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+  deferred_strands_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+
+  forward_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+  forward_skinned_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+  forward_instanced_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+  forward_strands_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+
+  transparent_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+  transparent_skinned_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+  transparent_instanced_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+  transparent_strands_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+
+  external_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
 }
 
 void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_scene, const Bound& world_bound) {
@@ -982,6 +1153,8 @@ RenderInstanceStorage::RenderInstanceStorage() {
   transparent_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
   transparent_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
   transparent_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
+
+  external_render_instances = std::make_shared<ExternalRenderInstanceCollection>();
 }
 
 void RenderInstanceStorage::Clear() {
@@ -1005,11 +1178,14 @@ void RenderInstanceStorage::Clear() {
   transparent_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
   transparent_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
 
-  instance_handles_.clear();
+  external_render_instances = std::make_shared<ExternalRenderInstanceCollection>();
 
+  instance_entity_handles_.clear();
+  instance_renderer_handles_.clear();
+
+  renderer_indices_.clear();
   camera_indices_.clear();
   material_indices_.clear();
-  instance_indices_.clear();
   render_settings = {};
 
   camera_info_blocks_.clear();
@@ -1107,6 +1283,9 @@ bool RenderInstanceStorage::operator!=(const RenderInstanceStorage& other) const
       return true;
   }
 
+  if (external_render_instances != other.external_render_instances)
+    return true;
+
   if (geometry_storage_version != other.geometry_storage_version)
     return true;
   if (texture_storage_version != other.texture_storage_version)
@@ -1115,37 +1294,28 @@ bool RenderInstanceStorage::operator!=(const RenderInstanceStorage& other) const
   return false;
 }
 
-uint32_t RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>& mesh,
-                                                        const std::shared_ptr<Material>& material,
-                                                        const GlobalTransform& model, bool cast_shadow) {
+bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>& mesh,
+                                                    const std::shared_ptr<Material>& material,
+                                                    const GlobalTransform& model, bool cast_shadow) {
   if (!material || !mesh || !mesh->meshlet_range_ || !mesh->triangle_range_)
-    return UINT32_MAX;
+    return false;
   if (mesh->UnsafeGetVertices().empty() || mesh->UnsafeGetTriangles().empty())
-    return UINT32_MAX;
+    return false;
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
-  const auto material_index = RegisterMaterial(material->GetHandle(), material_info_block);
-  InstanceInfoBlock instance_info_block;
-  instance_info_block.model = model;
-  instance_info_block.material_index = material_index;
-  instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
-  instance_info_block.meshlet_size = mesh->meshlet_range_->range;
-  instance_info_block.entity_selected = false;
-  const uint32_t instance_index = instance_info_blocks_.size();
-  instance_info_blocks_.emplace_back(instance_info_block);
   const auto render_instance = std::make_shared<MeshRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromApi;
   render_instance->owner = Entity();
   render_instance->mesh = mesh;
+  render_instance->entity_handle = 0;
+  render_instance->renderer_handle = 0;
   render_instance->material = material;
   render_instance->model = model;
   render_instance->renderer_handle = 0;
   render_instance->cast_shadow = cast_shadow;
-  render_instance->meshlet_size = mesh->meshlet_range_->range;
-  render_instance->instance_index = instance_index;
-  render_instance->mesh_version = mesh->GetVersion();
+  render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
-
+  render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
   render_instance->line_width = material->draw_settings.line_width;
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
@@ -1170,10 +1340,82 @@ uint32_t RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Me
 
   total_mesh_triangles += mesh->triangles_.size();
 
-  return instance_index;
+  return true;
+}
+
+bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
+    const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material, const GlobalTransform& model,
+    const std::shared_ptr<ParticleInfoList>& particle_info_list, const bool cast_shadow) {
+  if (!material || !mesh || !mesh->meshlet_range_ || !mesh->triangle_range_)
+    return false;
+  if (mesh->UnsafeGetVertices().empty() || mesh->UnsafeGetTriangles().empty())
+    return false;
+  MaterialInfoBlock material_info_block;
+  material_info_block.Apply(material);
+  const auto render_instance = std::make_shared<InstancedRenderInstance>();
+  render_instance->command_type = RenderInstanceType::FromApi;
+  render_instance->owner = Entity();
+  render_instance->mesh = mesh;
+  render_instance->entity_handle = 0;
+  render_instance->renderer_handle = 0;
+  render_instance->material = material;
+  render_instance->model = model;
+  render_instance->particle_infos = particle_info_list;
+  render_instance->particle_info_list_version = particle_info_list->GetVersion();
+  render_instance->renderer_handle = 0;
+  render_instance->cast_shadow = cast_shadow;
+  render_instance->geometry_version = mesh->GetVersion();
+  render_instance->material_version = material->GetVersion();
+  render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
+  render_instance->line_width = material->draw_settings.line_width;
+  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->polygon_mode = material->draw_settings.polygon_mode;
+  render_instance->entity_selected = false;
+  if (material->draw_settings.blending) {
+    transparent_instanced_render_instances->Register(render_instance);
+  } else {
+    deferred_instanced_render_instances->Register(render_instance);
+  }
+
+  total_mesh_triangles += mesh->triangles_.size() * particle_info_list->PeekParticleInfoList().size();
+
+  return true;
+}
+
+bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>& target_scene, const Entity& entity,
+                                                   const Handle& renderer_handle,
+                                                   const std::shared_ptr<Material>& material) {
+  assert(Application::GetApplicationExecutionStatus() != ApplicationExecutionStatus::LateUpdate);
+  if (!material)
+    return false;
+  const auto gt = target_scene->GetDataComponent<GlobalTransform>(entity);
+  MaterialInfoBlock material_info_block;
+  material_info_block.Apply(material);
+  const auto render_instance = std::make_shared<ExternalRenderInstance>();
+  render_instance->command_type = RenderInstanceType::Unknown;
+  render_instance->owner = entity;
+  render_instance->model = gt;
+  render_instance->entity_handle = target_scene->GetEntityHandle(entity);
+  render_instance->renderer_handle = renderer_handle;
+  render_instance->material = material;
+  render_instance->cast_shadow = false;
+  // No need to update this render instance because we do not use this for ray tracer.
+  render_instance->geometry_version = 0;
+  render_instance->material_version = material->GetVersion();
+  render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
+  render_instance->entity_selected = target_scene->IsEntityAncestorSelected(entity);
+  render_instance->line_width = material->draw_settings.line_width;
+  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->polygon_mode = material->draw_settings.polygon_mode;
+
+  external_render_instances->Register(render_instance);
+
+  return true;
 }
 
 int RenderInstanceStorage::RegisterMaterial(const std::shared_ptr<Material>& material) {
+  if (!material)
+    return -1;
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
   return RegisterMaterial(material->GetHandle(), material_info_block);
@@ -1191,12 +1433,13 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
     const auto index = RegisterCamera(camera_info.second->GetHandle(), camera_info_block);
   }
   CollectEntityRenderers(scene, world_bound);
+  BuildRenderInstanceBlocks();
   CollectLights(scene, world_bound);
 }
 
 void RenderInstanceStorage::UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene) {
-  mesh_top_level_acceleration_structure =
-      std::make_shared<TopLevelAccelerationStructure>(scene, deferred_render_instances);
+  // mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene,
+  // deferred_render_instances);
 }
 
 bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
@@ -1221,29 +1464,20 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
 
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
-  auto material_index = RegisterMaterial(material->GetHandle(), material_info_block);
-  InstanceInfoBlock instance_info_block;
-  instance_info_block.model = gt;
-  instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = target_scene->IsEntityAncestorSelected(owner) ? 1 : 0;
-  instance_info_block.meshlet_size = strands->strand_meshlet_range_->range;
-  auto entity_handle = target_scene->GetEntityHandle(owner);
-  auto instance_index = RegisterInstance(entity_handle, instance_info_block);
 
   const auto render_instance = std::make_shared<StrandsRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromRenderer;
   render_instance->owner = owner;
+  render_instance->entity_handle = target_scene->GetEntityHandle(owner);
   render_instance->renderer_handle = strands_renderer->GetHandle();
   render_instance->model = gt;
   render_instance->strands = strands;
   render_instance->material = material;
   render_instance->cast_shadow = strands_renderer->cast_shadow;
-  render_instance->strand_meshlet_size = strands->strand_meshlet_range_->range;
-  render_instance->strands_version = strands->GetVersion();
+  render_instance->geometry_version = strands->GetVersion();
   render_instance->material_version = material->GetVersion();
-
-  render_instance->instance_index = instance_index;
-  render_instance->entity_selected = instance_info_block.entity_selected == 1;
+  render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
+  render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   render_instance->line_width = material->draw_settings.line_width;
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
@@ -1281,35 +1515,22 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
 
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
-  auto material_index = RegisterMaterial(material->GetHandle(), material_info_block);
-  InstanceInfoBlock instance_info_block;
-  instance_info_block.model = gt;
-  instance_info_block.material_index = material_index;
-  instance_info_block.triangle_offset = mesh->GetTriangleRange()->offset;
-  instance_info_block.entity_selected = target_scene->IsEntityAncestorSelected(owner) ? 1 : 0;
-
-  instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
-  instance_info_block.meshlet_size = mesh->meshlet_range_->range;
-
-  auto entity_handle = target_scene->GetEntityHandle(owner);
-  auto instance_index = RegisterInstance(entity_handle, instance_info_block);
   const auto render_instance = std::make_shared<MeshRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromRenderer;
   render_instance->owner = owner;
   render_instance->mesh = mesh;
   render_instance->material = material;
   render_instance->model = gt;
+  render_instance->entity_handle = target_scene->GetEntityHandle(owner);
   render_instance->renderer_handle = mesh_renderer->GetHandle();
   render_instance->cast_shadow = mesh_renderer->cast_shadow;
-  render_instance->meshlet_size = mesh->meshlet_range_->range;
-  render_instance->instance_index = instance_index;
-  render_instance->mesh_version = mesh->GetVersion();
+  render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
-
+  render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
   render_instance->line_width = material->draw_settings.line_width;
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
-  render_instance->entity_selected = instance_info_block.entity_selected == 1;
+  render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   if (material->draw_settings.blending) {
     transparent_render_instances->Register(render_instance);
   } else {
@@ -1320,7 +1541,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
         Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
     auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands.emplace_back();
     const uint32_t count =
-        (render_instance->meshlet_size + task_work_group_invocations - 1) / task_work_group_invocations;
+        (mesh->meshlet_range_->range + task_work_group_invocations - 1) / task_work_group_invocations;
     new_mesh_task.groupCountX = count;
     new_mesh_task.groupCountY = 1;
     new_mesh_task.groupCountZ = 1;
@@ -1366,30 +1587,21 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
 
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
-  auto material_index = RegisterMaterial(material->GetHandle(), material_info_block);
-  InstanceInfoBlock instance_info_block;
-  instance_info_block.model = gt;
-  instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = target_scene->IsEntityAncestorSelected(owner) ? 1 : 0;
-  instance_info_block.meshlet_size = skinned_mesh->skinned_meshlet_range_->range;
-  auto entity_handle = target_scene->GetEntityHandle(owner);
-  auto instance_index = RegisterInstance(entity_handle, instance_info_block);
-
   const auto render_instance = std::make_shared<SkinnedMeshRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromRenderer;
   render_instance->owner = owner;
+  render_instance->entity_handle = target_scene->GetEntityHandle(owner);
   render_instance->renderer_handle = skinned_mesh_renderer->GetHandle();
   render_instance->model = gt;
   render_instance->skinned_mesh = skinned_mesh;
   render_instance->material = material;
   render_instance->cast_shadow = skinned_mesh_renderer->cast_shadow;
   render_instance->bone_matrices = skinned_mesh_renderer->bone_matrices;
-  render_instance->skinned_meshlet_size = skinned_mesh->skinned_meshlet_range_->range;
-  render_instance->instance_index = instance_index;
-  render_instance->skinned_mesh_version = skinned_mesh->GetVersion();
+  render_instance->geometry_version = skinned_mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
+  render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
   render_instance->bone_matrices_version = skinned_mesh_renderer->bone_matrices->GetVersion();
-  render_instance->entity_selected = instance_info_block.entity_selected == 1;
+  render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   render_instance->line_width = material->draw_settings.line_width;
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
@@ -1430,31 +1642,22 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
 
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
-  auto material_index = RegisterMaterial(material->GetHandle(), material_info_block);
-  InstanceInfoBlock instance_info_block;
-  instance_info_block.model = gt;
-  instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = target_scene->IsEntityAncestorSelected(owner) ? 1 : 0;
-  instance_info_block.meshlet_size = mesh->meshlet_range_->range;
-  auto entity_handle = target_scene->GetEntityHandle(owner);
-  auto instance_index = RegisterInstance(entity_handle, instance_info_block);
 
   const auto render_instance = std::make_shared<InstancedRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromRenderer;
   render_instance->model = gt;
   render_instance->owner = owner;
+  render_instance->entity_handle = target_scene->GetEntityHandle(owner);
   render_instance->renderer_handle = particles->GetHandle();
   render_instance->mesh = mesh;
   render_instance->material = material;
   render_instance->cast_shadow = particles->cast_shadow;
   render_instance->particle_infos = particle_info_list;
-  render_instance->meshlet_size = mesh->meshlet_range_->range;
-  render_instance->mesh_version = mesh->GetVersion();
+  render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
+  render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
   render_instance->particle_info_list_version = particle_info_list->GetVersion();
-
-  render_instance->instance_index = instance_index;
-  render_instance->entity_selected = instance_info_block.entity_selected == 1;
+  render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   render_instance->line_width = material->draw_settings.line_width;
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
@@ -1480,18 +1683,6 @@ int RenderInstanceStorage::RegisterMaterial(const Handle& handle, const Material
   return search->second;
 }
 
-int RenderInstanceStorage::RegisterInstance(const Handle& handle, const InstanceInfoBlock& instance_info_block) {
-  const auto search = instance_indices_.find(handle);
-  if (search == instance_indices_.end()) {
-    const int index = instance_info_blocks_.size();
-    instance_indices_[handle] = index;
-    instance_handles_[index] = handle;
-    instance_info_blocks_.emplace_back(instance_info_block);
-    return index;
-  }
-  return search->second;
-}
-
 int RenderInstanceStorage::RegisterCamera(const Handle& handle, const CameraInfoBlock& camera_info_block) {
   const auto search = camera_indices_.find(handle);
   if (search == camera_indices_.end()) {
@@ -1503,33 +1694,41 @@ int RenderInstanceStorage::RegisterCamera(const Handle& handle, const CameraInfo
   return search->second;
 }
 
-int RenderInstanceStorage::GetMaterialIndex(const Handle& handle) {
-  const auto search = material_indices_.find(handle);
+int RenderInstanceStorage::GetMaterialIndex(const Handle& material_handle) {
+  const auto search = material_indices_.find(material_handle);
   if (search == material_indices_.end()) {
     throw std::runtime_error("Unable to find material!");
   }
   return search->second;
 }
 
-int RenderInstanceStorage::GetInstanceIndex(const Handle& handle) {
-  const auto search = instance_indices_.find(handle);
-  if (search == instance_indices_.end()) {
-    throw std::runtime_error("Unable to find instance!");
+int RenderInstanceStorage::GetRenderInstanceIndex(const Handle& renderer_handle) {
+  const auto search = renderer_indices_.find(renderer_handle);
+  if (search == renderer_indices_.end()) {
+    throw std::runtime_error("Unable to find renderer!");
   }
   return search->second;
 }
 
-int RenderInstanceStorage::GetCameraIndex(const Handle& handle) {
-  const auto search = camera_indices_.find(handle);
+int RenderInstanceStorage::GetCameraIndex(const Handle& camera_handle) {
+  const auto search = camera_indices_.find(camera_handle);
   if (search == camera_indices_.end()) {
     throw std::runtime_error("Unable to find camera!");
   }
   return search->second;
 }
 
-Handle RenderInstanceStorage::GetInstanceHandle(const int index) {
-  const auto search = instance_handles_.find(index);
-  if (search == instance_handles_.end()) {
+Handle RenderInstanceStorage::GetInstanceEntityHandle(const int render_instance_index) {
+  const auto search = instance_entity_handles_.find(render_instance_index);
+  if (search == instance_entity_handles_.end()) {
+    return 0;
+  }
+  return search->second;
+}
+
+Handle RenderInstanceStorage::GetInstanceRendererHandle(const int render_instance_index) {
+  const auto search = instance_renderer_handles_.find(render_instance_index);
+  if (search == instance_renderer_handles_.end()) {
     return 0;
   }
   return search->second;

@@ -37,17 +37,17 @@ void register_classes() {
 
 void push_layers(const bool enable_render_layer, const bool enable_window_layer, const bool enable_editor_layer) {
   if (enable_render_layer)
-    Application::PushLayer<RenderLayer>();
+    Application::PushLayer<RenderLayer>("Render Layer");
   if (enable_window_layer)
-    Application::PushLayer<WindowLayer>();
+    Application::PushLayer<WindowLayer>("Window Layer");
   if (enable_window_layer && enable_editor_layer)
-    Application::PushLayer<EditorLayer>();
+    Application::PushLayer<EditorLayer>("Editor Layer");
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
-  Application::PushLayer<SorghumLayer>();
+  Application::PushLayer<SorghumLayer>("Sorghum Layer");
 #endif
 #ifdef CUDA_MODULE_PLUGIN
   if (enable_render_layer)
-    Application::PushLayer<RayTracerLayer>();
+    Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
 }
 
@@ -267,7 +267,7 @@ int main() {
   const std::filesystem::path project_path = resource_folder_path / "DigitalAgricultureProject" / "test.eveproj";
   // start_project(project_path);
 
-  const bool use_gpu = true;
+  const bool use_gpu = false;
 
   run_windowless(use_gpu, project_path);
   std::shared_ptr<SorghumGantryCaptureSettings> capture_settings = std::make_shared<SorghumGantryCaptureSettings>();

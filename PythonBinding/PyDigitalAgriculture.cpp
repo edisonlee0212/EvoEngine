@@ -49,16 +49,17 @@ void register_classes() {
 
 void push_layers(const bool enable_render_layer, const bool enable_window_layer, const bool enable_editor_layer) {
   if (enable_render_layer)
-    Application::PushLayer<RenderLayer>();
+    Application::PushLayer<RenderLayer>("Render Layer");
   if (enable_window_layer)
-    Application::PushLayer<WindowLayer>();
+    Application::PushLayer<WindowLayer>("Window Layer");
   if (enable_window_layer && enable_editor_layer)
-    Application::PushLayer<EditorLayer>();
-
-  Application::PushLayer<SorghumLayer>();
+    Application::PushLayer<EditorLayer>("Editor Layer");
+#  ifdef DIGITAL_AGRICULTURE_PLUGIN
+  Application::PushLayer<SorghumLayer>("Sorghum Layer");
+#  endif
 #  ifdef CUDA_MODULE_PLUGIN
   if (enable_render_layer)
-    Application::PushLayer<RayTracerLayer>();
+    Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #  endif
 }
 

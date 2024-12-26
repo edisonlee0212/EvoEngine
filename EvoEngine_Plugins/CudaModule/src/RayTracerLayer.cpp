@@ -442,46 +442,39 @@ void RayTracerLayer::LateUpdate() {
 }
 
 void RayTracerLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  if (ImGui::BeginMainMenuBar()) {
-    if (ImGui::BeginMenu("View")) {
-      if (ImGui::BeginMenu("Editor")) {
-        if (ImGui::BeginMenu("Scene")) {
-          ImGui::Checkbox("Show Scene (RT) Window", &show_scene_window);
-          if (show_scene_window) {
-            ImGui::Checkbox("Show Scene (RT) Window Info", &show_scene_info);
-          }
-          ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("Camera")) {
-          ImGui::Checkbox("Show Camera (RT) Window", &show_camera_window);
-          ImGui::EndMenu();
-        }
-        ImGui::Checkbox("Ray Tracer Settings", &show_ray_tracer_settings_window);
-        ImGui::EndMenu();
-      }
-      ImGui::EndMenu();
+  if (ImGui::TreeNode("Editor")) {
+    if (ImGui::TreeNode("Scene")) {
+      
+      ImGui::TreePop();
     }
-    ImGui::EndMainMenuBar();
+    if (ImGui::TreeNode("Camera")) {
+      
+      ImGui::TreePop();
+    }
+    ImGui::TreePop();
   }
-  if (show_ray_tracer_settings_window) {
-    if (ImGui::Begin("Ray Tracer Settings")) {
-      ImGui::Checkbox("Mesh Renderer", &render_mesh_renderer);
-      ImGui::Checkbox("Strand Renderer", &render_strands_renderer);
-      ImGui::Checkbox("Particles", &render_particles);
-      ImGui::Checkbox("Skinned Mesh Renderer", &render_skinned_mesh_renderer);
-      ImGui::Checkbox("BTF Mesh Renderer", &render_btf_mesh_renderer);
 
-      if (ImGui::TreeNode("Scene Camera Settings")) {
-        scene_camera->OnInspect(editor_layer);
-        ImGui::TreePop();
-      }
-      if (ImGui::TreeNodeEx("Environment Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-        environment_properties.OnInspect();
-        ImGui::TreePop();
-      }
-    }
-    ImGui::End();
+  ImGui::Checkbox("Scene (RT) Window", &show_scene_window);
+  if (show_scene_window) {
+    ImGui::Checkbox("Scene (RT) Window Info", &show_scene_info);
   }
+  ImGui::Checkbox("Camera (RT) Window", &show_camera_window);
+
+  ImGui::Checkbox("Mesh Renderer", &render_mesh_renderer);
+  ImGui::Checkbox("Strand Renderer", &render_strands_renderer);
+  ImGui::Checkbox("Particles", &render_particles);
+  ImGui::Checkbox("Skinned Mesh Renderer", &render_skinned_mesh_renderer);
+  ImGui::Checkbox("BTF Mesh Renderer", &render_btf_mesh_renderer);
+
+  if (ImGui::TreeNode("Scene Camera Settings")) {
+    scene_camera->OnInspect(editor_layer);
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNodeEx("Environment Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+    environment_properties.OnInspect();
+    ImGui::TreePop();
+  }
+
   if (show_camera_window)
     RayCameraWindow();
   if (show_scene_window)

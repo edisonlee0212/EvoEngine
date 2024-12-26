@@ -1,8 +1,9 @@
 #include "PlanetTerrain.hpp"
 #include "EditorLayer.hpp"
-#include "PlanetTerrainSystem.hpp"
 #include "yaml-cpp/yaml.h"
-void universe_plugin::PlanetTerrain::Serialize(YAML::Emitter &out) const {
+
+using namespace universe_plugin;
+void PlanetTerrain::Serialize(YAML::Emitter &out) const {
   out << YAML::Key << "planet_info";
   out << YAML::BeginMap;
   out << YAML::Key << "max_lod_level" << YAML::Value << info_.max_lod_level;
@@ -15,7 +16,7 @@ void universe_plugin::PlanetTerrain::Serialize(YAML::Emitter &out) const {
   surface_material.Save("surface_material", out);
 }
 
-void universe_plugin::PlanetTerrain::Deserialize(const YAML::Node &in) {
+void PlanetTerrain::Deserialize(const YAML::Node &in) {
   auto info = in["planet_info"];
   PlanetInfo planet_info;
   planet_info.max_lod_level = info["max_lod_level"].as<unsigned>();
@@ -27,7 +28,7 @@ void universe_plugin::PlanetTerrain::Deserialize(const YAML::Node &in) {
 
   surface_material.Load("surface_material", in);
 }
-void universe_plugin::PlanetTerrain::Init() {
+void PlanetTerrain::Init() {
   if (initialized_)
     return;
   shared_vertices_ = std::vector<Vertex>();
@@ -78,21 +79,21 @@ void universe_plugin::PlanetTerrain::Init() {
   initialized_ = true;
 }
 
-bool universe_plugin::PlanetTerrain::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
+bool PlanetTerrain::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
   return editor_layer->DragAndDropButton<Material>(surface_material, "Material");
 }
-void universe_plugin::PlanetTerrain::PostCloneAction(const std::shared_ptr<IPrivateComponent> &target) {
-  info_ = std::static_pointer_cast<universe_plugin::PlanetTerrain>(target)->info_;
+void PlanetTerrain::PostCloneAction(const std::shared_ptr<IPrivateComponent> &target) {
+  info_ = std::static_pointer_cast<PlanetTerrain>(target)->info_;
   initialized_ = false;
 }
-void universe_plugin::PlanetTerrain::Start() {
+void PlanetTerrain::Start() {
   Init();
 }
-void universe_plugin::PlanetTerrain::SetPlanetInfo(const PlanetInfo &planet_info) {
+void PlanetTerrain::SetPlanetInfo(const PlanetInfo &planet_info) {
   info_ = planet_info;
   initialized_ = false;
   Init();
 }
-void universe_plugin::PlanetTerrain::CollectAssetRef(std::vector<AssetRef> &list) {
+void PlanetTerrain::CollectAssetRef(std::vector<AssetRef> &list) {
   list.push_back(surface_material);
 }

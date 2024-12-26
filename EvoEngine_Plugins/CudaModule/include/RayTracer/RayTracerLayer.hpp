@@ -42,7 +42,6 @@ class RayTracerLayer : public ILayer {
   bool render_btf_mesh_renderer = true;
   bool render_skinned_mesh_renderer = false;
   [[nodiscard]] glm::ivec2 GetSceneCameraResolution() const;
-  bool show_ray_tracer_settings_window = false;
   EnvironmentProperties environment_properties;
   std::shared_ptr<CudaImage> environmental_map_image;
   Handle environmental_map_handle = 0;

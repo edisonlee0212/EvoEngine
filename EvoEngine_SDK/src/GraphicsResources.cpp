@@ -1287,22 +1287,24 @@ VkDeviceAddress BottomLevelAccelerationStructure::GetDeviceAddress() const {
 }
 
 TopLevelAccelerationStructure::TopLevelAccelerationStructure(
-    const std::shared_ptr<Scene>& scene, const std::shared_ptr<MeshRenderInstanceCollection>& render_instances) {
+    const std::shared_ptr<Scene>& scene, const std::shared_ptr<RenderInstanceStorage>& render_instance_storage) {
   if (!Platform::Initialized())
     return;
   std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances;
-  render_instances->ForEachRenderInstance([&](const std::shared_ptr<IRenderInstance>& render_instance) {
-    auto& acceleration_structure_instance = acceleration_structure_instances.emplace_back();
-    const auto global_transform = scene->GetDataComponent<GlobalTransform>(render_instance->owner);
-    memcpy(&acceleration_structure_instance.transform.matrix[0][0], glm::value_ptr(global_transform.value),
-           sizeof(VkTransformMatrixKHR));
-    acceleration_structure_instance.instanceCustomIndex = render_instance->instance_index;
-    acceleration_structure_instance.mask = 0xFF;
-    acceleration_structure_instance.instanceShaderBindingTableRecordOffset = 0;
-    acceleration_structure_instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-    acceleration_structure_instance.accelerationStructureReference =
-        std::dynamic_pointer_cast<MeshRenderInstance>(render_instance)->mesh->blas_->GetDeviceAddress();
-  });
+  render_instance_storage->deferred_render_instances->ForEachRenderInstance(
+      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
+        auto& acceleration_structure_instance = acceleration_structure_instances.emplace_back();
+        const auto global_transform = scene->GetDataComponent<GlobalTransform>(render_instance->owner);
+        memcpy(&acceleration_structure_instance.transform.matrix[0][0], glm::value_ptr(global_transform.value),
+               sizeof(VkTransformMatrixKHR));
+        acceleration_structure_instance.instanceCustomIndex = render_instance->instance_index;
+        acceleration_structure_instance.mask = 0xFF;
+        acceleration_structure_instance.instanceShaderBindingTableRecordOffset = 0;
+        acceleration_structure_instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+        acceleration_structure_instance.accelerationStructureReference =
+            std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance)
+                ->mesh->blas_->GetDeviceAddress();
+      });
 
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;

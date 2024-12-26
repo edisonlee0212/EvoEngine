@@ -12,6 +12,10 @@ void ILayer::OnInputEvent(const Input::InputEvent& input_event) {
   }
 }
 
+std::string ILayer::GetLayerName() const {
+  return layer_name_;
+}
+
 std::shared_ptr<Scene> ILayer::GetScene() const {
   return scene_.lock();
 }

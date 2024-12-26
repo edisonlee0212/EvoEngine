@@ -3,6 +3,7 @@
 #include "DsConstraints.hpp"
 #include "DsPhysics.hpp"
 #include "DynamicStrandUtils.hpp"
+#include "FoliageDescriptor.hpp"
 #include "Shader.hpp"
 #include "UVMapUtils.hpp"
 #include "glm/gtc/matrix_access.hpp"
@@ -70,8 +71,6 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
   frame_index++;
 }
 
-
-
 DynamicStrands::DynamicStrands() {
 #ifdef USE_RENDERDOC
   if (rdoc_api == nullptr) {
@@ -94,6 +93,7 @@ DynamicStrands::DynamicStrands() {
     strands_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->Initialize();
   }
   wait_for_upload = true;
@@ -116,6 +116,7 @@ DynamicStrands::DynamicStrands() {
   device_hashed_grid_elements_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_hashed_grid_cell_starts_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_foliage_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   const auto max_frame_in_flight = Platform::GetMaxFramesInFlight();
   strands_descriptor_sets.resize(max_frame_in_flight);
@@ -190,6 +191,9 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
 
     ImGui::TreePop();
   }
+
+  editor_layer->DragAndDropButton<FoliageDescriptor>(foliage_descriptor, "Foliage Descriptor");
+
   if (ImGui::TreeNode("Meshing Properties")) {
 #ifdef USE_CGAL
     if (ImGui::Checkbox("Use CGAL", &use_cgal))
@@ -442,13 +446,13 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     const auto& pipe = strand_model_skeleton.data.strand_group.PeekStrand(uniform_particle.strand_index);
     // set up UV map
     const auto& p0_ptr = UVMapUtils::GetEndParticle(strand_model_skeleton, uniform_particle.strand_index,
-                                                glm::floor(uniform_particle.t));
+                                                    glm::floor(uniform_particle.t));
     const auto& p1_ptr = UVMapUtils::GetStartParticle(strand_model_skeleton, uniform_particle.strand_index,
-                                                  glm::floor(uniform_particle.t));
+                                                      glm::floor(uniform_particle.t));
 
-    if (p0_ptr && p1_ptr){
-      uniform_particle.tex_coord.x = UVMapUtils::GetPipePolar(*p0_ptr, *p1_ptr, uniform_particle.t) / (2 * glm::pi<float>()) *
-                                     initialize_parameters.u_multiplier;
+    if (p0_ptr && p1_ptr) {
+      uniform_particle.tex_coord.x = UVMapUtils::GetPipePolar(*p0_ptr, *p1_ptr, uniform_particle.t) /
+                                     (2 * glm::pi<float>()) * initialize_parameters.u_multiplier;
       uniform_particle.tex_coord.y = uniform_particle.node_index * initialize_parameters.v_multiplier;
     } else {
       uniform_particle.tex_coord.x = 0.0f;
@@ -457,8 +461,15 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   });
 
   segment_data_list.resize(segments.size());
+  std::vector<glm::vec3> projected_max_bounds(Jobs::GetWorkerSize());
+  std::vector<glm::vec3> projected_min_bounds(Jobs::GetWorkerSize());
   std::vector<glm::vec3> max_bounds(Jobs::GetWorkerSize());
   std::vector<glm::vec3> min_bounds(Jobs::GetWorkerSize());
+  for (auto& i : projected_max_bounds)
+    i = glm::vec3(-FLT_MAX);
+  for (auto& i : projected_min_bounds)
+    i = glm::vec3(FLT_MAX);
+
   for (auto& i : max_bounds)
     i = glm::vec3(-FLT_MAX);
   for (auto& i : min_bounds)
@@ -485,14 +496,21 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   };
 
   Jobs::RunParallelFor(segment_data_list.size(), [&](const auto segment_handle, const auto worker_i) {
-    max_bounds[worker_i] =
-        glm::max(max_bounds[worker_i], calculate_regularized_segment_p0(static_cast<int>(segment_handle)));
-    min_bounds[worker_i] =
-        glm::min(min_bounds[worker_i], calculate_regularized_segment_p0(static_cast<int>(segment_handle)));
-    max_bounds[worker_i] =
-        glm::max(max_bounds[worker_i], calculate_regularized_segment_p1(static_cast<int>(segment_handle)));
-    min_bounds[worker_i] =
-        glm::min(min_bounds[worker_i], calculate_regularized_segment_p1(static_cast<int>(segment_handle)));
+    projected_max_bounds[worker_i] =
+        glm::max(projected_max_bounds[worker_i], calculate_regularized_segment_p0(static_cast<int>(segment_handle)));
+    projected_min_bounds[worker_i] =
+        glm::min(projected_min_bounds[worker_i], calculate_regularized_segment_p0(static_cast<int>(segment_handle)));
+    projected_max_bounds[worker_i] =
+        glm::max(projected_max_bounds[worker_i], calculate_regularized_segment_p1(static_cast<int>(segment_handle)));
+    projected_min_bounds[worker_i] =
+        glm::min(projected_min_bounds[worker_i], calculate_regularized_segment_p1(static_cast<int>(segment_handle)));
+
+    const auto pos = segments[segment_handle].GetCenterX0();
+
+    max_bounds[worker_i] = glm::max(max_bounds[worker_i], pos);
+    min_bounds[worker_i] = glm::min(min_bounds[worker_i], pos);
+    max_bounds[worker_i] = glm::max(max_bounds[worker_i], pos);
+    min_bounds[worker_i] = glm::min(min_bounds[worker_i], pos);
 
     for (int j = 0; j < BUNDLE_MAX_CONNECTION; j++) {
       segment_data_list[segment_handle].pair_handles[j] = -1;
@@ -579,12 +597,20 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   }
   connection_segment_pair_size = segment_pairs.size();
 
+  auto projected_max_bound = glm::vec3(-FLT_MAX);
+  auto projected_min_bound = glm::vec3(FLT_MAX);
+  for (auto& i : projected_max_bounds)
+    projected_max_bound = glm::max(i, projected_max_bound);
+  for (auto& i : projected_min_bounds)
+    projected_min_bound = glm::min(i, projected_min_bound);
+
   auto max_bound = glm::vec3(-FLT_MAX);
   auto min_bound = glm::vec3(FLT_MAX);
   for (auto& i : max_bounds)
     max_bound = glm::max(i, max_bound);
   for (auto& i : min_bounds)
     min_bound = glm::min(i, min_bound);
+
   struct SegmentInfo {
     glm::vec3 p0;
     glm::vec3 p1;
@@ -594,9 +620,11 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     int segment_handle;
   };
 
-  VoxelGrid<std::vector<SegmentInfo>> voxel_grid;
-  constexpr auto cell_size = 1.f;
-  voxel_grid.Initialize(cell_size, min_bound - glm::vec3(cell_size) * 2.f, max_bound + glm::vec3(cell_size) * 2.f, {});
+  VoxelGrid<std::vector<SegmentInfo>> projected_voxel_grid;
+  constexpr auto projected_cell_size = 1.f;
+  projected_voxel_grid.Initialize(projected_cell_size, projected_min_bound - glm::vec3(projected_cell_size) * 2.f,
+                                  projected_max_bound + glm::vec3(projected_cell_size) * 2.f, {});
+
   for (int segment_handle = 0; segment_handle < segments.size(); segment_handle++) {
     const auto& strand_segment_data = strand_group.PeekStrandSegmentData(segment_handle);
     SegmentInfo s_d;
@@ -606,7 +634,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     s_d.node_handle = strand_segment_data.node_handle;
     s_d.strand_handle = strand_group.PeekStrandSegment(segment_handle).GetStrandHandle();
     s_d.segment_handle = segment_handle;
-    voxel_grid.Ref(s_d.center_position).emplace_back(s_d);
+    projected_voxel_grid.Ref(s_d.center_position).emplace_back(s_d);
   }
   std::multimap<float, std::map<std::pair<int, int>, std::pair<float, float>>> candidates;
   for (int segment_handle = 0; segment_handle < segments.size(); segment_handle++) {
@@ -619,7 +647,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
     const auto center = calculate_regularized_segment_center(segment_handle);
     const auto strand_handle = strand_group.PeekStrandSegment(segment_handle).GetStrandHandle();
-    voxel_grid.ForEach(
+    projected_voxel_grid.ForEach(
         center,
         glm::max(initialize_parameters.neighbor_vertical_range, initialize_parameters.neighbor_horizontal_range),
         [&](const std::vector<SegmentInfo>& list) {
@@ -788,6 +816,78 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
 
   hashed_grid_elements.resize(segments.size());
   hashed_grid_cell_starts.resize(HASH_GRID_CELL_SIZE);
+
+  // Create foliage here.
+  auto initialize_parameters_copy = initialize_parameters;
+  auto fd = initialize_parameters_copy.foliage_descriptor.Get<FoliageDescriptor>();
+  if (!fd)
+    fd = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+  const auto& node_list = strand_model_skeleton.PeekSortedNodeList();
+  const auto tree_dim = strand_model_skeleton.max - strand_model_skeleton.min;
+
+  VoxelGrid<std::vector<SegmentInfo>> voxel_grid;
+  constexpr auto cell_size = 0.2f;
+  voxel_grid.Initialize(cell_size, min_bound - glm::vec3(cell_size) * 2.f, max_bound + glm::vec3(cell_size) * 2.f, {});
+
+  for (int segment_handle = 0; segment_handle < segments.size(); segment_handle++) {
+    const auto& strand_segment_data = strand_group.PeekStrandSegmentData(segment_handle);
+    SegmentInfo s_d;
+    const auto& segment = segments[segment_handle];
+    s_d.p0 = segment.particle0.x0;
+    s_d.p1 = segment.particle1.x0;
+    s_d.center_position = (s_d.p0 + s_d.p1) * 0.5f;
+    s_d.node_handle = strand_segment_data.node_handle;
+    s_d.strand_handle = strand_group.PeekStrandSegment(segment_handle).GetStrandHandle();
+    s_d.segment_handle = segment_handle;
+    voxel_grid.Ref(s_d.center_position).emplace_back(s_d);
+  }
+
+  struct LeafInfo {
+    Transform matrix;
+    int node_handle;
+  };
+  std::vector<LeafInfo> leaf_infos;
+  for (const auto& internode_handle : node_list) {
+    const auto& strand_model_node = strand_model_skeleton.PeekNode(internode_handle);
+    std::vector<glm::mat4> leaf_matrices;
+    fd->GenerateFoliageMatrices(leaf_matrices, strand_model_node.info, glm::length(tree_dim));
+    for (const auto& matrix : leaf_matrices) {
+      auto& leaf_info = leaf_infos.emplace_back();
+      leaf_info.node_handle = internode_handle;
+      leaf_info.matrix.value = matrix;
+    }
+  }
+  foliage.resize(leaf_infos.size());
+  Jobs::RunParallelFor(foliage.size(), [&](const auto foliage_index) {
+    const auto& leaf_info = leaf_infos[foliage_index];
+    auto& leaf = foliage[foliage_index];
+    bool found = false;
+    glm::vec3 center = leaf_info.matrix.GetPosition();
+    int target_segment_handle = 0;
+    float distance = FLT_MAX;
+    voxel_grid.ForEach(center, cell_size * 2, [&](const std::vector<SegmentInfo>& list) {
+      for (const auto& i : list) {
+        if (i.node_handle == leaf_info.node_handle) {
+          const auto new_distance = glm::distance(center, i.center_position);
+          if (new_distance < distance) {
+            found = true;
+            distance = new_distance;
+            target_segment_handle = i.segment_handle;
+          }
+        }
+      }
+    });
+
+    if (found) {
+      leaf.segment_handle = target_segment_handle;
+      leaf.attachment_integrity = 1.f;
+      leaf.q0 = leaf.q = leaf.last_q = leaf_info.matrix.GetRotation();
+      leaf.x0 = leaf.x = leaf.last_x = leaf_info.matrix.GetPosition();
+      leaf.rotation_integrity = 1.f;
+    } else {
+      EVOENGINE_LOG("Error!");
+    }
+  });
   Upload();
 }
 
@@ -836,11 +936,16 @@ void DynamicStrands::UpdateBindings() const {
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_hashed_grid_elements_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(8, device_hashed_grid_cell_starts_buffer,
                                                                               0);
-
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(9, device_foliage_buffer, 0);
   for (const auto& c : constraints) {
     c->UpdateBindings();
   }
 }
+
+glm::vec3 DynamicStrands::GpuSegment::GetCenterX0() const {
+  return (particle0.x0 + particle1.x0) * .5f;
+}
+
 void DynamicStrands::Upload() {
   wait_for_upload = true;
   Platform::AddTemporaryBufferSyncAction([&]() {
@@ -853,6 +958,7 @@ void DynamicStrands::Upload() {
     device_delaunay_tetrahedrons_buffer->UploadVector(delaunay_tetrahedrons);
     device_hashed_grid_elements_buffer->UploadVector(hashed_grid_elements);
     device_hashed_grid_cell_starts_buffer->UploadVector(hashed_grid_cell_starts);
+    device_foliage_buffer->UploadVector(foliage);
     for (const auto& c : constraints) {
       c->UploadData();
     }
@@ -880,6 +986,8 @@ void DynamicStrands::Download() {
       device_hashed_grid_elements_buffer->DownloadVector(hashed_grid_elements, hashed_grid_elements.size());
     if (!hashed_grid_cell_starts.empty())
       device_hashed_grid_cell_starts_buffer->DownloadVector(hashed_grid_cell_starts, hashed_grid_cell_starts.size());
+    if (!foliage.empty())
+      device_foliage_buffer->DownloadVector(foliage, foliage.size());
     for (const auto& c : constraints) {
       c->DownloadData();
     }
@@ -899,8 +1007,9 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
   if (!reset_pipeline) {
     std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Reset.comp");
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Reset.comp");
     reset_pipeline = std::make_shared<ComputePipeline>();
     reset_pipeline->compute_shader = shader;
     reset_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
@@ -922,8 +1031,9 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
   if (!step_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Step.comp");
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Step.comp");
     step_pipeline = std::make_shared<ComputePipeline>();
     step_pipeline->compute_shader = shader;
     step_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
@@ -940,8 +1050,9 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
   if (!apply_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Apply.comp");
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Apply.comp");
     apply_pipeline = std::make_shared<ComputePipeline>();
     apply_pipeline->compute_shader = shader;
     apply_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
@@ -1040,8 +1151,6 @@ void DynamicStrands::Clear() {
   hashed_grid_elements.clear();
   hashed_grid_cell_starts.clear();
 }
-
-
 
 glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height,
                                                   const float depth) {

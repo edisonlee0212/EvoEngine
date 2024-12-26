@@ -21,7 +21,7 @@ struct MeshInfo {
 
 class PlanetTerrain : public IPrivateComponent {
   friend class TerrainChunk;
-  friend class PlanetTerrainSystem;
+  friend class UniverseLayer;
   std::vector<std::shared_ptr<TerrainChunk>> chunks_;
   PlanetInfo info_;
   // Used for fast mesh generation;

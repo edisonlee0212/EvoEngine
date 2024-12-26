@@ -71,14 +71,14 @@ int main() {
 
   EngineSetup();
 
-  Application::PushLayer<RenderLayer>();
-  Application::PushLayer<WindowLayer>();
-  Application::PushLayer<EditorLayer>();
+  Application::PushLayer<RenderLayer>("Render Layer");
+  Application::PushLayer<WindowLayer>("Window Layer");
+  Application::PushLayer<EditorLayer>("Editor Layer");
 #ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>();
+  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
-  Application::PushLayer<SorghumLayer>();
+  Application::PushLayer<SorghumLayer>("Sorghum Layer")->enable_inspection = true;
 #endif
 #ifdef ECOSYSLAB_PLUGIN
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
@@ -98,11 +98,6 @@ int main() {
   const auto editor_layer = Application::GetLayer<EditorLayer>();
   editor_layer->velocity = 2.f;
   editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
-  // override default scene camera position etc.
-  editor_layer->show_camera_window = false;
-  editor_layer->show_scene_window = true;
-  editor_layer->show_entity_explorer_window = true;
-  editor_layer->show_entity_inspector_window = true;
   const auto render_layer = Application::GetLayer<RenderLayer>();
 #pragma region Engine Loop
   Application::Start();

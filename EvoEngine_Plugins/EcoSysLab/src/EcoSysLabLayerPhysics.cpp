@@ -32,7 +32,29 @@ void EcoSysLabLayer::StrandPhysics() const {
       if (!dts->dynamic_strands->WaitForUpload())
         dts->dynamic_strands->UpdateBindings();
     });
+    if (dynamic_strands_settings_.enable_physics) {
+      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+        dts->InteractionStep();
+        if (dts->enable_physics)
+          dts->PhysicsStep(dynamic_strands_settings_.physics_parameters);
+      });
+    }
+  }
+}
 
+void EcoSysLabLayer::StrandVisualization() const {
+  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+    const auto scene = GetScene();
+    const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+    const auto for_each_dts_entity =
+        [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {
+          if (dts_entities && !dts_entities->empty()) {
+            for (const auto& i : *dts_entities) {
+              const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(i).lock();
+              action(dts);
+            }
+          }
+        };
     const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
     const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
     const auto* cylinder_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsCylinderCollider>();
@@ -57,14 +79,6 @@ void EcoSysLabLayer::StrandPhysics() const {
             }
           }
         };
-
-    if (dynamic_strands_settings_.enable_physics) {
-      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        dts->InteractionStep();
-        if (dts->enable_physics)
-          dts->PhysicsStep(dynamic_strands_settings_.physics_parameters);
-      });
-    }
     if (dynamic_strands_settings_.enable) {
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
         dts->Visualization(visualization_camera_, dynamic_strands_settings_.visualization_parameters);
@@ -77,29 +91,8 @@ void EcoSysLabLayer::StrandPhysics() const {
     }
   }
 }
-void EcoSysLabLayer::StrandShadowMapRendering() const {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
-    const auto scene = GetScene();
-    const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
-    const auto for_each_dts_entity =
-        [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {
-          if (dts_entities && !dts_entities->empty()) {
-            for (const auto& i : *dts_entities) {
-              const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(i).lock();
-              action(dts);
-            }
-          }
-        };
-    if (dynamic_strands_settings_.enable_rendering) {
-      const auto editor_layer = Application::GetLayer<EditorLayer>();
-      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        dts->RenderShadowMap(dynamic_strands_settings_.render_parameters);
-      });
-    }
-  }
-}
 
-void EcoSysLabLayer::StrandRegisterMaterial() const {
+void EcoSysLabLayer::RegisterStrandRenderingProcedure() const {
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
     const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
@@ -115,29 +108,7 @@ void EcoSysLabLayer::StrandRegisterMaterial() const {
     if (dynamic_strands_settings_.enable_rendering) {
       const auto editor_layer = Application::GetLayer<EditorLayer>();
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        dts->RegisterMaterial();
-      });
-    }
-  }
-}
-
-void EcoSysLabLayer::StrandRendering() const {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
-    const auto scene = GetScene();
-    const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
-    const auto for_each_dts_entity =
-        [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {
-          if (dts_entities && !dts_entities->empty()) {
-            for (const auto& i : *dts_entities) {
-              const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(i).lock();
-              action(dts);
-            }
-          }
-        };
-    if (dynamic_strands_settings_.enable_rendering) {
-      const auto editor_layer = Application::GetLayer<EditorLayer>();
-      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        dts->Render(dynamic_strands_settings_.render_parameters);
+        dts->RegisterRenderInstance(dynamic_strands_settings_.render_parameters);
       });
     }
   }

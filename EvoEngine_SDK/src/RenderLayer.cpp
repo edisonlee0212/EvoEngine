@@ -34,6 +34,13 @@ void RenderLayer::RenderToDirectionalLightShadowMap(
   directional_light_shadow_map_external_functions.emplace_back(func);
 }
 
+void RenderLayer::DeferredRenderingAllCameras(
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer,
+                           const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                           const ForwardRenderingView& forward_rendering_view)>&& func) {
+  deferred_rendering_external_functions.emplace_back(func);
+}
+
 void RenderLayer::ForwardRenderingAllCameras(
     std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                            const ForwardRenderingView& forward_rendering_view)>&& func) {
@@ -396,7 +403,7 @@ void RenderLayer::OnCreate() {
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     deferred_prepass_pipeline_normal->geometry_type = GeometryType::Mesh;
     deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout);
-    deferred_prepass_pipeline_normal->depth_attachment_format = Platform::Constants::g_buffer_depth;
+    deferred_prepass_pipeline_normal->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_prepass_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_prepass_pipeline_normal->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
     auto& push_constant_range = deferred_prepass_pipeline_normal->push_constant_ranges.emplace_back();
@@ -419,7 +426,7 @@ void RenderLayer::OnCreate() {
     deferred_prepass_pipeline_mesh->geometry_type = GeometryType::Mesh;
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(per_frame_layout);
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout);
-    deferred_prepass_pipeline_mesh->depth_attachment_format = Platform::Constants::g_buffer_depth;
+    deferred_prepass_pipeline_mesh->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_prepass_pipeline_mesh->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_prepass_pipeline_mesh->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
     auto& push_constant_range = deferred_prepass_pipeline_mesh->push_constant_ranges.emplace_back();
@@ -439,7 +446,7 @@ void RenderLayer::OnCreate() {
     instanced_deferred_prepass_pipeline->geometry_type = GeometryType::Mesh;
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(ParticleInfoList::instanced_data_layout);
-    instanced_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::g_buffer_depth;
+    instanced_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     instanced_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     instanced_deferred_prepass_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
     auto& push_constant_range = instanced_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
@@ -459,7 +466,7 @@ void RenderLayer::OnCreate() {
     skinned_deferred_prepass_pipeline->geometry_type = GeometryType::SkinnedMesh;
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(BoneMatrices::bone_matrices_layout);
-    skinned_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::g_buffer_depth;
+    skinned_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     skinned_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     skinned_deferred_prepass_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
     auto& push_constant_range = skinned_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
@@ -492,7 +499,7 @@ void RenderLayer::OnCreate() {
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(ParticleInfoList::instanced_data_layout);
     strands_deferred_prepass_pipeline->tessellation_patch_control_points = 4;
-    strands_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::g_buffer_depth;
+    strands_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     strands_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     strands_deferred_prepass_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
     auto& push_constant_range = strands_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
@@ -809,10 +816,6 @@ void RenderLayer::ClearAll() const {
   const auto scene = GetScene();
   if (!scene)
     return;
-  const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const auto current_render_instances = render_instances_list_[current_frame_index];
-  current_render_instances->Clear();
-
   std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
   RenderInstanceStorage::CollectCameras(scene, cameras);
 
@@ -887,6 +890,8 @@ void RenderLayer::RenderAll() {
   point_light_shadow_map_external_functions.clear();
   spot_light_shadow_map_external_functions.clear();
   directional_light_shadow_map_external_functions.clear();
+
+  deferred_rendering_external_functions.clear();
   forward_rendering_external_functions.clear();
 
   if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing &&
@@ -1038,26 +1043,18 @@ std::shared_ptr<RenderInstanceStorage> RenderLayer::GetCurrentRenderInstanceStor
   return render_instances_list_[Platform::GetCurrentFrameIndex()];
 }
 
+std::shared_ptr<RenderInstanceStorage> RenderLayer::GetPreviousRenderInstanceStorage() const {
+  return render_instances_list_[(Platform::GetMaxFramesInFlight() + Platform::GetCurrentFrameIndex() - 1) %
+                                Platform::GetMaxFramesInFlight()];
+}
+
 void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  if (ImGui::BeginMainMenuBar()) {
-    if (ImGui::BeginMenu("View")) {
-      ImGui::Checkbox("Render Settings", &enable_render_menu);
-      ImGui::EndMenu();
-    }
-    ImGui::EndMainMenuBar();
-  }
-
-  if (enable_render_menu) {
-    ImGui::Begin("Render Settings");
-
-    ImGui::Checkbox("Count shadows drawcalls", &count_shadow_rendering_draw_calls);
-    ImGui::Checkbox("Wireframe", &wire_frame);
-    if (Platform::Constants::support_mesh_shader)
-      ImGui::Checkbox("Meshlet", &Platform::Settings::use_mesh_shader);
-    ImGui::Checkbox("Indirect Rendering", &enable_indirect_rendering);
-    render_settings.OnInspect(editor_layer);
-    ImGui::End();
-  }
+  ImGui::Checkbox("Count shadows drawcalls", &count_shadow_rendering_draw_calls);
+  ImGui::Checkbox("Wireframe", &wire_frame);
+  if (Platform::Constants::support_mesh_shader)
+    ImGui::Checkbox("Meshlet", &Platform::Settings::use_mesh_shader);
+  ImGui::Checkbox("Indirect Rendering", &enable_indirect_rendering);
+  render_settings.OnInspect(editor_layer);
 }
 
 void RenderLayer::ApplyAnimators() const {
@@ -1167,7 +1164,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
               }
             } else {
               current_render_instances->deferred_render_instances->ForEachRenderInstance(
-                  [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+                  [&](const auto& render_instance) {
                     if (!render_instance->cast_shadow)
                       return;
                     RenderInstancePushConstant push_constant;
@@ -1187,7 +1184,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             prepare_graphics_pipeline(instanced_point_light_shadow_pipeline,
                                       current_render_instances->point_light_info_blocks_[i].viewport);
             current_render_instances->deferred_instanced_render_instances->ForEachRenderInstance(
-                [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+                [&](const auto& render_instance) {
                   if (!render_instance->cast_shadow)
                     return;
                   RenderInstancePushConstant push_constant;
@@ -1207,7 +1204,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             prepare_graphics_pipeline(skinned_point_light_shadow_pipeline,
                                       current_render_instances->point_light_info_blocks_[i].viewport);
             current_render_instances->deferred_skinned_render_instances->ForEachRenderInstance(
-                [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+                [&](const auto& render_instance) {
                   if (!render_instance->cast_shadow)
                     return;
                   RenderInstancePushConstant push_constant;
@@ -1228,7 +1225,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             prepare_graphics_pipeline(strands_point_light_shadow_pipeline,
                                       current_render_instances->point_light_info_blocks_[i].viewport);
             current_render_instances->deferred_strands_render_instances->ForEachRenderInstance(
-                [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+                [&](const auto& render_instance) {
                   if (!render_instance->cast_shadow)
                     return;
                   RenderInstancePushConstant push_constant;
@@ -1308,7 +1305,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             }
           } else {
             current_render_instances->deferred_render_instances->ForEachRenderInstance(
-                [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+                [&](const auto& render_instance) {
                   if (!render_instance->cast_shadow)
                     return;
                   RenderInstancePushConstant push_constant;
@@ -1328,7 +1325,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           prepare_graphics_pipeline(instanced_spot_light_shadow_pipeline,
                                     current_render_instances->spot_light_info_blocks_[i].viewport);
           current_render_instances->deferred_instanced_render_instances->ForEachRenderInstance(
-              [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+              [&](const auto& render_instance) {
                 if (!render_instance->cast_shadow)
                   return;
                 RenderInstancePushConstant push_constant;
@@ -1348,7 +1345,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           prepare_graphics_pipeline(skinned_spot_light_shadow_pipeline,
                                     current_render_instances->spot_light_info_blocks_[i].viewport);
           current_render_instances->deferred_skinned_render_instances->ForEachRenderInstance(
-              [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+              [&](const auto& render_instance) {
                 if (!render_instance->cast_shadow)
                   return;
                 RenderInstancePushConstant push_constant;
@@ -1369,7 +1366,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
           prepare_graphics_pipeline(strands_spot_light_shadow_pipeline,
                                     current_render_instances->spot_light_info_blocks_[i].viewport);
           current_render_instances->deferred_strands_render_instances->ForEachRenderInstance(
-              [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+              [&](const auto& render_instance) {
                 if (!render_instance->cast_shadow)
                   return;
                 RenderInstancePushConstant push_constant;
@@ -1652,7 +1649,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 }
               } else {
                 current_render_instances->deferred_render_instances->ForEachRenderInstance(
-                    [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+                    [&](const auto& render_instance) {
                       if (!render_instance->cast_shadow)
                         return;
                       RenderInstancePushConstant push_constant;
@@ -1671,7 +1668,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             {
               prepare_graphics_pipeline(instanced_directional_light_shadow_pipeline);
               current_render_instances->deferred_instanced_render_instances->ForEachRenderInstance(
-                  [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+                  [&](const auto& render_instance) {
                     if (!render_instance->cast_shadow)
                       return;
                     RenderInstancePushConstant push_constant;
@@ -1690,7 +1687,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             {
               prepare_graphics_pipeline(skinned_directional_light_shadow_pipeline);
               current_render_instances->deferred_skinned_render_instances->ForEachRenderInstance(
-                  [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+                  [&](const auto& render_instance) {
                     if (!render_instance->cast_shadow)
                       return;
                     RenderInstancePushConstant push_constant;
@@ -1710,7 +1707,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             {
               prepare_graphics_pipeline(strands_directional_light_shadow_pipeline);
               current_render_instances->deferred_strands_render_instances->ForEachRenderInstance(
-                  [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+                  [&](const auto& render_instance) {
                     if (!render_instance->cast_shadow)
                       return;
                     RenderInstancePushConstant push_constant;
@@ -1822,7 +1819,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             }
           } else {
             current_render_instances->deferred_render_instances->ForEachRenderInstance(
-                [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+                [&](const auto& render_instance) {
                   RenderInstancePushConstant push_constant;
                   push_constant.camera_index = camera_index;
                   push_constant.instance_index = render_instance->instance_index;
@@ -1846,7 +1843,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           instanced_deferred_prepass_pipeline->BindDescriptorSet(
               vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
           current_render_instances->deferred_instanced_render_instances->ForEachRenderInstance(
-              [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+              [&](const auto& render_instance) {
                 RenderInstancePushConstant push_constant;
                 push_constant.camera_index = camera_index;
                 push_constant.instance_index = render_instance->instance_index;
@@ -1870,7 +1867,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           skinned_deferred_prepass_pipeline->BindDescriptorSet(
               vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
           current_render_instances->deferred_skinned_render_instances->ForEachRenderInstance(
-              [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+              [&](const auto& render_instance) {
                 RenderInstancePushConstant push_constant;
                 push_constant.camera_index = camera_index;
                 push_constant.instance_index = render_instance->instance_index;
@@ -1895,7 +1892,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           strands_deferred_prepass_pipeline->BindDescriptorSet(
               vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
           current_render_instances->deferred_strands_render_instances->ForEachRenderInstance(
-              [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+              [&](const auto& render_instance) {
                 RenderInstancePushConstant push_constant;
                 push_constant.camera_index = camera_index;
                 push_constant.instance_index = render_instance->instance_index;
@@ -1912,6 +1909,17 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
               });
         }
 #endif
+#pragma region Forward Rendering
+        for (const auto& func : deferred_rendering_external_functions) {
+          const auto prim_count =
+              func(vk_command_buffer, geometry_pass_color_attachment_infos, {camera_index, view_port});
+          if (count_draw_calls) {
+            platform.draw_call[current_frame_index]++;
+            platform.prim_count[current_frame_index] += prim_count;
+          }
+        }
+
+#pragma endregion
       });
 
 #pragma endregion
@@ -2009,11 +2017,29 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
   }
 }
 
+void RenderLayer::PreUpdate() {
+  if (const auto scene = GetScene(); !scene)
+    return;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto current_render_instances = render_instances_list_[current_frame_index];
+  current_render_instances->Clear();
+}
+
 uint32_t RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
                                const GlobalTransform& global_transform, const bool cast_shadow) const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   return current_render_instances->RegisterMeshDrawCommand(mesh, material, global_transform, cast_shadow);
+}
+
+uint32_t RenderLayer::DrawMeshInstanced(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
+                                        const GlobalTransform& global_transform,
+                                        const std::shared_ptr<ParticleInfoList>& particle_info_list,
+                                        const bool cast_shadow) const {
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto current_render_instances = render_instances_list_[current_frame_index];
+  return current_render_instances->RegisterMeshDrawInstancedCommand(mesh, material, global_transform,
+                                                                    particle_info_list, cast_shadow);
 }
 
 const std::shared_ptr<DescriptorSet>& RenderLayer::GetPerFrameDescriptorSet() {

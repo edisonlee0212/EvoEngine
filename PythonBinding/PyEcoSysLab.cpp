@@ -1,57 +1,50 @@
 #ifdef ECOSYSLAB_PLUGIN
 
-#include "AnimationPlayer.hpp"
-#include "Application.hpp"
-#include "ClassRegistry.hpp"
+#  include "AnimationPlayer.hpp"
+#  include "Application.hpp"
+#  include "ClassRegistry.hpp"
 
+#  include "EditorLayer.hpp"
+#  include "MeshRenderer.hpp"
+#  include "PlayerController.hpp"
+#  include "PostProcessingStack.hpp"
+#  include "Prefab.hpp"
+#  include "ProjectManager.hpp"
 
+#  include "RenderLayer.hpp"
+#  include "Scene.hpp"
 
-#include "EditorLayer.hpp"
-#include "MeshRenderer.hpp"
-#include "PlayerController.hpp"
-#include "PostProcessingStack.hpp"
-#include "Prefab.hpp"
-#include "ProjectManager.hpp"
-
-#include "RenderLayer.hpp"
-#include "Scene.hpp"
-
-#include "Times.hpp"
-#include "WindowLayer.hpp"
-#include "pybind11/pybind11.h"
-#include "pybind11/stl/filesystem.h"
-#ifdef CUDA_MODULE_PLUGIN
-#  include <CUDAModule.hpp>
-#  include <RayTracerLayer.hpp>
-#endif
+#  include "Times.hpp"
+#  include "WindowLayer.hpp"
+#  include "pybind11/pybind11.h"
+#  include "pybind11/stl/filesystem.h"
+#  ifdef CUDA_MODULE_PLUGIN
+#    include <CUDAModule.hpp>
+#    include <RayTracerLayer.hpp>
+#  endif
 
 #  if DATASET_GENERATION_PLUGIN
-#include <TreePointCloudScanner.hpp>
-#include "DatasetGenerator.hpp"
+#    include <TreePointCloudScanner.hpp>
+#    include "DatasetGenerator.hpp"
 using namespace dataset_generation_plugin;
-#endif
+#  endif
 
+#  include "Climate.hpp"
+#  include "EcoSysLabLayer.hpp"
+#  include "HeightField.hpp"
+#  include "ObjectRotator.hpp"
 
-
-#include "Climate.hpp"
-#include "EcoSysLabLayer.hpp"
-#include "ObjectRotator.hpp"
-#include "HeightField.hpp"
-
-#include "Tree.hpp"
-#include "TreeModel.hpp"
-#include "Soil.hpp"
-#include "TreeStructor.hpp"
-#include "FoliageDescriptor.hpp"
-#include "ParticlePhysics2DDemo.hpp"
-#include "Physics2DDemo.hpp"
-#include "RadialBoundingVolume.hpp"
+#  include "FoliageDescriptor.hpp"
+#  include "ParticlePhysics2DDemo.hpp"
+#  include "Physics2DDemo.hpp"
+#  include "RadialBoundingVolume.hpp"
+#  include "Soil.hpp"
+#  include "Tree.hpp"
+#  include "TreeModel.hpp"
+#  include "TreeStructor.hpp"
 using namespace eco_sys_lab_plugin;
 
-
 using namespace evo_engine;
-
-
 
 namespace py = pybind11;
 
@@ -62,15 +55,15 @@ void register_classes() {
 }
 
 void push_layers(const bool enable_window_layer, const bool enable_editor_layer) {
-  Application::PushLayer<RenderLayer>();
+  Application::PushLayer<RenderLayer>("Render Layer");
   if (enable_window_layer)
-    Application::PushLayer<WindowLayer>();
+    Application::PushLayer<WindowLayer>("Window Layer");
   if (enable_window_layer && enable_editor_layer)
-  Application::PushLayer<RenderLayer>();
-  Application::PushLayer<EcoSysLabLayer>();
-#ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>();
-#endif
+    Application::PushLayer<EditorLayer>("Editor Layer");
+  Application::PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
+#  ifdef CUDA_MODULE_PLUGIN
+  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
+#  endif
 }
 
 std::filesystem::path get_default_project_path() {
@@ -465,7 +458,7 @@ PYBIND11_MODULE(PyEcoSysLab, m) {
       .def_readwrite("m_directionConnectionAngleLimit", &ConnectivityGraphSettings::direction_connection_angle_limit)
       .def_readwrite("m_indirectConnectionAngleLimit", &ConnectivityGraphSettings::indirect_connection_angle_limit);
 
-#ifdef DATASET_GENERATION_PLUGIN
+#  ifdef DATASET_GENERATION_PLUGIN
   py::class_<TreePointCloudPointSettings>(m, "TreePointCloudPointSettings")
       .def(py::init<>())
       .def_readwrite("m_variance", &TreePointCloudPointSettings::m_variance)
@@ -491,7 +484,7 @@ PYBIND11_MODULE(PyEcoSysLab, m) {
       .def_readwrite("m_fov", &TreePointCloudCircularCaptureSettings::m_fov)
       .def_readwrite("resolution_", &TreePointCloudCircularCaptureSettings::m_resolution)
       .def_readwrite("m_cameraDepthMax", &TreePointCloudCircularCaptureSettings::m_cameraDepthMax);
-#endif
+#  endif
 
   py::class_<ReconstructionSettings>(m, "ReconstructionSettings")
       .def(py::init<>())
@@ -540,7 +533,6 @@ PYBIND11_MODULE(PyEcoSysLab, m) {
   m.def("rbv_space_colonization_tree_data", &rbv_space_colonization_tree_data, "Grow a tree in RBV and export data");
   m.def("rbv_to_obj", &rbv_to_obj, "Convert RBV to 3D model (OBJ)");
   m.def("generate_point_cloud_for_tree", &generate_point_cloud_for_tree, "Generate point cloud for single tree");
-
 }
 
 #endif

@@ -27,7 +27,7 @@ class FoliageDescriptor : public IAsset {
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 
   void GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internodeInfo,
-                               const float treeSize) const;
+                               const float tree_size) const;
 };
 
 }  // namespace eco_sys_lab_plugin

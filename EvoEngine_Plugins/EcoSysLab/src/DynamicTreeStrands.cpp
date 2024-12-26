@@ -554,28 +554,14 @@ void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_cam
   }
 }
 
-void DynamicTreeStrands::RenderShadowMap(const DynamicStrands::RenderParameters& render_parameters) {
+void DynamicTreeStrands::RegisterRenderInstance(const DynamicStrands::RenderParameters& render_parameters) {
   if (const auto material = material_ref.Get<Material>()) {
     if (!dynamic_strands->segments.empty()) {
       if (!dynamic_strands->WaitForUpload()) {
-        dynamic_strands->RenderShadowMap(render_parameters);
-      }
-    }
-  }
-}
-
-void DynamicTreeStrands::RegisterMaterial() {
-  if (const auto material = material_ref.Get<Material>()) {
-    const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
-    material_index = current_render_storage->RegisterMaterial(material);
-  }
-}
-
-void DynamicTreeStrands::Render(const DynamicStrands::RenderParameters& render_parameters) {
-  if (const auto material = material_ref.Get<Material>()) {
-    if (!dynamic_strands->segments.empty()) {
-      if (!dynamic_strands->WaitForUpload()) {
-        dynamic_strands->Render(material_index, render_parameters);
+        dynamic_strands->RegisterShadowMapRendering(render_parameters);
+        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), GetHandle(), material);
+        dynamic_strands->RegisterRenderFunction(GetHandle(), render_parameters);
       }
     }
   }

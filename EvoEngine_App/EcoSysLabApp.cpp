@@ -31,64 +31,64 @@ using namespace evo_engine;
 void EngineSetup();
 
 int main() {
-  std::filesystem::path resourceFolderPath("../../../../../Resources");
-  if (!std::filesystem::exists(resourceFolderPath)) {
-    resourceFolderPath = "../../../../Resources";
+  std::filesystem::path resource_folder_path("../../../../../Resources");
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../../Resources";
   }
-  if (!std::filesystem::exists(resourceFolderPath)) {
-    resourceFolderPath = "../../../Resources";
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../Resources";
   }
-  if (!std::filesystem::exists(resourceFolderPath)) {
-    resourceFolderPath = "../../Resources";
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../Resources";
   }
-  if (!std::filesystem::exists(resourceFolderPath)) {
-    resourceFolderPath = "../Resources";
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../Resources";
   }
-  if (std::filesystem::exists(resourceFolderPath)) {
-    for (auto i : std::filesystem::recursive_directory_iterator(resourceFolderPath)) {
+  if (std::filesystem::exists(resource_folder_path)) {
+    for (auto i : std::filesystem::recursive_directory_iterator(resource_folder_path)) {
       if (i.is_directory())
         continue;
-      auto oldPath = i.path();
-      auto newPath = i.path();
+      auto old_path = i.path();
+      auto new_path = i.path();
       bool remove = false;
       if (i.path().extension().string() == ".uescene") {
-        newPath.replace_extension(".evescene");
+        new_path.replace_extension(".evescene");
         remove = true;
       }
       if (i.path().extension().string() == ".umeta") {
-        newPath.replace_extension(".evefilemeta");
+        new_path.replace_extension(".evefilemeta");
         remove = true;
       }
       if (i.path().extension().string() == ".ueproj") {
-        newPath.replace_extension(".eveproj");
+        new_path.replace_extension(".eveproj");
         remove = true;
       }
       if (i.path().extension().string() == ".ufmeta") {
-        newPath.replace_extension(".evefoldermeta");
+        new_path.replace_extension(".evefoldermeta");
         remove = true;
       }
       if (remove) {
-        std::filesystem::copy(oldPath, newPath);
-        std::filesystem::remove(oldPath);
+        std::filesystem::copy(old_path, new_path);
+        std::filesystem::remove(old_path);
       }
     }
   }
 
   EngineSetup();
 
-  Application::PushLayer<RenderLayer>();
-  Application::PushLayer<WindowLayer>();
-  Application::PushLayer<EditorLayer>();
+  Application::PushLayer<RenderLayer>("Render Layer");
+  Application::PushLayer<WindowLayer>("Window Layer");
+  Application::PushLayer<EditorLayer>("Editor Layer");
 
 #ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>();
+  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
 
 #ifdef PHYSX_PHYSICS_PLUGIN
   Application::PushLayer<PhysicsLayer>();
 #endif
 #ifdef ECOSYSLAB_PLUGIN
-  Application::PushLayer<EcoSysLabLayer>();
+  Application::PushLayer<EcoSysLabLayer>("EcoSysLab Layer")->enable_inspection = true;
   PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
   PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
@@ -100,7 +100,7 @@ int main() {
   ApplicationInfo application_configs;
   application_configs.application_name = "EcoSysLab";
   application_configs.project_path =
-      std::filesystem::absolute(resourceFolderPath / "EcoSysLabProject" / "test.eveproj");
+      std::filesystem::absolute(resource_folder_path / "EcoSysLabProject" / "test.eveproj");
   Application::Initialize(application_configs);
 
 #ifdef CUDA_MODULE_PLUGIN
@@ -110,14 +110,9 @@ int main() {
   Application::GetActiveScene()->GetOrCreateSystem<PhysicsSystem>(1);
 #endif
   // adjust default camera speed
-  auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = Application::GetLayer<EditorLayer>();
   editor_layer->velocity = 2.f;
   editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
-  // override default scene camera position etc.
-  editor_layer->show_camera_window = false;
-  editor_layer->show_scene_window = true;
-  editor_layer->show_entity_explorer_window = true;
-  editor_layer->show_entity_inspector_window = true;
   auto render_layer = Application::GetLayer<RenderLayer>();
 #pragma region Engine Loop
   Application::Start();
