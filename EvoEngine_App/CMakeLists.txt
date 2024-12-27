@@ -60,3 +60,45 @@ register_evoengine_app(LogGraderApp ON)
 
 register_evoengine_app(TreeDataGeneratorApp ON)
 register_evoengine_app(SorghumDataGeneratorApp ON)
+
+
+
+
+# Setup an empty application for quicker compilation for testing SDK
+if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
+	set(option_name EvoEngine_App-EmptyApp)
+	option(option_name "Build Empty application" default_enable)
+	if(option_name)
+		add_executable(EmptyApp
+			EmptyApp.cpp
+			)
+		target_compile_definitions(EmptyApp
+			PRIVATE
+			${DEFAULT_PROJECT_DEF}
+			${EVOENGINE_DEFS}
+			)
+		target_include_directories(EmptyApp
+			PRIVATE
+			${EVOENGINE_INCLUDES}
+			)
+		target_precompile_headers(EmptyApp
+			PRIVATE
+			${EVOENGINE_PCHS}
+			)
+		target_link_libraries(EmptyApp
+			PRIVATE
+			EvoEngine_SDK
+		)
+
+		if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+			target_compile_options(EmptyApp PRIVATE -Werror)
+		elseif (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
+			target_compile_options(EmptyApp PRIVATE /EHsc /W2 /c)
+		elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
+			target_compile_options(EmptyApp PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
+		endif ()
+
+		add_dependencies(EmptyApp AppResourceCopy)
+		set_property(TARGET EmptyApp PROPERTY FOLDER Executables)
+	endif ()
+endif ()
