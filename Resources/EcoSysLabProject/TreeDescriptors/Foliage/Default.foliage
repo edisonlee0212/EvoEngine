@@ -1,4 +1,4 @@
-leaf_size: [0.0199999996, 0.0199999996]
+leaf_size: [0.0500000007, 0.0500000007]
 leaf_count_per_internode: 20
 position_variance: 0
 rotation_variance: 99

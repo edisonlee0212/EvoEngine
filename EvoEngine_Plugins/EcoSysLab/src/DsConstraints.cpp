@@ -19,8 +19,7 @@ DsPivot::DsPivot() {
     layout->Initialize();
   }
 
-  segment_update_commands_buffer =
-        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  segment_update_commands_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   if (!segment_update_pipeline) {
     static std::shared_ptr<Shader> shader{};
@@ -49,8 +48,8 @@ DsPivot::DsPivot() {
 }
 
 void DsPivot::Initialize(const GlobalTransform& target_base_global_transform,
-    const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
-    const std::vector<std::pair<uint32_t, bool>>& segment_list) {
+                         const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
+                         const std::vector<std::pair<uint32_t, bool>>& segment_list) {
   base_global_transform = target_base_global_transform;
   inverse_base_global_transform.value = glm::inverse(base_global_transform.value);
   commands.resize(segment_list.size());
@@ -77,16 +76,17 @@ void DsPivot::Initialize(const GlobalTransform& target_base_global_transform,
 void DsPivot::Update(const GlobalTransform& new_global_transform) {
   push_constant.pivot_position = new_global_transform.GetPosition();
   push_constant.axis = new_global_transform.GetRotation() * glm::vec3(0, 0, -1);
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  segment_commands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0,
+                                                                                       segment_update_commands_buffer);
 }
 
 void DsPivot::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
-    const DynamicStrands& target_dynamic_strands) {
+                                        const DynamicStrands& target_dynamic_strands) {
   if (!commands.empty()) {
     const auto current_frame_index = Platform::GetCurrentFrameIndex();
     push_constant.commands_size = commands.size();
     const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
-    segment_commands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-        0, segment_update_commands_buffer);
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       segment_update_pipeline->Bind(vk_command_buffer);
       segment_update_pipeline->BindDescriptorSet(
@@ -283,9 +283,10 @@ DsStiffRod::DsStiffRod() {
   if (!bilateral_stretch_shear_constraint_pipeline) {
     static std::shared_ptr<Shader> stretch_shear_shader{};
     stretch_shear_shader = std::make_shared<Shader>();
-    stretch_shear_shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                              std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Compute/DynamicStrands/Constraints/StiffRodShearStretchBilateral.comp");
+    stretch_shear_shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") /
+            "Shaders/Compute/DynamicStrands/Constraints/StiffRodShearStretchBilateral.comp");
     bilateral_stretch_shear_constraint_pipeline = std::make_shared<ComputePipeline>();
     bilateral_stretch_shear_constraint_pipeline->compute_shader = stretch_shear_shader;
 
@@ -302,9 +303,10 @@ DsStiffRod::DsStiffRod() {
 
     static std::shared_ptr<Shader> bend_twist_constraint_shader{};
     bend_twist_constraint_shader = std::make_shared<Shader>();
-    bend_twist_constraint_shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                                      std::filesystem::path("./EcoSysLabResources") /
-                                          "Shaders/Compute/DynamicStrands/Constraints/StiffRodBendTwistBilateral.comp");
+    bend_twist_constraint_shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") /
+            "Shaders/Compute/DynamicStrands/Constraints/StiffRodBendTwistBilateral.comp");
 
     bilateral_bend_twist_constraint_pipeline = std::make_shared<ComputePipeline>();
     bilateral_bend_twist_constraint_pipeline->compute_shader = bend_twist_constraint_shader;
@@ -391,8 +393,8 @@ DsRandomBundle::DsRandomBundle() {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Constraints/RandomBundleShearStretchOffset.comp");
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/RandomBundleShearStretchOffset.comp");
     bundle_stretch_shear_offset_pipeline = std::make_shared<ComputePipeline>();
     bundle_stretch_shear_offset_pipeline->compute_shader = shader;
     bundle_stretch_shear_offset_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -408,8 +410,8 @@ DsRandomBundle::DsRandomBundle() {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Constraints/RandomBundleBendTwistOffset.comp");
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/RandomBundleBendTwistOffset.comp");
     bundle_bend_twist_offset_pipeline = std::make_shared<ComputePipeline>();
     bundle_bend_twist_offset_pipeline->compute_shader = shader;
     bundle_bend_twist_offset_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -425,8 +427,8 @@ DsRandomBundle::DsRandomBundle() {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Constraints/RandomBundleOffset.comp");
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/RandomBundleOffset.comp");
     bundle_offset_pipeline = std::make_shared<ComputePipeline>();
     bundle_offset_pipeline->compute_shader = shader;
     bundle_offset_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -442,8 +444,8 @@ DsRandomBundle::DsRandomBundle() {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Constraints/RandomBundleApplySegments.comp");
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/RandomBundleApplySegments.comp");
 
     bundle_apply_segments_pipeline = std::make_shared<ComputePipeline>();
     bundle_apply_segments_pipeline->compute_shader = shader;
@@ -462,8 +464,8 @@ DsRandomBundle::DsRandomBundle() {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Constraints/RandomBundleApplyConnections.comp");
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/RandomBundleApplyConnections.comp");
 
     connections_correction_pipeline = std::make_shared<ComputePipeline>();
     connections_correction_pipeline->compute_shader = shader;
@@ -482,21 +484,25 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
     return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   RandomBundleConstant constraint_constant;
+  constraint_constant.skip_size = skip_size;
   constraint_constant.segment_size = static_cast<uint32_t>(target_dynamic_strands.segment_data_list.size());
   constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   constraint_constant.over_relaxation = over_relaxation;
 
   RandomBundleBendTwistConstant bend_twist_constraint_constant;
+  bend_twist_constraint_constant.skip_size = skip_size;
   bend_twist_constraint_constant.segment_size = static_cast<uint32_t>(target_dynamic_strands.segment_data_list.size());
   bend_twist_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   bend_twist_constraint_constant.over_relaxation = bend_twist_over_relaxation;
 
   RandomBundleShearStretchConstant stretch_shear_constraint_constant;
+  stretch_shear_constraint_constant.skip_size = skip_size;
   stretch_shear_constraint_constant.segment_size =
       static_cast<uint32_t>(target_dynamic_strands.segment_data_list.size());
   stretch_shear_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
 
   RandomBundleApplySegmentsConstant constraint_apply_segments_constant;
+  constraint_apply_segments_constant.skip_size = skip_size;
   constraint_apply_segments_constant.segment_size =
       static_cast<uint32_t>(target_dynamic_strands.segment_data_list.size());
   constraint_apply_segments_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
@@ -511,14 +517,18 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {
-      const auto apply_segment_offset = [&]() {
+      const auto apply_segment_offset = [&](const uint32_t skip_index) {
         bundle_apply_segments_pipeline->Bind(vk_command_buffer);
         bundle_apply_segments_pipeline->BindDescriptorSet(
             vk_command_buffer, 0,
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        constraint_apply_segments_constant.skip_index = skip_index;
         bundle_apply_segments_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_segments_constant);
         vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(constraint_apply_segments_constant.segment_size, work_group_invocations), 1, 1);
+                      Platform::DivUp(Platform::DivUp(constraint_apply_segments_constant.segment_size, skip_size),
+                                      work_group_invocations),
+                      1, 1);
+
         Platform::EverythingBarrier(vk_command_buffer);
       };
       const auto correct_connections = [&]() {
@@ -532,50 +542,62 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
                       1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
-      const auto calculate_stretch_shear_offset = [&]() {
+      const auto calculate_stretch_shear_offset = [&](const uint32_t skip_index) {
         bundle_stretch_shear_offset_pipeline->Bind(vk_command_buffer);
         bundle_stretch_shear_offset_pipeline->BindDescriptorSet(
             vk_command_buffer, 0,
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        stretch_shear_constraint_constant.skip_index = skip_index;
         bundle_stretch_shear_offset_pipeline->PushConstant(vk_command_buffer, 0, stretch_shear_constraint_constant);
         vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(stretch_shear_constraint_constant.segment_size, work_group_invocations), 1, 1);
+                      Platform::DivUp(Platform::DivUp(stretch_shear_constraint_constant.segment_size, skip_size),
+                                      work_group_invocations),
+                      1, 1);
+
         Platform::EverythingBarrier(vk_command_buffer);
       };
-      const auto calculate_bend_twist_offset = [&]() {
+      const auto calculate_bend_twist_offset = [&](const uint32_t skip_index) {
         bundle_bend_twist_offset_pipeline->Bind(vk_command_buffer);
         bundle_bend_twist_offset_pipeline->BindDescriptorSet(
             vk_command_buffer, 0,
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+        bend_twist_constraint_constant.skip_index = skip_index;
         bundle_bend_twist_offset_pipeline->PushConstant(vk_command_buffer, 0, bend_twist_constraint_constant);
         vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(bend_twist_constraint_constant.segment_size, work_group_invocations), 1, 1);
+                      Platform::DivUp(Platform::DivUp(bend_twist_constraint_constant.segment_size, skip_size),
+                                      work_group_invocations),
+                      1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
-      const auto calculate_offset = [&]() {
+      const auto calculate_offset = [&](const uint32_t skip_index) {
         bundle_offset_pipeline->Bind(vk_command_buffer);
         bundle_offset_pipeline->BindDescriptorSet(
             vk_command_buffer, 0,
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        constraint_constant.skip_index = skip_index;
         bundle_offset_pipeline->PushConstant(vk_command_buffer, 0, constraint_constant);
-        vkCmdDispatch(vk_command_buffer, Platform::DivUp(constraint_constant.segment_size, work_group_invocations), 1,
-                      1);
+        vkCmdDispatch(
+            vk_command_buffer,
+            Platform::DivUp(Platform::DivUp(constraint_constant.segment_size, skip_size), work_group_invocations), 1,
+            1);
+
         Platform::EverythingBarrier(vk_command_buffer);
       };
-
-      if (enable_bundle) {
-        calculate_offset();
+      for (uint32_t skip_index = 0; skip_index < skip_size; skip_index++) {
+        if (enable_bundle) {
+          calculate_offset(skip_index);
+        }
+        if (enable_bend_twist) {
+          calculate_bend_twist_offset(skip_index);
+          apply_segment_offset(skip_index);
+        }
+        if (enable_stretch_shear) {
+          calculate_stretch_shear_offset(skip_index);
+          apply_segment_offset(skip_index);
+        }
       }
-      if (enable_bend_twist) {
-        calculate_bend_twist_offset();
-        apply_segment_offset();
-        correct_connections();
-      }
-      if (enable_stretch_shear) {
-        calculate_stretch_shear_offset();
-        apply_segment_offset();
-        correct_connections();
-      }
+      correct_connections();
     }
   });
 }
@@ -597,7 +619,8 @@ bool DsRandomBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     }
     if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100))
       changed = true;
-
+    if (ImGui::DragInt("Skip size", &skip_size, 1, 1, 100))
+      changed = true;
     if (ImGui::DragFloat("Over relaxation", &over_relaxation, 0.01f, 1, 10.f))
       changed = true;
     if (ImGui::DragFloat("Bend Twist over relaxation", &bend_twist_over_relaxation, 0.01f, 1, 10.f))

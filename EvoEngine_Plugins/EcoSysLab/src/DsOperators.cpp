@@ -198,8 +198,9 @@ DsDrag::DsDrag() {
   if (!pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Drag.comp");
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Drag.comp");
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = shader;
     pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -310,8 +311,9 @@ DsSaw::DsSaw() {
   if (!pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Saw.comp");
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Saw.comp");
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = shader;
     pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);

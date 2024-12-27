@@ -1,0 +1,111 @@
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shader_draw_parameters : enable
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+
+#include "PerFrame.glsl"
+
+#define DYNAMIC_STRANDS_SET 1
+#include "DynamicStrands.glsl"
+#include "Math.glsl"
+
+const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+layout(triangles) out;
+
+#define LEAF_VERTICES_SIZE 4
+#define LEAF_TRIANGLE_SIZE 2
+
+layout(max_vertices = LEAF_VERTICES_SIZE, max_primitives = LEAF_TRIANGLE_SIZE) out;
+
+const uint LEAF_VERTEX_ITERATIONS    = ((LEAF_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint LEAF_PRIMITIVE_ITERATIONS = ((LEAF_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+layout(location = 0) out MS_V_OUT {
+	vec3 frag_pos;
+	vec3 normal;
+	vec3 tangent;
+	vec4 color;
+} ms_v_out[];
+
+struct Task{
+	uint	baseID;
+	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
+};
+
+vec3 positions[] = {
+    vec3(-0.5, 0, -0.5),
+	vec3(-0.5, 0, 0.5),
+	vec3(0.5, 0, 0.5),
+	vec3(0.5, 0, -0.5)
+};
+
+uvec3 triangles[] = {
+	uvec3(0, 1, 2),
+	uvec3(2, 3, 0),
+};
+
+layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
+	vec4 color0;
+	vec4 color1;
+
+	uint camera_index;
+	uint foliage_size;
+	uint color_mode;
+};
+
+taskPayloadSharedEXT Task ts_in;
+
+// gl_WorkGroupID.x runs from [0 .. parentTask.groupCountX - 1]
+uint leaf_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
+uint laneID = gl_LocalInvocationID.x;
+
+
+void main(){
+	if(leaf_id >= foliage_size) return;
+
+	SetMeshOutputsEXT(LEAF_VERTICES_SIZE, LEAF_TRIANGLE_SIZE);
+	
+	Leaf leaf = foliage[leaf_id];
+
+	vec3 leaf_position = leaf.x;
+	vec4 leaf_rotation = leaf.q;
+	vec3 leaf_scale = leaf.scale;
+	mat4 instance_matrix = translate(leaf_position) * mat4_cast(leaf_rotation) * scale(leaf_scale);
+	
+	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
+	
+	vec4 color;
+	if(color_mode == 0){
+		color = color0;
+	}else if(color_mode == 1){
+		color = mix(color0, color1, clamp(leaf.attachment_integrity, 0.0f, 1.f));
+	}else if(color_mode == 2){
+		color = mix(color0, color1, clamp(leaf.rotation_integrity, 0.0f, 1.f));
+	}
+
+	[[unroll]]
+	for (uint i = 0; i < uint(LEAF_VERTEX_ITERATIONS); ++i)
+	{
+		uint vertex_index = laneID + i * WORKGROUP_SIZE;
+		if (vertex_index > LEAF_VERTICES_SIZE) break;
+		vec3 vertex_position = positions[vertex_index];
+
+		ms_v_out[vertex_index].frag_pos = vec4(instance_matrix * vec4(vertex_position, 1.0)).xyz;
+		ms_v_out[vertex_index].normal = vec3(0, 1, 0);
+		ms_v_out[vertex_index].tangent = vec3(0, 0, 1);
+		ms_v_out[vertex_index].color = color;
+		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
+	}
+
+	[[unroll]]
+	for (uint i = 0; i < uint(LEAF_PRIMITIVE_ITERATIONS); ++i)
+	{
+		uint triangle_index = laneID + i * WORKGROUP_SIZE;
+		if(triangle_index <= LEAF_TRIANGLE_SIZE){
+			gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
+		}
+	}
+}

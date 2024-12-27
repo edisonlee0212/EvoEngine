@@ -153,23 +153,31 @@ class DsStiffRod final : public IDsConstraint {
 class DsRandomBundle : public IDsConstraint {
  public:
   struct RandomBundleShearStretchConstant {
+    uint32_t skip_index = 0;
+    uint32_t skip_size = 1;
     uint32_t segment_size = 0;
     float inv_time_step = 0.0f;
   };
 
   struct RandomBundleConstant {
+    uint32_t skip_index = 0;
+    uint32_t skip_size = 1;
     uint32_t segment_size = 0;
     float inv_time_step = 0.0f;
     float over_relaxation;
   };
 
   struct RandomBundleBendTwistConstant {
+    uint32_t skip_index = 0;
+    uint32_t skip_size = 1;
     uint32_t segment_size = 0;
     float inv_time_step = 0.0f;
     float over_relaxation;
   };
 
   struct RandomBundleApplySegmentsConstant {
+    uint32_t skip_index = 0;
+    uint32_t skip_size = 1;
     uint32_t segment_size = 0;
     float inv_time_step = 0.0f;
   };
@@ -178,7 +186,7 @@ class DsRandomBundle : public IDsConstraint {
     uint32_t segment_pair_size = 0;
     float inv_time_step = 0.0f;
   };
-
+  int skip_size = 1;
   float over_relaxation = 1.f;
   float bend_twist_over_relaxation = 1.f;
 

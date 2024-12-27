@@ -307,7 +307,7 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
           is_operating_previously = mouse_drag && is_operating_previously;
           is_box_selection_previously = mouse_drag && is_box_selection_previously;
         }
-        if (dynamic_strands_settings_.transform_mode != 0) {
+        if (!editor_layer->IsGizmosDisplaying() && dynamic_strands_settings_.transform_mode != 0) {
           const auto imguizmo_transform = [&](glm::mat4& global_transform) {
             ImGuizmo::SetOrthographic(false);
             ImGuizmo::SetDrawlist();

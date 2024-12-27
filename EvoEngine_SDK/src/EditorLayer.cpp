@@ -693,7 +693,8 @@ void EditorLayer::SceneCameraWindow() {
       }
     }
 #pragma region Gizmos and Entity Selection
-    using_gizmo_ = false;
+    gizmo_using_ = false;
+    gizmo_displaying_ = false;
     if (enable_gizmos) {
       ImGuizmo::SetOrthographic(false);
       ImGuizmo::SetDrawlist();
@@ -715,14 +716,15 @@ void EditorLayer::SceneCameraWindow() {
 
         ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op, ImGuizmo::LOCAL,
                              glm::value_ptr(global_transform.value));
+        gizmo_displaying_ = true;
         if (ImGuizmo::IsUsing()) {
           transform.value = glm::inverse(parent_global_transform.value) * global_transform.value;
           scene->SetDataComponent(selected_entity_, transform);
           transform.Decompose(previously_stored_position_, previously_stored_rotation_, previously_stored_scale_);
-          using_gizmo_ = true;
+          gizmo_using_ = true;
         }
       }
-      if (false) {
+      if (enable_view_gizmos) {
         ImGuizmo::ViewManipulate(glm::value_ptr(camera_view), 1.0f, ImVec2(view_manipulate_left, view_manipulate_top),
                                  ImVec2(96, 96), 0);
         GlobalTransform gl;
@@ -750,7 +752,13 @@ void EditorLayer::SceneCameraWindow() {
 
 #pragma endregion
 }
+bool EditorLayer::IsGizmosDisplaying() const {
+  return gizmo_displaying_;
+}
 
+bool EditorLayer::IsGizmosUsing() const {
+  return gizmo_using_;
+}
 void EditorLayer::MainCameraWindow() {
   if (const auto render_layer = Application::GetLayer<RenderLayer>(); !render_layer)
     return;
@@ -1456,7 +1464,7 @@ void EditorLayer::MouseEntitySelection() {
         Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
       SetSelectedEntity(Entity());
     }
-    if (scene_camera_window_focused_ && !lock_entity_selection_ && !using_gizmo_ &&
+    if (scene_camera_window_focused_ && !lock_entity_selection_ && !gizmo_using_ &&
         Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press &&
         !(mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
           mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y)) {
