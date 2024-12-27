@@ -12,15 +12,26 @@ void RenderSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   ImGui::DragFloat("Gamma", &gamma, 0.01f, 1.0f, 3.0f);
   if (ImGui::CollapsingHeader("Shadow", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::TreeNode("Distance")) {
-      ImGui::DragFloat("Max shadow distance", &max_shadow_distance, 1.0f, 0.1f);
-      ImGui::DragFloat("Split 1", &shadow_cascade_split[0], 0.01f, 0.0f, shadow_cascade_split[1]);
-      ImGui::DragFloat("Split 2", &shadow_cascade_split[1], 0.01f, shadow_cascade_split[0], shadow_cascade_split[2]);
-      ImGui::DragFloat("Split 3", &shadow_cascade_split[2], 0.01f, shadow_cascade_split[1], shadow_cascade_split[3]);
-      ImGui::DragFloat("Split 4", &shadow_cascade_split[3], 0.01f, shadow_cascade_split[2], 1.0f);
+      if (ImGui::DragFloat("Max shadow distance", &max_shadow_distance, 1.0f, 10.f, 1000.f)) {
+        max_shadow_distance = glm::clamp(max_shadow_distance, 10.f, 1000.f);
+      }
+      if (ImGui::DragFloat("Split 1", &shadow_cascade_split[0], 0.01f, 0.0f, shadow_cascade_split[1])) {
+        shadow_cascade_split[0] = glm::clamp(max_shadow_distance, 0.f, shadow_cascade_split[1]);
+      }
+      if (ImGui::DragFloat("Split 2", &shadow_cascade_split[1], 0.01f, shadow_cascade_split[0],
+                           shadow_cascade_split[2])) {
+        shadow_cascade_split[1] = glm::clamp(max_shadow_distance, shadow_cascade_split[0], shadow_cascade_split[2]);
+      }
+      if (ImGui::DragFloat("Split 3", &shadow_cascade_split[2], 0.01f, shadow_cascade_split[1],
+                           shadow_cascade_split[3])) {
+        shadow_cascade_split[2] = glm::clamp(max_shadow_distance, shadow_cascade_split[1], shadow_cascade_split[3]);
+      }
+      if (ImGui::DragFloat("Split 4", &shadow_cascade_split[3], 0.01f, shadow_cascade_split[2], 1.0f)) {
+        shadow_cascade_split[3] = glm::clamp(max_shadow_distance, shadow_cascade_split[2], 1.f);
+      }
       ImGui::TreePop();
     }
     if (ImGui::TreeNode("PCSS")) {
-      ImGui::DragInt("Blocker search side amount", &blocker_search_amount, 1, 1, 8);
       ImGui::DragInt("PCF Sample Size", &pcf_sample_amount, 1, 1, 64);
       ImGui::TreePop();
     }
@@ -441,7 +452,6 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
     debug_visualization = 0;
 
   pcf_sample_amount = target_render_settings.pcf_sample_amount;
-  blocker_search_amount = target_render_settings.blocker_search_amount;
   seam_fix_ratio = target_render_settings.seam_fix_ratio;
   gamma = target_render_settings.gamma;
   strands_subdivision_x_factor = target_render_settings.strands_subdivision_x_factor;
@@ -456,8 +466,7 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
 
   if (pcf_sample_amount != other.pcf_sample_amount)
     return true;
-  if (blocker_search_amount != other.blocker_search_amount)
-    return true;
+  
   if (seam_fix_ratio != other.seam_fix_ratio)
     return true;
   if (gamma != other.gamma)

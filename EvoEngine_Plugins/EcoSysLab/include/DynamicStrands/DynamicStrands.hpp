@@ -1,8 +1,8 @@
 #pragma once
+#include "RenderLayer.hpp"
 #include "StrandGroup.hpp"
 #include "StrandModelData.hpp"
 #include "TreeGrowthData.hpp"
-
 namespace eco_sys_lab_plugin {
 class DsSegmentCollision;
 class DsDynamicHashedGrid;
@@ -68,6 +68,8 @@ class DynamicStrands {
   DynamicStrands();
   uint32_t GetFrameIndex() const;
   [[nodiscard]] bool WaitForUpload() const;
+  static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
+  static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
 #pragma region Initialization
   struct InitializeParameters {
     float min_segment_length = 0.03f;
@@ -429,12 +431,33 @@ class DynamicStrands {
   void Clear();
 
   std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets;
-  void RegisterShadowMapRendering(const RenderParameters& render_parameters) const;
-  void RegisterRenderFunction(const Handle& renderer_handle, const RenderParameters& render_parameters) const;
+  uint32_t RenderToPointLightShadowMap(const RenderParameters& render_parameters,
+                                       const VkCommandBuffer vk_command_buffer,
+                                       const RenderLayer::PointLightShadowMapView& view) const;
+  uint32_t RenderToSpotLightShadowMap(const RenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
+                                      const RenderLayer::SpotLightShadowMapView& view) const;
+  uint32_t RenderToDirectionalLightShadowMap(const RenderParameters& render_parameters,
+                                             VkCommandBuffer vk_command_buffer,
+                                             const RenderLayer::DirectionalLightShadowMapView& view) const;
+  uint32_t RenderToCameraDeferred(const Handle& renderer_handle, const RenderParameters& render_parameters,
+                                  VkCommandBuffer vk_command_buffer,
+                                  const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                                  const RenderLayer::DeferredRenderingView& view) const;
 
-  void RegisterFoliageShadowMapRendering(const FoliageRenderParameters& render_parameters) const;
-  void RegisterFoliageRenderFunction(const Handle& renderer_handle,
-                                     const FoliageRenderParameters& render_parameters) const;
+  uint32_t RenderFoliageToPointLightShadowMap(const FoliageRenderParameters& render_parameters,
+                                              const VkCommandBuffer vk_command_buffer,
+                                              const RenderLayer::PointLightShadowMapView& view) const;
+  uint32_t RenderFoliageToSpotLightShadowMap(const FoliageRenderParameters& render_parameters,
+                                             VkCommandBuffer vk_command_buffer,
+                                             const RenderLayer::SpotLightShadowMapView& view) const;
+  uint32_t RenderFoliageToDirectionalLightShadowMap(const FoliageRenderParameters& render_parameters,
+                                                    VkCommandBuffer vk_command_buffer,
+                                                    const RenderLayer::DirectionalLightShadowMapView& view) const;
+  uint32_t RenderFoliageToCameraDeferred(
+      const Handle& renderer_handle, const FoliageRenderParameters& render_parameters,
+      VkCommandBuffer vk_command_buffer,
+      const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+      const RenderLayer::DeferredRenderingView& view) const;
 
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const VisualizationParameters& visualization_parameters) const;
@@ -443,7 +466,6 @@ class DynamicStrands {
   static void BuildRenderingPipelines();
   static void BuildFoliageRenderingPipelines();
 
- private:
   inline static std::shared_ptr<GraphicsPipeline> point_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> directional_light_render_pipeline{};
@@ -453,6 +475,8 @@ class DynamicStrands {
   inline static std::shared_ptr<GraphicsPipeline> foliage_spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_render_pipeline{};
+
+ private:
   bool wait_for_upload = true;
   uint32_t frame_index = 0;
 
@@ -464,7 +488,5 @@ class DynamicStrands {
                    std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
   void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
-  static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
-  static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
 };
 }  // namespace eco_sys_lab_plugin

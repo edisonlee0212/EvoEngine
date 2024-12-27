@@ -28,7 +28,7 @@ void main()
 		vec3 color = EE_SKY_COLOR(fragPos - cameraPosition);
 		//color = vec3(1.0) - exp(-color * EE_CAMERAS[EE_CAMERA_INDEX].reserved_2.w);
 		color = pow(color, vec3(1.0 / EE_RENDER_INFO.gamma));
-		if(!instanceSelected){
+		if(!instanceSelected && EE_INSTANCE_INDEX == 1){
 			vec2 texOffset = 1.0 / textureSize(inMaterial, 0); // gets size of single texel
 			for(int i = -3; i <= 3; i++){
 				for(int j = -3; j <= 3; j++){

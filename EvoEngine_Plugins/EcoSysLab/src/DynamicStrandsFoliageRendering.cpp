@@ -29,6 +29,7 @@ struct FoliageRenderPushConstant {
   } index2;
   uint32_t leaf_size;
 };
+
 void DynamicStrands::BuildFoliageRenderingPipelines() {
   // Descriptor set layout
   foliage_point_light_render_pipeline = std::make_shared<GraphicsPipeline>();
@@ -121,151 +122,121 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
   push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
   foliage_render_pipeline->Initialize();
 }
-void DynamicStrands::RegisterFoliageShadowMapRendering(const FoliageRenderParameters& render_parameters) const {
-  if (!Platform::Constants::support_mesh_shader) {
-    EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
-    return;
-  }
-  const auto render_layer = Application::GetLayer<RenderLayer>();
-  if (!render_layer) {
-    EVOENGINE_LOG("Failed to render! RenderLayer not present!")
-    return;
-  }
-  if (!foliage_point_light_render_pipeline || !foliage_point_light_render_pipeline->Initialized()) {
-    return;
-  }
-  if (!foliage_spot_light_render_pipeline || !foliage_spot_light_render_pipeline->Initialized()) {
-    return;
-  }
-  if (!foliage_directional_light_render_pipeline || !foliage_directional_light_render_pipeline->Initialized()) {
-    return;
-  }
-  render_layer->RenderToPointLightShadowMap(
-      [&](const VkCommandBuffer vk_command_buffer, const RenderLayer::PointLightShadowMapView& view) {
-        const uint32_t task_work_group_invocations =
-            Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-        FoliageRenderPushConstant push_constant;
-        push_constant.index1.sub_light_index = view.face_index;
-        push_constant.index2.light_index = view.light_index;
-        push_constant.leaf_size = foliage.size();
 
-        const auto current_frame_index = Platform::GetCurrentFrameIndex();
-        foliage_point_light_render_pipeline->Bind(vk_command_buffer);
-        foliage_point_light_render_pipeline->BindDescriptorSet(
-            vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-        foliage_point_light_render_pipeline->BindDescriptorSet(
-            vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-        foliage_point_light_render_pipeline->states.ResetAllStates(0);
-        foliage_point_light_render_pipeline->states.SetViewportScissor(view.viewport);
-        foliage_point_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+uint32_t DynamicStrands::RenderFoliageToPointLightShadowMap(const FoliageRenderParameters& render_parameters,
+                                                            const VkCommandBuffer vk_command_buffer,
+                                                            const RenderLayer::PointLightShadowMapView& view) const {
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  FoliageRenderPushConstant push_constant;
+  push_constant.index1.sub_light_index = view.face_index;
+  push_constant.index2.light_index = view.light_index;
+  push_constant.leaf_size = foliage.size();
 
-        foliage_point_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        const uint32_t count = Platform::DivUp(foliage.size(), task_work_group_invocations);
-        vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
-        return foliage.size();
-      });
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  foliage_point_light_render_pipeline->Bind(vk_command_buffer);
+  foliage_point_light_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                         RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  foliage_point_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  foliage_point_light_render_pipeline->states.ResetAllStates(0);
+  foliage_point_light_render_pipeline->states.SetViewportScissor(view.viewport);
+  foliage_point_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
 
-  render_layer->RenderToSpotLightShadowMap(
-      [&](const VkCommandBuffer vk_command_buffer, const RenderLayer::SpotLightShadowMapView& view) {
-        const uint32_t task_work_group_invocations =
-            Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-        FoliageRenderPushConstant push_constant;
-        push_constant.index1.sub_light_index = 0;
-        push_constant.index2.light_index = view.light_index;
-        push_constant.leaf_size = foliage.size();
-        const auto current_frame_index = Platform::GetCurrentFrameIndex();
-        foliage_spot_light_render_pipeline->Bind(vk_command_buffer);
-        foliage_spot_light_render_pipeline->BindDescriptorSet(
-            vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-        foliage_spot_light_render_pipeline->BindDescriptorSet(
-            vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-        foliage_spot_light_render_pipeline->states.ResetAllStates(0);
-        foliage_spot_light_render_pipeline->states.SetViewportScissor(view.viewport);
-        foliage_spot_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
-
-        foliage_spot_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        const uint32_t count = Platform::DivUp(foliage.size(), task_work_group_invocations);
-        vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
-        return foliage.size();
-      });
-
-  render_layer->RenderToDirectionalLightShadowMap(
-      [&](const VkCommandBuffer vk_command_buffer, const RenderLayer::DirectionalLightShadowMapView& view) {
-        const uint32_t task_work_group_invocations =
-            Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-        FoliageRenderPushConstant push_constant;
-        push_constant.index1.sub_light_index = view.split_index;
-        push_constant.index2.light_index = view.light_index;
-        push_constant.leaf_size = foliage.size();
-        const auto current_frame_index = Platform::GetCurrentFrameIndex();
-        foliage_directional_light_render_pipeline->Bind(vk_command_buffer);
-        foliage_directional_light_render_pipeline->BindDescriptorSet(
-            vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-        foliage_directional_light_render_pipeline->BindDescriptorSet(
-            vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-        foliage_directional_light_render_pipeline->states.ResetAllStates(0);
-        foliage_directional_light_render_pipeline->states.SetViewportScissor(view.viewport);
-        foliage_directional_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
-
-        foliage_directional_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        const uint32_t count = Platform::DivUp(foliage.size(), task_work_group_invocations);
-        vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
-        return foliage.size();
-      });
+  foliage_point_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+  const uint32_t count = Platform::DivUp(foliage.size(), task_work_group_invocations);
+  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  return foliage.size();
 }
 
-void DynamicStrands::RegisterFoliageRenderFunction(const Handle& renderer_handle,
-                                                   const FoliageRenderParameters& render_parameters) const {
-  if (!render_parameters.enabled)
-    return;
-  if (!Platform::Constants::support_mesh_shader) {
-    EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
-    return;
-  }
-  if (!foliage_render_pipeline || !foliage_render_pipeline->Initialized()) {
-    return;
-  }
+uint32_t DynamicStrands::RenderFoliageToSpotLightShadowMap(const FoliageRenderParameters& render_parameters,
+                                                           VkCommandBuffer vk_command_buffer,
+                                                           const RenderLayer::SpotLightShadowMapView& view) const {
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  FoliageRenderPushConstant push_constant;
+  push_constant.index1.sub_light_index = 0;
+  push_constant.index2.light_index = view.light_index;
+  push_constant.leaf_size = foliage.size();
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  foliage_spot_light_render_pipeline->Bind(vk_command_buffer);
+  foliage_spot_light_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                        RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  foliage_spot_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  foliage_spot_light_render_pipeline->states.ResetAllStates(0);
+  foliage_spot_light_render_pipeline->states.SetViewportScissor(view.viewport);
+  foliage_spot_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
 
-  Application::GetLayer<RenderLayer>()->DeferredRenderingAllCameras(
-      [&, renderer_handle](const VkCommandBuffer vk_command_buffer,
-                           const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                           const RenderLayer::ForwardRenderingView& view) {
-        const auto current_frame_index = Platform::GetCurrentFrameIndex();
-        const uint32_t task_work_group_invocations =
-            Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-        FoliageRenderPushConstant push_constant;
-        push_constant.index1.instance_index =
-            Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(
-                renderer_handle);
-        push_constant.index2.camera_index = view.camera_index;
-        push_constant.leaf_size = foliage.size();
-        foliage_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-        foliage_render_pipeline->states.SetViewportScissor(view.viewport);
-        foliage_render_pipeline->states.polygon_mode =
-            render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-        foliage_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+  foliage_spot_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+  const uint32_t count = Platform::DivUp(foliage.size(), task_work_group_invocations);
+  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  return foliage.size();
+}
+
+uint32_t DynamicStrands::RenderFoliageToDirectionalLightShadowMap(
+    const FoliageRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
+    const RenderLayer::DirectionalLightShadowMapView& view) const {
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  FoliageRenderPushConstant push_constant;
+  push_constant.index1.sub_light_index = view.split_index;
+  push_constant.index2.light_index = view.light_index;
+  push_constant.leaf_size = foliage.size();
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  foliage_directional_light_render_pipeline->Bind(vk_command_buffer);
+  foliage_directional_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  foliage_directional_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  foliage_directional_light_render_pipeline->states.ResetAllStates(0);
+  foliage_directional_light_render_pipeline->states.SetViewportScissor(view.viewport);
+  foliage_directional_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+
+  foliage_directional_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+  const uint32_t count = Platform::DivUp(foliage.size(), task_work_group_invocations);
+  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  return foliage.size();
+}
+
+uint32_t DynamicStrands::RenderFoliageToCameraDeferred(
+    const Handle& renderer_handle, const FoliageRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
+    const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+    const RenderLayer::DeferredRenderingView& view) const {
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  FoliageRenderPushConstant push_constant;
+  push_constant.index1.instance_index =
+      Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(renderer_handle);
+  push_constant.index2.camera_index = view.camera_index;
+  push_constant.leaf_size = foliage.size();
+  foliage_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+  foliage_render_pipeline->states.SetViewportScissor(view.viewport);
+  foliage_render_pipeline->states.polygon_mode =
+      render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+  foliage_render_pipeline->states.ApplyAllStates(vk_command_buffer);
 
 #ifdef USE_RENDERDOC
-        if (rdoc_api) {
-          rdoc_api->StartFrameCapture(NULL, NULL);
-          EVOENGINE_LOG("RDOC API detected!");
-        }
+  if (rdoc_api) {
+    rdoc_api->StartFrameCapture(NULL, NULL);
+    EVOENGINE_LOG("RDOC API detected!");
+  }
 #endif  //  USERENDERDOC
-        foliage_render_pipeline->Bind(vk_command_buffer);
-        foliage_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                   RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-        foliage_render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                                   strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-        foliage_render_pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                                   RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
-        foliage_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+  foliage_render_pipeline->Bind(vk_command_buffer);
+  foliage_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                             RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  foliage_render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                             strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  foliage_render_pipeline->BindDescriptorSet(vk_command_buffer, 2,
+                                             RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
+  foliage_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-        const uint32_t count = Platform::DivUp(foliage.size(), task_work_group_invocations);
-        vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  const uint32_t count = Platform::DivUp(foliage.size(), task_work_group_invocations);
+  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
 #ifdef USE_RENDERDOC
-        if (rdoc_api)
-          rdoc_api->EndFrameCapture(NULL, NULL);
+  if (rdoc_api)
+    rdoc_api->EndFrameCapture(NULL, NULL);
 #endif
-        return segments.size();
-      });
+  return segments.size();
 }

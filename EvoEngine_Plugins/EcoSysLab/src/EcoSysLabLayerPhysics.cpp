@@ -9,13 +9,14 @@
 
 #include "ClassRegistry.hpp"
 #include "DsColliders.hpp"
+#include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "RenderLayer.hpp"
 #include "Soil.hpp"
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
-void EcoSysLabLayer::StrandPhysics() const {
+void EcoSysLabLayer::DynamicStrandPhysics() const {
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
     const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
@@ -42,7 +43,49 @@ void EcoSysLabLayer::StrandPhysics() const {
   }
 }
 
-void EcoSysLabLayer::StrandVisualization() const {
+void EcoSysLabLayer::DynamicSkeletonPhysics() const {
+  const auto scene = GetScene();
+  const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeSkeleton>();
+  const auto for_each_dts_entity =
+      [&](const std::function<void(const std::shared_ptr<DynamicTreeSkeleton>& dts)>& action) {
+        if (dts_entities && !dts_entities->empty()) {
+          for (const auto& i : *dts_entities) {
+            const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(i).lock();
+            action(dts);
+          }
+        }
+      };
+  if (dynamic_skeleton_settings_.enable_physics) {
+    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeSkeleton>& dts) {
+      if (dts->simulate) {
+        dts->PhysicsStep(dynamic_skeleton_settings_.physics_parameters);
+      }
+    });
+  }
+}
+
+void EcoSysLabLayer::DynamicSkeletonVisualization() const {
+  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+    const auto scene = GetScene();
+    const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeSkeleton>();
+    const auto for_each_dts_entity =
+        [&](const std::function<void(const std::shared_ptr<DynamicTreeSkeleton>& dts)>& action) {
+          if (dts_entities && !dts_entities->empty()) {
+            for (const auto& i : *dts_entities) {
+              const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(i).lock();
+              action(dts);
+            }
+          }
+        };
+    if (dynamic_skeleton_settings_.enable_visualization) {
+      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeSkeleton>& dts) {
+        dts->Visualization(visualization_camera_, dynamic_skeleton_settings_.visualization_parameters);
+      });
+    }
+  }
+}
+
+void EcoSysLabLayer::DynamicStrandVisualization() const {
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
     const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();

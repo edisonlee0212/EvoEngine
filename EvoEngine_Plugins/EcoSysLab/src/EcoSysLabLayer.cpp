@@ -13,6 +13,7 @@
 #include "ClassRegistry.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
+#include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "ForestDescriptor.hpp"
 #include "Shader.hpp"
@@ -26,6 +27,7 @@ PrivateComponentRegistration<TreeStructor> tree_structor_registry("TreeStructor"
 PrivateComponentRegistration<Climate> climate_registry("Climate");
 
 PrivateComponentRegistration<SpatialPlantDistributionSimulator> spds_registry("SpatialPlantDistributionSimulator");
+PrivateComponentRegistration<DynamicTreeSkeleton> dynamic_tree_skeleton_registry("DynamicTreeSkeleton");
 
 AssetRegistration<ClimateDescriptor> climate_d_registry("ClimateDescriptor", {".climate"});
 AssetRegistration<RadialBoundingVolume> rbv_registry("RadialBoundingVolume", {".rbv"});
@@ -251,6 +253,15 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     dynamic_strands_settings_.OnInspect(editor_layer);
     ImGui::TreePop();
   }
+
+  if (ImGui::TreeNodeEx("Dynamic Skeleton settings")) {
+    if (ImGui::Button("Initialize dynamic skeleton for all trees")) {
+      GenerateDynamicSkeletonForAllTrees();
+    }
+    dynamic_skeleton_settings_.OnInspect(editor_layer);
+    ImGui::TreePop();
+  }
+
   if (simulate || auto_time_grow) {
     Simulate();
   }
@@ -611,6 +622,8 @@ void EcoSysLabLayer::Update() {
 }
 
 void EcoSysLabLayer::LateUpdate() {
-  StrandPhysics();
-  StrandVisualization();
+  DynamicSkeletonPhysics();
+  DynamicSkeletonVisualization();
+  DynamicStrandPhysics();
+  DynamicStrandVisualization();
 }

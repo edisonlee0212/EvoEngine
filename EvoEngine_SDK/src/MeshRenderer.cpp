@@ -37,7 +37,7 @@ bool MeshRenderer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     changed = true;
   if (mesh.Get<Mesh>()) {
     if (ImGui::TreeNodeEx("Mesh##MeshRenderer", ImGuiTreeNodeFlags_DefaultOpen)) {
-      static bool display_bound = true;
+      static bool display_bound = false;
       ImGui::Checkbox("Display bounds##MeshRenderer", &display_bound);
       if (display_bound) {
         static auto display_bound_color = glm::vec4(0.0f, 1.0f, 0.0f, 0.1f);

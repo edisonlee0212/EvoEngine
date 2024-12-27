@@ -7,7 +7,7 @@ class ClimateDescriptor : public IAsset {
  public:
   ClimateParameters climate_parameters;
 
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   void Serialize(YAML::Emitter& out) const override;
 
@@ -22,7 +22,7 @@ class Climate : public IPrivateComponent {
    * Note that the visualization will only be activated while you are inspecting the soil private component in the
    * entity inspector.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Serialize(YAML::Emitter& out) const override;
 
   void Deserialize(const YAML::Node& in) override;

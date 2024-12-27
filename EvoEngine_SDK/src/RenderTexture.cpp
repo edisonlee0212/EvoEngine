@@ -138,12 +138,6 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
       depth_view_info.subresourceRange.baseArrayLayer = 0;
       depth_view_info.subresourceRange.layerCount = layer_count;
       depth_image_views_.emplace_back(std::make_shared<ImageView>(depth_view_info));
-
-      depth_view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-      depth_view_info.components.g = VK_COMPONENT_SWIZZLE_R;
-      depth_view_info.components.b = VK_COMPONENT_SWIZZLE_R;
-      depth_view_info.components.a = VK_COMPONENT_SWIZZLE_ONE;
-      debug_depth_image_views_.emplace_back(std::make_shared<ImageView>(depth_view_info));
     }
 
     VkSamplerCreateInfo depth_sampler_info{};
@@ -165,7 +159,7 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
     depth_im_texture_ids_.resize(mip_levels);
     for (unsigned int mip = 0; mip < mip_levels; ++mip) {
       EditorLayer::UpdateTextureId(depth_im_texture_ids_[mip], depth_sampler_->GetVkSampler(),
-                                   debug_depth_image_views_[mip]->GetVkImageView(), depth_image_->GetLayout());
+                                   depth_image_views_[mip]->GetVkImageView(), depth_image_->GetLayout());
     }
   }
   extent_ = render_texture_create_info.extent;

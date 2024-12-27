@@ -10,6 +10,7 @@
 #include "ClassRegistry.hpp"
 #include "DsColliders.hpp"
 #include "DsOperators.hpp"
+#include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "Soil.hpp"
 #include "SpatialPlantDistributionSimulator.hpp"
@@ -95,6 +96,20 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
       ds->strand_model_skeleton = tree->strand_model.strand_model_skeleton;
       ds->UpdateDynamicStrands();
       ds->CreateStaticRoot();
+    }
+  }
+}
+
+void EcoSysLabLayer::GenerateDynamicSkeletonForAllTrees() const {
+  const auto scene = GetScene();
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    for (auto tree_entity : *tree_entities) {
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      tree->BuildStrandModel();
+      const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity).lock();
+      ds->initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(tree_entity);
+      ds->dynamic_skeleton.Initialize(ds->initialize_parameters, tree->strand_model.strand_model_skeleton);
     }
   }
 }
@@ -399,4 +414,9 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
     }
     ImGui::TreePop();
   }
+}
+
+void EcoSysLabLayer::DynamicSkeletonSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::Checkbox("Physics", &enable_physics);
+  ImGui::Checkbox("Visualization", &enable_visualization);
 }

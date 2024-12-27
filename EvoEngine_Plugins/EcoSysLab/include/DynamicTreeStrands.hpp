@@ -13,7 +13,6 @@ class DynamicTreeStrands : public IPrivateComponent {
  public:
   bool enable_simulation = true;
 
-  PrivateComponentRef tree_ref{};
   StrandModelSkeleton strand_model_skeleton{};
   DtsStrandGroup subdivided_strand_group{};
 

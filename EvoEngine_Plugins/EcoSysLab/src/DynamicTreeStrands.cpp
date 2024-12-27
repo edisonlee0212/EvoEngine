@@ -8,6 +8,7 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
+PrivateComponentRef dynamic_tree_strands_tree_ref{};
 void DynamicTreeStrands::UpdateDynamicStrands() {
   auto source_strand_group = strand_model_skeleton.data.strand_group;
   if (limit_strand_length) {
@@ -156,13 +157,13 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     }
     ImGui::TreePop();
   }
-  if (EditorLayer::DragAndDropButton<Tree>(tree_ref, "Download Strands from Tree...")) {
-    if (const auto tree = tree_ref.Get<Tree>()) {
+  if (EditorLayer::DragAndDropButton<Tree>(dynamic_tree_strands_tree_ref, "Download Strands from Tree...")) {
+    if (const auto tree = dynamic_tree_strands_tree_ref.Get<Tree>()) {
       tree->BuildStrandModel();
       strand_model_skeleton = tree->strand_model.strand_model_skeleton;
       UpdateDynamicStrands();
       CreateStaticRoot();
-      tree_ref.Clear();
+      dynamic_tree_strands_tree_ref.Clear();
     }
   }
 
@@ -563,13 +564,46 @@ void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_cam
 }
 
 void DynamicTreeStrands::RegisterRenderInstance(const DynamicStrands::RenderParameters& render_parameters) {
+  const auto render_layer = Application::GetLayer<RenderLayer>();
+  if (!render_layer) {
+    EVOENGINE_LOG("Failed to render! RenderLayer not present!")
+    return;
+  }
   if (const auto material = material_ref.Get<Material>()) {
     if (!dynamic_strands->segments.empty()) {
       if (!dynamic_strands->WaitForUpload()) {
-        dynamic_strands->RegisterShadowMapRendering(render_parameters);
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
-        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), GetHandle(), material);
-        dynamic_strands->RegisterRenderFunction(GetHandle(), render_parameters);
+        if (DynamicStrands::point_light_render_pipeline && DynamicStrands::point_light_render_pipeline->Initialized()) {
+          const auto dynamic_strands_copy = dynamic_strands;
+          render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+            return dynamic_strands_copy->RenderToPointLightShadowMap(render_parameters, vk_command_buffer, view);
+          });
+        }
+        if (DynamicStrands::spot_light_render_pipeline && DynamicStrands::spot_light_render_pipeline->Initialized()) {
+          const auto dynamic_strands_copy = dynamic_strands;
+          render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+            return dynamic_strands_copy->RenderToSpotLightShadowMap(render_parameters, vk_command_buffer, view);
+          });
+        }
+        if (DynamicStrands::directional_light_render_pipeline &&
+            DynamicStrands::directional_light_render_pipeline->Initialized()) {
+          const auto dynamic_strands_copy = dynamic_strands;
+          render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+            return dynamic_strands_copy->RenderToDirectionalLightShadowMap(render_parameters, vk_command_buffer, view);
+          });
+        }
+        if (DynamicStrands::render_pipeline && DynamicStrands::render_pipeline->Initialized()) {
+          const auto dynamic_strands_copy = dynamic_strands;
+          const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+          const auto renderer_handle = GetHandle();
+          current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
+          render_layer->DeferredRenderingAllCameras(
+              [=](const VkCommandBuffer vk_command_buffer,
+                  const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                  const RenderLayer::DeferredRenderingView& view) {
+                return dynamic_strands_copy->RenderToCameraDeferred(
+                    renderer_handle, render_parameters, vk_command_buffer, geometry_pass_color_attachment_infos, view);
+              });
+        }
       }
     }
   }
@@ -577,14 +611,49 @@ void DynamicTreeStrands::RegisterRenderInstance(const DynamicStrands::RenderPara
 
 void DynamicTreeStrands::RegisterFoliageRenderInstance(
     const DynamicStrands::FoliageRenderParameters& render_parameters) {
+  const auto render_layer = Application::GetLayer<RenderLayer>();
+  if (!render_layer) {
+    EVOENGINE_LOG("Failed to render! RenderLayer not present!")
+    return;
+  }
   if (const auto material = leaf_material_ref.Get<Material>()) {
-    if (!dynamic_strands->segments.empty()) {
+    if (!dynamic_strands->foliage.empty()) {
       if (!dynamic_strands->WaitForUpload()) {
-        dynamic_strands->RegisterFoliageShadowMapRendering(render_parameters);
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
-        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), foliage_rendering_instance_handle,
-                                                       material);
-        dynamic_strands->RegisterFoliageRenderFunction(foliage_rendering_instance_handle, render_parameters);
+        if (DynamicStrands::foliage_point_light_render_pipeline &&
+            DynamicStrands::foliage_point_light_render_pipeline->Initialized()) {
+          const auto dynamic_strands_copy = dynamic_strands;
+          render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+            return dynamic_strands_copy->RenderFoliageToPointLightShadowMap(render_parameters, vk_command_buffer, view);
+          });
+        }
+        if (DynamicStrands::foliage_spot_light_render_pipeline &&
+            DynamicStrands::foliage_spot_light_render_pipeline->Initialized()) {
+          const auto dynamic_strands_copy = dynamic_strands;
+          render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+            return dynamic_strands_copy->RenderFoliageToSpotLightShadowMap(render_parameters, vk_command_buffer, view);
+          });
+        }
+        if (DynamicStrands::foliage_directional_light_render_pipeline &&
+            DynamicStrands::foliage_directional_light_render_pipeline->Initialized()) {
+          const auto dynamic_strands_copy = dynamic_strands;
+          render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+            return dynamic_strands_copy->RenderFoliageToDirectionalLightShadowMap(render_parameters, vk_command_buffer,
+                                                                                  view);
+          });
+        }
+        if (DynamicStrands::foliage_render_pipeline && DynamicStrands::foliage_render_pipeline->Initialized()) {
+          const auto dynamic_strands_copy = dynamic_strands;
+          const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+          const auto renderer_handle = foliage_rendering_instance_handle;
+          current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
+          render_layer->DeferredRenderingAllCameras(
+              [=](const VkCommandBuffer vk_command_buffer,
+                  const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                  const RenderLayer::DeferredRenderingView& view) {
+                return dynamic_strands_copy->RenderFoliageToCameraDeferred(
+                    renderer_handle, render_parameters, vk_command_buffer, geometry_pass_color_attachment_infos, view);
+              });
+        }
       }
     }
   }

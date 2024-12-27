@@ -24,11 +24,12 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
     sub_step_action();
     if (prediction)
       prediction->Execute(physics_parameters, *this);
-    for (const auto& c : constraints) {
-      if (c->enabled)
-        for (int iteration_i = 0; iteration_i < physics_parameters.constraint_iteration; iteration_i++) {
+
+    for (int iteration_i = 0; iteration_i < physics_parameters.constraint_iteration; iteration_i++) {
+      for (const auto& c : constraints) {
+        if (c->enabled)
           c->ProjectPositionConstraint(physics_parameters, *this);
-        }
+      }
     }
     const auto scene = Application::GetActiveScene();
     const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
@@ -897,7 +898,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     leaf.scale = leaf_info.matrix.GetScale();
     const auto& segment = segments[target_segment_handle];
     leaf.position_offset = glm::vec4(glm::inverse(segment.q0) * (leaf.x0 - segment.GetCenterX0()), 0.0f);
-
   });
   Upload();
 }
@@ -1004,94 +1004,100 @@ void DynamicStrands::Download() {
     }
   });
 }
-std::shared_ptr<ComputePipeline> reset_pipeline, step_pipeline, apply_pipeline{};
-std::shared_ptr<Buffer> feedback_buffer;
-std::shared_ptr<Buffer> new_group_index_buffer;
-std::shared_ptr<DescriptorSetLayout> feedback_layout{};
-std::shared_ptr<DescriptorSet> feedback_descriptor_set{};
+
 void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters) const {
   if (segments.empty())
     return;
   struct GroupingPushConstant {
     uint32_t segment_size;
   };
-  if (!reset_pipeline) {
-    std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Reset.comp");
-    reset_pipeline = std::make_shared<ComputePipeline>();
-    reset_pipeline->compute_shader = shader;
-    reset_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    reset_pipeline->map_entries.emplace_back(Platform::Constants::compute_work_group_invocations);
-    auto& push_constant_range = reset_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GroupingPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    reset_pipeline->Initialize();
-  }
-  if (!feedback_layout) {
-    feedback_layout = std::make_shared<DescriptorSetLayout>();
-    feedback_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    feedback_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    feedback_layout->Initialize();
-  }
-
-  if (!step_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Step.comp");
-    step_pipeline = std::make_shared<ComputePipeline>();
-    step_pipeline->compute_shader = shader;
-    step_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    step_pipeline->descriptor_set_layouts.emplace_back(feedback_layout);
-    step_pipeline->map_entries.emplace_back(Platform::Constants::compute_work_group_invocations);
-    auto& push_constant_range = step_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GroupingPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    step_pipeline->Initialize();
-  }
-
-  if (!apply_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Apply.comp");
-    apply_pipeline = std::make_shared<ComputePipeline>();
-    apply_pipeline->compute_shader = shader;
-    apply_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    apply_pipeline->descriptor_set_layouts.emplace_back(feedback_layout);
-    apply_pipeline->map_entries.emplace_back(Platform::Constants::compute_work_group_invocations);
-    auto& push_constant_range = apply_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GroupingPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    apply_pipeline->Initialize();
-  }
-  if (!feedback_buffer || !new_group_index_buffer) {
-    VkBufferCreateInfo buffer_create_info{};
-    buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buffer_create_info.usage =
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    buffer_create_info.size = 1;
-    VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
-    buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    feedback_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-    new_group_index_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  }
-  if (!feedback_descriptor_set) {
-    feedback_descriptor_set = std::make_shared<DescriptorSet>(feedback_layout);
-  }
   Platform::AddTemporaryBufferSyncAction([&]() {
+    if (segments.empty())
+      return;
+    std::shared_ptr<ComputePipeline> reset_pipeline, step_pipeline, apply_pipeline{};
+    std::shared_ptr<Buffer> feedback_buffer;
+    std::shared_ptr<Buffer> new_group_index_buffer;
+    std::shared_ptr<DescriptorSetLayout> feedback_layout{};
+    std::shared_ptr<DescriptorSet> feedback_descriptor_set{};
+
+    if (!reset_pipeline) {
+      std::shared_ptr<Shader> shader{};
+      shader = std::make_shared<Shader>();
+      shader->TryCompile(
+          ShaderType::Compute, Platform::Constants::shader_global_defines,
+          std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Reset.comp");
+      reset_pipeline = std::make_shared<ComputePipeline>();
+      reset_pipeline->compute_shader = shader;
+      reset_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+      reset_pipeline->map_entries.emplace_back(Platform::Constants::compute_work_group_invocations);
+      auto& push_constant_range = reset_pipeline->push_constant_ranges.emplace_back();
+      push_constant_range.size = sizeof(GroupingPushConstant);
+      push_constant_range.offset = 0;
+      push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+      reset_pipeline->Initialize();
+    }
+    if (!feedback_layout) {
+      feedback_layout = std::make_shared<DescriptorSetLayout>();
+      feedback_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+      feedback_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+      feedback_layout->Initialize();
+    }
+
+    if (!step_pipeline) {
+      static std::shared_ptr<Shader> shader{};
+      shader = std::make_shared<Shader>();
+      shader->TryCompile(
+          ShaderType::Compute, Platform::Constants::shader_global_defines,
+          std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Step.comp");
+      step_pipeline = std::make_shared<ComputePipeline>();
+      step_pipeline->compute_shader = shader;
+      step_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+      step_pipeline->descriptor_set_layouts.emplace_back(feedback_layout);
+      step_pipeline->map_entries.emplace_back(Platform::Constants::compute_work_group_invocations);
+      auto& push_constant_range = step_pipeline->push_constant_ranges.emplace_back();
+      push_constant_range.size = sizeof(GroupingPushConstant);
+      push_constant_range.offset = 0;
+      push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+      step_pipeline->Initialize();
+    }
+
+    if (!apply_pipeline) {
+      static std::shared_ptr<Shader> shader{};
+      shader = std::make_shared<Shader>();
+      shader->TryCompile(
+          ShaderType::Compute, Platform::Constants::shader_global_defines,
+          std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Apply.comp");
+      apply_pipeline = std::make_shared<ComputePipeline>();
+      apply_pipeline->compute_shader = shader;
+      apply_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+      apply_pipeline->descriptor_set_layouts.emplace_back(feedback_layout);
+      apply_pipeline->map_entries.emplace_back(Platform::Constants::compute_work_group_invocations);
+      auto& push_constant_range = apply_pipeline->push_constant_ranges.emplace_back();
+      push_constant_range.size = sizeof(GroupingPushConstant);
+      push_constant_range.offset = 0;
+      push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+      apply_pipeline->Initialize();
+    }
+    if (!feedback_buffer || !new_group_index_buffer) {
+      VkBufferCreateInfo buffer_create_info{};
+      buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+      buffer_create_info.usage =
+          VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+      buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+      buffer_create_info.size = 1;
+      VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
+      buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+      feedback_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+      new_group_index_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+    }
+    if (!feedback_descriptor_set) {
+      feedback_descriptor_set = std::make_shared<DescriptorSet>(feedback_layout);
+    }
+
     const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
     const auto start_time = Times::Now();
@@ -1173,11 +1179,8 @@ glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float 
 }
 
 glm::vec3 DynamicStrands::ComputeInertiaTensorRod(const float mass, const float radius, const float length) {
-  return {
-      mass / 12.f * (radius * radius + length * length),
-      mass / 12.f * (radius * radius + length * length),
-      mass / 4.f * (radius * radius + radius * radius),
-  };
+  float factor = mass / 12.f * (3.f * radius * radius + length * length);
+  return {factor, factor, mass / 2.f * radius * radius};
 }
 
 void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal) {

@@ -135,4 +135,3 @@ vec3 rotate_vec3(in vec4 q, in vec3 v) {
   vec3 t = cross(q_vec, v) * 2.0;
   return v + t * q.w + cross(q_vec, t);
 }
-
