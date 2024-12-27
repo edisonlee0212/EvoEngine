@@ -98,6 +98,21 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       }
     }
   }
+
+  if (ImGui::Checkbox("Foliage", &render_foliage))
+    changed = true;
+  if (render_foliage) {
+    if (ImGui::Combo("Foliage mode", {"Default"}, foliage_render_mode))
+      changed = true;
+    switch (foliage_render_mode) {
+      case 0: {
+        if (ImGui::ColorEdit4("Foliage color", &foliage_color_main.x))
+          changed = true;
+        break;
+      }
+    }
+  }
+
   return changed;
 }
 
@@ -133,12 +148,12 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     // Load shader
     task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::Constants::shader_global_defines,
-                     std::filesystem::path("./EcoSysLabResources") /
-                         "Shaders/Graphics/Task/DynamicStrandSegmentsVisualization.task");
+                            std::filesystem::path("./EcoSysLabResources") /
+                                "Shaders/Graphics/Task/DynamicStrandSegmentsVisualization.task");
     mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::Constants::shader_global_defines,
-                     std::filesystem::path("./EcoSysLabResources") /
-                         "Shaders/Graphics/Mesh/DynamicStrandSegmentsVisualization.mesh");
+                            std::filesystem::path("./EcoSysLabResources") /
+                                "Shaders/Graphics/Mesh/DynamicStrandSegmentsVisualization.mesh");
     frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
@@ -182,12 +197,12 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     // Load shader
     task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::Constants::shader_global_defines,
-                     std::filesystem::path("./EcoSysLabResources") /
-                         "Shaders/Graphics/Task/DynamicStrandSegmentPairsVisualization.task");
+                            std::filesystem::path("./EcoSysLabResources") /
+                                "Shaders/Graphics/Task/DynamicStrandSegmentPairsVisualization.task");
     mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::Constants::shader_global_defines,
-                     std::filesystem::path("./EcoSysLabResources") /
-                         "Shaders/Graphics/Mesh/DynamicStrandSegmentPairsVisualization.mesh");
+                            std::filesystem::path("./EcoSysLabResources") /
+                                "Shaders/Graphics/Mesh/DynamicStrandSegmentPairsVisualization.mesh");
     frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
@@ -232,12 +247,12 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     // Load shader
     task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::Constants::shader_global_defines,
-                     std::filesystem::path("./EcoSysLabResources") /
-                         "Shaders/Graphics/Task/DynamicStrandUniformParticlesVisualization.task");
+                            std::filesystem::path("./EcoSysLabResources") /
+                                "Shaders/Graphics/Task/DynamicStrandUniformParticlesVisualization.task");
     mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::Constants::shader_global_defines,
-                     std::filesystem::path("./EcoSysLabResources") /
-                         "Shaders/Graphics/Mesh/DynamicStrandUniformParticlesVisualization.mesh");
+                            std::filesystem::path("./EcoSysLabResources") /
+                                "Shaders/Graphics/Mesh/DynamicStrandUniformParticlesVisualization.mesh");
 
     frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
@@ -265,7 +280,6 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     uniform_particle_render_pipeline->Initialize();
   }
 
-
   static std::shared_ptr<GraphicsPipeline> foliage_render_pipeline{};
   struct FoliageRenderPushConstant {
     glm::vec4 min_color = glm::vec4(0.2f);
@@ -282,13 +296,13 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     static std::shared_ptr<Shader> frag_shader{};
     // Load shader
     task_shader = std::make_shared<Shader>();
-    task_shader->TryCompile(ShaderType::Task, Platform::Constants::shader_global_defines,
-                            std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Task/DynamicStrandFoliageVisualization.task");
+    task_shader->TryCompile(
+        ShaderType::Task, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandFoliageVisualization.task");
     mesh_shader = std::make_shared<Shader>();
-    mesh_shader->TryCompile(ShaderType::Mesh, Platform::Constants::shader_global_defines,
-                            std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Mesh/DynamicStrandFoliageVisualization.mesh");
+    mesh_shader->TryCompile(
+        ShaderType::Mesh, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandFoliageVisualization.mesh");
     frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
@@ -314,7 +328,6 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
 
     foliage_render_pipeline->Initialize();
   }
-
 
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
@@ -349,7 +362,6 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
       render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
   segment_pair_push_constant.multiplier = visualization_parameters.segment_pair_radius_multiplier;
   segment_pair_push_constant.strand_segment_pair_size = segment_pairs.size();
-
 
   FoliageRenderPushConstant foliage_push_constant;
   foliage_push_constant.render_mode = visualization_parameters.foliage_render_mode;

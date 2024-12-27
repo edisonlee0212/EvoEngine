@@ -108,7 +108,10 @@ void EcoSysLabLayer::RegisterStrandRenderingProcedure() const {
     if (dynamic_strands_settings_.enable_rendering) {
       const auto editor_layer = Application::GetLayer<EditorLayer>();
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        dts->RegisterRenderInstance(dynamic_strands_settings_.render_parameters);
+        if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {
+          dts->RegisterRenderInstance(dynamic_strands_settings_.render_parameters);
+          dts->RegisterFoliageRenderInstance(dynamic_strands_settings_.foliage_render_parameters);
+        }
       });
     }
   }

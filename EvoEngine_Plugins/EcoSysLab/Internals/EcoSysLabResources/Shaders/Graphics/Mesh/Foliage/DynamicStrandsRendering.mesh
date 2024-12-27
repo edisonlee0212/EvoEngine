@@ -74,7 +74,7 @@ void main(){
 	vec3 leaf_scale = leaf.scale;
 	mat4 instance_matrix = translate(leaf_position) * mat4_cast(leaf_rotation) * scale(leaf_scale);
 	
-	mat4 transform = EE_SPOT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix * instance_matrix;
+	mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * instance_matrix;
 	
 	[[unroll]]
 	for (uint i = 0; i < uint(LEAF_VERTEX_ITERATIONS); ++i)

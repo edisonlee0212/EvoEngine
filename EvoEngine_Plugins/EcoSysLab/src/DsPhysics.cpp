@@ -150,7 +150,6 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
     segment_prediction_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
     segment_prediction_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
 
@@ -158,7 +157,6 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
     uniform_particle_prediction_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
     uniform_particle_prediction_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
     vkCmdDispatch(vk_command_buffer,
                   Platform::DivUp(uniform_particle_push_constant.uniform_particle_size, work_group_invocations), 1, 1);
@@ -167,12 +165,14 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
     segment_pair_prediction_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-
     segment_pair_prediction_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
     vkCmdDispatch(vk_command_buffer,
                   Platform::DivUp(segment_pair_push_constant.segment_pair_size, work_group_invocations), 1, 1);
 
     leaf_prediction_pipeline->Bind(vk_command_buffer);
+    leaf_prediction_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     leaf_prediction_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);

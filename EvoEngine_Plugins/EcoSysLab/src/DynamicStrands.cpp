@@ -130,6 +130,7 @@ DynamicStrands::DynamicStrands() {
   segment_collision = std::make_shared<DsSegmentCollision>();
 
   BuildRenderingPipelines();
+  BuildFoliageRenderingPipelines();
 }
 
 uint32_t DynamicStrands::GetFrameIndex() const {
