@@ -8,6 +8,8 @@
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {
 class DynamicTreeStrands : public IPrivateComponent {
+  Handle foliage_rendering_instance_handle;
+
  public:
   bool enable_simulation = true;
 
@@ -32,6 +34,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   std::vector<EntityPivot> pivot_operators;
   std::vector<EntityTransform> transform_operators;
   AssetRef material_ref;
+  AssetRef leaf_material_ref;
   std::shared_ptr<DsBoxSelection> box_selection_operator;
   std::shared_ptr<DsLineCut> line_cut_operator;
   std::shared_ptr<DsSaw> saw_operator;
@@ -74,5 +77,6 @@ class DynamicTreeStrands : public IPrivateComponent {
   void Visualization(const std::shared_ptr<Camera>& target_camera,
                      const DynamicStrands::VisualizationParameters& visualization_parameters) const;
   void RegisterRenderInstance(const DynamicStrands::RenderParameters& render_parameters);
+  void RegisterFoliageRenderInstance(const DynamicStrands::FoliageRenderParameters& render_parameters);
 };
 }  // namespace eco_sys_lab_plugin

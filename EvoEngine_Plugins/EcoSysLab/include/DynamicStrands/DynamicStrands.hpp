@@ -191,6 +191,8 @@ class DynamicStrands {
   };
 
   struct FoliageRenderParameters {
+    bool enabled = true;
+    bool wireframe = false;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -446,6 +448,11 @@ class DynamicStrands {
   inline static std::shared_ptr<GraphicsPipeline> spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> render_pipeline{};
+
+  inline static std::shared_ptr<GraphicsPipeline> foliage_point_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> foliage_spot_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> foliage_directional_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> foliage_render_pipeline{};
   bool wait_for_upload = true;
   uint32_t frame_index = 0;
 

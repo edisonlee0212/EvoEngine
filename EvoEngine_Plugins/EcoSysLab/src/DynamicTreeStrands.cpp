@@ -136,14 +136,18 @@ void DynamicTreeStrands::CreateStaticRoot() {
 
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
   material_ref.Save("material_ref", out);
+  leaf_material_ref.Save("leaf_material_ref", out);
 }
 
 void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
   material_ref.Load("material_ref", in);
+  leaf_material_ref.Load("leaf_material_ref", in);
 }
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  editor_layer->DragAndDropButton<Material>(material_ref, "Material");
+  editor_layer->DragAndDropButton<Material>(material_ref, "Bark Material");
+  editor_layer->DragAndDropButton<Material>(leaf_material_ref, "Leaf Material");
+
   if (ImGui::TreeNode("Initialization settings")) {
     initialize_parameters.OnInspect(editor_layer);
     ImGui::Checkbox("Limit strand length", &limit_strand_length);
@@ -263,6 +267,10 @@ void DynamicTreeStrands::OnCreate() {
   if (!material_ref.Get<Material>()) {
     material_ref = ProjectManager::CreateTemporaryAsset<Material>();
   }
+  if (!leaf_material_ref.Get<Material>()) {
+    leaf_material_ref = ProjectManager::CreateTemporaryAsset<Material>();
+  }
+  foliage_rendering_instance_handle = Handle();
 }
 
 void DynamicTreeStrands::OnDestroy() {
@@ -562,6 +570,21 @@ void DynamicTreeStrands::RegisterRenderInstance(const DynamicStrands::RenderPara
         const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), GetHandle(), material);
         dynamic_strands->RegisterRenderFunction(GetHandle(), render_parameters);
+      }
+    }
+  }
+}
+
+void DynamicTreeStrands::RegisterFoliageRenderInstance(
+    const DynamicStrands::FoliageRenderParameters& render_parameters) {
+  if (const auto material = leaf_material_ref.Get<Material>()) {
+    if (!dynamic_strands->segments.empty()) {
+      if (!dynamic_strands->WaitForUpload()) {
+        dynamic_strands->RegisterFoliageShadowMapRendering(render_parameters);
+        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), foliage_rendering_instance_handle,
+                                                       material);
+        dynamic_strands->RegisterFoliageRenderFunction(foliage_rendering_instance_handle, render_parameters);
       }
     }
   }
