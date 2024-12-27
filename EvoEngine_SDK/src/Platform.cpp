@@ -113,15 +113,20 @@ void Platform::Initialize() {
     }
     if (const auto editor_layer = Application::GetLayer<EditorLayer>(); editor_layer) {
       // Setup Dear ImGui context
+
       IMGUI_CHECKVERSION();
       ImGui::CreateContext();
       ImNodes::CreateContext();
       ImGuiIO& io = ImGui::GetIO();
-      io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-      // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-      //  io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;
+      if (Application::GetApplicationInfo().enable_docking) {
+        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+      }
+      if (Application::GetApplicationInfo().enable_viewport) {
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+        io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;
+      }
       io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleFonts;
-      // io.ConfigFlags |= ImGuiConfigFlags_IsSRGB;
+      //  io.ConfigFlags |= ImGuiConfigFlags_IsSRGB;
       ImGui::StyleColorsDark();
 
       // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular
@@ -148,10 +153,8 @@ void Platform::Initialize() {
       init_info.UseDynamicRendering = true;
       init_info.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
       init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-      const auto format = graphics.swapchain_->GetImageFormat();
-      init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &format;
+      init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &Constants::swap_chain_image_format;
       init_info.PipelineRenderingCreateInfo.pNext = nullptr;
-      // init_info.ColorAttachmentFormat = graphics.swapchain_->GetImageFormat();
 
       ImGui_ImplVulkan_LoadFunctions([](const char* function_name, void*) {
         return vkGetInstanceProcAddr(GetVkInstance(), function_name);
@@ -633,7 +636,6 @@ void Platform::CreateInstance() {
 #pragma region Windows
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
     int size;
     const auto monitors = glfwGetMonitors(&size);
     for (auto i = 0; i < size; i++) {
@@ -1432,7 +1434,7 @@ void Platform::CreateSwapChain() {
   const auto& swap_chain_support_details = graphics.selected_physical_device->swap_chain_support_details;
   VkSurfaceFormatKHR surface_format = swap_chain_support_details.formats[0];
   for (const auto& available_format : swap_chain_support_details.formats) {
-    if (available_format.format == VK_FORMAT_B8G8R8A8_UNORM &&
+    if (available_format.format == Constants::swap_chain_image_format &&
         available_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
       surface_format = available_format;
       break;

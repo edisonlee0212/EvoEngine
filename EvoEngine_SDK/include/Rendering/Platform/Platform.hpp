@@ -121,7 +121,7 @@ class Platform final {
   std::shared_ptr<GraphicsPipeline> render_texture_present_pipeline{};
 
   VkSurfaceFormatKHR vk_surface_format_ = {};
-
+  
 #pragma endregion
 #pragma region Internals
   std::unique_ptr<CommandPool> command_pool_ = {};
@@ -226,6 +226,8 @@ class Platform final {
     constexpr static VkFormat g_buffer_color = VK_FORMAT_R32G32B32A32_SFLOAT;
     constexpr static VkFormat g_buffer_material = VK_FORMAT_R32G32B32A32_SFLOAT;
     constexpr static VkFormat shadow_map = VK_FORMAT_D32_SFLOAT;
+
+    constexpr static VkFormat swap_chain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
     constexpr static uint32_t meshlet_max_vertices_size = 64;
     constexpr static uint32_t meshlet_max_triangles_size = 40;
 
