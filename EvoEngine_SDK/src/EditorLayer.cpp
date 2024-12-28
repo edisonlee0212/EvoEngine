@@ -343,7 +343,7 @@ void EditorLayer::PreUpdate() {
   }
   if (const auto render_layer = Application::GetLayer<RenderLayer>();
       render_layer && render_layer->need_fade_ != 0 && selection_alpha_ < 256) {
-    selection_alpha_ += static_cast<int>(static_cast<float>(Times::DeltaTime()) * 5120);
+    selection_alpha_ += static_cast<int>(static_cast<float>(Times::DeltaTime()) * 1280);
   }
 
   selection_alpha_ = glm::clamp(selection_alpha_, 0, 256);

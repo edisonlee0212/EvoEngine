@@ -37,7 +37,7 @@ void RenderLayer::RenderToDirectionalLightShadowMap(
 void RenderLayer::DeferredRenderingAllCameras(
     std::function<uint32_t(VkCommandBuffer vk_command_buffer,
                            const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                           const ForwardRenderingView& forward_rendering_view)>&& func) {
+                           const DeferredRenderingView& forward_rendering_view)>&& func) {
   deferred_rendering_external_functions.emplace_back(func);
 }
 
@@ -1909,7 +1909,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
               });
         }
 #endif
-#pragma region Forward Rendering
+#pragma region External Deferred Rendering
         for (const auto& func : deferred_rendering_external_functions) {
           const auto prim_count =
               func(vk_command_buffer, geometry_pass_color_attachment_infos, {camera_index, view_port});
@@ -1967,7 +1967,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
 #pragma endregion
 #pragma endregion
 
-#pragma region Forward Rendering
+#pragma region External Forward Rendering
       for (const auto& func : forward_rendering_external_functions) {
         const auto prim_count = func(vk_command_buffer, camera, {camera_index, view_port});
         if (count_draw_calls) {

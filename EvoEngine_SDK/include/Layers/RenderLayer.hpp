@@ -40,6 +40,10 @@ class RenderLayer final : public ILayer {
     int split_index;
     glm::ivec4 viewport;
   };
+  struct DeferredRenderingView {
+    int camera_index;
+    glm::ivec4 viewport;
+  };
   struct ForwardRenderingView {
     int camera_index;
     glm::ivec4 viewport;
@@ -72,7 +76,7 @@ class RenderLayer final : public ILayer {
   void DeferredRenderingAllCameras(
       std::function<uint32_t(VkCommandBuffer vk_command_buffer,
                              const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                             const ForwardRenderingView& forward_rendering_view)>&& func);
+                             const DeferredRenderingView& forward_rendering_view)>&& func);
 
   /**
    * \brief Register per-frame function to render to all cameras.
@@ -102,7 +106,7 @@ class RenderLayer final : public ILayer {
 
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer,
                                      const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                                     const ForwardRenderingView& forward_rendering_view)>>
+                                     const DeferredRenderingView& forward_rendering_view)>>
       deferred_rendering_external_functions;
 
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,

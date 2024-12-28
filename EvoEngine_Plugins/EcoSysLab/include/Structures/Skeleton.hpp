@@ -242,14 +242,13 @@ class Skeleton {
 
   void CalculateDistance();
   void CalculateRegulatedGlobalRotation();
-
+  void CalculateMinMax();
   /**
    * Remove nodes, the descendants of this node will also be removed. The relevant flow will also be
    * removed/restructured.
    * @param node_handles The set of handles of the node to be removed.
    */
   void RemoveNodes(const std::vector<SkeletonNodeHandle>& node_handles);
-
   /**
    * Branch/prolong node during growth process. The flow structure will also be updated.
    * @param target_handle The handle of the node to branch/prolong
@@ -526,8 +525,18 @@ const std::vector<SkeletonNodeHandle>& Skeleton<SkeletonData, FlowData, NodeData
 
 template <typename SkeletonData, typename FlowData, typename NodeData>
 void Skeleton<SkeletonData, FlowData, NodeData>::RemoveNodes(const std::vector<SkeletonNodeHandle>& node_handles) {
-  std::set<SkeletonNodeHandle> collected_node_handle_set{};
-  std::set<SkeletonFlowHandle> collected_flow_handle_set{};
+  SortLists();
+  std::unordered_map<SkeletonNodeHandle, uint32_t> sorted_node_indices;
+  std::unordered_map<SkeletonFlowHandle, uint32_t> sorted_flow_indices;
+
+  for (uint32_t i = 0; i < sorted_node_list_.size(); i++) {
+    sorted_node_indices[sorted_node_list_[i]] = i;
+  }
+  for (uint32_t i = 0; i < sorted_flow_list_.size(); i++) {
+    sorted_flow_indices[sorted_flow_list_[i]] = i;
+  }
+  std::map<uint32_t, SkeletonNodeHandle> collected_node_handle_set{};
+  std::map<uint32_t, SkeletonFlowHandle> collected_flow_handle_set{};
 
   std::queue<SkeletonNodeHandle> processing_node_handles;
   for (const auto& i : node_handles) {
@@ -536,23 +545,34 @@ void Skeleton<SkeletonData, FlowData, NodeData>::RemoveNodes(const std::vector<S
   while (!processing_node_handles.empty()) {
     auto node_handle = processing_node_handles.front();
     processing_node_handles.pop();
-    collected_node_handle_set.emplace(node_handle);
+    collected_node_handle_set[sorted_node_indices.at(node_handle)] = node_handle;
 
     const auto& node = nodes_[node_handle];
     if (const auto& flow = flows_[node.flow_handle_]; !flow.nodes_.empty() && flow.nodes_.front() == node_handle) {
-      collected_flow_handle_set.emplace(node.flow_handle_);
+      collected_flow_handle_set[sorted_flow_indices.at(node.flow_handle_)] = node.flow_handle_;
     }
     for (const auto& child_node_handle : node.child_handles_) {
       processing_node_handles.push(child_node_handle);
     }
   }
-  // Remove nodes.
+
+  std::vector<SkeletonNodeHandle> sorted_node_handle_removal_list;
+  std::vector<SkeletonNodeHandle> sorted_flow_handle_removal_list;
   for (auto i = collected_node_handle_set.rbegin(); i != collected_node_handle_set.rend(); ++i) {
-    auto& node = nodes_[*i];
+    sorted_node_handle_removal_list.emplace_back(i->second);
+  }
+  for (auto i = collected_flow_handle_set.rbegin(); i != collected_flow_handle_set.rend(); ++i) {
+    sorted_flow_handle_removal_list.emplace_back(i->second);
+  }
+
+  // Remove nodes.
+  for (uint32_t i = 0; i < sorted_node_handle_removal_list.size(); i++) {
+    const auto removal_node_handle = sorted_node_handle_removal_list[i];
+    auto& node = nodes_[removal_node_handle];
     if (node.parent_handle_ != -1) {
       auto& parent_node = nodes_[node.parent_handle_];
       for (int32_t child_handle_i = parent_node.child_handles_.size() - 1; child_handle_i >= 0; --child_handle_i) {
-        if (parent_node.child_handles_[child_handle_i] == *i) {
+        if (parent_node.child_handles_[child_handle_i] == removal_node_handle) {
           parent_node.child_handles_.erase(parent_node.child_handles_.begin() + child_handle_i);
           break;
         }
@@ -560,34 +580,39 @@ void Skeleton<SkeletonData, FlowData, NodeData>::RemoveNodes(const std::vector<S
     }
     auto& flow = flows_[node.flow_handle_];
     for (int32_t flow_node_handle_i = flow.nodes_.size() - 1; flow_node_handle_i >= 0; --flow_node_handle_i) {
-      if (flow.nodes_[flow_node_handle_i] == *i) {
+      if (flow.nodes_[flow_node_handle_i] == removal_node_handle) {
         flow.nodes_.erase(flow.nodes_.begin() + flow_node_handle_i);
         break;
       }
     }
-    if (*i != nodes_.size() - 1) {
-      auto& repair_node = nodes_[*i];
+    if (removal_node_handle != nodes_.size() - 1) {
+      auto& repair_node = nodes_[removal_node_handle];
       repair_node = nodes_.back();
 
       const auto repair_node_handle = nodes_.size() - 1;
-      repair_node.handle_ = repair_node_handle;
+      repair_node.handle_ = removal_node_handle;
+      for (auto& handle : sorted_node_handle_removal_list) {
+        if (handle == repair_node_handle) {
+          handle = removal_node_handle;
+        }
+      }
       if (repair_node.parent_handle_ != -1) {
         auto& parent_node = nodes_[repair_node.parent_handle_];
-        for (std::vector<SkeletonNodeHandle>::reverse_iterator child_handle_i = parent_node.child_handles_.rbegin();
+        for (auto child_handle_i = parent_node.child_handles_.rbegin();
              child_handle_i != parent_node.child_handles_.rend(); ++child_handle_i) {
           if (*child_handle_i == repair_node_handle) {
-            *child_handle_i = *i;
+            *child_handle_i = removal_node_handle;
             break;
           }
         }
       }
       for (const auto& child_handle : repair_node.child_handles_) {
-        nodes_[child_handle].parent_handle_ = *i;
+        nodes_[child_handle].parent_handle_ = removal_node_handle;
       }
       auto& repair_flow = flows_[repair_node.flow_handle_];
       for (int32_t flow_node_handle_i = repair_flow.nodes_.size() - 1; flow_node_handle_i >= 0; --flow_node_handle_i) {
         if (repair_flow.nodes_[flow_node_handle_i] == repair_node_handle) {
-          repair_flow.nodes_[flow_node_handle_i] = *i;
+          repair_flow.nodes_[flow_node_handle_i] = removal_node_handle;
           break;
         }
       }
@@ -595,13 +620,14 @@ void Skeleton<SkeletonData, FlowData, NodeData>::RemoveNodes(const std::vector<S
 
     nodes_.pop_back();
   }
-  for (auto i = collected_flow_handle_set.rbegin(); i != collected_flow_handle_set.rend(); ++i) {
-    auto& flow = flows_[*i];
+  for (uint32_t i = 0; i < sorted_flow_handle_removal_list.size(); i++) {
+    const auto removal_flow_handle = sorted_flow_handle_removal_list[i];
+    auto& flow = flows_[removal_flow_handle];
 
     if (flow.parent_handle_ != -1 && flow.parent_handle_ < flows_.size()) {
       auto& parent_flow = flows_[flow.parent_handle_];
       for (int32_t child_handle_i = parent_flow.child_handles_.size() - 1; child_handle_i >= 0; --child_handle_i) {
-        if (parent_flow.child_handles_[child_handle_i] == *i) {
+        if (parent_flow.child_handles_[child_handle_i] == removal_flow_handle) {
           parent_flow.child_handles_.erase(parent_flow.child_handles_.begin() + child_handle_i);
           break;
         }
@@ -609,27 +635,32 @@ void Skeleton<SkeletonData, FlowData, NodeData>::RemoveNodes(const std::vector<S
     }
 
     assert(flow.nodes_.empty());
-    if (*i != flows_.size() - 1) {
-      auto& repair_flow = flows_[*i];
+    if (removal_flow_handle != flows_.size() - 1) {
+      auto& repair_flow = flows_[removal_flow_handle];
       repair_flow = flows_.back();
 
       const auto repair_flow_handle = flows_.size() - 1;
-      repair_flow.handle_ = repair_flow_handle;
+      repair_flow.handle_ = removal_flow_handle;
+      for (auto& handle : sorted_flow_handle_removal_list) {
+        if (handle == repair_flow_handle) {
+          handle = removal_flow_handle;
+        }
+      }
       if (repair_flow.parent_handle_ != -1) {
         auto& parent_flow = flows_[repair_flow.parent_handle_];
         for (std::vector<SkeletonFlowHandle>::reverse_iterator child_handle_i = parent_flow.child_handles_.rbegin();
              child_handle_i != parent_flow.child_handles_.rend(); ++child_handle_i) {
           if (*child_handle_i == repair_flow_handle) {
-            *child_handle_i = *i;
+            *child_handle_i = removal_flow_handle;
             break;
           }
         }
       }
       for (const auto& child_handle : repair_flow.child_handles_) {
-        flows_[child_handle].parent_handle_ = *i;
+        flows_[child_handle].parent_handle_ = removal_flow_handle;
       }
       for (const auto& node_handle : repair_flow.nodes_) {
-        nodes_[node_handle].flow_handle_ = *i;
+        nodes_[node_handle].flow_handle_ = removal_flow_handle;
       }
     }
     flows_.pop_back();
@@ -872,6 +903,24 @@ void Skeleton<SkeletonData, FlowData, NodeData>::CalculateRegulatedGlobalRotatio
     } else {
       node_info.regulated_global_rotation = node_info.global_rotation;
     }
+  }
+}
+
+template <typename SkeletonData, typename FlowData, typename NodeData>
+void Skeleton<SkeletonData, FlowData, NodeData>::CalculateMinMax() {
+  if (nodes_.empty()) {
+    min = glm::vec3(0.f);
+    max = glm::vec3(-0.f);
+    return;
+  }
+  min = glm::vec3(FLT_MAX);
+  max = glm::vec3(-FLT_MAX);
+  for (const auto& node : nodes_) {
+    auto& node_info = node.info;
+    min = glm::min(min, node.info.global_position);
+    min = glm::min(min, node.info.GetGlobalEndPosition());
+    max = glm::max(max, node.info.global_position);
+    max = glm::max(max, node.info.GetGlobalEndPosition());
   }
 }
 

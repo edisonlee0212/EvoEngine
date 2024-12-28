@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Climate.hpp"
+#include "DynamicSkeleton.hpp"
 #include "DynamicStrands.hpp"
 #include "SimulationSettings.hpp"
 #include "Soil.hpp"
@@ -41,6 +42,7 @@ class EcoSysLabLayer : public ILayer {
       const StrandModelMeshGeneratorSettings& target_strand_model_mesh_generator_settings) const;
   void ClearStrandModelMeshes() const;
   void GenerateDynamicStrandsForAllTrees() const;
+  void GenerateDynamicSkeletonForAllTrees() const;
   void GenerateStrandRenderers() const;
   void ClearStrandRenderers() const;
 
@@ -100,7 +102,17 @@ class EcoSysLabLayer : public ILayer {
     void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   TreeVisualizationSettings tree_visualization_settings_;
+
+  struct DynamicSkeletonSettings {
+    bool enable_physics = true;
+    bool enable_visualization = true;
+    DynamicSkeleton::PhysicsParameters physics_parameters{};
+    DynamicSkeleton::VisualizationParameters visualization_parameters{};
+    void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  };
+
   DynamicStrandsSettings dynamic_strands_settings_;
+  DynamicSkeletonSettings dynamic_skeleton_settings_;
   bool auto_generate_mesh_after_editing_ = false;
   bool auto_generate_skeletal_graph_every_frame_ = false;
   bool auto_generate_strands_after_editing_ = false;
@@ -187,9 +199,10 @@ class EcoSysLabLayer : public ILayer {
   void SoilVisualizationVector(const VoxelSoilModel& soil_model);  // called during LateUpdate()
   // This has to happen before LateUpdate.
   void RegisterStrandRenderingProcedure() const;
-  void StrandPhysics() const;
-
+  void DynamicStrandPhysics() const;
+  void DynamicSkeletonPhysics() const;
+  void DynamicSkeletonVisualization() const;
   // This has to happen during LateUpdate.
-  void StrandVisualization() const;
+  void DynamicStrandVisualization() const;
 };
 }  // namespace eco_sys_lab_plugin

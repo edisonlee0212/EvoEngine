@@ -18,7 +18,6 @@ class RenderTexture {
 
   std::shared_ptr<Image> depth_image_ = {};
   std::vector<std::shared_ptr<ImageView>> depth_image_views_ = {};
-  std::vector<std::shared_ptr<ImageView>> debug_depth_image_views_ = {};
   VkExtent3D extent_;
   VkImageViewType image_view_type_;
   std::shared_ptr<Sampler> color_sampler_ = {};

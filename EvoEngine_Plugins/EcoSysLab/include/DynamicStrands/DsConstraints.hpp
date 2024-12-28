@@ -131,19 +131,10 @@ class DsStiffRod final : public IDsConstraint {
     uint32_t frame_index;
   };
 
-  struct BendTwistConstraintConstant {
-    uint32_t strand_size = 0;
-    float inv_time_step;
-    uint32_t frame_index;
-  };
-
   int sub_iteration = 1;
-  bool bend_twist = true;
-  bool stretch_shear = true;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
-  inline static std::shared_ptr<ComputePipeline> bilateral_stretch_shear_constraint_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> bilateral_bend_twist_constraint_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> pipeline{};
 
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;

@@ -128,173 +128,148 @@ void DynamicStrands::BuildRenderingPipelines() {
   push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
   render_pipeline->Initialize();
 }
-void DynamicStrands::RegisterShadowMapRendering(const RenderParameters& render_parameters) const {
-  if (!render_parameters.render_alpha_shape_mesh) {
-    return;
-  }
-  if (!Platform::Constants::support_mesh_shader) {
-    EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
-    return;
-  }
-  const auto render_layer = Application::GetLayer<RenderLayer>();
-  if (!render_layer) {
-    EVOENGINE_LOG("Failed to render! RenderLayer not present!")
-    return;
-  }
-  if (!point_light_render_pipeline || !point_light_render_pipeline->Initialized()) {
-    return;
-  }
-  if (!spot_light_render_pipeline || !spot_light_render_pipeline->Initialized()) {
-    return;
-  }
-  if (!directional_light_render_pipeline || !directional_light_render_pipeline->Initialized()) {
-    return;
-  }
 
-  render_layer->RenderToPointLightShadowMap(
-      [&](const VkCommandBuffer vk_command_buffer, const RenderLayer::PointLightShadowMapView& view) {
-        const uint32_t task_work_group_invocations =
-            Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-        RenderPushConstant push_constant;
-        push_constant.index1.sub_light_index = view.face_index;
-        push_constant.index2.light_index = view.light_index;
-        push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
-        push_constant.alpha = render_parameters.alpha;
-        push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
-        push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
-        push_constant.vertex_colors = render_parameters.vertex_colors;
-        const auto current_frame_index = Platform::GetCurrentFrameIndex();
-        point_light_render_pipeline->Bind(vk_command_buffer);
-        point_light_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                       RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-        point_light_render_pipeline->BindDescriptorSet(
-            vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-        point_light_render_pipeline->states.ResetAllStates(0);
-        point_light_render_pipeline->states.SetViewportScissor(view.viewport);
-        point_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+uint32_t DynamicStrands::RenderToPointLightShadowMap(const RenderParameters& render_parameters,
+                                                     const VkCommandBuffer vk_command_buffer,
+                                                     const RenderLayer::PointLightShadowMapView& view) const {
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  RenderPushConstant push_constant;
+  push_constant.index1.sub_light_index = view.face_index;
+  push_constant.index2.light_index = view.light_index;
+  push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
+  push_constant.alpha = render_parameters.alpha;
+  push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
+  push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
+  push_constant.vertex_colors = render_parameters.vertex_colors;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  point_light_render_pipeline->Bind(vk_command_buffer);
+  point_light_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                 RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  point_light_render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                                 strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  point_light_render_pipeline->states.ResetAllStates(0);
+  point_light_render_pipeline->states.SetViewportScissor(view.viewport);
+  point_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
 
-        point_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
-        vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
-        return delaunay_tetrahedrons.size();
-      });
-
-  render_layer->RenderToSpotLightShadowMap(
-      [&](const VkCommandBuffer vk_command_buffer, const RenderLayer::SpotLightShadowMapView& view) {
-        const uint32_t task_work_group_invocations =
-            Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-        RenderPushConstant push_constant;
-        push_constant.index1.sub_light_index = 0;
-        push_constant.index2.light_index = view.light_index;
-        push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
-        push_constant.alpha = render_parameters.alpha;
-        push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
-        push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
-        push_constant.vertex_colors = render_parameters.vertex_colors;
-        const auto current_frame_index = Platform::GetCurrentFrameIndex();
-        spot_light_render_pipeline->Bind(vk_command_buffer);
-        spot_light_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                      RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-        spot_light_render_pipeline->BindDescriptorSet(
-            vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-        spot_light_render_pipeline->states.ResetAllStates(0);
-        spot_light_render_pipeline->states.SetViewportScissor(view.viewport);
-        spot_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
-
-        spot_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
-        vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
-        return delaunay_tetrahedrons.size();
-      });
-
-  render_layer->RenderToDirectionalLightShadowMap(
-      [&](const VkCommandBuffer vk_command_buffer, const RenderLayer::DirectionalLightShadowMapView& view) {
-        const uint32_t task_work_group_invocations =
-            Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-        RenderPushConstant push_constant;
-        push_constant.index1.sub_light_index = view.split_index;
-        push_constant.index2.light_index = view.light_index;
-        push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
-        push_constant.alpha = render_parameters.alpha;
-        push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
-        push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
-        push_constant.vertex_colors = render_parameters.vertex_colors;
-        const auto current_frame_index = Platform::GetCurrentFrameIndex();
-        directional_light_render_pipeline->Bind(vk_command_buffer);
-        directional_light_render_pipeline->BindDescriptorSet(
-            vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-        directional_light_render_pipeline->BindDescriptorSet(
-            vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-        directional_light_render_pipeline->states.ResetAllStates(0);
-        directional_light_render_pipeline->states.SetViewportScissor(view.viewport);
-        directional_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
-
-        directional_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
-        vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
-        return delaunay_tetrahedrons.size();
-      });
+  point_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+  const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
+  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  return delaunay_tetrahedrons.size();
 }
 
-void DynamicStrands::RegisterRenderFunction(const Handle& renderer_handle,
-                                            const RenderParameters& render_parameters) const {
+uint32_t DynamicStrands::RenderToSpotLightShadowMap(const RenderParameters& render_parameters,
+                                                    const VkCommandBuffer vk_command_buffer,
+                                                    const RenderLayer::SpotLightShadowMapView& view) const {
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  RenderPushConstant push_constant;
+  push_constant.index1.sub_light_index = 0;
+  push_constant.index2.light_index = view.light_index;
+  push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
+  push_constant.alpha = render_parameters.alpha;
+  push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
+  push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
+  push_constant.vertex_colors = render_parameters.vertex_colors;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  spot_light_render_pipeline->Bind(vk_command_buffer);
+  spot_light_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  spot_light_render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                                strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  spot_light_render_pipeline->states.ResetAllStates(0);
+  spot_light_render_pipeline->states.SetViewportScissor(view.viewport);
+  spot_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+
+  spot_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+  const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
+  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  return delaunay_tetrahedrons.size();
+}
+
+uint32_t DynamicStrands::RenderToDirectionalLightShadowMap(
+    const RenderParameters& render_parameters, const VkCommandBuffer vk_command_buffer,
+    const RenderLayer::DirectionalLightShadowMapView& view) const {
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  RenderPushConstant push_constant;
+  push_constant.index1.sub_light_index = view.split_index;
+  push_constant.index2.light_index = view.light_index;
+  push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
+  push_constant.alpha = render_parameters.alpha;
+  push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
+  push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
+  push_constant.vertex_colors = render_parameters.vertex_colors;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  directional_light_render_pipeline->Bind(vk_command_buffer);
+  directional_light_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                       RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  directional_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  directional_light_render_pipeline->states.ResetAllStates(0);
+  directional_light_render_pipeline->states.SetViewportScissor(view.viewport);
+  directional_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+
+  directional_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+  const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
+  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  return delaunay_tetrahedrons.size();
+}
+
+uint32_t DynamicStrands::RenderToCameraDeferred(
+    const Handle& renderer_handle, const RenderParameters& render_parameters, const VkCommandBuffer vk_command_buffer,
+    const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+    const RenderLayer::DeferredRenderingView& view) const {
   if (!render_parameters.render_alpha_shape_mesh) {
-    return;
+    return 0;
   }
   if (!Platform::Constants::support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
-    return;
+    return 0;
   }
   if (!render_pipeline || !render_pipeline->Initialized()) {
-    return;
+    return 0;
   }
-  Application::GetLayer<RenderLayer>()->DeferredRenderingAllCameras(
-      [&, renderer_handle](const VkCommandBuffer vk_command_buffer,
-                           const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                           const RenderLayer::ForwardRenderingView& view) {
-        const auto current_frame_index = Platform::GetCurrentFrameIndex();
-        const uint32_t task_work_group_invocations =
-            Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-        RenderPushConstant push_constant;
-        push_constant.index1.instance_index =
-            Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(
-                renderer_handle);
-        push_constant.index2.camera_index = view.camera_index;
-        push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
-        push_constant.alpha = render_parameters.alpha;
-        push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
-        push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
-        push_constant.vertex_colors = render_parameters.vertex_colors;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  RenderPushConstant push_constant;
+  push_constant.index1.instance_index =
+      Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(renderer_handle);
+  push_constant.index2.camera_index = view.camera_index;
+  push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
+  push_constant.alpha = render_parameters.alpha;
+  push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
+  push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
+  push_constant.vertex_colors = render_parameters.vertex_colors;
 
-        render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-        render_pipeline->states.SetViewportScissor(view.viewport);
-        render_pipeline->states.polygon_mode =
-            render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+  render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+  render_pipeline->states.SetViewportScissor(view.viewport);
+  render_pipeline->states.polygon_mode = render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
 
-        render_pipeline->states.ApplyAllStates(vk_command_buffer);
+  render_pipeline->states.ApplyAllStates(vk_command_buffer);
 
 #ifdef USE_RENDERDOC
-        if (rdoc_api) {
-          rdoc_api->StartFrameCapture(NULL, NULL);
-          EVOENGINE_LOG("RDOC API detected!");
-        }
+  if (rdoc_api) {
+    rdoc_api->StartFrameCapture(NULL, NULL);
+    EVOENGINE_LOG("RDOC API detected!");
+  }
 #endif  //  USERENDERDOC
-        render_pipeline->Bind(vk_command_buffer);
-        render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                           RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-        render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                           strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-        render_pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                           RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
+  render_pipeline->Bind(vk_command_buffer);
+  render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                     RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                     strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  render_pipeline->BindDescriptorSet(vk_command_buffer, 2,
+                                     RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
 
-        render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+  render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-        const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
-        vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
+  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
 #ifdef USE_RENDERDOC
-        if (rdoc_api)
-          rdoc_api->EndFrameCapture(NULL, NULL);
+  if (rdoc_api)
+    rdoc_api->EndFrameCapture(NULL, NULL);
 #endif
-        return segments.size();
-      });
+  return segments.size();
 }

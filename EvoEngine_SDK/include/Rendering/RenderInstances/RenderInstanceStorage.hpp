@@ -13,7 +13,6 @@ struct RenderSettings {
   bool enable_debug_visualization = false;
 
   int pcf_sample_amount = 32;
-  int blocker_search_amount = 8;
   float seam_fix_ratio = 0.1f;
   float gamma = 1.f;
 
@@ -45,7 +44,7 @@ class RenderInstanceStorage {
   struct RenderInfoBlock {
     glm::vec4 split_distances = {};
     alignas(4) int pcf_sample_amount = 32;
-    alignas(4) int blocker_search_amount = 8;
+    alignas(4) int debug_visualization = 0;
     alignas(4) float seam_fix_ratio = 0.1f;
     alignas(4) float gamma = 1.f;
 
@@ -59,10 +58,6 @@ class RenderInstanceStorage {
     alignas(4) int spot_light_size = 0;
     alignas(4) int brdflut_texture_index = 0;
 
-    alignas(4) int debug_visualization = 0;
-    alignas(4) int padding0 = 0;
-    alignas(4) int padding1 = 0;
-    alignas(4) int padding2 = 0;
     void Apply(const RenderSettings& target_render_settings);
 
     bool operator!=(const RenderInfoBlock& other) const;
