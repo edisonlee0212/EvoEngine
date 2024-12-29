@@ -19,6 +19,7 @@ class Texture2D : public IAsset {
   std::shared_ptr<TextureStorageHandle> texture_storage_handle_;
 
   void SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution, bool local_copy);
+  void DownloadData();
   std::vector<glm::vec4> local_data_;
 
  protected:
@@ -70,8 +71,10 @@ class Texture2D : public IAsset {
   void StoreToHdr(const std::filesystem::path& path, int resize_x = -1, int resize_y = -1) const;
 
   template <typename T>
-  void GetData(std::vector<T>& dst) const;
+  void GetData(std::vector<T>& dst);
 
+  const std::vector<glm::vec4>& GetLocalData();
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void GetRgbaChannelData(std::vector<glm::vec4>& dst, int resize_x = -1, int resize_y = -1) const;
   void GetRgbChannelData(std::vector<glm::vec3>& dst, int resize_x = -1, int resize_y = -1) const;
   void GetRgChannelData(std::vector<glm::vec2>& dst, int resize_x = -1, int resize_y = -1) const;
@@ -93,17 +96,11 @@ class Texture2D : public IAsset {
 };
 
 template <typename T>
-void Texture2D::GetData(std::vector<T>& dst) const {
-  const auto& texture_storage = PeekTexture2DStorage();
-  const auto resolution = GetResolution();
-  std::vector<glm::vec4> pixels;
-  pixels.resize(resolution.x * resolution.y);
-  Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
-  image_buffer.CopyFromImage(*texture_storage.image);
-  image_buffer.DownloadVector(pixels, resolution.x * resolution.y);
-  dst.resize(pixels.size());
-  Jobs::RunParallelFor(pixels.size(), [&](unsigned i) {
-    dst[i] = pixels[i];
+void Texture2D::GetData(std::vector<T>& dst) {
+  DownloadData();
+  dst.resize(local_data_.size());
+  Jobs::RunParallelFor(local_data_.size(), [&](unsigned i) {
+    dst[i] = local_data_[i];
   });
 }
 }  // namespace evo_engine

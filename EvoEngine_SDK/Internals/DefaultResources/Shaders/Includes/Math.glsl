@@ -135,3 +135,8 @@ vec3 rotate_vec3(in vec4 q, in vec3 v) {
   vec3 t = cross(q_vec, v) * 2.0;
   return v + t * q.w + cross(q_vec, t);
 }
+
+vec4 angle_axis(in float angle, in vec3 axis) {
+  float s = sin(angle * .5f);
+  return vec4(axis.xyz * s, cos(angle * .5f));
+}

@@ -309,11 +309,8 @@ class DynamicStrands {
     float max_bending_modulus;
     float max_torsion_modulus;
 
-    glm::vec4 segment0_particle0_offset;
-    glm::vec4 segment0_particle1_offset;
-
-    glm::vec4 segment1_particle0_offset;
-    glm::vec4 segment1_particle1_offset;
+    glm::vec4 segment0_offset;
+    glm::vec4 segment1_offset;
 
     glm::quat rest_darboux_vector;
 

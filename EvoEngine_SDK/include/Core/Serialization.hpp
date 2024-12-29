@@ -427,20 +427,20 @@ class Serialization final {
   std::unordered_map<std::string, std::function<void(std::shared_ptr<ISystem>, const std::shared_ptr<ISystem>&)>>
       system_cloners_;
 
-  std::unordered_map<std::string, size_t> data_component_ids_;
+  std::map<std::string, size_t> data_component_ids_;
   std::unordered_map<size_t, size_t> data_component_sizes_;
   std::unordered_map<size_t, std::string> data_component_names_;
 
-  std::unordered_map<std::string, size_t> private_component_ids_;
+  std::map<std::string, size_t> private_component_ids_;
   std::unordered_map<size_t, std::string> private_component_names_;
 
-  std::unordered_map<std::string, size_t> system_ids_;
+  std::map<std::string, size_t> system_ids_;
   std::unordered_map<size_t, std::string> system_names_;
 
   std::unordered_map<std::string, size_t> serializable_ids_;
   std::unordered_map<size_t, std::string> serializable_names_;
 
-  std::unordered_map<std::string, std::vector<std::string>> asset_extensions_;
+  std::map<std::string, std::vector<std::string>> asset_extensions_;
   std::map<std::string, std::string> type_names_;
 
   template <typename T = IDataComponent>

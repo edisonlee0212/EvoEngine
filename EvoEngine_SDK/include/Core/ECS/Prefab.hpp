@@ -50,6 +50,8 @@ class Prefab : public IAsset {
   [[nodiscard]] bool SaveModelInternal(const std::filesystem::path& path) const;
 
  public:
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+
   std::string instance_name;
   void GatherAssets();
 

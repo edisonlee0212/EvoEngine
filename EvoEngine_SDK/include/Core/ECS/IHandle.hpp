@@ -44,8 +44,8 @@ class IHandle {
   friend class AssetRef;
   friend class PrivateComponentRef;
   friend class Scene;
-  friend class AssetRecord;
-  friend class Folder;
+  friend class FileRecord;
+  friend class FolderRecord;
   friend class PrivateComponentStorage;
   Handle handle_;
 

@@ -94,11 +94,8 @@ struct SegmentPair {
   float max_bending_modulus;
   float max_torsion_modulus;
 
-  vec4 segment0_particle0_offset;
-  vec4 segment0_particle1_offset;
-
-  vec4 segment1_particle0_offset;
-  vec4 segment1_particle1_offset;
+  vec4 segment0_offset;
+  vec4 segment1_offset;
 
   vec4 rest_darboux_vector;
 

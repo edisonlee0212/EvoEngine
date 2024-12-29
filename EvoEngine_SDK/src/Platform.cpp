@@ -1584,34 +1584,6 @@ void Platform::OnDestroy() {
   graphics.initialized = false;
 }
 
-void Platform::SubmitPresent() {
-  if (const auto& window_layer = Application::GetLayer<WindowLayer>();
-      window_layer->window_size_.x == 0 || window_layer->window_size_.y == 0)
-    return;
-
-  std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>> wait_semaphores;
-  std::vector<std::shared_ptr<Semaphore>> signal_semaphores;
-
-  wait_semaphores.emplace_back(image_available_semaphores_[current_frame_index_],
-                               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-  signal_semaphores.emplace_back(render_finished_semaphores_[current_frame_index_]);
-
-  main_queue_->Submit(command_buffer_pool_[current_frame_index_], 0, used_command_buffer_size_, wait_semaphores,
-                      signal_semaphores, in_flight_fences_[current_frame_index_]);
-
-  std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>> targets;
-  targets.emplace_back(swapchain_, next_image_index_);
-  present_queue_->Present(signal_semaphores, targets);
-
-  current_frame_index_ = (current_frame_index_ + 1) % max_frame_in_flight_;
-}
-
-void Platform::Submit() {
-  main_queue_->Submit(command_buffer_pool_[current_frame_index_], 0, used_command_buffer_size_, {}, {},
-                      in_flight_fences_[current_frame_index_]);
-  current_frame_index_ = (current_frame_index_ + 1) % max_frame_in_flight_;
-}
-
 void Platform::ResetCommandBuffers() {
   for (const auto& command_buffer : command_buffer_pool_[current_frame_index_]) {
     if (command_buffer->status_ == CommandBufferStatus::Recorded)
@@ -1625,8 +1597,6 @@ void Platform::ResetCommandBuffers() {
 void Platform::PreUpdate() {
   auto& graphics = GetInstance();
   const auto window_layer = Application::GetLayer<WindowLayer>();
-  const auto render_layer = Application::GetLayer<RenderLayer>();
-
   const auto vulkan_update = [&](const std::function<void()>& swap_chain_action) {
     vkDeviceWaitIdle(graphics.vk_device_);
     const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
@@ -1647,37 +1617,34 @@ void Platform::PreUpdate() {
     if (glfwWindowShouldClose(window_layer->window_)) {
       Application::End();
     }
-    if (render_layer || Application::GetLayer<EditorLayer>()) {
-      if (window_layer->window_size_.x != 0 || window_layer->window_size_.y != 0) {
-        const auto just_now = Times::Now();
-        vulkan_update([&]() {
-          graphics.cpu_wait_time = Times::Now() - just_now;
-          auto result = vkAcquireNextImageKHR(
+    if (window_layer->window_size_.x != 0 || window_layer->window_size_.y != 0) {
+      const auto just_now = Times::Now();
+      vulkan_update([&]() {
+        graphics.cpu_wait_time = Times::Now() - just_now;
+        auto result =
+            vkAcquireNextImageKHR(graphics.vk_device_, graphics.swapchain_->GetVkSwapchain(), UINT64_MAX,
+                                  graphics.image_available_semaphores_[graphics.current_frame_index_]->GetVkSemaphore(),
+                                  VK_NULL_HANDLE, &graphics.next_image_index_);
+        while (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || graphics.recreate_swap_chain_) {
+          graphics.RecreateSwapChain();
+          result = vkAcquireNextImageKHR(
               graphics.vk_device_, graphics.swapchain_->GetVkSwapchain(), UINT64_MAX,
               graphics.image_available_semaphores_[graphics.current_frame_index_]->GetVkSemaphore(), VK_NULL_HANDLE,
               &graphics.next_image_index_);
-          while (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || graphics.recreate_swap_chain_) {
-            graphics.RecreateSwapChain();
-            result = vkAcquireNextImageKHR(
-                graphics.vk_device_, graphics.swapchain_->GetVkSwapchain(), UINT64_MAX,
-                graphics.image_available_semaphores_[graphics.current_frame_index_]->GetVkSemaphore(), VK_NULL_HANDLE,
-                &graphics.next_image_index_);
-            graphics.recreate_swap_chain_ = false;
-          }
-          if (result != VK_SUCCESS) {
-            throw std::runtime_error("failed to acquire swap chain image!");
-          }
-        });
-      }
+          graphics.recreate_swap_chain_ = false;
+        }
+        if (result != VK_SUCCESS) {
+          throw std::runtime_error("failed to acquire swap chain image!");
+        }
+      });
     }
   } else {
     vulkan_update([] {
     });
   }
-
   graphics.ResetCommandBuffers();
 
-  if (render_layer && !Application::GetLayer<EditorLayer>()) {
+  if (!Application::GetLayer<EditorLayer>()) {
     if (const auto scene = Application::GetActiveScene()) {
       if (const auto main_camera = scene->main_camera.Get<Camera>(); main_camera && main_camera->IsEnabled()) {
         main_camera->SetRequireRendering(true);
@@ -1691,83 +1658,26 @@ void Platform::PreUpdate() {
 
 void Platform::LateUpdate() {
   auto& graphics = GetInstance();
-  if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
-    if (!Application::GetLayer<EditorLayer>()) {
-      if (const auto scene = Application::GetActiveScene()) {
-        if (const auto main_camera = scene->main_camera.Get<Camera>();
-            main_camera->IsEnabled() && main_camera->rendered_) {
-          const auto& render_texture_present = graphics.render_texture_present_pipeline;
-          RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
-            EverythingBarrier(vk_command_buffer);
-            TransitImageLayout(vk_command_buffer, graphics.swapchain_->GetVkImage(),
-                               graphics.swapchain_->GetImageFormat(), 1, VK_IMAGE_LAYOUT_UNDEFINED,
-                               VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR);
+  const auto window_layer = Application::GetLayer<WindowLayer>();
+  if (window_layer->window_size_.x == 0 || window_layer->window_size_.y == 0)
+    return;
 
-            constexpr VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-            VkRect2D render_area;
-            render_area.offset = {0, 0};
-            render_area.extent = graphics.swapchain_->GetImageExtent();
-
-            VkRenderingAttachmentInfo color_attachment_info{};
-            color_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-            color_attachment_info.imageView = graphics.swapchain_->GetVkImageView();
-            color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
-            color_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-            color_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            color_attachment_info.clearValue = clear_color;
-
-            VkRenderingInfo render_info{};
-            render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-            render_info.renderArea = render_area;
-            render_info.layerCount = 1;
-            render_info.colorAttachmentCount = 1;
-            render_info.pColorAttachments = &color_attachment_info;
-            VkViewport viewport;
-            viewport.x = 0.0f;
-            viewport.y = 0.0f;
-            viewport.width = render_area.extent.width;
-            viewport.height = render_area.extent.height;
-            viewport.minDepth = 0.0f;
-            viewport.maxDepth = 1.0f;
-
-            VkRect2D scissor;
-            scissor.offset = {0, 0};
-            scissor.extent.width = render_area.extent.width;
-            scissor.extent.height = render_area.extent.height;
-
-            render_texture_present->states.view_port = viewport;
-            render_texture_present->states.scissor = scissor;
-            render_texture_present->states.color_blend_attachment_states.clear();
-            render_texture_present->states.color_blend_attachment_states.resize(1);
-            for (auto& i : render_texture_present->states.color_blend_attachment_states) {
-              i.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
-                                 VK_COLOR_COMPONENT_A_BIT;
-              i.blendEnable = VK_FALSE;
-            }
-            render_texture_present->states.depth_test = VK_FALSE;
-            render_texture_present->states.depth_write = VK_FALSE;
-            vkCmdBeginRendering(vk_command_buffer, &render_info);
-            // From main camera to swap chain.
-            render_texture_present->Bind(vk_command_buffer);
-            render_texture_present->BindDescriptorSet(
-                vk_command_buffer, 0,
-                main_camera->GetRenderTexture()->color_present_descriptor_set_->GetVkDescriptorSet());
-
-            const auto mesh = Resources::GetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
-            GeometryStorage::BindVertices(vk_command_buffer);
-            mesh->DrawIndexed(vk_command_buffer, render_texture_present->states, 1);
-            vkCmdEndRendering(vk_command_buffer);
-            TransitImageLayout(vk_command_buffer, graphics.swapchain_->GetVkImage(),
-                               graphics.swapchain_->GetImageFormat(), 1, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR,
-                               VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-          });
-        }
-      }
-    }
-    graphics.SubmitPresent();
-  } else {
-    graphics.Submit();
+  std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>> wait_semaphores;
+  std::vector<std::shared_ptr<Semaphore>> signal_semaphores;
+  if (window_layer) {
+    wait_semaphores.emplace_back(graphics.image_available_semaphores_[graphics.current_frame_index_],
+                                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    signal_semaphores.emplace_back(graphics.render_finished_semaphores_[graphics.current_frame_index_]);
   }
+  graphics.main_queue_->Submit(graphics.command_buffer_pool_[graphics.current_frame_index_], 0,
+                               graphics.used_command_buffer_size_, wait_semaphores, signal_semaphores,
+                               graphics.in_flight_fences_[graphics.current_frame_index_]);
+  if (window_layer) {
+    std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>> targets;
+    targets.emplace_back(graphics.swapchain_, graphics.next_image_index_);
+    graphics.present_queue_->Present(signal_semaphores, targets);
+  }
+  graphics.current_frame_index_ = (graphics.current_frame_index_ + 1) % graphics.max_frame_in_flight_;
 }
 
 bool Platform::Initialized() {

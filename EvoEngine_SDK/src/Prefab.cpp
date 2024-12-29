@@ -1216,6 +1216,10 @@ bool Prefab::SaveModelInternal(const std::filesystem::path& path) const {
   return true;
 }
 
+std::shared_ptr<Texture2D> Prefab::GenerateThumbnailTexture() {
+  return EditorLayer::FindIcon("Prefab");
+}
+
 #pragma endregion
 
 Entity Prefab::ToEntity(const std::shared_ptr<Scene>& scene, bool rescale, bool recenter) const {

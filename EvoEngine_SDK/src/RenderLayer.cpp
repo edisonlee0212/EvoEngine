@@ -16,6 +16,7 @@
 #include "StrandsRenderer.hpp"
 #include "TextureStorage.hpp"
 #include "Utilities.hpp"
+#include "WindowLayer.hpp"
 using namespace evo_engine;
 
 void RenderLayer::RenderToPointLightShadowMap(

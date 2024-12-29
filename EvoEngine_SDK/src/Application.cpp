@@ -218,7 +218,7 @@ void Application::LateUpdateInternal() {
     return;
   const auto render_layer = GetLayer<RenderLayer>();
   const auto editor_layer = GetLayer<EditorLayer>();
-
+  const auto window_layer = GetLayer<WindowLayer>();
   if (application.application_status_ != ApplicationStatus::NoProject) {
     application.application_execution_status_ = ApplicationExecutionStatus::LateUpdate;
     for (const auto& i : application.external_late_update_functions_)
@@ -237,17 +237,15 @@ void Application::LateUpdateInternal() {
     }
   }
 
-  if (editor_layer) {
-    EditorLayer::RenderImGui();
+  if (window_layer) {
+    window_layer->Render();
   }
   if (render_layer) {
     render_layer->ClearAll();
+    Platform::LateUpdate();
   }
   if (application.application_status_ == ApplicationStatus::Step)
     application.application_status_ = ApplicationStatus::Pause;
-  if (render_layer) {
-    Platform::LateUpdate();
-  }
 }
 
 const ApplicationInfo& Application::GetApplicationInfo() {

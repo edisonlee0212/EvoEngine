@@ -159,6 +159,10 @@ void DrawSettings::Load(const std::string& name, const YAML::Node& in) {
   }
 }
 
+std::shared_ptr<Texture2D> Material::GenerateThumbnailTexture() {
+  return EditorLayer::FindIcon("Material");
+}
+
 Material::~Material() {
   albedo_texture_.Clear();
   normal_texture_.Clear();
@@ -301,7 +305,7 @@ bool Material::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
 
     static AssetRef rma_texture_ref{};
-    if(EditorLayer::DragAndDropButton<Texture2D>(rma_texture_ref, "Apply RMA Texture")) {
+    if (EditorLayer::DragAndDropButton<Texture2D>(rma_texture_ref, "Apply RMA Texture")) {
       const auto rma_texture = rma_texture_ref.Get<Texture2D>();
       std::vector<glm::vec3> rma_data;
       rma_texture->GetRgbChannelData(rma_data);

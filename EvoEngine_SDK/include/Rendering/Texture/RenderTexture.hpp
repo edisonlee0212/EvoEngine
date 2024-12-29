@@ -13,6 +13,7 @@ struct RenderTextureCreateInfo {
 class RenderTexture {
   friend class Platform;
   friend class RenderLayer;
+  friend class WindowLayer;
   std::shared_ptr<Image> color_image_ = {};
   std::vector<std::shared_ptr<ImageView>> color_image_views_ = {};
 
