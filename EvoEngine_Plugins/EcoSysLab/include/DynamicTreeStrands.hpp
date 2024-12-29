@@ -20,18 +20,25 @@ class DynamicTreeStrands : public IPrivateComponent {
   bool enable_physics = true;
   std::shared_ptr<DynamicStrands> dynamic_strands{};
 
-  struct EntityTransform {
+  struct PivotTransform {
     Entity target_entity;
-    std::shared_ptr<DsTransform> ds_transform;
+    std::shared_ptr<DsPivotTransform> ds_pivot_transform;
   };
-  struct EntityPivot {
+  struct PivotAxis {
     Entity target_entity;
-    std::shared_ptr<DsPivot> ds_pivot;
+    std::shared_ptr<DsPivotAxis> ds_pivot_axis;
+  };
+  struct PivotPoint {
+    Entity target_entity;
+    std::shared_ptr<DsPivotPoint> ds_pivot_point;
   };
   bool limit_strand_length = false;
   float max_strand_length = 1.f;
-  std::vector<EntityPivot> pivot_operators;
-  std::vector<EntityTransform> transform_operators;
+
+  std::vector<PivotPoint> point_pivots;
+  std::vector<PivotAxis> axis_pivots;
+  std::vector<PivotTransform> transform_pivots;
+
   AssetRef material_ref;
   AssetRef leaf_material_ref;
   std::shared_ptr<DsBoxSelection> box_selection_operator;
@@ -48,12 +55,14 @@ class DynamicTreeStrands : public IPrivateComponent {
   void OnDestroy() override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 
+  enum class PivotType { Empty, Point, Axis, Transform };
+
   struct BoardExperimentSetupSettings {
     float segment_length = 0.05f;
     float radius = 0.002f;
     glm::ivec3 rod_dimension = {10, 40, 20};
-    bool add_left_pivot = true;
-    bool add_right_pivot = true;
+    unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);
+    unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);
   };
   struct LogExperimentSetupSettings {
     float segment_length = 0.05f;
@@ -61,8 +70,8 @@ class DynamicTreeStrands : public IPrivateComponent {
     int rod_size = 400;
     int rod_segment_count = 10;
     float center_attraction_strength = 40000;
-    bool add_left_operator = true;
-    bool add_right_operator = false;
+    unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);
+    unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);
   };
   void BoardExperimentSetup(const BoardExperimentSetupSettings& settings);
   void LogExperimentSetup(const LogExperimentSetupSettings& settings);

@@ -21,13 +21,6 @@
       "buildCommandArgs": "",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "msvc_x64_x64" ],
-      "variables": [
-        {
-          "name": "EVOENGINE_ENABLE_OptiXRayTracer_PLUGIN",
-          "value": "False",
-          "type": "BOOL"
-        }
-      ]
     }
   ]
 }
