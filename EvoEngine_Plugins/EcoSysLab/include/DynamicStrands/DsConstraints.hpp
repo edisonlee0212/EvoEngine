@@ -29,7 +29,41 @@ class IDsConstraint {
 };
 
 #pragma region Constraints
-class DsPivot final : public IDsConstraint {
+class DsPivotPoint final : public IDsConstraint {
+ public:
+  GlobalTransform inverse_base_global_transform{};
+  GlobalTransform base_global_transform{};
+
+  struct SegmentUpdate {
+    float point_distance;
+    uint32_t segment_index;
+    uint32_t padding0;
+    uint32_t padding1;
+  };
+  inline static std::shared_ptr<DescriptorSetLayout> layout{};
+  std::vector<SegmentUpdate> commands;
+  std::shared_ptr<Buffer> segment_update_commands_buffer;
+
+  struct SegmentUpdatePushConstant {
+    glm::vec3 pivot_position;
+    uint32_t commands_size = 0;
+  };
+
+  SegmentUpdatePushConstant push_constant;
+  inline static std::shared_ptr<ComputePipeline> segment_update_pipeline;
+  std::vector<std::shared_ptr<DescriptorSet>> segment_commands_descriptor_sets;
+
+  DsPivotPoint();
+  void Initialize(const GlobalTransform& target_base_global_transform,
+                  const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
+                  const std::vector<std::pair<uint32_t, bool>>& segment_list);
+  void Update(const GlobalTransform& new_global_transform);
+
+  void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                 const DynamicStrands& target_dynamic_strands) override;
+};
+
+class DsPivotAxis final : public IDsConstraint {
  public:
   GlobalTransform inverse_base_global_transform{};
   GlobalTransform base_global_transform{};
@@ -53,7 +87,7 @@ class DsPivot final : public IDsConstraint {
   inline static std::shared_ptr<ComputePipeline> segment_update_pipeline;
   std::vector<std::shared_ptr<DescriptorSet>> segment_commands_descriptor_sets;
 
-  DsPivot();
+  DsPivotAxis();
   void Initialize(const GlobalTransform& target_base_global_transform,
                   const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
                   const std::vector<std::pair<uint32_t, bool>>& segment_list);
@@ -63,7 +97,7 @@ class DsPivot final : public IDsConstraint {
                                  const DynamicStrands& target_dynamic_strands) override;
 };
 
-class DsTransform final : public IDsConstraint {
+class DsPivotTransform final : public IDsConstraint {
  public:
   GlobalTransform inverse_base_global_transform{};
   GlobalTransform base_global_transform{};
@@ -91,7 +125,7 @@ class DsTransform final : public IDsConstraint {
   inline static std::shared_ptr<ComputePipeline> segment_update_pipeline;
   std::vector<std::shared_ptr<DescriptorSet>> segment_commands_descriptor_sets;
 
-  DsTransform();
+  DsPivotTransform();
   void Initialize(const GlobalTransform& target_base_global_transform,
                   const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
                   const std::vector<std::pair<uint32_t, std::pair<bool, bool>>>& segment_list);

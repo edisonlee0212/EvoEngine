@@ -8,7 +8,6 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
-PrivateComponentRef dynamic_tree_strands_tree_ref{};
 void DynamicTreeStrands::UpdateDynamicStrands() {
   auto source_strand_group = strand_model_skeleton.data.strand_group;
   if (limit_strand_length) {
@@ -99,7 +98,7 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
   dynamic_strands->constraints.emplace_back(std::make_shared<DsGroundPlane>());
   subdivided_strand_group.RandomAssignColor();
 
-  transform_operators.clear();
+  transform_pivots.clear();
   const auto owner = GetOwner();
   const auto scene = GetScene();
   initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
@@ -109,8 +108,9 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
 }
 
 void DynamicTreeStrands::CreateStaticRoot() {
-  transform_operators.emplace_back();
+  transform_pivots.emplace_back();
   const auto owner = GetOwner();
+  /*
   Jobs::RunParallelFor(subdivided_strand_group.PeekStrands().size(), [&](const size_t strand_index) {
     const auto& strand = subdivided_strand_group.PeekStrands()[strand_index];
     for (int sub_segment_index = 0; sub_segment_index < strand.PeekStrandSegmentHandles().size(); sub_segment_index++) {
@@ -119,8 +119,8 @@ void DynamicTreeStrands::CreateStaticRoot() {
       segment_data.segment_index = sub_segment_index;
     }
   });
-
-  auto& transform_operator = transform_operators.back();
+  */
+  auto& transform_operator = transform_pivots.back();
   std::vector<std::pair<uint32_t, std::pair<bool, bool>>> segment_list(dynamic_strands->strands.size());
   Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
     const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
@@ -129,10 +129,11 @@ void DynamicTreeStrands::CreateStaticRoot() {
     segment_list[i].second.second = false;
   });
   transform_operator.target_entity = owner;
-  transform_operator.ds_transform = std::make_shared<DsTransform>();
-  transform_operator.ds_transform->Initialize(initialize_parameters.root_transform, dynamic_strands, segment_list);
+  transform_operator.ds_pivot_transform = std::make_shared<DsPivotTransform>();
+  transform_operator.ds_pivot_transform->Initialize(initialize_parameters.root_transform, dynamic_strands,
+                                                    segment_list);
 
-  dynamic_strands->constraints.emplace_back(transform_operator.ds_transform);
+  dynamic_strands->constraints.emplace_back(transform_operator.ds_pivot_transform);
 }
 
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
@@ -157,6 +158,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     }
     ImGui::TreePop();
   }
+  static PrivateComponentRef dynamic_tree_strands_tree_ref{};
   if (EditorLayer::DragAndDropButton<Tree>(dynamic_tree_strands_tree_ref, "Download Strands from Tree...")) {
     if (const auto tree = dynamic_tree_strands_tree_ref.Get<Tree>()) {
       tree->BuildStrandModel();
@@ -177,8 +179,10 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       ImGui::DragFloat("Rod length", &multiple_rod_experiment_setup_settings.segment_length, 0.01f, 0.01f, 10.0f);
       ImGui::DragFloat("Rod radius", &multiple_rod_experiment_setup_settings.radius, 0.001f, 0.001f, 1.0f);
       ImGui::DragInt3("Rod dimension (3D)", &multiple_rod_experiment_setup_settings.rod_dimension.x, 1, 1, 1000);
-      ImGui::Checkbox("Left pivot", &multiple_rod_experiment_setup_settings.add_left_pivot);
-      ImGui::Checkbox("Right pivot", &multiple_rod_experiment_setup_settings.add_right_pivot);
+      ImGui::Combo("Left Pivot Type", {"Empty", "Point", "Axis", "Transform"},
+                   multiple_rod_experiment_setup_settings.left_pivot_type);
+      ImGui::Combo("Right Pivot Type", {"Empty", "Point", "Axis", "Transform"},
+                   multiple_rod_experiment_setup_settings.right_pivot_type);
       if (ImGui::Button("Initialize")) {
         BoardExperimentSetup(multiple_rod_experiment_setup_settings);
       }
@@ -190,8 +194,10 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       ImGui::DragFloat("Rod radius", &log_experiment_setup_settings.radius, 0.001f, 0.001f, 1.0f);
       ImGui::DragInt("Rod size", &log_experiment_setup_settings.rod_size, 1, 1, 1000);
       ImGui::DragInt("Rod segment size", &log_experiment_setup_settings.rod_segment_count, 1, 1, 1000);
-      ImGui::Checkbox("Left operator", &log_experiment_setup_settings.add_left_operator);
-      ImGui::Checkbox("Right operator", &log_experiment_setup_settings.add_right_operator);
+      ImGui::Combo("Left Pivot Type", {"Empty", "Point", "Axis", "Transform"},
+                   log_experiment_setup_settings.left_pivot_type);
+      ImGui::Combo("Right Pivot Type", {"Empty", "Point", "Axis", "Transform"},
+                   log_experiment_setup_settings.right_pivot_type);
       if (ImGui::Button("Initialize")) {
         LogExperimentSetup(log_experiment_setup_settings);
       }
@@ -217,8 +223,8 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (ImGui::TreeNode("Physics settings")) {
     if (ImGui::TreeNode("Operators")) {
       if (ImGui::TreeNode("Transform operators")) {
-        for (auto& i : transform_operators) {
-          i.ds_transform->OnInspect(editor_layer);
+        for (auto& i : transform_pivots) {
+          i.ds_pivot_transform->OnInspect(editor_layer);
         }
         ImGui::TreePop();
       }
@@ -332,34 +338,191 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
   UpdateDynamicStrands();
   limit_strand_length = saved_strand_length_limit;
 
-  if (settings.add_right_pivot) {
-    const auto scene = Application::GetActiveScene();
-    const auto children = scene->GetChildren(GetOwner());
-    for (const auto& child : children) {
-      if (scene->GetEntityName(child) == "Right Pivot") {
-        scene->DeleteEntity(child);
+  switch (static_cast<PivotType>(settings.left_pivot_type)) {
+    case PivotType::Point: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Left Pivot") {
+          scene->DeleteEntity(child);
+        }
       }
+      const Entity operator_entity = scene->CreateEntity("Left Pivot");
+      point_pivots.emplace_back();
+      auto& pivot_operator = point_pivots.back();
+
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.GetPosition());
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
+
+      std::vector<std::pair<uint32_t, bool>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second = false;
+      });
+      pivot_operator.target_entity = operator_entity;
+      pivot_operator.ds_pivot_point = std::make_shared<DsPivotPoint>();
+      pivot_operator.ds_pivot_point->Initialize(operator_root_transform, dynamic_strands, segment_list);
+      dynamic_strands->constraints.emplace_back(pivot_operator.ds_pivot_point);
+      break;
     }
-    const Entity operator_entity = scene->CreateEntity("Right Pivot");
-    pivot_operators.emplace_back();
-    auto& pivot_operator = pivot_operators.back();
+    case PivotType::Axis: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Left Pivot") {
+          scene->DeleteEntity(child);
+        }
+      }
+      const Entity operator_entity = scene->CreateEntity("Left Pivot");
+      axis_pivots.emplace_back();
+      auto& pivot_operator = axis_pivots.back();
 
-    auto operator_root_transform = GlobalTransform();
-    operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
-        glm::vec3(static_cast<float>(settings.rod_dimension.z + 2) * settings.segment_length, 0, 0)));
-    scene->SetDataComponent(operator_entity, operator_root_transform);
-    scene->SetParent(operator_entity, GetOwner());
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.GetPosition());
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
 
-    std::vector<std::pair<uint32_t, bool>> segment_list(dynamic_strands->strands.size());
-    Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
-      const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
-      segment_list[i].first = segment_handle;
-      segment_list[i].second = false;
-    });
-    pivot_operator.target_entity = operator_entity;
-    pivot_operator.ds_pivot = std::make_shared<DsPivot>();
-    pivot_operator.ds_pivot->Initialize(operator_root_transform, dynamic_strands, segment_list);
-    dynamic_strands->constraints.emplace_back(pivot_operator.ds_pivot);
+      std::vector<std::pair<uint32_t, bool>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second = false;
+      });
+      pivot_operator.target_entity = operator_entity;
+      pivot_operator.ds_pivot_axis = std::make_shared<DsPivotAxis>();
+      pivot_operator.ds_pivot_axis->Initialize(operator_root_transform, dynamic_strands, segment_list);
+      dynamic_strands->constraints.emplace_back(pivot_operator.ds_pivot_axis);
+      break;
+    }
+    case PivotType::Transform: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Left Pivot") {
+          scene->DeleteEntity(child);
+        }
+      }
+      const Entity operator_entity = scene->CreateEntity("Left Pivot");
+      transform_pivots.emplace_back();
+      auto& transform_operator = transform_pivots.back();
+
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.GetPosition());
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
+
+      std::vector<std::pair<uint32_t, std::pair<bool, bool>>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second.first = true;
+        segment_list[i].second.second = false;
+      });
+      transform_operator.target_entity = operator_entity;
+      transform_operator.ds_pivot_transform = std::make_shared<DsPivotTransform>();
+      transform_operator.ds_pivot_transform->Initialize(initialize_parameters.root_transform, dynamic_strands,
+                                                        segment_list);
+
+      dynamic_strands->constraints.emplace_back(transform_operator.ds_pivot_transform);
+      break;
+    }
+  }
+
+  switch (static_cast<PivotType>(settings.right_pivot_type)) {
+    case PivotType::Point: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Right Pivot") {
+          scene->DeleteEntity(child);
+        }
+      }
+      const Entity operator_entity = scene->CreateEntity("Right Pivot");
+      point_pivots.emplace_back();
+      auto& pivot_operator = point_pivots.back();
+
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
+          glm::vec3(static_cast<float>(settings.rod_dimension.z + 2) * settings.segment_length, 0, 0)));
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
+
+      std::vector<std::pair<uint32_t, bool>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second = false;
+      });
+      pivot_operator.target_entity = operator_entity;
+      pivot_operator.ds_pivot_point = std::make_shared<DsPivotPoint>();
+      pivot_operator.ds_pivot_point->Initialize(operator_root_transform, dynamic_strands, segment_list);
+      dynamic_strands->constraints.emplace_back(pivot_operator.ds_pivot_point);
+      break;
+    }
+    case PivotType::Axis: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Right Pivot") {
+          scene->DeleteEntity(child);
+        }
+      }
+      const Entity operator_entity = scene->CreateEntity("Right Pivot");
+      axis_pivots.emplace_back();
+      auto& pivot_operator = axis_pivots.back();
+
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
+          glm::vec3(static_cast<float>(settings.rod_dimension.z + 2) * settings.segment_length, 0, 0)));
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
+
+      std::vector<std::pair<uint32_t, bool>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second = false;
+      });
+      pivot_operator.target_entity = operator_entity;
+      pivot_operator.ds_pivot_axis = std::make_shared<DsPivotAxis>();
+      pivot_operator.ds_pivot_axis->Initialize(operator_root_transform, dynamic_strands, segment_list);
+      dynamic_strands->constraints.emplace_back(pivot_operator.ds_pivot_axis);
+      break;
+    }
+    case PivotType::Transform: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Right Pivot") {
+          scene->DeleteEntity(child);
+        }
+      }
+      const Entity operator_entity = scene->CreateEntity("Right Pivot");
+      transform_pivots.emplace_back();
+      auto& transform_operator = transform_pivots.back();
+
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
+          glm::vec3(static_cast<float>(settings.rod_dimension.z + 2) * settings.segment_length, 0, 0)));
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
+
+      std::vector<std::pair<uint32_t, std::pair<bool, bool>>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second.first = false;
+        segment_list[i].second.second = true;
+      });
+      transform_operator.target_entity = operator_entity;
+      transform_operator.ds_pivot_transform = std::make_shared<DsPivotTransform>();
+      transform_operator.ds_pivot_transform->Initialize(operator_root_transform, dynamic_strands, segment_list);
+      dynamic_strands->constraints.emplace_back(transform_operator.ds_pivot_transform);
+      break;
+    }
   }
 }
 
@@ -436,39 +599,192 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   UpdateDynamicStrands();
   limit_strand_length = saved_strand_length_limit;
 
-  if (settings.add_left_operator) {
-    CreateStaticRoot();
+  switch (static_cast<PivotType>(settings.left_pivot_type)) {
+    case PivotType::Point: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Left Pivot") {
+          scene->DeleteEntity(child);
+        }
+      }
+      const Entity operator_entity = scene->CreateEntity("Left Pivot");
+      point_pivots.emplace_back();
+      auto& pivot_operator = point_pivots.back();
+
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.GetPosition());
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
+
+      std::vector<std::pair<uint32_t, bool>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second = false;
+      });
+      pivot_operator.target_entity = operator_entity;
+      pivot_operator.ds_pivot_point = std::make_shared<DsPivotPoint>();
+      pivot_operator.ds_pivot_point->Initialize(operator_root_transform, dynamic_strands, segment_list);
+      dynamic_strands->constraints.emplace_back(pivot_operator.ds_pivot_point);
+      break;
+    }
+    case PivotType::Axis: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Left Pivot") {
+          scene->DeleteEntity(child);
+        }
+      }
+      const Entity operator_entity = scene->CreateEntity("Left Pivot");
+      axis_pivots.emplace_back();
+      auto& pivot_operator = axis_pivots.back();
+
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.GetPosition());
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
+
+      std::vector<std::pair<uint32_t, bool>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second = false;
+      });
+      pivot_operator.target_entity = operator_entity;
+      pivot_operator.ds_pivot_axis = std::make_shared<DsPivotAxis>();
+      pivot_operator.ds_pivot_axis->Initialize(operator_root_transform, dynamic_strands, segment_list);
+      dynamic_strands->constraints.emplace_back(pivot_operator.ds_pivot_axis);
+      break;
+    }
+    case PivotType::Transform: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Left Pivot") {
+          scene->DeleteEntity(child);
+        }
+      }
+      const Entity operator_entity = scene->CreateEntity("Left Pivot");
+      transform_pivots.emplace_back();
+      auto& transform_operator = transform_pivots.back();
+
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.GetPosition());
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
+
+      std::vector<std::pair<uint32_t, std::pair<bool, bool>>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second.first = true;
+        segment_list[i].second.second = false;
+      });
+      transform_operator.target_entity = operator_entity;
+      transform_operator.ds_pivot_transform = std::make_shared<DsPivotTransform>();
+      transform_operator.ds_pivot_transform->Initialize(initialize_parameters.root_transform, dynamic_strands,
+                                                        segment_list);
+
+      dynamic_strands->constraints.emplace_back(transform_operator.ds_pivot_transform);
+      break;
+    }
   }
 
-  if (settings.add_right_operator) {
-    const auto scene = Application::GetActiveScene();
-    const auto children = scene->GetChildren(GetOwner());
-    for (const auto& child : children) {
-      if (scene->GetEntityName(child) == "Right Operator") {
-        scene->DeleteEntity(child);
+  switch (static_cast<PivotType>(settings.right_pivot_type)) {
+    case PivotType::Point: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Right Pivot") {
+          scene->DeleteEntity(child);
+        }
       }
+      const Entity operator_entity = scene->CreateEntity("Right Pivot");
+      point_pivots.emplace_back();
+      auto& pivot_operator = point_pivots.back();
+
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
+          glm::vec3(static_cast<float>(settings.rod_segment_count + 1) * settings.segment_length, 0, 0)));
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
+
+      std::vector<std::pair<uint32_t, bool>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second = false;
+      });
+      pivot_operator.target_entity = operator_entity;
+      pivot_operator.ds_pivot_point = std::make_shared<DsPivotPoint>();
+      pivot_operator.ds_pivot_point->Initialize(operator_root_transform, dynamic_strands, segment_list);
+      dynamic_strands->constraints.emplace_back(pivot_operator.ds_pivot_point);
+      break;
+      break;
     }
-    const Entity operator_entity = scene->CreateEntity("Right Operator");
-    transform_operators.emplace_back();
-    auto& transform_operator = transform_operators.back();
+    case PivotType::Axis: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Right Pivot") {
+          scene->DeleteEntity(child);
+        }
+      }
+      const Entity operator_entity = scene->CreateEntity("Right Pivot");
+      axis_pivots.emplace_back();
+      auto& pivot_operator = axis_pivots.back();
 
-    auto operator_root_transform = GlobalTransform();
-    operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
-        glm::vec3(static_cast<float>(settings.rod_segment_count + 1) * settings.segment_length, 0, 0)));
-    scene->SetDataComponent(operator_entity, operator_root_transform);
-    scene->SetParent(operator_entity, GetOwner());
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
+          glm::vec3(static_cast<float>(settings.rod_segment_count + 1) * settings.segment_length, 0, 0)));
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
 
-    std::vector<std::pair<uint32_t, std::pair<bool, bool>>> segment_list(dynamic_strands->strands.size());
-    Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
-      const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
-      segment_list[i].first = segment_handle;
-      segment_list[i].second.first = false;
-      segment_list[i].second.second = true;
-    });
-    transform_operator.target_entity = operator_entity;
-    transform_operator.ds_transform = std::make_shared<DsTransform>();
-    transform_operator.ds_transform->Initialize(operator_root_transform, dynamic_strands, segment_list);
-    dynamic_strands->constraints.emplace_back(transform_operator.ds_transform);
+      std::vector<std::pair<uint32_t, bool>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second = false;
+      });
+      pivot_operator.target_entity = operator_entity;
+      pivot_operator.ds_pivot_axis = std::make_shared<DsPivotAxis>();
+      pivot_operator.ds_pivot_axis->Initialize(operator_root_transform, dynamic_strands, segment_list);
+      dynamic_strands->constraints.emplace_back(pivot_operator.ds_pivot_axis);
+      break;
+    }
+    case PivotType::Transform: {
+      const auto scene = Application::GetActiveScene();
+      const auto children = scene->GetChildren(GetOwner());
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Right Pivot") {
+          scene->DeleteEntity(child);
+        }
+      }
+      const Entity operator_entity = scene->CreateEntity("Right Pivot");
+      transform_pivots.emplace_back();
+      auto& transform_operator = transform_pivots.back();
+
+      auto operator_root_transform = GlobalTransform();
+      operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
+          glm::vec3(static_cast<float>(settings.rod_segment_count + 1) * settings.segment_length, 0, 0)));
+      scene->SetDataComponent(operator_entity, operator_root_transform);
+      scene->SetParent(operator_entity, GetOwner());
+
+      std::vector<std::pair<uint32_t, std::pair<bool, bool>>> segment_list(dynamic_strands->strands.size());
+      Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
+        const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
+        segment_list[i].first = segment_handle;
+        segment_list[i].second.first = false;
+        segment_list[i].second.second = true;
+      });
+      transform_operator.target_entity = operator_entity;
+      transform_operator.ds_pivot_transform = std::make_shared<DsPivotTransform>();
+      transform_operator.ds_pivot_transform->Initialize(operator_root_transform, dynamic_strands, segment_list);
+      dynamic_strands->constraints.emplace_back(transform_operator.ds_pivot_transform);
+      break;
+    }
   }
 }
 
@@ -519,16 +835,22 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
   if (!dynamic_strands->segments.empty()) {
     if (!dynamic_strands->WaitForUpload()) {
       const auto scene = GetScene();
-      for (const auto& transform_operator : transform_operators) {
-        if (scene->IsEntityValid(transform_operator.target_entity)) {
-          const auto global_transform = scene->GetDataComponent<GlobalTransform>(transform_operator.target_entity);
-          transform_operator.ds_transform->Update(global_transform, dynamic_strands);
-        }
-      }
-      for (const auto& pivot_operator : pivot_operators) {
+      for (const auto& pivot_operator : transform_pivots) {
         if (scene->IsEntityValid(pivot_operator.target_entity)) {
           const auto global_transform = scene->GetDataComponent<GlobalTransform>(pivot_operator.target_entity);
-          pivot_operator.ds_pivot->Update(global_transform);
+          pivot_operator.ds_pivot_transform->Update(global_transform, dynamic_strands);
+        }
+      }
+      for (const auto& pivot_operator : axis_pivots) {
+        if (scene->IsEntityValid(pivot_operator.target_entity)) {
+          const auto global_transform = scene->GetDataComponent<GlobalTransform>(pivot_operator.target_entity);
+          pivot_operator.ds_pivot_axis->Update(global_transform);
+        }
+      }
+      for (const auto& pivot_operator : point_pivots) {
+        if (scene->IsEntityValid(pivot_operator.target_entity)) {
+          const auto global_transform = scene->GetDataComponent<GlobalTransform>(pivot_operator.target_entity);
+          pivot_operator.ds_pivot_point->Update(global_transform);
         }
       }
       dynamic_strands->Physics(

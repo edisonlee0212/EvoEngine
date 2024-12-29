@@ -18,8 +18,8 @@ entity_metadata_list:
     pc:
       - tn: Camera
         e: true
-        x: 1
-        y: 1
+        x: 1280
+        y: 701
         use_clear_color: false
         clear_color: [0, 0, 0]
         near_distance: 0.100000001
@@ -96,6 +96,9 @@ entity_metadata_list:
         e: true
         material_ref:
           asset_handle_: 1209974618059807616
+          asset_type_name_: Material
+        leaf_material_ref:
+          asset_handle_: 7951526588029562976
           asset_type_name_: Material
   - n: BoxCollider
     h: 5594278585294077197
@@ -247,14 +250,6 @@ entity_metadata_list:
     e: true
     s: false
     r: 11488884880858718334
-    pc:
-      []
-  - n: Operator
-    h: 983518487667932310
-    e: true
-    s: false
-    p: 8067209465027929104
-    r: 8067209465027929104
     pc:
       []
 systems_:
@@ -559,7 +554,7 @@ LocalAssets:
 data_component_storage_list:
   - entity_size: 130
     chunk_capacity: 126
-    entity_alive_count: 15
+    entity_alive_count: 14
     data_component_types:
       - type_name: Transform
         type_size: 64
@@ -640,9 +635,4 @@ data_component_storage_list:
         dc:
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
           - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
-          - d: !!binary "AAA="
-      - h: 983518487667932310
-        dc:
-          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAzcwMPwAAAAAAAAAAAACAPw=="
-          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAzcwMPwAAAAAAAAAAAACAPw=="
           - d: !!binary "AAA="
