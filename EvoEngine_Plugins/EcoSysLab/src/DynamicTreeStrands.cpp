@@ -93,7 +93,7 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
       (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
 
   dynamic_strands->constraints.emplace_back(std::make_shared<DsStiffRod>());
-  dynamic_strands->constraints.emplace_back(std::make_shared<DsRandomBundle>());
+  dynamic_strands->constraints.emplace_back(std::make_shared<DsBundle>());
 
   dynamic_strands->constraints.emplace_back(std::make_shared<DsGroundPlane>());
   subdivided_strand_group.RandomAssignColor();

@@ -1,7 +1,7 @@
 #pragma once
+#include "Curve.hpp"
 #include "Plot2D.hpp"
 #include "SorghumDescriptor.hpp"
-#include "Curve.hpp"
 using namespace evo_engine;
 namespace digital_agriculture_plugin {
 #pragma region States
@@ -17,7 +17,7 @@ struct SorghumPanicleState {
   bool OnInspectImpl();
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
-  void Apply(SorghumPanicleDescriptor &target_sorghum_panicle_descriptor) const;
+  void Apply(SorghumPanicleDescriptor& target_sorghum_panicle_descriptor) const;
 };
 struct SorghumStemState {
   BezierSpline spline;
@@ -57,14 +57,15 @@ struct SorghumLeafState {
   bool OnInspectImpl(int mode);
   void Apply(const SorghumStemState& stem_state, SorghumLeafDescriptor& target_sorghum_leaf_descriptor) const;
 
-  void ChangeWaviness(float factor,
-                      const SorghumStemState& stem_state,
-                      const SorghumMeshGeneratorSettings& mesh_generator_settings, SorghumLeafState& target_leaf_state) const;
+  void ChangeWaviness(float factor, const SorghumStemState& stem_state,
+                      const SorghumMeshGeneratorSettings& mesh_generator_settings,
+                      SorghumLeafState& target_leaf_state) const;
 };
 #pragma endregion
 
 class SorghumState : public IAsset {
   friend class SorghumGrowthStages;
+
  public:
   SorghumState();
   bool saved = false;
@@ -78,8 +79,9 @@ class SorghumState : public IAsset {
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
   [[maybe_unused]] Entity CreateEntity(const std::string& name) const;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 
-
-  void ChangeWaviness(float factor, const SorghumMeshGeneratorSettings& mesh_generator_settings, SorghumState& target_sorghum_state) const;
+  void ChangeWaviness(float factor, const SorghumMeshGeneratorSettings& mesh_generator_settings,
+                      SorghumState& target_sorghum_state) const;
 };
 }  // namespace digital_agriculture_plugin

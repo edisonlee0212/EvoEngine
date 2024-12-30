@@ -35,6 +35,16 @@ void HeightField::Deserialize(const YAML::Node& in) {
   noises_2d.Load("noises_2d", in);
 }
 
+std::shared_ptr<Texture2D> HeightField::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/HeightField.png"));
+  }
+  return thumbnail;
+}
+
 void HeightField::GenerateMesh(const glm::vec2& start, const glm::uvec2& resolution, float unitSize,
                                std::vector<Vertex>& vertices, std::vector<glm::uvec3>& triangles, float xDepth,
                                float zDepth) const {
@@ -45,7 +55,7 @@ void HeightField::GenerateMesh(const glm::vec2& start, const glm::uvec2& resolut
       archetype.position.z = start.y + unitSize * j / precision_level;
       archetype.position.y = GetValue({archetype.position.x, archetype.position.z});
       archetype.tex_coord = glm::vec2(static_cast<float>(i) / (resolution.x * precision_level),
-                                       static_cast<float>(j) / (resolution.y * precision_level));
+                                      static_cast<float>(j) / (resolution.y * precision_level));
       vertices.push_back(archetype);
     }
   }

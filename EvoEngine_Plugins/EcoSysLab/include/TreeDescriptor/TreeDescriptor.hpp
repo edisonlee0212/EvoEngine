@@ -17,7 +17,7 @@ class TreeDescriptor : public IAsset {
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 
   void Serialize(YAML::Emitter& out) const override;
-
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void Deserialize(const YAML::Node& in) override;
 };
 

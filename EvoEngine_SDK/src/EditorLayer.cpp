@@ -1564,30 +1564,26 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
 }
 
 void EditorLayer::LoadIcons() {
-  editor_icons_["Project"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Project"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/project.png");
-
   editor_icons_["Scene"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Scene"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/scene.png");
+  editor_icons_["Scene"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Scene.png");
 
   editor_icons_["Binary"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Binary"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/binary.png");
+  editor_icons_["Binary"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Binary.png");
 
   editor_icons_["Folder"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Folder"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/folder.png");
+  editor_icons_["Folder"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Folder.png");
 
   editor_icons_["Material"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Material"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/material.png");
+  editor_icons_["Material"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Material.png");
 
   editor_icons_["Mesh"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Mesh"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/mesh.png");
+  editor_icons_["Mesh"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Mesh.png");
 
   editor_icons_["Prefab"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Prefab"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/prefab.png");
+  editor_icons_["Prefab"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Prefab.png");
 
   editor_icons_["Texture2D"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Texture2D"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/texture2d.png");
-
+  editor_icons_["Texture2D"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Texture2D.png");
   editor_icons_["PlayButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["PlayButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                             "Editor/Navigation/PlayButton.png");

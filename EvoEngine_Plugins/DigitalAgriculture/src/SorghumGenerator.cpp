@@ -251,6 +251,16 @@ void SorghumGenerator::Deserialize(const YAML::Node& in) {
   curling_along_leaf.Load("curling_along_leaf", in);
 }
 
+std::shared_ptr<Texture2D> SorghumGenerator::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources") /
+                                                "Icons/SorghumGenerator.png"));
+  }
+  return thumbnail;
+}
+
 Entity SorghumGenerator::CreateEntity(const unsigned int seed) const {
   const auto scene = Application::GetActiveScene();
   const auto entity = scene->CreateEntity(GetTitle());
@@ -263,7 +273,8 @@ Entity SorghumGenerator::CreateEntity(const unsigned int seed) const {
   return entity;
 }
 
-void SorghumGenerator::Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor, const unsigned int seed) const {
+void SorghumGenerator::Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor,
+                             const unsigned int seed) const {
   const auto sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
   Apply(sorghum_state, seed);
   sorghum_state->Apply(target_sorghum_descriptor);
@@ -272,13 +283,13 @@ void SorghumGenerator::Apply(const std::shared_ptr<SorghumDescriptor>& target_so
 void SorghumGenerator::Apply(const std::shared_ptr<SorghumState>& target_sorghum_state, const unsigned seed) const {
   if (seed > 0)
     srand(seed);
-  //Panicle
+  // Panicle
   target_sorghum_state->panicle.seed_amount = static_cast<int>(panicle_seed_amount.GetValue());
   const auto current_panicle_size = this->panicle_size.GetValue();
   target_sorghum_state->panicle.panicle_size =
       glm::vec3(current_panicle_size.x, current_panicle_size.y, current_panicle_size.x);
   target_sorghum_state->panicle.seed_radius = panicle_seed_radius.GetValue();
-  //Stem
+  // Stem
   constexpr auto up_direction = glm::vec3(0, 1, 0);
   auto front_direction = glm::vec3(0, 0, -1);
   front_direction = glm::rotate(front_direction, glm::radians(glm::linearRand(0.0f, 360.0f)), up_direction);
@@ -289,7 +300,7 @@ void SorghumGenerator::Apply(const std::shared_ptr<SorghumState>& target_sorghum
   target_sorghum_state->stem.length =
       internode_length.GetValue() * static_cast<float>(leaf_size) / (1.f - leaf_starting_point.GetValue(0));
   target_sorghum_state->stem.width_along_stem = {0.0f, stem_width.GetValue(), width_along_stem};
-  //Leaves
+  // Leaves
   target_sorghum_state->leaves.resize(leaf_size);
   for (int leaf_index = 0; leaf_index < leaf_size; leaf_index++) {
     const float step = static_cast<float>(leaf_index) / (static_cast<float>(leaf_size) - 1.0f);
@@ -303,7 +314,7 @@ void SorghumGenerator::Apply(const std::shared_ptr<SorghumState>& target_sorghum
     leaf_state.waviness_along_leaf = {0.0f, leaf_waviness.GetValue(step) * 2.0f, waviness_along_leaf};
     leaf_state.width_along_leaf = {0.0f, leaf_width.GetValue(step) * 2.0f, width_along_leaf};
     const auto curling = glm::clamp(leaf_curling.GetValue(step), 0.0f, 90.0f) / 90.0f;
-    //leaf_state.curling_along_leaf = {0.0f, curling * 90.0f, curling_along_leaf};
+    // leaf_state.curling_along_leaf = {0.0f, curling * 90.0f, curling_along_leaf};
     leaf_state.curling_along_leaf = {0.0f, curling * 90.0f, {1.f, 1.f}};
     leaf_state.branching_angle = leaf_branching_angle.GetValue(step);
     leaf_state.roll_angle = glm::mod((leaf_index % 2) * 180.0f + leaf_roll_angle.GetValue(step), 360.0f);

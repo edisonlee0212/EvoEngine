@@ -5,8 +5,8 @@
 
 #include "EcoSysLabLayer.hpp"
 #include "EditorLayer.hpp"
-#include "Platform.hpp"
 #include "HeightField.hpp"
+#include "Platform.hpp"
 using namespace eco_sys_lab_plugin;
 
 bool OnInspectSoilParameters(SoilParameters& soil_parameters) {
@@ -56,9 +56,9 @@ void SetSoilPhysicalMaterial(Noise3D& c, Noise3D& p, float sand_ratio, float sil
   c.noise_descriptors[0].type = 0;
   c.noise_descriptors[1].type = 0;
   c.noise_descriptors[0].offset = sand_ratio * sand_material_properties.x + silt_ratio * silt_material_properties.x +
-                                     clay_ratio * clay_material_properties.x + air_ratio * air_material_properties.x;
+                                  clay_ratio * clay_material_properties.x + air_ratio * air_material_properties.x;
   p.noise_descriptors[0].offset = sand_ratio * sand_material_properties.y + silt_ratio * silt_material_properties.y +
-                                     clay_ratio * clay_material_properties.y + air_ratio * air_material_properties.y;
+                                  clay_ratio * clay_material_properties.y + air_ratio * air_material_properties.y;
 }
 
 bool SoilLayerDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -199,6 +199,16 @@ void SoilLayerDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(height_texture);
 }
 
+std::shared_ptr<Texture2D> SoilDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/SoilDescriptor.png"));
+  }
+  return thumbnail;
+}
+
 bool SoilDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (editor_layer->DragAndDropButton<HeightField>(height_field, "Height Field", true)) {
@@ -229,8 +239,8 @@ bool SoilDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   if (OnInspectSoilParameters(soil_parameters)) {
     changed = true;
   }
-  if (AssetRef temp_soil_layer_descriptor_holder; editor_layer->DragAndDropButton<SoilLayerDescriptor>(temp_soil_layer_descriptor_holder,
-                                                                                                   "Drop new SoilLayerDescriptor here...")) {
+  if (AssetRef temp_soil_layer_descriptor_holder; editor_layer->DragAndDropButton<SoilLayerDescriptor>(
+          temp_soil_layer_descriptor_holder, "Drop new SoilLayerDescriptor here...")) {
     if (auto sld = temp_soil_layer_descriptor_holder.Get<SoilLayerDescriptor>()) {
       soil_layer_descriptors.emplace_back(sld);
       changed = true;
@@ -384,40 +394,35 @@ bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           albedo->GetRgbaChannelData(soil_material_texture->m_color_map, sd->texture_resolution.x,
                                      sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_color_map.resize(sd->texture_resolution.x *
-                                                  sd->texture_resolution.y);
+          soil_material_texture->m_color_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_color_map.begin(), soil_material_texture->m_color_map.end(), glm::vec4(1));
         }
         if (height) {
           height->GetRedChannelData(soil_material_texture->m_height_map, sd->texture_resolution.x,
                                     sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_height_map.resize(sd->texture_resolution.x *
-                                                   sd->texture_resolution.y);
+          soil_material_texture->m_height_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_height_map.begin(), soil_material_texture->m_height_map.end(), 1.0f);
         }
         if (metallic) {
           metallic->GetRedChannelData(soil_material_texture->m_metallic_map, sd->texture_resolution.x,
                                       sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_metallic_map.resize(sd->texture_resolution.x *
-                                                     sd->texture_resolution.y);
+          soil_material_texture->m_metallic_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_metallic_map.begin(), soil_material_texture->m_metallic_map.end(), 0.2f);
         }
         if (roughness) {
           roughness->GetRedChannelData(soil_material_texture->m_roughness_map, sd->texture_resolution.x,
                                        sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_roughness_map.resize(sd->texture_resolution.x *
-                                                      sd->texture_resolution.y);
+          soil_material_texture->m_roughness_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_roughness_map.begin(), soil_material_texture->m_roughness_map.end(), 0.8f);
         }
         if (normal) {
           normal->GetRgbChannelData(soil_material_texture->m_normal_map, sd->texture_resolution.x,
                                     sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_normal_map.resize(sd->texture_resolution.x *
-                                                   sd->texture_resolution.y);
+          soil_material_texture->m_normal_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_normal_map.begin(), soil_material_texture->m_normal_map.end(),
                     glm::vec3(0, 0, 1));
         }
@@ -436,40 +441,35 @@ bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           albedo->GetRgbaChannelData(soil_material_texture->m_color_map, sd->texture_resolution.x,
                                      sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_color_map.resize(sd->texture_resolution.x *
-                                                  sd->texture_resolution.y);
+          soil_material_texture->m_color_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_color_map.begin(), soil_material_texture->m_color_map.end(), glm::vec4(1));
         }
         if (height) {
           height->GetRedChannelData(soil_material_texture->m_height_map, sd->texture_resolution.x,
                                     sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_height_map.resize(sd->texture_resolution.x *
-                                                   sd->texture_resolution.y);
+          soil_material_texture->m_height_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_height_map.begin(), soil_material_texture->m_height_map.end(), 1.0f);
         }
         if (metallic) {
           metallic->GetRedChannelData(soil_material_texture->m_metallic_map, sd->texture_resolution.x,
                                       sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_metallic_map.resize(sd->texture_resolution.x *
-                                                     sd->texture_resolution.y);
+          soil_material_texture->m_metallic_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_metallic_map.begin(), soil_material_texture->m_metallic_map.end(), 0.2f);
         }
         if (roughness) {
           roughness->GetRedChannelData(soil_material_texture->m_roughness_map, sd->texture_resolution.x,
                                        sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_roughness_map.resize(sd->texture_resolution.x *
-                                                      sd->texture_resolution.y);
+          soil_material_texture->m_roughness_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_roughness_map.begin(), soil_material_texture->m_roughness_map.end(), 0.8f);
         }
         if (normal) {
           normal->GetRgbChannelData(soil_material_texture->m_normal_map, sd->texture_resolution.x,
                                     sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_normal_map.resize(sd->texture_resolution.x *
-                                                   sd->texture_resolution.y);
+          soil_material_texture->m_normal_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_normal_map.begin(), soil_material_texture->m_normal_map.end(),
                     glm::vec3(0, 0, 1));
         }
@@ -488,40 +488,35 @@ bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           albedo->GetRgbaChannelData(soil_material_texture->m_color_map, sd->texture_resolution.x,
                                      sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_color_map.resize(sd->texture_resolution.x *
-                                                  sd->texture_resolution.y);
+          soil_material_texture->m_color_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_color_map.begin(), soil_material_texture->m_color_map.end(), glm::vec4(1));
         }
         if (height) {
           height->GetRedChannelData(soil_material_texture->m_height_map, sd->texture_resolution.x,
                                     sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_height_map.resize(sd->texture_resolution.x *
-                                                   sd->texture_resolution.y);
+          soil_material_texture->m_height_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_height_map.begin(), soil_material_texture->m_height_map.end(), 1.0f);
         }
         if (metallic) {
           metallic->GetRedChannelData(soil_material_texture->m_metallic_map, sd->texture_resolution.x,
                                       sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_metallic_map.resize(sd->texture_resolution.x *
-                                                     sd->texture_resolution.y);
+          soil_material_texture->m_metallic_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_metallic_map.begin(), soil_material_texture->m_metallic_map.end(), 0.2f);
         }
         if (roughness) {
           roughness->GetRedChannelData(soil_material_texture->m_roughness_map, sd->texture_resolution.x,
                                        sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_roughness_map.resize(sd->texture_resolution.x *
-                                                      sd->texture_resolution.y);
+          soil_material_texture->m_roughness_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_roughness_map.begin(), soil_material_texture->m_roughness_map.end(), 0.8f);
         }
         if (normal) {
           normal->GetRgbChannelData(soil_material_texture->m_normal_map, sd->texture_resolution.x,
                                     sd->texture_resolution.y);
         } else {
-          soil_material_texture->m_normal_map.resize(sd->texture_resolution.x *
-                                                   sd->texture_resolution.y);
+          soil_material_texture->m_normal_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
           std::fill(soil_material_texture->m_normal_map.begin(), soil_material_texture->m_normal_map.end(),
                     glm::vec3(0, 0, 1));
         }
@@ -571,8 +566,8 @@ Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2
   std::vector<float> metallic_data;
   std::vector<float> roughness_data;
   glm::ivec2 texture_resolution;
-  soil_model.GetSoilTextureSlideX(back_facing, depth, min_xy, max_xy, albedo_data, normal_data, roughness_data, metallic_data,
-                                   texture_resolution, water_factor, nutrient_factor);
+  soil_model.GetSoilTextureSlideX(back_facing, depth, min_xy, max_xy, albedo_data, normal_data, roughness_data,
+                                  metallic_data, texture_resolution, water_factor, nutrient_factor);
   albedo_tex->SetRgbaChannelData(albedo_data, texture_resolution);
   normal_tex->SetRgbChannelData(normal_data, texture_resolution);
   metallic_tex->SetRedChannelData(metallic_data, texture_resolution);
@@ -594,9 +589,9 @@ Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2
 
   scale = glm::vec3(soil_model_size.z * (max_xy.x - min_xy.x), 1.0f, soil_model_size.y * (max_xy.y - min_xy.y));
   rotation = glm::vec3(glm::radians(90.0f), glm::radians(back_facing ? 90.0f : -90.0f), 0.0f);
-  position =
-      soil_model.m_boundingBoxMin + glm::vec3(soil_model_size.x * depth, soil_model_size.y * (min_xy.y + max_xy.y) * 0.5f,
-                                               soil_model_size.z * (min_xy.x + max_xy.x) * 0.5f);
+  position = soil_model.m_boundingBoxMin + glm::vec3(soil_model_size.x * depth,
+                                                     soil_model_size.y * (min_xy.y + max_xy.y) * 0.5f,
+                                                     soil_model_size.z * (min_xy.x + max_xy.x) * 0.5f);
   global_transform.SetPosition(position);
   global_transform.SetEulerRotation(rotation);
   global_transform.SetScale(scale);
@@ -620,8 +615,8 @@ Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2
   std::vector<float> metallic_data;
   std::vector<float> roughness_data;
   glm::ivec2 texture_resolution;
-  soil_model.GetSoilTextureSlideZ(back_facing, depth, min_xy, max_xy, albedo_data, normal_data, roughness_data, metallic_data,
-                                   texture_resolution, water_factor, nutrient_factor);
+  soil_model.GetSoilTextureSlideZ(back_facing, depth, min_xy, max_xy, albedo_data, normal_data, roughness_data,
+                                  metallic_data, texture_resolution, water_factor, nutrient_factor);
   albedo_tex->SetRgbaChannelData(albedo_data, texture_resolution);
   normal_tex->SetRgbChannelData(normal_data, texture_resolution);
   metallic_tex->SetRedChannelData(metallic_data, texture_resolution);
@@ -643,9 +638,9 @@ Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2
 
   scale = glm::vec3(soil_model_size.x * (max_xy.x - min_xy.x), 1.0f, soil_model_size.y * (max_xy.y - min_xy.y));
   rotation = glm::vec3(glm::radians(90.0f), glm::radians(back_facing ? 180.0f : 0.0f), 0.0f);
-  position =
-      soil_model.m_boundingBoxMin + glm::vec3(soil_model_size.x * (min_xy.x + max_xy.x) * 0.5f,
-                                               soil_model_size.y * (min_xy.y + max_xy.y) * 0.5f, soil_model_size.z * depth);
+  position = soil_model.m_boundingBoxMin + glm::vec3(soil_model_size.x * (min_xy.x + max_xy.x) * 0.5f,
+                                                     soil_model_size.y * (min_xy.y + max_xy.y) * 0.5f,
+                                                     soil_model_size.z * depth);
 
   global_transform.SetPosition(position);
   global_transform.SetEulerRotation(rotation);
@@ -654,7 +649,8 @@ Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2
   return quad_entity;
 }
 
-Entity Soil::GenerateCutOut(float x_depth, float z_depth, float water_factor, float nutrient_factor, bool enable_ground_surface) {
+Entity Soil::GenerateCutOut(float x_depth, float z_depth, float water_factor, float nutrient_factor,
+                            bool enable_ground_surface) {
   auto scene = Application::GetActiveScene();
   const auto combined_entity = scene->CreateEntity("CutOut");
 
@@ -753,11 +749,10 @@ Entity Soil::GenerateMesh(float x_depth, float z_depth) {
   }
   std::vector<Vertex> vertices;
   std::vector<glm::uvec3> triangles;
-  height_field->GenerateMesh(glm::vec2(sd->soil_parameters.m_boundingBoxMin.x,
-                                      sd->soil_parameters.m_boundingBoxMin.z),
-                            glm::uvec2(sd->soil_parameters.m_voxelResolution.x,
-                                       sd->soil_parameters.m_voxelResolution.z),
-                            sd->soil_parameters.m_deltaX, vertices, triangles, x_depth, z_depth);
+  height_field->GenerateMesh(
+      glm::vec2(sd->soil_parameters.m_boundingBoxMin.x, sd->soil_parameters.m_boundingBoxMin.z),
+      glm::uvec2(sd->soil_parameters.m_voxelResolution.x, sd->soil_parameters.m_voxelResolution.z),
+      sd->soil_parameters.m_deltaX, vertices, triangles, x_depth, z_depth);
 
   const auto scene = Application::GetActiveScene();
   const auto self = GetOwner();
@@ -817,47 +812,43 @@ void Soil::InitializeSoilModel() {
     soil_layers.emplace_back();
     auto& first_layer = soil_layers.back();
     first_layer.m_mat = SoilPhysicalMaterial({material_index,
-                                             [](const glm::vec3& pos) {
-                                               return 1.0f;
-                                             },
-                                             [](const glm::vec3& pos) {
-                                               return 0.0f;
-                                             },
-                                             [](const glm::vec3& pos) {
-                                               return 0.0f;
-                                             },
-                                             [](const glm::vec3& pos) {
-                                               return 0.0f;
-                                             },
-                                             [](const glm::vec3& pos) {
-                                               return 0.0f;
-                                             }});
+                                              [](const glm::vec3& pos) {
+                                                return 1.0f;
+                                              },
+                                              [](const glm::vec3& pos) {
+                                                return 0.0f;
+                                              },
+                                              [](const glm::vec3& pos) {
+                                                return 0.0f;
+                                              },
+                                              [](const glm::vec3& pos) {
+                                                return 0.0f;
+                                              },
+                                              [](const glm::vec3& pos) {
+                                                return 0.0f;
+                                              }});
     first_layer.m_thickness = [](const glm::vec2& position) {
       return 0.f;
     };
     first_layer.m_mat.m_soilMaterialTexture = std::make_shared<SoilMaterialTexture>();
-    first_layer.m_mat.m_soilMaterialTexture->m_color_map.resize(sd->texture_resolution.x *
-                                                               sd->texture_resolution.y);
+    first_layer.m_mat.m_soilMaterialTexture->m_color_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
     std::fill(first_layer.m_mat.m_soilMaterialTexture->m_color_map.begin(),
               first_layer.m_mat.m_soilMaterialTexture->m_color_map.end(),
               glm::vec4(62.0f / 255, 49.0f / 255, 23.0f / 255, 0.0f));
-    first_layer.m_mat.m_soilMaterialTexture->m_height_map.resize(sd->texture_resolution.x *
-                                                                sd->texture_resolution.y);
+    first_layer.m_mat.m_soilMaterialTexture->m_height_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
     std::fill(first_layer.m_mat.m_soilMaterialTexture->m_height_map.begin(),
               first_layer.m_mat.m_soilMaterialTexture->m_height_map.end(), 0.1f);
 
-    first_layer.m_mat.m_soilMaterialTexture->m_metallic_map.resize(sd->texture_resolution.x *
-                                                                  sd->texture_resolution.y);
+    first_layer.m_mat.m_soilMaterialTexture->m_metallic_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
     std::fill(first_layer.m_mat.m_soilMaterialTexture->m_metallic_map.begin(),
               first_layer.m_mat.m_soilMaterialTexture->m_metallic_map.end(), 0.2f);
 
     first_layer.m_mat.m_soilMaterialTexture->m_roughness_map.resize(sd->texture_resolution.x *
-                                                                   sd->texture_resolution.y);
+                                                                    sd->texture_resolution.y);
     std::fill(first_layer.m_mat.m_soilMaterialTexture->m_roughness_map.begin(),
               first_layer.m_mat.m_soilMaterialTexture->m_roughness_map.end(), 0.8f);
 
-    first_layer.m_mat.m_soilMaterialTexture->m_normal_map.resize(sd->texture_resolution.x *
-                                                                sd->texture_resolution.y);
+    first_layer.m_mat.m_soilMaterialTexture->m_normal_map.resize(sd->texture_resolution.x * sd->texture_resolution.y);
     std::fill(first_layer.m_mat.m_soilMaterialTexture->m_normal_map.begin(),
               first_layer.m_mat.m_soilMaterialTexture->m_normal_map.end(), glm::vec3(0.0f, 0.0f, 1.0f));
 
@@ -894,8 +885,8 @@ void Soil::InitializeSoilModel() {
         const auto roughness = soil_layer_descriptor->roughness_texture.Get<Texture2D>();
         soil_layer.m_mat.m_soilMaterialTexture = std::make_shared<SoilMaterialTexture>();
         if (albedo) {
-          albedo->GetRgbaChannelData(soil_layer.m_mat.m_soilMaterialTexture->m_color_map,
-                                     sd->texture_resolution.x, sd->texture_resolution.y);
+          albedo->GetRgbaChannelData(soil_layer.m_mat.m_soilMaterialTexture->m_color_map, sd->texture_resolution.x,
+                                     sd->texture_resolution.y);
           if (i == 0) {
             albedo->GetRgbaChannelData(soil_layers[0].m_mat.m_soilMaterialTexture->m_color_map,
                                        sd->texture_resolution.x, sd->texture_resolution.y);
@@ -904,26 +895,27 @@ void Soil::InitializeSoilModel() {
           }
         } else {
           soil_layer.m_mat.m_soilMaterialTexture->m_color_map.resize(sd->texture_resolution.x *
-                                                                    sd->texture_resolution.y);
-          std::fill(soil_layer.m_mat.m_soilMaterialTexture->m_color_map.begin(),
-                    soil_layer.m_mat.m_soilMaterialTexture->m_color_map.end(),
-                    Application::GetLayer<EcoSysLabLayer>()->soil_visualization_settings_.soil_layer_colors[material_index]);
+                                                                     sd->texture_resolution.y);
+          std::fill(
+              soil_layer.m_mat.m_soilMaterialTexture->m_color_map.begin(),
+              soil_layer.m_mat.m_soilMaterialTexture->m_color_map.end(),
+              Application::GetLayer<EcoSysLabLayer>()->soil_visualization_settings_.soil_layer_colors[material_index]);
         }
         if (height) {
-          height->GetRedChannelData(soil_layer.m_mat.m_soilMaterialTexture->m_height_map,
-                                    sd->texture_resolution.x, sd->texture_resolution.y);
+          height->GetRedChannelData(soil_layer.m_mat.m_soilMaterialTexture->m_height_map, sd->texture_resolution.x,
+                                    sd->texture_resolution.y);
         } else {
           soil_layer.m_mat.m_soilMaterialTexture->m_height_map.resize(sd->texture_resolution.x *
-                                                                     sd->texture_resolution.y);
+                                                                      sd->texture_resolution.y);
           std::fill(soil_layer.m_mat.m_soilMaterialTexture->m_height_map.begin(),
                     soil_layer.m_mat.m_soilMaterialTexture->m_height_map.end(), 1.0f);
         }
         if (metallic) {
-          metallic->GetRedChannelData(soil_layer.m_mat.m_soilMaterialTexture->m_metallic_map,
-                                      sd->texture_resolution.x, sd->texture_resolution.y);
+          metallic->GetRedChannelData(soil_layer.m_mat.m_soilMaterialTexture->m_metallic_map, sd->texture_resolution.x,
+                                      sd->texture_resolution.y);
         } else {
           soil_layer.m_mat.m_soilMaterialTexture->m_metallic_map.resize(sd->texture_resolution.x *
-                                                                       sd->texture_resolution.y);
+                                                                        sd->texture_resolution.y);
           std::fill(soil_layer.m_mat.m_soilMaterialTexture->m_metallic_map.begin(),
                     soil_layer.m_mat.m_soilMaterialTexture->m_metallic_map.end(), 0.2f);
         }
@@ -932,16 +924,16 @@ void Soil::InitializeSoilModel() {
                                        sd->texture_resolution.x, sd->texture_resolution.y);
         } else {
           soil_layer.m_mat.m_soilMaterialTexture->m_roughness_map.resize(sd->texture_resolution.x *
-                                                                        sd->texture_resolution.y);
+                                                                         sd->texture_resolution.y);
           std::fill(soil_layer.m_mat.m_soilMaterialTexture->m_roughness_map.begin(),
                     soil_layer.m_mat.m_soilMaterialTexture->m_roughness_map.end(), 0.8f);
         }
         if (normal) {
-          normal->GetRgbChannelData(soil_layer.m_mat.m_soilMaterialTexture->m_normal_map,
-                                    sd->texture_resolution.x, sd->texture_resolution.y);
+          normal->GetRgbChannelData(soil_layer.m_mat.m_soilMaterialTexture->m_normal_map, sd->texture_resolution.x,
+                                    sd->texture_resolution.y);
         } else {
           soil_layer.m_mat.m_soilMaterialTexture->m_normal_map.resize(sd->texture_resolution.x *
-                                                                     sd->texture_resolution.y);
+                                                                      sd->texture_resolution.y);
           std::fill(soil_layer.m_mat.m_soilMaterialTexture->m_normal_map.begin(),
                     soil_layer.m_mat.m_soilMaterialTexture->m_normal_map.end(), glm::vec3(0, 0, 1));
         }
@@ -991,8 +983,7 @@ void Soil::SplitRootTestSetup() {
       }
       if (under_ground) {
         if (position.x > soil_model.m_boundingBoxMin.x &&
-            position.x <
-                soil_model.GetVoxelResolution().x * soil_model.m_dx * 0.25f + soil_model.m_boundingBoxMin.x) {
+            position.x < soil_model.GetVoxelResolution().x * soil_model.m_dx * 0.25f + soil_model.m_boundingBoxMin.x) {
           soil_model.m_n[i] = 0.75f;
         } else if (position.x <
                    soil_model.GetVoxelResolution().x * soil_model.m_dx * 0.5f + soil_model.m_boundingBoxMin.x) {

@@ -25,8 +25,7 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
   if (soilDescriptor) {
     heightField = soilDescriptor->height_field.Get<HeightField>();
   }
-  const glm::vec2 startPoint =
-      glm::vec2((gridSize.x - 1) * grid_distance.x, (gridSize.y - 1) * grid_distance.y) * 0.5f;
+  const glm::vec2 startPoint = glm::vec2((gridSize.x - 1) * grid_distance.x, (gridSize.y - 1) * grid_distance.y) * 0.5f;
 
   const auto retVal = scene->CreateEntity("Forest (" + std::to_string(gridSize.x * gridSize.y) + ") - " + GetTitle());
   const auto forest = scene->CreateEntity("Center");
@@ -98,8 +97,7 @@ Entity ForestPatch::InstantiatePatch(
   if (soilDescriptor) {
     heightField = soilDescriptor->height_field.Get<HeightField>();
   }
-  const glm::vec2 startPoint =
-      glm::vec2((gridSize.x - 1) * grid_distance.x, (gridSize.y - 1) * grid_distance.y) * 0.5f;
+  const glm::vec2 startPoint = glm::vec2((gridSize.x - 1) * grid_distance.x, (gridSize.y - 1) * grid_distance.y) * 0.5f;
 
   const auto retVal = scene->CreateEntity("Forest (" + std::to_string(gridSize.x * gridSize.y) + ") - " + GetTitle());
   const auto forest = scene->CreateEntity("Center");
@@ -155,6 +153,16 @@ Entity ForestPatch::InstantiatePatch(
   }
 
   return retVal;
+}
+
+std::shared_ptr<Texture2D> ForestPatch::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ForestPatch.png"));
+  }
+  return thumbnail;
 }
 
 void ForestPatch::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -283,6 +291,16 @@ void TreeInfo::Deserialize(const YAML::Node& in) {
 
 void TreeInfo::CollectAssetRef(std::vector<AssetRef>& list) const {
   list.push_back(m_treeDescriptor);
+}
+
+std::shared_ptr<Texture2D> ForestDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ForestDescriptor.png"));
+  }
+  return thumbnail;
 }
 
 void ForestDescriptor::ApplyTreeDescriptor(const std::shared_ptr<TreeDescriptor>& treeDescriptor) {

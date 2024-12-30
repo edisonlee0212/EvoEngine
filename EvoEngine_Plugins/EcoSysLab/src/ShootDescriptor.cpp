@@ -2,6 +2,16 @@
 
 using namespace eco_sys_lab_plugin;
 
+std::shared_ptr<Texture2D> ShootDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ShootDescriptor.png"));
+  }
+  return thumbnail;
+}
+
 void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_controller) const {
   shoot_growth_controller.m_baseInternodeCount = base_internode_count;
   shoot_growth_controller.m_breakingForce = [&](const SkeletonNode<InternodeGrowthData>& internode) {
@@ -301,12 +311,13 @@ bool ShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer
     changed = ImGui::DragInt("Lateral bud count", &lateral_bud_count, 1, 0, 3) || changed;
     changed = ImGui::DragInt("Max Order", &max_order, 1, -1, 100) || changed;
     if (ImGui::TreeNodeEx("Angles")) {
-      changed =
-          ImGui::DragFloat2("Branching angle base/var", &branching_angle_mean_variance.x, 0.1f, 0.0f, 100.0f) || changed;
+      changed = ImGui::DragFloat2("Branching angle base/var", &branching_angle_mean_variance.x, 0.1f, 0.0f, 100.0f) ||
+                changed;
       // editorLayer->DragAndDropButton<ProceduralNoise2D>(m_branchingAngle, "Branching Angle Noise");
       changed = ImGui::DragFloat2("Roll angle base/var", &roll_angle_mean_variance.x, 0.1f, 0.0f, 100.0f) || changed;
       // editorLayer->DragAndDropButton<ProceduralNoise2D>(m_rollAngle, "Roll Angle Noise");
-      changed = ImGui::DragFloat2("Apical angle base/var", &apical_angle_mean_variance.x, 0.1f, 0.0f, 100.0f) || changed;
+      changed =
+          ImGui::DragFloat2("Apical angle base/var", &apical_angle_mean_variance.x, 0.1f, 0.0f, 100.0f) || changed;
       // editorLayer->DragAndDropButton<ProceduralNoise2D>(m_apicalAngle, "Apical Angle Noise");
       if (ImGui::TreeNodeEx("Roll Angle Noise2D")) {
         changed = roll_angle_noise_2d.OnInspect() | changed;
@@ -319,9 +330,9 @@ bool ShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer
       ImGui::TreePop();
     }
     changed = ImGui::DragFloat("Internode length", &internode_length, 0.001f) || changed;
-    changed =
-        ImGui::DragFloat("Internode length thickness factor", &internode_length_thickness_factor, 0.0001f, 0.0f, 1.0f) ||
-        changed;
+    changed = ImGui::DragFloat("Internode length thickness factor", &internode_length_thickness_factor, 0.0001f, 0.0f,
+                               1.0f) ||
+              changed;
     changed =
         ImGui::DragFloat3("Thickness min/factor/age", &end_node_thickness, 0.0001f, 0.0f, 1.0f, "%.6f") || changed;
 
@@ -363,9 +374,9 @@ bool ShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer
     changed = ImGui::DragFloat("Branch strength", &branch_strength, 0.01f, 0.0f) || changed;
     changed =
         ImGui::DragFloat("Branch strength thickness factor", &branch_strength_thickness_factor, 0.01f, 0.0f) || changed;
-    changed =
-        ImGui::DragFloat("Branch strength lighting threshold", &branch_strength_lighting_threshold, 0.01f, 0.0f, 1.0f) ||
-        changed;
+    changed = ImGui::DragFloat("Branch strength lighting threshold", &branch_strength_lighting_threshold, 0.01f, 0.0f,
+                               1.0f) ||
+              changed;
     changed =
         ImGui::DragFloat("Branch strength lighting loss", &branch_strength_lighting_loss, 0.01f, 0.0f, 1.0f) || changed;
     changed =

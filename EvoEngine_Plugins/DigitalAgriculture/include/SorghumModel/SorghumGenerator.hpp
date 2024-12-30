@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Plot2D.hpp"
-#include "SorghumGrowthStages.hpp"
 #include "SorghumDescriptor.hpp"
+#include "SorghumGrowthStages.hpp"
 using namespace evo_engine;
 namespace digital_agriculture_plugin {
 
@@ -42,9 +42,10 @@ class SorghumGenerator : public IAsset {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
-
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   [[nodiscard]] Entity CreateEntity(unsigned int seed = 0) const;
   void Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor, unsigned int seed = 0) const;
   void Apply(const std::shared_ptr<SorghumState>& target_sorghum_state, unsigned int seed = 0) const;
 };
+
 }  // namespace digital_agriculture_plugin

@@ -61,7 +61,7 @@ class SorghumDescriptor : public IAsset {
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
   [[maybe_unused]] Entity CreateEntity(const std::string& name) const;
-
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void ImportPrediction(const std::filesystem::path& yaml_path);
 };
 

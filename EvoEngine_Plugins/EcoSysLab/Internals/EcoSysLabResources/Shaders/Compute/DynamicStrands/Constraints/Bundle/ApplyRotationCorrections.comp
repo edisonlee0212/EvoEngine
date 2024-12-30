@@ -1,0 +1,45 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrandsPhysics.glsl"
+
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint skip_index;
+	uint skip_size;
+	uint segment_size;
+	float inv_time_step;
+};
+
+void main(){
+
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint segment_index = (baseID + local_index) * skip_size + skip_index;
+		if(segment_index >= segment_size) break;
+		
+		SegmentData segment_data = segment_data_list[segment_index];
+		segments[segment_index].q = normalize(segment_data.q_correction + segments[segment_index].q);
+
+		segment_data_list[segment_index].q_correction = vec4(0, 0, 0, 0);
+	}
+}
