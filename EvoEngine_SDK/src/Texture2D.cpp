@@ -17,6 +17,16 @@ void Texture2D::SetData(const std::vector<glm::vec4>& data, const glm::uvec2& re
     local_data_ = data;
   }
 }
+
+void Texture2D::DownloadData() {
+  const auto& texture_storage = PeekTexture2DStorage();
+  const auto resolution = GetResolution();
+  local_data_.resize(resolution.x * resolution.y);
+  Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
+  image_buffer.CopyFromImage(*texture_storage.image);
+  image_buffer.DownloadVector(local_data_, resolution.x * resolution.y);
+}
+
 void Texture2D::UnsafeUploadDataImmediately() const {
   auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
   texture_storage.UploadDataImmediately();
@@ -93,11 +103,10 @@ bool Texture2D::LoadInternal(const std::filesystem::path& path) {
   }
 
   if (data) {
-    std::vector<glm::vec4> image_data;
-    image_data.resize(width * height);
-    memcpy(image_data.data(), data, sizeof(glm::vec4) * width * height);
+    local_data_.resize(width * height);
+    memcpy(local_data_.data(), data, sizeof(glm::vec4) * width * height);
     auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
-    texture_storage.SetDataImmediately(image_data, {width, height});
+    texture_storage.SetDataImmediately(local_data_, {width, height});
   } else {
     EVOENGINE_ERROR("Texture failed to load at path: " + path.filename().string());
     return false;
@@ -577,6 +586,23 @@ VkSampler Texture2D::GetVkSampler() const {
 std::shared_ptr<Image> Texture2D::GetImage() const {
   const auto& texture_storage = PeekTexture2DStorage();
   return texture_storage.image;
+}
+
+const std::vector<glm::vec4>& Texture2D::GetLocalData() {
+  if (local_data_.empty())
+    DownloadData();
+  return local_data_;
+}
+
+std::shared_ptr<Texture2D> Texture2D::GenerateThumbnailTexture() {
+  std::shared_ptr<Texture2D> ret_val = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  const glm::vec2 resolution = GetResolution();
+  const float max_dim = glm::max(resolution.x, resolution.y);
+  const glm::vec2 new_resolution = resolution * glm::min(1.f, 128.f / max_dim);
+  auto copy_data = GetLocalData();
+  Resize(GetLocalData(), resolution, copy_data, new_resolution);
+  ret_val->SetRgbaChannelData(copy_data, new_resolution, false);
+  return ret_val;
 }
 
 void Texture2D::GetRgbaChannelData(std::vector<glm::vec4>& dst, const int resize_x, const int resize_y) const {

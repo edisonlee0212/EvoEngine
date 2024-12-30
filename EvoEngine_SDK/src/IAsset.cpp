@@ -1,5 +1,6 @@
 #include <IAsset.hpp>
 #include "Console.hpp"
+#include "EditorLayer.hpp"
 #include "ProjectManager.hpp"
 using namespace evo_engine;
 bool IAsset::Save() {
@@ -84,20 +85,24 @@ bool IAsset::Saved() const {
   return saved_;
 }
 bool IAsset::IsTemporary() const {
-  return asset_record_.expired();
+  return file_record_.expired();
 }
-std::weak_ptr<AssetRecord> IAsset::GetAssetRecord() const {
-  return asset_record_;
+std::weak_ptr<FileRecord> IAsset::GetFileRecord() const {
+  return file_record_;
 }
 std::filesystem::path IAsset::GetProjectRelativePath() const {
-  if (asset_record_.expired())
+  if (file_record_.expired())
     return {};
-  return asset_record_.lock()->GetProjectRelativePath();
+  return file_record_.lock()->GetProjectRelativePath();
 }
 std::filesystem::path IAsset::GetAbsolutePath() const {
-  if (asset_record_.expired())
+  if (file_record_.expired())
     return {};
-  return asset_record_.lock()->GetAbsolutePath();
+  return file_record_.lock()->GetAbsolutePath();
+}
+
+std::shared_ptr<Texture2D> IAsset::GenerateThumbnailTexture() {
+  return EditorLayer::FindIcon("Binary");
 }
 
 uint32_t IAsset::GetVersion() const {
@@ -119,7 +124,7 @@ bool IAsset::SetPathAndSave(const std::filesystem::path &project_relative_path) 
   }
   const auto new_folder = ProjectManager::GetOrCreateFolder(project_relative_path.parent_path()).lock();
   if (!IsTemporary()) {
-    const auto asset_record = asset_record_.lock();
+    const auto asset_record = file_record_.lock();
     if (const auto folder = asset_record->GetFolder().lock(); new_folder == folder) {
       asset_record->SetAssetFileName(project_relative_path.stem().string());
     } else {

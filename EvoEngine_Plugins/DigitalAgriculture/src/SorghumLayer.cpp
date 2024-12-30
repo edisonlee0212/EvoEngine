@@ -41,19 +41,14 @@ void SorghumLayer::OnCreate() {
     auto texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
     texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
                                                  "SorghumGrowthDescriptor.png"));
-    editor_layer->AssetIcons()["SorghumGrowthStages"] = texture_2d;
     texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
     texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
                                                  "SorghumDescriptor.png"));
-    editor_layer->AssetIcons()["SorghumGenerator"] = texture_2d;
     texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
     texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
                                                  "PositionsField.png"));
-    editor_layer->AssetIcons()["SorghumField"] = texture_2d;
-
     texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
                                                  "GeneralDataPipeline.png"));
-    editor_layer->AssetIcons()["GeneralDataCapture"] = texture_2d;
   }
 
   if (!leaf_material.Get<Material>()) {

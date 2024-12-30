@@ -157,6 +157,8 @@ class Scene final : public IAsset {
   bool LoadInternal(const std::filesystem::path& path) override;
 
  public:
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+
   template <typename T>
   std::vector<Entity> GetPrivateComponentOwnersList(const std::shared_ptr<Scene>& scene);
 

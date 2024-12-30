@@ -630,11 +630,10 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
       for (uint32_t skip_index = 0; skip_index < skip_size; skip_index++) {
         if (enable_bundle) {
           calculate_offset(skip_index);
+          apply_segment_offset(skip_index);
         }
         if (enable_bend_twist) {
           calculate_bend_twist_offset(skip_index);
-        }
-        if (enable_bundle || enable_bend_twist) {
           apply_segment_offset(skip_index);
         }
         if (enable_stretch_shear) {
@@ -646,6 +645,7 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
     }
   });
 }
+
 
 bool DsRandomBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;

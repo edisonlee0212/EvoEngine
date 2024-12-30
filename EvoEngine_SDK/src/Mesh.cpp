@@ -2,6 +2,7 @@
 
 #include "ClassRegistry.hpp"
 #include "Console.hpp"
+#include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "Jobs.hpp"
 #include "Platform.hpp"
@@ -69,6 +70,10 @@ bool Mesh::SaveInternal(const std::filesystem::path& path) const {
     return false;
   }
   return false;
+}
+
+std::shared_ptr<Texture2D> Mesh::GenerateThumbnailTexture() {
+  return EditorLayer::FindIcon("Mesh");
 }
 
 bool Mesh::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {

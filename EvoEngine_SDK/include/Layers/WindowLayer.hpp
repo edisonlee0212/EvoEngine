@@ -4,6 +4,7 @@ namespace evo_engine {
 class WindowLayer final : public ILayer {
   friend class Platform;
   friend class RenderLayer;
+  friend class Application;
 #pragma region Presenters
   std::vector<GLFWmonitor*> monitors_;
   GLFWmonitor* primary_monitor_ = nullptr;
@@ -17,6 +18,7 @@ class WindowLayer final : public ILayer {
 
   void OnCreate() override;
   void OnDestroy() override;
+  static void Render();
 
  public:
   [[nodiscard]] GLFWwindow* GetGlfwWindow() const;

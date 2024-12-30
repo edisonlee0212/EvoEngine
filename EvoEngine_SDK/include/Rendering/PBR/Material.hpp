@@ -1,11 +1,10 @@
 #pragma once
 #include "AssetRef.hpp"
-#include "Platform.hpp"
 #include "IAsset.hpp"
 #include "MaterialProperties.hpp"
+#include "Platform.hpp"
 #include "Texture2D.hpp"
 namespace evo_engine {
-
 
 struct DrawSettings {
   float line_width = 1.0f;
@@ -34,6 +33,7 @@ class Material final : public IAsset {
   AssetRef ao_texture_;
 
  public:
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   ~Material() override;
   void SetAlbedoTexture(const std::shared_ptr<Texture2D>& texture);
   void SetNormalTexture(const std::shared_ptr<Texture2D>& texture);

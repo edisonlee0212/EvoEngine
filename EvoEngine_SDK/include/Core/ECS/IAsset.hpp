@@ -4,7 +4,8 @@
 namespace evo_engine {
 class EditorLayer;
 class AssetRef;
-class AssetRecord;
+class FileRecord;
+class Texture2D;
 class IAsset : public ISerializable {
   std::weak_ptr<IAsset> self_;
 
@@ -13,9 +14,9 @@ class IAsset : public ISerializable {
   friend class EditorLayer;
   friend class AssetRegistry;
   friend class ProjectManager;
-  friend class AssetRecord;
-  friend class Folder;
-  std::weak_ptr<AssetRecord> asset_record_;
+  friend class FileRecord;
+  friend class FolderRecord;
+  std::weak_ptr<FileRecord> file_record_;
   [[nodiscard]] std::shared_ptr<IAsset> GetSelf() const;
   /**
    * The function that handles serialization. May be invoked by SaveInternal() or ProjectManager.
@@ -36,13 +37,14 @@ class IAsset : public ISerializable {
   uint32_t version_ = 0;
 
  public:
+  [[nodiscard]] virtual std::shared_ptr<Texture2D> GenerateThumbnailTexture();
   [[nodiscard]] uint32_t GetVersion() const;
   [[maybe_unused]] bool SetPathAndSave(const std::filesystem::path& project_relative_path);
   [[nodiscard]] std::filesystem::path GetProjectRelativePath() const;
   [[nodiscard]] std::filesystem::path GetAbsolutePath() const;
   [[nodiscard]] std::string GetTitle() const;
   [[nodiscard]] bool IsTemporary() const;
-  [[nodiscard]] std::weak_ptr<AssetRecord> GetAssetRecord() const;
+  [[nodiscard]] std::weak_ptr<FileRecord> GetFileRecord() const;
   /**
    * Function will be invoked right after asset creation.
    */

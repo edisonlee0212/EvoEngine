@@ -59,6 +59,7 @@ class Mesh final : public IAsset, public IGeometry {
   bool SaveInternal(const std::filesystem::path& path) const override;
 
  public:
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void OnCreate() override;
   ~Mesh() override;

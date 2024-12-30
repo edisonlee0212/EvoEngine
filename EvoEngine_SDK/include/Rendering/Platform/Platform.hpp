@@ -117,11 +117,11 @@ class Platform final {
   std::unique_ptr<CommandQueue> present_queue_{};
 
   std::shared_ptr<Swapchain> swapchain_ = {};
-
+  friend class WindowLayer;
   std::shared_ptr<GraphicsPipeline> render_texture_present_pipeline{};
 
   VkSurfaceFormatKHR vk_surface_format_ = {};
-  
+
 #pragma endregion
 #pragma region Internals
   std::unique_ptr<CommandPool> command_pool_ = {};
@@ -158,9 +158,6 @@ class Platform final {
   void CreateSwapChainSyncObjects();
 
   void RecreateSwapChain();
-
-  void SubmitPresent();
-  void Submit();
 
   void ResetCommandBuffers();
   static void Initialize();

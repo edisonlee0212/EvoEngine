@@ -70,6 +70,8 @@ struct GizmoStrandsTask {
 
 class EditorLayer : public ILayer {
  public:
+  static std::shared_ptr<Texture2D> FindIcon(const std::string& name);
+
   bool show_console_window = true;
   std::vector<ConsoleMessage>& GetConsoleMessages();
 
@@ -107,6 +109,7 @@ class EditorLayer : public ILayer {
   bool show_scene_window = true;
   bool show_camera_window = true;
   bool show_camera_info = false;
+  bool show_play_buttons = true;
   bool show_scene_info = true;
 
   bool show_entity_explorer_window = true;
@@ -145,8 +148,6 @@ class EditorLayer : public ILayer {
   [[maybe_unused]] bool DrawEntityMenu(const bool& enabled, const Entity& entity) const;
   void DrawEntityNode(const Entity& entity, const unsigned& hierarchy_level);
   void InspectComponentData(Entity entity, IDataComponent* data, const DataComponentType& type, bool is_root);
-
-  std::map<std::string, std::shared_ptr<Texture2D>>& AssetIcons();
 
   template <typename T1 = IDataComponent>
   void RegisterComponentDataInspector(
@@ -260,7 +261,6 @@ class EditorLayer : public ILayer {
 
   inline static ImGuiID dock_space_id;
   static void InitializeImGui();
-  static void RenderImGui();
 
   void SceneCameraWindow();
   void MainCameraWindow();
@@ -280,6 +280,7 @@ class EditorLayer : public ILayer {
   bool enable_console_errors_ = true;
   bool enable_console_warnings_ = true;
   friend class Console;
+  friend class ProjectManager;
   friend class RenderInstanceStorage;
   static void OnGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
@@ -309,11 +310,11 @@ class EditorLayer : public ILayer {
   friend class Application;
   friend class ProjectManager;
   friend class Scene;
-  std::map<std::string, std::shared_ptr<Texture2D>> assets_icons_;
+  std::unordered_map<std::string, std::shared_ptr<Texture2D>> editor_icons_;
   std::map<size_t, std::function<bool(Entity entity, IDataComponent* data, bool is_root)>>
       component_data_inspector_map_;
 
-  std::vector<std::weak_ptr<AssetRecord>> asset_record_bus_;
+  std::vector<std::weak_ptr<FileRecord>> asset_record_bus_;
   std::map<std::string, std::vector<AssetRef>> asset_ref_bus_;
   std::map<std::string, std::vector<PrivateComponentRef>> private_component_ref_bus_;
   std::map<std::string, std::vector<EntityRef>> entity_ref_bus_;
@@ -489,7 +490,7 @@ bool EditorLayer::RenameAsset(const std::shared_ptr<T>& target) {
         ImGui::InputText(("New name" + tag).c_str(), new_name, 256);
         if (ImGui::Button(("Confirm" + tag).c_str())) {
           if (bool succeed = ptr->SetPathAndSave(ptr->GetProjectRelativePath().replace_filename(
-                  std::string(new_name) + ptr->GetAssetRecord().lock()->GetAssetExtension())))
+                  std::string(new_name) + ptr->GetFileRecord().lock()->GetAssetExtension())))
             memset(new_name, 0, 256);
         }
         ImGui::EndMenu();

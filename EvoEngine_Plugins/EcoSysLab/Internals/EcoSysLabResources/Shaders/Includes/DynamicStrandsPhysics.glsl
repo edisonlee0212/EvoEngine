@@ -204,6 +204,39 @@ vec2 bend_twist_strain(in vec4 q0, in vec4 q1, in vec4 rest_darboux_vector) {
   return vec2(max(abs(lambda.x), abs(lambda.y)), lambda.z);
 }
 
+//Assume vectors are normalized.
+vec4 compute_rotation_between(in vec3 v1, in vec3 v2) {
+  float dot_product = dot(v1, v2);
+  vec3 axis = cross(v1, v2);
+  if (abs(1.f - dot_product) < 1e-6f) {
+    return vec4(0, 0, 0, 0);
+  }
+  float angle = acos(clamp(dot_product, -1.0f, 1.0f));
+  return normalize(angle_axis(angle, normalize(axis)));
+}
+
+vec4 compute_rotation_between(in vec3 v1, in vec3 v2, in vec3 axis) {
+  float dot_product = dot(v1, v2);
+  if (abs(1.f - dot_product) < 1e-6f) {
+    return vec4(0, 0, 0, 0);
+  }
+  vec3 cross_product = cross(v1, v2);
+  float sine = length(cross_product);
+  dot_product = clamp(dot_product, -1.0f, 1.0f);
+
+  float angle = atan(sine / dot_product);
+  if (dot_product < 0) {
+    angle += (sine >= 0 ? 3.1415926f : -3.1415926f);
+  }
+
+  if (dot(cross_product, axis) < 0) {
+    angle = -angle;
+  }
+  float half_angle = angle * .5f;
+  float sin_angle = sin(half_angle);
+  return normalize(vec4(axis * sin_angle, cos(half_angle)));
+}
+
 void BundleSegment(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
   Segment segment0 = segments[segment_handle];
   Particle segment0_particle0 = segment0.particle0;
@@ -215,6 +248,12 @@ void BundleSegment(in uint segment_handle, in float inv_time_step, in float over
 
   float sum = 0.f;
   float bundle_alpha_sum = 0.0f;
+
+  float rotation_sum = 0.f;
+  vec4 q_correction_sum = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+
+  vec3 segment0_center_position = (segment0_particle0.x + segment0_particle1.x) * 0.5f;
+
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
     int pair_handle = segment_data.pair_handles[i];
     if (pair_handle < 0)
@@ -230,18 +269,32 @@ void BundleSegment(in uint segment_handle, in float inv_time_step, in float over
 
     vec3 segment1_center_position = (segment1_particle0.x + segment1_particle1.x) * 0.5f;
 
-    vec3 target_segment0_particle0_position =
-        segment1_center_position + rotate_vec3(segment1.q, is_segment0 ? segment_pair.segment0_particle0_offset.xyz
-                                                                       : segment_pair.segment1_particle0_offset.xyz);
-    vec3 target_segment0_particle1_position =
-        segment1_center_position + rotate_vec3(segment1.q, is_segment0 ? segment_pair.segment0_particle1_offset.xyz
-                                                                       : segment_pair.segment1_particle1_offset.xyz);
+    vec3 target_segment0_center_position =
+        segment1_center_position + rotate_vec3(segment1.q, is_segment0 ? segment_pair.segment0_offset.xyz : segment_pair.segment1_offset.xyz);
 
     float t2 = inv_time_step * inv_time_step;
     // bundle_alpha_sum += t2 * segment_pair.bundle_alpha;
     float lambda = max(1e-9f, segment0.inv_mass + segment1.inv_mass);
     // Always enforce inf stiffness.
     float factor0 = segment0.inv_mass / lambda;
+
+    if (segment0.strand_handle != segment1.strand_handle) {
+      vec3 current_offset = rotate_vec3(conjugate(segment0.q), normalize(segment1_center_position - segment0_center_position));
+      vec3 expected_offset = is_segment0 ? segment_pair.segment1_offset.xyz : segment_pair.segment0_offset.xyz;
+      vec4 lambda = compute_rotation_between(normalize(expected_offset), normalize(current_offset));
+      lambda.w = 0;
+      vec4 rotation_correction = quat_mul(segment0.q, lambda);
+      rotation_correction.w = 0.f;
+      q_correction_sum += (rotation_correction) * factor0;
+      //rotation_sum += 1.0f;
+    }
+    //Calculate rotation correction based on current offset and desired offset.
+    //!!Skip if 2 segments belong to same strand!!!
+
+    float segment_length = distance(segment0_particle0.x, segment0_particle1.x);
+    vec3 front_direction = normalize(rotate_vec3(segment0.q, vec3(0, 0, -1)));
+    vec3 target_segment0_particle0_position = target_segment0_center_position - front_direction * segment_length * .5f;
+    vec3 target_segment0_particle1_position = target_segment0_center_position + front_direction * segment_length * .5f;
 
     vec3 segment0_particle0_position_correction = (target_segment0_particle0_position - segment0_particle0.x) * factor0;
     vec3 segment0_particle1_position_correction = (target_segment0_particle1_position - segment0_particle1.x) * factor0;
@@ -259,12 +312,18 @@ void BundleSegment(in uint segment_handle, in float inv_time_step, in float over
     segment_data_list[segment_handle].particle0_position_correction.xyz = vec3(0.0f, 0.0f, 0.0f);
     segment_data_list[segment_handle].particle1_position_correction.xyz = vec3(0.0f, 0.0f, 0.0f);
   }
+
+  if (rotation_sum != 0) {
+    segment_data_list[segment_handle].q_correction = q_correction_sum / rotation_sum;
+  } else {
+    segment_data_list[segment_handle].q_correction = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+  }
 }
 
 void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
   SegmentData segment_data = segment_data_list[segment_handle];
   vec4 q_correction_sum = vec4(0.0f, 0.0f, 0.0f, 0.0f);
-  vec3 alpha_sum;
+  //vec3 alpha_sum;
   float sum = 0.f;
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
     int pair_handle = segment_data.pair_handles[i];
@@ -276,7 +335,7 @@ void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in f
     bool is_segment0 = segment_handle == segment_pair.segment0_handle;
     vec4 q0_correction, q1_correction;
     vec3 bend_twist_alpha = vec3(0.0f, 0.0f, 0.0f);
-    alpha_sum += vec3(segment_pair.bending_alpha, segment_pair.bending_alpha, segment_pair.twisting_alpha);
+    //alpha_sum += vec3(segment_pair.bending_alpha, segment_pair.bending_alpha, segment_pair.twisting_alpha);
     project_bend_twist_constraint(
         inv_time_step, segments[segment_pair.segment0_handle].q, segments[segment_pair.segment0_handle].inv_mass,
         segments[segment_pair.segment1_handle].q, segments[segment_pair.segment1_handle].inv_mass, bend_twist_alpha,

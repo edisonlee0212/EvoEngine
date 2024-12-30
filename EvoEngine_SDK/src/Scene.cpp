@@ -632,6 +632,11 @@ bool Scene::LoadInternal(const std::filesystem::path& path) {
   Application::Attach(previous_scene);
   return true;
 }
+
+std::shared_ptr<Texture2D> Scene::GenerateThumbnailTexture() {
+  return EditorLayer::FindIcon("Scene");
+}
+
 void Scene::Clone(const std::shared_ptr<Scene>& source, const std::shared_ptr<Scene>& new_scene) {
   new_scene->environment = source->environment;
   new_scene->saved_ = source->saved_;

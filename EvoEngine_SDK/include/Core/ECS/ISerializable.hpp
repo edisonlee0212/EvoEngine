@@ -13,8 +13,8 @@ class ISerializable : public IHandle {
   friend class Scene;
   friend class Serialization;
   friend struct EntityMetadata;
-  friend class AssetRecord;
-  friend class Folder;
+  friend class FileRecord;
+  friend class FolderRecord;
   std::string type_name_;
 
  public:

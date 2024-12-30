@@ -121,6 +121,7 @@ class RenderLayer final : public ILayer {
   friend class Lighting;
   friend class PostProcessingStack;
   friend class Application;
+
   void OnCreate() override;
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void PreparePointAndSpotLightShadowMap() const;

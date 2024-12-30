@@ -213,34 +213,42 @@ void EditorLayer::PreUpdate() {
   gizmo_strands_tasks_.clear();
   main_camera_focus_override = false;
   scene_camera_focus_override = false;
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
   if (ImGui::BeginMainMenuBar()) {
+    if (ImGui::BeginMenu("Project")) {
+      ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("View")) {
+      ImGui::EndMenu();
+    }
+    ImGui::Separator();
     switch (Application::GetApplicationStatus()) {
       case ApplicationStatus::NotPlaying: {
-        if (ImGui::ImageButton(assets_icons_["PlayButton"]->GetImTextureId(), {15, 15}, {0, 1}, {1, 0})) {
+        if (ImGui::ImageButton(editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
           Application::Play();
         }
-        if (ImGui::ImageButton(assets_icons_["StepButton"]->GetImTextureId(), {15, 15}, {0, 1}, {1, 0})) {
+        if (ImGui::ImageButton(editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
           Application::Step();
         }
         break;
       }
       case ApplicationStatus::Playing: {
-        if (ImGui::ImageButton(assets_icons_["PauseButton"]->GetImTextureId(), {15, 15}, {0, 1}, {1, 0})) {
+        if (ImGui::ImageButton(editor_icons_["PauseButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
           Application::Pause();
         }
-        if (ImGui::ImageButton(assets_icons_["StopButton"]->GetImTextureId(), {15, 15}, {0, 1}, {1, 0})) {
+        if (ImGui::ImageButton(editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
           Application::Stop();
         }
         break;
       }
       case ApplicationStatus::Pause: {
-        if (ImGui::ImageButton(assets_icons_["PlayButton"]->GetImTextureId(), {15, 15}, {0, 1}, {1, 0})) {
+        if (ImGui::ImageButton(editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
           Application::Play();
         }
-        if (ImGui::ImageButton(assets_icons_["StepButton"]->GetImTextureId(), {15, 15}, {0, 1}, {1, 0})) {
+        if (ImGui::ImageButton(editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
           Application::Step();
         }
-        if (ImGui::ImageButton(assets_icons_["StopButton"]->GetImTextureId(), {15, 15}, {0, 1}, {1, 0})) {
+        if (ImGui::ImageButton(editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
           Application::Stop();
         }
         break;
@@ -254,33 +262,9 @@ void EditorLayer::PreUpdate() {
       case ApplicationStatus::OnDestroy:
         break;
     }
-
-    ImGui::Separator();
-    if (ImGui::BeginMenu("Project")) {
-      ImGui::EndMenu();
-    }
-    /*
-    if (ImGui::BeginMenu("File"))
-    {
-            ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Edit"))
-    {
-            ImGui::EndMenu();
-    }
-    */
-    if (ImGui::BeginMenu("View")) {
-      ImGui::EndMenu();
-    }
-    /*
-    if (ImGui::BeginMenu("Help"))
-    {
-            ImGui::EndMenu();
-    }
-    */
     ImGui::EndMainMenuBar();
   }
-
+  ImGui::PopStyleVar(1);
   mouse_scene_window_position_ = glm::vec2(FLT_MAX, -FLT_MAX);
   if (show_scene_window) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
@@ -437,48 +421,6 @@ void EditorLayer::InitializeImGui() {
   ImGui::DockSpace(dock_space_id, ImVec2(0.0f, 0.0f), dock_space_flags);
   ImGui::End();
 #pragma endregion
-}
-
-void EditorLayer::RenderImGui() {
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    Platform::EverythingBarrier(vk_command_buffer);
-    Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
-                                 Platform::GetSwapchain()->GetImageFormat(), 1, VK_IMAGE_LAYOUT_UNDEFINED,
-                                 VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR);
-
-    constexpr VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-    VkRect2D render_area;
-    render_area.offset = {0, 0};
-    render_area.extent = Platform::GetSwapchain()->GetImageExtent();
-
-    VkRenderingAttachmentInfo color_attachment_info{};
-    color_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    color_attachment_info.imageView = Platform::GetSwapchain()->GetVkImageView();
-    color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
-    color_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color_attachment_info.clearValue = clear_color;
-
-    VkRenderingInfo render_info{};
-    render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    render_info.renderArea = render_area;
-    render_info.layerCount = 1;
-    render_info.colorAttachmentCount = 1;
-    render_info.pColorAttachments = &color_attachment_info;
-
-    vkCmdBeginRendering(vk_command_buffer, &render_info);
-    ImGui::Render();
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), vk_command_buffer);
-    vkCmdEndRendering(vk_command_buffer);
-    Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
-                                 Platform::GetSwapchain()->GetImageFormat(), 1, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR,
-                                 VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-  });
-
-  if (const ImGuiIO& io = ImGui::GetIO(); io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-    ImGui::UpdatePlatformWindows();
-    ImGui::RenderPlatformWindowsDefault();
-  }
 }
 
 bool EditorLayer::DrawEntityMenu(const bool& enabled, const Entity& entity) const {
@@ -1193,6 +1135,14 @@ void EditorLayer::OnGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   Resources::OnInspect(editor_layer);
 }
 
+std::shared_ptr<Texture2D> EditorLayer::FindIcon(const std::string& name) {
+  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+    if (const auto search = editor_layer->editor_icons_.find(name); search != editor_layer->editor_icons_.end())
+      return search->second;
+  }
+  return {};
+}
+
 std::vector<ConsoleMessage>& EditorLayer::GetConsoleMessages() {
   return console_messages_;
 }
@@ -1362,10 +1312,6 @@ bool EditorLayer::UnsafeDroppablePrivateComponent(PrivateComponentRef& target,
     ImGui::EndDragDropTarget();
   }
   return status_changed;
-}
-
-std::map<std::string, std::shared_ptr<Texture2D>>& EditorLayer::AssetIcons() {
-  return assets_icons_;
 }
 
 bool EditorLayer::DragAndDropButton(EntityRef& entity_ref, const std::string& name, bool modifiable) {
@@ -1618,70 +1564,70 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
 }
 
 void EditorLayer::LoadIcons() {
-  assets_icons_["Project"] = Resources::CreateResource<Texture2D>("PROJECT_ICON");
-  assets_icons_["Project"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/project.png");
+  editor_icons_["Project"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Project"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/project.png");
 
-  assets_icons_["Scene"] = Resources::CreateResource<Texture2D>("SCENE_ICON");
-  assets_icons_["Scene"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/scene.png");
+  editor_icons_["Scene"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Scene"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/scene.png");
 
-  assets_icons_["Binary"] = Resources::CreateResource<Texture2D>("BINARY_ICON");
-  assets_icons_["Binary"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/binary.png");
+  editor_icons_["Binary"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Binary"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/binary.png");
 
-  assets_icons_["Folder"] = Resources::CreateResource<Texture2D>("FOLDER_ICON");
-  assets_icons_["Folder"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/folder.png");
+  editor_icons_["Folder"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Folder"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/folder.png");
 
-  assets_icons_["Material"] = Resources::CreateResource<Texture2D>("MATERIAL_ICON");
-  assets_icons_["Material"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/material.png");
+  editor_icons_["Material"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Material"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/material.png");
 
-  assets_icons_["Mesh"] = Resources::CreateResource<Texture2D>("MESH_ICON");
-  assets_icons_["Mesh"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/mesh.png");
+  editor_icons_["Mesh"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Mesh"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/mesh.png");
 
-  assets_icons_["Prefab"] = Resources::CreateResource<Texture2D>("PREFAB_ICON");
-  assets_icons_["Prefab"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/prefab.png");
+  editor_icons_["Prefab"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Prefab"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/prefab.png");
 
-  assets_icons_["Texture2D"] = Resources::CreateResource<Texture2D>("TEXTURE2D_ICON");
-  assets_icons_["Texture2D"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/texture2d.png");
+  editor_icons_["Texture2D"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Texture2D"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/texture2d.png");
 
-  assets_icons_["PlayButton"] = Resources::CreateResource<Texture2D>("PLAY_BUTTON_ICON");
-  assets_icons_["PlayButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
+  editor_icons_["PlayButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["PlayButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                             "Editor/Navigation/PlayButton.png");
 
-  assets_icons_["PauseButton"] = Resources::CreateResource<Texture2D>("PAUSE_BUTTON_ICON");
-  assets_icons_["PauseButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
+  editor_icons_["PauseButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["PauseButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                              "Editor/Navigation/PauseButton.png");
 
-  assets_icons_["StopButton"] = Resources::CreateResource<Texture2D>("STOP_BUTTON_ICON");
-  assets_icons_["StopButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
+  editor_icons_["StopButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["StopButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                             "Editor/Navigation/StopButton.png");
 
-  assets_icons_["StepButton"] = Resources::CreateResource<Texture2D>("STEP_BUTTON_ICON");
-  assets_icons_["StepButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
+  editor_icons_["StepButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["StepButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                             "Editor/Navigation/StepButton.png");
 
-  assets_icons_["BackButton"] = Resources::CreateResource<Texture2D>("BACK_BUTTON_ICON");
-  assets_icons_["BackButton"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Navigation/back.png");
+  editor_icons_["BackButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["BackButton"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Navigation/back.png");
 
-  assets_icons_["LeftButton"] = Resources::CreateResource<Texture2D>("LEFT_BUTTON_ICON");
-  assets_icons_["LeftButton"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Navigation/left.png");
+  editor_icons_["LeftButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["LeftButton"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Navigation/left.png");
 
-  assets_icons_["RightButton"] = Resources::CreateResource<Texture2D>("RIGHT_BUTTON_ICON");
-  assets_icons_["RightButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
+  editor_icons_["RightButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["RightButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                              "Editor/Navigation/right.png");
 
-  assets_icons_["RefreshButton"] = Resources::CreateResource<Texture2D>("REFRESH_BUTTON_ICON");
-  assets_icons_["RefreshButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
+  editor_icons_["RefreshButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["RefreshButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                                "Editor/Navigation/refresh.png");
 
-  assets_icons_["InfoButton"] = Resources::CreateResource<Texture2D>("INFO_BUTTON_ICON");
-  assets_icons_["InfoButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
+  editor_icons_["InfoButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["InfoButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                             "Editor/Console/InfoButton.png");
 
-  assets_icons_["ErrorButton"] = Resources::CreateResource<Texture2D>("ERROR_BUTTON_ICON");
-  assets_icons_["ErrorButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
+  editor_icons_["ErrorButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["ErrorButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                              "Editor/Console/ErrorButton.png");
 
-  assets_icons_["WarningButton"] = Resources::CreateResource<Texture2D>("WARNING_BUTTON_ICON");
-  assets_icons_["WarningButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
+  editor_icons_["WarningButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["WarningButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                                "Editor/Console/WarningButton.png");
 }
 

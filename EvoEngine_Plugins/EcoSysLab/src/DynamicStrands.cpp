@@ -761,26 +761,18 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     auto& segment1_particle1 = segment1.particle1;
     const auto segment0_center_position = (segment0_particle0.x0 + segment0_particle1.x0) * .5f;
     const auto segment1_center_position = (segment1_particle0.x0 + segment1_particle1.x0) * .5f;
-    segment_pair.segment0_particle0_offset =
-        glm::vec4(glm::inverse(segment1.q0) * (segment0_particle0.x0 - segment1_center_position), 0.0f);
-    segment_pair.segment0_particle1_offset =
-        glm::vec4(glm::inverse(segment1.q0) * (segment0_particle1.x0 - segment1_center_position), 0.0f);
-
-    segment_pair.segment1_particle0_offset =
-        glm::vec4(glm::inverse(segment0.q0) * (segment1_particle0.x0 - segment0_center_position), 0.0f);
-    segment_pair.segment1_particle1_offset =
-        glm::vec4(glm::inverse(segment0.q0) * (segment1_particle1.x0 - segment0_center_position), 0.0f);
-
+    segment_pair.segment0_offset =
+        glm::vec4(glm::inverse(segment1.q0) * (segment0_center_position - segment1_center_position), 0.0f);
+    segment_pair.segment1_offset =
+        glm::vec4(glm::inverse(segment0.q0) * (segment1_center_position - segment0_center_position), 0.0f);
     segment_pair.rest_darboux_vector = glm::conjugate(segment0.q0) * segment1.q0;
     segment_pair.bend_twist_bundle_integrity = 1.0f;
     segment_pair.connectivity_integrity = direct_connection ? 1.0f : 0.0f;
-
     const float ratio0 =
         segment0.boundary_distance * segment0.radius * 2.f / initialize_parameters.max_distance_to_boundary;
     const float ratio1 =
         segment1.boundary_distance * segment1.radius * 2.f / initialize_parameters.max_distance_to_boundary;
     const float ratio = (ratio0 + ratio1) * .5f;
-
     segment_pair.max_bending_modulus = initialize_parameters.max_bending_modulus.GetValue(ratio) * 1e9f;
     segment_pair.max_torsion_modulus = initialize_parameters.max_torsion_modulus.GetValue(ratio) * 1e9f;
     const float average_segment_radius = (segment0.radius + segment1.radius) * .5f;
@@ -800,6 +792,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment_pair.max_bending_twist_bundle_strain = segment_pair.bending_twist_bundle_limit =
         glm::vec3(max_bend_strain, max_twist_strain, max_bundle_strain);
   });
+
   // set up nodes
   auto& skeleton_nodes = strand_model_skeleton.PeekRawNodes();
   nodes.resize(skeleton_nodes.size());
