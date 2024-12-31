@@ -124,8 +124,8 @@ void project_shear_stretch_constraint(in float inv_time_step, in vec3 p0, in vec
 
   vec4 q_e_3_bar = vec4(q.y, -q.x, q.w, -q.z);
   q_correction = quat_mul(vec4(lambda.x, lambda.y, lambda.z, 0.0f), q_e_3_bar);
-  q_correction *= 2.f * inv_mass_q * rest_length; //From PositionBasedDynamics repo.
-  //q_correction *= inv_mass_q * rest_length; //Derived from original paper.
+  q_correction *= 2.f * inv_mass_q * rest_length;  // From PositionBasedDynamics repo.
+  // q_correction *= inv_mass_q * rest_length; //Derived from original paper.
 }
 
 void project_bend_twist_constraint(in float inv_time_step, in int segment_pair_handle) {
@@ -205,7 +205,6 @@ vec2 bend_twist_strain(in vec4 q0, in vec4 q1, in vec4 rest_darboux_vector) {
   return vec2(max(abs(lambda.x), abs(lambda.y)), lambda.z);
 }
 
-
 void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
   Segment segment0 = segments[segment_handle];
   Particle segment0_particle0 = segment0.particle0;
@@ -235,7 +234,8 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
     vec3 segment1_center_position = (segment1_particle0.x + segment1_particle1.x) * 0.5f;
 
     vec3 target_segment0_center_position =
-        segment1_center_position + rotate_vec3(segment1.q, is_segment0 ? segment_pair.segment0_offset.xyz : segment_pair.segment1_offset.xyz);
+        segment1_center_position +
+        rotate_vec3(segment1.q, is_segment0 ? segment_pair.segment0_offset.xyz : segment_pair.segment1_offset.xyz);
 
     float t2 = inv_time_step * inv_time_step;
     // bundle_alpha_sum += t2 * segment_pair.bundle_alpha;
@@ -273,16 +273,34 @@ vec4 compute_rotation_between(in vec3 v1, in vec3 v2) {
   if (abs(1.f - dot_product) < 1e-6f) {
     return vec4(0, 0, 0, 0);
   }
+  if (abs(1.f + dot_product) < 1e-6f) {
+    vec3 ortho = v1.x < 0.9f ? vec3(1.0f, 0.0f, 0.0f) : vec3(0.0f, 1.0f, 0.0f);
+    axis = normalize(cross(v1, ortho));
+    return angle_axis(3.1415926f, axis);
+  }
   float angle = acos(clamp(dot_product, -1.0f, 1.0f));
-  return normalize(angle_axis(angle, normalize(axis)));
+  return angle_axis(angle, normalize(axis));
 }
 
 vec4 compute_rotation_between(in vec3 v1, in vec3 v2, in vec3 axis) {
-  float dot_product = dot(v1, v2);
+  vec3 v1p = v1 - dot(v1, axis) * axis;
+  vec3 v2p = v2 - dot(v2, axis) * axis;
+  float len1p = length(v1p);
+  float len2p = length(v2p);
+  if (len1p < 1e-6f || len2p < 1e-6f) {
+    // handle edge case (vectors parallel to axis or near zero)
+    return vec4(0, 0, 0, 0);
+  }
+  v1p /= len1p;
+  v2p /= len2p;
+  float dot_product = dot(v1p, v2p);
   if (abs(1.f - dot_product) < 1e-6f) {
     return vec4(0, 0, 0, 0);
   }
-  vec3 cross_product = cross(v1, v2);
+  if (abs(-1.f - dot_product) < 1e-6f) {
+    return angle_axis(3.1415926f, axis);
+  }
+  vec3 cross_product = cross(v1p, v2p);
   float sine = length(cross_product);
   dot_product = clamp(dot_product, -1.0f, 1.0f);
 
@@ -296,10 +314,8 @@ vec4 compute_rotation_between(in vec3 v1, in vec3 v2, in vec3 axis) {
   }
   float half_angle = angle * .5f;
   float sin_angle = sin(half_angle);
-  return normalize(vec4(axis * sin_angle, cos(half_angle)));
+  return vec4(axis * sin_angle, cos(half_angle));
 }
-
-
 
 void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
   Segment segment0 = segments[segment_handle];
@@ -329,19 +345,26 @@ void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in fl
 
     float t2 = inv_time_step * inv_time_step;
     // bundle_alpha_sum += t2 * segment_pair.bundle_alpha;
-    float lambda = max(1e-9f, segment0.inv_mass + segment1.inv_mass);
-    // Always enforce inf stiffness.
-    float factor0 = segment0.inv_mass / lambda;
+    float factor = max(1e-9f, segment0.inv_mass + segment1.inv_mass);
 
     if (segment0.strand_handle != segment1.strand_handle) {
-      vec3 current_offset =
-          rotate_vec3(conjugate(segment0.q), normalize(segment1_center_position - segment0_center_position));
+      vec3 current_offset = rotate_vec3(conjugate(segment0.q), segment1_center_position - segment0_center_position);
       vec3 expected_offset = is_segment0 ? segment_pair.segment1_offset.xyz : segment_pair.segment0_offset.xyz;
-      vec4 lambda = compute_rotation_between(normalize(expected_offset), normalize(current_offset));
-      lambda.w = 0;
-      vec4 rotation_correction = quat_mul(segment0.q, lambda);
-      rotation_correction.w = 0.f;
-      q_correction_sum += (rotation_correction)*factor0;
+      vec4 expected_rotation = quat_mul(
+          segment0.q, compute_rotation_between(normalize(expected_offset), normalize(current_offset)));
+
+      vec4 lambda = segment0.q;
+      vec4 lambda_plus = lambda + expected_rotation;
+      lambda -= expected_rotation;
+      if (squared_norm(lambda) > squared_norm(lambda_plus))
+        lambda = lambda_plus;
+
+      lambda.x /= factor;
+      lambda.y /= factor;
+      lambda.z /= factor;
+      lambda.w = 0.0f;
+      vec4 rotation_correction = quat_mul(segment0.q, lambda) * segment0.inv_mass;
+      q_correction_sum += expected_rotation;
       rotation_sum += 1.0f;
     }
   }
@@ -356,7 +379,7 @@ void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in fl
 void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
   SegmentData segment_data = segment_data_list[segment_handle];
   vec4 q_correction_sum = vec4(0.0f, 0.0f, 0.0f, 0.0f);
-  //vec3 alpha_sum;
+  // vec3 alpha_sum;
   float sum = 0.f;
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
     int pair_handle = segment_data.pair_handles[i];
@@ -368,7 +391,7 @@ void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in f
     bool is_segment0 = segment_handle == segment_pair.segment0_handle;
     vec4 q0_correction, q1_correction;
     vec3 bend_twist_alpha = vec3(0.0f, 0.0f, 0.0f);
-    //alpha_sum += vec3(segment_pair.bending_alpha, segment_pair.bending_alpha, segment_pair.twisting_alpha);
+    // alpha_sum += vec3(segment_pair.bending_alpha, segment_pair.bending_alpha, segment_pair.twisting_alpha);
     project_bend_twist_constraint(
         inv_time_step, segments[segment_pair.segment0_handle].q, segments[segment_pair.segment0_handle].inv_mass,
         segments[segment_pair.segment1_handle].q, segments[segment_pair.segment1_handle].inv_mass, bend_twist_alpha,

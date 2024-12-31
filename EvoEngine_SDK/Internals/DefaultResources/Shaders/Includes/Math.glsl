@@ -140,3 +140,54 @@ vec4 angle_axis(in float angle, in vec3 axis) {
   float s = sin(angle * .5f);
   return vec4(axis.xyz * s, cos(angle * .5f));
 }
+
+//From https://www.adriancourreges.com/blog/2018/12/02/ue4-optimized-post-effects/#screen-space-ambient-occlusion
+
+#define PI_OVER_2 1.5707963f
+#define PI_OVER_4 0.785398f
+
+// Maps a unit square in [-1, 1] to a unit disk in [-1, 1]. Shirley 97 "A Low Distortion Map Between Disk and Square"
+// Inputs: cartesian coordinates
+// Return: new circle-mapped polar coordinates (radius, angle)
+vec2 UnitSquareToUnitDiskPolar(float a, float b) {
+  float radius, angle;
+  if (abs(a) > abs(b)) {  // First region (left and right quadrants of the disk)
+    radius = a;
+    angle = b / (a + 1e-6f) * 0.785398f;
+  } else {  // Second region (top and bottom quadrants of the disk)
+    radius = b;
+    angle = PI_OVER_2 - (a / (b + 1e-6f) * 0.785398f);
+  }
+  if (radius < 0) {  // Always keep radius positive
+    radius *= -1.0f;
+    angle += 3.1415926f;
+  }
+  return vec2(radius, angle);
+}
+
+// Maps a unit square in [-1, 1] to a unit disk in [-1, 1]
+// Inputs: cartesian coordinates
+// Return: new circle-mapped cartesian coordinates
+vec2 SquareToDiskMapping(float a, float b) {
+  vec2 polar_coord = UnitSquareToUnitDiskPolar(a, b);
+  return vec2(polar_coord.x * cos(polar_coord.y), polar_coord.x * sin(polar_coord.y));
+}
+
+// Remap a unit square in [0, 1] to a polygon in [-1, 1] with <edgeCount> edges rotated by <shapeRotation> radians
+// Inputs: cartesian coordinates
+// Return: new polygon-mapped cartesian coordinates
+vec2 SquareToPolygonMapping(vec2 uv, float edgeCount, float shapeRotation) {
+  vec2 polar_coord = UnitSquareToUnitDiskPolar(uv.x, uv.y);  // (radius, angle)
+
+  // Re-scale radius to match a polygon shape
+  polar_coord.x *=
+      cos(3.1415926f /
+          edgeCount) /  //----------------------------------------------------------------------------------------------
+      cos(polar_coord.y -
+          (2.0f * 3.1415926f / edgeCount) * floor((edgeCount * polar_coord.y + 3.1415926f) / 2.0f / 3.1415926f));
+
+  // Apply a rotation to the polygon shape
+  polar_coord.y += shapeRotation;
+
+  return vec2(polar_coord.x * cos(polar_coord.y), polar_coord.x * sin(polar_coord.y));
+}

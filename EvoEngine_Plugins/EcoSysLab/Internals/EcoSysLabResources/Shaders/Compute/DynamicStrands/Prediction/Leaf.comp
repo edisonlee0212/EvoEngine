@@ -29,6 +29,39 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	float velocity_damping;
 };
 
+
+void update_inertia_w(inout Leaf leaf){
+	//Update w
+	mat3 rot = mat3_cast(leaf.q);
+	mat3 inertia_tensor_diag =
+		mat3(
+			leaf.inertia_tensor.x, 0.0, 0.0, 
+			0.0, leaf.inertia_tensor.y, 0.0, 
+			0.0, 0.0, leaf.inertia_tensor.z);
+	mat3 inertia_w = rot * inertia_tensor_diag * transpose(rot);
+
+	mat3 inverse_inertia_tensor_diag =
+		mat3(
+			leaf.inv_inertia_tensor.x, 0.0, 0.0, 
+			0.0, leaf.inv_inertia_tensor.y, 0.0, 
+			0.0, 0.0, leaf.inv_inertia_tensor.z);
+	mat3 inverse_inertia_w = rot * inverse_inertia_tensor_diag * transpose(rot);
+
+	leaf.inertia_w = mat4(
+		inertia_w[0][0], inertia_w[0][1], inertia_w[0][2], 0.0,
+		inertia_w[1][0], inertia_w[1][1], inertia_w[1][2], 0.0,
+		inertia_w[2][0], inertia_w[2][1], inertia_w[2][2], 0.0,
+		0.0, 0.0, 0.0, 0.0
+		);
+	leaf.inv_inertia_w = mat4(
+		inverse_inertia_w[0][0], inverse_inertia_w[0][1], inverse_inertia_w[0][2], 0.0,
+		inverse_inertia_w[1][0], inverse_inertia_w[1][1], inverse_inertia_w[1][2], 0.0,
+		inverse_inertia_w[2][0], inverse_inertia_w[2][1], inverse_inertia_w[2][2], 0.0,
+		0.0, 0.0, 0.0, 0.0
+		);
+}
+
+
 void main(){
 	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
@@ -39,12 +72,38 @@ void main(){
 		if(leaf_index >= leaf_size) break;
 
 		Leaf leaf = foliage[leaf_index];
-		Segment segment = segments[leaf.segment_handle];
+		
 		if(leaf.attachment_integrity != 0.0f){
+			Segment segment = segments[leaf.segment_handle];
 			vec3 segment_center_position =
 				(segment.particle0.x + segment.particle1.x) * 0.5f;
 			leaf.x = segment_center_position + rotate_vec3(segment.q, leaf.position_offset);
 			leaf.q = quat_mul(segment.q, quat_mul(conjugate(segment.q0), leaf.q0));
+		}else{
+			update_inertia_w(leaf);
+
+			//Calculate angular velocity and apply torque.
+			vec3 angular_velocity = leaf.angular_v;
+			if(leaf.inv_mass != 0.0f){
+				angular_velocity *= 1.0f - angular_velocity_damping * length(angular_velocity);
+				angular_velocity += time_step * mat3(leaf.inv_inertia_w) * (leaf.torque - cross(angular_velocity, mat3(leaf.inertia_w) * angular_velocity));
+				leaf.v *= 1.0f - velocity_damping * length(leaf.v);
+				leaf.v += leaf.acceleration.xyz * time_step;
+			}
+			//Shift rotation values
+			leaf.last_q = leaf.q;
+			//Apply angular velocity
+			vec4 angular_velocity_q = vec4(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0.0f);
+
+			leaf.q += 0.5f * time_step * quat_mul(angular_velocity_q, leaf.q);
+			leaf.q = normalize(leaf.q);
+
+			//Update w
+			update_inertia_w(leaf);
+			//Shift position values
+			leaf.last_x = leaf.x;
+			//Apply velocity
+			leaf.x += time_step * leaf.v;
 		}
 		foliage[leaf_index] = leaf;
 	}

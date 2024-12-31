@@ -729,13 +729,13 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
       };
 
       for (uint32_t skip_index = 0; skip_index < skip_size; skip_index++) {
-        if (enable_bundle_position && bundle_position_pipeline && bundle_position_pipeline->Initialized()) {
-          bundle_position(skip_index);
-          apply_positions(skip_index);
-        }
         if (enable_bundle_rotation && bundle_rotation_pipeline && bundle_rotation_pipeline->Initialized()) {
           bundle_rotation(skip_index);
           apply_rotations(skip_index);
+        }
+        if (enable_bundle_position && bundle_position_pipeline && bundle_position_pipeline->Initialized()) {
+          bundle_position(skip_index);
+          apply_positions(skip_index);
         }
         if (enable_bend_twist && bend_twist_pipeline && bend_twist_pipeline->Initialized()) {
           calculate_bend_twist_offset(skip_index);
@@ -927,7 +927,6 @@ bool DsBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         connections_pipeline->Initialize();
       }
     }
-
     ImGui::TreePop();
   }
   return changed;

@@ -41,7 +41,8 @@ void DynamicSkeleton::Initialize(const InitializeParameters& initialize_paramete
   dts_skeleton.CalculateRegulatedGlobalRotation();
   frame_index = 0;
   const auto& sorted_node_list = dts_skeleton.PeekSortedNodeList();
-  if (sorted_node_list.empty()) return;
+  if (sorted_node_list.empty())
+    return;
   Jobs::RunParallelFor(sorted_node_list.size(), [&](const auto i) {
     auto& node = dts_skeleton.RefNode(sorted_node_list[i]);
     const auto& node_info = node.info;
@@ -60,7 +61,6 @@ void DynamicSkeleton::Initialize(const InitializeParameters& initialize_paramete
     node_data.inertia_tensor = DynamicStrands::ComputeInertiaTensorRod(mass, node_info.thickness, node_info.length);
     node_data.inv_inertia_tensor = 1.f / node_data.inertia_tensor;
   });
-
   if (initialize_parameters.static_root) {
     dts_skeleton.RefNode(sorted_node_list[0]).data.inv_mass = 0.f;
   }
@@ -118,22 +118,22 @@ void DynamicSkeleton::Prediction(const PhysicsParameters& physics_parameters) {
     auto update_inertia_w = [](DynamicSkeletonNodeData& target_node_data) {
       // Update w
       const glm::mat3 rotation_matrix = mat3_cast(target_node_data.q);
-      auto inertia_tensor_diag = glm::mat3(target_node_data.inertia_tensor.x, 0.0, 0.0, 
-                                            0.0, target_node_data.inertia_tensor.y, 0.0,
-                                           0.0, 0.0, target_node_data.inertia_tensor.z);
+      auto inertia_tensor_diag =
+          glm::mat3(target_node_data.inertia_tensor.x, 0.0, 0.0, 0.0, target_node_data.inertia_tensor.y, 0.0, 0.0, 0.0,
+                    target_node_data.inertia_tensor.z);
       target_node_data.inertia_w = rotation_matrix * inertia_tensor_diag * glm::transpose(rotation_matrix);
       auto inverse_inertia_tensor_diag =
-          glm::mat3(target_node_data.inv_inertia_tensor.x, 0.0, 0.0, 0.0, target_node_data.inv_inertia_tensor.y, 0.0, 0.0, 0.0,
-                    target_node_data.inv_inertia_tensor.z);
+          glm::mat3(target_node_data.inv_inertia_tensor.x, 0.0, 0.0, 0.0, target_node_data.inv_inertia_tensor.y, 0.0,
+                    0.0, 0.0, target_node_data.inv_inertia_tensor.z);
       target_node_data.inv_inertia_w = rotation_matrix * inverse_inertia_tensor_diag * glm::transpose(rotation_matrix);
     };
-
 
     update_inertia_w(node_data);
     // Calculate angular velocity and apply torque.
     if (node_data.inv_mass != 0.0f) {
       node_data.angular_v *= 1.0f - parameters.angular_velocity_damping * glm::length(node_data.angular_v);
-      node_data.angular_v += sub_time_step * node_data.inv_inertia_w *
+      node_data.angular_v +=
+          sub_time_step * node_data.inv_inertia_w *
           (node_data.torque - glm::cross(node_data.angular_v, node_data.inertia_w * node_data.angular_v));
 
       node_data.particle0.v *= 1.0f - parameters.velocity_damping * glm::length(node_data.particle0.v);
@@ -253,10 +253,10 @@ void DynamicSkeleton::ApplyStiffRodConstraint(const PhysicsParameters& physics_p
       auto& parent_node = dts_skeleton.RefNode(parent_handle);
       const auto& parent_node_data = parent_node.data;
       parent_inv_mass = parent_node_data.inv_mass;
-    }else {
+    } else {
       parent_inv_mass = 0.f;
     }
-    const auto &child_handles = node.PeekChildHandles();
+    const auto& child_handles = node.PeekChildHandles();
     if (!child_handles.empty()) {
       float children_mass = 0.f;
       for (const auto& child_handle : node.PeekChildHandles()) {
@@ -272,14 +272,13 @@ void DynamicSkeleton::ApplyStiffRodConstraint(const PhysicsParameters& physics_p
         children_inv_mass = 1.f / children_mass;
       }
     }
-    
+
     // 2. Stretch & shear
     glm::vec3 x0_correction, x1_correction;
     glm::quat q_correction;
     project_shear_stretch_constraint(inv_time_step, node_data.particle0.x, node_data.particle1.x, node_data.q,
                                      parent_inv_mass, children_inv_mass, (parent_inv_mass + children_inv_mass) / 2.f,
-                                     glm::vec3(0.0f),
-                                     node.info.length, x0_correction, x1_correction, q_correction);
+                                     glm::vec3(0.0f), node.info.length, x0_correction, x1_correction, q_correction);
 
     node_data.particle0.x += x0_correction;
     node_data.particle1.x += x1_correction;
