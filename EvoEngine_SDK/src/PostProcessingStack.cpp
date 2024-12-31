@@ -388,11 +388,14 @@ void Bloom::BuildPipelines() {
   mix_pipeline->Initialize();
 }
 
-void PostProcessingStack::Resize(const glm::uvec2& size) const {
+void PostProcessingStack::Resize(const glm::uvec2& size) {
   if (size.x == 0 || size.y == 0)
     return;
   if (size.x > 16384 || size.y >= 16384)
     return;
+  if (size == current_size)
+    return;
+  current_size = size;
   const uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.x, size.y)))) + 1;
   source_color_texture->Resize({size.x, size.y, 1});
   result_texture->Resize({size.x, size.y, 1}, mip_levels);
@@ -412,6 +415,7 @@ void PostProcessingStack::OnCreate() {
   if (!blur_vertical_descriptor_set) {
     blur_vertical_descriptor_set = std::make_shared<DescriptorSet>(blur_layout);
   }
+  current_size = glm::uvec2(1);
 
   RenderTextureCreateInfo render_texture_create_info{};
   render_texture_create_info.depth = false;
@@ -492,9 +496,9 @@ bool PostProcessingStack::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
   return changed;
 }
 
-void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) const {
+void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) {
   const auto render_layer = Application::GetLayer<RenderLayer>();
-
+  Resize(target_camera->GetSize());
   {
     VkDescriptorImageInfo image_info;
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;

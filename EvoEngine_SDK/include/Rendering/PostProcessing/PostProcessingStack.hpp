@@ -9,9 +9,8 @@ class ScreenSpaceAmbientOcclusion;
 class Camera;
 
 class PostProcessingStack : public IAsset {
-  friend class Camera;
-
-  void Resize(const glm::uvec2& size) const;
+  glm::uvec2 current_size = glm::uvec2(1);
+  void Resize(const glm::uvec2& size);
 
   inline static std::shared_ptr<DescriptorSetLayout> blur_layout;
   inline static std::shared_ptr<GraphicsPipeline> blur_pipeline;
@@ -25,7 +24,7 @@ class PostProcessingStack : public IAsset {
 
   void OnCreate() override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void Process(const std::shared_ptr<Camera>& target_camera) const;
+  void Process(const std::shared_ptr<Camera>& target_camera);
   std::shared_ptr<ScreenSpaceAmbientOcclusion> screen_space_ambient_occlusion{};
   std::shared_ptr<Bloom> bloom{};
   std::shared_ptr<ScreenSpaceReflection> screen_space_reflection{};
@@ -70,11 +69,11 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
   /**
    * \brief Parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
    */
-  int kernel_size = 32;
-  float radius = 0.5f;
-  float bias = 0.01f;
-  float factor = 1.0f;
-  float intensity = 3.0f;
+  int kernel_size = 64;
+  float radius = 0.15f;
+  float bias = 0.001f;
+  float factor = 0.0f;
+  float intensity = 1.0f;
   struct PushConstant {
     int camera_index;
     // parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
@@ -92,17 +91,17 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
 
 class ScreenSpaceReflection : public IPostProcessing {
  public:
-  float max_distance = 10.f;
-  float resolution = 16.f;
-  int max_iteration_count = 64;
-  int initial_steps = 8;
-  float thickness = 0.3f;
+  float max_distance = 100.f;
+  float distance_confidence = 0.2f;
+  int max_iteration_count = 128;
+  int initial_steps = 32;
+  float thickness = 0.05f;
   bool blur = true;
 
   struct PushConstant {
     int32_t camera_index = 0;
     float max_distance;
-    float resolution;
+    float distance_confidence;
     int max_iteration_count = 5;
     int initial_steps;
     float thickness;

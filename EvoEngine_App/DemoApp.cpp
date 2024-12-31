@@ -288,17 +288,22 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
       application_info.application_name = "Rendering Demo";
       application_info.project_path = resource_folder_path / "Example Projects/Rendering/Rendering.eveproj";
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
-        scene->environment.ambient_light_intensity = 0.4f;
+        scene->environment.ambient_light_intensity = 0.5f;
 #pragma region Set main camera to correct position and rotation
         const auto main_camera = scene->main_camera.Get<Camera>();
         main_camera->Resize({640, 480});
         main_camera->post_processing_stack_ref = ProjectManager::CreateTemporaryAsset<PostProcessingStack>();
         const auto main_camera_entity = main_camera->GetOwner();
         auto main_camera_transform = scene->GetDataComponent<Transform>(main_camera_entity);
-        main_camera_transform.SetPosition(glm::vec3(0, 0, 4));
+        main_camera_transform.SetPosition(glm::vec3(0, 0, 3));
         scene->SetDataComponent(main_camera_entity, main_camera_transform);
         auto camera = scene->GetOrSetPrivateComponent<Camera>(main_camera_entity).lock();
         scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
+
+        if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+          editor_layer->SetCameraPosition(editor_layer->GetSceneCamera(), glm::vec3(0, 0, 3));
+        }
+
 #pragma endregion
 
 #ifdef PHYSX_PHYSICS_PLUGIN
@@ -309,29 +314,34 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         scene->SetDataComponent(physics_demo, physics_demo_transform);
         scene->GetOrCreateSystem<PhysicsSystem>(0.0f);
 #else
-        LoadScene(scene, "Rendering Demo", true);
+        const auto demo_scene = LoadScene(scene, "Rendering Demo", true);
+        Transform demo_transform;
+        demo_transform.SetScale(glm::vec3(0.5f));
+        scene->SetDataComponent(demo_scene, demo_transform);
 #endif
 
 #pragma region Dynamic Lighting
-        const auto point_light_right_entity = scene->CreateEntity("Left Point Light");
+        const auto left_point_light_right_entity = scene->CreateEntity("Left Point Light");
         const auto point_light_right_renderer =
-            scene->GetOrSetPrivateComponent<MeshRenderer>(point_light_right_entity).lock();
+            scene->GetOrSetPrivateComponent<MeshRenderer>(left_point_light_right_entity).lock();
         const auto point_light_right_material = ProjectManager::CreateTemporaryAsset<Material>();
         point_light_right_renderer->material.Set<Material>(point_light_right_material);
         point_light_right_material->material_properties.albedo_color = glm::vec3(1.0, 0.8, 0.0);
         point_light_right_material->material_properties.emission = 10.0f;
         point_light_right_renderer->mesh = Resources::GetResource<Mesh>("PRIMITIVE_SPHERE");
-        const auto point_light_right = scene->GetOrSetPrivateComponent<PointLight>(point_light_right_entity).lock();
+        const auto point_light_right =
+            scene->GetOrSetPrivateComponent<PointLight>(left_point_light_right_entity).lock();
         point_light_right->diffuse_brightness = 30;
-        point_light_right->light_size = 0.02f;
+        point_light_right->light_size = 0.001f;
+        point_light_right->constant = 2.5f;
         point_light_right->linear = 0.5f;
         point_light_right->quadratic = 0.1f;
         point_light_right->diffuse = glm::vec3(1.0, 0.8, 0.0);
 
-        Transform point_light_right_transform;
-        point_light_right_transform.SetPosition(glm::vec3(4, 1.2, -5));
-        point_light_right_transform.SetScale({1.0f, 1.0f, 1.0f});
-        scene->SetDataComponent(point_light_right_entity, point_light_right_transform);
+        Transform left_point_light_right_transform;
+        left_point_light_right_transform.SetPosition(glm::vec3(3, 0, -2.5));
+        left_point_light_right_transform.SetScale(glm::vec3(0.1f));
+        scene->SetDataComponent(left_point_light_right_entity, left_point_light_right_transform);
 
         Application::RegisterUpdateFunction([=]() {
           static bool last_frame_playing = false;
@@ -345,13 +355,11 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
             start_time = Times::Now();
           const float current_time = Times::Now() - start_time;
           const float cos_time = glm::cos(current_time / 5.0f);
-          // Transform dir_light_transform;
-          // dir_light_transform.SetEulerRotation(glm::radians(glm::vec3(105.0f, current_time * 20, 0.0f)));
-          Transform point_light_right_transform;
-          point_light_right_transform.SetPosition(glm::vec3(4, 1.2, cos_time * 5 - 5));
-          point_light_right_transform.SetScale({1.0f, 1.0f, 1.0f});
-          point_light_right_transform.SetPosition(glm::vec3(4, 1.2, cos_time * 5 - 5));
-          current_scene->SetDataComponent(point_light_right_entity, point_light_right_transform);
+
+          Transform current_left_point_light_transform;
+          current_left_point_light_transform.SetPosition(glm::vec3(3, 0, cos_time * 2.5 - 2.5));
+          current_left_point_light_transform.SetScale(glm::vec3(0.1f));
+          current_scene->SetDataComponent(left_point_light_right_entity, current_left_point_light_transform);
 
           last_frame_playing = Application::IsPlaying();
         });
