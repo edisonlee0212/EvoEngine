@@ -52,7 +52,7 @@ void main()
 	vec3 pivot            = normalize(reflect(unitPositionFrom, normal));
 	
 	vec4 startView = vec4(positionFrom.xyz + (pivot *           0), 1);
-	vec4 endView   = vec4(positionFrom.xyz + (pivot * maxDistance), 1);
+	vec4 endView   = vec4(positionFrom.xyz + (pivot * max_distance), 1);
 
 	vec4 startFragTemp = EE_CAMERAS[EE_CAMERA_INDEX].projection * startView;
 			startFragTemp.xyz /= startFragTemp.w;
@@ -62,18 +62,19 @@ void main()
 			endFragTemp.xyz /= endFragTemp.w;
 			endFragTemp.xy   = endFragTemp.xy * 0.5f + 0.5f;
 
-	vec2 startFrag = startFragTemp.xy * texSize;
-	vec2 endFrag = endFragTemp.xy * texSize;
+	vec2 startFrag = startFragTemp.xy;
+	vec2 endFrag = endFragTemp.xy;
+	float useX = 0.0;
 
-	
+	startFrag *= texSize;
+	endFrag *= texSize;
+
 	vec2 frag  = startFrag;
 	uv = frag / texSize;
+
 	float deltaX    = endFrag.x - startFrag.x;
 	float deltaY    = endFrag.y - startFrag.y;
-	float useX      = abs(deltaX) >= abs(deltaY) ? 1.0 : 0.0;
-	float delta     = min(maxIterationCount, mix(abs(deltaY), abs(deltaX), useX) * resolution);
-	vec2  increment = vec2(deltaX, deltaY) / max(delta, 0.001);
-
+	vec2  increment = vec2(deltaX, deltaY) / iteration_count;
 	float search0 = 0;
 	float search1 = 0;
 
@@ -85,7 +86,7 @@ void main()
 
 	float i = 0;
 
-	for (i = 0; i < int(delta); ++i) {
+	for (i = 0; i < iteration_count; ++i) {
 		frag      += increment;
 		uv      = frag / texSize;
 		bool valid = GetViewPosition(uv, positionTo);
@@ -140,8 +141,8 @@ void main()
 			(depth / thickness, 0, 1)
 		)
 		* (1
-		- clamp
-			(length(positionTo - positionFrom) / maxDistance, 0, 1)
+		- pow(clamp
+			(length(positionTo - positionFrom) / max_distance, 0, 1), distance_confidence)
 		)
 		* (uv.x < 0 || uv.x > 1 ? 0 : 1)
 		* (uv.y < 0 || uv.y > 1 ? 0 : 1);

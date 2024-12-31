@@ -62,8 +62,8 @@ void Camera::UpdateGBuffer() {
 
     VkSamplerCreateInfo sampler_info{};
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.magFilter = VK_FILTER_LINEAR;
-    sampler_info.minFilter = VK_FILTER_LINEAR;
+    sampler_info.magFilter = VK_FILTER_NEAREST;
+    sampler_info.minFilter = VK_FILTER_NEAREST;
     sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
@@ -73,7 +73,7 @@ void Camera::UpdateGBuffer() {
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
     sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
-    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
 
     g_buffer_normal_sampler_ = std::make_unique<Sampler>(sampler_info);
   }
@@ -121,8 +121,8 @@ void Camera::UpdateGBuffer() {
 
     VkSamplerCreateInfo sampler_info{};
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.magFilter = VK_FILTER_LINEAR;
-    sampler_info.minFilter = VK_FILTER_LINEAR;
+    sampler_info.magFilter = VK_FILTER_NEAREST;
+    sampler_info.minFilter = VK_FILTER_NEAREST;
     sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
@@ -132,7 +132,7 @@ void Camera::UpdateGBuffer() {
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
     sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
-    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
 
     g_buffer_material_sampler_ = std::make_unique<Sampler>(sampler_info);
   }
@@ -257,9 +257,6 @@ void Camera::Resize(const glm::uvec2& size) {
     render_texture_->Resize({size_.x, size_.y, 1});
     UpdateGBuffer();
   }
-  if (const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>()) {
-    post_processing_stack->Resize({size_.x, size_.y});
-  }
 }
 
 void Camera::OnCreate() {
@@ -271,6 +268,8 @@ void Camera::OnCreate() {
   render_texture_ = std::make_unique<RenderTexture>(render_texture_create_info);
 
   g_buffer_descriptor_set_ = std::make_shared<DescriptorSet>(g_buffer_layout);
+
+  post_processing_stack_ref = ProjectManager::CreateTemporaryAsset<PostProcessingStack>();
   UpdateGBuffer();
 }
 
@@ -461,7 +460,7 @@ void Camera::Deserialize(const YAML::Node& in) {
 }
 
 void Camera::OnDestroy() {
-  render_texture_.reset();
+  post_processing_stack_ref.Clear();
   skybox.Clear();
 }
 
@@ -478,13 +477,13 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Debug")) {
     require_rendering_ = true;
     static bool external_window = false;
-    
+
     ImGui::Checkbox("Display in external window", &external_window);
 
     static float debug_scale = 0.25f;
     if (rendered_) {
       if (external_window) {
-        if(ImGui::Begin("Camera Debug")) {
+        if (ImGui::Begin("Camera Debug")) {
           ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
           debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
           DebugViews(debug_scale);

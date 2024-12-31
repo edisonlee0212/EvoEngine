@@ -14,11 +14,10 @@ bool PrivateComponentRef::Update() {
   }
   if (value_.expired()) {
     const auto scene = scene_.lock();
-    if (const auto entity = scene->GetEntity(entity_handle_); entity.GetIndex() != 0) {
-      if (scene->HasPrivateComponent(entity, private_component_type_name_)) {
-        value_ = scene->GetPrivateComponent(entity, private_component_type_name_);
-        return true;
-      }
+    if (const auto entity = scene->GetEntity(entity_handle_);
+        entity.GetIndex() != 0 && scene->HasPrivateComponent(entity, private_component_type_name_)) {
+      value_ = scene->GetPrivateComponent(entity, private_component_type_name_);
+      return true;
     }
     Clear();
     return false;

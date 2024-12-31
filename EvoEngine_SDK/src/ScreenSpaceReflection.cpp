@@ -16,7 +16,7 @@ bool ScreenSpaceReflection::OnInspect(const std::shared_ptr<EditorLayer>& editor
   bool changed = false;
   if (ImGui::DragFloat("Max march distance", &max_distance, 0.01f, 0.01f, 100.0f))
     changed = true;
-  if (ImGui::DragFloat("Resolution", &resolution, 0.1f, 0.0f, 128.0f))
+  if (ImGui::DragFloat("Resolution", &distance_confidence, 0.1f, 0.0f, 128.0f))
     changed = true;
   if (ImGui::DragInt("Max iteration count", &max_iteration_count, 1, 1, 256))
     changed = true;
@@ -53,7 +53,7 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
   PushConstant push_constant;
   push_constant.max_distance = max_distance;
   push_constant.max_iteration_count = max_iteration_count;
-  push_constant.resolution = resolution;
+  push_constant.distance_confidence = distance_confidence;
   push_constant.initial_steps = initial_steps;
   push_constant.thickness = thickness;
   push_constant.camera_index =

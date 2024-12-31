@@ -856,9 +856,6 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
       dynamic_strands->Physics(
           physics_parameters,
           [&]() {
-
-          },
-          [&]() {
             if (gravity->enabled)
               gravity->Execute(physics_parameters, dynamic_strands);
 
@@ -872,6 +869,9 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
             if (saw_operator->enabled) {
               saw_operator->Execute(dynamic_strands);
             }
+          },
+          [&]() {
+
           });
     }
   }

@@ -17,14 +17,18 @@ inline glm::vec3 cgal_to_glm(const Point_CGAL& p) {
 #endif
 void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
                              const std::function<void()>& sub_step_action) {
+  if (pre_step)
+    pre_step->Execute(physics_parameters, *this);
   pre_step_action();
   for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
-    if (pre_step)
-      pre_step->Execute(physics_parameters, *this);
-    sub_step_action();
     if (prediction)
       prediction->Execute(physics_parameters, *this);
-
+    if (sub_step_index == 0) {
+      if (physics_parameters.enable_breaking || physics_parameters.enable_disconnection) {
+        breaking->Execute(physics_parameters, *this);
+      }
+    }
+    sub_step_action();
     for (int iteration_i = 0; iteration_i < physics_parameters.constraint_iteration; iteration_i++) {
       for (const auto& c : constraints) {
         if (c->enabled)
@@ -69,10 +73,6 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
   if (physics_parameters.enable_grouping && frame_index > 0) {
     CalculateGroups(physics_parameters);
   }
-  if (physics_parameters.enable_breaking || physics_parameters.enable_disconnection) {
-    breaking->Execute(physics_parameters, *this);
-  }
-
   frame_index++;
 }
 

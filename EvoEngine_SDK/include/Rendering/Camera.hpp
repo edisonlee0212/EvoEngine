@@ -73,7 +73,6 @@ class Camera final : public IPrivateComponent {
   const std::shared_ptr<DescriptorSet>& GetGBufferDescriptorSet() const;
 
  private:
-
   void DebugViews(float debug_scale) const;
   friend class Platform;
   friend class RenderLayer;
