@@ -169,6 +169,26 @@ struct Leaf {
 
   vec3 position_offset;
   float padding;
+
+  vec3 v;
+  float padding1;
+
+  vec3 acceleration;
+  float padding2;
+
+  vec3 angular_v;
+  float padding3;
+
+  vec3 torque;
+  float padding4;
+
+  vec3 inertia_tensor;
+  float padding5;
+  vec3 inv_inertia_tensor;
+  float padding6;
+
+  mat4 inertia_w;
+  mat4 inv_inertia_w;
 };
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 0) buffer STRANDS_BLOCK {

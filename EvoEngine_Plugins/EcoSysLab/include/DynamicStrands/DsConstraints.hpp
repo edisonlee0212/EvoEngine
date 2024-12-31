@@ -226,6 +226,7 @@ class DsBundle : public IDsConstraint {
   DsBundle();
   int sub_iteration = 1;
   bool enable_bundle_position = true;
+  // Not stable
   bool enable_bundle_rotation = false;
   bool enable_bend_twist = true;
   bool enable_stretch_shear = true;

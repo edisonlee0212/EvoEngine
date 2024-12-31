@@ -80,23 +80,6 @@ DsPrediction::DsPrediction() {
 
     leaf_prediction_pipeline->Initialize();
   }
-  if (!segment_pair_prediction_pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Prediction/SegmentPair.comp");
-    segment_pair_prediction_pipeline = std::make_shared<ComputePipeline>();
-    segment_pair_prediction_pipeline->compute_shader = shader;
-    segment_pair_prediction_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-
-    auto& push_constant_range = segment_pair_prediction_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(SegmentPairPredictionPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    segment_pair_prediction_pipeline->Initialize();
-  }
 
   if (!uniform_particle_prediction_pipeline) {
     static std::shared_ptr<Shader> shader{};
@@ -140,11 +123,6 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   leaf_push_constant.angular_velocity_damping = physics_parameters.angular_velocity_damping;
   leaf_push_constant.velocity_damping = physics_parameters.velocity_damping;
 
-  SegmentPairPredictionPushConstant segment_pair_push_constant;
-  segment_pair_push_constant.segment_pair_size = target_dynamic_strands.segment_pairs.size();
-  segment_pair_push_constant.allow_breaking = physics_parameters.enable_breaking ? 1 : 0;
-  segment_pair_push_constant.allow_disconnection = physics_parameters.enable_disconnection ? 1 : 0;
-
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_prediction_pipeline->Bind(vk_command_buffer);
     segment_prediction_pipeline->BindDescriptorSet(
@@ -160,20 +138,90 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
     uniform_particle_prediction_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
     vkCmdDispatch(vk_command_buffer,
                   Platform::DivUp(uniform_particle_push_constant.uniform_particle_size, work_group_invocations), 1, 1);
-
-    segment_pair_prediction_pipeline->Bind(vk_command_buffer);
-    segment_pair_prediction_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    segment_pair_prediction_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
-    vkCmdDispatch(vk_command_buffer,
-                  Platform::DivUp(segment_pair_push_constant.segment_pair_size, work_group_invocations), 1, 1);
-
     leaf_prediction_pipeline->Bind(vk_command_buffer);
     leaf_prediction_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     leaf_prediction_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+}
+
+DsBreaking::DsBreaking() {
+  if (!segment_pair_breaking_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Breaking/SegmentPair.comp");
+    segment_pair_breaking_pipeline = std::make_shared<ComputePipeline>();
+    segment_pair_breaking_pipeline->compute_shader = shader;
+    segment_pair_breaking_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = segment_pair_breaking_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentPairBreakingPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    segment_pair_breaking_pipeline->Initialize();
+  }
+  if (!leaf_breaking_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Breaking/Leaf.comp");
+    leaf_breaking_pipeline = std::make_shared<ComputePipeline>();
+    leaf_breaking_pipeline->compute_shader = shader;
+    leaf_breaking_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_breaking_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafBreakingPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_breaking_pipeline->Initialize();
+  }
+}
+
+void DsBreaking::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+                         const DynamicStrands& target_dynamic_strands) {
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+
+  SegmentPairBreakingPushConstant segment_pair_push_constant;
+  segment_pair_push_constant.segment_pair_size = target_dynamic_strands.segment_pairs.size();
+  segment_pair_push_constant.allow_breaking =
+      physics_parameters.enable_breaking
+          ? target_dynamic_strands.GetFrameIndex() % physics_parameters.breaking_detection_frame == 0 ? 1 : 0
+          : 0;
+  segment_pair_push_constant.allow_disconnection =
+      physics_parameters.enable_disconnection
+          ? target_dynamic_strands.GetFrameIndex() % physics_parameters.disconnection_detection_frame == 0 ? 1 : 0
+          : 0;
+
+  LeafBreakingPushConstant leaf_push_constant;
+  leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  leaf_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
+  leaf_push_constant.inv_time_step = 1.f / leaf_push_constant.time_step;
+  leaf_push_constant.angular_velocity_damping = physics_parameters.angular_velocity_damping;
+  leaf_push_constant.velocity_damping = physics_parameters.velocity_damping;
+
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    segment_pair_breaking_pipeline->Bind(vk_command_buffer);
+    segment_pair_breaking_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    segment_pair_breaking_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
+    vkCmdDispatch(vk_command_buffer,
+                  Platform::DivUp(segment_pair_push_constant.segment_pair_size, work_group_invocations), 1, 1);
+
+    leaf_breaking_pipeline->Bind(vk_command_buffer);
+    leaf_breaking_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    leaf_breaking_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });

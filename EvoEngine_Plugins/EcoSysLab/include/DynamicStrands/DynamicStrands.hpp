@@ -36,6 +36,7 @@ class DsPreStep;
 class IDsPhysicsOperator;
 class IDsConstraint;
 class DsPrediction;
+class DsBreaking;
 class DsVelocityUpdate;
 struct DtsStrandGroupData {};
 
@@ -98,14 +99,14 @@ class DynamicStrands {
     PlottedDistribution<float> max_bundle_strain = {{0.08f, 0.12f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                     {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    PlottedDistribution<float> max_shear_strain = {{0.01f, 0.01f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+    PlottedDistribution<float> max_shear_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-    PlottedDistribution<float> max_stretch_strain = {{0.01f, 0.01f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+    PlottedDistribution<float> max_stretch_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                      {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    PlottedDistribution<float> max_bend_strain = {{0.1f, 0.1f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+    PlottedDistribution<float> max_bend_strain = {{0.15f, 0.15f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                   {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-    PlottedDistribution<float> max_twist_strain = {{0.1f, 0.1f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+    PlottedDistribution<float> max_twist_strain = {{0.15f, 0.15f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
     GlobalTransform root_transform{};
@@ -128,6 +129,9 @@ class DynamicStrands {
     int constraint_iteration = 5;
     bool enable_disconnection = false;
     bool enable_breaking = false;
+    int breaking_detection_frame = 1;
+    int disconnection_detection_frame = 1;
+
     float velocity_damping = 0.005f;
     float angular_velocity_damping = 0.0005f;
 
@@ -200,6 +204,7 @@ class DynamicStrands {
 
   std::shared_ptr<DsPreStep> pre_step;
   std::shared_ptr<DsPrediction> prediction;
+  std::shared_ptr<DsBreaking> breaking;
   std::shared_ptr<DsVelocityUpdate> velocity_update;
   std::shared_ptr<DsDynamicHashedGrid> dynamic_hashed_grid;
   std::shared_ptr<DsSegmentCollision> segment_collision;
@@ -379,6 +384,26 @@ class DynamicStrands {
 
     glm::vec3 position_offset;
     float padding;
+
+    glm::vec3 v;
+    float padding1;
+
+    glm::vec3 acceleration;
+    float padding2;
+
+    glm::vec3 angular_v;
+    float padding3;
+
+    glm::vec3 torque;
+    float padding4;
+
+    glm::vec3 inertia_tensor;
+    float padding5;
+    glm::vec3 inv_inertia_tensor;
+    float padding6;
+
+    glm::mat4 inertia_w;
+    glm::mat4 inv_inertia_w;
   };
 
   struct GpuHashedGridElement {
@@ -424,7 +449,6 @@ class DynamicStrands {
   void Download();
 
   void CalculateGroups(const PhysicsParameters& physics_parameters) const;
-
   void Clear();
 
   std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets;

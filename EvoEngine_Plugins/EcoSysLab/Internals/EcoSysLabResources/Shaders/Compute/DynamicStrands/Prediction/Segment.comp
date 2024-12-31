@@ -87,9 +87,9 @@ void main(){
 		//Shift rotation values
 		segment.last_q = segment.q;
 		//Apply angular velocity
-		vec4 angular_velocity_q = vec4(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0.0);
+		vec4 angular_velocity_q = vec4(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0.0f);
 
-		segment.q += 0.5 * time_step * quat_mul(angular_velocity_q, segment.q);
+		segment.q += 0.5f * time_step * quat_mul(angular_velocity_q, segment.q);
 		segment.q = normalize(segment.q);
 
 		//Update w

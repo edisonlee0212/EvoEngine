@@ -20,19 +20,12 @@ class DsPreStep {
 class DsPrediction {
  public:
   DsPrediction();
-
   struct SegmentPredictionPushConstant {
     uint32_t segment_size = 0;
     float time_step = 0.01f;
     float inv_time_step = 100.f;
     float angular_velocity_damping;
     float velocity_damping;
-  };
-
-  struct SegmentPairPredictionPushConstant {
-    uint32_t segment_pair_size = 0;
-    uint32_t allow_disconnection;
-    uint32_t allow_breaking;
   };
   struct UniformParticlePredictionPushConstant {
     uint32_t uniform_particle_size = 0;
@@ -46,9 +39,32 @@ class DsPrediction {
   };
   inline static std::shared_ptr<ComputePipeline> uniform_particle_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_prediction_pipeline;
-  inline static std::shared_ptr<ComputePipeline> segment_pair_prediction_pipeline;
 
   inline static std::shared_ptr<ComputePipeline> leaf_prediction_pipeline;
+  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const DynamicStrands& target_dynamic_strands);
+};
+
+class DsBreaking {
+ public:
+  DsBreaking();
+
+  struct SegmentPairBreakingPushConstant {
+    uint32_t segment_pair_size = 0;
+    uint32_t allow_disconnection;
+    uint32_t allow_breaking;
+  };
+
+  struct LeafBreakingPushConstant {
+    uint32_t leaf_size = 0;
+    float time_step = 0.01f;
+    float inv_time_step = 100.f;
+    float angular_velocity_damping;
+    float velocity_damping;
+  };
+
+  inline static std::shared_ptr<ComputePipeline> segment_pair_breaking_pipeline;
+  inline static std::shared_ptr<ComputePipeline> leaf_breaking_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };

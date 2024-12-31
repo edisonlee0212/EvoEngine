@@ -69,6 +69,10 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
   if (physics_parameters.enable_grouping && frame_index > 0) {
     CalculateGroups(physics_parameters);
   }
+  if (physics_parameters.enable_breaking || physics_parameters.enable_disconnection) {
+    breaking->Execute(physics_parameters, *this);
+  }
+
   frame_index++;
 }
 
@@ -129,6 +133,7 @@ DynamicStrands::DynamicStrands() {
   velocity_update = std::make_shared<DsVelocityUpdate>();
   dynamic_hashed_grid = std::make_shared<DsDynamicHashedGrid>();
   segment_collision = std::make_shared<DsSegmentCollision>();
+  breaking = std::make_shared<DsBreaking>();
 
   BuildRenderingPipelines();
   BuildFoliageRenderingPipelines();
@@ -905,8 +910,16 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::Checkbox("Breaking", &enable_breaking)) {
     changed = true;
   }
+  if (enable_breaking) {
+    if (ImGui::DragInt("Breaking detection frame", &breaking_detection_frame, 1, 1, 500))
+      changed = true;
+  }
   if (ImGui::Checkbox("Disconnection", &enable_disconnection)) {
     changed = true;
+  }
+  if (enable_disconnection) {
+    if (ImGui::DragInt("Disconnection detection frame", &disconnection_detection_frame, 1, 1, 500))
+      changed = true;
   }
   if (ImGui::Checkbox("Grouping", &enable_grouping)) {
     changed = true;
