@@ -7,8 +7,10 @@ struct Camera {
   mat4 inverse_view;
   mat4 inverse_projection_view;
   vec4 clear_color;
-  vec4 reserved_1;
-  vec4 reserved_2;
+  float resolution_x;
+  float resolution_y;
+  float fade_ratio;
+  float fade_factor;
   int skybox_tex_index;
   int irradiance_map_index;
   int prefiltered_map_index;
@@ -53,31 +55,39 @@ vec3 EE_CAMERA_POSITION(int camera_index) {
 }
 
 float EE_CAMERA_NEAR(int camera_index) {
-  return EE_CAMERAS[camera_index].reserved_1.x;
+  float a = EE_CAMERAS[camera_index].projection[2][2];
+  float b = EE_CAMERAS[camera_index].projection[2][3];
+  return b / (a - 1.f);
 }
 
 float EE_CAMERA_FAR(int camera_index) {
-  return EE_CAMERAS[camera_index].reserved_1.y;
-}
-
-float EE_CAMERA_TAN_FOV(int camera_index) {
-  return EE_CAMERAS[camera_index].reserved_1.z;
+  float a = EE_CAMERAS[camera_index].projection[2][2];
+  float b = EE_CAMERAS[camera_index].projection[2][3];
+  return b / (a + 1.f);
 }
 
 float EE_CAMERA_TAN_HALF_FOV(int camera_index) {
-  return EE_CAMERAS[camera_index].reserved_1.w;
+  return EE_CAMERAS[camera_index].projection[1][1];
 }
 
 float EE_CAMERA_RESOLUTION_X(int camera_index) {
-  return EE_CAMERAS[camera_index].reserved_2.x;
+  return EE_CAMERAS[camera_index].resolution_x;
 }
 
 float EE_CAMERA_RESOLUTION_Y(int camera_index) {
-  return EE_CAMERAS[camera_index].reserved_2.y;
+  return EE_CAMERAS[camera_index].resolution_y;
 }
 
 float EE_CAMERA_RESOLUTION_RATIO(int camera_index) {
-  return EE_CAMERAS[camera_index].reserved_2.z;
+  return EE_CAMERAS[camera_index].resolution_x / EE_CAMERAS[camera_index].resolution_y;
+}
+
+float EE_CAMERA_FADE_RATIO(int camera_index) {
+  return EE_CAMERAS[camera_index].fade_ratio;
+}
+
+float EE_CAMERA_FADE_FACTOR(int camera_index) {
+  return EE_CAMERAS[camera_index].fade_factor;
 }
 
 float EE_LINEARIZE_DEPTH(int camera_index, float ndcDepth) {

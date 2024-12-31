@@ -1287,11 +1287,11 @@ VkDeviceAddress BottomLevelAccelerationStructure::GetDeviceAddress() const {
 }
 
 TopLevelAccelerationStructure::TopLevelAccelerationStructure(
-    const std::shared_ptr<Scene>& scene, const std::shared_ptr<RenderInstanceStorage>& render_instance_storage) {
+    const std::shared_ptr<Scene>& scene, const RenderInstanceStorage& render_instance_storage) {
   if (!Platform::Initialized())
     return;
   std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances;
-  render_instance_storage->deferred_render_instances->ForEachRenderInstance(
+  render_instance_storage.deferred_render_instances->ForEachRenderInstance(
       [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
         auto& acceleration_structure_instance = acceleration_structure_instances.emplace_back();
         const auto global_transform = scene->GetDataComponent<GlobalTransform>(render_instance->owner);

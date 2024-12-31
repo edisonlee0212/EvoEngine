@@ -9,25 +9,24 @@ using namespace evo_engine;
 
 void RenderSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Show entities", &enable_debug_visualization);
-  ImGui::DragFloat("Gamma", &gamma, 0.01f, 1.0f, 3.0f);
   if (ImGui::CollapsingHeader("Shadow", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::TreeNode("Distance")) {
       if (ImGui::DragFloat("Max shadow distance", &max_shadow_distance, 1.0f, 10.f, 1000.f)) {
         max_shadow_distance = glm::clamp(max_shadow_distance, 10.f, 1000.f);
       }
       if (ImGui::DragFloat("Split 1", &shadow_cascade_split[0], 0.01f, 0.0f, shadow_cascade_split[1])) {
-        shadow_cascade_split[0] = glm::clamp(max_shadow_distance, 0.f, shadow_cascade_split[1]);
+        shadow_cascade_split[0] = glm::clamp(shadow_cascade_split[0], 0.f, shadow_cascade_split[1]);
       }
       if (ImGui::DragFloat("Split 2", &shadow_cascade_split[1], 0.01f, shadow_cascade_split[0],
                            shadow_cascade_split[2])) {
-        shadow_cascade_split[1] = glm::clamp(max_shadow_distance, shadow_cascade_split[0], shadow_cascade_split[2]);
+        shadow_cascade_split[1] = glm::clamp(shadow_cascade_split[1], shadow_cascade_split[0], shadow_cascade_split[2]);
       }
       if (ImGui::DragFloat("Split 3", &shadow_cascade_split[2], 0.01f, shadow_cascade_split[1],
                            shadow_cascade_split[3])) {
-        shadow_cascade_split[2] = glm::clamp(max_shadow_distance, shadow_cascade_split[1], shadow_cascade_split[3]);
+        shadow_cascade_split[2] = glm::clamp(shadow_cascade_split[2], shadow_cascade_split[1], shadow_cascade_split[3]);
       }
       if (ImGui::DragFloat("Split 4", &shadow_cascade_split[3], 0.01f, shadow_cascade_split[2], 1.0f)) {
-        shadow_cascade_split[3] = glm::clamp(max_shadow_distance, shadow_cascade_split[2], 1.f);
+        shadow_cascade_split[3] = glm::clamp(shadow_cascade_split[3], shadow_cascade_split[2], 1.f);
       }
       ImGui::TreePop();
     }
@@ -453,7 +452,6 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
 
   pcf_sample_amount = target_render_settings.pcf_sample_amount;
   seam_fix_ratio = target_render_settings.seam_fix_ratio;
-  gamma = target_render_settings.gamma;
   strands_subdivision_x_factor = target_render_settings.strands_subdivision_x_factor;
   strands_subdivision_y_factor = target_render_settings.strands_subdivision_y_factor;
   strands_subdivision_max_x = target_render_settings.strands_subdivision_max_x;
@@ -466,12 +464,10 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
 
   if (pcf_sample_amount != other.pcf_sample_amount)
     return true;
-  
+
   if (seam_fix_ratio != other.seam_fix_ratio)
     return true;
-  if (gamma != other.gamma)
-    return true;
-
+  
   if (strands_subdivision_x_factor != other.strands_subdivision_x_factor)
     return true;
   if (strands_subdivision_y_factor != other.strands_subdivision_y_factor)
@@ -976,9 +972,8 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
       point_light_info_blocks_[render_info_block.point_light_size].constant_linear_quad_far_plane.w =
           plc->GetFarPlane();
 
-      glm::mat4 shadow_proj = glm::perspective(
-          glm::radians(90.0f), 1.0f, 1.0f,
-          point_light_info_blocks_[render_info_block.point_light_size].constant_linear_quad_far_plane.w);
+      glm::mat4 shadow_proj =
+          glm::perspective(glm::radians(90.0f), 1.0f, plc->shadow_distance / 1000.f, plc->shadow_distance);
       point_light_info_blocks_[render_info_block.point_light_size].light_space_matrix[0] =
           shadow_proj * glm::lookAt(position, position + glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
       point_light_info_blocks_[render_info_block.point_light_size].light_space_matrix[1] =
@@ -1040,8 +1035,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
       spot_light_info_blocks_[render_info_block.spot_light_size].specular = glm::vec4(0);
 
       glm::mat4 shadow_proj =
-          glm::perspective(glm::radians(slc->outer_degrees * 2.0f), 1.0f, 1.0f,
-                           spot_light_info_blocks_[render_info_block.spot_light_size].constant_linear_quad_far_plane.w);
+          glm::perspective(glm::radians(slc->outer_degrees * 2.0f), 1.0f, slc->shadow_distance / 1000.f, slc->shadow_distance);
       spot_light_info_blocks_[render_info_block.spot_light_size].light_space_matrix =
           shadow_proj * glm::lookAt(position, position + front, up);
       spot_light_info_blocks_[render_info_block.spot_light_size].cut_off_outer_cut_off_light_size_bias =
@@ -1447,8 +1441,7 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
 }
 
 void RenderInstanceStorage::UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene) {
-  // mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene,
-  // deferred_render_instances);
+  // mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene, *this);
 }
 
 bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,

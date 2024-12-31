@@ -14,7 +14,6 @@ struct RenderSettings {
 
   int pcf_sample_amount = 32;
   float seam_fix_ratio = 0.1f;
-  float gamma = 1.f;
 
   float strands_subdivision_x_factor = 50.0f;
   float strands_subdivision_y_factor = 50.0f;
@@ -46,7 +45,7 @@ class RenderInstanceStorage {
     alignas(4) int pcf_sample_amount = 32;
     alignas(4) int debug_visualization = 0;
     alignas(4) float seam_fix_ratio = 0.1f;
-    alignas(4) float gamma = 1.f;
+    alignas(4) float padding = 1.f;
 
     alignas(4) float strands_subdivision_x_factor = 50.0f;
     alignas(4) float strands_subdivision_y_factor = 50.0f;

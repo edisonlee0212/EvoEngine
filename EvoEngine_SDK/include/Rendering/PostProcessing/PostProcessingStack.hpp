@@ -1,8 +1,10 @@
 #pragma once
+#include "ComputePipeline.hpp"
 #include "GraphicsPipeline.hpp"
 #include "IAsset.hpp"
 #include "RenderTexture.hpp"
 namespace evo_engine {
+class ToneMapping;
 class ScreenSpaceReflection;
 class Bloom;
 class ScreenSpaceAmbientOcclusion;
@@ -28,12 +30,14 @@ class PostProcessingStack : public IAsset {
   std::shared_ptr<ScreenSpaceAmbientOcclusion> screen_space_ambient_occlusion{};
   std::shared_ptr<Bloom> bloom{};
   std::shared_ptr<ScreenSpaceReflection> screen_space_reflection{};
+  std::shared_ptr<ToneMapping> tone_mapping{};
 
   void GaussianBlur(const glm::uvec2& size) const;
 
   bool enable_screen_space_ambient_occlusion = true;
   bool enable_bloom = true;
   bool enable_screen_space_reflection = true;
+  bool enable_tone_mapping = true;
 };
 
 class IPostProcessing {
@@ -145,6 +149,22 @@ class Bloom : public IPostProcessing {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines() override;
+};
+
+class ToneMapping : public IPostProcessing {
+public:
+  struct PushConstant {
+    int32_t camera_index = 0;
+    float exposure;
+    float gamma;
+  };
+
+  float exposure = 2.f;
+  float gamma = 1.f;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
+  void BuildPipelines() override;
+  inline static std::shared_ptr<ComputePipeline> pipeline;
 };
 
 }  // namespace evo_engine

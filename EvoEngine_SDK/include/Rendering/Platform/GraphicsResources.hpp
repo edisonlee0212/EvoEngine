@@ -397,7 +397,7 @@ class TopLevelAccelerationStructure final : public IGraphicsResource {
 
  public:
   explicit TopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene,
-                                         const std::shared_ptr<RenderInstanceStorage>& render_instance_storage);
+                                         const RenderInstanceStorage& render_instance_storage);
   ~TopLevelAccelerationStructure() override;
 
   [[nodiscard]] VkAccelerationStructureKHR GetVkAccelerationStructure() const;
@@ -415,9 +415,8 @@ class DescriptorSet final : public IGraphicsResource {
   /**
    * \brief UpdateImageDescriptorBinding
    * \param binding_index Target binding
-   * \param image_info
+   * \param image_info The image info for update. Make sure the size is max frame size.
    * \param array_element
-   * \param imageInfos The image info for update. Make sure the size is max frame size.
    */
   void UpdateImageDescriptorBinding(uint32_t binding_index, const VkDescriptorImageInfo& image_info,
                                     uint32_t array_element = 0) const;

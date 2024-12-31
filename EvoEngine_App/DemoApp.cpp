@@ -331,8 +331,8 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         point_light_right_renderer->mesh = Resources::GetResource<Mesh>("PRIMITIVE_SPHERE");
         const auto point_light_right =
             scene->GetOrSetPrivateComponent<PointLight>(left_point_light_right_entity).lock();
-        point_light_right->diffuse_brightness = 30;
-        point_light_right->light_size = 0.001f;
+        point_light_right->diffuse_brightness = 100;
+        point_light_right->light_size = 0.005f;
         point_light_right->constant = 2.5f;
         point_light_right->linear = 0.5f;
         point_light_right->quadratic = 0.1f;
@@ -354,7 +354,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
           if (!last_frame_playing)
             start_time = Times::Now();
           const float current_time = Times::Now() - start_time;
-          const float cos_time = glm::cos(current_time / 5.0f);
+          const float cos_time = glm::cos(current_time / 2.5f);
 
           Transform current_left_point_light_transform;
           current_left_point_light_transform.SetPosition(glm::vec3(3, 0, cos_time * 2.5 - 2.5));

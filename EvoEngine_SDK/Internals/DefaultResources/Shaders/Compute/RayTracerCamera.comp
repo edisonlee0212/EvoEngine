@@ -63,8 +63,8 @@ void main() {
 
 void Execute(uint pixel_index) {
 	uint seed = pixel_index;
-	float x_coordinate = float(pixel_index % resolution_y);
-	float y_coordinate = float(pixel_index / resolution_y);
+	float x_coordinate = float(pixel_index % resolution_x);
+	float y_coordinate = float(pixel_index / resolution_x);
 
 	float half_x = float(resolution_x) * .5;
 	float half_y = float(resolution_y) * .5;

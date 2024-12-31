@@ -8,7 +8,7 @@ struct RenderInfo {
   int shadow_sample_size;
   int debug_visualization;
   float shadow_seam_fix;
-  float gamma;
+  float padding;
 
   float strand_subdivision_x;
   float strand_subdivision_y;

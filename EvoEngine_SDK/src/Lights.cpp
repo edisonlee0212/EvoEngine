@@ -10,6 +10,8 @@ bool SpotLight::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Cast Shadow", &cast_shadow))
     changed = false;
+  if (cast_shadow && ImGui::DragFloat("Shadow distance", &shadow_distance, 0.001f, 0.0f, 999.0f))
+    changed = false;
   if (ImGui::ColorEdit3("Color", &diffuse[0]))
     changed = false;
   if (ImGui::DragFloat("Intensity", &diffuse_brightness, 0.01f, 0.0f, 999.0f))
@@ -40,6 +42,7 @@ void SpotLight::OnCreate() {
 
 void SpotLight::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "cast_shadow" << YAML::Value << cast_shadow;
+  out << YAML::Key << "shadow_distance" << YAML::Value << shadow_distance;
   out << YAML::Key << "inner_degrees" << YAML::Value << inner_degrees;
   out << YAML::Key << "outer_degrees" << YAML::Value << outer_degrees;
   out << YAML::Key << "constant" << YAML::Value << constant;
@@ -53,6 +56,8 @@ void SpotLight::Serialize(YAML::Emitter& out) const {
 
 void SpotLight::Deserialize(const YAML::Node& in) {
   cast_shadow = in["cast_shadow"].as<bool>();
+  if (in["shadow_distance"])
+    shadow_distance = in["shadow_distance"].as<bool>();
   inner_degrees = in["inner_degrees"].as<float>();
   outer_degrees = in["outer_degrees"].as<float>();
   constant = in["constant"].as<float>();
@@ -80,6 +85,8 @@ bool PointLight::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Cast Shadow", &cast_shadow))
     changed = false;
+  if (cast_shadow && ImGui::DragFloat("Shadow distance", &shadow_distance, 0.001f, 0.0f, 999.0f))
+    changed = false;
   if (ImGui::ColorEdit3("Color", &diffuse[0]))
     changed = false;
   if (ImGui::DragFloat("Intensity", &diffuse_brightness, 0.01f, 0.0f, 999.0f))
@@ -106,6 +113,7 @@ void PointLight::OnCreate() {
 
 void PointLight::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "cast_shadow" << YAML::Value << cast_shadow;
+  out << YAML::Key << "shadow_distance" << YAML::Value << shadow_distance;
   out << YAML::Key << "constant" << YAML::Value << constant;
   out << YAML::Key << "linear" << YAML::Value << linear;
   out << YAML::Key << "quadratic" << YAML::Value << quadratic;
@@ -117,6 +125,8 @@ void PointLight::Serialize(YAML::Emitter& out) const {
 
 void PointLight::Deserialize(const YAML::Node& in) {
   cast_shadow = in["cast_shadow"].as<bool>();
+  if (in["shadow_distance"])
+    shadow_distance = in["shadow_distance"].as<bool>();
   constant = in["constant"].as<float>();
   linear = in["linear"].as<float>();
   quadratic = in["quadratic"].as<float>();
