@@ -36,6 +36,9 @@ class SoilDescriptor : public IAsset {
   glm::ivec2 texture_resolution = {512, 512};
   std::vector<AssetRef> soil_layer_descriptors;
   AssetRef height_field;
+
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+
   /**ImGui menu goes to here. Also you can take care you visualization with Gizmos here.
    * Note that the visualization will only be activated while you are inspecting the soil private component in the
    * entity inspector.

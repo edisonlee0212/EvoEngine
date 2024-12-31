@@ -17,6 +17,7 @@ class HeightField : public IAsset {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void GenerateMesh(const glm::vec2& start, const glm::uvec2& resolution, float unitSize, std::vector<Vertex>& vertices,
                     std::vector<glm::uvec3>& triangles, float xDepth = 1.0f, float zDepth = 1.0f) const;
 };

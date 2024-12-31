@@ -17,7 +17,8 @@ void project_bend_twist_constraint(in float inv_time_step, in vec4 q0, in float 
                                    in float inv_mass_q1, in vec3 alpha, in vec4 rest_darboux_vector,
                                    out vec4 q0_correction, out vec4 q1_correction);
 
-void BundleSegment(in uint segment_handle, in float inv_time_step, in float over_relaxation);
+void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in float over_relaxation);
+void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in float over_relaxation);
 void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in float over_relaxation);
 void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step);
 
@@ -204,7 +205,68 @@ vec2 bend_twist_strain(in vec4 q0, in vec4 q1, in vec4 rest_darboux_vector) {
   return vec2(max(abs(lambda.x), abs(lambda.y)), lambda.z);
 }
 
-//Assume vectors are normalized.
+
+void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
+  Segment segment0 = segments[segment_handle];
+  Particle segment0_particle0 = segment0.particle0;
+  Particle segment0_particle1 = segment0.particle1;
+
+  SegmentData segment_data = segment_data_list[segment_handle];
+  vec3 movement0_sum = vec3(0.0f, 0.0f, 0.0f);
+  vec3 movement1_sum = vec3(0.0f, 0.0f, 0.0f);
+
+  float sum = 0.f;
+  float bundle_alpha_sum = 0.0f;
+  vec3 segment0_center_position = (segment0_particle0.x + segment0_particle1.x) * 0.5f;
+
+  [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
+    int pair_handle = segment_data.pair_handles[i];
+    if (pair_handle < 0)
+      continue;
+    SegmentPair segment_pair = segment_pairs[pair_handle];
+    if (segment_pair.bend_twist_bundle_integrity <= 0.f)
+      continue;
+    bool is_segment0 = segment_handle == segment_pair.segment0_handle;
+    Segment segment1 = segments[is_segment0 ? segment_pair.segment1_handle : segment_pair.segment0_handle];
+
+    Particle segment1_particle0 = segment1.particle0;
+    Particle segment1_particle1 = segment1.particle1;
+
+    vec3 segment1_center_position = (segment1_particle0.x + segment1_particle1.x) * 0.5f;
+
+    vec3 target_segment0_center_position =
+        segment1_center_position + rotate_vec3(segment1.q, is_segment0 ? segment_pair.segment0_offset.xyz : segment_pair.segment1_offset.xyz);
+
+    float t2 = inv_time_step * inv_time_step;
+    // bundle_alpha_sum += t2 * segment_pair.bundle_alpha;
+    float lambda = max(1e-9f, segment0.inv_mass + segment1.inv_mass);
+    // Always enforce inf stiffness.
+    float factor0 = segment0.inv_mass / lambda;
+
+    float segment_length = distance(segment0_particle0.x, segment0_particle1.x);
+    vec3 front_direction = normalize(rotate_vec3(segment0.q, vec3(0, 0, -1)));
+    vec3 target_segment0_particle0_position = target_segment0_center_position - front_direction * segment_length * .5f;
+    vec3 target_segment0_particle1_position = target_segment0_center_position + front_direction * segment_length * .5f;
+
+    vec3 segment0_particle0_position_correction = (target_segment0_particle0_position - segment0_particle0.x) * factor0;
+    vec3 segment0_particle1_position_correction = (target_segment0_particle1_position - segment0_particle1.x) * factor0;
+
+    sum += 1.0f;
+    movement0_sum += segment0_particle0_position_correction;
+    movement1_sum += segment0_particle1_position_correction;
+  }
+
+  if (sum != 0) {
+    float bundle_alpha = bundle_alpha_sum / sum;
+    segment_data_list[segment_handle].particle0_position_correction.xyz = movement0_sum / sum / (1.0f + bundle_alpha);
+    segment_data_list[segment_handle].particle1_position_correction.xyz = movement1_sum / sum / (1.0f + bundle_alpha);
+  } else {
+    segment_data_list[segment_handle].particle0_position_correction.xyz = vec3(0.0f, 0.0f, 0.0f);
+    segment_data_list[segment_handle].particle1_position_correction.xyz = vec3(0.0f, 0.0f, 0.0f);
+  }
+}
+
+// Assume vectors are normalized.
 vec4 compute_rotation_between(in vec3 v1, in vec3 v2) {
   float dot_product = dot(v1, v2);
   vec3 axis = cross(v1, v2);
@@ -237,23 +299,19 @@ vec4 compute_rotation_between(in vec3 v1, in vec3 v2, in vec3 axis) {
   return normalize(vec4(axis * sin_angle, cos(half_angle)));
 }
 
-void BundleSegment(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
+
+
+void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
   Segment segment0 = segments[segment_handle];
   Particle segment0_particle0 = segment0.particle0;
   Particle segment0_particle1 = segment0.particle1;
 
   SegmentData segment_data = segment_data_list[segment_handle];
-  vec3 movement0_sum = vec3(0.0f, 0.0f, 0.0f);
-  vec3 movement1_sum = vec3(0.0f, 0.0f, 0.0f);
-
-  float sum = 0.f;
-  float bundle_alpha_sum = 0.0f;
 
   float rotation_sum = 0.f;
   vec4 q_correction_sum = vec4(0.0f, 0.0f, 0.0f, 0.0f);
 
   vec3 segment0_center_position = (segment0_particle0.x + segment0_particle1.x) * 0.5f;
-
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
     int pair_handle = segment_data.pair_handles[i];
     if (pair_handle < 0)
@@ -269,9 +327,6 @@ void BundleSegment(in uint segment_handle, in float inv_time_step, in float over
 
     vec3 segment1_center_position = (segment1_particle0.x + segment1_particle1.x) * 0.5f;
 
-    vec3 target_segment0_center_position =
-        segment1_center_position + rotate_vec3(segment1.q, is_segment0 ? segment_pair.segment0_offset.xyz : segment_pair.segment1_offset.xyz);
-
     float t2 = inv_time_step * inv_time_step;
     // bundle_alpha_sum += t2 * segment_pair.bundle_alpha;
     float lambda = max(1e-9f, segment0.inv_mass + segment1.inv_mass);
@@ -279,38 +334,16 @@ void BundleSegment(in uint segment_handle, in float inv_time_step, in float over
     float factor0 = segment0.inv_mass / lambda;
 
     if (segment0.strand_handle != segment1.strand_handle) {
-      vec3 current_offset = rotate_vec3(conjugate(segment0.q), normalize(segment1_center_position - segment0_center_position));
+      vec3 current_offset =
+          rotate_vec3(conjugate(segment0.q), normalize(segment1_center_position - segment0_center_position));
       vec3 expected_offset = is_segment0 ? segment_pair.segment1_offset.xyz : segment_pair.segment0_offset.xyz;
       vec4 lambda = compute_rotation_between(normalize(expected_offset), normalize(current_offset));
       lambda.w = 0;
       vec4 rotation_correction = quat_mul(segment0.q, lambda);
       rotation_correction.w = 0.f;
-      q_correction_sum += (rotation_correction) * factor0;
-      //rotation_sum += 1.0f;
+      q_correction_sum += (rotation_correction)*factor0;
+      rotation_sum += 1.0f;
     }
-    //Calculate rotation correction based on current offset and desired offset.
-    //!!Skip if 2 segments belong to same strand!!!
-
-    float segment_length = distance(segment0_particle0.x, segment0_particle1.x);
-    vec3 front_direction = normalize(rotate_vec3(segment0.q, vec3(0, 0, -1)));
-    vec3 target_segment0_particle0_position = target_segment0_center_position - front_direction * segment_length * .5f;
-    vec3 target_segment0_particle1_position = target_segment0_center_position + front_direction * segment_length * .5f;
-
-    vec3 segment0_particle0_position_correction = (target_segment0_particle0_position - segment0_particle0.x) * factor0;
-    vec3 segment0_particle1_position_correction = (target_segment0_particle1_position - segment0_particle1.x) * factor0;
-
-    sum += 1.0f;
-    movement0_sum += segment0_particle0_position_correction;
-    movement1_sum += segment0_particle1_position_correction;
-  }
-
-  if (sum != 0) {
-    float bundle_alpha = bundle_alpha_sum / sum;
-    segment_data_list[segment_handle].particle0_position_correction.xyz = movement0_sum / sum / (1.0f + bundle_alpha);
-    segment_data_list[segment_handle].particle1_position_correction.xyz = movement1_sum / sum / (1.0f + bundle_alpha);
-  } else {
-    segment_data_list[segment_handle].particle0_position_correction.xyz = vec3(0.0f, 0.0f, 0.0f);
-    segment_data_list[segment_handle].particle1_position_correction.xyz = vec3(0.0f, 0.0f, 0.0f);
   }
 
   if (rotation_sum != 0) {

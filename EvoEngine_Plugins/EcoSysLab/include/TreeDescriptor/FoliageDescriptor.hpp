@@ -5,7 +5,6 @@ using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
 
-
 class FoliageDescriptor : public IAsset {
  public:
   glm::vec2 leaf_size = glm::vec2(0.04f, 0.08f);
@@ -25,7 +24,7 @@ class FoliageDescriptor : public IAsset {
   void Deserialize(const YAML::Node& in) override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
-
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internodeInfo,
                                const float tree_size) const;
 };

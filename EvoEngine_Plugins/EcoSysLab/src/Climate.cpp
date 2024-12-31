@@ -17,6 +17,15 @@ bool ClimateDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   return changed;
 }
 
+std::shared_ptr<Texture2D> ClimateDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ClimateDescriptor.png"));
+  }
+  return thumbnail;
+}
+
 void ClimateDescriptor::Serialize(YAML::Emitter& out) const {
 }
 

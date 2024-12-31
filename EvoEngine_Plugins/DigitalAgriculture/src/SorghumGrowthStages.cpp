@@ -494,6 +494,16 @@ void SorghumGrowthStages::Deserialize(const YAML::Node& in) {
   }
 }
 
+std::shared_ptr<Texture2D> SorghumGrowthStages::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources") /
+                                                "Icons/SorghumGrowthStages.png"));
+  }
+  return thumbnail;
+}
+
 Entity SorghumGrowthStages::CreateEntity(const float time) const {
   const auto scene = Application::GetActiveScene();
   const auto entity = scene->CreateEntity(GetTitle());

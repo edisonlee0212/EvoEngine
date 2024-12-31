@@ -8,7 +8,7 @@ class ClimateDescriptor : public IAsset {
   ClimateParameters climate_parameters;
 
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void Serialize(YAML::Emitter& out) const override;
 
   void Deserialize(const YAML::Node& in) override;

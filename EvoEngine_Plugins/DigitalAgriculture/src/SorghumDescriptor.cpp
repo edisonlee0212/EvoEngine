@@ -359,6 +359,16 @@ Entity SorghumDescriptor::CreateEntity(const std::string& name) const {
   return sorghum_entity;
 }
 
+std::shared_ptr<Texture2D> SorghumDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources") /
+                                                "Icons/SorghumDescriptor.png"));
+  }
+  return thumbnail;
+}
+
 void SorghumDescriptor::ImportPrediction(const std::filesystem::path& yaml_path) {
   if (!std::filesystem::exists(yaml_path)) {
     EVOENGINE_ERROR("File not exist!")

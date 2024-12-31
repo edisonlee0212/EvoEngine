@@ -5,16 +5,14 @@
 #include "EditorLayer.hpp"
 #include "Scene.hpp"
 
+#include "Sorghum.hpp"
+#include "SorghumGenerator.hpp"
 #include "SorghumGrowthStages.hpp"
 #include "SorghumLayer.hpp"
-#include "SorghumGenerator.hpp"
 #include "Times.hpp"
 #include "Utilities.hpp"
 #include "rapidcsv.h"
-#include "Sorghum.hpp"
 using namespace digital_agriculture_plugin;
-
-
 
 bool SorghumPanicleState::OnInspectImpl() {
   bool changed = false;
@@ -49,8 +47,7 @@ void SorghumPanicleState::Deserialize(const YAML::Node& in) {
   saved = true;
 }
 
-void SorghumPanicleState::Apply(
-    SorghumPanicleDescriptor& target_sorghum_panicle_descriptor) const {
+void SorghumPanicleState::Apply(SorghumPanicleDescriptor& target_sorghum_panicle_descriptor) const {
   target_sorghum_panicle_descriptor.panicle_size = panicle_size;
   target_sorghum_panicle_descriptor.seed_amount = seed_amount;
   target_sorghum_panicle_descriptor.seed_radius = seed_radius;
@@ -126,8 +123,8 @@ void SorghumStemState::Apply(SorghumStemDescriptor& target_sorghum_stem_descript
     stem_node_position = direction * stem_unit_length * static_cast<float>(i);
 
     const auto up = glm::normalize(glm::cross(direction, stem_left));
-    target_sorghum_stem_descriptor.spline.segments.emplace_back(stem_node_position, up, direction, stem_width, 180.f,
-                                                                 0, 0);
+    target_sorghum_stem_descriptor.spline.segments.emplace_back(stem_node_position, up, direction, stem_width, 180.f, 0,
+                                                                0);
   }
 }
 
@@ -223,13 +220,14 @@ void SorghumLeafState::Apply(const SorghumStemState& stem_state,
 
       const auto up = glm::normalize(glm::cross(stem_state.direction, leaf_left));
       target_sorghum_leaf_descriptor.spline.segments.emplace_back(
-          glm::normalize(stem_state.direction) * current_root_to_sheath_point * stem_state.length + stem_offset, up, stem_state.direction,
-          stem_width, 180.f, 0, 0);
+          glm::normalize(stem_state.direction) * current_root_to_sheath_point * stem_state.length + stem_offset, up,
+          stem_state.direction, stem_width, 180.f, 0, 0);
     }
   }
   /*
   int sheath_node_count =
-      static_cast<int>(glm::max(2.0f, stem_state.length * back_track_ratio / sorghum_layer->vertical_subdivision_length));
+      static_cast<int>(glm::max(2.0f, stem_state.length * back_track_ratio /
+  sorghum_layer->vertical_subdivision_length));
 
   for (int i = 0; i <= sheath_node_count; i++) {
     float factor = static_cast<float>(i) / static_cast<float>(sheath_node_count);
@@ -240,8 +238,9 @@ void SorghumLeafState::Apply(const SorghumStemState& stem_state,
 
     const auto up = glm::normalize(glm::cross(actual_direction, leaf_left));
     target_sorghum_leaf_descriptor.spline.segments.emplace_back(
-        glm::normalize(stem_state.direction) * current_sheath_point * stem_state.length + stem_offset, up, actual_direction, stem_width + 0.002f * static_cast<float>(i) / static_cast<float>(sheath_node_count),
-        180.0f - 90.0f * static_cast<float>(i) / static_cast<float>(sheath_node_count), 0, 0);
+        glm::normalize(stem_state.direction) * current_sheath_point * stem_state.length + stem_offset, up,
+  actual_direction, stem_width + 0.002f * static_cast<float>(i) / static_cast<float>(sheath_node_count), 180.0f - 90.0f
+  * static_cast<float>(i) / static_cast<float>(sheath_node_count), 0, 0);
   }
   */
   int node_amount = static_cast<int>(glm::max(4.0f, length / sorghum_layer->vertical_subdivision_length));
@@ -272,12 +271,10 @@ void SorghumLeafState::Apply(const SorghumStemState& stem_state,
 
     const auto up = glm::normalize(glm::cross(current_direction, leaf_left));
     target_sorghum_leaf_descriptor.spline.segments.emplace_back(
-        node_position, up, current_direction, width, angle,
-                                            waviness * glm::simplex(glm::vec2(current_period.x, 0.f)),
-                                            waviness * glm::simplex(glm::vec2(0.f, current_period.y)));
+        node_position, up, current_direction, width, angle, waviness * glm::simplex(glm::vec2(current_period.x, 0.f)),
+        waviness * glm::simplex(glm::vec2(0.f, current_period.y)));
   }
 }
-
 
 void SorghumLeafState::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "dead" << YAML::Value << dead;
@@ -502,7 +499,6 @@ bool SorghumState::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
   }
 
-
   static int state_mode = static_cast<int>(StateMode::Default);
   static const char* state_modes[]{"Default", "Cubic-Bezier"};
   if (ImGui::Combo("Mode", &state_mode, state_modes, IM_ARRAYSIZE(state_modes))) {
@@ -575,6 +571,16 @@ Entity SorghumState::CreateEntity(const std::string& name) const {
   return sorghum_entity;
 }
 
+std::shared_ptr<Texture2D> SorghumState::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources") /
+                                                "Icons/SorghumDescriptor.png"));
+  }
+  return thumbnail;
+}
+
 void SorghumState::ChangeWaviness(const float factor, const SorghumMeshGeneratorSettings& mesh_generator_settings,
                                   SorghumState& target_sorghum_state) const {
   target_sorghum_state = *this;
@@ -608,7 +614,7 @@ void SorghumLeafState::ChangeWaviness(const float factor, const SorghumStemState
 
   Apply(stem_state, sorghum_leaf_descriptor);
   sorghum_leaf_descriptor.GenerateGeometry(vertices, indices, mesh_generator_settings);
-  
+
   const float target_total_area = calculate_total_area();
 
   float width_factor_upper_bound = 2.f;
@@ -629,7 +635,7 @@ void SorghumLeafState::ChangeWaviness(const float factor, const SorghumStemState
 
     if (calculate_total_area() >= target_total_area) {
       width_factor_upper_bound = mid_width_factor;
-    }else {
+    } else {
       width_factor_lower_bound = mid_width_factor;
     }
   }

@@ -38,7 +38,7 @@ class SorghumGrowthStages : public IAsset {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
-
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   [[nodiscard]] Entity CreateEntity(float time = 0.0f) const;
 };
 }  // namespace digital_agriculture_plugin

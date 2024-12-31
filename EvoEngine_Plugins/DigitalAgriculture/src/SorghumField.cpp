@@ -9,8 +9,8 @@
 #include "Scene.hpp"
 #include "Soil.hpp"
 #include "Sorghum.hpp"
-#include "SorghumLayer.hpp"
 #include "SorghumGenerator.hpp"
+#include "SorghumLayer.hpp"
 #include "TransformGraph.hpp"
 using namespace digital_agriculture_plugin;
 using namespace eco_sys_lab_plugin;
@@ -92,6 +92,17 @@ void SorghumField::Deserialize(const YAML::Node& in) {
     }
   }
 }
+
+std::shared_ptr<Texture2D> SorghumField::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources") / "Icons/SorghumField.png"));
+  }
+  return thumbnail;
+}
+
 void SorghumField::CollectAssetRef(std::vector<AssetRef>& list) {
   for (auto& i : matrices) {
     list.push_back(i.first);

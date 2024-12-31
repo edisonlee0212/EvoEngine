@@ -72,8 +72,18 @@ void FoliageDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
     list.push_back(leaf_material);
 }
 
-void FoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internode_info,
-                                                const float tree_size) const {
+std::shared_ptr<Texture2D> FoliageDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/FoliageDescriptor.png"));
+  }
+  return thumbnail;
+}
+
+void FoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& matrices,
+                                                const SkeletonNodeInfo& internode_info, const float tree_size) const {
   if (internode_info.thickness <= max_node_thickness && internode_info.root_distance >= min_root_distance &&
       internode_info.end_distance <= max_end_distance) {
     for (int i = 0; i < leaf_count_per_internode * internode_info.leaves; i++) {
@@ -84,7 +94,8 @@ void FoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& matrices
       auto front = rotation * glm::vec3(0, 0, -1);
       auto up = rotation * glm::vec3(0, 1, 0);
       TreeModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
-      if (const auto horizontal_direction = glm::vec3(front.x, 0.0f, front.z); glm::length(horizontal_direction) > glm::epsilon<float>()) {
+      if (const auto horizontal_direction = glm::vec3(front.x, 0.0f, front.z);
+          glm::length(horizontal_direction) > glm::epsilon<float>()) {
         TreeModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, front, up);
       }
       auto foliage_position =

@@ -431,98 +431,155 @@ glm::vec3 DsStiffRod::ComputeDarbouxVector(const glm::quat& q0, const glm::quat&
   return 2.f / average_segment_length * glm::vec3(relative_rotation.x, relative_rotation.y, relative_rotation.z);
 }
 
-DsRandomBundle::DsRandomBundle() {
-  if (!bundle_stretch_shear_offset_pipeline) {
+DsBundle::DsBundle() {
+  if (!stretch_shear_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/RandomBundleShearStretchOffset.comp");
-    bundle_stretch_shear_offset_pipeline = std::make_shared<ComputePipeline>();
-    bundle_stretch_shear_offset_pipeline->compute_shader = shader;
-    bundle_stretch_shear_offset_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+                           "Shaders/Compute/DynamicStrands/Constraints/Bundle/CalculateShearStretchCorrections.comp");
+    stretch_shear_pipeline = std::make_shared<ComputePipeline>();
+    stretch_shear_pipeline->compute_shader = shader;
+    stretch_shear_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
-    auto& push_constant_range = bundle_stretch_shear_offset_pipeline->push_constant_ranges.emplace_back();
+    auto& push_constant_range = stretch_shear_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RandomBundleShearStretchConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    bundle_stretch_shear_offset_pipeline->Initialize();
+    stretch_shear_pipeline->Initialize();
   }
 
-  if (!bundle_bend_twist_offset_pipeline) {
+  if (!bend_twist_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/RandomBundleBendTwistOffset.comp");
-    bundle_bend_twist_offset_pipeline = std::make_shared<ComputePipeline>();
-    bundle_bend_twist_offset_pipeline->compute_shader = shader;
-    bundle_bend_twist_offset_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+                           "Shaders/Compute/DynamicStrands/Constraints/Bundle/CalculateBendTwistCorrections.comp");
+    bend_twist_pipeline = std::make_shared<ComputePipeline>();
+    bend_twist_pipeline->compute_shader = shader;
+    bend_twist_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
-    auto& push_constant_range = bundle_bend_twist_offset_pipeline->push_constant_ranges.emplace_back();
+    auto& push_constant_range = bend_twist_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RandomBundleBendTwistConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    bundle_bend_twist_offset_pipeline->Initialize();
+    bend_twist_pipeline->Initialize();
   }
 
-  if (!bundle_offset_pipeline) {
+  if (!bundle_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/RandomBundleOffset.comp");
-    bundle_offset_pipeline = std::make_shared<ComputePipeline>();
-    bundle_offset_pipeline->compute_shader = shader;
-    bundle_offset_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+                           "Shaders/Compute/DynamicStrands/Constraints/Bundle/CalculateBundlePositionCorrections.comp");
+    bundle_position_pipeline = std::make_shared<ComputePipeline>();
+    bundle_position_pipeline->compute_shader = shader;
+    bundle_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
-    auto& push_constant_range = bundle_offset_pipeline->push_constant_ranges.emplace_back();
+    auto& push_constant_range = bundle_position_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RandomBundleConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    bundle_offset_pipeline->Initialize();
+    bundle_position_pipeline->Initialize();
   }
 
-  if (!bundle_apply_segments_pipeline) {
+  if (!bundle_rotation_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/RandomBundleApplySegments.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Bundle/CalculateBundleRotationCorrections.comp");
+    bundle_rotation_pipeline = std::make_shared<ComputePipeline>();
+    bundle_rotation_pipeline->compute_shader = shader;
+    bundle_rotation_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
-    bundle_apply_segments_pipeline = std::make_shared<ComputePipeline>();
-    bundle_apply_segments_pipeline->compute_shader = shader;
+    auto& push_constant_range = bundle_rotation_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RandomBundleConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bundle_rotation_pipeline->Initialize();
+  }
 
-    bundle_apply_segments_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  if (!apply_rotation_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Bundle/ApplyRotationCorrections.comp");
 
-    auto& push_constant_range = bundle_apply_segments_pipeline->push_constant_ranges.emplace_back();
+    apply_rotation_pipeline = std::make_shared<ComputePipeline>();
+    apply_rotation_pipeline->compute_shader = shader;
+
+    apply_rotation_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = apply_rotation_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RandomBundleApplySegmentsConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    bundle_apply_segments_pipeline->Initialize();
+    apply_rotation_pipeline->Initialize();
   }
 
-  if (!connections_correction_pipeline) {
+  if (!apply_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/RandomBundleApplyConnections.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Bundle/ApplyPositionCorrections.comp");
 
-    connections_correction_pipeline = std::make_shared<ComputePipeline>();
-    connections_correction_pipeline->compute_shader = shader;
-    connections_correction_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    auto& stretch_shear_push_constant_range = connections_correction_pipeline->push_constant_ranges.emplace_back();
+    apply_position_pipeline = std::make_shared<ComputePipeline>();
+    apply_position_pipeline->compute_shader = shader;
+
+    apply_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = apply_position_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RandomBundleApplySegmentsConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    apply_position_pipeline->Initialize();
+  }
+
+  if (!apply_position_rotation_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Bundle/ApplyCorrections.comp");
+
+    apply_position_rotation_pipeline = std::make_shared<ComputePipeline>();
+    apply_position_rotation_pipeline->compute_shader = shader;
+
+    apply_position_rotation_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = apply_position_rotation_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RandomBundleApplySegmentsConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    apply_position_rotation_pipeline->Initialize();
+  }
+
+  if (!connections_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Bundle/ConnectionCorrections.comp");
+
+    connections_pipeline = std::make_shared<ComputePipeline>();
+    connections_pipeline->compute_shader = shader;
+    connections_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    auto& stretch_shear_push_constant_range = connections_pipeline->push_constant_ranges.emplace_back();
     stretch_shear_push_constant_range.size = sizeof(RandomBundleApplyConnectionsConstant);
     stretch_shear_push_constant_range.offset = 0;
     stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    connections_correction_pipeline->Initialize();
+    connections_pipeline->Initialize();
   }
 }
 
-void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
-                                               const DynamicStrands& target_dynamic_strands) {
+void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                         const DynamicStrands& target_dynamic_strands) {
   if (target_dynamic_strands.segment_pairs.empty())
     return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -560,66 +617,94 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {
-      const auto apply_segment_offset = [&](const uint32_t skip_index) {
-        bundle_apply_segments_pipeline->Bind(vk_command_buffer);
-        bundle_apply_segments_pipeline->BindDescriptorSet(
+      const auto apply_rotations = [&](const uint32_t skip_index) {
+        apply_rotation_pipeline->Bind(vk_command_buffer);
+        apply_rotation_pipeline->BindDescriptorSet(
             vk_command_buffer, 0,
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         constraint_apply_segments_constant.skip_index = skip_index;
-        bundle_apply_segments_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_segments_constant);
+        apply_rotation_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_segments_constant);
         vkCmdDispatch(vk_command_buffer,
                       Platform::DivUp(Platform::DivUp(constraint_apply_segments_constant.segment_size, skip_size),
                                       work_group_invocations),
                       1, 1);
-
         Platform::EverythingBarrier(vk_command_buffer);
       };
-      const auto correct_connections = [&]() {
-        connections_correction_pipeline->Bind(vk_command_buffer);
-        connections_correction_pipeline->BindDescriptorSet(
+
+      const auto apply_positions = [&](const uint32_t skip_index) {
+        apply_position_pipeline->Bind(vk_command_buffer);
+        apply_position_pipeline->BindDescriptorSet(
             vk_command_buffer, 0,
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-        connections_correction_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_connections_constant);
+        constraint_apply_segments_constant.skip_index = skip_index;
+        apply_position_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_segments_constant);
+        vkCmdDispatch(vk_command_buffer,
+                      Platform::DivUp(Platform::DivUp(constraint_apply_segments_constant.segment_size, skip_size),
+                                      work_group_invocations),
+                      1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+      };
+
+      const auto apply_both = [&](const uint32_t skip_index) {
+        apply_position_rotation_pipeline->Bind(vk_command_buffer);
+        apply_position_rotation_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0,
+            target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        constraint_apply_segments_constant.skip_index = skip_index;
+        apply_position_rotation_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_segments_constant);
+        vkCmdDispatch(vk_command_buffer,
+                      Platform::DivUp(Platform::DivUp(constraint_apply_segments_constant.segment_size, skip_size),
+                                      work_group_invocations),
+                      1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+      };
+
+      const auto correct_connections = [&]() {
+        connections_pipeline->Bind(vk_command_buffer);
+        connections_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0,
+            target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        connections_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_connections_constant);
         vkCmdDispatch(vk_command_buffer,
                       Platform::DivUp(constraint_apply_connections_constant.segment_pair_size, work_group_invocations),
                       1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
       const auto calculate_stretch_shear_offset = [&](const uint32_t skip_index) {
-        bundle_stretch_shear_offset_pipeline->Bind(vk_command_buffer);
-        bundle_stretch_shear_offset_pipeline->BindDescriptorSet(
+        stretch_shear_pipeline->Bind(vk_command_buffer);
+        stretch_shear_pipeline->BindDescriptorSet(
             vk_command_buffer, 0,
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         stretch_shear_constraint_constant.skip_index = skip_index;
-        bundle_stretch_shear_offset_pipeline->PushConstant(vk_command_buffer, 0, stretch_shear_constraint_constant);
+        stretch_shear_pipeline->PushConstant(vk_command_buffer, 0, stretch_shear_constraint_constant);
         vkCmdDispatch(vk_command_buffer,
                       Platform::DivUp(Platform::DivUp(stretch_shear_constraint_constant.segment_size, skip_size),
                                       work_group_invocations),
                       1, 1);
-
         Platform::EverythingBarrier(vk_command_buffer);
       };
       const auto calculate_bend_twist_offset = [&](const uint32_t skip_index) {
-        bundle_bend_twist_offset_pipeline->Bind(vk_command_buffer);
-        bundle_bend_twist_offset_pipeline->BindDescriptorSet(
+        bend_twist_pipeline->Bind(vk_command_buffer);
+        bend_twist_pipeline->BindDescriptorSet(
             vk_command_buffer, 0,
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
         bend_twist_constraint_constant.skip_index = skip_index;
-        bundle_bend_twist_offset_pipeline->PushConstant(vk_command_buffer, 0, bend_twist_constraint_constant);
+        bend_twist_pipeline->PushConstant(vk_command_buffer, 0, bend_twist_constraint_constant);
         vkCmdDispatch(vk_command_buffer,
                       Platform::DivUp(Platform::DivUp(bend_twist_constraint_constant.segment_size, skip_size),
                                       work_group_invocations),
                       1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
-      const auto calculate_offset = [&](const uint32_t skip_index) {
-        bundle_offset_pipeline->Bind(vk_command_buffer);
-        bundle_offset_pipeline->BindDescriptorSet(
+
+      const auto bundle_position = [&](const uint32_t skip_index) {
+        bundle_position_pipeline->Bind(vk_command_buffer);
+        bundle_position_pipeline->BindDescriptorSet(
             vk_command_buffer, 0,
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         constraint_constant.skip_index = skip_index;
-        bundle_offset_pipeline->PushConstant(vk_command_buffer, 0, constraint_constant);
+        bundle_position_pipeline->PushConstant(vk_command_buffer, 0, constraint_constant);
         vkCmdDispatch(
             vk_command_buffer,
             Platform::DivUp(Platform::DivUp(constraint_constant.segment_size, skip_size), work_group_invocations), 1,
@@ -627,39 +712,61 @@ void DsRandomBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsPara
 
         Platform::EverythingBarrier(vk_command_buffer);
       };
+
+      const auto bundle_rotation = [&](const uint32_t skip_index) {
+        bundle_rotation_pipeline->Bind(vk_command_buffer);
+        bundle_rotation_pipeline->BindDescriptorSet(
+            vk_command_buffer, 0,
+            target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        constraint_constant.skip_index = skip_index;
+        bundle_rotation_pipeline->PushConstant(vk_command_buffer, 0, constraint_constant);
+        vkCmdDispatch(
+            vk_command_buffer,
+            Platform::DivUp(Platform::DivUp(constraint_constant.segment_size, skip_size), work_group_invocations), 1,
+            1);
+
+        Platform::EverythingBarrier(vk_command_buffer);
+      };
+
       for (uint32_t skip_index = 0; skip_index < skip_size; skip_index++) {
-        if (enable_bundle) {
-          calculate_offset(skip_index);
-          apply_segment_offset(skip_index);
+        if (enable_bundle_position && bundle_position_pipeline && bundle_position_pipeline->Initialized()) {
+          bundle_position(skip_index);
+          apply_positions(skip_index);
         }
-        if (enable_bend_twist) {
+        if (enable_bundle_rotation && bundle_rotation_pipeline && bundle_rotation_pipeline->Initialized()) {
+          bundle_rotation(skip_index);
+          apply_rotations(skip_index);
+        }
+        if (enable_bend_twist && bend_twist_pipeline && bend_twist_pipeline->Initialized()) {
           calculate_bend_twist_offset(skip_index);
-          apply_segment_offset(skip_index);
+          apply_rotations(skip_index);
         }
-        if (enable_stretch_shear) {
+        if (enable_stretch_shear && stretch_shear_pipeline && stretch_shear_pipeline->Initialized()) {
           calculate_stretch_shear_offset(skip_index);
-          apply_segment_offset(skip_index);
+          apply_both(skip_index);
         }
       }
-      correct_connections();
+      if (enable_connections && connections_pipeline && connections_pipeline->Initialized())
+        correct_connections();
     }
   });
 }
 
-
-bool DsRandomBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNode("Random Bundle")) {
     if (ImGui::Checkbox("Enable", &enabled))
       changed = true;
     if (enabled) {
-      if (ImGui::Checkbox("Enable bundle", &enable_bundle))
+      if (ImGui::Checkbox("Enable bundle position", &enable_bundle_position))
         changed = true;
-
+      if (ImGui::Checkbox("Enable bundle rotation", &enable_bundle_rotation))
+        changed = true;
       if (ImGui::Checkbox("Enable bend twist", &enable_bend_twist))
         changed = true;
-
       if (ImGui::Checkbox("Enable stretch shear", &enable_stretch_shear))
+        changed = true;
+      if (ImGui::Checkbox("Enable connections", &enable_connections))
         changed = true;
     }
     if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100))
@@ -670,6 +777,157 @@ bool DsRandomBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       changed = true;
     if (ImGui::DragFloat("Bend Twist over relaxation", &bend_twist_over_relaxation, 0.01f, 1, 10.f))
       changed = true;
+
+    if (ImGui::Button("Recompile")) {
+      {
+        static std::shared_ptr<Shader> shader{};
+        shader = std::make_shared<Shader>();
+        shader->TryCompile(
+            ShaderType::Compute, Platform::Constants::shader_global_defines,
+            std::filesystem::path("./EcoSysLabResources") /
+                "Shaders/Compute/DynamicStrands/Constraints/Bundle/CalculateShearStretchCorrections.comp");
+        stretch_shear_pipeline = std::make_shared<ComputePipeline>();
+        stretch_shear_pipeline->compute_shader = shader;
+        stretch_shear_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+        auto& push_constant_range = stretch_shear_pipeline->push_constant_ranges.emplace_back();
+        push_constant_range.size = sizeof(RandomBundleShearStretchConstant);
+        push_constant_range.offset = 0;
+        push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        stretch_shear_pipeline->Initialize();
+      }
+
+      {
+        static std::shared_ptr<Shader> shader{};
+        shader = std::make_shared<Shader>();
+        shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                           std::filesystem::path("./EcoSysLabResources") /
+                               "Shaders/Compute/DynamicStrands/Constraints/Bundle/CalculateBendTwistCorrections.comp");
+        bend_twist_pipeline = std::make_shared<ComputePipeline>();
+        bend_twist_pipeline->compute_shader = shader;
+        bend_twist_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+        auto& push_constant_range = bend_twist_pipeline->push_constant_ranges.emplace_back();
+        push_constant_range.size = sizeof(RandomBundleBendTwistConstant);
+        push_constant_range.offset = 0;
+        push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        bend_twist_pipeline->Initialize();
+      }
+
+      {
+        static std::shared_ptr<Shader> shader{};
+        shader = std::make_shared<Shader>();
+        shader->TryCompile(
+            ShaderType::Compute, Platform::Constants::shader_global_defines,
+            std::filesystem::path("./EcoSysLabResources") /
+                "Shaders/Compute/DynamicStrands/Constraints/Bundle/CalculateBundlePositionCorrections.comp");
+        bundle_position_pipeline = std::make_shared<ComputePipeline>();
+        bundle_position_pipeline->compute_shader = shader;
+        bundle_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+        auto& push_constant_range = bundle_position_pipeline->push_constant_ranges.emplace_back();
+        push_constant_range.size = sizeof(RandomBundleConstant);
+        push_constant_range.offset = 0;
+        push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        bundle_position_pipeline->Initialize();
+      }
+
+      {
+        static std::shared_ptr<Shader> shader{};
+        shader = std::make_shared<Shader>();
+        shader->TryCompile(
+            ShaderType::Compute, Platform::Constants::shader_global_defines,
+            std::filesystem::path("./EcoSysLabResources") /
+                "Shaders/Compute/DynamicStrands/Constraints/Bundle/CalculateBundleRotationCorrections.comp");
+        bundle_rotation_pipeline = std::make_shared<ComputePipeline>();
+        bundle_rotation_pipeline->compute_shader = shader;
+        bundle_rotation_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+        auto& push_constant_range = bundle_rotation_pipeline->push_constant_ranges.emplace_back();
+        push_constant_range.size = sizeof(RandomBundleConstant);
+        push_constant_range.offset = 0;
+        push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        bundle_rotation_pipeline->Initialize();
+      }
+
+      {
+        static std::shared_ptr<Shader> shader{};
+        shader = std::make_shared<Shader>();
+        shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                           std::filesystem::path("./EcoSysLabResources") /
+                               "Shaders/Compute/DynamicStrands/Constraints/Bundle/ApplyRotationCorrections.comp");
+
+        apply_rotation_pipeline = std::make_shared<ComputePipeline>();
+        apply_rotation_pipeline->compute_shader = shader;
+
+        apply_rotation_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+        auto& push_constant_range = apply_rotation_pipeline->push_constant_ranges.emplace_back();
+        push_constant_range.size = sizeof(RandomBundleApplySegmentsConstant);
+        push_constant_range.offset = 0;
+        push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        apply_rotation_pipeline->Initialize();
+      }
+
+      {
+        static std::shared_ptr<Shader> shader{};
+        shader = std::make_shared<Shader>();
+        shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                           std::filesystem::path("./EcoSysLabResources") /
+                               "Shaders/Compute/DynamicStrands/Constraints/Bundle/ApplyPositionCorrections.comp");
+
+        apply_position_pipeline = std::make_shared<ComputePipeline>();
+        apply_position_pipeline->compute_shader = shader;
+
+        apply_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+        auto& push_constant_range = apply_position_pipeline->push_constant_ranges.emplace_back();
+        push_constant_range.size = sizeof(RandomBundleApplySegmentsConstant);
+        push_constant_range.offset = 0;
+        push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        apply_position_pipeline->Initialize();
+      }
+
+      {
+        static std::shared_ptr<Shader> shader{};
+        shader = std::make_shared<Shader>();
+        shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                           std::filesystem::path("./EcoSysLabResources") /
+                               "Shaders/Compute/DynamicStrands/Constraints/Bundle/ApplyCorrections.comp");
+
+        apply_position_rotation_pipeline = std::make_shared<ComputePipeline>();
+        apply_position_rotation_pipeline->compute_shader = shader;
+
+        apply_position_rotation_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+        auto& push_constant_range = apply_position_rotation_pipeline->push_constant_ranges.emplace_back();
+        push_constant_range.size = sizeof(RandomBundleApplySegmentsConstant);
+        push_constant_range.offset = 0;
+        push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        apply_position_rotation_pipeline->Initialize();
+      }
+
+      {
+        static std::shared_ptr<Shader> shader{};
+        shader = std::make_shared<Shader>();
+        shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                           std::filesystem::path("./EcoSysLabResources") /
+                               "Shaders/Compute/DynamicStrands/Constraints/Bundle/ConnectionCorrections.comp");
+
+        connections_pipeline = std::make_shared<ComputePipeline>();
+        connections_pipeline->compute_shader = shader;
+        connections_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+        auto& stretch_shear_push_constant_range = connections_pipeline->push_constant_ranges.emplace_back();
+        stretch_shear_push_constant_range.size = sizeof(RandomBundleApplyConnectionsConstant);
+        stretch_shear_push_constant_range.offset = 0;
+        stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        connections_pipeline->Initialize();
+      }
+    }
+
     ImGui::TreePop();
   }
   return changed;

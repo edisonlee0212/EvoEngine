@@ -23,7 +23,7 @@ class ForestPatch : public IAsset {
 
   Entity InstantiatePatch(const std::vector<std::pair<TreeGrowthSettings, std::shared_ptr<TreeDescriptor>>>& candidates,
                           const glm::ivec2& gridSize, bool setSimulationSettings = true) const;
-
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
@@ -42,7 +42,7 @@ class ForestDescriptor : public IAsset {
  public:
   std::vector<TreeInfo> m_treeInfos;
   TreeGrowthSettings m_treeGrowthSettings;
-
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void ApplyTreeDescriptor(const std::shared_ptr<TreeDescriptor>& treeDescriptor);
   void ApplyTreeDescriptors(const std::vector<std::shared_ptr<TreeDescriptor>>& treeDescriptors);
   void ApplyTreeDescriptors(const std::filesystem::path& folderPath);

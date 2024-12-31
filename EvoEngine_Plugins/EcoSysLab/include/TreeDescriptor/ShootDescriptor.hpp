@@ -6,6 +6,7 @@ using namespace evo_engine;
 namespace eco_sys_lab_plugin {
 class ShootDescriptor : public IAsset {
  public:
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   /**
    * \brief The expected height gain for the tree for one year (max root distance).
    */

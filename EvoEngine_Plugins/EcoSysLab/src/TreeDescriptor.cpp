@@ -91,6 +91,16 @@ void TreeDescriptor::Serialize(YAML::Emitter& out) const {
   flower_descriptor.Save("flower_descriptor", out);
 }
 
+std::shared_ptr<Texture2D> TreeDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/TreeDescriptor.png"));
+  }
+  return thumbnail;
+}
+
 void TreeDescriptor::Deserialize(const YAML::Node& in) {
   shoot_descriptor.Load("shoot_descriptor", in);
   foliage_descriptor.Load("foliage_descriptor", in);

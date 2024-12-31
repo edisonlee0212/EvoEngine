@@ -14,7 +14,7 @@ class BarkDescriptor : public IAsset {
   float base_depth = .1f;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
   float GetValue(float xFactor, float distanceToRoot);
-
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };

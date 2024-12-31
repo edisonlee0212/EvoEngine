@@ -175,7 +175,7 @@ class DsStiffRod final : public IDsConstraint {
   static glm::vec3 ComputeDarbouxVector(const glm::quat& q0, const glm::quat& q1, float average_segment_length);
 };
 
-class DsRandomBundle : public IDsConstraint {
+class DsBundle : public IDsConstraint {
  public:
   struct RandomBundleShearStretchConstant {
     uint32_t skip_index = 0;
@@ -215,16 +215,21 @@ class DsRandomBundle : public IDsConstraint {
   float over_relaxation = 1.f;
   float bend_twist_over_relaxation = 1.f;
 
-  inline static std::shared_ptr<ComputePipeline> bundle_stretch_shear_offset_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> bundle_bend_twist_offset_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> bundle_offset_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> bundle_apply_segments_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> connections_correction_pipeline{};
-  DsRandomBundle();
+  inline static std::shared_ptr<ComputePipeline> stretch_shear_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> bend_twist_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> bundle_position_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> bundle_rotation_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> apply_rotation_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> apply_position_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> apply_position_rotation_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> connections_pipeline{};
+  DsBundle();
   int sub_iteration = 1;
-  bool enable_bundle = true;
+  bool enable_bundle_position = true;
+  bool enable_bundle_rotation = false;
   bool enable_bend_twist = true;
   bool enable_stretch_shear = true;
+  bool enable_connections = true;
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
 

@@ -38,6 +38,16 @@ float BarkDescriptor::GetValue(const float xFactor, const float distanceToRoot) 
   return bark + base;
 }
 
+std::shared_ptr<Texture2D> BarkDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/BarkDescriptor.png"));
+  }
+  return thumbnail;
+}
+
 void BarkDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "bark_x_frequency" << YAML::Value << bark_x_frequency;
   out << YAML::Key << "bark_y_frequency" << YAML::Value << bark_y_frequency;

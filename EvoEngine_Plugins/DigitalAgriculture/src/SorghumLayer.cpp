@@ -37,20 +37,6 @@ AssetRegistration<SkyIlluminance> si_registry("SkyIlluminance", {".skyilluminanc
 AssetRegistration<SorghumCoordinates> sc_registry("SorghumCoordinates", {".sorghumcoords"});
 
 void SorghumLayer::OnCreate() {
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
-    auto texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
-    texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
-                                                 "SorghumGrowthDescriptor.png"));
-    texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
-    texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
-                                                 "SorghumDescriptor.png"));
-    texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
-    texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
-                                                 "PositionsField.png"));
-    texture_2d->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources/Textures") /
-                                                 "GeneralDataPipeline.png"));
-  }
-
   if (!leaf_material.Get<Material>()) {
     const auto material = ProjectManager::CreateTemporaryAsset<Material>();
     leaf_material = material;
