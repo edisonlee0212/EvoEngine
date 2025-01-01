@@ -13,8 +13,9 @@ struct CameraInfoBlock {
   glm::mat4 inverse_view = {};
   glm::mat4 inverse_projection_view = {};
   glm::vec4 clear_color = {};
-  glm::vec4 reserved_parameters1 = {};
-  glm::vec4 reserved_parameters2 = {};
+  glm::vec2 resolution;
+  float fade_ratio;
+  float fade_factor;
   int skybox_texture_index = 0;
   int environmental_irradiance_texture_index = 0;
   int environmental_prefiltered_index = 0;
@@ -44,7 +45,9 @@ class Camera final : public IPrivateComponent {
   [[nodiscard]] bool Rendered() const;
   void SetRequireRendering(bool value);
   float near_distance = 0.1f;
-  float exposure = 1.0f;
+  float exposure = 2.2f;
+  float fade_ratio = 0.8f;
+  float fade_factor = 1.f;
   float far_distance = 200.0f;
   float fov = 120;
   bool use_clear_color = false;

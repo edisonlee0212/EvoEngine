@@ -76,11 +76,12 @@ void main()
 		offset.xyz /= offset.w; // perspective divide
 		offset.xyz = offset.xyz * 0.5f + 0.5f; // transform to range 0.0 - 1.0
 		// get sample depth
-		vec3 sampleViewPos = EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, offset.xy, texture(inDepth, offset.xy).r);
+		vec3 sampleViewPos;
+		if(!GetViewPosition(offset.xy, sampleViewPos)) continue;
 		float sampleDepth = sampleViewPos.z;
 		// range check & accumulate
 		float rangeCheck = smoothstep(0.0f, 1.0f, pow((radius - distance(viewPos, sampleViewPos)) / radius, factor));
-		occlusion += (sampleDepth >= samplePos.z + bias ? 1.0f : 0.0f) * rangeCheck;           
+		occlusion += (sampleDepth >= (samplePos.z + bias) ? 1.0f : 0.0f) * rangeCheck;           
 	}
 	proximity = vec4(max(0.0f, 1.0f - occlusion / kernelSize * intensity));
 }

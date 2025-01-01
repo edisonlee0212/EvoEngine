@@ -165,29 +165,28 @@ void Camera::TransitGBufferImageLayout(const VkCommandBuffer vk_command_buffer, 
   g_buffer_normal_->TransitImageLayout(vk_command_buffer, target_layout);
   g_buffer_material_->TransitImageLayout(vk_command_buffer, target_layout);
 }
-
 void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const GlobalTransform& global_transform) {
   const auto rotation = global_transform.GetRotation();
   const auto position = global_transform.GetPosition();
   const glm::vec3 front = rotation * glm::vec3(0, 0, -1);
   const glm::vec3 up = rotation * glm::vec3(0, 1, 0);
   const auto ratio = GetSizeRatio();
+
   camera_info_block.projection = glm::perspective(glm::radians(fov * 0.5f), ratio, near_distance, far_distance);
   camera_info_block.view = glm::lookAt(position, position + front, up);
   camera_info_block.projection_view = camera_info_block.projection * camera_info_block.view;
   camera_info_block.inverse_projection = glm::inverse(camera_info_block.projection);
   camera_info_block.inverse_view = glm::inverse(camera_info_block.view);
   camera_info_block.inverse_projection_view = glm::inverse(camera_info_block.projection * camera_info_block.view);
-  camera_info_block.reserved_parameters1 =
-      glm::vec4(near_distance, far_distance, glm::tan(glm::radians(fov * 0.5f)), glm::tan(glm::radians(fov * 0.25f)));
   camera_info_block.clear_color = glm::vec4(clear_color, background_intensity);
-  camera_info_block.reserved_parameters2 = glm::vec4(size_.x, size_.y, static_cast<float>(size_.x) / size_.y, exposure);
+  camera_info_block.resolution = size_;
+  camera_info_block.fade_factor = fade_factor;
+  camera_info_block.fade_ratio = fade_ratio;
   if (use_clear_color) {
     camera_info_block.camera_use_clear_color = 1;
   } else {
     camera_info_block.camera_use_clear_color = 0;
   }
-
   if (const auto camera_skybox = skybox.Get<Cubemap>()) {
     camera_info_block.skybox_texture_index = camera_skybox->GetTextureStorageIndex();
   } else {
@@ -427,6 +426,8 @@ void Camera::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "fov" << YAML::Value << fov;
   out << YAML::Key << "background_intensity" << YAML::Value << background_intensity;
   out << YAML::Key << "exposure" << YAML::Value << exposure;
+  out << YAML::Key << "fade_ratio" << YAML::Value << fade_ratio;
+  out << YAML::Key << "fade_factor" << YAML::Value << fade_factor;
   skybox.Save("skybox", out);
   post_processing_stack_ref.Save("post_processing_stack_ref", out);
 }
@@ -442,6 +443,11 @@ void Camera::Deserialize(const YAML::Node& in) {
     far_distance = in["far_distance"].as<float>();
   if (in["exposure"])
     exposure = in["exposure"].as<float>();
+  if (in["fade_ratio"])
+    fade_ratio = in["fade_ratio"].as<float>();
+  if (in["fade_factor"])
+    fade_factor = in["fade_factor"].as<float>();
+
   if (in["fov"])
     fov = in["fov"].as<float>();
 
@@ -473,6 +479,14 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
   if (ImGui::DragFloat("Exposure", &exposure, 0.01f, 0.01f, 2.0f)) {
     changed = true;
+  }
+  if (ImGui::DragFloat("Fade ratio", &fade_ratio, 0.01f, 0.01f, 1.0f)) {
+    changed = true;
+  }
+  if (fade_ratio != 0.f) {
+    if (ImGui::DragFloat("Fade factor", &fade_factor, 0.01f, 0.01f, 1.0f)) {
+      changed = true;
+    }
   }
   if (ImGui::TreeNode("Debug")) {
     require_rendering_ = true;
@@ -515,25 +529,25 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::TreePop();
   }
 
-  const auto scene = GetScene();
-  const bool saved_state = (this == scene->main_camera.Get<Camera>().get());
-  bool is_main_camera = saved_state;
-  ImGui::Checkbox("Main Camera", &is_main_camera);
-  if (saved_state != is_main_camera) {
-    changed = true;
-    if (is_main_camera) {
-      scene->main_camera = scene->GetOrSetPrivateComponent<Camera>(GetOwner()).lock();
-    } else {
-      Application::GetActiveScene()->main_camera.Clear();
+  if (const auto scene = GetScene()) {
+    const bool saved_state = (this == scene->main_camera.Get<Camera>().get());
+    bool is_main_camera = saved_state;
+    ImGui::Checkbox("Main Camera", &is_main_camera);
+    if (saved_state != is_main_camera) {
+      changed = true;
+      if (is_main_camera) {
+        scene->main_camera = scene->GetOrSetPrivateComponent<Camera>(GetOwner()).lock();
+      } else {
+        Application::GetActiveScene()->main_camera.Clear();
+      }
+    }
+    if (!is_main_camera || !Application::GetLayer<EditorLayer>()->main_camera_allow_auto_resize) {
+      glm::ivec2 resolution = {size_.x, size_.y};
+      if (ImGui::DragInt2("Resolution", &resolution.x, 1, 1, 4096)) {
+        Resize({resolution.x, resolution.y});
+      }
     }
   }
-  if (!is_main_camera || !Application::GetLayer<EditorLayer>()->main_camera_allow_auto_resize) {
-    glm::ivec2 resolution = {size_.x, size_.y};
-    if (ImGui::DragInt2("Resolution", &resolution.x, 1, 1, 4096)) {
-      Resize({resolution.x, resolution.y});
-    }
-  }
-
   if (editor_layer->DragAndDropButton<PostProcessingStack>(post_processing_stack_ref, "PostProcessingStack")) {
     changed = true;
   }

@@ -388,6 +388,8 @@ void Bloom::BuildPipelines() {
   mix_pipeline->Initialize();
 }
 
+
+
 void PostProcessingStack::Resize(const glm::uvec2& size) {
   if (size.x == 0 || size.y == 0)
     return;
@@ -425,10 +427,19 @@ void PostProcessingStack::OnCreate() {
   screen_space_ambient_occlusion = std::make_shared<ScreenSpaceAmbientOcclusion>();
   bloom = std::make_shared<Bloom>();
   screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
+  tone_mapping = std::make_shared<ToneMapping>();
+
 
   screen_space_ambient_occlusion->BuildPipelines();
   bloom->BuildPipelines();
   screen_space_reflection->BuildPipelines();
+  tone_mapping->BuildPipelines();
+
+  enable_screen_space_ambient_occlusion = true;
+  enable_bloom = true;
+  enable_screen_space_reflection = true;
+  enable_tone_mapping = true;
+
 }
 
 bool PostProcessingStack::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -455,6 +466,13 @@ bool PostProcessingStack::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 
   if (enable_screen_space_reflection && ImGui::TreeNodeEx("SSR", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (screen_space_reflection->OnInspect(editor_layer))
+      changed = true;
+    ImGui::TreePop();
+  }
+  if (ImGui::Checkbox("Tone Mapping", &enable_tone_mapping))
+    changed = true;
+  if (enable_tone_mapping && ImGui::TreeNodeEx("Tong Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (tone_mapping->OnInspect(editor_layer))
       changed = true;
     ImGui::TreePop();
   }
@@ -522,6 +540,10 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
   }
   if (enable_screen_space_reflection) {
     screen_space_reflection->Process(*this, target_camera);
+  }
+
+  if (enable_tone_mapping) {
+    tone_mapping->Process(*this, target_camera);
   }
 }
 

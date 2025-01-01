@@ -47,10 +47,11 @@ class PointLight : public IPrivateComponent {
   float constant = 1.0f;
   float linear = 0.07f;
   float quadratic = 0.0015f;
-  float bias = 0.05f;
+  float bias = 0.002f;
   glm::vec3 diffuse = glm::vec3(1.0f);
   float diffuse_brightness = 3.f;
   float light_size = 0.01f;
+  float shadow_distance = 100.f;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void OnCreate() override;
   void Serialize(YAML::Emitter& out) const override;
@@ -78,10 +79,11 @@ class SpotLight : public IPrivateComponent {
   float constant = 1.0f;
   float linear = 0.07f;
   float quadratic = 0.0015f;
-  float bias = 0.001f;
+  float bias = 0.002f;
   glm::vec3 diffuse = glm::vec3(1.0f);
   float diffuse_brightness = 3.f;
   float light_size = 0.01f;
+  float shadow_distance = 100.f;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void OnCreate() override;
   void Serialize(YAML::Emitter& out) const override;

@@ -20,14 +20,10 @@ void main()
 {
 	float ndcDepth = 	texture(inDepth, fs_in.TexCoord).x;
 	vec3 fragPos = EE_DEPTH_TO_WORLD_POS(EE_CAMERA_INDEX, fs_in.TexCoord, ndcDepth);
-
-	if(ndcDepth == 1.0) {
-		vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
-		Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
-		vec3 color = EE_SKY_COLOR(fragPos - cameraPosition);
-		//color = vec3(1.0) - exp(-color * EE_CAMERAS[EE_CAMERA_INDEX].reserved_2.w);
-		color = pow(color, vec3(1.0 / EE_RENDER_INFO.gamma));
-		FragColor = vec4(color, 1.0);
+	vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
+	vec3 skyColor = EE_SKY_COLOR(fragPos - cameraPosition);
+	if(ndcDepth == 1.0f) {
+		FragColor = vec4(skyColor, 1.0f);
 		return;
 	}
 
@@ -49,17 +45,17 @@ void main()
 	if (materialProperties.ao_texture_index != -1) ao = texture(EE_TEXTURE_2DS[materialProperties.ao_texture_index], materialTexCoord).r;
 	if (materialProperties.albedo_map_index != -1) albedo = texture(EE_TEXTURE_2DS[materialProperties.albedo_map_index], materialTexCoord);
 
-	vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
 	vec3 viewDir = normalize(cameraPosition - fragPos);
 	bool receiveShadow = true;
-	vec3 F0 = vec3(0.04); 
+	vec3 F0 = vec3(0.04f); 
 	F0 = mix(F0, albedo.xyz, metallic);
 	vec3 result = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.xyz, 1.0, depth, normal, viewDir, fragPos, metallic, roughness, F0);
 	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.xyz, normal, viewDir, metallic, roughness, F0);
-	vec3 color = result + emission * normalize(albedo.xyz) + ambient * ao;
-	//exposure tone mapping
-	//color = vec3(1.0) - exp(-color * EE_CAMERAS[EE_CAMERA_INDEX].reserved_2.w);
-	color = pow(color, vec3(1.0 / EE_RENDER_INFO.gamma));
-	
-	FragColor = vec4(color, 1.0);
+	vec3 outputColor = result + emission * normalize(albedo.xyz) + ambient * ao;
+
+	float fade_ratio = EE_CAMERA_FADE_RATIO(EE_CAMERA_INDEX);
+	if(depth > EE_CAMERA_FAR(EE_CAMERA_INDEX) * fade_ratio){
+		outputColor.xyz = mix(outputColor.xyz, skyColor, (depth - EE_CAMERA_FAR(EE_CAMERA_INDEX) * fade_ratio) / (EE_CAMERA_FAR(EE_CAMERA_INDEX) * (1.f - fade_ratio)));
+	}
+	FragColor = vec4(outputColor, 1.0f);
 }

@@ -1996,6 +1996,7 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
   const auto scene = Application::GetActiveScene();
   if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+      Platform::EverythingBarrier(vk_command_buffer);
       camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       Platform::EverythingBarrier(vk_command_buffer);
       ray_tracing_camera_pipeline->Bind(vk_command_buffer);

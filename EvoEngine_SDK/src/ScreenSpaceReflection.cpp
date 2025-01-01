@@ -125,6 +125,7 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
     reflect_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     mesh->DrawIndexed(vk_command_buffer, reflect_pipeline->states, 1);
     vkCmdEndRendering(vk_command_buffer);
+    Platform::EverythingBarrier(vk_command_buffer);
   });
 
   post_processing_stack.GaussianBlur(target_camera->GetSize());
