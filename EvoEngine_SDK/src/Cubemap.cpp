@@ -181,7 +181,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
       vkCmdBeginRendering(vk_command_buffer, &render_info);
       equirectangular_to_cubemap->Bind(vk_command_buffer);
       equirectangular_to_cubemap->BindDescriptorSet(vk_command_buffer, 0, temp_set->GetVkDescriptorSet());
-      const auto mesh = Resources::GetResource<Mesh>("PRIMITIVE_RENDERING_CUBE");
+      const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_RENDERING_CUBE");
       GeometryStorage::BindVertices(vk_command_buffer);
       EquirectangularToCubemapConstant constant{};
       constant.projection_view = capture_projection * capture_views[i];

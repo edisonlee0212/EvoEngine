@@ -13,6 +13,8 @@ RayTracingPipeline::~RayTracingPipeline() {
 }
 
 void RayTracingPipeline::Initialize() {
+  if (!Platform::Initialized())
+    return;
   if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
     vk_ray_tracing_pipeline_ = nullptr;

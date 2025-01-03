@@ -351,7 +351,7 @@ bool RayTracerLayer::UpdateScene(const std::shared_ptr<Scene>& scene) {
         environment_properties.environmental_map = environmental_map_image->texture_object;
       }
     } else {
-      env_map = Resources::GetResource<EnvironmentalMap>("DEFAULT_ENVIRONMENTAL_MAP");
+      env_map = Resources::TryGetResource<EnvironmentalMap>("DEFAULT_ENVIRONMENTAL_MAP");
       const auto reflection_probe = env_map->reflection_probe.Get<ReflectionProbe>();
       environmental_map_image = CudaModule::ImportCubemap(reflection_probe->GetCubemap());
       environment_properties.environmental_map = environmental_map_image->texture_object;

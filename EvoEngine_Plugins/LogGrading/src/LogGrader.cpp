@@ -251,14 +251,14 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     // if (m_tempFlatMesh1) editorLayer->DrawGizmoMesh(m_tempFlatMesh1, glm::vec4(1.0f), transform.value, 1.f,
     // gizmoSettings);
     if (m_surface1)
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_QUAD"), m_surface1,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), m_surface1,
                                                  transform.value, 1, gizmo_settings);
     x_left_offset -= circle_length / 4.0f + 0.2f;
     transform.SetPosition({x_left_offset, 0, 0});
     // if (m_tempFlatMesh2) editorLayer->DrawGizmoMesh(m_tempFlatMesh2, glm::vec4(1.0f), transform.value, 1.f,
     // gizmoSettings);
     if (m_surface2)
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_QUAD"), m_surface2,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), m_surface2,
                                                  transform.value, 1.f, gizmo_settings);
 
     float x_right_offset = avg_distance * 3.f;
@@ -266,7 +266,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     // if (m_tempFlatMesh3) editorLayer->DrawGizmoMesh(m_tempFlatMesh3, glm::vec4(1.0f), transform.value, 1.f,
     // gizmoSettings);
     if (m_surface3)
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_QUAD"), m_surface3,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), m_surface3,
                                                  transform.value, 1.f, gizmo_settings);
 
     x_right_offset += circle_length / 4.0f + 0.2f;
@@ -274,7 +274,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     // if (m_tempFlatMesh4) editorLayer->DrawGizmoMesh(m_tempFlatMesh4, glm::vec4(1.0f), transform.value, 1.f,
     // gizmoSettings);
     if (m_surface4)
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_QUAD"), m_surface4,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), m_surface4,
                                                  transform.value, 1.f, gizmo_settings);
   }
 

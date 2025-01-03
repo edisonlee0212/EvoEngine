@@ -1,6 +1,7 @@
 #include "Shader.hpp"
 
 #include "Console.hpp"
+#include "Platform.hpp"
 #include "ProjectManager.hpp"
 #include "ResourceLimits.h"
 #include "SPIRV/GlslangToSpv.h"
@@ -327,6 +328,8 @@ bool Shader::TryCompile(const ShaderType target_shader_type, const std::string& 
 }
 
 bool Shader::TryCompile() {
+  if (!Platform::Initialized())
+    return false;
   VkShaderModuleCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   std::vector<uint32_t> binaries;

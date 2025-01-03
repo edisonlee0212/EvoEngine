@@ -190,7 +190,7 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   if (const auto camera_skybox = skybox.Get<Cubemap>()) {
     camera_info_block.skybox_texture_index = camera_skybox->GetTextureStorageIndex();
   } else {
-    const auto default_cubemap = Resources::GetResource<Cubemap>("DEFAULT_SKYBOX");
+    const auto default_cubemap = Resources::TryGetResource<Cubemap>("DEFAULT_SKYBOX");
     camera_info_block.skybox_texture_index = default_cubemap->GetTextureStorageIndex();
   }
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
@@ -200,11 +200,11 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
     auto reflection_probe = scene->environment.GetReflectionProbe(camera_position);
     if (!light_probe) {
       light_probe =
-          Resources::GetResource<EnvironmentalMap>("DEFAULT_ENVIRONMENTAL_MAP")->light_probe.Get<LightProbe>();
+          Resources::TryGetResource<EnvironmentalMap>("DEFAULT_ENVIRONMENTAL_MAP")->light_probe.Get<LightProbe>();
     }
     camera_info_block.environmental_irradiance_texture_index = light_probe->cubemap_->GetTextureStorageIndex();
     if (!reflection_probe) {
-      reflection_probe = Resources::GetResource<EnvironmentalMap>("DEFAULT_ENVIRONMENTAL_MAP")
+      reflection_probe = Resources::TryGetResource<EnvironmentalMap>("DEFAULT_ENVIRONMENTAL_MAP")
                              ->reflection_probe.Get<ReflectionProbe>();
     }
     camera_info_block.environmental_prefiltered_index = reflection_probe->cubemap_->GetTextureStorageIndex();

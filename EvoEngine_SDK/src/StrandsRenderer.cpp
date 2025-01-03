@@ -19,7 +19,7 @@ void StrandsRenderer::RenderBound(const std::shared_ptr<EditorLayer>& editor_lay
   gizmo_settings.draw_settings.blending = true;
   gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_LINE;
   gizmo_settings.draw_settings.line_width = 3.0f;
-  editor_layer->DrawGizmoMesh(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"), color,
+  editor_layer->DrawGizmoMesh(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), color,
                               transform * (glm::translate(strands.Get<Strands>()->bound_.Center()) * glm::scale(size)),
                               1, gizmo_settings);
 }

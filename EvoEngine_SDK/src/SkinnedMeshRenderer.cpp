@@ -18,7 +18,7 @@ void SkinnedMeshRenderer::RenderBound(const std::shared_ptr<EditorLayer>& editor
   gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_LINE;
   gizmo_settings.draw_settings.line_width = 5.0f;
   editor_layer->DrawGizmoMesh(
-      Resources::GetResource<Mesh>("PRIMITIVE_CUBE"), color,
+      Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), color,
       transform * (glm::translate(skinned_mesh.Get<SkinnedMesh>()->bound_.Center()) * glm::scale(size)), 1,
       gizmo_settings);
 }
@@ -116,7 +116,7 @@ bool SkinnedMeshRenderer::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
                                                                 glm::inverse(glm::scale(self_scale));
       }
       particle_info_list->SetParticleInfos(debug_rendering_matrices);
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_SPHERE"), particle_info_list,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE"), particle_info_list,
                                                   ltw.value, debug_render_bones_size);
     }
 

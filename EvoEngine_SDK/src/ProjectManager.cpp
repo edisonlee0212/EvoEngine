@@ -31,7 +31,6 @@ std::shared_ptr<IAsset> FileRecord::GetAsset() {
     asset_ = ret_val;
     auto& project_manager = ProjectManager::GetInstance();
     project_manager.asset_registry_[asset_handle_] = ret_val;
-    project_manager.loaded_assets_[asset_handle_] = ret_val;
     project_manager.file_registry_[asset_handle_] = self_;
     return ret_val;
   }
@@ -387,7 +386,6 @@ void FolderRecord::RemoveFile(const Handle& asset_handle) {
   auto& project_manager = ProjectManager::GetInstance();
   const auto asset_record = files[asset_handle];
   project_manager.file_registry_.erase(asset_record->asset_handle_);
-  project_manager.loaded_assets_.erase(asset_record->asset_handle_);
   const auto asset_path = asset_record->GetAbsolutePath();
   std::filesystem::remove(asset_path);
   asset_record->DeleteMetadata();
@@ -532,7 +530,6 @@ void FolderRecord::RegisterAsset(const std::shared_ptr<IAsset>& asset, const std
   record->asset_ = asset;
   files[record->asset_handle_] = record;
   project_manager.asset_registry_[record->asset_handle_] = asset;
-  project_manager.loaded_assets_[record->asset_handle_] = asset;
   project_manager.file_registry_[record->asset_handle_] = record;
   asset->file_record_ = record;
   asset->saved_ = false;
@@ -607,7 +604,6 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
   }
   project_manager.project_path_ = project_absolute_path;
   project_manager.asset_registry_.clear();
-  project_manager.loaded_assets_.clear();
   project_manager.file_registry_.clear();
   project_manager.folder_registry_.clear();
   Application::Reset();
@@ -690,13 +686,9 @@ std::shared_ptr<IAsset> ProjectManager::GetAsset(const Handle& handle) {
   auto& project_manager = GetInstance();
   if (const auto search = project_manager.asset_registry_.find(handle); search != project_manager.asset_registry_.end())
     return search->second.lock();
-  if (auto search2 = project_manager.file_registry_.find(handle); search2 != project_manager.file_registry_.end())
+  if (const auto search2 = project_manager.file_registry_.find(handle); search2 != project_manager.file_registry_.end())
     return search2->second.lock()->GetAsset();
-
-  if (Resources::IsResource(handle)) {
-    return Resources::GetResource<IAsset>(handle);
-  }
-  return {};
+  return Resources::TryGetResource<IAsset>(handle);
 }
 
 std::shared_ptr<IAsset> ProjectManager::CreateTemporaryAsset(const std::string& type_name) {
@@ -803,7 +795,6 @@ void ProjectManager::OnDestroy() {
   project_manager.new_scene_customizer_.reset();
 
   project_manager.current_focused_folder_.reset();
-  project_manager.loaded_assets_.clear();
   project_manager.asset_registry_.clear();
   project_manager.file_registry_.clear();
   project_manager.folder_registry_.clear();
@@ -821,7 +812,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       ImGui::Text(("Current Project path: " + project_manager.project_path_.string()).c_str());
 
       FileUtils::SaveFile(
-          "Create or load New Project##ProjectManager", "Project", {".eveproj"},
+          "Create or load New Project", "Project", {".eveproj"},
           [](const std::filesystem::path& file_path) {
             try {
               GetOrCreateProject(file_path);

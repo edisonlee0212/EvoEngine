@@ -6,6 +6,8 @@
 using namespace evo_engine;
 
 void GraphicsPipeline::Initialize() {
+  if (!Platform::Initialized())
+    return;
   if (vk_graphics_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipeline(Platform::GetVkDevice(), vk_graphics_pipeline_, nullptr);
     vk_graphics_pipeline_ = nullptr;
