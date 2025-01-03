@@ -411,8 +411,16 @@ void FolderRecord::Refresh(const std::filesystem::path& parent_absolute_path) {
       child_folder_list.push_back(entry.path());
     } else if (entry.path().extension() == ".evefoldermeta") {
       child_folder_metadata_list.push_back(entry.path());
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+      const DWORD attributes = GetFileAttributes(entry.path().string().c_str());
+      SetFileAttributes(entry.path().string().c_str(), attributes | FILE_ATTRIBUTE_HIDDEN);
+#endif
     } else if (entry.path().extension() == ".evefilemeta") {
       asset_metadata_list.push_back(entry.path());
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+      const DWORD attributes = GetFileAttributes(entry.path().string().c_str());
+      SetFileAttributes(entry.path().string().c_str(), attributes | FILE_ATTRIBUTE_HIDDEN);
+#endif
     } else if (entry.path().filename() != "" && entry.path().extension() != ".eveproj") {
       file_list.push_back(entry.path());
     }

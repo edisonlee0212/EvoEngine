@@ -93,9 +93,9 @@ void EditorLayer::OnCreate() {
       previous_entity = entity;
       ltp->Decompose(previously_stored_position_, previously_stored_rotation_, previously_stored_scale_);
       previously_stored_rotation_ = glm::degrees(previously_stored_rotation_);
-      local_position_selected_ = true;
-      local_rotation_selected_ = false;
-      local_scale_selected_ = false;
+      // local_position_selected_ = true;
+      // local_rotation_selected_ = false;
+      // local_scale_selected_ = false;
 
       previously_stored_transform_ = *ltp;
     }
@@ -652,6 +652,7 @@ void EditorLayer::SceneCameraWindow() {
           transform.value = glm::inverse(parent_global_transform.value) * global_transform.value;
           scene->SetDataComponent(selected_entity_, transform);
           transform.Decompose(previously_stored_position_, previously_stored_rotation_, previously_stored_scale_);
+          previously_stored_rotation_ = glm::degrees(previously_stored_rotation_);
           gizmo_using_ = true;
         }
       }
@@ -994,6 +995,8 @@ void EditorLayer::OnGui(const std::shared_ptr<EditorLayer>& editor_layer) {
             if (skip)
               return;
             std::string info = type.type_name;
+            if (info == "TransformUpdateFlag" || info == "GlobalTransform")
+              return;
             info += " Size: " + std::to_string(type.type_size);
             ImGui::Text(info.c_str());
             ImGui::PushID(i);

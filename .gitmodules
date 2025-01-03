@@ -55,3 +55,12 @@
 [submodule "Extern/3rdParty/tetgen/tetgen"]
 	path = Extern/3rdParty/tetgen/tetgen
 	url = https://github.com/libigl/tetgen.git
+[submodule "Resources/EcoSysLabProject"]
+	path = Resources/EcoSysLabProject
+	url = https://github.com/edisonlee0212/EcoSysLabProject.git
+[submodule "Resources/DigitalAgricultureProject"]
+	path = Resources/DigitalAgricultureProject
+	url = https://github.com/edisonlee0212/DigitalAgricultureProject.git
+[submodule "Resources/EvoEngine-DemoProjects"]
+	path = Resources/EvoEngine-DemoProjects
+	url = https://github.com/edisonlee0212/EvoEngine-DemoProjects.git
