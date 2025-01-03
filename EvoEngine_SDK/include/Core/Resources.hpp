@@ -7,9 +7,6 @@ class Resources {
   Handle current_max_handle_ = Handle(1);
   std::unordered_map<std::string, std::unordered_map<Handle, std::shared_ptr<IAsset>>> typed_resources_;
   std::unordered_map<std::string, std::shared_ptr<IAsset>> named_resources_;
-
-  std::unordered_map<std::string, std::vector<AssetRef>> shared_assets_;
-
   std::unordered_map<Handle, std::string> resource_names_;
   std::unordered_map<Handle, std::shared_ptr<IAsset>> resources_;
   static void LoadPrimitives();
@@ -29,9 +26,9 @@ class Resources {
   [[nodiscard]] static bool IsResource(const AssetRef& target);
 
   template <class T>
-  [[nodiscard]] static std::shared_ptr<T> GetResource(const std::string& name);
+  [[nodiscard]] static std::shared_ptr<T> TryGetResource(const std::string& name);
   template <class T>
-  [[nodiscard]] static std::shared_ptr<T> GetResource(const Handle& handle);
+  [[nodiscard]] static std::shared_ptr<T> TryGetResource(const Handle& handle);
 
   static void OnDestroy();
 };
@@ -55,14 +52,18 @@ std::shared_ptr<T> Resources::CreateResource(const std::string& name) {
 }
 
 template <class T>
-std::shared_ptr<T> Resources::GetResource(const std::string& name) {
+std::shared_ptr<T> Resources::TryGetResource(const std::string& name) {
   const auto& resources = GetInstance();
-  return std::dynamic_pointer_cast<T>(resources.named_resources_.at(name));
+  if (const auto search = resources.named_resources_.find(name); search != resources.named_resources_.end())
+    return std::dynamic_pointer_cast<T>(search->second);
+  return {};
 }
 
 template <class T>
-std::shared_ptr<T> Resources::GetResource(const Handle& handle) {
+std::shared_ptr<T> Resources::TryGetResource(const Handle& handle) {
   const auto& resources = GetInstance();
-  return std::dynamic_pointer_cast<T>(resources.resources_.at(handle));
+  if (const auto search = resources.resources_.find(handle); search != resources.resources_.end())
+    return std::dynamic_pointer_cast<T>(search->second);
+  return {};
 }
 }  // namespace evo_engine

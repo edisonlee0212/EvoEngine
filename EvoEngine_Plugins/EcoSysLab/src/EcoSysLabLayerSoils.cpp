@@ -225,7 +225,7 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
   gizmo_settings.draw_settings.blending_src_factor = VK_BLEND_FACTOR_SRC_ALPHA;
   gizmo_settings.draw_settings.blending_dst_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
   gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
-  editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"), scalar_matrices_,
+  editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), scalar_matrices_,
                                               glm::mat4(1.0f), 1.0f, gizmo_settings);
 }
 
@@ -296,7 +296,7 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
   gizmo_settings.draw_settings.blending_dst_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
   gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
 
-  editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CYLINDER"), vector_matrices_,
+  editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"), vector_matrices_,
                                               glm::mat4(1.0f), 1.0f, gizmo_settings);
 }
 

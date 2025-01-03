@@ -92,9 +92,9 @@ bool PARSensorGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     });
     ray_particle_info_list->ApplyConnections(starts, ends, color, line_width);
     point_particle_info_list->SetParticleInfos(point_particle_infos);
-    editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CYLINDER"),
+    editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"),
                                                 ray_particle_info_list);
-    editor_layer->DrawGizmoMeshInstancedColored(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"),
+    editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
                                                 point_particle_info_list);
   }
   return changed;

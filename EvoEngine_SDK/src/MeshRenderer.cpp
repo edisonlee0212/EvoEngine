@@ -22,7 +22,7 @@ void MeshRenderer::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer,
   gizmo_settings.draw_settings.blending = true;
   gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_LINE;
   gizmo_settings.draw_settings.line_width = 5.0f;
-  editor_layer->DrawGizmoMesh(Resources::GetResource<Mesh>("PRIMITIVE_CUBE"), color,
+  editor_layer->DrawGizmoMesh(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), color,
                               transform * (glm::translate(mesh.Get<Mesh>()->GetBound().Center()) * glm::scale(size)), 1,
                               gizmo_settings);
 }

@@ -596,7 +596,7 @@ void Scene::OnCreate() {
   SetDataComponent(main_camera_entity, ltw);
   const auto main_camera_component = GetOrSetPrivateComponent<Camera>(main_camera_entity).lock();
   main_camera = main_camera_component;
-  main_camera_component->skybox = Resources::GetResource<Cubemap>("DEFAULT_SKYBOX");
+  main_camera_component->skybox = Resources::TryGetResource<Cubemap>("DEFAULT_SKYBOX");
 #pragma endregion
 
 #pragma region Directional Light
@@ -615,7 +615,7 @@ void Scene::OnCreate() {
   SetDataComponent(ground_entity, ltw);
   const auto ground_mesh_renderer_component = GetOrSetPrivateComponent<MeshRenderer>(ground_entity).lock();
   ground_mesh_renderer_component->material = ProjectManager::CreateTemporaryAsset<Material>();
-  ground_mesh_renderer_component->mesh = Resources::GetResource<Mesh>("PRIMITIVE_QUAD");
+  ground_mesh_renderer_component->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD");
 #pragma endregion
   */
 }

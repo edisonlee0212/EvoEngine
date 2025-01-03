@@ -579,7 +579,7 @@ Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2
   const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(quad_entity).lock();
   mesh_renderer->material = material;
   material->draw_settings.cull_mode = VK_CULL_MODE_NONE;
-  mesh_renderer->mesh = Resources::GetResource<Mesh>("PRIMITIVE_QUAD");
+  mesh_renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD");
 
   GlobalTransform global_transform;
   glm::vec3 scale;
@@ -628,7 +628,7 @@ Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2
 
   mesh_renderer->material = material;
   material->draw_settings.cull_mode = VK_CULL_MODE_NONE;
-  mesh_renderer->mesh = Resources::GetResource<Mesh>("PRIMITIVE_QUAD");
+  mesh_renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD");
 
   GlobalTransform global_transform;
   glm::vec3 scale;

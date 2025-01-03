@@ -111,7 +111,7 @@ void Resources::Initialize() {
   resources.typed_resources_.clear();
   resources.named_resources_.clear();
   resources.resources_.clear();
-  resources.current_max_handle_ = Handle(1);  
+  resources.current_max_handle_ = Handle(1);
   LoadPrimitives();
 
   GeometryStorage::DeviceSync();
@@ -197,53 +197,6 @@ void Resources::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         }
         ImGui::EndTabItem();
       }
-      if (ImGui::BeginTabItem("Shared Assets")) {
-        if (ImGui::BeginDragDropTarget()) {
-          if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Asset")) {
-            IM_ASSERT(payload->DataSize == sizeof(Handle));
-            const Handle handle = *static_cast<Handle*>(payload->Data);
-
-            if (const auto asset = ProjectManager::GetAsset(handle)) {
-              AssetRef ref;
-              ref.Set(asset);
-              resources.shared_assets_[asset->GetTypeName()].emplace_back(ref);
-            }
-          }
-          ImGui::EndDragDropTarget();
-        }
-
-        for (auto& collection : resources.shared_assets_) {
-          if (ImGui::CollapsingHeader(collection.first.c_str())) {
-            for (auto it = collection.second.begin(); it != collection.second.end(); ++it) {
-              auto asset_ref = *it;
-              const auto ptr = asset_ref.Get<IAsset>();
-              const std::string tag = "##" + ptr->GetTypeName() + std::to_string(ptr->GetHandle());
-              ImGui::Button((ptr->GetTitle() + tag).c_str());
-
-              EditorLayer::Rename(asset_ref);
-              if (EditorLayer::Remove(asset_ref)) {
-                collection.second.erase(it);
-                break;
-              }
-              if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-                project_manager.inspecting_asset = ptr;
-              }
-              EditorLayer::Draggable(asset_ref);
-            }
-          }
-        }
-        ImGui::EndTabItem();
-      }
-      if (ImGui::BeginTabItem("Loaded Assets")) {
-        for (auto& asset : project_manager.loaded_assets_) {
-          if (asset.second->IsTemporary())
-            continue;
-          ImGui::Button(asset.second->GetTitle().c_str());
-          editor_layer->DraggableAsset(asset.second);
-        }
-
-        ImGui::EndTabItem();
-      }
       if (ImGui::BeginTabItem("Resources")) {
         for (auto& collection : resources.typed_resources_) {
           if (ImGui::CollapsingHeader(collection.first.c_str())) {
@@ -280,7 +233,6 @@ void Resources::OnDestroy() {
   auto& resources = GetInstance();
   resources.typed_resources_.clear();
   resources.named_resources_.clear();
-  resources.shared_assets_.clear();
   resources.resource_names_.clear();
   resources.resources_.clear();
 }

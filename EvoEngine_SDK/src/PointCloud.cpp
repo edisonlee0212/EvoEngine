@@ -249,7 +249,7 @@ void PointCloud::ApplyCompressed() {
   const auto owner = scene->CreateEntity("Compressed Point Cloud");
   const auto particles = scene->GetOrSetPrivateComponent<Particles>(owner).lock();
   particles->material = ProjectManager::CreateTemporaryAsset<Material>();
-  particles->mesh = Resources::GetResource<Mesh>("PRIMITIVE_CUBE");
+  particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
   particles->particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
   auto compressed = std::vector<glm::dvec3>();
   Compress(compressed);
@@ -407,7 +407,7 @@ void PointCloud::ApplyOriginal() const {
   const auto owner = scene->CreateEntity("Original Point Cloud");
   const auto particles = scene->GetOrSetPrivateComponent<Particles>(owner).lock();
   particles->material = ProjectManager::CreateTemporaryAsset<Material>();
-  particles->mesh = Resources::GetResource<Mesh>("PRIMITIVE_CUBE");
+  particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
   particles->particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
   const auto particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
   std::vector<ParticleInfo> particle_infos;

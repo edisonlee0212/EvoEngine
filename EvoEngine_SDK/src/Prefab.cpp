@@ -272,7 +272,7 @@ std::shared_ptr<Texture2D> CollectTexture(
                     .string();
   }
   if (!std::filesystem::exists(full_path)) {
-    return Resources::GetResource<Texture2D>("TEXTURE_MISSING");
+    return Resources::TryGetResource<Texture2D>("TEXTURE_MISSING");
   }
   if (const auto search = loaded_textures.find(full_path); search != loaded_textures.end()) {
     return search->second;

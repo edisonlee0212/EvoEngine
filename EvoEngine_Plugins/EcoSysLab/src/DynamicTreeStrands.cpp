@@ -805,7 +805,7 @@ void DynamicTreeStrands::InitializeStrandParticles(const DtsStrandGroup& target_
   particle_info_list->SetParticleInfos(particle_infos);
 
   renderer->particle_info_list = particle_info_list;
-  renderer->mesh = Resources::GetResource<Mesh>("PRIMITIVE_CUBE");
+  renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
   const auto material = ProjectManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;

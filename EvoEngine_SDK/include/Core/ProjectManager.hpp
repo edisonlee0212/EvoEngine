@@ -91,7 +91,6 @@ class ProjectManager {
   std::optional<std::function<void(const std::shared_ptr<Scene>&)>> scene_post_load_function_;
   std::optional<std::function<void(const std::shared_ptr<Scene>&)>> new_scene_customizer_;
   std::weak_ptr<FolderRecord> current_focused_folder_;
-  std::unordered_map<Handle, std::shared_ptr<IAsset>> loaded_assets_;
   std::unordered_map<Handle, std::weak_ptr<IAsset>> asset_registry_;
   std::unordered_map<Handle, std::weak_ptr<FileRecord>> file_registry_;
   std::unordered_map<Handle, std::weak_ptr<FolderRecord>> folder_registry_;
