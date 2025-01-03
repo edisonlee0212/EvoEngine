@@ -266,7 +266,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
   }
 #pragma region Demo scene setup
   if (demo_setup != DemoSetup::Empty && std::filesystem::exists(resource_folder_path)) {
-    for (const auto i : std::filesystem::recursive_directory_iterator(resource_folder_path / "Example Projects")) {
+    for (const auto i : std::filesystem::recursive_directory_iterator(resource_folder_path / "EvoEngine-DemoProjects")) {
       if (i.is_directory())
         continue;
       if (i.path().extension().string() == ".evescene" || i.path().extension().string() == ".evefilemeta" ||
@@ -286,7 +286,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
   switch (demo_setup) {
     case DemoSetup::Rendering: {
       application_info.application_name = "Rendering Demo";
-      application_info.project_path = resource_folder_path / "Example Projects/Rendering/Rendering.eveproj";
+      application_info.project_path = resource_folder_path / "EvoEngine-DemoProjects/Rendering/Rendering.eveproj";
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
         scene->environment.ambient_light_intensity = 0.5f;
 #pragma region Set main camera to correct position and rotation
@@ -369,7 +369,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
     case DemoSetup::Universe: {
       application_info.application_name = "Universe Demo";
 
-      application_info.project_path = resource_folder_path / "Example Projects/Universe/Universe.eveproj";
+      application_info.project_path = resource_folder_path / "EvoEngine-DemoProjects/Universe/Universe.eveproj";
 #ifdef UNIVERSE_PLUGIN
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
 #  pragma region Preparations
