@@ -189,11 +189,11 @@ Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_en
   scene->SetDataComponent(sponza_entity, sponza_transform);
   scene->SetParent(sponza_entity, base_entity);
 
-  auto title = std::dynamic_pointer_cast<Prefab>(ProjectManager::GetOrCreateAsset("Models/UniEngine.obj"));
+  auto title = std::dynamic_pointer_cast<Prefab>(ProjectManager::GetOrCreateAsset("Models/EvoEngine.obj"));
   auto title_entity = title->ToEntity(scene);
   scene->SetEntityName(title_entity, "Title");
   Transform title_transform;
-  title_transform.SetValue(glm::vec3(0.35, 7, -16), glm::radians(glm::vec3(0, 0, 0)), glm::vec3(0.005));
+  title_transform.SetValue(glm::vec3(-1.4, 6.9, -16), glm::radians(glm::vec3(0, 0, 0)), glm::vec3(0.02));
   scene->SetDataComponent(title_entity, title_transform);
   scene->SetParent(title_entity, base_entity);
 
