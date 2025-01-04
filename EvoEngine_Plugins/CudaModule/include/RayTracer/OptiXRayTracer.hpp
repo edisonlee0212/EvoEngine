@@ -190,6 +190,10 @@ struct IlluminationSampler {
     const float p = (a + b + c) * 0.5f;
     return glm::sqrt(p * (p - a) * (p - b) * (p - c));
   }
+
+  [[nodiscard]] glm::vec3 GetCenter() const {
+    return (v_0.position + v_1.position + v_2.position) / 3.f;
+  }
 };
 
 struct IlluminationEstimationLaunchParams {

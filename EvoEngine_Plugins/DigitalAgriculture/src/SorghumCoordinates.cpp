@@ -12,7 +12,7 @@ void SorghumCoordinates::Apply(const std::shared_ptr<SorghumField>& sorghum_fiel
       continue;
     auto pos = glm::vec3(position.x - sample_x.x, 0, position.y - sample_y.x) * factor;
     auto rotation = glm::quat(glm::radians(glm::vec3(glm::gaussRand(glm::vec3(0.0f), rotation_variance))));
-    sorghum_field->matrices.emplace_back(sorghum_state_generator,
+    sorghum_field->matrices.emplace_back(sorghum_generator,
                                          glm::translate(pos) * glm::mat4_cast(rotation) * glm::scale(glm::vec3(1.0f)));
   }
 }
@@ -28,14 +28,16 @@ void SorghumCoordinates::Apply(const std::shared_ptr<SorghumField>& sorghum_fiel
     const glm::dvec2 pos_offset = glm::gaussRand(glm::dvec2(.0f), glm::dvec2(position_variance));
     auto pos = glm::vec3(position.x - center.x + pos_offset.x, 0, position.y - center.y + pos_offset.y) * factor;
     auto rotation = glm::quat(glm::radians(glm::vec3(glm::gaussRand(glm::vec3(0.0f), rotation_variance))));
-    sorghum_field->matrices.emplace_back(sorghum_state_generator,
+    sorghum_field->matrices.emplace_back(sorghum_generator,
                                          glm::translate(pos) * glm::mat4_cast(rotation) * glm::scale(glm::vec3(1.0f)));
   }
 }
 
 bool SorghumCoordinates::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  editor_layer->DragAndDropButton<SorghumGenerator>(sorghum_state_generator, "SorghumGenerator");
+  if(editor_layer->DragAndDropButton<SorghumGenerator>(sorghum_generator, "SorghumGenerator")) {
+    changed = true;
+  }
   ImGui::Text("Available count: %d", positions.size());
   ImGui::DragFloat("Distance factor", &factor, 0.01f, 0.0f, 20.0f);
   ImGui::DragFloat3("Rotation variance", &rotation_variance.x, 0.01f, 0.0f, 180.0f);
@@ -52,18 +54,6 @@ bool SorghumCoordinates::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     sample_y.y = glm::max(sample_y.x, sample_y.y);
   }
 
-  static int index = 200;
-  static float radius = 2.5f;
-  ImGui::DragInt("Index", &index);
-  ImGui::DragFloat("Radius", &radius);
-  static AssetRef temp_field;
-  if (editor_layer->DragAndDropButton<SorghumField>(temp_field, "Apply to SorghumField")) {
-    if (const auto field = temp_field.Get<SorghumField>()) {
-      glm::dvec2 offset;
-      Apply(field, offset, index, radius);
-      temp_field.Clear();
-    }
-  }
   FileUtils::OpenFile(
       "Load Positions", "Position list", {".txt"},
       [this](const std::filesystem::path& path) {
@@ -74,7 +64,7 @@ bool SorghumCoordinates::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   return changed;
 }
 void SorghumCoordinates::Serialize(YAML::Emitter& out) const {
-  sorghum_state_generator.Save("sorghum_state_generator", out);
+  sorghum_generator.Save("sorghum_generator", out);
   out << YAML::Key << "rotation_variance" << YAML::Value << rotation_variance;
   out << YAML::Key << "sample_x" << YAML::Value << sample_x;
   out << YAML::Key << "sample_y" << YAML::Value << sample_y;
@@ -84,7 +74,7 @@ void SorghumCoordinates::Serialize(YAML::Emitter& out) const {
   SaveListAsBinary<glm::dvec2>("positions", positions, out);
 }
 void SorghumCoordinates::Deserialize(const YAML::Node& in) {
-  sorghum_state_generator.Load("sorghum_state_generator", in);
+  sorghum_generator.Load("sorghum_generator", in);
   rotation_variance = in["rotation_variance"].as<glm::vec3>();
   if (in["sample_x"])
     sample_x = in["sample_x"].as<glm::dvec2>();
@@ -98,7 +88,7 @@ void SorghumCoordinates::Deserialize(const YAML::Node& in) {
   LoadListFromBinary<glm::dvec2>("positions", positions, in);
 }
 void SorghumCoordinates::CollectAssetRef(std::vector<AssetRef>& list) {
-  list.push_back(sorghum_state_generator);
+  list.push_back(sorghum_generator);
 }
 void SorghumCoordinates::ImportFromFile(const std::filesystem::path& path) {
   std::ifstream ifs;

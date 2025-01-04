@@ -298,6 +298,7 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       ImGui::DragFloat("Node size", &node_render_size, 0.01f, 0.0f, 1.f);
       ImGui::TreePop();
     }
+    static Entity previous_referenced_entity;
     static std::shared_ptr<ParticleInfoList> node_debug_info_list;
     if (!node_debug_info_list)
       node_debug_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
@@ -323,10 +324,11 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         node_debug_info_list->SetParticleInfos(particle_infos);
       }
     } else {
-      if (ImGui::Button("Refresh leaf nodes")) {
+      const auto owner = GetOwner();
+      if (ImGui::Button("Refresh leaf nodes") || previous_referenced_entity != owner) {
         if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>()) {
           std::vector<ParticleInfo> particle_infos;
-          const auto owner = GetOwner();
+
           const auto scene = GetScene();
           const auto plant_position = scene->GetDataComponent<GlobalTransform>(owner).GetPosition();
           for (const auto& leaf_state : sd->leaves) {

@@ -18,7 +18,7 @@ class SorghumLayer : public ILayer {
 #  pragma region Illumination
   int m_seed = 0;
   float push_distance = 0.001f;
-  RayProperties ray_properties;
+  RayProperties ray_properties{4, 4};
   std::vector<Entity> processing_entities;
   int processing_index;
   bool processing = false;

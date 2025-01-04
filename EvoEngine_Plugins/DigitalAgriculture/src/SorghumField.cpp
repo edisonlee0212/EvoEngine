@@ -9,6 +9,7 @@
 #include "Scene.hpp"
 #include "Soil.hpp"
 #include "Sorghum.hpp"
+#include "SorghumCoordinates.hpp"
 #include "SorghumGenerator.hpp"
 #include "SorghumLayer.hpp"
 #include "TransformGraph.hpp"
@@ -60,6 +61,18 @@ bool SorghumField::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     InstantiateField();
   }
 
+  static int index = 200;
+  static float radius = 2.5f;
+  ImGui::DragInt("Index", &index);
+  ImGui::DragFloat("Radius", &radius);
+  static AssetRef temp_coordinates;
+  if (editor_layer->DragAndDropButton<SorghumCoordinates>(temp_coordinates, "Apply from sorghum coordinates")) {
+    if (const auto field = temp_coordinates.Get<SorghumCoordinates>()) {
+      glm::dvec2 offset;
+      field->Apply(std::dynamic_pointer_cast<SorghumField>(GetSelf()), offset, index, radius);
+      temp_coordinates.Clear();
+    }
+  }
   ImGui::Text("Matrices count: %d", (int)matrices.size());
 
   return changed;
@@ -117,6 +130,18 @@ Entity SorghumField::InstantiateField() const {
   const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
   const auto scene = sorghum_layer->GetScene();
   if (sorghum_layer) {
+    std::shared_ptr<Soil> soil;
+    if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
+      soil = soil_candidate.lock();
+    std::shared_ptr<SoilDescriptor> soil_descriptor;
+    if (soil) {
+      soil_descriptor = soil->soil_descriptor.Get<SoilDescriptor>();
+    }
+    std::shared_ptr<HeightField> height_field{};
+    if (soil_descriptor) {
+      height_field = soil_descriptor->height_field.Get<HeightField>();
+    }
+
     const auto field_asset = std::dynamic_pointer_cast<SorghumField>(GetSelf());
     const auto field = scene->CreateEntity("Field");
     // Create sorghums here.
@@ -128,6 +153,11 @@ Entity SorghumField::InstantiateField() const {
       Entity sorghum_entity = sorghum_descriptor->CreateEntity(size);
       auto sorghum_transform = scene->GetDataComponent<Transform>(sorghum_entity);
       sorghum_transform.value = new_sorghum.second;
+
+      if (height_field)
+        sorghum_transform.value[3].y =
+            height_field->GetValue({sorghum_transform.value[3].x, sorghum_transform.value[3].z}) - 0.01f;
+
       sorghum_transform.SetScale(glm::vec3(sorghum_size));
       scene->SetDataComponent(sorghum_entity, sorghum_transform);
       scene->SetParent(sorghum_entity, field);

@@ -1,8 +1,11 @@
 
 #include <TriangleIlluminationEstimator.hpp>
+
+#include "EditorLayer.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
 #include "Platform.hpp"
+#include "ProjectManager.hpp"
 #include "RayTracerLayer.hpp"
 #include "Scene.hpp"
 using namespace evo_engine;
@@ -52,8 +55,8 @@ void ColorDescendentsVertices(const std::shared_ptr<Scene>& scene, const Entity&
 
 bool TriangleIlluminationEstimator::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  auto scene = GetScene();
-  auto owner = GetOwner();
+  const auto scene = GetScene();
+  const auto owner = GetOwner();
   light_probe_group_.OnInspect();
   static int seed = 0;
   static float push_normal_distance = 0.001f;
@@ -85,11 +88,47 @@ bool TriangleIlluminationEstimator::OnInspect(const std::shared_ptr<EditorLayer>
     ImGui::TreePop();
   }
 
+  static bool show_probes = true;
+
+  ImGui::Checkbox("Show probes", &show_probes);
+  if (show_probes) {
+    static float node_render_size = .005f;
+    static float energy_scale_factor = 1.f;
+    if (ImGui::TreeNode("Debug settings")) {
+      ImGui::DragFloat("Probe size", &node_render_size, 0.001f, 0.0f, 1.f);
+      ImGui::DragFloat("Energy scale factor", &energy_scale_factor, 0.01f, 0.0f, 100.f);
+      ImGui::TreePop();
+    }
+    static Entity previous_referenced_entity;
+    static std::shared_ptr<ParticleInfoList> probe_debug_info_list;
+    if (!probe_debug_info_list)
+      probe_debug_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    if (ImGui::Button("Refresh debug info") || previous_referenced_entity != owner) {
+      previous_referenced_entity = owner;
+      std::vector<ParticleInfo> particle_infos;
+      particle_infos.resize(light_probe_group_.light_probes.size());
+      for (int i = 0; i < light_probe_group_.light_probes.size(); i++) {
+        const auto& probe = light_probe_group_.light_probes.at(i);
+        auto& matrix = particle_infos[i].instance_matrix;
+        matrix.value = glm::translate(probe.GetCenter()) * glm::scale(glm::vec3(node_render_size));
+        particle_infos[i].instance_color = glm::vec4(glm::vec3(glm::length(probe.energy) * energy_scale_factor), 1.0f);
+      }
+      probe_debug_info_list->SetParticleInfos(particle_infos);
+    }
+    GizmoSettings gizmo_settings{};
+    gizmo_settings.depth_test = false;
+    editor_layer->DrawGizmoCubes(probe_debug_info_list, glm::mat4(1), 1, gizmo_settings);
+  }
+
   ImGui::Text("%s", ("Surface area: " + std::to_string(total_area)).c_str());
   ImGui::Text("%s", ("Total energy: " + std::to_string(glm::length(total_flux))).c_str());
   ImGui::Text("%s", ("Radiant flux: " + std::to_string(glm::length(average_flux))).c_str());
 
   return changed;
+}
+
+const LightProbeGroup& TriangleIlluminationEstimator::PeekProbes() const {
+  return light_probe_group_;
 }
 
 void TriangleIlluminationEstimator::SampleLightProbeGroup(const RayProperties& ray_properties, int seed,

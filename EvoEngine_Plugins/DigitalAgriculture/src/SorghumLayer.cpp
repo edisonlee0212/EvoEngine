@@ -100,6 +100,50 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (ImGui::Button("Calculate illumination instantly")) {
       CalculateIllumination();
     }
+
+    static bool show_probes = false;
+
+    ImGui::Checkbox("Show probes", &show_probes);
+
+    if (show_probes) {
+      static bool depth_test = true;
+      static std::shared_ptr<ParticleInfoList> probe_debug_info_list;
+      static float node_render_size = .01f;
+      static float energy_scale_factor = 1.f;
+      if (!probe_debug_info_list)
+        probe_debug_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+      if (ImGui::TreeNode("Debug settings")) {
+        ImGui::DragFloat("Probe size", &node_render_size, 0.001f, 0.0f, 1.f);
+        ImGui::DragFloat("Energy scale factor", &energy_scale_factor, 0.01f, 0.0f, 100.f);
+        if (ImGui::Button("Refresh debug info")) {
+          if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>()) {
+            std::vector<ParticleInfo> particle_infos;
+            for (const auto sorghum_entity : *owners) {
+              if (const auto tie =
+                      scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(sorghum_entity).lock()) {
+                const auto start_index = particle_infos.size();
+                particle_infos.resize(start_index + tie->PeekProbes().light_probes.size());
+                for (int i = 0; i < tie->PeekProbes().light_probes.size(); i++) {
+                  const auto& probe = tie->PeekProbes().light_probes.at(i);
+                  auto& matrix = particle_infos[start_index + i].instance_matrix;
+                  matrix.value = glm::translate(probe.GetCenter()) * glm::scale(glm::vec3(node_render_size));
+                  particle_infos[start_index + i].instance_color =
+                      glm::vec4(glm::vec3(glm::length(probe.energy) * energy_scale_factor), 1.0f);
+                }
+              }
+            }
+            probe_debug_info_list->SetParticleInfos(particle_infos);
+          }
+        }
+        ImGui::Checkbox("Depth test", &depth_test);
+        ImGui::TreePop();
+      }
+
+      GizmoSettings gizmo_settings{};
+      gizmo_settings.depth_test = depth_test;
+      editor_layer->DrawGizmoCubes(probe_debug_info_list, glm::mat4(1), 1, gizmo_settings);
+    }
+
     ImGui::TreePop();
   }
   ImGui::Checkbox("Enable BTF", &enable_compressed_btf);
@@ -287,7 +331,7 @@ void SorghumLayer::ExportAllSorghumsModel(const std::string& filename) const {
 #ifdef CUDA_MODULE_PLUGIN
 void SorghumLayer::CalculateIlluminationFrameByFrame() {
   const auto scene = GetScene();
-  const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<TriangleIlluminationEstimator>();
+  const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
   if (!owners)
     return;
   processing_entities.clear();
@@ -298,7 +342,7 @@ void SorghumLayer::CalculateIlluminationFrameByFrame() {
 }
 void SorghumLayer::CalculateIllumination() {
   const auto scene = GetScene();
-  const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<TriangleIlluminationEstimator>();
+  const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
   if (!owners)
     return;
   processing_entities.clear();
