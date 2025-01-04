@@ -1,8 +1,10 @@
-#include "SorghumDescriptor.hpp"
+﻿#include "SorghumDescriptor.hpp"
 
 #include "IVolume.hpp"
 #include "Sorghum.hpp"
+#include "SorghumDescriptorReconstruction.hpp"
 #include "SorghumLayer.hpp"
+#include "assimp/code/AssetLib/3MF/3MFXmlTags.h"
 using namespace digital_agriculture_plugin;
 
 bool SorghumMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -98,7 +100,25 @@ void SorghumPanicleDescriptor::GenerateGeometry(const glm::vec3& stem_tip, std::
 }
 
 bool SorghumStemDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  return false;
+  bool changed = false;
+  for (int i = 0; i < spline.segments.size(); i++) {
+    auto segment = spline.segments[i];
+    std::string label = "segment No." + std::to_string(i);
+    if (ImGui::TreeNode(label.c_str())) {
+      ImGui::Text("position: (%.2f, %.2f, %.2f)", segment.position.x, segment.position.y, segment.position.z);
+      ImGui::Text("up: (%.2f, %.2f, %.2f)", segment.up.x, segment.up.y, segment.up.z);
+      ImGui::Text("front: (%.2f, %.2f, %.2f)", segment.front.x, segment.front.y, segment.front.z);
+      ImGui::Text("radius: %.2f", segment.radius);
+      ImGui::Text("theta: (%.2f)", segment.theta);
+      ImGui::Text("left height offset: (%.2f)", segment.left_height_offset);
+      ImGui::Text("right height offset: (%.2f)", segment.right_height_offset);
+
+      changed = true;
+      ImGui::TreePop();
+    }
+  }
+
+  return changed;
 }
 
 void SorghumStemDescriptor::Serialize(YAML::Emitter& out) const {
@@ -160,7 +180,25 @@ void SorghumStemDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std:
 }
 
 bool SorghumLeafDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  return false;
+  bool changed = false;
+  for (int i = 0; i < spline.segments.size(); i++) {
+    auto segment = spline.segments[i];
+    std::string label = "segment No." + std::to_string(i);
+    if (ImGui::TreeNode(label.c_str())) {
+      ImGui::Text("position: (%.2f, %.2f, %.2f)", segment.position.x, segment.position.y, segment.position.z);
+      ImGui::Text("up: (%.2f, %.2f, %.2f)", segment.up.x, segment.up.y, segment.up.z);
+      ImGui::Text("front: (%.2f, %.2f, %.2f)", segment.front.x, segment.front.y, segment.front.z);
+      ImGui::Text("radius: %.2f", segment.radius);
+      ImGui::Text("theta: (%.2f)", segment.theta);
+      ImGui::Text("left height offset: (%.2f)", segment.left_height_offset);
+      ImGui::Text("right height offset: (%.2f)", segment.right_height_offset);
+
+      changed = true;
+      ImGui::TreePop();
+    }
+  }
+
+  return changed;
 }
 
 void SorghumLeafDescriptor::Serialize(YAML::Emitter& out) const {
@@ -250,10 +288,30 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   if (ImGui::Button("Instantiate")) {
     CreateEntity("New Sorghum");
   }
+  // after load from spline, replace data in sorghumdescriptor
   FileUtils::OpenFile(
       "Load splines", "YAML", {".yml"},
       [&](const std::filesystem::path& path) {
-        ImportPrediction(path);
+        // @edisonlee0212: here I reconstruct the sorghum descriptor from yaml and create the mesh.
+        if (auto tempResult = ImportPrediction(path)) {
+          SorghumDescriptorReconstruction reconstruction;
+          auto yamlContent = *tempResult;
+          std::cout << "imported from yaml"
+                    << "\n"
+                    << "leaf count: " << yamlContent.size() << "\n"
+                    << "total points: " << yamlContent[0]["centerPoints"].size() * yamlContent.size() * 3 << "\n";
+
+          auto splines = SorghumDescriptorReconstruction::ReconstructBezierSplineFromYAML(yamlContent);
+          SorghumDescriptor temp;
+          auto bezierSampleResults = reconstruction.ReconstructSorghumFromBezierSplines(temp, splines);
+          reconstruction.ReconstructSorghumStem(temp);
+
+          // todo: may need have a copy constructor
+          this->leaves = temp.leaves;
+          this->stem = temp.stem;
+          this->panicle = temp.panicle;
+          CreateEntity("New Sorghum");
+        }
       },
       false);
   bool changed = false;
@@ -350,7 +408,9 @@ Entity SorghumDescriptor::CreateEntity(const std::string& name) const {
   const auto sorghum_entity = scene->CreateEntity(name);
   const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
   sorghum->sorghum_descriptor = GetSelf();
+
   if (const auto sorghum_layer = Application::GetLayer<SorghumLayer>()) {
+    sorghum_layer->sorghum_mesh_generator_settings.enable_stem = true;
     sorghum->GenerateGeometryEntities(sorghum_layer->sorghum_mesh_generator_settings);
   } else {
     sorghum->GenerateGeometryEntities({});
@@ -369,16 +429,19 @@ std::shared_ptr<Texture2D> SorghumDescriptor::GenerateThumbnailTexture() {
   return thumbnail;
 }
 
-void SorghumDescriptor::ImportPrediction(const std::filesystem::path& yaml_path) {
+std::optional<std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>> SorghumDescriptor::ImportPrediction(
+    const std::filesystem::path& yaml_path) {
   if (!std::filesystem::exists(yaml_path)) {
     EVOENGINE_ERROR("File not exist!")
-    return;
+    return std::nullopt;
   }
   try {
     const std::ifstream stream(yaml_path.string());
     std::stringstream string_stream;
     string_stream << stream.rdbuf();
     const YAML::Node in = YAML::Load(string_stream.str());
+
+    std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>> results;
 
     if (in["Sorghum"]) {
       const auto& sorghum_in = in["Sorghum"];
@@ -390,6 +453,8 @@ void SorghumDescriptor::ImportPrediction(const std::filesystem::path& yaml_path)
             std::vector<glm::vec3> left_points;
             std::vector<glm::vec3> right_points;
             int leaf_index;
+            std::unordered_map<std::string, std::vector<glm::vec3>> leafInfo;
+
             if (leaf_in["Center Points"]) {
               const auto& center_points_in = leaf_in["Center Points"];
               for (const auto& point_in : center_points_in) {
@@ -401,6 +466,8 @@ void SorghumDescriptor::ImportPrediction(const std::filesystem::path& yaml_path)
                 }
                 center_points.emplace_back(point);
               }
+
+              leafInfo.insert(std::make_pair("centerPoints", center_points));
             }
             if (leaf_in["Left Points"]) {
               const auto& left_points_in = leaf_in["Left Points"];
@@ -413,6 +480,8 @@ void SorghumDescriptor::ImportPrediction(const std::filesystem::path& yaml_path)
                 }
                 left_points.emplace_back(point);
               }
+
+              leafInfo.insert(std::make_pair("leftPoints", left_points));
             }
             if (leaf_in["Right Points"]) {
               const auto& right_points_in = leaf_in["Right Points"];
@@ -425,18 +494,25 @@ void SorghumDescriptor::ImportPrediction(const std::filesystem::path& yaml_path)
                 }
                 right_points.emplace_back(point);
               }
+
+              leafInfo.insert(std::make_pair("rightPoints", right_points));
             }
             if (leaf_in["Leaf Index"]) {
               leaf_index = leaf_in["Leaf Index"].as<int>();
+
+              leafInfo.insert(std::make_pair("leafIndex", std::vector<glm::vec3>(leaf_index)));
             }
+
+            results.emplace_back(leafInfo);
           }
         }
       }
     }
+    return std::make_optional(results);
 
   } catch (const std::exception& e) {
     EVOENGINE_ERROR("Failed to load!")
-    return;
+    return std::nullopt;
   }
-  return;
+  return std::nullopt;
 }

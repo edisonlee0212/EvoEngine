@@ -9,7 +9,7 @@ struct SorghumMeshGeneratorSettings {
   bool enable_leaf_sheath = true;
   int single_leaf_index = -1;
   bool bottom_face = true;
-  bool leaf_separated = false;
+  bool leaf_separated = true;
   float leaf_thickness = 0.001f;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 };
@@ -62,7 +62,9 @@ class SorghumDescriptor : public IAsset {
   void Deserialize(const YAML::Node& in) override;
   [[maybe_unused]] Entity CreateEntity(const std::string& name) const;
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
-  void ImportPrediction(const std::filesystem::path& yaml_path);
+
+  [[nodiscard]] std::optional<std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>> ImportPrediction(
+      const std::filesystem::path& yaml_path);
 };
 
 }  // namespace digital_agriculture_plugin
