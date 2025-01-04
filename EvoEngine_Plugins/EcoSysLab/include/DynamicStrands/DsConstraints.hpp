@@ -145,7 +145,7 @@ class DsGroundPlane final : public IDsConstraint {
     float ground_friction;
   };
 
-  float ground_height = -0.5f;
+  float ground_height = -0.075f;
   float ground_softness = 0.95f;
   float ground_friction = 0.5f;
   inline static std::shared_ptr<ComputePipeline> pipeline{};

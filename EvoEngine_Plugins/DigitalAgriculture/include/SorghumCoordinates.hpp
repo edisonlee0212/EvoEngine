@@ -6,7 +6,7 @@ class SorghumCoordinates : public IAsset {
   friend class SorghumLayer;
 
  public:
-  AssetRef sorghum_state_generator;
+  AssetRef sorghum_generator;
   float factor = 1.0f;
   std::vector<glm::dvec2> positions;
   glm::vec3 rotation_variance = glm::vec3(0.0f);
