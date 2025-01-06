@@ -89,6 +89,17 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
         }
         segment_data.initial_distance_to_boundary = Strands::CubicInterpolation(d0, d1, d2, d3, segment_t);
         segment_data.profile_position = Strands::CubicInterpolation(p0, p1, p2, p3, segment_t);
+        const auto calculate_polar_coordinates = [](const glm::vec2& profile_position) {
+          const auto r = glm::length(profile_position);
+          if (r <= glm::epsilon<float>()) {
+            return glm::vec2(0.0f);
+          }
+          if (profile_position.y >= 0)
+            return glm::vec2(r, glm::acos(profile_position.x / r));
+          return glm::vec2(r, -glm::acos(profile_position.x / r));
+        };
+
+        segment_data.profile_polar_coordinate = calculate_polar_coordinates(segment_data.profile_position);
       },
       (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
 

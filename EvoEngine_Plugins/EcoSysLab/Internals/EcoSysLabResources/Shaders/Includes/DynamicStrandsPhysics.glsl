@@ -350,8 +350,8 @@ void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in fl
     if (segment0.strand_handle != segment1.strand_handle) {
       vec3 current_offset = rotate_vec3(conjugate(segment0.q), segment1_center_position - segment0_center_position);
       vec3 expected_offset = is_segment0 ? segment_pair.segment1_offset.xyz : segment_pair.segment0_offset.xyz;
-      vec4 expected_rotation = quat_mul(
-          segment0.q, compute_rotation_between(normalize(expected_offset), normalize(current_offset)));
+      vec4 expected_rotation =
+          quat_mul(segment0.q, compute_rotation_between(normalize(expected_offset), normalize(current_offset)));
 
       vec4 lambda = segment0.q;
       vec4 lambda_plus = lambda + expected_rotation;

@@ -58,7 +58,7 @@ struct DtsStrandSegmentData {
   uint32_t segment_index;
 
   glm::vec2 profile_position;
-
+  glm::vec2 profile_polar_coordinate;
   float initial_distance_to_boundary;
 };
 
@@ -112,8 +112,7 @@ class DynamicStrands {
     GlobalTransform root_transform{};
     bool use_cgal = false;
     bool triangulate_per_bundle = false;
-    int u_multiplier = 2;
-    float v_multiplier = 0.25;
+
     AssetRef foliage_descriptor;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -191,8 +190,12 @@ class DynamicStrands {
     bool wireframe = false;
     float alpha = 1.0 / 10000.0f;
     float bifurcation_alpha = 1.0 / 10000.0f;
-    enum VertexColors { Default, Normals, Tangents, TexCoords };
+    enum VertexColors { Default, Normals, Tangents };
     VertexColors vertex_colors = Default;
+
+    float u_multiplier = 2;
+    float v_multiplier = 0.25;
+
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -282,6 +285,9 @@ class DynamicStrands {
     float moisture_content;
     float boundary_distance;
 
+    glm::vec2 profile_position;
+    glm::vec2 profile_polar_coordinate;
+
     glm::vec3 inertia_tensor;
     float shearing_alpha;
 
@@ -345,7 +351,10 @@ class DynamicStrands {
     float deg;
     glm::vec3 tangent;
     int padding0;
-    glm::vec4 tex_coord;
+
+    glm::vec2 profile_position;
+    glm::vec2 profile_polar_coordinate;
+
     int segment_handle;
     int node_index;
     int segment_index;

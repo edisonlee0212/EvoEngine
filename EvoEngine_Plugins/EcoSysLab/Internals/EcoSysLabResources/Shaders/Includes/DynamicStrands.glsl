@@ -15,7 +15,6 @@ struct Strand {
   int alternative_back_propagate_begin_segment_pair_handle;
   int alternative_front_propagate_begin_segment_handle;
   int alternative_back_propagate_begin_segment_handle;
-
 };
 
 struct Node {
@@ -64,11 +63,14 @@ struct Segment {
   float moisture_content;
   float boundary_distance;
 
+  vec2 profile_position;
+  vec2 profile_polar_coordinate;
+
   vec3 inertia_tensor;
   float shearing_alpha;
   vec3 inv_inertia_tensor;
   float stretching_alpha;
-  
+
   mat4 inertia_w;
   mat4 inv_inertia_w;
 
@@ -116,7 +118,10 @@ struct UniformParticle {
   vec4 position_t;
   vec4 normal_deg;
   vec4 tangent;
-  vec4 tex_coord;
+
+  vec2 profile_position;
+  vec2 profile_polar_coordinate;
+
   int segment_handle;
   int node_index;
   int segment_index;

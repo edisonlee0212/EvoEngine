@@ -8,20 +8,34 @@
 using namespace eco_sys_lab_plugin;
 
 bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Checkbox("Render mesh", &render_alpha_shape_mesh);
-  ImGui::Checkbox("Render interior complex", &render_complex);
-  ImGui::Checkbox("Wireframe", &wireframe);
-  ImGui::DragFloat("alpha", &alpha, 0.000001, 0.0f, 1.0f, "%.6f");
-  ImGui::DragFloat("bifurcation alpha", &bifurcation_alpha, 0.000001, 0.0f, 1.0f, "%.6f");
+  bool changed = false;
+  if (ImGui::Checkbox("Render mesh", &render_alpha_shape_mesh))
+    changed = true;
+  if (ImGui::Checkbox("Render interior complex", &render_complex))
+    changed = true;
+  if (ImGui::Checkbox("Wireframe", &wireframe))
+    changed = true;
+  if (ImGui::DragFloat("alpha", &alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
+    changed = true;
+  if (ImGui::DragFloat("bifurcation alpha", &bifurcation_alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
+    changed = true;
 
   ImGui::Text("Use vertex color for visualization");
 
-  ImGui::RadioButton("Disabled", (int*)&vertex_colors, Default);
-  ImGui::RadioButton("Normals", (int*)&vertex_colors, Normals);
-  ImGui::RadioButton("Tangents", (int*)&vertex_colors, Tangents);
-  ImGui::RadioButton("Texture coordinates", (int*)&vertex_colors, TexCoords);
+  if (ImGui::RadioButton("Disabled", (int*)&vertex_colors, Default))
+    changed = true;
+  if (ImGui::RadioButton("Normals", (int*)&vertex_colors, Normals))
+    changed = true;
+  if (ImGui::RadioButton("Tangents", (int*)&vertex_colors, Tangents))
+    changed = true;
 
-  return false;
+  if (ImGui::DragFloat("U-coordinate multiplier", &u_multiplier, 1.f, 1.f, 20))
+    changed = true;
+
+  if (ImGui::DragFloat("V-coordinate multiplier", &v_multiplier, 0.001f, 0.0f, 100.0f))
+    changed = true;
+
+  return changed;
 }
 
 struct RenderPushConstant {
@@ -33,6 +47,10 @@ struct RenderPushConstant {
     int camera_index;
     int light_index;
   } index2;
+
+  float u_multiplier = 1.f;
+  float v_multiplier = 1.f;
+
   uint32_t tetrahedrons_size = 0;
   float alpha = 0.0f;
   float bifurcation_alpha = 0.0f;
@@ -242,7 +260,8 @@ uint32_t DynamicStrands::RenderToCameraDeferred(
   push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
   push_constant.vertex_colors = render_parameters.vertex_colors;
-
+  push_constant.u_multiplier = render_parameters.u_multiplier;
+  push_constant.v_multiplier = render_parameters.v_multiplier;
   render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   render_pipeline->states.SetViewportScissor(view.viewport);
   render_pipeline->states.polygon_mode = render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
