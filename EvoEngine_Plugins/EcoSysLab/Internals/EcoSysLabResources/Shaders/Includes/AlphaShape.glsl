@@ -117,6 +117,17 @@ bool AreNeighbors(uint index0, uint index1)
 {
   UniformParticle p0 = uniform_particles[index0];
   UniformParticle p1 = uniform_particles[index1];
+
+  // first check groups
+  if (segments[p0.segment_handle].group_index != segments[p1.segment_handle].group_index) {
+    return false;
+  }
+
+  // generally filter for stuff too far apart
+  if (DistSquared(p0.position_t.xyz, p1.position_t.xyz) > max_dist_squared) {
+    return false;
+  }
+
   int node_handle0 = p0.node_index;
   int node_handle1 = p1.node_index;
 
@@ -138,8 +149,7 @@ bool AreNeighbors(uint index0, uint index1)
 
   // vertical neighbors -> always true, TODO: except if broken
   if (p0.segment_index - 1 == p1.segment_index) { // p0 is higher
-    if (p0.prev_particle_handle == index1)
-    {
+    if (p0.prev_particle_handle == index1) {
       return true;
     }
   } else if (p0.segment_index == p1.segment_index - 1) {

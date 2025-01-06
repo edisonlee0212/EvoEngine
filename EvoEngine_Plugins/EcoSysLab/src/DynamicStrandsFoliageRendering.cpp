@@ -203,6 +203,10 @@ uint32_t DynamicStrands::RenderFoliageToCameraDeferred(
     const Handle& renderer_handle, const FoliageRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view) const {
+
+  if (!render_parameters.enabled) {
+    return 0;
+  }
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;

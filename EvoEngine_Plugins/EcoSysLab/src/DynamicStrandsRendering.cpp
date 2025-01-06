@@ -8,8 +8,9 @@
 using namespace eco_sys_lab_plugin;
 
 bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+
   bool changed = false;
-  if (ImGui::Checkbox("Render mesh", &render_alpha_shape_mesh))
+  if (ImGui::Checkbox("Enabled", &render_alpha_shape_mesh))
     changed = true;
   if (ImGui::Checkbox("Render interior complex", &render_complex))
     changed = true;
@@ -19,14 +20,16 @@ bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLay
     changed = true;
   if (ImGui::DragFloat("bifurcation alpha", &bifurcation_alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
     changed = true;
+  if(ImGui::DragFloat("max dist squared", &max_dist_squared, 0.000001, 0.0f, 1.0f, "%.6f"))
+    changed = true;
 
-  ImGui::Text("Use vertex color for visualization");
+  ImGui::Text("Use normal attribute for debugging");
 
   if (ImGui::RadioButton("Disabled", (int*)&vertex_colors, Default))
     changed = true;
-  if (ImGui::RadioButton("Normals", (int*)&vertex_colors, Normals))
-    changed = true;
   if (ImGui::RadioButton("Tangents", (int*)&vertex_colors, Tangents))
+    changed = true;
+  if (ImGui::RadioButton("Groups", (int*)&vertex_colors, Groups))
     changed = true;
 
   if (ImGui::DragFloat("U-coordinate multiplier", &u_multiplier, 1.f, 1.f, 20))
@@ -52,8 +55,9 @@ struct RenderPushConstant {
   float v_multiplier = 1.f;
 
   uint32_t tetrahedrons_size = 0;
-  float alpha = 0.0f;
+  float alpha = 0.0f; 
   float bifurcation_alpha = 0.0f;
+  float max_dist_squared = 0.0f;
   int render_complex = 0;
   int vertex_colors = 0;
 };
@@ -158,6 +162,7 @@ uint32_t DynamicStrands::RenderToPointLightShadowMap(const RenderParameters& ren
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
   push_constant.alpha = render_parameters.alpha;
   push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
+  push_constant.max_dist_squared = render_parameters.max_dist_squared;
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
   push_constant.vertex_colors = render_parameters.vertex_colors;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -187,6 +192,7 @@ uint32_t DynamicStrands::RenderToSpotLightShadowMap(const RenderParameters& rend
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
   push_constant.alpha = render_parameters.alpha;
   push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
+  push_constant.max_dist_squared = render_parameters.max_dist_squared;
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
   push_constant.vertex_colors = render_parameters.vertex_colors;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -216,6 +222,7 @@ uint32_t DynamicStrands::RenderToDirectionalLightShadowMap(
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
   push_constant.alpha = render_parameters.alpha;
   push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
+  push_constant.max_dist_squared = render_parameters.max_dist_squared;
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
   push_constant.vertex_colors = render_parameters.vertex_colors;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -258,6 +265,7 @@ uint32_t DynamicStrands::RenderToCameraDeferred(
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
   push_constant.alpha = render_parameters.alpha;
   push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
+  push_constant.max_dist_squared = render_parameters.max_dist_squared;
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
   push_constant.vertex_colors = render_parameters.vertex_colors;
   push_constant.u_multiplier = render_parameters.u_multiplier;

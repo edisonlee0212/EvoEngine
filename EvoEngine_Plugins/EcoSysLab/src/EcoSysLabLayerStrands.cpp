@@ -403,7 +403,7 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
     if (ImGui::Button("Rebuild pipelines")) {
       DynamicStrands::BuildRenderingPipelines();
     }
-    if (ImGui::TreeNodeEx("Render settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::TreeNodeEx("Tree render settings", ImGuiTreeNodeFlags_DefaultOpen)) {
       render_parameters.OnInspect(editor_layer);
       ImGui::TreePop();
     }
