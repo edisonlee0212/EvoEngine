@@ -405,12 +405,14 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
     }
     if (ImGui::TreeNodeEx("Render settings", ImGuiTreeNodeFlags_DefaultOpen)) {
       render_parameters.OnInspect(editor_layer);
+      ImGui::TreePop();
     }
     if (ImGui::Button("Rebuild foliage pipelines")) {
       DynamicStrands::BuildFoliageRenderingPipelines();
     }
     if (ImGui::TreeNodeEx("Foliage render settings", ImGuiTreeNodeFlags_DefaultOpen)) {
       foliage_render_parameters.OnInspect(editor_layer);
+      ImGui::TreePop();
     }
     ImGui::TreePop();
   }
