@@ -492,7 +492,8 @@ void StrandModel::ApplyProfile(const StrandModelParameters& strand_model_paramet
   for (const auto& [strand_handle, particle_handle] : node.data.particle_map) {
     const auto& particle = node.data.profile.PeekParticle(particle_handle);
     auto& strand_segment = strand_model_skeleton.data.strand_group.RefStrandSegment(particle.strand_segment_handle);
-    auto& strand_segment_data = strand_model_skeleton.data.strand_group.RefStrandSegmentData(particle.strand_segment_handle);
+    auto& strand_segment_data =
+        strand_model_skeleton.data.strand_group.RefStrandSegmentData(particle.strand_segment_handle);
     strand_segment.end_thickness = node.data.strand_radius;
 
     glm::vec3 start_position;
