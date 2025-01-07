@@ -86,11 +86,3 @@ void PrivateComponentStorage::SetPrivateComponent(const Entity &entity, size_t i
     p_owners_collections_list_.emplace_back(id, std::move(collection));
   }
 }
-template <typename T>
-std::vector<Entity> PrivateComponentStorage::GetOwnersList() {
-  if (const auto search = p_owners_collections_map_.find(typeid(T).hash_code());
-      search != p_owners_collections_map_.end()) {
-    return p_owners_collections_list_[search->second].second.owners_list;
-  }
-  return {};
-}

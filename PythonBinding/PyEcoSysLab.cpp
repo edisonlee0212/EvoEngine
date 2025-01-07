@@ -165,11 +165,11 @@ void scene_capture(const float pos_x, const float pos_y, const float pos_z, cons
   global_transform.SetEulerRotation(glm::radians(glm::vec3(angle_x, angle_y, angle_z)));
   scene->SetDataComponent(main_camera_entity, global_transform);
   main_camera->Resize({resolution_x, resolution_y});
-  const auto use_clear_color = main_camera->use_clear_color;
-  const auto clear_color = main_camera->clear_color;
+  const auto use_clear_color = main_camera->camera_settings.use_clear_color;
+  const auto clear_color = main_camera->camera_settings.clear_color;
   if (white_background) {
-    main_camera->use_clear_color = true;
-    main_camera->clear_color = glm::vec3(1, 1, 1);
+    main_camera->camera_settings.use_clear_color = true;
+    main_camera->camera_settings.clear_color = glm::vec3(1, 1, 1);
   }
   Application::Loop();
   main_camera->GetRenderTexture()->StoreToPng(output_path);
@@ -178,8 +178,8 @@ void scene_capture(const float pos_x, const float pos_y, const float pos_z, cons
   } else {
     scene->SetDataComponent(main_camera_entity, original_transform);
     if (white_background) {
-      main_camera->use_clear_color = use_clear_color;
-      main_camera->clear_color = clear_color;
+      main_camera->camera_settings.use_clear_color = use_clear_color;
+      main_camera->camera_settings.clear_color = clear_color;
     }
   }
 
@@ -286,7 +286,7 @@ void voxel_space_colonization_tree_data(
   } else {
     tree_descriptor = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
   }
-  tree->tree_descriptor = tree_descriptor;
+  tree->tree_descriptor_ref = tree_descriptor;
   auto& occupancy_grid = tree->tree_model.tree_occupancy_grid;
   VoxelGrid<TreeOccupancyGridBasicData> input_grid{};
   if (tree->ParseBinvox(binvox_path, input_grid, 1.f)) {
@@ -389,7 +389,7 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
   } else {
     treeDescriptor = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
   }
-  tree->tree_descriptor = treeDescriptor;
+  tree->tree_descriptor_ref = treeDescriptor;
   auto& occupancyGrid = tree->tree_model.tree_occupancy_grid;
   const auto rbv = ProjectManager::CreateTemporaryAsset<RadialBoundingVolume>();
   rbv->Import(rbv_path);
@@ -421,23 +421,6 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
   scene->DeleteEntity(temp_entity);
 }
 
-void generate_point_cloud_for_tree(const TreePointCloudPointSettings& point_settings,
-                                   const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-                                   const std::string& tree_parameters_path, const float delta_time,
-                                   const int max_iterations, const int max_tree_node_count,
-                                   const TreeMeshGeneratorSettings& mesh_generator_settings,
-                                   const std::string& point_cloud_output_path, bool export_tree_mesh,
-                                   const std::string& tree_mesh_output_path) {
-  DatasetGenerator::TreeGrowthLimitation tree_growth_limitation{};
-  // Max amount of branches
-  tree_growth_limitation.max_flow_count = 1024;
-  // Trunk length (branches will br pruned)
-  tree_growth_limitation.low_branch_pruning = 0.2f;
-  DatasetGenerator::GenerateDataForTree(point_settings, capture_settings, tree_parameters_path, delta_time,
-                                        tree_growth_limitation, mesh_generator_settings, true, point_cloud_output_path,
-                                        export_tree_mesh, tree_mesh_output_path, false, "");
-}
-
 PYBIND11_MODULE(PyEcoSysLab, m) {
   m.def("get_default_project_path", &get_default_project_path, "Get default project path");
   m.def("engine_run_windowless", &engine_run_windowless, "Start Project (Windowless)");
@@ -462,28 +445,28 @@ PYBIND11_MODULE(PyEcoSysLab, m) {
   py::class_<TreePointCloudPointSettings>(m, "TreePointCloudPointSettings")
       .def(py::init<>())
       .def_readwrite("m_variance", &TreePointCloudPointSettings::m_variance)
-      .def_readwrite("m_ballRandRadius", &TreePointCloudPointSettings::m_ballRandRadius)
-      .def_readwrite("m_typeIndex", &TreePointCloudPointSettings::m_typeIndex)
-      .def_readwrite("m_instanceIndex", &TreePointCloudPointSettings::m_instanceIndex)
-      .def_readwrite("tree_part_index", &TreePointCloudPointSettings::m_treePartIndex)
-      .def_readwrite("line_index", &TreePointCloudPointSettings::m_lineIndex)
-      .def_readwrite("m_branchIndex", &TreePointCloudPointSettings::m_branchIndex)
-      .def_readwrite("m_internodeIndex", &TreePointCloudPointSettings::m_internodeIndex)
-      .def_readwrite("m_boundingBoxLimit", &TreePointCloudPointSettings::m_boundingBoxLimit);
+      .def_readwrite("ball_rand_radius", &TreePointCloudPointSettings::ball_rand_radius)
+      .def_readwrite("type_index", &TreePointCloudPointSettings::type_index)
+      .def_readwrite("m_instanceIndex", &TreePointCloudPointSettings::instance_index)
+      .def_readwrite("tree_part_index", &TreePointCloudPointSettings::tree_part_index)
+      .def_readwrite("line_index", &TreePointCloudPointSettings::line_index)
+      .def_readwrite("branch_index", &TreePointCloudPointSettings::branch_index)
+      .def_readwrite("m_internodeIndex", &TreePointCloudPointSettings::internode_index)
+      .def_readwrite("bounding_box_limit", &TreePointCloudPointSettings::bounding_box_limit);
 
   py::class_<TreePointCloudCircularCaptureSettings>(m, "PointCloudCircularCaptureSettings")
       .def(py::init<>())
-      .def_readwrite("m_pitchAngleStart", &TreePointCloudCircularCaptureSettings::m_pitchAngleStart)
-      .def_readwrite("m_pitchAngleStep", &TreePointCloudCircularCaptureSettings::m_pitchAngleStep)
-      .def_readwrite("m_pitchAngleEnd", &TreePointCloudCircularCaptureSettings::m_pitchAngleEnd)
-      .def_readwrite("m_turnAngleStart", &TreePointCloudCircularCaptureSettings::m_turnAngleStart)
-      .def_readwrite("m_turnAngleStep", &TreePointCloudCircularCaptureSettings::m_turnAngleStep)
-      .def_readwrite("m_turnAngleEnd", &TreePointCloudCircularCaptureSettings::m_turnAngleEnd)
-      .def_readwrite("m_gridDistance", &TreePointCloudCircularCaptureSettings::m_distance)
-      .def_readwrite("m_height", &TreePointCloudCircularCaptureSettings::m_height)
-      .def_readwrite("m_fov", &TreePointCloudCircularCaptureSettings::m_fov)
-      .def_readwrite("resolution_", &TreePointCloudCircularCaptureSettings::m_resolution)
-      .def_readwrite("m_cameraDepthMax", &TreePointCloudCircularCaptureSettings::m_cameraDepthMax);
+      .def_readwrite("pitch_angle_start", &TreePointCloudCircularCaptureSettings::pitch_angle_start)
+      .def_readwrite("pitch_angle_step", &TreePointCloudCircularCaptureSettings::pitch_angle_step)
+      .def_readwrite("pitch_angle_end", &TreePointCloudCircularCaptureSettings::pitch_angle_end)
+      .def_readwrite("turn_angle_start", &TreePointCloudCircularCaptureSettings::turn_angle_start)
+      .def_readwrite("turn_angle_step", &TreePointCloudCircularCaptureSettings::turn_angle_step)
+      .def_readwrite("turn_angle_end", &TreePointCloudCircularCaptureSettings::turn_angle_end)
+      .def_readwrite("m_gridDistance", &TreePointCloudCircularCaptureSettings::distance_from_trees)
+      .def_readwrite("capture_height", &TreePointCloudCircularCaptureSettings::capture_height)
+      .def_readwrite("camera_fov", &TreePointCloudCircularCaptureSettings::camera_fov)
+      .def_readwrite("resolution_", &TreePointCloudCircularCaptureSettings::scan_resolution)
+      .def_readwrite("max_capture_depth", &TreePointCloudCircularCaptureSettings::max_capture_depth);
 #  endif
 
   py::class_<ReconstructionSettings>(m, "ReconstructionSettings")
@@ -532,7 +515,6 @@ PYBIND11_MODULE(PyEcoSysLab, m) {
         "Grow a tree in voxel space and export data");
   m.def("rbv_space_colonization_tree_data", &rbv_space_colonization_tree_data, "Grow a tree in RBV and export data");
   m.def("rbv_to_obj", &rbv_to_obj, "Convert RBV to 3D model (OBJ)");
-  m.def("generate_point_cloud_for_tree", &generate_point_cloud_for_tree, "Generate point cloud for single tree");
 }
 
 #endif

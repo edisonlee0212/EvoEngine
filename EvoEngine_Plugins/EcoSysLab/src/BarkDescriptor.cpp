@@ -2,7 +2,7 @@
 
 using namespace eco_sys_lab_plugin;
 
-bool BarkDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
+bool BarkDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Bark X Frequency", &bark_x_frequency, 0.1f, 0.0f, 100.0f))
     changed = true;
@@ -19,21 +19,22 @@ bool BarkDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) 
     changed = true;
   if (ImGui::DragFloat("Base Depth", &base_depth, 0.01f, 0.0f, 1.0f))
     changed = true;
-
+  if (editor_layer->DragAndDropButton<Material>(bark_material_ref, "Bark Material"))
+    changed = true;
   return changed;
 }
 
-float BarkDescriptor::GetValue(const float xFactor, const float distanceToRoot) {
-  float bark = bark_depth * glm::perlin(glm::vec3(bark_x_frequency * glm::sin(xFactor * 2.0f * glm::pi<float>()),
-                                                  bark_x_frequency * glm::cos(xFactor * 2.0f * glm::pi<float>()),
-                                                  bark_y_frequency * distanceToRoot));
+float BarkDescriptor::GetValue(const float x_factor, const float distance_to_root) const {
+  const float bark = bark_depth * glm::perlin(glm::vec3(bark_x_frequency * glm::sin(x_factor * 2.0f * glm::pi<float>()),
+                                                        bark_x_frequency * glm::cos(x_factor * 2.0f * glm::pi<float>()),
+                                                        bark_y_frequency * distance_to_root));
 
   float base = base_depth +
-               base_depth * glm::perlin(glm::vec3(base_frequency * glm::sin(xFactor * 2.0f * glm::pi<float>()),
-                                                  base_frequency * glm::cos(xFactor * 2.0f * glm::pi<float>()), 0.0f));
+               base_depth * glm::perlin(glm::vec3(base_frequency * glm::sin(x_factor * 2.0f * glm::pi<float>()),
+                                                  base_frequency * glm::cos(x_factor * 2.0f * glm::pi<float>()), 0.0f));
 
-  base *=
-      glm::pow(glm::max(0.0f, (base_max_distance - distanceToRoot) / base_max_distance), base_distance_decrease_factor);
+  base *= glm::pow(glm::max(0.0f, (base_max_distance - distance_to_root) / base_max_distance),
+                   base_distance_decrease_factor);
 
   return bark + base;
 }
@@ -56,6 +57,7 @@ void BarkDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "base_max_distance" << YAML::Value << base_max_distance;
   out << YAML::Key << "base_distance_decrease_factor" << YAML::Value << base_distance_decrease_factor;
   out << YAML::Key << "base_depth" << YAML::Value << base_depth;
+  bark_material_ref.Save("bark_material_ref", out);
 }
 
 void BarkDescriptor::Deserialize(const YAML::Node& in) {
@@ -73,4 +75,10 @@ void BarkDescriptor::Deserialize(const YAML::Node& in) {
     base_distance_decrease_factor = in["base_distance_decrease_factor"].as<float>();
   if (in["base_depth"])
     base_depth = in["base_depth"].as<float>();
+  bark_material_ref.Load("bark_material_ref", in);
+}
+
+void BarkDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
+  if (bark_material_ref.Get<Material>())
+    list.push_back(bark_material_ref);
 }

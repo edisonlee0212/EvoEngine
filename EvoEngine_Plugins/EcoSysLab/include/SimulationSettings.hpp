@@ -26,7 +26,7 @@ class SimulationSettings {
   bool auto_clear_fruit_and_leaves = true;
   float crown_shyness_distance = 0.15f;
   int max_node_count = 0;
-
+  int max_flow_count = 0;
   float skylight_intensity = 1.f;
 
   float shadow_distance_loss = 1.f;

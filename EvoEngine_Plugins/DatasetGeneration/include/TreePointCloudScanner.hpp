@@ -7,16 +7,16 @@ using namespace eco_sys_lab_plugin;
 namespace dataset_generation_plugin {
 struct TreePointCloudPointSettings {
   float m_variance = 0.015f;
-  float m_ballRandRadius = 0.005f;
-  bool m_typeIndex = true;
-  bool m_instanceIndex = true;
-  bool m_branchIndex = false;
-  bool m_internodeIndex = false;
-  bool m_lineIndex = false;
-  bool m_treePartIndex = false;
-  bool m_treePartTypeIndex = false;
+  float ball_rand_radius = 0.005f;
+  bool type_index = true;
+  bool instance_index = true;
+  bool branch_index = false;
+  bool internode_index = false;
+  bool line_index = false;
+  bool tree_part_index = false;
+  bool tree_part_type_index = false;
 
-  float m_boundingBoxLimit = 1.f;
+  float bounding_box_limit = 1.f;
 
   void OnInspect();
 
@@ -27,18 +27,18 @@ struct TreePointCloudPointSettings {
 
 class TreePointCloudCircularCaptureSettings : public PointCloudCaptureSettings {
  public:
-  int m_pitchAngleStart = -20;
-  int m_pitchAngleStep = 10;
-  int m_pitchAngleEnd = 60;
-  int m_turnAngleStart = 0;
-  int m_turnAngleStep = 10;
-  int m_turnAngleEnd = 360;
-  float m_distance = 5.0f;
-  float m_height = 1.5f;
-  float m_fov = 60;
-  glm::vec2 m_focusPoint = {0, 0};
-  int m_resolution = 128;
-  float m_cameraDepthMax = 10;
+  int pitch_angle_start = -20;
+  int pitch_angle_step = 10;
+  int pitch_angle_end = 60;
+  int turn_angle_start = 0;
+  int turn_angle_step = 10;
+  int turn_angle_end = 360;
+  float distance_from_trees = 5.0f;
+  float capture_height = 1.5f;
+  float camera_fov = 60;
+  glm::vec2 camera_focus_point = {0, 0};
+  int scan_resolution = 128;
+  float max_capture_depth = 10;
 
   bool OnInspect() override;
 
@@ -46,36 +46,36 @@ class TreePointCloudCircularCaptureSettings : public PointCloudCaptureSettings {
 
   void Load(const std::string& name, const YAML::Node& in) override;
 
-  GlobalTransform GetTransform(const glm::vec2& focusPoint, float turnAngle, float pitchAngle) const;
-  void GenerateSamples(std::vector<PointCloudSample>& pointCloudSamples) override;
+  GlobalTransform GetTransform(const glm::vec2& focus_point, float turn_angle, float pitch_angle) const;
+  void GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) override;
 };
 
 class TreePointCloudGridCaptureSettings : public PointCloudCaptureSettings {
  public:
-  float m_boundingBoxSize = 0.f;
+  float bounding_box_size = 0.f;
 
-  glm::ivec2 m_gridSize = {5, 5};
-  glm::vec2 m_gridDistance = {1.25f, 1.25f};
-  float m_step = 0.01f;
-  int m_backpackSample = 512;
-  float m_backpackHeight = 1.0f;
-  int m_droneSample = 128;
-  float m_droneHeight = 5.0f;
+  glm::ivec2 grid_size = {5, 5};
+  glm::vec2 grid_distance = {1.25f, 1.25f};
+  float step = 0.01f;
+  int ground_sample_size = 512;
+  float ground_sample_height = 1.0f;
+  int drone_sample_size = 128;
+  float drone_sample_height = 5.0f;
   bool OnInspect() override;
-  void GenerateSamples(std::vector<PointCloudSample>& pointCloudSamples) override;
+  void GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) override;
   bool SampleFilter(const PointCloudSample& sample) override;
 };
 
 class TreePointCloudScanner : public IPrivateComponent {
  public:
-  TreePointCloudPointSettings m_pointSettings;
+  TreePointCloudPointSettings point_settings;
   void Capture(const TreeMeshGeneratorSettings& mesh_generator_settings, const std::filesystem::path& save_path,
                const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   void OnDestroy() override;
 
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };
-}  // namespace eco_sys_lab_plugin
+}  // namespace dataset_generation_plugin

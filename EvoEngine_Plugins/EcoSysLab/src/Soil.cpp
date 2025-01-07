@@ -232,7 +232,7 @@ bool SoilDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     auto scene = Application::GetActiveScene();
     auto soil_entity = scene->CreateEntity(GetTitle());
     auto soil = scene->GetOrSetPrivateComponent<Soil>(soil_entity).lock();
-    soil->soil_descriptor = ProjectManager::GetAsset(GetHandle());
+    soil->soil_descriptor_ref = ProjectManager::GetAsset(GetHandle());
     soil->InitializeSoilModel();
   }
 
@@ -305,10 +305,10 @@ void SoilDescriptor::RandomOffset(const float min, const float max) {
 
 bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (editor_layer->DragAndDropButton<SoilDescriptor>(soil_descriptor, "SoilDescriptor", true)) {
+  if (editor_layer->DragAndDropButton<SoilDescriptor>(soil_descriptor_ref, "SoilDescriptor", true)) {
     InitializeSoilModel();
   }
-  auto sd = soil_descriptor.Get<SoilDescriptor>();
+  auto sd = soil_descriptor_ref.Get<SoilDescriptor>();
   if (sd) {
     if (ImGui::Button("Generate surface mesh")) {
       GenerateMesh();
@@ -359,7 +359,7 @@ bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       temporal_progression_ = true;
     }
 
-    // auto soilDescriptor = soil_descriptor.Get<SoilDescriptor>();
+    // auto soilDescriptor = soil_descriptor_ref.Get<SoilDescriptor>();
     // if (!soil_model.m_initialized) soil_model.Initialize(soilDescriptor->soil_parameters);
     assert(soil_model.m_initialized);
     if (ImGui::Button("Initialize")) {
@@ -547,7 +547,7 @@ bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 }
 
 void Soil::RandomOffset(float min, float max) {
-  if (const auto sd = soil_descriptor.Get<SoilDescriptor>()) {
+  if (const auto sd = soil_descriptor_ref.Get<SoilDescriptor>()) {
     sd->RandomOffset(min, max);
   }
 }
@@ -673,7 +673,7 @@ Entity Soil::GenerateCutOut(float x_depth, float z_depth, float water_factor, fl
 
   if (enable_ground_surface) {
     auto ground_surface = GenerateMesh(x_depth, z_depth);
-    if (const auto sd = soil_descriptor.Get<SoilDescriptor>()) {
+    if (const auto sd = soil_descriptor_ref.Get<SoilDescriptor>()) {
       if (auto& soil_layer_descriptors = sd->soil_layer_descriptors; !soil_layer_descriptors.empty()) {
         if (auto first_descriptor = soil_layer_descriptors[0].Get<SoilLayerDescriptor>()) {
           auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(ground_surface).lock();
@@ -707,7 +707,7 @@ Entity Soil::GenerateFullBox(float water_factor, float nutrient_factor, bool gro
 
   if (ground_surface) {
     auto surface = GenerateMesh(0, 0);
-    if (const auto sd = soil_descriptor.Get<SoilDescriptor>()) {
+    if (const auto sd = soil_descriptor_ref.Get<SoilDescriptor>()) {
       if (auto& soil_layer_descriptors = sd->soil_layer_descriptors; !soil_layer_descriptors.empty()) {
         if (const auto first_descriptor = soil_layer_descriptors[0].Get<SoilLayerDescriptor>()) {
           auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(surface).lock();
@@ -724,20 +724,20 @@ Entity Soil::GenerateFullBox(float water_factor, float nutrient_factor, bool gro
 }
 
 void Soil::Serialize(YAML::Emitter& out) const {
-  soil_descriptor.Save("soil_descriptor", out);
+  soil_descriptor_ref.Save("soil_descriptor_ref", out);
 }
 
 void Soil::Deserialize(const YAML::Node& in) {
-  soil_descriptor.Load("soil_descriptor", in);
+  soil_descriptor_ref.Load("soil_descriptor_ref", in);
   InitializeSoilModel();
 }
 
 void Soil::CollectAssetRef(std::vector<AssetRef>& list) {
-  list.push_back(soil_descriptor);
+  list.push_back(soil_descriptor_ref);
 }
 
 Entity Soil::GenerateMesh(float x_depth, float z_depth) {
-  const auto sd = soil_descriptor.Get<SoilDescriptor>();
+  const auto sd = soil_descriptor_ref.Get<SoilDescriptor>();
   if (!sd) {
     EVOENGINE_ERROR("No soil descriptor!");
     return {};
@@ -784,7 +784,7 @@ Entity Soil::GenerateMesh(float x_depth, float z_depth) {
 }
 
 void Soil::InitializeSoilModel() {
-  if (const auto sd = soil_descriptor.Get<SoilDescriptor>()) {
+  if (const auto sd = soil_descriptor_ref.Get<SoilDescriptor>()) {
     auto height_field = sd->height_field.Get<HeightField>();
 
     auto params = sd->soil_parameters;
@@ -971,7 +971,7 @@ void Soil::InitializeSoilModel() {
 
 void Soil::SplitRootTestSetup() {
   InitializeSoilModel();
-  if (const auto sd = soil_descriptor.Get<SoilDescriptor>()) {
+  if (const auto sd = soil_descriptor_ref.Get<SoilDescriptor>()) {
     const auto height_field = sd->height_field.Get<HeightField>();
     for (int i = 0; i < soil_model.m_n.size(); i++) {
       auto position = soil_model.GetPositionFromCoordinate(soil_model.GetCoordinateFromIndex(i));

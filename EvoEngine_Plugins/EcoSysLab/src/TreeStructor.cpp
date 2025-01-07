@@ -16,18 +16,21 @@ void TreeStructor::ApplyCurve(const OperatorBranch& branch) {
     node.info.thickness = node.data.imported_thickness = branch.thickness;
     node.data.branch_handle = branch.handle;
     node.info.color = glm::vec4(branch.color, 1.0f);
-    if(reconstruction_settings.use_foliage) node.info.leaves = branch.foliage;
-    else node.info.leaves = 1.f;
+    if (reconstruction_settings.use_foliage)
+      node.info.leaves = branch.foliage;
+    else
+      node.info.leaves = 1.f;
   }
 }
 
 void TreeStructor::BuildVoxelGrid() {
   scatter_points_voxel_grid.Initialize(2.0f * connectivity_graph_settings.point_point_connection_detection_radius, min,
-                                      max);
-  allocated_points_voxel_grid.Initialize(2.0f * connectivity_graph_settings.point_point_connection_detection_radius, min,
-                                        max);
+                                       max);
+  allocated_points_voxel_grid.Initialize(2.0f * connectivity_graph_settings.point_point_connection_detection_radius,
+                                         min, max);
 
-  branch_ends_voxel_grid.Initialize(2.0f * connectivity_graph_settings.point_point_connection_detection_radius, min, max);
+  branch_ends_voxel_grid.Initialize(2.0f * connectivity_graph_settings.point_point_connection_detection_radius, min,
+                                    max);
   for (auto& point : allocated_points) {
     point.branch_handle = point.node_handle = point.skeleton_index = -1;
   }
@@ -107,7 +110,8 @@ bool TreeStructor::DirectConnectionCheck(const BezierCurve& parentCurve, const B
   if (connectivity_graph_settings.point_existence_check &&
       connectivity_graph_settings.point_existence_check_radius > 0.0f) {
     const auto middlePoint = (childPA + parentPB) * 0.5f;
-    if (!HasPoints(middlePoint, allocated_points_voxel_grid, connectivity_graph_settings.point_existence_check_radius) &&
+    if (!HasPoints(middlePoint, allocated_points_voxel_grid,
+                   connectivity_graph_settings.point_existence_check_radius) &&
         !HasPoints(middlePoint, scatter_points_voxel_grid, connectivity_graph_settings.point_existence_check_radius))
       return false;
   }
@@ -367,7 +371,8 @@ void TreeStructor::ImportGraph(const std::filesystem::path& path, float scaleFac
       } catch (const std::exception& e) {
         EVOENGINE_ERROR("Color is wrong at node " + std::to_string(i) + ": " + std::string(e.what()));
       }
-      if(inTreeParts["foliage"]) treePart.foliage = inTreeParts["foliage"].as<float>();
+      if (inTreeParts["foliage"])
+        treePart.foliage = inTreeParts["foliage"].as<float>();
       int branchSize = 0;
       for (const auto& inBranch : inTreeParts["Branches"]) {
         auto branchStart = inBranch["Start Pos"].as<glm::vec3>() * scaleFactor;
@@ -830,7 +835,7 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
               predictedBranchWidths[i] = predictedBranchWidth;
           }
           selected_branch_info_list->ApplyConnections(predictedBranchStarts, predictedBranchEnds, predictedBranchColors,
-                                                     predictedBranchWidths);
+                                                      predictedBranchWidths);
 
         } break;
         case 1: {
@@ -857,7 +862,7 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
               predictedBranchWidths[i] = predictedBranchWidth;
           }
           selected_branch_info_list->ApplyConnections(predictedBranchStarts, predictedBranchEnds, predictedBranchColors,
-                                                     predictedBranchWidths);
+                                                      predictedBranchWidths);
 
         } break;
         case 2: {
@@ -884,7 +889,7 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
               predictedBranchWidths[i] = predictedBranchWidth;
           }
           selected_branch_info_list->ApplyConnections(predictedBranchStarts, predictedBranchEnds, predictedBranchColors,
-                                                     predictedBranchWidths);
+                                                      predictedBranchWidths);
 
         } break;
       }
@@ -905,8 +910,8 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
         scatteredPointConnectionColors[i] = scatter_point_to_branch_connection_color;
       }
       scattered_point_connection_info_list->ApplyConnections(scatteredPointConnectionsStarts,
-                                                           scatteredPointConnectionsEnds,
-                                                           scatteredPointConnectionColors, connectionWidth);
+                                                             scatteredPointConnectionsEnds,
+                                                             scatteredPointConnectionColors, connectionWidth);
 
       candidateBranchConnectionStarts.resize(candidate_branch_connections.size());
       candidateBranchConnectionEnds.resize(candidate_branch_connections.size());
@@ -918,8 +923,8 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
       }
 
       candidate_branch_connection_info_list->ApplyConnections(candidateBranchConnectionStarts,
-                                                            candidateBranchConnectionEnds,
-                                                            candidateBranchConnectionColors, connectionWidth);
+                                                              candidateBranchConnectionEnds,
+                                                              candidateBranchConnectionColors, connectionWidth);
 
       reversedCandidateBranchConnectionStarts.resize(reversed_candidate_branch_connections.size());
       reversedCandidateBranchConnectionEnds.resize(reversed_candidate_branch_connections.size());
@@ -942,8 +947,9 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
         filteredBranchConnectionEnds[i] = filtered_branch_connections[i].second;
         filteredBranchConnectionColors[i] = filtered_branch_connection_color;
       }
-      filtered_branch_connection_info_list->ApplyConnections(filteredBranchConnectionStarts, filteredBranchConnectionEnds,
-                                                           filteredBranchConnectionColors, connectionWidth * 1.1f);
+      filtered_branch_connection_info_list->ApplyConnections(filteredBranchConnectionStarts,
+                                                             filteredBranchConnectionEnds,
+                                                             filteredBranchConnectionColors, connectionWidth * 1.1f);
 
       selectedBranchConnectionStarts.resize(branch_connections.size());
       selectedBranchConnectionEnds.resize(branch_connections.size());
@@ -953,8 +959,9 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
         selectedBranchConnectionEnds[i] = branch_connections[i].second;
         selectedBranchConnectionColors[i] = selected_branch_connection_color;
       }
-      selected_branch_connection_info_list->ApplyConnections(selectedBranchConnectionStarts, selectedBranchConnectionEnds,
-                                                           selectedBranchConnectionColors, connectionWidth * 1.2f);
+      selected_branch_connection_info_list->ApplyConnections(selectedBranchConnectionStarts,
+                                                             selectedBranchConnectionEnds,
+                                                             selectedBranchConnectionColors, connectionWidth * 1.2f);
 
       scatterPointToBranchConnectionStarts.resize(scattered_point_to_branch_start_connections.size() +
                                                   scattered_point_to_branch_end_connections.size());
@@ -968,15 +975,16 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
         scatterPointToBranchConnectionColors[i] = scatter_point_to_branch_connection_color;
       }
       for (int i = scattered_point_to_branch_start_connections.size();
-           i < scattered_point_to_branch_start_connections.size() + scattered_point_to_branch_end_connections.size(); i++) {
+           i < scattered_point_to_branch_start_connections.size() + scattered_point_to_branch_end_connections.size();
+           i++) {
         scatterPointToBranchConnectionStarts[i] =
             scattered_point_to_branch_end_connections[i - scattered_point_to_branch_start_connections.size()].first;
         scatterPointToBranchConnectionEnds[i] =
             scattered_point_to_branch_end_connections[i - scattered_point_to_branch_start_connections.size()].second;
       }
-      scatter_point_to_branch_connection_info_list->ApplyConnections(scatterPointToBranchConnectionStarts,
-                                                                 scatterPointToBranchConnectionEnds,
-                                                                 scatterPointToBranchConnectionColors, connectionWidth);
+      scatter_point_to_branch_connection_info_list->ApplyConnections(
+          scatterPointToBranchConnectionStarts, scatterPointToBranchConnectionEnds,
+          scatterPointToBranchConnectionColors, connectionWidth);
 
       allocated_point_info_list->SetParticleInfos(allocatedPointMatrices);
       scattered_point_info_list->SetParticleInfos(scatterPointMatrices);
@@ -1216,8 +1224,7 @@ void TreeStructor::EstablishConnectivityGraph() {
                        }
                      }
                      if (!duplicate)
-                       otherPoint.p0.emplace_back(glm::distance(branch.bezier_curve.p0, voxel.position),
-                                                  branch.handle);
+                       otherPoint.p0.emplace_back(glm::distance(branch.bezier_curve.p0, voxel.position), branch.handle);
                    }
                    if (connectivity_graph_settings.reverse_connection) {
                      bool duplicate = false;
@@ -1260,8 +1267,7 @@ void TreeStructor::EstablishConnectivityGraph() {
                        }
                      }
                      if (!duplicate)
-                       otherPoint.p3.emplace_back(glm::distance(branch.bezier_curve.p3, voxel.position),
-                                                  branch.handle);
+                       otherPoint.p3.emplace_back(glm::distance(branch.bezier_curve.p3, voxel.position), branch.handle);
                    }
                    scattered_point_to_branch_end_connections.emplace_back(branch.bezier_curve.p3, voxel.position);
                  });
@@ -1400,7 +1406,7 @@ void TreeStructor::EstablishConnectivityGraph() {
           candidate_branch_connections.emplace_back(pA, otherPB);
         }
       }
-      
+
       for (const auto& neighborHandle : currentPoint.neighbor_scatter_points) {
         if (visitedPoints.find(neighborHandle) == visitedPoints.end())
           processingPoints.emplace_back(neighborHandle);
@@ -1612,7 +1618,7 @@ void TreeStructor::BuildSkeletons() {
   for (const auto& operatingBranch : operating_branches) {
     if (operatingBranch.parent_handle != -1) {
       branch_connections.emplace_back(predicted_branches[operatingBranch.handle].bezier_curve.p0,
-                                       predicted_branches[operatingBranch.parent_handle].bezier_curve.p3);
+                                      predicted_branches[operatingBranch.parent_handle].bezier_curve.p3);
     }
   }
 
@@ -1797,7 +1803,7 @@ void TreeStructor::GenerateForest() const {
     const auto treeEntity = scene->CreateEntity("Tree");
     scene->SetParent(treeEntity, forestEntity);
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-    tree->tree_descriptor = tree_descriptor;
+    tree->tree_descriptor_ref = tree_descriptor;
     tree->FromSkeleton(skeleton);
     GlobalTransform gt{};
     gt.SetPosition(skeleton.data.root_position);
@@ -1877,18 +1883,18 @@ void TreeStructor::SpaceColonization() {
         internode.data.regrow_direction = glm::vec3(0.0f);
         const auto internodeEndPosition = internode.data.global_end_position;
         space_colonization_voxel_grid.ForEach(internodeEndPosition, removalDistance,
-                                             [&](std::vector<PointData>& voxels) {
-                                               for (int i = 0; i < voxels.size(); i++) {
-                                                 auto& marker = voxels[i];
-                                                 const auto diff = marker.position - internodeEndPosition;
-                                                 const auto distance = glm::length(diff);
-                                                 if (distance < removalDistance) {
-                                                   voxels[i] = voxels.back();
-                                                   voxels.pop_back();
-                                                   i--;
-                                                 }
-                                               }
-                                             });
+                                              [&](std::vector<PointData>& voxels) {
+                                                for (int i = 0; i < voxels.size(); i++) {
+                                                  auto& marker = voxels[i];
+                                                  const auto diff = marker.position - internodeEndPosition;
+                                                  const auto distance = glm::length(diff);
+                                                  if (distance < removalDistance) {
+                                                    voxels[i] = voxels.back();
+                                                    voxels.pop_back();
+                                                    i--;
+                                                  }
+                                                }
+                                              });
       }
     }
 
@@ -1978,8 +1984,8 @@ void TreeStructor::CalculateBranchRootDistance(
       } else {
         const auto& parentBranch = operating_branches[branch.parent_handle];
         branch.root_distance = parentBranch.root_distance +
-                                glm::distance(parentBranch.bezier_curve.p0, parentBranch.bezier_curve.p3) +
-                                branch.distance_to_parent_branch;
+                               glm::distance(parentBranch.bezier_curve.p0, parentBranch.bezier_curve.p3) +
+                               branch.distance_to_parent_branch;
         branch.skeleton_index = parentBranch.skeleton_index;
       }
     }
@@ -2029,7 +2035,7 @@ void TreeStructor::CalculateSkeletonGraphs() {
       }
     }
     const auto root_node_thickness = skeleton.PeekNode(0).data.draft_thickness;
-    if(reconstruction_settings.apply_root_thickness) {
+    if (reconstruction_settings.apply_root_thickness) {
       const float imported_root_thickness = skeleton.PeekNode(0).data.imported_thickness * 2.f;
       const float multiplier_factor = imported_root_thickness / root_node_thickness;
       for (const auto& handle : sortedNodeList) {
@@ -2145,10 +2151,10 @@ std::vector<std::shared_ptr<Mesh>> TreeStructor::GenerateFoliageMeshes() {
             Vertex archetype;
             for (auto vertex_index = 0; vertex_index < quadMesh->GetVerticesAmount(); vertex_index++) {
               archetype.position = matrix * glm::vec4(quadMesh->UnsafeGetVertices()[vertex_index].position, 1.0f);
-              archetype.normal =
-                  glm::normalize(glm::vec3(matrix * glm::vec4(quadMesh->UnsafeGetVertices()[vertex_index].normal, 0.0f)));
-              archetype.tangent =
-                  glm::normalize(glm::vec3(matrix * glm::vec4(quadMesh->UnsafeGetVertices()[vertex_index].tangent, 0.0f)));
+              archetype.normal = glm::normalize(
+                  glm::vec3(matrix * glm::vec4(quadMesh->UnsafeGetVertices()[vertex_index].normal, 0.0f)));
+              archetype.tangent = glm::normalize(
+                  glm::vec3(matrix * glm::vec4(quadMesh->UnsafeGetVertices()[vertex_index].tangent, 0.0f)));
               archetype.tex_coord = quadMesh->UnsafeGetVertices()[vertex_index].tex_coord;
               archetype.color = internodeInfo.color;
               vertices.push_back(archetype);

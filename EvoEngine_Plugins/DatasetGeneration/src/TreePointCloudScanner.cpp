@@ -13,27 +13,27 @@ using namespace dataset_generation_plugin;
 #pragma region Settings
 void TreePointCloudPointSettings::OnInspect() {
   ImGui::DragFloat("Point variance", &m_variance, 0.01f);
-  ImGui::DragFloat("Point uniform random radius", &m_ballRandRadius, 0.01f);
-  ImGui::DragFloat("Bounding box offset", &m_boundingBoxLimit, 0.01f);
-  ImGui::Checkbox("Type Index", &m_typeIndex);
-  ImGui::Checkbox("Instance Index", &m_instanceIndex);
-  ImGui::Checkbox("Branch Index", &m_branchIndex);
-  ImGui::Checkbox("Tree Part Index", &m_treePartIndex);
-  ImGui::Checkbox("Line Index", &m_lineIndex);
-  ImGui::Checkbox("Internode Index", &m_internodeIndex);
+  ImGui::DragFloat("Point uniform random radius", &ball_rand_radius, 0.01f);
+  ImGui::DragFloat("Bounding box offset", &bounding_box_limit, 0.01f);
+  ImGui::Checkbox("Type Index", &type_index);
+  ImGui::Checkbox("Instance Index", &instance_index);
+  ImGui::Checkbox("Branch Index", &branch_index);
+  ImGui::Checkbox("Tree Part Index", &tree_part_index);
+  ImGui::Checkbox("Line Index", &line_index);
+  ImGui::Checkbox("Internode Index", &internode_index);
 }
 
 void TreePointCloudPointSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
   out << YAML::Key << "m_variance" << YAML::Value << m_variance;
-  out << YAML::Key << "m_ballRandRadius" << YAML::Value << m_ballRandRadius;
-  out << YAML::Key << "m_typeIndex" << YAML::Value << m_typeIndex;
-  out << YAML::Key << "m_instanceIndex" << YAML::Value << m_instanceIndex;
-  out << YAML::Key << "m_branchIndex" << YAML::Value << m_branchIndex;
-  out << YAML::Key << "tree_part_index" << YAML::Value << m_treePartIndex;
-  out << YAML::Key << "line_index" << YAML::Value << m_lineIndex;
-  out << YAML::Key << "m_internodeIndex" << YAML::Value << m_internodeIndex;
-  out << YAML::Key << "m_boundingBoxLimit" << YAML::Value << m_boundingBoxLimit;
+  out << YAML::Key << "ball_rand_radius" << YAML::Value << ball_rand_radius;
+  out << YAML::Key << "type_index" << YAML::Value << type_index;
+  out << YAML::Key << "instance_index" << YAML::Value << instance_index;
+  out << YAML::Key << "branch_index" << YAML::Value << branch_index;
+  out << YAML::Key << "tree_part_index" << YAML::Value << tree_part_index;
+  out << YAML::Key << "line_index" << YAML::Value << line_index;
+  out << YAML::Key << "internode_index" << YAML::Value << internode_index;
+  out << YAML::Key << "bounding_box_limit" << YAML::Value << bounding_box_limit;
   out << YAML::EndMap;
 }
 
@@ -42,44 +42,44 @@ void TreePointCloudPointSettings::Load(const std::string& name, const YAML::Node
     auto& cd = in[name];
     if (cd["m_variance"])
       m_variance = cd["m_variance"].as<float>();
-    if (cd["m_ballRandRadius"])
-      m_ballRandRadius = cd["m_ballRandRadius"].as<float>();
-    if (cd["m_typeIndex"])
-      m_typeIndex = cd["m_typeIndex"].as<bool>();
-    if (cd["m_instanceIndex"])
-      m_instanceIndex = cd["m_instanceIndex"].as<bool>();
-    if (cd["m_branchIndex"])
-      m_branchIndex = cd["m_branchIndex"].as<bool>();
+    if (cd["ball_rand_radius"])
+      ball_rand_radius = cd["ball_rand_radius"].as<float>();
+    if (cd["type_index"])
+      type_index = cd["type_index"].as<bool>();
+    if (cd["instance_index"])
+      instance_index = cd["instance_index"].as<bool>();
+    if (cd["branch_index"])
+      branch_index = cd["branch_index"].as<bool>();
     if (cd["tree_part_index"])
-      m_treePartIndex = cd["tree_part_index"].as<bool>();
+      tree_part_index = cd["tree_part_index"].as<bool>();
     if (cd["line_index"])
-      m_lineIndex = cd["line_index"].as<bool>();
-    if (cd["m_internodeIndex"])
-      m_internodeIndex = cd["m_internodeIndex"].as<bool>();
-    if (cd["m_boundingBoxLimit"])
-      m_boundingBoxLimit = cd["m_boundingBoxLimit"].as<float>();
+      line_index = cd["line_index"].as<bool>();
+    if (cd["internode_index"])
+      internode_index = cd["internode_index"].as<bool>();
+    if (cd["bounding_box_limit"])
+      bounding_box_limit = cd["bounding_box_limit"].as<float>();
   }
 }
 
 bool TreePointCloudCircularCaptureSettings::OnInspect() {
   bool changed = false;
-  if (ImGui::DragFloat("Distance to focus point", &m_distance, 0.01f))
+  if (ImGui::DragFloat("Distance to focus point", &distance_from_trees, 0.01f))
     changed = true;
-  if (ImGui::DragFloat("Height to ground", &m_height, 0.01f))
+  if (ImGui::DragFloat("Height to ground", &capture_height, 0.01f))
     changed = true;
   ImGui::Separator();
   ImGui::Text("Rotation:");
-  if (ImGui::DragInt3("Pitch Angle Start/Step/End", &m_pitchAngleStart, 1))
+  if (ImGui::DragInt3("Pitch Angle Start/Step/End", &pitch_angle_start, 1))
     changed = true;
-  if (ImGui::DragInt3("Turn Angle Start/Step/End", &m_turnAngleStart, 1))
+  if (ImGui::DragInt3("Turn Angle Start/Step/End", &turn_angle_start, 1))
     changed = true;
   ImGui::Separator();
   ImGui::Text("Camera Settings:");
-  if (ImGui::DragFloat("FOV", &m_fov))
+  if (ImGui::DragFloat("FOV", &camera_fov))
     changed = true;
-  if (ImGui::DragInt("Resolution", &m_resolution))
+  if (ImGui::DragInt("Resolution", &scan_resolution))
     changed = true;
-  if (ImGui::DragFloat("Max Depth", &m_cameraDepthMax))
+  if (ImGui::DragFloat("Max Depth", &max_capture_depth))
     changed = true;
   return changed;
 }
@@ -87,17 +87,17 @@ bool TreePointCloudCircularCaptureSettings::OnInspect() {
 void TreePointCloudCircularCaptureSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
 
-  out << YAML::Key << "m_pitchAngleStart" << YAML::Value << m_pitchAngleStart;
-  out << YAML::Key << "m_pitchAngleStep" << YAML::Value << m_pitchAngleStep;
-  out << YAML::Key << "m_pitchAngleEnd" << YAML::Value << m_pitchAngleEnd;
-  out << YAML::Key << "m_turnAngleStart" << YAML::Value << m_turnAngleStart;
-  out << YAML::Key << "m_turnAngleStep" << YAML::Value << m_turnAngleStep;
-  out << YAML::Key << "m_turnAngleEnd" << YAML::Value << m_turnAngleEnd;
-  out << YAML::Key << "m_distance" << YAML::Value << m_distance;
-  out << YAML::Key << "m_height" << YAML::Value << m_height;
-  out << YAML::Key << "m_fov" << YAML::Value << m_fov;
-  out << YAML::Key << "resolution_" << YAML::Value << m_resolution;
-  out << YAML::Key << "m_cameraDepthMax" << YAML::Value << m_cameraDepthMax;
+  out << YAML::Key << "pitch_angle_start" << YAML::Value << pitch_angle_start;
+  out << YAML::Key << "pitch_angle_step" << YAML::Value << pitch_angle_step;
+  out << YAML::Key << "pitch_angle_end" << YAML::Value << pitch_angle_end;
+  out << YAML::Key << "turn_angle_start" << YAML::Value << turn_angle_start;
+  out << YAML::Key << "turn_angle_step" << YAML::Value << turn_angle_step;
+  out << YAML::Key << "turn_angle_end" << YAML::Value << turn_angle_end;
+  out << YAML::Key << "distance_from_trees" << YAML::Value << distance_from_trees;
+  out << YAML::Key << "capture_height" << YAML::Value << capture_height;
+  out << YAML::Key << "camera_fov" << YAML::Value << camera_fov;
+  out << YAML::Key << "resolution_" << YAML::Value << scan_resolution;
+  out << YAML::Key << "max_capture_depth" << YAML::Value << max_capture_depth;
   out << YAML::EndMap;
 }
 
@@ -105,63 +105,65 @@ void TreePointCloudCircularCaptureSettings::Load(const std::string& name, const 
   if (in[name]) {
     auto& cd = in[name];
 
-    if (cd["m_pitchAngleStart"])
-      m_pitchAngleStart = cd["m_pitchAngleStart"].as<int>();
-    if (cd["m_pitchAngleStep"])
-      m_pitchAngleStep = cd["m_pitchAngleStep"].as<int>();
-    if (cd["m_pitchAngleEnd"])
-      m_pitchAngleEnd = cd["m_pitchAngleEnd"].as<int>();
-    if (cd["m_turnAngleStart"])
-      m_turnAngleStart = cd["m_turnAngleStart"].as<int>();
-    if (cd["m_turnAngleStep"])
-      m_turnAngleStep = cd["m_turnAngleStep"].as<int>();
-    if (cd["m_turnAngleEnd"])
-      m_turnAngleEnd = cd["m_turnAngleEnd"].as<int>();
-    if (cd["m_distance"])
-      m_distance = cd["m_distance"].as<float>();
-    if (cd["m_height"])
-      m_height = cd["m_height"].as<float>();
-    if (cd["m_fov"])
-      m_fov = cd["m_fov"].as<float>();
+    if (cd["pitch_angle_start"])
+      pitch_angle_start = cd["pitch_angle_start"].as<int>();
+    if (cd["pitch_angle_step"])
+      pitch_angle_step = cd["pitch_angle_step"].as<int>();
+    if (cd["pitch_angle_end"])
+      pitch_angle_end = cd["pitch_angle_end"].as<int>();
+    if (cd["turn_angle_start"])
+      turn_angle_start = cd["turn_angle_start"].as<int>();
+    if (cd["turn_angle_step"])
+      turn_angle_step = cd["turn_angle_step"].as<int>();
+    if (cd["turn_angle_end"])
+      turn_angle_end = cd["turn_angle_end"].as<int>();
+    if (cd["distance_from_trees"])
+      distance_from_trees = cd["distance_from_trees"].as<float>();
+    if (cd["capture_height"])
+      capture_height = cd["capture_height"].as<float>();
+    if (cd["camera_fov"])
+      camera_fov = cd["camera_fov"].as<float>();
     if (cd["resolution_"])
-      m_resolution = cd["resolution_"].as<int>();
-    if (cd["m_cameraDepthMax"])
-      m_cameraDepthMax = cd["m_cameraDepthMax"].as<float>();
+      scan_resolution = cd["resolution_"].as<int>();
+    if (cd["max_capture_depth"])
+      max_capture_depth = cd["max_capture_depth"].as<float>();
   }
 }
 
-GlobalTransform TreePointCloudCircularCaptureSettings::GetTransform(const glm::vec2& focusPoint, const float turnAngle,
-                                                                    const float pitchAngle) const {
+GlobalTransform TreePointCloudCircularCaptureSettings::GetTransform(const glm::vec2& focus_point,
+                                                                    const float turn_angle,
+                                                                    const float pitch_angle) const {
   GlobalTransform cameraGlobalTransform;
-  const glm::vec3 cameraPosition = glm::vec3(glm::sin(glm::radians(turnAngle)) * m_distance, m_height,
-                                             glm::cos(glm::radians(turnAngle)) * m_distance);
-  const glm::vec3 cameraDirection =
-      glm::vec3(glm::sin(glm::radians(turnAngle)) * m_distance, m_distance * glm::sin(glm::radians(pitchAngle)),
-                glm::cos(glm::radians(turnAngle)) * m_distance);
-  cameraGlobalTransform.SetPosition(cameraPosition + glm::vec3(focusPoint.x, 0, focusPoint.y));
+  const glm::vec3 cameraPosition = glm::vec3(glm::sin(glm::radians(turn_angle)) * distance_from_trees, capture_height,
+                                             glm::cos(glm::radians(turn_angle)) * distance_from_trees);
+  const glm::vec3 cameraDirection = glm::vec3(glm::sin(glm::radians(turn_angle)) * distance_from_trees,
+                                              distance_from_trees * glm::sin(glm::radians(pitch_angle)),
+                                              glm::cos(glm::radians(turn_angle)) * distance_from_trees);
+  cameraGlobalTransform.SetPosition(cameraPosition + glm::vec3(focus_point.x, 0, focus_point.y));
   cameraGlobalTransform.SetRotation(glm::quatLookAt(glm::normalize(-cameraDirection), glm::vec3(0, 1, 0)));
   return cameraGlobalTransform;
 }
 
-void TreePointCloudCircularCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& pointCloudSamples) {
+void TreePointCloudCircularCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
   int counter = 0;
-  for (int turnAngle = m_turnAngleStart; turnAngle < m_turnAngleEnd; turnAngle += m_turnAngleStep) {
-    for (int pitchAngle = m_pitchAngleStart; pitchAngle < m_pitchAngleEnd; pitchAngle += m_pitchAngleStep) {
-      pointCloudSamples.resize((counter + 1) * m_resolution * m_resolution);
-      auto scannerGlobalTransform = GetTransform(glm::vec2(m_focusPoint.x, m_focusPoint.y), turnAngle, pitchAngle);
+  for (int turnAngle = turn_angle_start; turnAngle < turn_angle_end; turnAngle += turn_angle_step) {
+    for (int pitchAngle = pitch_angle_start; pitchAngle < pitch_angle_end; pitchAngle += pitch_angle_step) {
+      point_cloud_samples.resize((counter + 1) * scan_resolution * scan_resolution);
+      auto scannerGlobalTransform =
+          GetTransform(glm::vec2(camera_focus_point.x, camera_focus_point.y), turnAngle, pitchAngle);
       auto front = scannerGlobalTransform.GetRotation() * glm::vec3(0, 0, -1);
       auto up = scannerGlobalTransform.GetRotation() * glm::vec3(0, 1, 0);
       auto left = scannerGlobalTransform.GetRotation() * glm::vec3(1, 0, 0);
       auto position = scannerGlobalTransform.GetPosition();
       std::vector<std::shared_future<void>> results;
-      Jobs::RunParallelFor(m_resolution * m_resolution, [&](const unsigned i) {
-        const float x = i % m_resolution;
-        const float y = i / m_resolution;
-        const float xAngle =
-            (x - m_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) / static_cast<float>(m_resolution) * m_fov / 2.0f;
-        const float yAngle =
-            (y - m_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) / static_cast<float>(m_resolution) * m_fov / 2.0f;
-        auto& sample = pointCloudSamples[counter * m_resolution * m_resolution + i];
+      Jobs::RunParallelFor(scan_resolution * scan_resolution, [&](const unsigned i) {
+        const float x = i % scan_resolution;
+        const float y = i / scan_resolution;
+        const float xAngle = (x - scan_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) /
+                             static_cast<float>(scan_resolution) * camera_fov / 2.0f;
+        const float yAngle = (y - scan_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) /
+                             static_cast<float>(scan_resolution) * camera_fov / 2.0f;
+        auto& sample = point_cloud_samples[counter * scan_resolution * scan_resolution + i];
         sample.direction =
             glm::normalize(glm::rotate(glm::rotate(front, glm::radians(xAngle), left), glm::radians(yAngle), up));
         sample.start = position;
@@ -173,35 +175,36 @@ void TreePointCloudCircularCaptureSettings::GenerateSamples(std::vector<PointClo
 
 bool TreePointCloudGridCaptureSettings::OnInspect() {
   bool changed = false;
-  if (ImGui::DragFloat("Max size", &m_boundingBoxSize, 0.1f, 0.f, 999.f))
+  if (ImGui::DragFloat("Max size", &bounding_box_size, 0.1f, 0.f, 999.f))
     changed = true;
-  if (ImGui::DragInt2("Grid size", &m_gridSize.x, 1, 0, 100))
+  if (ImGui::DragInt2("Grid size", &grid_size.x, 1, 0, 100))
     changed = true;
-  if (ImGui::DragFloat2("Grid distance", &m_gridDistance.x, 0.1f, 0.0f, 100.0f))
+  if (ImGui::DragFloat2("Grid distance", &grid_distance.x, 0.1f, 0.0f, 100.0f))
     changed = true;
-  if (ImGui::DragFloat("Step", &m_step, 0.01f, 0.0f, 0.5f))
+  if (ImGui::DragFloat("Step", &step, 0.01f, 0.0f, 0.5f))
     changed = true;
-  if (ImGui::DragInt("Sample", &m_backpackSample, 1, 1, INT_MAX))
+  if (ImGui::DragInt("Sample", &ground_sample_size, 1, 1, INT_MAX))
     changed = true;
   return changed;
 }
 
-void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& pointCloudSamples) {
-  const glm::vec2 startPoint = glm::vec2((static_cast<float>(m_gridSize.x) * 0.5f - 0.5f) * m_gridDistance.x,
-                                         (static_cast<float>(m_gridSize.y) * 0.5f - 0.5f) * m_gridDistance.y);
+void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
+  const glm::vec2 startPoint = glm::vec2((static_cast<float>(grid_size.x) * 0.5f - 0.5f) * grid_distance.x,
+                                         (static_cast<float>(grid_size.y) * 0.5f - 0.5f) * grid_distance.y);
 
-  const int yStepSize = m_gridSize.y * m_gridDistance.y / m_step;
-  const int xStepSize = m_gridSize.x * m_gridDistance.x / m_step;
+  const int yStepSize = grid_size.y * grid_distance.y / step;
+  const int xStepSize = grid_size.x * grid_distance.x / step;
 
-  pointCloudSamples.resize((m_gridSize.x * yStepSize + m_gridSize.y * xStepSize) * (m_backpackSample + m_droneSample));
+  point_cloud_samples.resize((grid_size.x * yStepSize + grid_size.y * xStepSize) *
+                             (ground_sample_size + drone_sample_size));
   unsigned startIndex = 0;
-  for (int i = 0; i < m_gridSize.x; i++) {
-    float x = i * m_gridDistance.x;
+  for (int i = 0; i < grid_size.x; i++) {
+    float x = i * grid_distance.x;
     for (int step = 0; step < yStepSize; step++) {
-      float z = step * m_step;
-      const glm::vec3 center = glm::vec3{x, m_backpackHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
-      Jobs::RunParallelFor(m_backpackSample, [&](unsigned sampleIndex) {
-        auto& sample = pointCloudSamples[m_backpackSample * (i * yStepSize + step) + sampleIndex];
+      float z = step * step;
+      const glm::vec3 center = glm::vec3{x, ground_sample_height, z} - glm::vec3(startPoint.x, 0, startPoint.y);
+      Jobs::RunParallelFor(ground_sample_size, [&](unsigned sampleIndex) {
+        auto& sample = point_cloud_samples[ground_sample_size * (i * yStepSize + step) + sampleIndex];
         sample.direction = glm::sphericalRand(1.0f);
         if (glm::linearRand(0.0f, 1.0f) > 0.3f) {
           sample.direction.y = glm::abs(sample.direction.y);
@@ -213,14 +216,14 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
     }
   }
 
-  startIndex += m_gridSize.x * yStepSize * m_backpackSample;
-  for (int i = 0; i < m_gridSize.y; i++) {
-    float z = i * m_gridDistance.y;
+  startIndex += grid_size.x * yStepSize * ground_sample_size;
+  for (int i = 0; i < grid_size.y; i++) {
+    float z = i * grid_distance.y;
     for (int step = 0; step < xStepSize; step++) {
-      float x = step * m_step;
-      const glm::vec3 center = glm::vec3{x, m_backpackHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
-      Jobs::RunParallelFor(m_backpackSample, [&](unsigned sampleIndex) {
-        auto& sample = pointCloudSamples[startIndex + m_backpackSample * (i * xStepSize + step) + sampleIndex];
+      float x = step * step;
+      const glm::vec3 center = glm::vec3{x, ground_sample_height, z} - glm::vec3(startPoint.x, 0, startPoint.y);
+      Jobs::RunParallelFor(ground_sample_size, [&](unsigned sampleIndex) {
+        auto& sample = point_cloud_samples[startIndex + ground_sample_size * (i * xStepSize + step) + sampleIndex];
         sample.direction = glm::sphericalRand(1.0f);
         if (glm::linearRand(0.0f, 1.0f) > 0.3f) {
           sample.direction.y = glm::abs(sample.direction.y);
@@ -232,14 +235,14 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
     }
   }
 
-  startIndex += m_gridSize.y * xStepSize * m_backpackSample;
-  for (int i = 0; i < m_gridSize.x; i++) {
-    float x = i * m_gridDistance.x;
+  startIndex += grid_size.y * xStepSize * ground_sample_size;
+  for (int i = 0; i < grid_size.x; i++) {
+    float x = i * grid_distance.x;
     for (int step = 0; step < yStepSize; step++) {
-      float z = step * m_step;
-      const glm::vec3 center = glm::vec3{x, m_droneHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
-      Jobs::RunParallelFor(m_droneSample, [&](unsigned sampleIndex) {
-        auto& sample = pointCloudSamples[m_droneSample * (i * yStepSize + step) + sampleIndex];
+      float z = step * step;
+      const glm::vec3 center = glm::vec3{x, drone_sample_height, z} - glm::vec3(startPoint.x, 0, startPoint.y);
+      Jobs::RunParallelFor(drone_sample_size, [&](unsigned sampleIndex) {
+        auto& sample = point_cloud_samples[drone_sample_size * (i * yStepSize + step) + sampleIndex];
         sample.direction = glm::sphericalRand(1.0f);
         sample.direction.y = -glm::abs(sample.direction.y);
         sample.start = center;
@@ -247,14 +250,14 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
     }
   }
 
-  startIndex += m_gridSize.x * yStepSize * m_droneSample;
-  for (int i = 0; i < m_gridSize.y; i++) {
-    float z = i * m_gridDistance.y;
+  startIndex += grid_size.x * yStepSize * drone_sample_size;
+  for (int i = 0; i < grid_size.y; i++) {
+    float z = i * grid_distance.y;
     for (int step = 0; step < xStepSize; step++) {
-      float x = step * m_step;
-      const glm::vec3 center = glm::vec3{x, m_droneHeight, z} - glm::vec3(startPoint.x, 0, startPoint.y);
-      Jobs::RunParallelFor(m_droneSample, [&](unsigned sampleIndex) {
-        auto& sample = pointCloudSamples[startIndex + m_droneSample * (i * xStepSize + step) + sampleIndex];
+      float x = step * step;
+      const glm::vec3 center = glm::vec3{x, drone_sample_height, z} - glm::vec3(startPoint.x, 0, startPoint.y);
+      Jobs::RunParallelFor(drone_sample_size, [&](unsigned sampleIndex) {
+        auto& sample = point_cloud_samples[startIndex + drone_sample_size * (i * xStepSize + step) + sampleIndex];
         sample.direction = glm::sphericalRand(1.0f);
         sample.direction.y = -glm::abs(sample.direction.y);
         sample.start = center;
@@ -264,10 +267,10 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
 }
 
 bool TreePointCloudGridCaptureSettings::SampleFilter(const PointCloudSample& sample) {
-  if (m_boundingBoxSize == 0.f)
+  if (bounding_box_size == 0.f)
     return true;
-  return glm::abs(sample.hit_info.position.x) < m_boundingBoxSize &&
-         glm::abs(sample.hit_info.position.z) < m_boundingBoxSize;
+  return glm::abs(sample.hit_info.position.x) < bounding_box_size &&
+         glm::abs(sample.hit_info.position.z) < bounding_box_size;
 }
 #pragma endregion
 
@@ -364,42 +367,42 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
     if (!capture_settings->SampleFilter(sample))
       continue;
     auto& position = sample.hit_info.position;
-    if (position.x < (plant_bound.min.x - m_pointSettings.m_boundingBoxLimit) ||
-        position.y < (plant_bound.min.y - m_pointSettings.m_boundingBoxLimit) ||
-        position.z < (plant_bound.min.z - m_pointSettings.m_boundingBoxLimit) ||
-        position.x > (plant_bound.max.x + m_pointSettings.m_boundingBoxLimit) ||
-        position.y > (plant_bound.max.y + m_pointSettings.m_boundingBoxLimit) ||
-        position.z > (plant_bound.max.z + m_pointSettings.m_boundingBoxLimit))
+    if (position.x < (plant_bound.min.x - point_settings.bounding_box_limit) ||
+        position.y < (plant_bound.min.y - point_settings.bounding_box_limit) ||
+        position.z < (plant_bound.min.z - point_settings.bounding_box_limit) ||
+        position.x > (plant_bound.max.x + point_settings.bounding_box_limit) ||
+        position.y > (plant_bound.max.y + point_settings.bounding_box_limit) ||
+        position.z > (plant_bound.max.z + point_settings.bounding_box_limit))
       continue;
     auto ball_rand = glm::vec3(0.0f);
-    if (m_pointSettings.m_ballRandRadius > 0.0f) {
-      ball_rand = glm::ballRand(m_pointSettings.m_ballRandRadius);
+    if (point_settings.ball_rand_radius > 0.0f) {
+      ball_rand = glm::ballRand(point_settings.ball_rand_radius);
     }
     const auto distance = glm::distance(sample.hit_info.position, sample.start);
     points.emplace_back(sample.hit_info.position +
-                        distance * glm::vec3(glm::gaussRand(0.0f, m_pointSettings.m_variance),
-                                             glm::gaussRand(0.0f, m_pointSettings.m_variance),
-                                             glm::gaussRand(0.0f, m_pointSettings.m_variance)) +
+                        distance * glm::vec3(glm::gaussRand(0.0f, point_settings.m_variance),
+                                             glm::gaussRand(0.0f, point_settings.m_variance),
+                                             glm::gaussRand(0.0f, point_settings.m_variance)) +
                         ball_rand);
 
-    if (m_pointSettings.m_internodeIndex) {
+    if (point_settings.internode_index) {
       internode_index.emplace_back(static_cast<int>(sample.hit_info.data.x + 0.1f));
     }
-    if (m_pointSettings.m_branchIndex) {
+    if (point_settings.branch_index) {
       branch_index.emplace_back(static_cast<int>(sample.hit_info.data.y + 0.1f));
     }
-    if (m_pointSettings.m_lineIndex) {
+    if (point_settings.line_index) {
       line_index.emplace_back(static_cast<int>(sample.hit_info.data.z + 0.1f));
     }
-    if (m_pointSettings.m_treePartIndex) {
+    if (point_settings.tree_part_index) {
       tree_part_index.emplace_back(static_cast<int>(sample.hit_info.data2.x + 0.1f));
     }
-    if (m_pointSettings.m_treePartTypeIndex) {
+    if (point_settings.tree_part_type_index) {
       tree_part_type_index.emplace_back(static_cast<int>(sample.hit_info.data2.y + 0.1f));
     }
     auto branch_search = branch_mesh_renderer_handles.find(sample.handle);
     auto foliage_search = foliage_mesh_renderer_handles.find(sample.handle);
-    if (m_pointSettings.m_instanceIndex) {
+    if (point_settings.instance_index) {
       if (branch_search != branch_mesh_renderer_handles.end()) {
         instance_index.emplace_back(branch_search->second);
       } else if (foliage_search != foliage_mesh_renderer_handles.end()) {
@@ -409,7 +412,7 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
       }
     }
 
-    if (m_pointSettings.m_typeIndex) {
+    if (point_settings.type_index) {
       if (branch_search != branch_mesh_renderer_handles.end()) {
         type_index.emplace_back(0);
       } else if (foliage_search != foliage_mesh_renderer_handles.end()) {
@@ -437,34 +440,34 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
   cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, tinyply::Type::FLOAT32, points.size(),
                                       reinterpret_cast<uint8_t*>(points.data()), tinyply::Type::INVALID, 0);
 
-  if (m_pointSettings.m_typeIndex)
+  if (point_settings.type_index)
     cube_file.add_properties_to_element("type_index", {"type_index"}, tinyply::Type::INT32, type_index.size(),
                                         reinterpret_cast<uint8_t*>(type_index.data()), tinyply::Type::INVALID, 0);
 
-  if (m_pointSettings.m_instanceIndex) {
+  if (point_settings.instance_index) {
     cube_file.add_properties_to_element("instance_index", {"instance_index"}, tinyply::Type::INT32,
                                         instance_index.size(), reinterpret_cast<uint8_t*>(instance_index.data()),
                                         tinyply::Type::INVALID, 0);
   }
-  if (m_pointSettings.m_branchIndex) {
+  if (point_settings.branch_index) {
     cube_file.add_properties_to_element("branch_index", {"branch_index"}, tinyply::Type::INT32, branch_index.size(),
                                         reinterpret_cast<uint8_t*>(branch_index.data()), tinyply::Type::INVALID, 0);
   }
-  if (m_pointSettings.m_treePartIndex) {
+  if (point_settings.tree_part_index) {
     cube_file.add_properties_to_element("tree_part_index", {"tree_part_index"}, tinyply::Type::INT32,
                                         tree_part_index.size(), reinterpret_cast<uint8_t*>(tree_part_index.data()),
                                         tinyply::Type::INVALID, 0);
   }
-  if (m_pointSettings.m_treePartTypeIndex) {
+  if (point_settings.tree_part_type_index) {
     cube_file.add_properties_to_element(
         "tree_part_type_index", {"tree_part_type_index"}, tinyply::Type::INT32, tree_part_type_index.size(),
         reinterpret_cast<uint8_t*>(tree_part_type_index.data()), tinyply::Type::INVALID, 0);
   }
-  if (m_pointSettings.m_lineIndex) {
+  if (point_settings.line_index) {
     cube_file.add_properties_to_element("line_index", {"line_index"}, tinyply::Type::INT32, line_index.size(),
                                         reinterpret_cast<uint8_t*>(line_index.data()), tinyply::Type::INVALID, 0);
   }
-  if (m_pointSettings.m_internodeIndex) {
+  if (point_settings.internode_index) {
     cube_file.add_properties_to_element("internode_index", {"internode_index"}, tinyply::Type::INT32,
                                         internode_index.size(), reinterpret_cast<uint8_t*>(internode_index.data()),
                                         tinyply::Type::INVALID, 0);
@@ -472,7 +475,7 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
   // Write a binary file
   cube_file.write(outstream_binary, true);
 
-  if (m_pointSettings.m_treePartIndex) {
+  if (point_settings.tree_part_index) {
     try {
       std::filesystem::path yaml_path = save_path;
       yaml_path.replace_extension(".yml");
@@ -504,7 +507,7 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
 #endif
 }
 
-bool TreePointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
+bool TreePointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   const auto ecoSysLabLayer = Application::GetLayer<EcoSysLabLayer>();
   if (ImGui::TreeNodeEx("Circular Capture")) {
@@ -533,7 +536,7 @@ bool TreePointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor
   }
 
   if (ImGui::TreeNodeEx("Point settings")) {
-    m_pointSettings.OnInspect();
+    point_settings.OnInspect();
     ImGui::TreePop();
   }
 
@@ -541,13 +544,13 @@ bool TreePointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor
 }
 
 void TreePointCloudScanner::OnDestroy() {
-  m_pointSettings = {};
+  point_settings = {};
 }
 
 void TreePointCloudScanner::Serialize(YAML::Emitter& out) const {
-  m_pointSettings.Save("m_pointSettings", out);
+  point_settings.Save("point_settings", out);
 }
 
 void TreePointCloudScanner::Deserialize(const YAML::Node& in) {
-  m_pointSettings.Load("m_pointSettings", in);
+  point_settings.Load("point_settings", in);
 }

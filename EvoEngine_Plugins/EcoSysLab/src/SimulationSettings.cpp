@@ -19,6 +19,7 @@ void SimulationSettings::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "auto_clear_fruit_and_leaves" << YAML::Value << auto_clear_fruit_and_leaves;
   out << YAML::Key << "crown_shyness_distance" << YAML::Value << crown_shyness_distance;
   out << YAML::Key << "max_node_count" << YAML::Value << max_node_count;
+  out << YAML::Key << "max_flow_count" << YAML::Value << max_flow_count;
 
   out << YAML::Key << "skylight_intensity" << YAML::Value << skylight_intensity;
   out << YAML::Key << "shadow_distance_loss" << YAML::Value << shadow_distance_loss;
@@ -38,6 +39,8 @@ void SimulationSettings::Deserialize(const YAML::Node& in) {
     crown_shyness_distance = in["crown_shyness_distance"].as<float>();
   if (in["max_node_count"])
     max_node_count = in["max_node_count"].as<int>();
+  if (in["max_flow_count"])
+    max_flow_count = in["max_flow_count"].as<int>();
 
   if (in["skylight_intensity"])
     skylight_intensity = in["skylight_intensity"].as<float>();
@@ -55,6 +58,9 @@ void SimulationSettings::Deserialize(const YAML::Node& in) {
 bool SimulationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragInt("Max node count", &max_node_count, 500, 0, INT_MAX)) {
+    changed = true;
+  }
+  if (ImGui::DragInt("Max flow count", &max_flow_count, 500, 0, INT_MAX)) {
     changed = true;
   }
   if (ImGui::Button("Grow weekly")) {

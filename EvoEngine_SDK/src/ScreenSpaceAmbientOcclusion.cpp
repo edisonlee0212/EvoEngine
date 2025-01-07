@@ -146,8 +146,8 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
   });
   BlurPushConstant blur_push_constant{};
   blur_push_constant.avoid_distance = avoid_distance;
-  blur_push_constant.camera_near = target_camera->near_distance;
-  blur_push_constant.camera_far = target_camera->far_distance;
+  blur_push_constant.camera_near = target_camera->camera_settings.near_distance;
+  blur_push_constant.camera_far = target_camera->camera_settings.far_distance;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
     VkRect2D render_area;

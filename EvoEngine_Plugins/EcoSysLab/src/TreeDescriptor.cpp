@@ -42,14 +42,14 @@ bool TreeDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       const auto tree_entity = scene->CreateEntity(GetTitle());
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       float height = 0;
-      if (const auto soil_descriptor = soil->soil_descriptor.Get<SoilDescriptor>()) {
+      if (const auto soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>()) {
         if (const auto height_field = soil_descriptor->height_field.Get<HeightField>())
           height = height_field->GetValue({0.0f, 0.0f}) - 0.05f;
       }
       GlobalTransform global_transform;
       global_transform.SetPosition(glm::vec3(0, height, 0));
       scene->SetDataComponent(tree_entity, global_transform);
-      tree->tree_descriptor = ProjectManager::GetAsset(GetHandle());
+      tree->tree_descriptor_ref = ProjectManager::GetAsset(GetHandle());
       editor_layer->SetSelectedEntity(tree_entity);
     }
   } else {

@@ -12,7 +12,7 @@ bool ClimateDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
     const auto scene = Application::GetActiveScene();
     const auto climateEntity = scene->CreateEntity(GetTitle());
     const auto climate = scene->GetOrSetPrivateComponent<Climate>(climateEntity).lock();
-    climate->climate_descriptor = ProjectManager::GetAsset(GetHandle());
+    climate->climate_descriptor_ref = ProjectManager::GetAsset(GetHandle());
   }
   return changed;
 }
@@ -21,7 +21,8 @@ std::shared_ptr<Texture2D> ClimateDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
     thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ClimateDescriptor.png"));
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ClimateDescriptor.png"));
   }
   return thumbnail;
 }
@@ -34,26 +35,26 @@ void ClimateDescriptor::Deserialize(const YAML::Node& in) {
 
 bool Climate::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (editor_layer->DragAndDropButton<ClimateDescriptor>(climate_descriptor, "ClimateDescriptor", true)) {
+  if (editor_layer->DragAndDropButton<ClimateDescriptor>(climate_descriptor_ref, "ClimateDescriptor", true)) {
     InitializeClimateModel();
     changed = true;
   }
 
-  if (climate_descriptor.Get<ClimateDescriptor>()) {
+  if (climate_descriptor_ref.Get<ClimateDescriptor>()) {
   }
   return changed;
 }
 
 void Climate::Serialize(YAML::Emitter& out) const {
-  climate_descriptor.Save("climate_descriptor", out);
+  climate_descriptor_ref.Save("climate_descriptor_ref", out);
 }
 
 void Climate::CollectAssetRef(std::vector<AssetRef>& list) {
-  list.push_back(climate_descriptor);
+  list.push_back(climate_descriptor_ref);
 }
 
 void Climate::InitializeClimateModel() {
-  if (const auto climate_descriptor = this->climate_descriptor.Get<ClimateDescriptor>()) {
+  if (const auto climate_descriptor = this->climate_descriptor_ref.Get<ClimateDescriptor>()) {
     const auto params = climate_descriptor->climate_parameters;
     climate_model.Initialize(params);
   }
@@ -85,7 +86,6 @@ void Climate::PrepareForGrowth() {
       max_bound = glm::max(current_max_bound + glm::vec3(1.0f), max_bound);
       bound_changed = true;
     }
-    tree->crown_shyness_distance = eco_sys_lab_layer->simulation_settings.crown_shyness_distance;
   }
   if (bound_changed)
     estimator.voxel_grid.Initialize(estimator.voxel_size, min_bound, max_bound);
@@ -99,5 +99,5 @@ void Climate::PrepareForGrowth() {
 }
 
 void Climate::Deserialize(const YAML::Node& in) {
-  climate_descriptor.Load("climate_descriptor", in);
+  climate_descriptor_ref.Load("climate_descriptor_ref", in);
 }

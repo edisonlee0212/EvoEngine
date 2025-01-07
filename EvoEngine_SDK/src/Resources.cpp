@@ -143,7 +143,7 @@ Handle Resources::GenerateNewHandle() {
 
 void Resources::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto& resources = GetInstance();
-  auto& project_manager = ProjectManager::GetInstance();
+  const auto& project_manager = ProjectManager::GetInstance();
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("View")) {
       ImGui::Checkbox("Assets", &resources.show_assets_);

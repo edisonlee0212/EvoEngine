@@ -813,7 +813,23 @@ void RenderLayer::OnCreate() {
   lighting_->Initialize();
 }
 
-void RenderLayer::ClearAll() const {
+void RenderLayer::ClearAllEditorCameras() const {
+  const auto scene = GetScene();
+  if (!scene)
+    return;
+  std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
+  RenderInstanceStorage::CollectEditorCameras(scene, cameras);
+
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    for (const auto& i : cameras) {
+      if (const auto render_texture = i.second->GetRenderTexture()) {
+        render_texture->Clear(vk_command_buffer);
+      }
+    }
+  });
+}
+
+void RenderLayer::ClearAllCameras() const {
   const auto scene = GetScene();
   if (!scene)
     return;
@@ -822,8 +838,11 @@ void RenderLayer::ClearAll() const {
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (const auto& i : cameras) {
-      if (const auto render_texture = i.second->GetRenderTexture())
-        render_texture->Clear(vk_command_buffer);
+      if (i.second->rendered_) {
+        if (const auto render_texture = i.second->GetRenderTexture()) {
+          render_texture->Clear(vk_command_buffer);
+        }
+      }
     }
   });
 }
@@ -1405,7 +1424,7 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
   if (const auto main_camera = scene->main_camera.Get<Camera>()) {
     if (const auto main_camera_owner = main_camera->GetOwner(); scene->IsEntityValid(main_camera_owner)) {
       lod_center = scene->GetDataComponent<GlobalTransform>(main_camera_owner).GetPosition();
-      lod_max_distance = main_camera->far_distance;
+      lod_max_distance = main_camera->camera_settings.far_distance;
       lod_set = true;
     }
   }
@@ -1413,7 +1432,7 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
     if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
       if (const auto scene_camera = editor_layer->GetSceneCamera()) {
         lod_center = editor_layer->GetSceneCameraPosition();
-        lod_max_distance = scene_camera->far_distance;
+        lod_max_distance = scene_camera->camera_settings.far_distance;
       }
     }
   }

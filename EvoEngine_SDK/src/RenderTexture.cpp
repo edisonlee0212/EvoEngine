@@ -390,7 +390,8 @@ bool RenderTexture::Save(const std::filesystem::path& path) const {
   return true;
 }
 
-void RenderTexture::StoreToPng(const std::string& path, int resize_x, int resize_y, unsigned compression_level) const {
+void RenderTexture::StoreToPng(const std::filesystem::path& path, int resize_x, int resize_y,
+                               unsigned compression_level) const {
   assert(color_);
   const auto resolution_x = color_image_->GetExtent().width;
   const auto resolution_y = color_image_->GetExtent().height;
@@ -417,7 +418,7 @@ void RenderTexture::StoreToPng(const std::string& path, int resize_x, int resize
         pixels[i * store_channels + 3] = glm::clamp<int>(int(255.9f * res[i * channels + 3]), 0, 255);
     }
     stbi_flip_vertically_on_write(true);
-    stbi_write_png(path.c_str(), resize_x, resize_y, store_channels, pixels.data(), resize_x * store_channels);
+    stbi_write_png(path.string().c_str(), resize_x, resize_y, store_channels, pixels.data(), resize_x * store_channels);
   } else {
     pixels.resize(resolution_x * resolution_y * channels);
     for (int i = 0; i < resolution_x * resolution_y; i++) {
@@ -428,12 +429,63 @@ void RenderTexture::StoreToPng(const std::string& path, int resize_x, int resize
         pixels[i * store_channels + 3] = glm::clamp<int>(int(255.9f * dst[i * channels + 3]), 0, 255);
     }
     stbi_flip_vertically_on_write(true);
-    stbi_write_png(path.c_str(), resolution_x, resolution_y, store_channels, pixels.data(),
+    stbi_write_png(path.string().c_str(), resolution_x, resolution_y, store_channels, pixels.data(),
                    resolution_x * store_channels);
   }
 }
 
-void RenderTexture::StoreToJpg(const std::string& path, int resize_x, int resize_y, unsigned quality) const {
+void RenderTexture::StoreLinearDepthToPng(const std::filesystem::path& path, float near_distance, float far_distance,
+                                          float max_depth, int resize_x, int resize_y,
+                                          unsigned compression_level) const {
+  assert(color_);
+  const auto resolution_x = depth_image_->GetExtent().width;
+  const auto resolution_y = depth_image_->GetExtent().height;
+  constexpr size_t store_channels = 4;
+  std::vector<float> dst;
+  dst.resize(resolution_x * resolution_y);
+  // Retrieve image data here.
+  Buffer image_buffer(sizeof(float) * resolution_x * resolution_y);
+  image_buffer.CopyFromDepth(*depth_image_, 4);
+  image_buffer.DownloadVector(dst, resolution_x * resolution_y);
+  std::vector<uint8_t> pixels;
+
+  const auto linearize_depth = [&](const float ndc_depth) {
+    return near_distance * far_distance / (far_distance - ndc_depth * (far_distance - near_distance));
+  };
+
+  if (resize_x > 0 && resize_y > 0 && (resize_x != resolution_x || resize_y != resolution_y)) {
+    std::vector<float> res;
+    res.resize(resize_x * resize_y * store_channels);
+    stbir_resize(dst.data(), resolution_x, resolution_y, 0, res.data(), resize_x, resize_y, 0, STBIR_1CHANNEL,
+                 STBIR_TYPE_FLOAT, STBIR_EDGE_REFLECT, STBIR_FILTER_POINT_SAMPLE);
+    pixels.resize(resize_x * resize_y * store_channels);
+    for (int i = 0; i < resize_x * resize_y; i++) {
+      const auto depth = glm::clamp<int>(static_cast<int>(255.9f * linearize_depth(res[i]) / max_depth), 0, 255);
+      pixels[i * store_channels] = depth;
+      pixels[i * store_channels + 1] = depth;
+      pixels[i * store_channels + 2] = depth;
+      if (store_channels == 4)
+        pixels[i * store_channels + 3] = 255;
+    }
+    stbi_flip_vertically_on_write(true);
+    stbi_write_png(path.string().c_str(), resize_x, resize_y, store_channels, pixels.data(), resize_x * store_channels);
+  } else {
+    pixels.resize(resolution_x * resolution_y);
+    for (int i = 0; i < resolution_x * resolution_y; i++) {
+      const auto depth = glm::clamp<int>(static_cast<int>(255.9f * linearize_depth(dst[i]) / max_depth), 0, 255);
+      pixels[i * store_channels] = depth;
+      pixels[i * store_channels + 1] = depth;
+      pixels[i * store_channels + 2] = depth;
+      if (store_channels == 4)
+        pixels[i * store_channels + 3] = 255;
+    }
+    stbi_flip_vertically_on_write(true);
+    stbi_write_png(path.string().c_str(), resolution_x, resolution_y, store_channels, pixels.data(),
+                   resolution_x * store_channels);
+  }
+}
+
+void RenderTexture::StoreToJpg(const std::filesystem::path& path, int resize_x, int resize_y, unsigned quality) const {
   assert(color_);
   const auto resolution_x = color_image_->GetExtent().width;
   const auto resolution_y = color_image_->GetExtent().height;
@@ -461,7 +513,7 @@ void RenderTexture::StoreToJpg(const std::string& path, int resize_x, int resize
         pixels[i * store_channels + 3] = glm::clamp<int>(int(255.9f * res[i * channels + 3]), 0, 255);
     }
     stbi_flip_vertically_on_write(true);
-    stbi_write_jpg(path.c_str(), resize_x, resize_y, store_channels, pixels.data(), quality);
+    stbi_write_jpg(path.string().c_str(), resize_x, resize_y, store_channels, pixels.data(), quality);
   } else {
     pixels.resize(resolution_x * resolution_y * 3);
     for (int i = 0; i < resolution_x * resolution_y; i++) {
@@ -472,11 +524,11 @@ void RenderTexture::StoreToJpg(const std::string& path, int resize_x, int resize
         pixels[i * store_channels + 3] = glm::clamp<int>(int(255.9f * dst[i * channels + 3]), 0, 255);
     }
     stbi_flip_vertically_on_write(true);
-    stbi_write_jpg(path.c_str(), resolution_x, resolution_y, store_channels, pixels.data(), quality);
+    stbi_write_jpg(path.string().c_str(), resolution_x, resolution_y, store_channels, pixels.data(), quality);
   }
 }
 
-void RenderTexture::StoreToHdr(const std::string& path, int resize_x, int resize_y, unsigned quality) const {
+void RenderTexture::StoreToHdr(const std::filesystem::path& path, int resize_x, int resize_y, unsigned quality) const {
   assert(color_);
   const auto resolution_x = color_image_->GetExtent().width;
   const auto resolution_y = color_image_->GetExtent().height;
@@ -494,9 +546,9 @@ void RenderTexture::StoreToHdr(const std::string& path, int resize_x, int resize
     pixels.resize(resize_x * resize_y * channels);
     stbir_resize_float_linear(dst.data(), resolution_x, resolution_y, 0, pixels.data(), resize_x, resize_y, 0,
                               static_cast<stbir_pixel_layout>(channels));
-    stbi_write_hdr(path.c_str(), resolution_x, resolution_y, channels, pixels.data());
+    stbi_write_hdr(path.string().c_str(), resolution_x, resolution_y, channels, pixels.data());
   } else {
-    stbi_write_hdr(path.c_str(), resolution_x, resolution_y, channels, dst.data());
+    stbi_write_hdr(path.string().c_str(), resolution_x, resolution_y, channels, dst.data());
   }
 }
 

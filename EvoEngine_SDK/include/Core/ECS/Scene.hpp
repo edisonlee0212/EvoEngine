@@ -160,7 +160,7 @@ class Scene final : public IAsset {
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 
   template <typename T>
-  std::vector<Entity> GetPrivateComponentOwnersList(const std::shared_ptr<Scene>& scene);
+  std::vector<Entity> GetPrivateComponentOwnersList();
 
   Input::KeyActionType GetKey(int key);
 
@@ -389,7 +389,7 @@ class Scene final : public IAsset {
 #pragma endregion
 };
 template <typename T>
-std::vector<Entity> Scene::GetPrivateComponentOwnersList(const std::shared_ptr<Scene>& scene) {
+std::vector<Entity> Scene::GetPrivateComponentOwnersList() {
   return scene_data_storage_.entity_private_component_storage.GetOwnersList<T>();
 }
 template <typename T>

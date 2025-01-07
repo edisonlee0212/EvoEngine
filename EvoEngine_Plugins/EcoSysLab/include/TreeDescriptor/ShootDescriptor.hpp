@@ -137,7 +137,6 @@ class ShootDescriptor : public IAsset {
   float branch_breaking_factor = 1.f;
 #pragma endregion
 
-  AssetRef bark_material;
 #pragma region Leaf
   float leaf_flushing_lighting_requirement = 0.1f;
   float leaf_fall_probability;

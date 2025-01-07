@@ -170,8 +170,8 @@ void EditorLayer::OnCreate() {
                static_cast<void**>(static_cast<void*>(&mapped_entity_index_data_)));
 
   const auto scene_camera = Serialization::ProduceSerializable<Camera>();
-  scene_camera->clear_color = glm::vec3(59.0f / 255.0f, 85 / 255.0f, 143 / 255.f);
-  scene_camera->use_clear_color = false;
+  scene_camera->camera_settings.clear_color = glm::vec3(59.0f / 255.0f, 85 / 255.0f, 143 / 255.f);
+  scene_camera->camera_settings.use_clear_color = false;
   scene_camera->OnCreate();
   scene_camera->post_processing_stack_ref = ProjectManager::CreateTemporaryAsset<PostProcessingStack>();
   RegisterEditorCamera(scene_camera);
@@ -1634,6 +1634,7 @@ void EditorLayer::CameraWindowDragAndDrop() const {
     if (const auto asset = asset_ref.Get<IAsset>(); !Application::IsPlaying() && asset->GetTypeName() == "Scene") {
       const auto new_scene = std::dynamic_pointer_cast<Scene>(asset);
       ProjectManager::SetStartScene(new_scene);
+      ProjectManager::SaveProject();
       Application::Attach(new_scene);
     }
 

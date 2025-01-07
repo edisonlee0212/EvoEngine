@@ -390,6 +390,7 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
     if (!scene->IsEntityValid(ptr->GetOwner())) {
       target.Clear();
       ImGui::Button("none");
+      ImGui::PopStyleColor(1);
       return true;
     }
     ImGui::Button(scene->GetEntityName(ptr->GetOwner()).c_str());

@@ -265,6 +265,8 @@ class RenderInstanceStorage {
   uint32_t total_strands_segments = 0;
 
   void Clear();
+  static void CollectEditorCameras(const std::shared_ptr<Scene>& target_scene,
+                                   std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
   static void CollectCameras(const std::shared_ptr<Scene>& target_scene,
                              std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
   static void CalculateLodFactor(const std::shared_ptr<Scene>& scene, const glm::vec3& view_position,

@@ -19,14 +19,14 @@ class FoliageDescriptor : public IAsset {
   float horizontal_tropism = 0.f;
   float gravitropism = 0.f;
 
-  AssetRef leaf_material;
+  AssetRef leaf_material_ref;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
-  void GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internodeInfo,
-                               const float tree_size) const;
+  void GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internode_info,
+                               float tree_size) const;
 };
 
 }  // namespace eco_sys_lab_plugin

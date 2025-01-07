@@ -71,7 +71,7 @@ enum class SoilProperty {
 class Soil : public IPrivateComponent {
  public:
   VoxelSoilModel soil_model;
-  AssetRef soil_descriptor;
+  AssetRef soil_descriptor_ref;
   /**ImGui menu goes to here.Also you can take care you visualization with Gizmos here.
    * Note that the visualization will only be activated while you are inspecting the soil private component in the
    * entity inspector.

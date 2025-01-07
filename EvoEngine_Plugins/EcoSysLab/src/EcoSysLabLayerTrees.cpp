@@ -396,8 +396,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                 const auto climate_candidate = FindClimate();
                 if (!climate_candidate.expired()) {
                   climate_candidate.lock()->PrepareForGrowth();
-                  if (tree->TryGrowSubTree(simulation_settings.delta_time, tree_visualizer.m_selectedInternodeHandle,
-                                           false)) {
+                  if (tree->TryGrowSubTree(simulation_settings, tree_visualizer.m_selectedInternodeHandle, false)) {
                     tree_visualizer.m_needUpdate = true;
                     may_need_geometry_generation = true;
                   }
@@ -470,14 +469,14 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
       tree_visualizer.Visualize(tree_model, global_transform);
     }
     if (tree_visualization_settings_.show_shadow_grid) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), visualization_camera_,
-                                                  shadow_grid_particle_info_list_, glm::mat4(1.0f), 1.0f,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
+                                                  visualization_camera_, shadow_grid_particle_info_list_,
+                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     if (tree_visualization_settings_.show_lighting_grid) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), visualization_camera_,
-                                                  lighting_grid_particle_info_list_, glm::mat4(1.0f), 1.0f,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
+                                                  visualization_camera_, lighting_grid_particle_info_list_,
+                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     if (tree_visualization_settings_.display_shoot_stem && !shoot_stem_points_.empty()) {
       gizmo_settings.color_mode = GizmoSettings::ColorMode::Default;
@@ -485,26 +484,31 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                                      glm::mat4(1.0f), 1, gizmo_settings);
     }
     if (tree_visualization_settings_.display_fruit && !fruit_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), visualization_camera_,
-                                                  fruit_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
+                                                  visualization_camera_, fruit_matrices_, glm::mat4(1.0f), 1.0f,
+                                                  gizmo_settings);
     }
     gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
     if (tree_visualization_settings_.display_foliage && !foliage_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), visualization_camera_,
-                                                  foliage_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"),
+                                                  visualization_camera_, foliage_matrices_, glm::mat4(1.0f), 1.0f,
+                                                  gizmo_settings);
     }
     if (tree_visualization_settings_.display_ground_leaves && !ground_leaf_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), visualization_camera_,
-                                                  ground_leaf_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"),
+                                                  visualization_camera_, ground_leaf_matrices_, glm::mat4(1.0f), 1.0f,
+                                                  gizmo_settings);
     }
     gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
     if (tree_visualization_settings_.display_ground_fruit && !ground_fruit_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), visualization_camera_,
-                                                  ground_fruit_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
+                                                  visualization_camera_, ground_fruit_matrices_, glm::mat4(1.0f), 1.0f,
+                                                  gizmo_settings);
     }
     if (tree_visualization_settings_.display_bounding_box && !bounding_box_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), visualization_camera_,
-                                                  bounding_box_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
+                                                  visualization_camera_, bounding_box_matrices_, glm::mat4(1.0f), 1.0f,
+                                                  gizmo_settings);
     }
     gizmo_settings.color_mode = GizmoSettings::ColorMode::Default;
   }
@@ -539,11 +543,12 @@ void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
   }
 }
 
-void EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settings,
+bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settings,
                               SimulationStats& target_simulation_stats) {
   const auto scene = GetScene();
   const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
   simulated_time_ += target_simulation_settings.delta_time;
+  bool tree_grown = false;
   if (tree_entities && !tree_entities->empty()) {
     float time = Times::Now();
 
@@ -555,11 +560,11 @@ void EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
       soil = soil_candidate.lock();
     if (!soil) {
       EVOENGINE_ERROR("Simulation Failed! No soil in scene!");
-      return;
+      return tree_grown;
     }
     if (!climate) {
       EVOENGINE_ERROR("Simulation Failed! No climate in scene!");
-      return;
+      return tree_grown;
     }
     climate->climate_model.time = simulated_time_;
 
@@ -571,7 +576,6 @@ void EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
       auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       tree->climate = climate;
       tree->soil = soil;
-      tree->crown_shyness_distance = target_simulation_settings.crown_shyness_distance;
     }
     climate->PrepareForGrowth();
     std::vector<bool> grown_stat{};
@@ -588,10 +592,13 @@ void EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
       if (target_simulation_settings.max_node_count > 0 &&
           tree->tree_model.RefShootSkeleton().PeekSortedNodeList().size() >= target_simulation_settings.max_node_count)
         return;
-      grown_stat[thread_index] = tree->TryGrow(target_simulation_settings.delta_time, true);
+      if (target_simulation_settings.max_flow_count > 0 &&
+          tree->tree_model.RefShootSkeleton().PeekSortedFlowList().size() >= target_simulation_settings.max_flow_count)
+        return;
+      grown_stat[thread_index] = tree->TryGrow(target_simulation_settings, true);
     });
 
-    auto height_field = soil->soil_descriptor.Get<SoilDescriptor>()->height_field.Get<HeightField>();
+    auto height_field = soil->soil_descriptor_ref.Get<SoilDescriptor>()->height_field.Get<HeightField>();
     for (const auto& tree_entity : *tree_entities) {
       if (!scene->IsEntityEnabled(tree_entity))
         continue;
@@ -613,8 +620,8 @@ void EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
           position.y = ground_height + 0.1f;
           new_fruit.global_transform.SetPosition(position);
 
-          new_fruit.m_maturity = fruit.maturity;
-          new_fruit.m_health = fruit.health;
+          new_fruit.fruit_maturity = fruit.maturity;
+          new_fruit.fruit_health = fruit.health;
           fruits_.emplace_back(new_fruit);
         }
 
@@ -630,8 +637,8 @@ void EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
           position.y = ground_height + 0.1f;
           new_leaf.global_transform.SetPosition(position);
 
-          new_leaf.m_maturity = leaf.maturity;
-          new_leaf.m_health = leaf.health;
+          new_leaf.leaf_maturity = leaf.maturity;
+          new_leaf.leaf_health = leaf.health;
           leaves_.emplace_back(new_leaf);
         }
         tree->tree_visualizer.m_needUpdate = true;
@@ -641,7 +648,7 @@ void EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
     }
     target_simulation_stats.last_used_time = Times::Now() - time;
     target_simulation_stats.total_time += target_simulation_stats.last_used_time;
-    bool tree_grown = false;
+
     for (auto&& i : grown_stat) {
       if (i) {
         tree_grown = true;
@@ -684,10 +691,11 @@ void EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
                                   Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"));
     }
   }
+  return tree_grown;
 }
 
-void EcoSysLabLayer::Simulate() {
-  Simulate(simulation_settings, simulation_stats);
+bool EcoSysLabLayer::Simulate() {
+  return Simulate(simulation_settings, simulation_stats);
 }
 
 void EcoSysLabLayer::GenerateMeshes(const TreeMeshGeneratorSettings& target_mesh_generator_settings) const {
