@@ -56,6 +56,25 @@ uint laneID = gl_LocalInvocationID.x;
 
 #include "AlphaShape.glsl"
 
+vec3 PseudoRandomColor(int seed) {
+    // Constants for the pseudo-random number generator
+    const int prime1 = 15731;
+    const int prime2 = 789221;
+    const int prime3 = 1376312589;
+
+    // Generate pseudo-random numbers
+    int n = (seed * prime1) ^ (seed * prime2) ^ (seed * prime3);
+    n = (n >> 13) ^ n;
+
+    // Normalize the values to be in the range [0, 1]
+    float r = fract(sin(float(n) * 12.9898) * 43758.5453);
+    float g = fract(sin(float(n + 1) * 12.9898) * 43758.5453);
+    float b = fract(sin(float(n + 2) * 12.9898) * 43758.5453);
+
+    // Return the color as a vec3
+    return vec3(r, g, b);
+}
+
 void main(){
 
 	// report amount of accepted triangles
@@ -83,11 +102,13 @@ void main(){
 		float tex_y = float(uniform_particle.segment_index) * v_multiplier;
 		ms_v_out[vertex_index].TexCoord = vec2(tex_x, tex_y);
 		if(vertex_colors == 0){
-			ms_v_out[vertex_index].Color = vec4(0.5, 0.5, 0.5, 1.0);
+
 		} else if(vertex_colors == 1){
-			ms_v_out[vertex_index].Color = vec4(abs(vertex_normal.xyz), 1.0f);
+			ms_v_out[vertex_index].Normal = abs(vertex_normal.xyz);
 		} else if(vertex_colors == 2){
-			ms_v_out[vertex_index].Color = vec4(abs(uniform_particle.tangent.xyz), 1.0f);
+			ms_v_out[vertex_index].Normal = abs(uniform_particle.tangent.xyz);
+		} else if(vertex_colors == 3){
+			ms_v_out[vertex_index].Normal = PseudoRandomColor(segments[uniform_particle.segment_handle].group_index);
 		}
 		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
 	}

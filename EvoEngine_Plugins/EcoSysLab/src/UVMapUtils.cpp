@@ -67,7 +67,7 @@ float UVMapUtils::GetPipePolar(const StrandModel& strand_model, const StrandHand
 const Particle2D<CellParticlePhysicsData>* UVMapUtils::GetEndParticle(const StrandModel& strand_model,
                                                                       const StrandHandle& pipe_handle, size_t index) {
   if (!IsValidPipeParam(strand_model, pipe_handle, index)) {
-    EVOENGINE_ERROR("Error: Strand " << pipe_handle << " does not exist at " << index);
+    EVOENGINE_ERROR("Strand " << pipe_handle << " does not exist at " << index);
   }
 
   const auto& skeleton = strand_model.strand_model_skeleton;
@@ -78,6 +78,12 @@ const Particle2D<CellParticlePhysicsData>* UVMapUtils::GetEndParticle(const Stra
 const Particle2D<CellParticlePhysicsData>* UVMapUtils::GetEndParticle(const StrandModelSkeleton& skeleton,
                                                                       const StrandHandle& pipe_handle, size_t index) {
   const auto& pipe = skeleton.data.strand_group.PeekStrand(pipe_handle);
+
+  if (pipe.PeekStrandSegmentHandles().size() <= index) {
+    EVOENGINE_ERROR("Strand segment index out of bounds:" << index << "/" << pipe.PeekStrandSegmentHandles().size());
+    return nullptr;
+  }
+
   StrandSegmentHandle seg_handle = pipe.PeekStrandSegmentHandles()[index];
   auto& pipe_segment_data = skeleton.data.strand_group.PeekStrandSegmentData(seg_handle);
   if (pipe_segment_data.profile_particle_handle == -1){
@@ -105,6 +111,12 @@ const Particle2D<CellParticlePhysicsData>* UVMapUtils::GetStartParticle(const St
 const Particle2D<CellParticlePhysicsData>* UVMapUtils::GetStartParticle(const StrandModelSkeleton& skeleton,
                                                                         const StrandHandle& pipe_handle, size_t index) {
   const auto& pipe = skeleton.data.strand_group.PeekStrand(pipe_handle);
+
+  if (pipe.PeekStrandSegmentHandles().size() <= index) {
+    EVOENGINE_ERROR("Strand segment index out of bounds:" << index << "/" << pipe.PeekStrandSegmentHandles().size());
+    return nullptr;
+  }
+
   const auto seg_handle = pipe.PeekStrandSegmentHandles()[index];
   auto& strand_segment_data = skeleton.data.strand_group.PeekStrandSegmentData(seg_handle);
   if (strand_segment_data.profile_particle_handle == -1) {

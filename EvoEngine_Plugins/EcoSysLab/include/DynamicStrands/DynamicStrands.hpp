@@ -188,9 +188,10 @@ class DynamicStrands {
     bool render_complex = false;
     bool use_cgal = false;
     bool wireframe = false;
-    float alpha = 1.0 / 10000.0f;
-    float bifurcation_alpha = 1.0 / 10000.0f;
-    enum VertexColors { Default, Normals, Tangents };
+    float alpha = 1.0f / 10000.0f;
+    float bifurcation_alpha = 1.0f / 10000.0f;
+    float max_dist_squared = 1.0f / 10000.0f;
+    enum VertexColors { Default, Normals, Tangents, Groups, TexCoords };
     VertexColors vertex_colors = Default;
 
     float u_multiplier = 2;
