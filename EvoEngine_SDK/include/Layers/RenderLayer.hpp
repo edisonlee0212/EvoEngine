@@ -130,7 +130,8 @@ class RenderLayer final : public ILayer {
   void RenderToCameraRayTracing(const GlobalTransform& camera_global_transform,
                                 const std::shared_ptr<Camera>& camera) const;
   void PreUpdate() override;
-  void ClearAll() const;
+  void ClearAllEditorCameras() const;
+  void ClearAllCameras() const;
   void PrepareForRendering();
   void RenderAll();
   void RenderGizmos() const;

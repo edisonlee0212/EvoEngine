@@ -183,7 +183,7 @@ bool SpatialPlantDistributionSimulator::OnInspect(const std::shared_ptr<EditorLa
         scene->SetDataComponent(treeEntity, gt);
         const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
         tree->tree_model.tree_growth_settings = m_treeGrowthSettings;
-        tree->tree_descriptor = m_treeDescriptors.at(plant.m_parameterHandle);
+        tree->tree_descriptor_ref = m_treeDescriptors.at(plant.m_parameterHandle);
         if (setParent)
           scene->SetParent(treeEntity, parent);
         i++;

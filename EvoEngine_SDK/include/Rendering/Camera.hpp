@@ -1,9 +1,9 @@
 #pragma once
 #include "Bound.hpp"
+#include "CameraSettings.hpp"
 #include "IPrivateComponent.hpp"
 #include "RenderTexture.hpp"
 #include "Transform.hpp"
-
 namespace evo_engine {
 struct CameraInfoBlock {
   glm::mat4 projection = {};
@@ -44,15 +44,7 @@ class Camera final : public IPrivateComponent {
   void OnCreate() override;
   [[nodiscard]] bool Rendered() const;
   void SetRequireRendering(bool value);
-  float near_distance = 0.1f;
-  float exposure = 2.2f;
-  float fade_ratio = 0.8f;
-  float fade_factor = 1.f;
-  float far_distance = 200.0f;
-  float fov = 120;
-  bool use_clear_color = false;
-  glm::vec3 clear_color = glm::vec3(0.0f);
-  float background_intensity = 1.0f;
+  CameraSettings camera_settings{};
   AssetRef skybox;
   AssetRef post_processing_stack_ref;
   static void CalculatePlanes(std::vector<Plane>& planes, const glm::mat4& projection, const glm::mat4& view);

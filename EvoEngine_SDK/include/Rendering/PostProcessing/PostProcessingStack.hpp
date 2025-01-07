@@ -152,7 +152,7 @@ class Bloom : public IPostProcessing {
 };
 
 class ToneMapping : public IPostProcessing {
-public:
+ public:
   struct PushConstant {
     int32_t camera_index = 0;
     float exposure;

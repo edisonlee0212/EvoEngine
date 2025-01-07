@@ -68,7 +68,7 @@ class Application final {
   static void PopLayer();
   static void Reset();
   static void Initialize(const ApplicationInfo& application_create_info);
-  static void Start();
+  static void Start(bool autoplay = true);
   static void Run();
   [[maybe_unused]] static bool Loop();
   static void End();

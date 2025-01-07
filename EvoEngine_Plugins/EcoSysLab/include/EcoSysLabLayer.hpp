@@ -30,8 +30,8 @@ class EcoSysLabLayer : public ILayer {
 
   [[nodiscard]] glm::vec2 GetMouseSceneCameraPosition() const;
 
-  void Simulate(const SimulationSettings& target_simulation_settings, SimulationStats& target_simulation_stats);
-  void Simulate();
+  bool Simulate(const SimulationSettings& target_simulation_settings, SimulationStats& target_simulation_stats);
+  bool Simulate();
 
   void GenerateMeshes(const TreeMeshGeneratorSettings& target_mesh_generator_settings) const;
   void GenerateSkeletalGraphs(const SkeletalGraphSettings& target_skeletal_graph_settings) const;
@@ -56,14 +56,14 @@ class EcoSysLabLayer : public ILayer {
  private:
   struct Fruit {
     GlobalTransform global_transform;
-    float m_maturity = 0.0f;
-    float m_health = 1.0f;
+    float fruit_maturity = 0.0f;
+    float fruit_health = 1.0f;
   };
 
   struct Leaf {
     GlobalTransform global_transform;
-    float m_maturity = 0.0f;
-    float m_health = 1.0f;
+    float leaf_maturity = 0.0f;
+    float leaf_health = 1.0f;
   };
 
   enum class TreeOperatorMode { Disabled, Select, Rotate, Prune, Invigorate, Reduce };

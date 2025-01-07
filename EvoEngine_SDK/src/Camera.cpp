@@ -172,17 +172,18 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   const glm::vec3 up = rotation * glm::vec3(0, 1, 0);
   const auto ratio = GetSizeRatio();
 
-  camera_info_block.projection = glm::perspective(glm::radians(fov * 0.5f), ratio, near_distance, far_distance);
+  camera_info_block.projection = glm::perspective(glm::radians(camera_settings.fov * 0.5f), ratio,
+                                                  camera_settings.near_distance, camera_settings.far_distance);
   camera_info_block.view = glm::lookAt(position, position + front, up);
   camera_info_block.projection_view = camera_info_block.projection * camera_info_block.view;
   camera_info_block.inverse_projection = glm::inverse(camera_info_block.projection);
   camera_info_block.inverse_view = glm::inverse(camera_info_block.view);
   camera_info_block.inverse_projection_view = glm::inverse(camera_info_block.projection * camera_info_block.view);
-  camera_info_block.clear_color = glm::vec4(clear_color, background_intensity);
+  camera_info_block.clear_color = glm::vec4(camera_settings.clear_color, camera_settings.background_intensity);
   camera_info_block.resolution = size_;
-  camera_info_block.fade_factor = fade_factor;
-  camera_info_block.fade_ratio = fade_ratio;
-  if (use_clear_color) {
+  camera_info_block.fade_factor = camera_settings.fade_factor;
+  camera_info_block.fade_ratio = camera_settings.fade_ratio;
+  if (camera_settings.use_clear_color) {
     camera_info_block.camera_use_clear_color = 1;
   } else {
     camera_info_block.camera_use_clear_color = 0;
@@ -327,7 +328,7 @@ void Camera::CalculateFrustumPoints(const std::shared_ptr<Camera>& camera_compon
   const glm::vec3 near_center = front * near_plane;
   const glm::vec3 far_center = front * far_plane;
 
-  const float e = tanf(glm::radians(camera_component->fov * 0.5f));
+  const float e = tanf(glm::radians(camera_component->camera_settings.fov * 0.5f));
   const float near_ext_y = e * near_plane;
   const float near_ext_x = near_ext_y * camera_component->GetSizeRatio();
   const float far_ext_y = e * far_plane;
@@ -380,7 +381,8 @@ void Camera::ReverseAngle(const glm::quat& rotation, float& pitch_angle, float& 
   }
 }
 glm::mat4 Camera::GetProjection() const {
-  return glm::perspective(glm::radians(fov * 0.5f), GetSizeRatio(), near_distance, far_distance);
+  return glm::perspective(glm::radians(camera_settings.fov * 0.5f), GetSizeRatio(), camera_settings.near_distance,
+                          camera_settings.far_distance);
 }
 
 glm::vec3 Camera::GetMouseWorldPoint(GlobalTransform& ltw, glm::vec2 mouse_position) const {
@@ -396,9 +398,8 @@ Ray Camera::ScreenPointToRay(GlobalTransform& ltw, glm::vec2 mouse_position) con
   const auto rotation = ltw.GetRotation();
   const glm::vec3 front = rotation * glm::vec3(0, 0, -1);
   const glm::vec3 up = rotation * glm::vec3(0, 1, 0);
-  const auto projection = glm::perspective(glm::radians(fov * 0.5f), GetSizeRatio(), near_distance, far_distance);
   const auto view = glm::lookAt(position, position + front, up);
-  const glm::mat4 inv = glm::inverse(projection * view);
+  const glm::mat4 inv = glm::inverse(GetProjection() * view);
   const float half_x = static_cast<float>(size_.x) / 2.0f;
   const float half_y = static_cast<float>(size_.y) / 2.0f;
   const auto real_x = (mouse_position.x - half_x) / half_x;
@@ -412,44 +413,42 @@ Ray Camera::ScreenPointToRay(GlobalTransform& ltw, glm::vec2 mouse_position) con
   start /= start.w;
   end /= end.w;
   const glm::vec3 dir = glm::normalize(glm::vec3(end - start));
-  return {glm::vec3(ltw.value[3]) + near_distance * dir, glm::vec3(ltw.value[3]) + far_distance * dir};
+  return {glm::vec3(ltw.value[3]) + camera_settings.near_distance * dir,
+          glm::vec3(ltw.value[3]) + camera_settings.far_distance * dir};
 }
 
 void Camera::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "x" << YAML::Value << size_.x;
 
   out << YAML::Key << "y" << YAML::Value << size_.y;
-  out << YAML::Key << "use_clear_color" << YAML::Value << use_clear_color;
-  out << YAML::Key << "clear_color" << YAML::Value << clear_color;
-  out << YAML::Key << "near_distance" << YAML::Value << near_distance;
-  out << YAML::Key << "far_distance" << YAML::Value << far_distance;
-  out << YAML::Key << "fov" << YAML::Value << fov;
-  out << YAML::Key << "background_intensity" << YAML::Value << background_intensity;
-  out << YAML::Key << "exposure" << YAML::Value << exposure;
-  out << YAML::Key << "fade_ratio" << YAML::Value << fade_ratio;
-  out << YAML::Key << "fade_factor" << YAML::Value << fade_factor;
+  out << YAML::Key << "use_clear_color" << YAML::Value << camera_settings.use_clear_color;
+  out << YAML::Key << "clear_color" << YAML::Value << camera_settings.clear_color;
+  out << YAML::Key << "near_distance" << YAML::Value << camera_settings.near_distance;
+  out << YAML::Key << "far_distance" << YAML::Value << camera_settings.far_distance;
+  out << YAML::Key << "fov" << YAML::Value << camera_settings.fov;
+  out << YAML::Key << "background_intensity" << YAML::Value << camera_settings.background_intensity;
+  out << YAML::Key << "fade_ratio" << YAML::Value << camera_settings.fade_ratio;
+  out << YAML::Key << "fade_factor" << YAML::Value << camera_settings.fade_factor;
   skybox.Save("skybox", out);
   post_processing_stack_ref.Save("post_processing_stack_ref", out);
 }
 
 void Camera::Deserialize(const YAML::Node& in) {
   if (in["use_clear_color"])
-    use_clear_color = in["use_clear_color"].as<bool>();
+    camera_settings.use_clear_color = in["use_clear_color"].as<bool>();
   if (in["clear_color"])
-    clear_color = in["clear_color"].as<glm::vec3>();
+    camera_settings.clear_color = in["clear_color"].as<glm::vec3>();
   if (in["near_distance"])
-    near_distance = in["near_distance"].as<float>();
+    camera_settings.near_distance = in["near_distance"].as<float>();
   if (in["far_distance"])
-    far_distance = in["far_distance"].as<float>();
-  if (in["exposure"])
-    exposure = in["exposure"].as<float>();
+    camera_settings.far_distance = in["far_distance"].as<float>();
   if (in["fade_ratio"])
-    fade_ratio = in["fade_ratio"].as<float>();
+    camera_settings.fade_ratio = in["fade_ratio"].as<float>();
   if (in["fade_factor"])
-    fade_factor = in["fade_factor"].as<float>();
+    camera_settings.fade_factor = in["fade_factor"].as<float>();
 
   if (in["fov"])
-    fov = in["fov"].as<float>();
+    camera_settings.fov = in["fov"].as<float>();
 
   if (in["x"] && in["y"]) {
     int resolution_x = in["x"].as<int>();
@@ -462,7 +461,7 @@ void Camera::Deserialize(const YAML::Node& in) {
   require_rendering_ = false;
 
   if (in["background_intensity"])
-    background_intensity = in["background_intensity"].as<float>();
+    camera_settings.background_intensity = in["background_intensity"].as<float>();
 }
 
 void Camera::OnDestroy() {
@@ -477,14 +476,11 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     camera_render_mode = static_cast<CameraRenderMode>(mode);
     changed = true;
   }
-  if (ImGui::DragFloat("Exposure", &exposure, 0.01f, 0.01f, 2.0f)) {
+  if (ImGui::DragFloat("Fade ratio", &camera_settings.fade_ratio, 0.01f, 0.01f, 1.0f)) {
     changed = true;
   }
-  if (ImGui::DragFloat("Fade ratio", &fade_ratio, 0.01f, 0.01f, 1.0f)) {
-    changed = true;
-  }
-  if (fade_ratio != 0.f) {
-    if (ImGui::DragFloat("Fade factor", &fade_factor, 0.01f, 0.01f, 1.0f)) {
+  if (camera_settings.fade_ratio != 0.f) {
+    if (ImGui::DragFloat("Fade factor", &camera_settings.fade_factor, 0.01f, 0.01f, 1.0f)) {
       changed = true;
     }
   }
@@ -513,14 +509,14 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 
   if (ImGui::TreeNodeEx("Background", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::DragFloat("Intensity", &background_intensity, 0.01f, 0.0f, 10.f)) {
+    if (ImGui::DragFloat("Intensity", &camera_settings.background_intensity, 0.01f, 0.0f, 10.f)) {
       changed = true;
     }
-    if (ImGui::Checkbox("Use clear color", &use_clear_color)) {
+    if (ImGui::Checkbox("Use clear color", &camera_settings.use_clear_color)) {
       changed = true;
     }
-    if (use_clear_color) {
-      if (ImGui::ColorEdit3("Clear Color", (float*)(void*)&clear_color)) {
+    if (camera_settings.use_clear_color) {
+      if (ImGui::ColorEdit3("Clear Color", (float*)(void*)&camera_settings.clear_color)) {
         changed = true;
       }
     } else if (editor_layer->DragAndDropButton<Cubemap>(skybox, "Skybox")) {
@@ -553,13 +549,15 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
   const auto pps = post_processing_stack_ref.Get<PostProcessingStack>();
   if (ImGui::TreeNode("Intrinsic Settings")) {
-    if (ImGui::DragFloat("Near", &near_distance, near_distance / 10.0f, 0, far_distance)) {
+    if (ImGui::DragFloat("Near", &camera_settings.near_distance, camera_settings.near_distance / 10.0f, 0,
+                         camera_settings.far_distance)) {
       changed = true;
     }
-    if (ImGui::DragFloat("Far", &far_distance, far_distance / 10.0f, near_distance)) {
+    if (ImGui::DragFloat("Far", &camera_settings.far_distance, camera_settings.far_distance / 10.0f,
+                         camera_settings.near_distance)) {
       changed = true;
     }
-    if (ImGui::DragFloat("FOV", &fov, 1.0f, 1, 359)) {
+    if (ImGui::DragFloat("FOV", &camera_settings.fov, 1.0f, 1, 359)) {
       changed = true;
     }
     ImGui::TreePop();

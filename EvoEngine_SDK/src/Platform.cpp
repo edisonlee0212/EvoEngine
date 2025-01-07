@@ -1659,9 +1659,9 @@ void Platform::PreUpdate() {
 void Platform::LateUpdate() {
   auto& graphics = GetInstance();
   const auto window_layer = Application::GetLayer<WindowLayer>();
-  if (window_layer->window_size_.x == 0 || window_layer->window_size_.y == 0)
+  if (window_layer && (window_layer->window_size_.x == 0 || window_layer->window_size_.y == 0)) {
     return;
-
+  }
   std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>> wait_semaphores;
   std::vector<std::shared_ptr<Semaphore>> signal_semaphores;
   if (window_layer) {

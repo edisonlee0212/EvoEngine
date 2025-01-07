@@ -16,7 +16,7 @@ class ClimateDescriptor : public IAsset {
 class Climate : public IPrivateComponent {
  public:
   ClimateModel climate_model;
-  AssetRef climate_descriptor;
+  AssetRef climate_descriptor_ref;
 
   /**ImGui menu goes here. Also, you can take care you visualization with Gizmos here.
    * Note that the visualization will only be activated while you are inspecting the soil private component in the

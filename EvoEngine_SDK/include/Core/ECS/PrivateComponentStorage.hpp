@@ -75,4 +75,14 @@ const std::vector<Entity> *PrivateComponentStorage::UnsafeGetOwnersList() {
   }
   return nullptr;
 }
+
+template <typename T>
+std::vector<Entity> PrivateComponentStorage::GetOwnersList() {
+  if (const auto search = p_owners_collections_map_.find(typeid(T).hash_code());
+      search != p_owners_collections_map_.end()) {
+    return p_owners_collections_list_[search->second].second.owners_list;
+  }
+  return {};
+}
+
 }  // namespace evo_engine

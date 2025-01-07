@@ -103,8 +103,9 @@ void Application::PreUpdateInternal() {
 
   application.application_execution_status_ = ApplicationExecutionStatus::PreUpdate;
   Input::PreUpdate();
-  if (const auto render_layer = GetLayer<RenderLayer>())
+  if (const auto render_layer = GetLayer<RenderLayer>()) {
     Platform::PreUpdate();
+  }
   if (const auto editor_layer = GetLayer<EditorLayer>()) {
     EditorLayer::InitializeImGui();
   }
@@ -193,7 +194,6 @@ void Application::UpdateInternal() {
       }
       ImGui::EndMainMenuBar();
     }
-
     EditorLayer::OnGui(editor_layer);
     for (const auto& layer : application.layers_) {
       if (layer->enable_inspection) {
@@ -205,6 +205,8 @@ void Application::UpdateInternal() {
   }
   if (render_layer) {
     render_layer->PrepareForRendering();
+    render_layer->ClearAllEditorCameras();
+    render_layer->ClearAllCameras();
   }
 }
 
@@ -241,7 +243,7 @@ void Application::LateUpdateInternal() {
     window_layer->Render();
   }
   if (render_layer) {
-    render_layer->ClearAll();
+    
     Platform::LateUpdate();
   }
   if (application.application_status_ == ApplicationStatus::Step)
@@ -319,10 +321,10 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   }
 }
 
-void Application::Start() {
+void Application::Start(bool autoplay) {
   Times::start_time_ = std::chrono::system_clock::now();
   Times::steps_ = Times::frames_ = 0;
-  if (const auto editor_layer = GetLayer<EditorLayer>(); !editor_layer)
+  if (const auto editor_layer = GetLayer<EditorLayer>(); !editor_layer && autoplay)
     Play();
 }
 

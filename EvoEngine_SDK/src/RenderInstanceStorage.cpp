@@ -467,7 +467,7 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
 
   if (seam_fix_ratio != other.seam_fix_ratio)
     return true;
-  
+
   if (strands_subdivision_x_factor != other.strands_subdivision_x_factor)
     return true;
   if (strands_subdivision_y_factor != other.strands_subdivision_y_factor)
@@ -1034,8 +1034,8 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
           glm::vec4(slc->diffuse * slc->diffuse_brightness, slc->cast_shadow);
       spot_light_info_blocks_[render_info_block.spot_light_size].specular = glm::vec4(0);
 
-      glm::mat4 shadow_proj =
-          glm::perspective(glm::radians(slc->outer_degrees * 2.0f), 1.0f, slc->shadow_distance / 1000.f, slc->shadow_distance);
+      glm::mat4 shadow_proj = glm::perspective(glm::radians(slc->outer_degrees * 2.0f), 1.0f,
+                                               slc->shadow_distance / 1000.f, slc->shadow_distance);
       spot_light_info_blocks_[render_info_block.spot_light_size].light_space_matrix =
           shadow_proj * glm::lookAt(position, position + front, up);
       spot_light_info_blocks_[render_info_block.spot_light_size].cut_off_outer_cut_off_light_size_bias =
@@ -1076,9 +1076,10 @@ void RenderInstanceStorage::CollectEnvironment(const std::shared_ptr<Scene>& tar
   environment_info_block.background_intensity = target_scene->environment.background_intensity;
 }
 
-void RenderInstanceStorage::CollectCameras(const std::shared_ptr<Scene>& target_scene,
-                                           std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
-  if (auto editor_layer = Application::GetLayer<EditorLayer>()) {
+void RenderInstanceStorage::CollectEditorCameras(
+    const std::shared_ptr<Scene>& target_scene,
+    std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
+  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
     for (const auto& [cameraHandle, editorCamera] : editor_layer->editor_cameras_) {
       if (editorCamera.camera || editorCamera.camera->IsEnabled()) {
         GlobalTransform scene_camera_gt;
@@ -1087,6 +1088,10 @@ void RenderInstanceStorage::CollectCameras(const std::shared_ptr<Scene>& target_
       }
     }
   }
+}
+
+void RenderInstanceStorage::CollectCameras(const std::shared_ptr<Scene>& target_scene,
+                                           std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
   if (const std::vector<Entity>* camera_entities = target_scene->UnsafeGetPrivateComponentOwnersList<Camera>()) {
     for (const auto& i : *camera_entities) {
       if (!target_scene->IsEntityEnabled(i))
@@ -1429,6 +1434,7 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
   this->render_settings = render_settings;
   render_info_block.Apply(this->render_settings);
   CollectEnvironment(scene);
+  CollectEditorCameras(scene, cameras);
   CollectCameras(scene, cameras);
   for (const auto& camera_info : cameras) {
     CameraInfoBlock camera_info_block;

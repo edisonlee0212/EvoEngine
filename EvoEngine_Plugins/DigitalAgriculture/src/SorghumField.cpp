@@ -21,7 +21,7 @@ void SorghumFieldPatch::GenerateField(std::vector<glm::mat4>& matrices_list) con
     soil = soil_candidate.lock();
   std::shared_ptr<SoilDescriptor> soil_descriptor;
   if (soil) {
-    soil_descriptor = soil->soil_descriptor.Get<SoilDescriptor>();
+    soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
   }
   std::shared_ptr<HeightField> height_field{};
   if (soil_descriptor) {
@@ -135,7 +135,7 @@ Entity SorghumField::InstantiateField() const {
       soil = soil_candidate.lock();
     std::shared_ptr<SoilDescriptor> soil_descriptor;
     if (soil) {
-      soil_descriptor = soil->soil_descriptor.Get<SoilDescriptor>();
+      soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
     }
     std::shared_ptr<HeightField> height_field{};
     if (soil_descriptor) {

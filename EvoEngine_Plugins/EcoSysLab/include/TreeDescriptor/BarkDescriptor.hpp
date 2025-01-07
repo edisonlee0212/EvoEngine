@@ -12,10 +12,13 @@ class BarkDescriptor : public IAsset {
   float base_max_distance = 1.f;
   float base_distance_decrease_factor = 2.f;
   float base_depth = .1f;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
-  float GetValue(float xFactor, float distanceToRoot);
+
+  AssetRef bark_material_ref;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  float GetValue(float x_factor, float distance_to_root) const;
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
+  void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
 }  // namespace eco_sys_lab_plugin

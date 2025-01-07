@@ -224,7 +224,8 @@ class Buffer final : public IGraphicsResource {
   void CopyFromBuffer(const Buffer& src_buffer, VkDeviceSize size, VkDeviceSize src_offset = 0,
                       VkDeviceSize dst_offset = 0);
   void CopyFromImage(Image& src_image, const VkBufferImageCopy& image_copy_info) const;
-  void CopyFromImage(Image& src_image);
+  void CopyFromImage(Image& src_image, float pixel_size = 16);
+  void CopyFromDepth(Image& src_image, float pixel_size = 4);
   [[nodiscard]] const VkBuffer& GetVkBuffer() const;
 
   [[nodiscard]] VmaAllocation GetVmaAllocation() const;

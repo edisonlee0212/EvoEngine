@@ -687,14 +687,32 @@ void Buffer::CopyFromImage(Image& src_image, const VkBufferImageCopy& image_copy
   });
 }
 
-void Buffer::CopyFromImage(Image& src_image) {
-  Resize(src_image.GetExtent().width * src_image.GetExtent().height * sizeof(glm::vec4));
+void Buffer::CopyFromImage(Image& src_image, const float pixel_size) {
+  Resize(src_image.GetExtent().width * src_image.GetExtent().height * pixel_size);
   VkBufferImageCopy image_copy_info{};
   image_copy_info.bufferOffset = 0;
   image_copy_info.bufferRowLength = 0;
   image_copy_info.bufferImageHeight = 0;
   image_copy_info.imageSubresource.layerCount = 1;
   image_copy_info.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  image_copy_info.imageSubresource.baseArrayLayer = 0;
+  image_copy_info.imageSubresource.mipLevel = 0;
+
+  image_copy_info.imageExtent = src_image.GetExtent();
+  image_copy_info.imageOffset.x = 0;
+  image_copy_info.imageOffset.y = 0;
+  image_copy_info.imageOffset.z = 0;
+  CopyFromImage(src_image, image_copy_info);
+}
+
+void Buffer::CopyFromDepth(Image& src_image, const float pixel_size) {
+  Resize(src_image.GetExtent().width * src_image.GetExtent().height * pixel_size);
+  VkBufferImageCopy image_copy_info{};
+  image_copy_info.bufferOffset = 0;
+  image_copy_info.bufferRowLength = 0;
+  image_copy_info.bufferImageHeight = 0;
+  image_copy_info.imageSubresource.layerCount = 1;
+  image_copy_info.imageSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
   image_copy_info.imageSubresource.baseArrayLayer = 0;
   image_copy_info.imageSubresource.mipLevel = 0;
 
@@ -1286,8 +1304,8 @@ VkDeviceAddress BottomLevelAccelerationStructure::GetDeviceAddress() const {
   return device_address_;
 }
 
-TopLevelAccelerationStructure::TopLevelAccelerationStructure(
-    const std::shared_ptr<Scene>& scene, const RenderInstanceStorage& render_instance_storage) {
+TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene,
+                                                             const RenderInstanceStorage& render_instance_storage) {
   if (!Platform::Initialized())
     return;
   std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances;

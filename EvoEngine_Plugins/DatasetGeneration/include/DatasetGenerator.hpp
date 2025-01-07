@@ -5,6 +5,7 @@
 #include "SorghumGenerator.hpp"
 #include "SorghumPointCloudScanner.hpp"
 #include "TreeMeshGenerator.hpp"
+#include "TreeModel.hpp"
 #include "TreePointCloudScanner.hpp"
 using namespace evo_engine;
 using namespace eco_sys_lab_plugin;
@@ -12,49 +13,62 @@ using namespace digital_agriculture_plugin;
 namespace dataset_generation_plugin {
 class DatasetGenerator {
  public:
-  struct TreeGrowthLimitation {
-    int max_iteration = -1;
-    int max_node_count = -1;
-    int max_flow_count = -1;
-    float low_branch_pruning = 0.f;
+  struct CameraCaptureSettings {
+    GlobalTransform global_transform{};
+    CameraSettings camera_settings{};
+    glm::uvec2 render_resolution = {2048, 2048};
+    glm::uvec2 output_resolution = {1024, 1024};
   };
 
-  static void GenerateTreeTrunkMesh(const std::string& tree_parameters_path, float delta_time, int max_iterations,
-                                    int max_tree_node_count, const TreeMeshGeneratorSettings& mesh_generator_settings,
-                                    const std::string& tree_mesh_output_path, const std::string& tree_trunk_output_path,
-                                    const std::string& tree_info_path);
+  struct TreeDataGenerationParameters {
+    // Parameters
+    std::filesystem::path tree_descriptor_path;
+    std::filesystem::path foliage_descriptor_path;
+    std::filesystem::path bark_descriptor_path;
+    // Growth control
+    SimulationSettings simulation_settings{};
+    TreeGrowthSettings tree_growth_settings{};
+    Tree::PruningSettings pruning_settings{};
 
-  static void GenerateTreeMesh(const std::filesystem::path& tree_parameters_path, float low_branch_pruning,
-                               float delta_time, int max_iterations, const std::vector<int>& target_tree_node_count,
-                               const TreeMeshGeneratorSettings& mesh_generator_settings,
-                               const std::string& tree_mesh_output_path);
+    // Stop condition
+    int max_iteration = -1;
+    bool use_node_growth_capture = false;
+    std::vector<int> growth_capture{};
 
-  static void GenerateDataForTree(const TreePointCloudPointSettings& point_settings,
-                                  const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-                                  const std::filesystem::path& tree_parameters_path, float delta_time,
-                                  const TreeGrowthLimitation& tree_growth_limitation,
-                                  const TreeMeshGeneratorSettings& mesh_generator_settings, bool export_point_cloud,
-                                  const std::string& point_cloud_output_path, bool export_mesh,
-                                  const std::string& mesh_output_path, bool export_skeleton,
-                                  const std::string& skeleton_output_path);
-  static void GeneratePointCloudForForest(int grid_size, float grid_distance, float random_shift,
-                                          const TreePointCloudPointSettings& point_settings,
-                                          const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-                                          const std::string& tree_parameters_folder_path, float delta_time,
-                                          int max_iterations, int max_tree_node_count,
-                                          const TreeMeshGeneratorSettings& mesh_generator_settings,
-                                          const std::string& point_cloud_output_path);
+    bool export_point_cloud = false;
+    bool export_mesh = false;
+    bool export_skeleton = false;
+    bool export_rendering = false;
+    bool export_depth = false;
+
+    // Data generation
+    bool generate_ground_mesh = false;
+    TreePointCloudPointSettings tree_point_cloud_point_settings{};
+    TreeMeshGeneratorSettings tree_mesh_generator_settings{};
+    std::vector<CameraCaptureSettings> camera_capture_settings{};
+    float max_depth = 20.f;
+    // Export path
+    std::filesystem::path output_folder;
+    std::string output_file_prefix;
+  };
+
+  static void GenerateDataForTree(const TreeDataGenerationParameters& data_generation_parameters,
+                                  const std::shared_ptr<PointCloudCaptureSettings>& capture_settings);
+
+  static void GenerateDataForForest(int grid_size, float grid_distance, float random_shift,
+                                    const TreeDataGenerationParameters& data_generation_parameters,
+                                    const std::filesystem::path& species_folder_path,
+                                    const std::shared_ptr<PointCloudCaptureSettings>& capture_settings);
+
   static void GeneratePointCloudForForestPatch(const glm::ivec2& grid_size,
-                                               const TreePointCloudPointSettings& point_settings,
-                                               const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                                const std::shared_ptr<ForestPatch>& forest_patch,
-                                               const TreeMeshGeneratorSettings& mesh_generator_settings,
-                                               const std::string& point_cloud_output_path);
+                                               const TreeDataGenerationParameters& data_generation_parameters,
+                                               const std::shared_ptr<PointCloudCaptureSettings>& capture_settings);
+
   static void GeneratePointCloudForForestPatchJoinedSpecies(
-      const glm::ivec2& grid_size, const TreePointCloudPointSettings& point_settings,
-      const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-      const std::shared_ptr<ForestPatch>& forest_patch, const std::string& species_folder_path,
-      const TreeMeshGeneratorSettings& mesh_generator_settings, const std::string& point_cloud_output_path);
+      const glm::ivec2& grid_size, const std::shared_ptr<ForestPatch>& forest_patch,
+      const std::filesystem::path& species_folder_path, const TreeDataGenerationParameters& data_generation_parameters,
+      const std::shared_ptr<PointCloudCaptureSettings>& capture_settings);
 
   static void GeneratePointCloudForSorghum(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
                                            const SorghumPointCloudPointSettings& point_settings,

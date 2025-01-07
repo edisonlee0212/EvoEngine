@@ -13,7 +13,7 @@ void FoliageDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "max_end_distance" << YAML::Value << max_end_distance;
   out << YAML::Key << "horizontal_tropism" << YAML::Value << horizontal_tropism;
   out << YAML::Key << "gravitropism" << YAML::Value << gravitropism;
-  leaf_material.Save("leaf_material", out);
+  leaf_material_ref.Save("leaf_material_ref", out);
 }
 
 void FoliageDescriptor::Deserialize(const YAML::Node& in) {
@@ -37,10 +37,10 @@ void FoliageDescriptor::Deserialize(const YAML::Node& in) {
     horizontal_tropism = in["horizontal_tropism"].as<float>();
   if (in["gravitropism"])
     gravitropism = in["gravitropism"].as<float>();
-  leaf_material.Load("leaf_material", in);
+  leaf_material_ref.Load("leaf_material_ref", in);
 }
 
-bool FoliageDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
+bool FoliageDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   if (ImGui::DragFloat2("Leaf size", &leaf_size.x, 0.001f, 0.0f, 1.0f))
@@ -62,14 +62,14 @@ bool FoliageDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLaye
 
   changed = ImGui::DragFloat("Horizontal Tropism", &horizontal_tropism, 0.001f, 0.0f, 1.0f) || changed;
   changed = ImGui::DragFloat("Gravitropism", &gravitropism, 0.001f, 0.0f, 1.0f) || changed;
-  if (editorLayer->DragAndDropButton<Material>(leaf_material, "Leaf Material"))
+  if (editor_layer->DragAndDropButton<Material>(leaf_material_ref, "Leaf Material"))
     changed = true;
   return changed;
 }
 
 void FoliageDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
-  if (leaf_material.Get<Material>())
-    list.push_back(leaf_material);
+  if (leaf_material_ref.Get<Material>())
+    list.push_back(leaf_material_ref);
 }
 
 std::shared_ptr<Texture2D> FoliageDescriptor::GenerateThumbnailTexture() {

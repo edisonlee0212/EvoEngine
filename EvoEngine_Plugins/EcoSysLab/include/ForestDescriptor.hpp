@@ -10,9 +10,9 @@ class ForestPatch : public IAsset {
   glm::vec2 position_offset_mean = glm::vec2(0.f);
   glm::vec2 position_offset_variance = glm::vec2(0.0f);
   glm::vec3 rotation_offset_variance = glm::vec3(0.0f);
-  AssetRef tree_descriptor;
+  AssetRef tree_descriptor{};
   TreeGrowthSettings tree_growth_settings{};
-  SimulationSettings simulation_settings;
+  SimulationSettings simulation_settings{};
 
   float min_low_branch_pruning = 0.f;
   float max_low_branch_pruning = 0.f;
@@ -31,8 +31,8 @@ class ForestPatch : public IAsset {
 };
 
 struct TreeInfo {
-  GlobalTransform m_globalTransform{};
-  AssetRef m_treeDescriptor{};
+  GlobalTransform global_transform{};
+  AssetRef tree_descriptor{};
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
   void CollectAssetRef(std::vector<AssetRef>& list) const;
@@ -40,8 +40,8 @@ struct TreeInfo {
 
 class ForestDescriptor : public IAsset {
  public:
-  std::vector<TreeInfo> m_treeInfos;
-  TreeGrowthSettings m_treeGrowthSettings;
+  std::vector<TreeInfo> tree_infos{};
+  TreeGrowthSettings tree_growth_settings{};
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void ApplyTreeDescriptor(const std::shared_ptr<TreeDescriptor>& treeDescriptor);
   void ApplyTreeDescriptors(const std::vector<std::shared_ptr<TreeDescriptor>>& treeDescriptors);
@@ -59,8 +59,8 @@ class ForestDescriptor : public IAsset {
 
   void Deserialize(const YAML::Node& in) override;
 
-  void SetupGrid(const glm::ivec2& gridSize, float gridDistance, float randomShift);
+  void SetupGrid(const glm::ivec2& grid_size, float grid_distance, float random_shift);
 
-  void InstantiatePatch(bool setParent);
+  Entity InstantiatePatch(bool set_parent) const;
 };
 }  // namespace eco_sys_lab_plugin

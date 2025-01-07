@@ -1,6 +1,6 @@
 #pragma once
 #ifdef BILLBOARD_CLOUDS_PLUGIN
-#include "BillboardCloud.hpp"
+#  include "BillboardCloud.hpp"
 using namespace billboard_clouds_plugin;
 #endif
 #include "Climate.hpp"
@@ -90,7 +90,8 @@ struct TreePartData {
 class Tree : public IPrivateComponent {
   void CalculateProfiles();
   friend class EcoSysLabLayer;
-  void PrepareController(const std::shared_ptr<ShootDescriptor>& shoot_descriptor, const std::shared_ptr<Soil>& soil,
+  void PrepareController(const SimulationSettings& simulation_settings,
+                         const std::shared_ptr<ShootDescriptor>& shoot_descriptor, const std::shared_ptr<Soil>& soil,
                          const std::shared_ptr<Climate>& climate);
   ShootGrowthController shoot_growth_controller_{};
 
@@ -103,8 +104,13 @@ class Tree : public IPrivateComponent {
   static void DeserializeTreeGrowthSettings(TreeGrowthSettings& tree_growth_settings, const YAML::Node& in);
   static bool OnInspectTreeGrowthSettings(TreeGrowthSettings& tree_growth_settings);
   bool generate_mesh = true;
-  float low_branch_pruning = 0.f;
-  float crown_shyness_distance = 0.f;
+  struct PruningSettings {
+    float low_branch_pruning = 0.f;
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+    void Save(const std::string& name, YAML::Emitter& out) const;
+    void Load(const std::string& name, const YAML::Node& in);
+  } pruning_settings{};
+
   float start_time = 0.f;
   void BuildStrandModel();
 
@@ -125,9 +131,10 @@ class Tree : public IPrivateComponent {
                             const StrandModelMeshGeneratorSettings& mesh_generator_settings);
 
   void ExportTrunkObj(const std::filesystem::path& path, const TreeMeshGeneratorSettings& mesh_generator_settings);
-  bool TryGrow(float delta_time, bool pruning);
+  bool TryGrow(const SimulationSettings& simulation_settings, bool pruning);
 
-  bool TryGrowSubTree(float delta_time, SkeletonNodeHandle base_internode_handle, bool pruning);
+  bool TryGrowSubTree(const SimulationSettings& simulation_settings, SkeletonNodeHandle base_internode_handle,
+                      bool pruning);
   [[nodiscard]] bool ParseBinvox(const std::filesystem::path& file_path,
                                  VoxelGrid<TreeOccupancyGridBasicData>& voxel_grid, float voxel_size = 1.0f);
 
@@ -135,7 +142,6 @@ class Tree : public IPrivateComponent {
 
   TreeVisualizer tree_visualizer{};
 
-  void Serialize(YAML::Emitter& out) const override;
   bool split_root_test = true;
   bool record_biomass_history = true;
   float left_side_biomass;
@@ -153,7 +159,7 @@ class Tree : public IPrivateComponent {
 
   PrivateComponentRef soil;
   PrivateComponentRef climate;
-  AssetRef tree_descriptor;
+  AssetRef tree_descriptor_ref;
   bool enable_history = false;
   int history_iteration = 30;
 
@@ -199,6 +205,7 @@ class Tree : public IPrivateComponent {
   [[maybe_unused]] bool ExportIoTree(const std::filesystem::path& path) const;
   void ExportRadialBoundingVolume(const std::shared_ptr<RadialBoundingVolume>& rbv) const;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 #ifdef BILLBOARD_CLOUDS_PLUGIN
   void GenerateBillboardClouds(const BillboardCloud::GenerateSettings& foliage_generate_settings);
@@ -250,10 +257,10 @@ void BranchPhysicsParameters::Link(const std::shared_ptr<Scene>& scene,
 
 template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
 void Tree::FromSkeleton(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& src_skeleton) {
-  if (auto td = tree_descriptor.Get<TreeDescriptor>(); !td) {
+  if (auto td = tree_descriptor_ref.Get<TreeDescriptor>(); !td) {
     EVOENGINE_WARNING("Growing tree without tree descriptor!");
     td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
-    tree_descriptor = td;
+    tree_descriptor_ref = td;
     const auto shoot_descriptor = ProjectManager::CreateTemporaryAsset<ShootDescriptor>();
     td->shoot_descriptor = shoot_descriptor;
     const auto foliage_descriptor = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();

@@ -60,9 +60,15 @@ class RenderTexture {
   [[nodiscard]] ImTextureID GetDepthImTextureId(uint32_t mip_index = 0) const;
   void ApplyGraphicsPipelineStates(GraphicsPipelineStates& global_pipeline_state) const;
   [[maybe_unused]] bool Save(const std::filesystem::path& path) const;
-  void StoreToPng(const std::string& path, int resize_x = -1, int resize_y = -1, unsigned compression_level = 8) const;
-  void StoreToJpg(const std::string& path, int resize_x = -1, int resize_y = -1, unsigned quality = 100) const;
-  void StoreToHdr(const std::string& path, int resize_x = -1, int resize_y = -1, unsigned quality = 100) const;
+  void StoreToPng(const std::filesystem::path& path, int resize_x = -1, int resize_y = -1,
+                  unsigned compression_level = 8) const;
+  void StoreLinearDepthToPng(const std::filesystem::path& path, float near_distance, float far_distance,
+                             float max_depth, int resize_x = -1, int resize_y = -1,
+                             unsigned compression_level = 8) const;
+  void StoreToJpg(const std::filesystem::path& path, int resize_x = -1, int resize_y = -1,
+                  unsigned quality = 100) const;
+  void StoreToHdr(const std::filesystem::path& path, int resize_x = -1, int resize_y = -1,
+                  unsigned quality = 100) const;
 
   const std::shared_ptr<DescriptorSet>& GetColorPresentDescriptorSet() const;
   const std::shared_ptr<DescriptorSet>& GetDepthPresentDescriptorSet() const;

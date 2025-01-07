@@ -62,8 +62,8 @@ void EcoSysLabLayer::OnCreate() {
   visualization_camera_ = Serialization::ProduceSerializable<Camera>();
 
   visualization_camera_->OnCreate();
-  visualization_camera_->use_clear_color = true;
-  visualization_camera_->clear_color = glm::vec3(0.5f, 0.5f, 0.5f);
+  visualization_camera_->camera_settings.use_clear_color = true;
+  visualization_camera_->camera_settings.clear_color = glm::vec3(0.5f, 0.5f, 0.5f);
 #pragma endregion
 
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
@@ -596,7 +596,7 @@ void EcoSysLabLayer::UpdateGroundFruitAndLeaves() const {
     leaf_matrices[i].instance_matrix.value = leaves_[i].global_transform.value;
     leaf_matrices[i].instance_color =
         glm::vec4(glm::mix(glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f),
-                           glm::vec3(159 / 255.0f, 100 / 255.0f, 66 / 255.0f), 1.0f - leaves_[i].m_health),
+                           glm::vec3(159 / 255.0f, 100 / 255.0f, 66 / 255.0f), 1.0f - leaves_[i].leaf_health),
                   1.0f);
   }
   ground_fruit_matrices_->SetParticleInfos(fruit_matrices);

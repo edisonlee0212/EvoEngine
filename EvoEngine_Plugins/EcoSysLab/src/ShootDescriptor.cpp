@@ -189,8 +189,6 @@ void ShootDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "fruit_flushing_lighting_requirement" << YAML::Value << fruit_flushing_lighting_requirement;
   out << YAML::Key << "fruit_fall_probability" << YAML::Value << fruit_fall_probability;
   out << YAML::Key << "fruit_distance_to_branch_end_limit" << YAML::Value << fruit_distance_to_branch_end_limit;
-
-  bark_material.Save("bark_material", out);
 }
 
 void ShootDescriptor::Deserialize(const YAML::Node& in) {
@@ -294,8 +292,6 @@ void ShootDescriptor::Deserialize(const YAML::Node& in) {
     fruit_fall_probability = in["fruit_fall_probability"].as<float>();
   if (in["fruit_distance_to_branch_end_limit"])
     fruit_distance_to_branch_end_limit = in["fruit_distance_to_branch_end_limit"].as<float>();
-
-  bark_material.Load("bark_material", in);
 }
 
 bool ShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -400,9 +396,6 @@ bool ShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer
     changed = ImGui::DragFloat("Distance To End Limit", &fruit_distance_to_branch_end_limit, 0.01f) || changed;
     ImGui::TreePop();
   }
-
-  editor_layer->DragAndDropButton<Material>(bark_material, "Bark Material##SBS");
-
   return changed;
 }
 
@@ -411,7 +404,4 @@ void ShootDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
     list.push_back(roll_angle);
   if (apical_angle.Get<ProceduralNoise2D>())
     list.push_back(apical_angle);
-
-  if (bark_material.Get<Material>())
-    list.push_back(bark_material);
 }

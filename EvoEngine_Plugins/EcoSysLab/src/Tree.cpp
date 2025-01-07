@@ -351,7 +351,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
   const auto scene = GetScene();
-  editor_layer->DragAndDropButton<TreeDescriptor>(tree_descriptor, "TreeDescriptor", true);
+  editor_layer->DragAndDropButton<TreeDescriptor>(tree_descriptor_ref, "TreeDescriptor", true);
   static bool show_space_colonization_grid = true;
 
   static std::shared_ptr<ParticleInfoList> space_colonization_grid_particle_info_list;
@@ -359,7 +359,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     space_colonization_grid_particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
   }
 
-  if (const auto td = tree_descriptor.Get<TreeDescriptor>()) {
+  if (const auto td = tree_descriptor_ref.Get<TreeDescriptor>()) {
     const auto sd = td->shoot_descriptor.Get<ShootDescriptor>();
     if (sd) {
       /*
@@ -369,10 +369,11 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
               modelChanged = true;
       }*/
       if (ImGui::TreeNode("Tree settings")) {
-        if (ImGui::DragFloat("Low Branch Pruning", &low_branch_pruning, 0.01f, 0.0f, 1.f))
-          changed = true;
-        if (ImGui::DragFloat("Crown shyness distance", &crown_shyness_distance, 0.01f, 0.0f, 1.f))
-          changed = true;
+        if (ImGui::TreeNode("Pruning settings")) {
+          if (pruning_settings.OnInspect(editor_layer))
+            changed = true;
+          ImGui::TreePop();
+        }
         if (ImGui::DragFloat("Start time", &start_time, 0.01f, 0.0f, 100.f))
           changed = true;
         ImGui::Checkbox("Enable History", &enable_history);
@@ -692,7 +693,7 @@ void Tree::OnDestroy() {
   tree_model = {};
   strand_model = {};
 
-  tree_descriptor.Clear();
+  tree_descriptor_ref.Clear();
   soil.Clear();
   climate.Clear();
   enable_history = false;
@@ -704,8 +705,7 @@ void Tree::OnDestroy() {
   shoot_biomass_history.clear();
 
   generate_mesh = true;
-  low_branch_pruning = 0.f;
-  crown_shyness_distance = 0.f;
+  pruning_settings = {};
   start_time = 0.f;
 }
 
@@ -736,6 +736,28 @@ void Tree::CalculateProfiles() {
   output += "], Particle count: [" + std::to_string(strand_model.strand_model_skeleton.data.num_of_particles);
   output += "]\nCalculate Profile Used time: " + std::to_string(profile_calculation_time) + "\n";
   EVOENGINE_LOG(output);
+}
+
+bool Tree::PruningSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
+  if (ImGui::DragFloat("Low Branch Pruning", &low_branch_pruning, 0.01f, 0.0f, 1.f))
+    changed = true;
+  return changed;
+}
+
+void Tree::PruningSettings::Save(const std::string& name, YAML::Emitter& out) const {
+  out << YAML::Key << name << YAML::Value << YAML::BeginMap;
+  { out << YAML::Key << "low_branch_pruning" << YAML::Value << low_branch_pruning; }
+  out << YAML::EndMap;
+}
+
+void Tree::PruningSettings::Load(const std::string& name, const YAML::Node& in) {
+  if (in[name]) {
+    const auto& cd = in[name];
+    if (cd["low_branch_pruning"]) {
+      low_branch_pruning = cd["low_branch_pruning"].as<float>();
+    }
+  }
 }
 
 void Tree::BuildStrandModel() {
@@ -789,7 +811,7 @@ void Tree::GenerateTrunkMeshes(const std::shared_ptr<Mesh>& trunk_mesh,
   {
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
-    const auto td = tree_descriptor.Get<TreeDescriptor>();
+    const auto td = tree_descriptor_ref.Get<TreeDescriptor>();
     std::shared_ptr<BarkDescriptor> bd{};
     if (td) {
       bd = td->bark_descriptor.Get<BarkDescriptor>();
@@ -814,7 +836,7 @@ std::shared_ptr<Mesh> Tree::GenerateBranchMesh(const TreeMeshGeneratorSettings& 
   std::vector<Vertex> vertices;
   std::vector<unsigned int> indices;
   if (mesh_generator_settings.branch_mesh_type == 0) {
-    auto td = tree_descriptor.Get<TreeDescriptor>();
+    auto td = tree_descriptor_ref.Get<TreeDescriptor>();
     if (!td) {
       EVOENGINE_WARNING("TreeDescriptor missing!");
       td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
@@ -846,7 +868,7 @@ std::shared_ptr<Mesh> Tree::GenerateBranchMesh(const TreeMeshGeneratorSettings& 
           });
     }
   } else {
-    auto td = tree_descriptor.Get<TreeDescriptor>();
+    auto td = tree_descriptor_ref.Get<TreeDescriptor>();
     if (!td) {
       EVOENGINE_WARNING("TreeDescriptor missing!");
       td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
@@ -871,7 +893,7 @@ std::shared_ptr<Mesh> Tree::GenerateFoliageMesh(const TreeMeshGeneratorSettings&
   size_t quad_vertices_size;
   quad_vertices_size = quad_mesh->GetVerticesAmount();
   size_t offset = 0;
-  auto td = tree_descriptor.Get<TreeDescriptor>();
+  auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (!td) {
     EVOENGINE_WARNING("TreeDescriptor missing!");
     td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
@@ -940,7 +962,7 @@ std::shared_ptr<Mesh> Tree::GenerateFoliageMesh(const TreeMeshGeneratorSettings&
 
 std::shared_ptr<ParticleInfoList> Tree::GenerateFoliageParticleInfoList(
     const TreeMeshGeneratorSettings& mesh_generator_settings) {
-  auto td = tree_descriptor.Get<TreeDescriptor>();
+  auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (!td) {
     EVOENGINE_WARNING("TreeDescriptor missing!");
     td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
@@ -984,7 +1006,7 @@ std::shared_ptr<Mesh> Tree::GenerateStrandModelFoliageMesh(
   auto& quad_triangles = quad_mesh->UnsafeGetTriangles();
   auto quad_vertices_size = quad_mesh->GetVerticesAmount();
   size_t offset = 0;
-  auto td = tree_descriptor.Get<TreeDescriptor>();
+  auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (!td)
     return nullptr;
   auto fd = td->foliage_descriptor.Get<FoliageDescriptor>();
@@ -1336,13 +1358,13 @@ void Tree::ExportTrunkObj(const std::filesystem::path& path, const TreeMeshGener
   }
 }
 
-bool Tree::TryGrow(float delta_time, bool pruning) {
+bool Tree::TryGrow(const SimulationSettings& simulation_settings, bool pruning) {
   const auto scene = GetScene();
-  auto td = tree_descriptor.Get<TreeDescriptor>();
+  auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (!td) {
     EVOENGINE_WARNING("Growing tree without tree descriptor!");
     td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
-    tree_descriptor = td;
+    tree_descriptor_ref = td;
     const auto sd = ProjectManager::CreateTemporaryAsset<ShootDescriptor>();
     td->shoot_descriptor = sd;
     const auto fd = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
@@ -1376,9 +1398,10 @@ bool Tree::TryGrow(float delta_time, bool pruning) {
     EVOENGINE_WARNING("Shoot Descriptor Missing!");
   }
 
-  PrepareController(sd, s, c);
-  const bool grown = tree_model.Grow(delta_time, scene->GetDataComponent<GlobalTransform>(owner).value,
-                                     c->climate_model, shoot_growth_controller_, pruning);
+  PrepareController(simulation_settings, sd, s, c);
+  const bool grown =
+      tree_model.Grow(simulation_settings.delta_time, scene->GetDataComponent<GlobalTransform>(owner).value,
+                      c->climate_model, shoot_growth_controller_, pruning);
   if (grown) {
     if (pruning)
       tree_visualizer.ClearSelections();
@@ -1393,9 +1416,10 @@ bool Tree::TryGrow(float delta_time, bool pruning) {
   return grown;
 }
 
-bool Tree::TryGrowSubTree(const float delta_time, const SkeletonNodeHandle base_internode_handle, const bool pruning) {
+bool Tree::TryGrowSubTree(const SimulationSettings& simulation_settings, const SkeletonNodeHandle base_internode_handle,
+                          const bool pruning) {
   const auto scene = GetScene();
-  const auto td = tree_descriptor.Get<TreeDescriptor>();
+  const auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
 
   const auto climate_candidate = EcoSysLabLayer::FindClimate();
@@ -1430,10 +1454,10 @@ bool Tree::TryGrowSubTree(const float delta_time, const SkeletonNodeHandle base_
     EVOENGINE_WARNING("Shoot Descriptor Missing!");
   }
 
-  PrepareController(shoot_descriptor, s, c);
-  const bool grown =
-      tree_model.Grow(delta_time, base_internode_handle, scene->GetDataComponent<GlobalTransform>(owner).value,
-                      c->climate_model, shoot_growth_controller_, pruning);
+  PrepareController(simulation_settings, shoot_descriptor, s, c);
+  const bool grown = tree_model.Grow(simulation_settings.delta_time, base_internode_handle,
+                                     scene->GetDataComponent<GlobalTransform>(owner).value, c->climate_model,
+                                     shoot_growth_controller_, pruning);
   if (grown) {
     if (pruning)
       tree_visualizer.ClearSelections();
@@ -1449,8 +1473,8 @@ bool Tree::TryGrowSubTree(const float delta_time, const SkeletonNodeHandle base_
 }
 
 void Tree::Serialize(YAML::Emitter& out) const {
-  tree_descriptor.Save("tree_descriptor", out);
-
+  tree_descriptor_ref.Save("tree_descriptor_ref", out);
+  pruning_settings.Save("pruning_settings", out);
   out << YAML::Key << "strand_model" << YAML::Value << YAML::BeginMap;
   {
     out << YAML::Key << "strand_model_skeleton" << YAML::Value << YAML::BeginMap;
@@ -1489,8 +1513,7 @@ void Tree::Serialize(YAML::Emitter& out) const {
                               skeleton_data.strand_group.PeekStrandSegmentData(strand_segment_index);
                           node_handle[strand_segment_index] = strand_segment_data.node_handle;
                           is_boundary[strand_segment_index] = strand_segment_data.is_boundary;
-                          profile_particle_handles[strand_segment_index] =
-                              strand_segment_data.profile_particle_handle;
+                          profile_particle_handles[strand_segment_index] = strand_segment_data.profile_particle_handle;
                         }
                         if (strand_segment_size != 0) {
                           group_out << YAML::Key << "ss.data.node_handle" << YAML::Value
@@ -1498,9 +1521,7 @@ void Tree::Serialize(YAML::Emitter& out) const {
                                                     node_handle.size() * sizeof(SkeletonNodeHandle));
 
                           group_out << YAML::Key << "ss.data.is_boundary" << YAML::Value
-                                    << YAML::Binary(is_boundary.data(),
-                                                    is_boundary.size() * sizeof(uint8_t));
-
+                                    << YAML::Binary(is_boundary.data(), is_boundary.size() * sizeof(uint8_t));
 
                           group_out << YAML::Key << "ss.data.profile_particle_handle" << YAML::Value
                                     << YAML::Binary(
@@ -1657,7 +1678,8 @@ void Tree::Serialize(YAML::Emitter& out) const {
 }
 
 void Tree::Deserialize(const YAML::Node& in) {
-  tree_descriptor.Load("tree_descriptor", in);
+  tree_descriptor_ref.Load("tree_descriptor_ref", in);
+  pruning_settings.Load("pruning_settings", in);
   if (in["strand_model"]) {
     if (const auto& in_strand_model = in["strand_model"]) {
       const auto& in_strand_model_skeleton = in_strand_model["strand_model_skeleton"];
@@ -2031,7 +2053,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
   const auto scene = GetScene();
   const auto self = GetOwner();
   const auto children = scene->GetChildren(self);
-  auto td = tree_descriptor.Get<TreeDescriptor>();
+  auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   const auto tree_global_transform = scene->GetDataComponent<GlobalTransform>(self);
   ClearAnimatedGeometryEntities();
   Entity rag_doll;
@@ -2088,18 +2110,20 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     auto skinned_mesh = ProjectManager::CreateTemporaryAsset<SkinnedMesh>();
     auto material = ProjectManager::CreateTemporaryAsset<Material>();
     auto skinned_mesh_renderer = scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(branch_entity).lock();
+    bool copied_material = false;
     if (td) {
-      if (const auto shoot_descriptor = td->shoot_descriptor.Get<ShootDescriptor>()) {
-        if (const auto shoot_material = shoot_descriptor->bark_material.Get<Material>()) {
-          material->SetAlbedoTexture(shoot_material->GetAlbedoTexture());
-          material->SetNormalTexture(shoot_material->GetNormalTexture());
-          material->SetRoughnessTexture(shoot_material->GetRoughnessTexture());
-          material->SetMetallicTexture(shoot_material->GetMetallicTexture());
-          material->material_properties = shoot_material->material_properties;
+      if (const auto bark_descriptor = td->bark_descriptor.Get<BarkDescriptor>()) {
+        if (const auto bark_material = bark_descriptor->bark_material_ref.Get<Material>()) {
+          material->SetAlbedoTexture(bark_material->GetAlbedoTexture());
+          material->SetNormalTexture(bark_material->GetNormalTexture());
+          material->SetRoughnessTexture(bark_material->GetRoughnessTexture());
+          material->SetMetallicTexture(bark_material->GetMetallicTexture());
+          material->material_properties = bark_material->material_properties;
+          copied_material = true;
         }
       }
     }
-    if (bool copied_material = false; !copied_material) {
+    if (!copied_material) {
       material->material_properties.albedo_color = glm::vec3(109, 79, 75) / 255.0f;
       material->material_properties.roughness = 1.0f;
       material->material_properties.metallic = 0.0f;
@@ -2163,7 +2187,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     bool copied_material = false;
     if (td) {
       if (const auto foliage_descriptor = td->foliage_descriptor.Get<FoliageDescriptor>()) {
-        if (const auto leaf_material = foliage_descriptor->leaf_material.Get<Material>()) {
+        if (const auto leaf_material = foliage_descriptor->leaf_material_ref.Get<Material>()) {
           material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
           material->SetNormalTexture(leaf_material->GetNormalTexture());
           material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
@@ -2330,36 +2354,36 @@ void Tree::ClearGeometryEntities() const {
   }
 }
 
-
-
 void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_generator_settings, int iteration) {
   const auto scene = GetScene();
   const auto self = GetOwner();
   const auto children = scene->GetChildren(self);
-  auto td = tree_descriptor.Get<TreeDescriptor>();
+  const auto tree_descriptor = tree_descriptor_ref.Get<TreeDescriptor>();
   ClearGeometryEntities();
   if (auto actual_iteration = iteration; actual_iteration < 0 || actual_iteration > tree_model.CurrentIteration()) {
     actual_iteration = tree_model.CurrentIteration();
   }
   if (mesh_generator_settings.enable_branch) {
-    Entity branch_entity = scene->CreateEntity("Branch Mesh");
+    const Entity branch_entity = scene->CreateEntity("Branch Mesh");
     scene->SetParent(branch_entity, self);
 
-    auto mesh = GenerateBranchMesh(mesh_generator_settings);
-    auto material = ProjectManager::CreateTemporaryAsset<Material>();
-    auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(branch_entity).lock();
-    if (td) {
-      if (const auto shoot_descriptor = td->shoot_descriptor.Get<ShootDescriptor>()) {
-        if (const auto shoot_material = shoot_descriptor->bark_material.Get<Material>()) {
-          material->SetAlbedoTexture(shoot_material->GetAlbedoTexture());
-          material->SetNormalTexture(shoot_material->GetNormalTexture());
-          material->SetRoughnessTexture(shoot_material->GetRoughnessTexture());
-          material->SetMetallicTexture(shoot_material->GetMetallicTexture());
-          material->material_properties = shoot_material->material_properties;
+    const auto mesh = GenerateBranchMesh(mesh_generator_settings);
+    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(branch_entity).lock();
+    bool copied_material = false;
+    if (tree_descriptor) {
+      if (const auto bark_descriptor = tree_descriptor->bark_descriptor.Get<BarkDescriptor>()) {
+        if (const auto bark_material = bark_descriptor->bark_material_ref.Get<Material>()) {
+          material->SetAlbedoTexture(bark_material->GetAlbedoTexture());
+          material->SetNormalTexture(bark_material->GetNormalTexture());
+          material->SetRoughnessTexture(bark_material->GetRoughnessTexture());
+          material->SetMetallicTexture(bark_material->GetMetallicTexture());
+          material->material_properties = bark_material->material_properties;
+          copied_material = true;
         }
       }
     }
-    if (constexpr bool copied_material = false; !copied_material) {
+    if (!copied_material) {
       material->material_properties.albedo_color = glm::vec3(109, 79, 75) / 255.0f;
       material->material_properties.roughness = 1.0f;
       material->material_properties.metallic = 0.0f;
@@ -2376,9 +2400,9 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
       const auto particle_info_list = GenerateFoliageParticleInfoList(mesh_generator_settings);
       const auto material = ProjectManager::CreateTemporaryAsset<Material>();
       bool copied_material = false;
-      if (td) {
-        if (const auto foliage_descriptor = td->foliage_descriptor.Get<FoliageDescriptor>()) {
-          if (const auto leaf_material = foliage_descriptor->leaf_material.Get<Material>()) {
+      if (tree_descriptor) {
+        if (const auto foliage_descriptor = tree_descriptor->foliage_descriptor.Get<FoliageDescriptor>()) {
+          if (const auto leaf_material = foliage_descriptor->leaf_material_ref.Get<Material>()) {
             material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
             material->SetNormalTexture(leaf_material->GetNormalTexture());
             material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
@@ -2402,9 +2426,9 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
       auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(foliage_entity).lock();
       const auto material = ProjectManager::CreateTemporaryAsset<Material>();
       bool copied_material = false;
-      if (td) {
-        if (const auto foliage_descriptor = td->foliage_descriptor.Get<FoliageDescriptor>()) {
-          if (const auto leaf_material = foliage_descriptor->leaf_material.Get<Material>()) {
+      if (tree_descriptor) {
+        if (const auto foliage_descriptor = tree_descriptor->foliage_descriptor.Get<FoliageDescriptor>()) {
+          if (const auto leaf_material = foliage_descriptor->leaf_material_ref.Get<Material>()) {
             material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
             material->SetNormalTexture(leaf_material->GetNormalTexture());
             material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
@@ -2449,7 +2473,7 @@ void Tree::FromTreeGraphV2(const std::shared_ptr<TreeGraphV2>& tree_graph_v2) {
 
 void Tree::GenerateTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings,
                              std::vector<TreePartData>& tree_parts) {
-  auto td = tree_descriptor.Get<TreeDescriptor>();
+  auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (!td) {
     EVOENGINE_WARNING("TreeDescriptor missing!");
     td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
@@ -2806,8 +2830,8 @@ void Tree::ExportRadialBoundingVolume(const std::shared_ptr<RadialBoundingVolume
 }
 
 void Tree::CollectAssetRef(std::vector<AssetRef>& list) {
-  if (tree_descriptor.Get<TreeDescriptor>()) {
-    list.emplace_back(tree_descriptor);
+  if (tree_descriptor_ref.Get<TreeDescriptor>()) {
+    list.emplace_back(tree_descriptor_ref);
   }
 }
 
@@ -2891,7 +2915,8 @@ void SkeletalGraphSettings::OnInspect() {
   ImGui::ColorEdit4("Junction point color", &junction_point_color.x);
 }
 
-void Tree::PrepareController(const std::shared_ptr<ShootDescriptor>& shoot_descriptor,
+void Tree::PrepareController(const SimulationSettings& simulation_settings,
+                             const std::shared_ptr<ShootDescriptor>& shoot_descriptor,
                              const std::shared_ptr<Soil>& soil, const std::shared_ptr<Climate>& climate) {
   shoot_descriptor->PrepareController(shoot_growth_controller_);
 
@@ -2926,7 +2951,7 @@ void Tree::PrepareController(const std::shared_ptr<ShootDescriptor>& shoot_descr
         }
         if (const auto max_distance = shoot_skeleton.PeekNode(0).info.end_distance;
             max_distance > 5.0f * shoot_growth_controller_.m_internodeLength && internode.data.order > 0 &&
-            internode.info.root_distance / max_distance < low_branch_pruning) {
+            internode.info.root_distance / max_distance < pruning_settings.low_branch_pruning) {
           if (const auto parent_handle = internode.GetParentHandle(); parent_handle != -1) {
             const auto& parent = shoot_skeleton.PeekNode(parent_handle);
             if (parent.PeekChildHandles().size() > 1) {
@@ -2934,17 +2959,17 @@ void Tree::PrepareController(const std::shared_ptr<ShootDescriptor>& shoot_descr
             }
           }
         }
-        if (crown_shyness_distance > 0.f && internode.IsEndNode()) {
+        if (simulation_settings.crown_shyness_distance > 0.f && internode.IsEndNode()) {
           const glm::vec3 end_position = global_transform * glm::vec4(internode.info.GetGlobalEndPosition(), 1.0f);
           bool prune_by_crown_shyness = false;
           climate_model.environment_grid.voxel_grid.ForEach(
-              end_position, crown_shyness_distance * 2.0f, [&](const EnvironmentVoxel& data) {
+              end_position, simulation_settings.crown_shyness_distance * 2.0f, [&](const EnvironmentVoxel& data) {
                 if (prune_by_crown_shyness)
                   return;
                 for (const auto& i : data.internode_voxel_registrations) {
                   if (i.tree_skeleton_index == shoot_skeleton.data.index)
                     continue;
-                  if (glm::distance(end_position, i.position) < crown_shyness_distance)
+                  if (glm::distance(end_position, i.position) < simulation_settings.crown_shyness_distance)
                     prune_by_crown_shyness = true;
                 }
               });
@@ -2955,7 +2980,6 @@ void Tree::PrepareController(const std::shared_ptr<ShootDescriptor>& shoot_descr
         return pruning_probability;
       };
 }
-
 
 void Tree::ClearStrandRenderer() const {
   const auto scene = GetScene();
@@ -3062,8 +3086,6 @@ void Tree::InitializeStrandRenderer(const std::shared_ptr<Strands>& strands) con
   material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
 }
 
-
-
 void Tree::InitializeStrandModelMeshRenderer(
     const StrandModelMeshGeneratorSettings& strand_model_mesh_generator_settings) {
   ClearStrandModelMeshRenderer();
@@ -3073,7 +3095,7 @@ void Tree::InitializeStrandModelMeshRenderer(
   const float time = Times::Now();
   const auto scene = GetScene();
   const auto self = GetOwner();
-  const auto td = tree_descriptor.Get<TreeDescriptor>();
+  const auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (strand_model_mesh_generator_settings.enable_branch) {
     const auto foliage_entity = scene->CreateEntity("Strand Model Branch Mesh");
     scene->SetParent(foliage_entity, self);
@@ -3081,19 +3103,20 @@ void Tree::InitializeStrandModelMeshRenderer(
     const auto mesh = GenerateStrandModelBranchMesh(strand_model_mesh_generator_settings);
     const auto material = ProjectManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(foliage_entity).lock();
-
+    bool copied_material = false;
     if (td) {
-      if (const auto sd = td->shoot_descriptor.Get<ShootDescriptor>()) {
-        if (const auto shoot_material = sd->bark_material.Get<Material>()) {
-          material->SetAlbedoTexture(shoot_material->GetAlbedoTexture());
-          material->SetNormalTexture(shoot_material->GetNormalTexture());
-          material->SetRoughnessTexture(shoot_material->GetRoughnessTexture());
-          material->SetMetallicTexture(shoot_material->GetMetallicTexture());
-          material->material_properties = shoot_material->material_properties;
+      if (const auto bd = td->bark_descriptor.Get<BarkDescriptor>()) {
+        if (const auto bark_material = bd->bark_material_ref.Get<Material>()) {
+          material->SetAlbedoTexture(bark_material->GetAlbedoTexture());
+          material->SetNormalTexture(bark_material->GetNormalTexture());
+          material->SetRoughnessTexture(bark_material->GetRoughnessTexture());
+          material->SetMetallicTexture(bark_material->GetMetallicTexture());
+          material->material_properties = bark_material->material_properties;
+          copied_material = true;
         }
       }
     }
-    if (bool copied_material = false; !copied_material) {
+    if (!copied_material) {
       material->material_properties.albedo_color = glm::vec3(109, 79, 75) / 255.0f;
       material->material_properties.roughness = 1.0f;
       material->material_properties.metallic = 0.0f;
@@ -3111,7 +3134,7 @@ void Tree::InitializeStrandModelMeshRenderer(
     bool copied_material = false;
     if (td) {
       if (const auto fd = td->foliage_descriptor.Get<FoliageDescriptor>()) {
-        if (const auto leaf_material = fd->leaf_material.Get<Material>()) {
+        if (const auto leaf_material = fd->leaf_material_ref.Get<Material>()) {
           material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
           material->SetNormalTexture(leaf_material->GetNormalTexture());
           material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());

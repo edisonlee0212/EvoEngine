@@ -19,7 +19,7 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
     soil = soilCandidate.lock();
   std::shared_ptr<SoilDescriptor> soilDescriptor;
   if (soil) {
-    soilDescriptor = soil->soil_descriptor.Get<SoilDescriptor>();
+    soilDescriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
   }
   std::shared_ptr<HeightField> heightField{};
   if (soilDescriptor) {
@@ -59,7 +59,7 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
       scene->SetDataComponent(treeEntity, transform);
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
       tree->tree_model.tree_growth_settings = tree_growth_settings;
-      tree->tree_descriptor = tree_descriptor.Get<TreeDescriptor>();
+      tree->tree_descriptor_ref = tree_descriptor.Get<TreeDescriptor>();
       if (i == 0 || j == 0 || i == gridSize.x - 1 || j == gridSize.y - 1) {
         scene->SetParent(treeEntity, boundary);
         tree->generate_mesh = false;
@@ -68,8 +68,8 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
         tree->generate_mesh = true;
       }
       tree->start_time = glm::linearRand(0.0f, start_time_max);
-      tree->low_branch_pruning = glm::mix(min_low_branch_pruning, max_low_branch_pruning,
-                                          glm::abs(glm::perlin(offset + transform.GetPosition())));
+      tree->pruning_settings.low_branch_pruning = glm::mix(min_low_branch_pruning, max_low_branch_pruning,
+                                                           glm::abs(glm::perlin(offset + transform.GetPosition())));
     }
   }
 
@@ -89,13 +89,13 @@ Entity ForestPatch::InstantiatePatch(
   const auto soilCandidate = EcoSysLabLayer::FindSoil();
   if (!soilCandidate.expired())
     soil = soilCandidate.lock();
-  std::shared_ptr<SoilDescriptor> soilDescriptor;
+  std::shared_ptr<SoilDescriptor> soil_descriptor;
   if (soil) {
-    soilDescriptor = soil->soil_descriptor.Get<SoilDescriptor>();
+    soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
   }
   std::shared_ptr<HeightField> heightField{};
-  if (soilDescriptor) {
-    heightField = soilDescriptor->height_field.Get<HeightField>();
+  if (soil_descriptor) {
+    heightField = soil_descriptor->height_field.Get<HeightField>();
   }
   const glm::vec2 startPoint = glm::vec2((gridSize.x - 1) * grid_distance.x, (gridSize.y - 1) * grid_distance.y) * 0.5f;
 
@@ -133,7 +133,7 @@ Entity ForestPatch::InstantiatePatch(
 
       const auto candidateIndex = glm::linearRand(0, static_cast<int>(candidates.size() - 1));
       tree->tree_model.tree_growth_settings = candidates.at(candidateIndex).first;
-      tree->tree_descriptor = candidates.at(candidateIndex).second;  // tree_descriptor.Get<TreeDescriptor>();
+      tree->tree_descriptor_ref = candidates.at(candidateIndex).second;  // tree_descriptor_ref.Get<TreeDescriptor>();
       if (i == 0 || j == 0 || i == gridSize.x - 1 || j == gridSize.y - 1) {
         scene->SetParent(treeEntity, boundary);
         tree->generate_mesh = false;
@@ -142,8 +142,8 @@ Entity ForestPatch::InstantiatePatch(
         tree->generate_mesh = true;
       }
       tree->start_time = glm::linearRand(0.0f, start_time_max);
-      tree->low_branch_pruning = glm::mix(min_low_branch_pruning, max_low_branch_pruning,
-                                          glm::abs(glm::perlin(offset + transform.GetPosition())));
+      tree->pruning_settings.low_branch_pruning = glm::mix(min_low_branch_pruning, max_low_branch_pruning,
+                                                           glm::abs(glm::perlin(offset + transform.GetPosition())));
     }
   }
 
@@ -254,7 +254,7 @@ bool ForestPatch::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
       soil = soilCandidate.lock();
     std::shared_ptr<SoilDescriptor> soilDescriptor;
     if (soil) {
-      soilDescriptor = soil->soil_descriptor.Get<SoilDescriptor>();
+      soilDescriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
     }
     std::shared_ptr<HeightField> heightField{};
     if (soilDescriptor) {
@@ -279,18 +279,18 @@ bool ForestPatch::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
 }
 
 void TreeInfo::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "m_globalTransform" << YAML::Value << m_globalTransform.value;
-  m_treeDescriptor.Save("m_treeDescriptor", out);
+  out << YAML::Key << "global_transform" << YAML::Value << global_transform.value;
+  tree_descriptor.Save("tree_descriptor", out);
 }
 
 void TreeInfo::Deserialize(const YAML::Node& in) {
-  if (in["m_globalTransform"])
-    m_globalTransform.value = in["m_globalTransform"].as<glm::mat4>();
-  m_treeDescriptor.Load("m_treeDescriptor", in);
+  if (in["global_transform"])
+    global_transform.value = in["global_transform"].as<glm::mat4>();
+  tree_descriptor.Load("tree_descriptor", in);
 }
 
 void TreeInfo::CollectAssetRef(std::vector<AssetRef>& list) const {
-  list.push_back(m_treeDescriptor);
+  list.push_back(tree_descriptor);
 }
 
 std::shared_ptr<Texture2D> ForestDescriptor::GenerateThumbnailTexture() {
@@ -305,8 +305,8 @@ std::shared_ptr<Texture2D> ForestDescriptor::GenerateThumbnailTexture() {
 
 void ForestDescriptor::ApplyTreeDescriptor(const std::shared_ptr<TreeDescriptor>& treeDescriptor) {
   if (treeDescriptor) {
-    for (auto& i : m_treeInfos) {
-      i.m_treeDescriptor = treeDescriptor;
+    for (auto& i : tree_infos) {
+      i.tree_descriptor = treeDescriptor;
     }
   }
 }
@@ -314,8 +314,8 @@ void ForestDescriptor::ApplyTreeDescriptor(const std::shared_ptr<TreeDescriptor>
 void ForestDescriptor::ApplyTreeDescriptors(const std::vector<std::shared_ptr<TreeDescriptor>>& treeDescriptors) {
   if (treeDescriptors.empty())
     return;
-  for (auto& i : m_treeInfos) {
-    i.m_treeDescriptor = treeDescriptors.at(glm::linearRand(0, static_cast<int>(treeDescriptors.size()) - 1));
+  for (auto& i : tree_infos) {
+    i.tree_descriptor = treeDescriptors.at(glm::linearRand(0, static_cast<int>(treeDescriptors.size()) - 1));
   }
 }
 
@@ -335,8 +335,8 @@ void ForestDescriptor::ApplyTreeDescriptors(const std::vector<std::shared_ptr<Tr
                                             const std::vector<float>& ratios) {
   if (treeDescriptors.empty())
     return;
-  for (auto& i : m_treeInfos) {
-    i.m_treeDescriptor = treeDescriptors.at(glm::linearRand(0, static_cast<int>(treeDescriptors.size()) - 1));
+  for (auto& i : tree_infos) {
+    i.tree_descriptor = treeDescriptors.at(glm::linearRand(0, static_cast<int>(treeDescriptors.size()) - 1));
   }
 
   std::random_device rd;
@@ -346,13 +346,13 @@ void ForestDescriptor::ApplyTreeDescriptors(const std::vector<std::shared_ptr<Tr
   std::vector<std::shared_ptr<TreeDescriptor>> appliedTreeDescriptors;
   int count = 0;
   for (int i = 0; i < ratios.size(); i++) {
-    if (count >= m_treeInfos.size())
+    if (count >= tree_infos.size())
       break;
-    const int localSize = m_treeInfos.size() * ratios[i];
+    const int localSize = tree_infos.size() * ratios[i];
     for (int j = 0; j < localSize; j++) {
-      if (count >= m_treeInfos.size())
+      if (count >= tree_infos.size())
         break;
-      m_treeInfos[count].m_treeDescriptor = copiedDescriptors[i];
+      tree_infos[count].tree_descriptor = copiedDescriptors[i];
       count++;
     }
   }
@@ -402,7 +402,7 @@ bool ForestDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer
           soil = soilCandidate.lock();
         std::shared_ptr<SoilDescriptor> soilDescriptor;
         if (soil) {
-          soilDescriptor = soil->soil_descriptor.Get<SoilDescriptor>();
+          soilDescriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
         }
         std::shared_ptr<HeightField> heightField{};
         if (soilDescriptor) {
@@ -412,12 +412,12 @@ bool ForestDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer
           if (i.is_regular_file() && i.path().extension().string() == ".tree") {
             const auto treeDescriptor = std::dynamic_pointer_cast<TreeDescriptor>(
                 ProjectManager::GetOrCreateAsset(ProjectManager::GetPathRelativeToProject(i.path())));
-            m_treeInfos.emplace_back();
+            tree_infos.emplace_back();
             glm::vec3 position = glm::vec3(5.f * index, 0.0f, 0.0f);
             if (heightField)
               position.y = heightField->GetValue({position.x, position.z}) - 0.05f;
-            m_treeInfos.back().m_globalTransform.SetPosition(position);
-            m_treeInfos.back().m_treeDescriptor = treeDescriptor;
+            tree_infos.back().global_transform.SetPosition(position);
+            tree_infos.back().tree_descriptor = treeDescriptor;
             index++;
           }
         }
@@ -440,8 +440,8 @@ bool ForestDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer
 
   if (ImGui::TreeNode("Tree Instances")) {
     int index = 1;
-    for (auto& i : m_treeInfos) {
-      editorLayer->DragAndDropButton<TreeDescriptor>(i.m_treeDescriptor, "Tree No." + std::to_string(index), true);
+    for (auto& i : tree_infos) {
+      editorLayer->DragAndDropButton<TreeDescriptor>(i.tree_descriptor, "Tree No." + std::to_string(index), true);
       index++;
     }
     ImGui::TreePop();
@@ -451,8 +451,8 @@ bool ForestDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer
     InstantiatePatch(setParent);
   }
 
-  if (!m_treeInfos.empty() && ImGui::Button("Clear")) {
-    m_treeInfos.clear();
+  if (!tree_infos.empty() && ImGui::Button("Clear")) {
+    tree_infos.clear();
   }
 
   return changed;
@@ -462,82 +462,83 @@ void ForestDescriptor::OnCreate() {
 }
 
 void ForestDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
-  for (const auto& i : m_treeInfos) {
+  for (const auto& i : tree_infos) {
     i.CollectAssetRef(list);
   }
 }
 
 void ForestDescriptor::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "m_treeInfos" << YAML::BeginSeq;
-  for (const auto& i : m_treeInfos) {
+  out << YAML::Key << "tree_infos" << YAML::BeginSeq;
+  for (const auto& i : tree_infos) {
     i.Serialize(out);
   }
   out << YAML::EndSeq;
 
   out << YAML::Key << "tree_growth_settings" << YAML::Value << YAML::BeginMap;
-  Tree::SerializeTreeGrowthSettings(m_treeGrowthSettings, out);
+  Tree::SerializeTreeGrowthSettings(tree_growth_settings, out);
   out << YAML::EndMap;
 }
 
 void ForestDescriptor::Deserialize(const YAML::Node& in) {
-  if (in["m_treeInfos"]) {
-    m_treeInfos.clear();
-    for (const auto& i : in["m_treeInfos"]) {
-      m_treeInfos.emplace_back();
-      auto& back = m_treeInfos.back();
+  if (in["tree_infos"]) {
+    tree_infos.clear();
+    for (const auto& i : in["tree_infos"]) {
+      tree_infos.emplace_back();
+      auto& back = tree_infos.back();
       back.Deserialize(i);
     }
   }
 
-  if (in["m_treeGrowthSettings"]) {
-    Tree::DeserializeTreeGrowthSettings(m_treeGrowthSettings, in["m_treeGrowthSettings"]);
+  if (in["tree_growth_settings"]) {
+    Tree::DeserializeTreeGrowthSettings(tree_growth_settings, in["tree_growth_settings"]);
   }
 }
 
-void ForestDescriptor::SetupGrid(const glm::ivec2& gridSize, float gridDistance, float randomShift) {
-  m_treeInfos.clear();
-  const auto ecoSysLabLayer = Application::GetLayer<EcoSysLabLayer>();
+void ForestDescriptor::SetupGrid(const glm::ivec2& grid_size, float grid_distance, float random_shift) {
+  tree_infos.clear();
+  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
-  const auto soilCandidate = EcoSysLabLayer::FindSoil();
-  if (!soilCandidate.expired())
-    soil = soilCandidate.lock();
-  std::shared_ptr<SoilDescriptor> soilDescriptor;
+  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
+    soil = soil_candidate.lock();
+  std::shared_ptr<SoilDescriptor> soil_descriptor;
   if (soil) {
-    soilDescriptor = soil->soil_descriptor.Get<SoilDescriptor>();
+    soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
   }
-  std::shared_ptr<HeightField> heightField{};
-  if (soilDescriptor) {
-    heightField = soilDescriptor->height_field.Get<HeightField>();
+  std::shared_ptr<HeightField> height_field{};
+  if (soil_descriptor) {
+    height_field = soil_descriptor->height_field.Get<HeightField>();
   }
-  const glm::vec2 startPoint = glm::vec2((gridSize.x - 0.5f) * gridDistance, (gridSize.y - 0.5f) * gridDistance) * 0.5f;
-  for (int i = 0; i < gridSize.x; i++) {
-    for (int j = 0; j < gridSize.y; j++) {
-      m_treeInfos.emplace_back();
-      glm::vec3 position = glm::vec3(-startPoint.x + i * gridDistance, 0.0f, -startPoint.y + j * gridDistance);
-      position.x += glm::linearRand(-gridDistance * randomShift, gridDistance * randomShift);
-      position.z += glm::linearRand(-gridDistance * randomShift, gridDistance * randomShift);
-      if (heightField)
-        position.y = heightField->GetValue({position.x, position.z}) - 0.05f;
-      m_treeInfos.back().m_globalTransform.SetPosition(position);
+  const glm::vec2 start_point =
+      glm::vec2((grid_size.x - 0.5f) * grid_distance, (grid_size.y - 0.5f) * grid_distance) * 0.5f;
+  for (int i = 0; i < grid_size.x; i++) {
+    for (int j = 0; j < grid_size.y; j++) {
+      tree_infos.emplace_back();
+      glm::vec3 position = glm::vec3(-start_point.x + i * grid_distance, 0.0f, -start_point.y + j * grid_distance);
+      position.x += glm::linearRand(-grid_distance * random_shift, grid_distance * random_shift);
+      position.z += glm::linearRand(-grid_distance * random_shift, grid_distance * random_shift);
+      if (height_field)
+        position.y = height_field->GetValue({position.x, position.z}) - 0.05f;
+      tree_infos.back().global_transform.SetPosition(position);
     }
   }
 }
 
-void ForestDescriptor::InstantiatePatch(const bool setParent) {
+Entity ForestDescriptor::InstantiatePatch(const bool set_parent) const {
   const auto scene = Application::GetActiveScene();
   Entity parent;
-  if (setParent) {
-    parent = scene->CreateEntity("Forest (" + std::to_string(m_treeInfos.size()) + ") - " + GetTitle());
+  if (set_parent) {
+    parent = scene->CreateEntity("Forest (" + std::to_string(tree_infos.size()) + ") - " + GetTitle());
   }
   int i = 0;
-  for (const auto& gt : m_treeInfos) {
-    auto treeEntity = scene->CreateEntity("Tree No." + std::to_string(i));
+  for (const auto& gt : tree_infos) {
+    auto tree_entity = scene->CreateEntity("Tree No." + std::to_string(i));
     i++;
-    scene->SetDataComponent(treeEntity, gt.m_globalTransform);
-    const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-    tree->tree_model.tree_growth_settings = m_treeGrowthSettings;
-    tree->tree_descriptor = gt.m_treeDescriptor;
-    if (setParent)
-      scene->SetParent(treeEntity, parent);
+    scene->SetDataComponent(tree_entity, gt.global_transform);
+    const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+    tree->tree_model.tree_growth_settings = tree_growth_settings;
+    tree->tree_descriptor_ref = gt.tree_descriptor;
+    if (set_parent)
+      scene->SetParent(tree_entity, parent);
   }
+  return parent;
 }

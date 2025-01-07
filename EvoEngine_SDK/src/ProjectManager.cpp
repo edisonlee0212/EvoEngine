@@ -567,6 +567,8 @@ std::weak_ptr<FolderRecord> ProjectManager::GetOrCreateFolder(const std::filesys
   auto dir_path = project_manager.project_folder_->GetAbsolutePath().parent_path() / project_relative_path;
   std::shared_ptr<FolderRecord> ret_val = project_manager.project_folder_;
   for (auto it = project_relative_path.begin(); it != project_relative_path.end(); ++it) {
+    if (it == project_relative_path.begin() && it->filename().string() == ".")
+      continue;
     ret_val = ret_val->GetOrCreateChild(it->filename().string()).lock();
   }
   return ret_val;
@@ -632,6 +634,7 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
     if (auto temp = GetAsset(scene_handle)) {
       scene = std::dynamic_pointer_cast<Scene>(temp);
       SetStartScene(scene);
+      SaveProject();
       Application::Attach(scene);
       found_scene = true;
     }
@@ -648,6 +651,7 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
       EVOENGINE_LOG("Created new start scene!")
     }
     SetStartScene(scene);
+    SaveProject();
     Application::Attach(scene);
 
     if (project_manager.new_scene_customizer_.has_value()) {
@@ -1317,7 +1321,6 @@ std::weak_ptr<Scene> ProjectManager::GetStartScene() {
 void ProjectManager::SetStartScene(const std::shared_ptr<Scene>& scene) {
   auto& project_manager = GetInstance();
   project_manager.start_scene_ = scene;
-  SaveProject();
 }
 std::weak_ptr<FolderRecord> ProjectManager::GetFolder(const Handle& handle) {
   auto& project_manager = GetInstance();
