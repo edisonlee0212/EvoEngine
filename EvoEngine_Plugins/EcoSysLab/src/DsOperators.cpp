@@ -4,21 +4,37 @@ using namespace eco_sys_lab_plugin;
 
 void DsGravity::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                         const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  GravityPushConstant push_constant;
-  push_constant.acceleration = gravity;
-  push_constant.ground_height = ground_height;
-  push_constant.segment_size = target_dynamic_strands->segments.size();
+  SegmentGravityPushConstant segment_push_constant;
+  segment_push_constant.acceleration = gravity;
+  segment_push_constant.ground_height = ground_height;
+  segment_push_constant.segment_size = target_dynamic_strands->segments.size();
+
+  LeafGravityPushConstant leaf_push_constant;
+  leaf_push_constant.acceleration = gravity;
+  leaf_push_constant.ground_height = ground_height;
+  leaf_push_constant.leaf_size = target_dynamic_strands->foliage.size();
+
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    gravity_force_pipeline->Bind(vk_command_buffer);
-    gravity_force_pipeline->BindDescriptorSet(
+    segment_gravity_force_pipeline->Bind(vk_command_buffer);
+    segment_gravity_force_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
-    gravity_force_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    segment_gravity_force_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.segment_size, work_group_invocations), 1, 1);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    leaf_gravity_force_pipeline->Bind(vk_command_buffer);
+    leaf_gravity_force_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    leaf_gravity_force_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -37,22 +53,40 @@ bool DsGravity::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 }
 
 DsGravity::DsGravity() {
-  if (!gravity_force_pipeline) {
+  if (!segment_gravity_force_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Gravity.comp");
-    gravity_force_pipeline = std::make_shared<ComputePipeline>();
-    gravity_force_pipeline->compute_shader = shader;
-    gravity_force_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/SegmentGravity.comp");
+    segment_gravity_force_pipeline = std::make_shared<ComputePipeline>();
+    segment_gravity_force_pipeline->compute_shader = shader;
+    segment_gravity_force_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
-    auto& push_constant_range = gravity_force_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GravityPushConstant);
+    auto& push_constant_range = segment_gravity_force_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentGravityPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    gravity_force_pipeline->Initialize();
+    segment_gravity_force_pipeline->Initialize();
+  }
+
+  if (!leaf_gravity_force_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LeafGravity.comp");
+    leaf_gravity_force_pipeline = std::make_shared<ComputePipeline>();
+    leaf_gravity_force_pipeline->compute_shader = shader;
+    leaf_gravity_force_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_gravity_force_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafGravityPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_gravity_force_pipeline->Initialize();
   }
 }
 

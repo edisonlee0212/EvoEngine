@@ -21,6 +21,24 @@ DsPreStep::DsPreStep() {
 
     segment_pre_step_pipeline->Initialize();
   }
+
+  if (!leaf_pre_step_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/PreStep/Leaf.comp");
+    leaf_pre_step_pipeline = std::make_shared<ComputePipeline>();
+    leaf_pre_step_pipeline->compute_shader = shader;
+    leaf_pre_step_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_pre_step_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafPreStepPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_pre_step_pipeline->Initialize();
+  }
 }
 
 void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -33,6 +51,11 @@ void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
   segment_push_constant.time_step = physics_parameters.time_step;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
 
+  LeafPreStepPushConstant leaf_push_constant;
+  leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  leaf_push_constant.time_step = physics_parameters.time_step;
+  leaf_push_constant.inv_time_step = 1.f / leaf_push_constant.time_step;
+
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_pre_step_pipeline->Bind(vk_command_buffer);
     segment_pre_step_pipeline->BindDescriptorSet(
@@ -41,6 +64,15 @@ void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
 
     segment_pre_step_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    leaf_pre_step_pipeline->Bind(vk_command_buffer);
+    leaf_pre_step_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    leaf_pre_step_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -113,15 +145,15 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
-  segment_push_constant.angular_velocity_damping = physics_parameters.angular_velocity_damping;
-  segment_push_constant.velocity_damping = physics_parameters.velocity_damping;
+  segment_push_constant.angular_velocity_damping = physics_parameters.segment_angular_velocity_damping;
+  segment_push_constant.velocity_damping = physics_parameters.segment_velocity_damping;
 
   LeafPredictionPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
   leaf_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   leaf_push_constant.inv_time_step = 1.f / leaf_push_constant.time_step;
-  leaf_push_constant.angular_velocity_damping = physics_parameters.angular_velocity_damping;
-  leaf_push_constant.velocity_damping = physics_parameters.velocity_damping;
+  leaf_push_constant.angular_velocity_damping = physics_parameters.segment_angular_velocity_damping;
+  leaf_push_constant.velocity_damping = physics_parameters.segment_velocity_damping;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_prediction_pipeline->Bind(vk_command_buffer);
@@ -193,37 +225,39 @@ void DsBreaking::Execute(const DynamicStrands::PhysicsParameters& physics_parame
   SegmentPairBreakingPushConstant segment_pair_push_constant;
   segment_pair_push_constant.segment_pair_size = target_dynamic_strands.segment_pairs.size();
   segment_pair_push_constant.allow_breaking =
-      physics_parameters.enable_breaking
-          ? target_dynamic_strands.GetFrameIndex() % physics_parameters.breaking_detection_frame == 0 ? 1 : 0
+      physics_parameters.enable_segment_breaking
+          ? target_dynamic_strands.GetFrameIndex() % physics_parameters.segment_breaking_detection_frame == 0 ? 1 : 0
           : 0;
   segment_pair_push_constant.allow_disconnection =
-      physics_parameters.enable_disconnection
-          ? target_dynamic_strands.GetFrameIndex() % physics_parameters.disconnection_detection_frame == 0 ? 1 : 0
+      physics_parameters.enable_segment_disconnection
+          ? target_dynamic_strands.GetFrameIndex() % physics_parameters.segment_disconnection_detection_frame == 0 ? 1
+                                                                                                                   : 0
           : 0;
 
   LeafBreakingPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
-  leaf_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
-  leaf_push_constant.inv_time_step = 1.f / leaf_push_constant.time_step;
-  leaf_push_constant.angular_velocity_damping = physics_parameters.angular_velocity_damping;
-  leaf_push_constant.velocity_damping = physics_parameters.velocity_damping;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    segment_pair_breaking_pipeline->Bind(vk_command_buffer);
-    segment_pair_breaking_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    segment_pair_breaking_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
-    vkCmdDispatch(vk_command_buffer,
-                  Platform::DivUp(segment_pair_push_constant.segment_pair_size, work_group_invocations), 1, 1);
-
-    leaf_breaking_pipeline->Bind(vk_command_buffer);
-    leaf_breaking_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    leaf_breaking_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
+    if (physics_parameters.enable_segment_breaking || physics_parameters.enable_segment_disconnection) {
+      segment_pair_breaking_pipeline->Bind(vk_command_buffer);
+      segment_pair_breaking_pipeline->BindDescriptorSet(
+          vk_command_buffer, 0,
+          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+      segment_pair_breaking_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
+      vkCmdDispatch(vk_command_buffer,
+                    Platform::DivUp(segment_pair_push_constant.segment_pair_size, work_group_invocations), 1, 1);
+      Platform::EverythingBarrier(vk_command_buffer);
+    }
+    if (physics_parameters.enable_foliage_detachment &&
+        target_dynamic_strands.GetFrameIndex() % physics_parameters.foliage_detachment_detection_frame == 0) {
+      leaf_breaking_pipeline->Bind(vk_command_buffer);
+      leaf_breaking_pipeline->BindDescriptorSet(
+          vk_command_buffer, 0,
+          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+      leaf_breaking_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+      vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+      Platform::EverythingBarrier(vk_command_buffer);
+    }
   });
 }
 
@@ -245,6 +279,23 @@ DsVelocityUpdate::DsVelocityUpdate() {
 
     segment_pipeline->Initialize();
   }
+  if (!leaf_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/VelocityUpdate/Leaf.comp");
+    leaf_pipeline = std::make_shared<ComputePipeline>();
+    leaf_pipeline->compute_shader = shader;
+    leaf_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_pipeline->Initialize();
+  }
 }
 
 void DsVelocityUpdate::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -255,6 +306,10 @@ void DsVelocityUpdate::Execute(const DynamicStrands::PhysicsParameters& physics_
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
+  LeafPushConstant leaf_push_constant;
+  leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  leaf_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
+  leaf_push_constant.inv_time_step = 1.f / leaf_push_constant.time_step;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_pipeline->Bind(vk_command_buffer);
@@ -264,6 +319,15 @@ void DsVelocityUpdate::Execute(const DynamicStrands::PhysicsParameters& physics_
 
     segment_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    leaf_pipeline->Bind(vk_command_buffer);
+    leaf_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    leaf_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }

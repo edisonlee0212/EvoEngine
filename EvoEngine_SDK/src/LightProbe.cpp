@@ -87,7 +87,7 @@ void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cub
     irradiance_construct = std::make_shared<GraphicsPipeline>();
     irradiance_construct->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                "Shaders/Graphics/Vertex/Lighting/EquirectangularMapToCubemap.vert");
+                                "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
     irradiance_construct->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
                                   "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapIrradianceConvolution.frag");

@@ -3,6 +3,7 @@
 #include "IAsset.hpp"
 #include "Platform.hpp"
 #include "Texture2D.hpp"
+#include "SkyIllumination.hpp"
 
 namespace evo_engine {
 class CubemapStorage;
@@ -28,6 +29,7 @@ class Cubemap final : public IAsset {
   void Initialize(uint32_t resolution, uint32_t mip_levels = 1) const;
   [[nodiscard]] uint32_t GetTextureStorageIndex() const;
   void ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>& target_texture) const;
+  void BuildSkyIllumination(const SkyIllumination& sky_illumination, uint32_t resolution = 1024) const;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   [[nodiscard]] const std::shared_ptr<Image>& GetImage() const;
   [[nodiscard]] const std::shared_ptr<ImageView>& GetImageView() const;

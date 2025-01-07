@@ -89,7 +89,11 @@ static __forceinline__ __device__ glm::vec3 NishitaSkyIncidentLight(const glm::v
   float tmax = 999999999999;
   glm::vec3 orig = position + glm::vec3(0.0f, earthRadius, 0.0f);
   float t0, t1;
-  if (!RaySphereIntersect(orig, rayDir, atmosphereRadius, t0, t1) || t1 < 0.0f)
+
+  glm::vec3 actual_ray_dir = rayDir;
+  actual_ray_dir.y = glm::abs(actual_ray_dir.y);
+
+  if (!RaySphereIntersect(orig, actual_ray_dir, atmosphereRadius, t0, t1) || t1 < 0.0f)
     return glm::vec3(0.0f, 0.0f, 0.0f);
   if (t0 > tmin && t0 > 0.0f)
     tmin = t0;
@@ -102,7 +106,7 @@ static __forceinline__ __device__ glm::vec3 NishitaSkyIncidentLight(const glm::v
   glm::vec3 sumR = glm::vec3(0.0f);
   glm::vec3 sumM = glm::vec3(0.0f);  // mie and rayleigh contribution
   float opticalDepthR = 0, opticalDepthM = 0;
-  float mu = glm::dot(rayDir,
+  float mu = glm::dot(actual_ray_dir,
                       environment.sun_direction);  // mu in the paper which is the cosine of the angle between the sun
                                                    // direction and the ray direction
   float phaseR = 3.f / (16.f * 3.1415926f) * (1.0f + mu * mu);
@@ -110,7 +114,7 @@ static __forceinline__ __device__ glm::vec3 NishitaSkyIncidentLight(const glm::v
   float phaseM = 3.f / (8.f * 3.1415926f) * ((1.f - g * g) * (1.f + mu * mu)) /
                  ((2.f + g * g) * glm::pow(1.f + g * g - 2.f * g * mu, 1.5f));
   for (unsigned i = 0; i < numSamples; ++i) {
-    glm::vec3 samplePosition = orig + (tCurrent + segmentLength * 0.5f) * rayDir;
+    glm::vec3 samplePosition = orig + (tCurrent + segmentLength * 0.5f) * actual_ray_dir;
     float height = glm::length(samplePosition) - earthRadius;
     // compute optical depth for light
     float hr = glm::exp(-height / Hr) * segmentLength;

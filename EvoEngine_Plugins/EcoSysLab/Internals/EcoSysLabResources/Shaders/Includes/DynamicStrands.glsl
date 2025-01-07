@@ -173,24 +173,25 @@ struct Leaf {
   float inv_mass;
 
   vec3 position_offset;
-  float padding;
+  float original_inv_mass;
 
   vec3 v;
-  float padding1;
+  float position_strain;
 
   vec3 acceleration;
-  float padding2;
+  float rotation_strain;
 
   vec3 angular_v;
-  float padding3;
+  float position_alpha;
 
   vec3 torque;
-  float padding4;
+  float rotation_alpha;
 
   vec3 inertia_tensor;
-  float padding5;
+  float rotation_strain_limit;
+
   vec3 inv_inertia_tensor;
-  float padding6;
+  float position_strain_limit;
 
   mat4 inertia_w;
   mat4 inv_inertia_w;

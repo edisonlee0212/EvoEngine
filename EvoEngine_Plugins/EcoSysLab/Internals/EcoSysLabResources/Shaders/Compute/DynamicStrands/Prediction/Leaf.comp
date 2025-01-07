@@ -73,38 +73,41 @@ void main(){
 
 		Leaf leaf = foliage[leaf_index];
 		
+		update_inertia_w(leaf);
+
+		//Calculate angular velocity and apply torque.
+		vec3 angular_velocity = leaf.angular_v;
+		if(leaf.inv_mass != 0.0f){
+			angular_velocity *= 1.0f - angular_velocity_damping * length(angular_velocity);
+			angular_velocity += time_step * mat3(leaf.inv_inertia_w) * (leaf.torque - cross(angular_velocity, mat3(leaf.inertia_w) * angular_velocity));
+			leaf.v *= 1.0f - velocity_damping * length(leaf.v);
+			leaf.v += leaf.acceleration.xyz * time_step;
+		}
+		//Shift rotation values
+		leaf.last_q = leaf.q;
+		//Apply angular velocity
+		vec4 angular_velocity_q = vec4(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0.0f);
+
+		leaf.q += 0.5f * time_step * quat_mul(angular_velocity_q, leaf.q);
+		leaf.q = normalize(leaf.q);
+
+		//Update w
+		update_inertia_w(leaf);
+		//Shift position values
+		leaf.last_x = leaf.x;
+		//Apply velocity
+		leaf.x += time_step * leaf.v;
+		
 		if(leaf.attachment_integrity != 0.0f){
 			Segment segment = segments[leaf.segment_handle];
 			vec3 segment_center_position =
 				(segment.particle0.x + segment.particle1.x) * 0.5f;
-			leaf.x = segment_center_position + rotate_vec3(segment.q, leaf.position_offset);
-			leaf.q = quat_mul(segment.q, quat_mul(conjugate(segment.q0), leaf.q0));
-		}else{
-			update_inertia_w(leaf);
+			vec3 desired_position = segment_center_position + rotate_vec3(segment.q, leaf.position_offset);
 
-			//Calculate angular velocity and apply torque.
-			vec3 angular_velocity = leaf.angular_v;
-			if(leaf.inv_mass != 0.0f){
-				angular_velocity *= 1.0f - angular_velocity_damping * length(angular_velocity);
-				angular_velocity += time_step * mat3(leaf.inv_inertia_w) * (leaf.torque - cross(angular_velocity, mat3(leaf.inertia_w) * angular_velocity));
-				leaf.v *= 1.0f - velocity_damping * length(leaf.v);
-				leaf.v += leaf.acceleration.xyz * time_step;
-			}
-			//Shift rotation values
-			leaf.last_q = leaf.q;
-			//Apply angular velocity
-			vec4 angular_velocity_q = vec4(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0.0f);
-
-			leaf.q += 0.5f * time_step * quat_mul(angular_velocity_q, leaf.q);
-			leaf.q = normalize(leaf.q);
-
-			//Update w
-			update_inertia_w(leaf);
-			//Shift position values
-			leaf.last_x = leaf.x;
-			//Apply velocity
-			leaf.x += time_step * leaf.v;
+			float offset_length = length(leaf.position_offset);
+			leaf.position_strain = length(desired_position - leaf.x) / offset_length;
 		}
+
 		foliage[leaf_index] = leaf;
 	}
 }
