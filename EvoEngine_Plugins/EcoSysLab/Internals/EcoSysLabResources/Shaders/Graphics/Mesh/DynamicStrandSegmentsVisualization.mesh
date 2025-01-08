@@ -124,7 +124,7 @@ void main(){
 		color = mix(color0, color1, clamp(
 					abs(segment.shear_stretch_strain.y) / segment.shear_stretch_strain_limit.y, 0.0, 1.0));
 	}else if(color_mode == 6){
-		color = segments[segment.group_index].color;
+		color = segment.group_index == 0 ? vec4(0.6, 0.3, 0.0, 1.0) : segments[segment.group_index].color;
 	}
 	
 	float highlight1_ratio = 0.0f;

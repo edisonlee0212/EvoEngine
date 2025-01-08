@@ -92,7 +92,7 @@ class EcoSysLabLayer : public ILayer {
 
     float drag_multiplier = 1.f;
     enum class TransformMode { Disabled, Translate, Rotate };
-    unsigned transform_mode = static_cast<unsigned>(TransformMode::Translate);
+    unsigned transform_mode = static_cast<unsigned>(TransformMode::Disabled);
     enum class OperatorMode { Drag, Saw, LineCut };
     unsigned operator_mode = static_cast<unsigned>(OperatorMode::Drag);
     bool cut_bend_twist_bundle_only = false;

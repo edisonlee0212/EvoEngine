@@ -75,7 +75,7 @@ class DynamicStrands {
   struct InitializeParameters {
     float min_segment_length = 0.03f;
     float max_segment_length = 0.06f;
-    int uniform_subdivision = 1;
+    int uniform_subdivision = 5;
 
     float max_distance_to_boundary = 1.0f;
     PlottedDistribution<float> wood_density = {{600.0f, 700.0f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
