@@ -196,6 +196,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     first_uniform_particle.next_particle_handle = -1;
     first_uniform_particle.next_node_index = -1;
     first_uniform_particle.strand_index = strand_index;
+    first_uniform_particle.is_single_strand_particle = 1;
 
     // First 2 particles within same strand will always have same profile position/polar coordinate.
     first_uniform_particle.profile_position = first_uniform_segment_data.profile_position;
@@ -217,6 +218,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       uniform_particle.next_particle_handle = -1;  // will stay for the last particle of the strand
       uniform_particle.next_node_index = -1;       // will stay for the last particle of the strand
       uniform_particle.strand_index = strand_index;
+      uniform_particle.is_single_strand_particle = 1;
 
       uniform_particle.profile_position = uniform_segment_data.profile_position;
       uniform_particle.profile_polar_coordinate = uniform_segment_data.profile_polar_coordinate;

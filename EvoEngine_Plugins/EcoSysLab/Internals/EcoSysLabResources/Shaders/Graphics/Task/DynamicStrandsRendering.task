@@ -86,12 +86,17 @@ void main(){
 				delaunay_tetrahedrons[tetrahedron_index_global].color = vec4(0.0, 1.0, min_distance_squared, 1.0);
 				delaunay_tetrahedrons[tetrahedron_index_global].inside = 1;
 
+				// flag uniform particle as part of mesh, the remaining ones must be single particles
+				[[unroll]]
+				for (uint j = 0; j < 4; ++j)
+				{
+					uniform_particles[tet.indices[j]].is_single_strand_particle = 0;
+				}
+
 				// determine which triangles need to be rendered
 				[[unroll]]
-				for (uint i = 0; i < 4; ++i)
+				for (uint triangle_index = 0; triangle_index < 4; ++triangle_index)
 				{
-					uint triangle_index = i;
-
 					float min_distance_squared = 200000.0f;
 					// check if we are at the boundary of the alpha shape
 					if(render_complex == 0){

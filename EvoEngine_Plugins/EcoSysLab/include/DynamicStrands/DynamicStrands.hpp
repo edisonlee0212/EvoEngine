@@ -374,6 +374,11 @@ class DynamicStrands {
     int prev_particle_handle;
     int next_node_index;
     int strand_index;
+
+    int is_single_strand_particle;
+    int padding1;
+    int padding2;
+    int padding3;
   };
 
   struct GpuDelaunayTetrahedron {
