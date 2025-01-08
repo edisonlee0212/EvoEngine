@@ -693,8 +693,12 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     leaf.x0 = leaf.x = leaf.last_x = leaf_info.matrix.GetPosition();
     leaf.rotation_integrity = 1.f;
     leaf.scale = leaf_info.matrix.GetScale();
+    const float mass = 0.0001f;
+    leaf.inv_mass = leaf.original_inv_mass = 1.f / mass;  // 0.1g
 
-    leaf.inv_mass = leaf.original_inv_mass = 10000.f;  // 0.1g
+    leaf.inertia_tensor = ComputeInertiaTensorBox(1.f, leaf.scale.x, leaf.scale.y, leaf.scale.z);
+    leaf.inv_inertia_tensor = 1.f / leaf.inertia_tensor;
+
     leaf.position_alpha = glm::max(1e-6f, initialize_parameters.leaf_position_alpha.GetValue());
     leaf.rotation_alpha = glm::max(1e-6f, initialize_parameters.leaf_rotation_alpha.GetValue());
     leaf.position_strain_limit = glm::max(1e-6f, initialize_parameters.max_leaf_position_strain.GetValue());
@@ -709,7 +713,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     if (segments.empty())
       return;
 
-    //Feel free to modify the push constants.
+    // Feel free to modify the push constants.
     struct BarkFlagInitializationPushConstant {
       uint32_t delaunay_tetrahedron_size;
     };
@@ -733,10 +737,9 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     }
     const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
-    //Update push constant here. You should only access data within dynamic strands.
+    // Update push constant here. You should only access data within dynamic strands.
     BarkFlagInitializationPushConstant push_constant;
     push_constant.delaunay_tetrahedron_size = delaunay_tetrahedrons.size();
-
 
     const auto current_frame_index = Platform::GetCurrentFrameIndex();
     const auto group_size = Platform::DivUp(delaunay_tetrahedrons.size(), work_group_invocations);

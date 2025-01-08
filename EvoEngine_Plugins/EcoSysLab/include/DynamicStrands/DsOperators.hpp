@@ -36,6 +36,29 @@ class DsGravity final : public IDsPhysicsOperator {
   DsGravity();
 };
 
+class DsLeafDrop final : public IDsPhysicsOperator {
+ public:
+  struct LeafDropPushConstant {
+    uint32_t leaf_size = 0;
+    float ground_height = 0.0f;
+    float rotation_correction_strength;
+    float air_resistance_strength;
+
+    glm::vec3 disturbance_frequency;
+    float disturbance_strength;
+  };
+  float ground_height = 0.03f;
+  float rotation_correction_strength = 1.f;
+  float air_resistance_strength = 0.8f;
+  glm::vec3 disturbance_frequency = glm::vec3(0.1f);
+  float disturbance_strength = 0.2f;
+  inline static std::shared_ptr<ComputePipeline> pipeline{};
+  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  DsLeafDrop();
+};
+
 class DsAttraction final : public IDsPhysicsOperator {
  public:
   glm::vec3 target_position;

@@ -8,7 +8,6 @@
 using namespace eco_sys_lab_plugin;
 
 bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-
   bool changed = false;
   if (ImGui::Checkbox("Enabled", &render_alpha_shape_mesh))
     changed = true;
@@ -20,7 +19,7 @@ bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLay
     changed = true;
   if (ImGui::DragFloat("bifurcation alpha", &bifurcation_alpha, 0.01f, 0.0f, 1.0f, "%.6f"))
     changed = true;
-  if(ImGui::DragFloat("max dist squared", &max_dist_squared, 0.01, 0.0f, 1.0f, "%.6f"))
+  if (ImGui::DragFloat("max dist squared", &max_dist_squared, 0.01, 0.0f, 1.0f, "%.6f"))
     changed = true;
 
   ImGui::Text("Use normal attribute for debugging");
@@ -55,7 +54,7 @@ struct RenderPushConstant {
   float v_multiplier = 1.f;
 
   uint32_t tetrahedrons_size = 0;
-  float alpha = 0.0f; 
+  float alpha = 0.0f;
   float bifurcation_alpha = 0.0f;
   float max_dist_squared = 0.0f;
   int render_complex = 0;

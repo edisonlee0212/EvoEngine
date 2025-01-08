@@ -141,7 +141,7 @@ vec4 angle_axis(in float angle, in vec3 axis) {
   return vec4(axis.xyz * s, cos(angle * .5f));
 }
 
-//From https://www.adriancourreges.com/blog/2018/12/02/ue4-optimized-post-effects/#screen-space-ambient-occlusion
+// From https://www.adriancourreges.com/blog/2018/12/02/ue4-optimized-post-effects/#screen-space-ambient-occlusion
 
 #define PI_OVER_2 1.5707963f
 #define PI_OVER_4 0.785398f

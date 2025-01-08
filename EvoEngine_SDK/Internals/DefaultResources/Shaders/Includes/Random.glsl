@@ -1,4 +1,5 @@
-//Adopted from https://github.com/Zielon/PBRVulkan/blob/master/PBRVulkan/RayTracer/src/Assets/Shaders/Common/Random.glsl
+// Adopted from
+// https://github.com/Zielon/PBRVulkan/blob/master/PBRVulkan/RayTracer/src/Assets/Shaders/Common/Random.glsl
 
 #extension GL_EXT_control_flow_attributes : require
 
