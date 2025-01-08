@@ -109,6 +109,11 @@ class DynamicStrands {
     PlottedDistribution<float> max_twist_strain = {{0.15f, 0.15f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
+    SingleDistribution<float> leaf_position_alpha = {0.01f, 0.1f};
+    SingleDistribution<float> leaf_rotation_alpha = {0.01f, 0.1f};
+    SingleDistribution<float> max_leaf_position_strain = {0.02f, 0.05f};
+    SingleDistribution<float> max_leaf_rotation_strain = {0.02f, 0.05f};
+
     GlobalTransform root_transform{};
     bool use_cgal = false;
     bool triangulate_per_bundle = false;
@@ -126,13 +131,18 @@ class DynamicStrands {
     int sub_step = 10;
 
     int constraint_iteration = 5;
-    bool enable_disconnection = false;
-    bool enable_breaking = false;
-    int breaking_detection_frame = 1;
-    int disconnection_detection_frame = 1;
+    bool enable_segment_disconnection = false;
+    bool enable_segment_breaking = false;
+    bool enable_foliage_detachment = true;
+    int segment_breaking_detection_frame = 1;
+    int segment_disconnection_detection_frame = 1;
+    int foliage_detachment_detection_frame = 1;
 
-    float velocity_damping = 0.005f;
-    float angular_velocity_damping = 0.0005f;
+    float segment_velocity_damping = 0.005f;
+    float segment_angular_velocity_damping = 0.0005f;
+
+    float leaf_velocity_damping = 0.005f;
+    float leaf_angular_velocity_damping = 0.0005f;
 
     bool enable_segment_collision = false;
     bool enable_grouping = true;
@@ -188,9 +198,9 @@ class DynamicStrands {
     bool render_complex = false;
     bool use_cgal = false;
     bool wireframe = false;
-    float alpha = 1.0f / 10000.0f;
-    float bifurcation_alpha = 1.0f / 10000.0f;
-    float max_dist_squared = 1.0f / 10000.0f;
+    float alpha = 1.0f;
+    float bifurcation_alpha = 1.0f;
+    float max_dist_squared = 1.0f;
     enum VertexColors { Default, Normals, Tangents, Groups, TexCoords };
     VertexColors vertex_colors = Default;
 
@@ -393,24 +403,24 @@ class DynamicStrands {
     float inv_mass;
 
     glm::vec3 position_offset;
-    float padding;
+    float original_inv_mass;
 
     glm::vec3 v;
-    float padding1;
+    float position_strain;
 
     glm::vec3 acceleration;
-    float padding2;
+    float rotation_strain;
 
     glm::vec3 angular_v;
-    float padding3;
+    float position_alpha;
 
     glm::vec3 torque;
-    float padding4;
+    float rotation_alpha;
 
     glm::vec3 inertia_tensor;
-    float padding5;
+    float rotation_strain_limit;
     glm::vec3 inv_inertia_tensor;
-    float padding6;
+    float position_strain_limit;
 
     glm::mat4 inertia_w;
     glm::mat4 inv_inertia_w;

@@ -12,8 +12,13 @@ class DsPreStep {
     float time_step = 0.01f;
     float inv_time_step = 100.f;
   };
-
+  struct LeafPreStepPushConstant {
+    uint32_t leaf_size = 0;
+    float time_step = 0.01f;
+    float inv_time_step = 100.f;
+  };
   inline static std::shared_ptr<ComputePipeline> segment_pre_step_pipeline;
+  inline static std::shared_ptr<ComputePipeline> leaf_pre_step_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };
@@ -57,10 +62,6 @@ class DsBreaking {
 
   struct LeafBreakingPushConstant {
     uint32_t leaf_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-    float angular_velocity_damping;
-    float velocity_damping;
   };
 
   inline static std::shared_ptr<ComputePipeline> segment_pair_breaking_pipeline;
@@ -76,10 +77,15 @@ class DsVelocityUpdate {
     float time_step = 0.01f;
     float inv_time_step = 100.f;
   };
-
+  struct LeafPushConstant {
+    uint32_t leaf_size = 0;
+    float time_step = 0.01f;
+    float inv_time_step = 100.f;
+  };
   DsVelocityUpdate();
 
   inline static std::shared_ptr<ComputePipeline> segment_pipeline;
+  inline static std::shared_ptr<ComputePipeline> leaf_pipeline;
 
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);

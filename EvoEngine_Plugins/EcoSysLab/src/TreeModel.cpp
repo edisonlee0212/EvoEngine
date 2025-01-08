@@ -856,7 +856,7 @@ void TreeModel::CalculateLevel() {
       SkeletonNodeHandle max_child = -1;
       for (const auto& child_handle : node.PeekChildHandles()) {
         auto& child_node = shoot_skeleton_.PeekNode(child_handle);
-        if (const auto child_score = child_node.data.descendant_total_light_intake + child_node.data.light_intake;
+        if (const auto child_score = child_node.data.descendant_total_biomass + child_node.data.biomass;
             child_score > max_score) {
           max_score = child_score;
           max_child = child_handle;

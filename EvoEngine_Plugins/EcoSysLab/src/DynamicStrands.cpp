@@ -24,7 +24,8 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
     if (prediction)
       prediction->Execute(physics_parameters, *this);
     if (sub_step_index == 0) {
-      if (physics_parameters.enable_breaking || physics_parameters.enable_disconnection) {
+      if (physics_parameters.enable_segment_breaking || physics_parameters.enable_segment_disconnection ||
+          physics_parameters.enable_foliage_detachment) {
         breaking->Execute(physics_parameters, *this);
       }
     }
@@ -196,6 +197,18 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     if (max_twist_strain.OnInspect("Max twist strain", max_twist_strain_settings))
       changed = true;
 
+    if (leaf_position_alpha.OnInspect("Leaf position alpha"))
+      changed = true;
+
+    if (leaf_rotation_alpha.OnInspect("Leaf rotation alpha"))
+      changed = true;
+
+    if (max_leaf_position_strain.OnInspect("Max leaf position strain"))
+      changed = true;
+
+    if (max_leaf_rotation_strain.OnInspect("Max leaf rotation strain"))
+      changed = true;
+
     ImGui::TreePop();
   }
 
@@ -219,20 +232,29 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::DragInt("Sub step", &sub_step, 1, 1, 100)) {
     changed = true;
   }
-  if (ImGui::Checkbox("Breaking", &enable_breaking)) {
+  if (ImGui::Checkbox("Segment breaking", &enable_segment_breaking)) {
     changed = true;
   }
-  if (enable_breaking) {
-    if (ImGui::DragInt("Breaking detection frame", &breaking_detection_frame, 1, 1, 500))
+  if (enable_segment_breaking) {
+    if (ImGui::DragInt("Segment breaking detection frame", &segment_breaking_detection_frame, 1, 1, 500))
       changed = true;
   }
-  if (ImGui::Checkbox("Disconnection", &enable_disconnection)) {
+  if (ImGui::Checkbox("Segment disconnection", &enable_segment_disconnection)) {
     changed = true;
   }
-  if (enable_disconnection) {
-    if (ImGui::DragInt("Disconnection detection frame", &disconnection_detection_frame, 1, 1, 500))
+  if (enable_segment_disconnection) {
+    if (ImGui::DragInt("Segment disconnection detection frame", &segment_disconnection_detection_frame, 1, 1, 500))
       changed = true;
   }
+
+  if (ImGui::Checkbox("Foliage detachment", &enable_foliage_detachment)) {
+    changed = true;
+  }
+  if (enable_foliage_detachment) {
+    if (ImGui::DragInt("Foliage detachment detection frame", &foliage_detachment_detection_frame, 1, 1, 500))
+      changed = true;
+  }
+
   if (ImGui::Checkbox("Grouping", &enable_grouping)) {
     changed = true;
   }
@@ -241,11 +263,15 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   }
   if (ImGui::DragInt("Constraint Iteration", &constraint_iteration, 1, 1, 500))
     changed = true;
-  if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
+  if (ImGui::DragFloat("Segment Velocity damping", &segment_velocity_damping, 0.01f, 0.01f, 1.0f))
     changed = true;
-  if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
+  if (ImGui::DragFloat("Segment Angular velocity damping", &segment_angular_velocity_damping, 0.00001f, 0.0f, 1.0f,
+                       "%.5f"))
     changed = true;
-
+  if (ImGui::DragFloat("Leaf Velocity damping", &leaf_velocity_damping, 0.01f, 0.01f, 1.0f))
+    changed = true;
+  if (ImGui::DragFloat("Leaf Angular velocity damping", &leaf_angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
+    changed = true;
   return changed;
 }
 void DynamicStrands::UpdateBindings() const {

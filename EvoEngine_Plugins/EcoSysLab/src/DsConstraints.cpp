@@ -26,7 +26,7 @@ DsPivotPoint::DsPivotPoint() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/PivotPoint.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Constraints/PivotPoint.comp");
 
     segment_update_pipeline = std::make_shared<ComputePipeline>();
     segment_update_pipeline->compute_shader = shader;
@@ -116,7 +116,7 @@ DsPivotAxis::DsPivotAxis() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/PivotAxis.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Constraints/PivotAxis.comp");
 
     segment_update_pipeline = std::make_shared<ComputePipeline>();
     segment_update_pipeline->compute_shader = shader;
@@ -217,9 +217,9 @@ DsPivotTransform::DsPivotTransform() {
   if (!segment_update_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/PivotTransform.comp");
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/PivotTransform.comp");
 
     segment_update_pipeline = std::make_shared<ComputePipeline>();
     segment_update_pipeline->compute_shader = shader;
@@ -305,22 +305,39 @@ void DsPivotTransform::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
 
 void DsGroundPlane::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                               const DynamicStrands& target_dynamic_strands) {
-  GroundPlanePushConstant push_constant;
-  push_constant.ground_height = ground_height;
-  push_constant.segment_size = target_dynamic_strands.segments.size();
-  push_constant.ground_softness = ground_softness;
-  push_constant.ground_friction = ground_friction;
+  SegmentGroundPlanePushConstant segment_push_constant;
+  segment_push_constant.ground_height = ground_height;
+  segment_push_constant.segment_size = target_dynamic_strands.segments.size();
+  segment_push_constant.ground_softness = ground_softness;
+  segment_push_constant.ground_friction = ground_friction;
+
+  LeafGroundPlanePushConstant leaf_push_constant;
+  leaf_push_constant.ground_height = ground_height;
+  leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  leaf_push_constant.ground_softness = ground_softness;
+  leaf_push_constant.ground_friction = ground_friction;
+
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    pipeline->Bind(vk_command_buffer);
-    pipeline->BindDescriptorSet(
+    segment_pipeline->Bind(vk_command_buffer);
+    segment_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
-    pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    segment_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.segment_size, work_group_invocations), 1, 1);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    leaf_pipeline->Bind(vk_command_buffer);
+    leaf_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    leaf_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -342,22 +359,40 @@ bool DsGroundPlane::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) 
 }
 
 DsGroundPlane::DsGroundPlane() {
-  if (!pipeline) {
+  if (!segment_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/GroundPlane.comp");
-    pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader = shader;
-    pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/SegmentGroundPlane.comp");
+    segment_pipeline = std::make_shared<ComputePipeline>();
+    segment_pipeline->compute_shader = shader;
+    segment_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
-    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GroundPlanePushConstant);
+    auto& push_constant_range = segment_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentGroundPlanePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    pipeline->Initialize();
+    segment_pipeline->Initialize();
+  }
+
+  if (!leaf_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/LeafGroundPlane.comp");
+    leaf_pipeline = std::make_shared<ComputePipeline>();
+    leaf_pipeline->compute_shader = shader;
+    leaf_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafGroundPlanePushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_pipeline->Initialize();
   }
 }
 
@@ -930,4 +965,38 @@ bool DsBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::TreePop();
   }
   return changed;
+}
+
+DsLeafAttachment::DsLeafAttachment() {
+  static std::shared_ptr<Shader> shader{};
+  shader = std::make_shared<Shader>();
+  shader->TryCompile(
+      ShaderType::Compute, Platform::Constants::shader_global_defines,
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Constraints/LeafAttachment.comp");
+
+  pipeline = std::make_shared<ComputePipeline>();
+  pipeline->compute_shader = shader;
+  pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  auto& stretch_shear_push_constant_range = pipeline->push_constant_ranges.emplace_back();
+  stretch_shear_push_constant_range.size = sizeof(LeafPredictionPushConstant);
+  stretch_shear_push_constant_range.offset = 0;
+  stretch_shear_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  pipeline->Initialize();
+}
+
+void DsLeafAttachment::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                                 const DynamicStrands& target_dynamic_strands) {
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  LeafPredictionPushConstant push_constant;
+  push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    pipeline->Bind(vk_command_buffer);
+    pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.leaf_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
 }

@@ -4,6 +4,16 @@
 
 using namespace evo_engine;
 
+void EnvironmentalMap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint32_t resolution) {
+  const auto cubemap = ProjectManager::CreateTemporaryAsset<Cubemap>();
+  cubemap->BuildSkyIllumination(sky_illumination, resolution);
+
+  light_probe = ProjectManager::CreateTemporaryAsset<LightProbe>();
+  light_probe.Get<LightProbe>()->ConstructFromCubemap(cubemap);
+  reflection_probe = ProjectManager::CreateTemporaryAsset<ReflectionProbe>();
+  reflection_probe.Get<ReflectionProbe>()->ConstructFromCubemap(cubemap);
+}
+
 void EnvironmentalMap::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cubemap) {
   light_probe = ProjectManager::CreateTemporaryAsset<LightProbe>();
   light_probe.Get<LightProbe>()->ConstructFromCubemap(target_cubemap);
@@ -27,12 +37,24 @@ bool EnvironmentalMap::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
   bool changed = false;
   static AssetRef target_texture;
 
-  if (editor_layer->DragAndDropButton<Cubemap>(target_texture, "Convert from cubemap")) {
+  if (editor_layer->DragAndDropButton<Cubemap>(target_texture, "Convert from Skybox")) {
     if (const auto tex = target_texture.Get<Cubemap>()) {
       ConstructFromCubemap(tex);
       changed = true;
     }
     target_texture.Clear();
+  }
+
+  if (ImGui::TreeNode("Sky illumination")) {
+    static bool auto_rebuild = true;
+    ImGui::Checkbox("Auto refresh", &auto_rebuild);
+    static SkyIllumination sky_illumination{};
+    const bool rebuild = sky_illumination.OnInspect(editor_layer);
+    if (ImGui::Button("Build") || (auto_rebuild && rebuild)) {
+      BuildSkyIllumination(sky_illumination);
+      changed = true;
+    }
+    ImGui::TreePop();
   }
 
   if (editor_layer->DragAndDropButton<LightProbe>(light_probe, "LightProbe"))

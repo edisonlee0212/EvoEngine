@@ -6,7 +6,8 @@
 #extension GL_EXT_control_flow_attributes : require
 
 #define DYNAMIC_STRANDS_SET 0
-#include "DynamicStrandsPhysics.glsl"
+#include "DynamicStrands.glsl"
+#include "Math.glsl"
 
 const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
@@ -23,6 +24,9 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint leaf_size;
+	float ground_height;
+	float ground_softness;
+	float ground_friction;
 };
 
 void main(){
@@ -33,12 +37,9 @@ void main(){
 		uint leaf_index = baseID + local_index;
 
 		if(leaf_index >= leaf_size) break;
-
 		Leaf leaf = foliage[leaf_index];
+		if(leaf.inv_mass == 0.0f) return;
 
-		if(leaf.position_strain > leaf.position_strain_limit){
-			leaf.attachment_integrity = 0.0f;
-			foliage[leaf_index] = leaf;
-		}
+		foliage[leaf_index].x.y += (1.f + ground_softness) * max(0.0f, ground_height - leaf.x.y);
 	}
 }

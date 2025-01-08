@@ -15,6 +15,7 @@ class EnvironmentalMap final : public IAsset {
  public:
   AssetRef light_probe;
   AssetRef reflection_probe;
+  void BuildSkyIllumination(const SkyIllumination& sky_illumination, uint32_t resolution = 1024);
   void ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cubemap);
   void ConstructFromTexture2D(const std::shared_ptr<Texture2D>& target_texture_2d);
   void ConstructFromRenderTexture(const std::shared_ptr<RenderTexture>& target_render_texture);

@@ -16,11 +16,11 @@ bool DynamicStrands::RenderParameters::OnInspect(const std::shared_ptr<EditorLay
     changed = true;
   if (ImGui::Checkbox("Wireframe", &wireframe))
     changed = true;
-  if (ImGui::DragFloat("alpha", &alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
+  if (ImGui::DragFloat("alpha", &alpha, 0.01f, 0.0f, 1.0f, "%.6f"))
     changed = true;
-  if (ImGui::DragFloat("bifurcation alpha", &bifurcation_alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
+  if (ImGui::DragFloat("bifurcation alpha", &bifurcation_alpha, 0.01f, 0.0f, 1.0f, "%.6f"))
     changed = true;
-  if(ImGui::DragFloat("max dist squared", &max_dist_squared, 0.000001, 0.0f, 1.0f, "%.6f"))
+  if(ImGui::DragFloat("max dist squared", &max_dist_squared, 0.01, 0.0f, 1.0f, "%.6f"))
     changed = true;
 
   ImGui::Text("Use normal attribute for debugging");

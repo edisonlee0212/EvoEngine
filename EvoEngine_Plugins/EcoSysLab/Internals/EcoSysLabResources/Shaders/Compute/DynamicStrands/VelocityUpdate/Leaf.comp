@@ -23,6 +23,8 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint leaf_size;
+	float time_step;
+	float inv_time_step;
 };
 
 void main(){
@@ -36,9 +38,16 @@ void main(){
 
 		Leaf leaf = foliage[leaf_index];
 
-		if(leaf.position_strain > leaf.position_strain_limit){
-			leaf.attachment_integrity = 0.0f;
-			foliage[leaf_index] = leaf;
+		//Calculate angular velocity and apply torque.
+		vec3 angular_velocity = vec3(0, 0, 0);
+		vec3 velocity = vec3(0.0f, 0.0f, 0.0f);
+		if(leaf.inv_mass != 0.0f){
+			vec4 rot = quat_mul(leaf.q, conjugate(leaf.last_q));
+			angular_velocity = rot.xyz * 2.0f * inv_time_step;
+			velocity = inv_time_step * (leaf.x - leaf.last_x);
 		}
+
+		foliage[leaf_index].angular_v = angular_velocity;
+		foliage[leaf_index].v = velocity;
 	}
 }

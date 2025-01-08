@@ -688,6 +688,13 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     leaf.x0 = leaf.x = leaf.last_x = leaf_info.matrix.GetPosition();
     leaf.rotation_integrity = 1.f;
     leaf.scale = leaf_info.matrix.GetScale();
+
+    leaf.inv_mass = leaf.original_inv_mass = 10000.f;  // 0.1g
+    leaf.position_alpha = glm::max(1e-6f, initialize_parameters.leaf_position_alpha.GetValue());
+    leaf.rotation_alpha = glm::max(1e-6f, initialize_parameters.leaf_rotation_alpha.GetValue());
+    leaf.position_strain_limit = glm::max(1e-6f, initialize_parameters.max_leaf_position_strain.GetValue());
+    leaf.rotation_strain_limit = glm::max(1e-6f, initialize_parameters.max_leaf_rotation_strain.GetValue());
+
     const auto& segment = segments[target_segment_handle];
     leaf.position_offset = glm::vec4(glm::inverse(segment.q0) * (leaf.x0 - segment.GetCenterX0()), 0.0f);
   });

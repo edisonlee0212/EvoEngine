@@ -138,17 +138,23 @@ class DsPivotTransform final : public IDsConstraint {
 
 class DsGroundPlane final : public IDsConstraint {
  public:
-  struct GroundPlanePushConstant {
+  struct SegmentGroundPlanePushConstant {
     uint32_t segment_size;
     float ground_height;
     float ground_softness;
     float ground_friction;
   };
-
+  struct LeafGroundPlanePushConstant {
+    uint32_t leaf_size;
+    float ground_height;
+    float ground_softness;
+    float ground_friction;
+  };
   float ground_height = -0.075f;
   float ground_softness = 0.95f;
   float ground_friction = 0.5f;
-  inline static std::shared_ptr<ComputePipeline> pipeline{};
+  inline static std::shared_ptr<ComputePipeline> segment_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> leaf_pipeline{};
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
@@ -235,6 +241,17 @@ class DsBundle : public IDsConstraint {
                                  const DynamicStrands& target_dynamic_strands) override;
 
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+};
+
+class DsLeafAttachment : public IDsConstraint {
+ public:
+  struct LeafPredictionPushConstant {
+    uint32_t leaf_size = 0;
+  };
+  inline static std::shared_ptr<ComputePipeline> pipeline{};
+  DsLeafAttachment();
+  void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                 const DynamicStrands& target_dynamic_strands) override;
 };
 #pragma endregion
 }  // namespace eco_sys_lab_plugin

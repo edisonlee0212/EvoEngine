@@ -116,7 +116,7 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
     prefilter_construct = std::make_shared<GraphicsPipeline>();
     prefilter_construct->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                "Shaders/Graphics/Vertex/Lighting/EquirectangularMapToCubemap.vert");
+                                "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
     prefilter_construct->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
                                   "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.frag");

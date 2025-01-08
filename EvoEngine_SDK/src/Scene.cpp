@@ -672,7 +672,7 @@ std::shared_ptr<LightProbe> Environment::GetLightProbe(const glm::vec3& position
 
 std::shared_ptr<ReflectionProbe> Environment::GetReflectionProbe(const glm::vec3& position) {
   if (const auto em = environmental_map.Get<EnvironmentalMap>()) {
-    if (auto reflection_probe = em->light_probe.Get<ReflectionProbe>())
+    if (auto reflection_probe = em->reflection_probe.Get<ReflectionProbe>())
       return reflection_probe;
   }
   return nullptr;
