@@ -142,7 +142,7 @@ class DynamicStrands {
     float segment_angular_velocity_damping = 0.0005f;
 
     float leaf_velocity_damping = 0.005f;
-    float leaf_angular_velocity_damping = 0.0005f;
+    float leaf_angular_velocity_damping = 0.0001f;
 
     bool enable_segment_collision = false;
     bool enable_grouping = true;

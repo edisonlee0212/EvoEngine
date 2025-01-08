@@ -1393,7 +1393,6 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
 bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>& target_scene, const Entity& entity,
                                                    const Handle& renderer_handle,
                                                    const std::shared_ptr<Material>& material) {
-  assert(Application::GetApplicationExecutionStatus() != ApplicationExecutionStatus::LateUpdate);
   if (!material)
     return false;
   const auto gt = target_scene->GetDataComponent<GlobalTransform>(entity);

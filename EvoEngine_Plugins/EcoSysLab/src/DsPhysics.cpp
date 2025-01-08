@@ -152,8 +152,8 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
   leaf_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   leaf_push_constant.inv_time_step = 1.f / leaf_push_constant.time_step;
-  leaf_push_constant.angular_velocity_damping = physics_parameters.segment_angular_velocity_damping;
-  leaf_push_constant.velocity_damping = physics_parameters.segment_velocity_damping;
+  leaf_push_constant.angular_velocity_damping = physics_parameters.leaf_angular_velocity_damping;
+  leaf_push_constant.velocity_damping = physics_parameters.leaf_velocity_damping;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_prediction_pipeline->Bind(vk_command_buffer);

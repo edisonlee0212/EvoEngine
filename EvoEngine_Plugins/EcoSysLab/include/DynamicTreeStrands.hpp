@@ -46,6 +46,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   std::shared_ptr<DsSaw> saw_operator;
   std::shared_ptr<DsDrag> drag_operator;
   std::shared_ptr<DsGravity> gravity;
+  std::shared_ptr<DsLeafDrop> leaf_drop;
   void UpdateDynamicStrands();
   void CreateStaticRoot();
   void Serialize(YAML::Emitter& out) const override;
