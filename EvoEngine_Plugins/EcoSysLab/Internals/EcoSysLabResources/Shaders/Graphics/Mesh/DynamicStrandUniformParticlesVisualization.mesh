@@ -91,14 +91,17 @@ void main(){
 	Segment segment = segments[uniform_particle.segment_handle];
 	vec3 center_position = uniform_particle.position_t.xyz;
 	float center_thickness = segment.radius * 3.0;
-	vec3 uniform_particle_size = vec3(segment.radius * multiplier, center_thickness, center_thickness);
+	vec3 uniform_particle_size = vec3(center_thickness * multiplier, center_thickness * multiplier, segment.radius);
 	vec4 color = color0;
 	
 	if(color_mode == 1){
 		color = segment.color;
 	}
 	
-	mat4 instance_matrix = translate(center_position) * scale(uniform_particle_size);
+	vec3 front = normalize(rotate_vec3(segment.q, vec3(0, 0, -1)));
+	vec4 rotation = quatLookAt(front, vec3(front.y, front.z, front.x));
+
+	mat4 instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(uniform_particle_size);
 	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 	
 	Particle particle0 = segment.particle0;
