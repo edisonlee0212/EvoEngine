@@ -312,7 +312,7 @@ void DsGroundPlane::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
   segment_push_constant.ground_friction = ground_friction;
 
   LeafGroundPlanePushConstant leaf_push_constant;
-  leaf_push_constant.ground_height = ground_height;
+  leaf_push_constant.ground_height = ground_height + 0.03f;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
   leaf_push_constant.ground_softness = ground_softness;
   leaf_push_constant.ground_friction = ground_friction;
