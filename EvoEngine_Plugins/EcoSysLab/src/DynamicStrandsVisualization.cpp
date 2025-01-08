@@ -26,7 +26,7 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
         break;
       }
       case 2: {
-        if (ImGui::ColorEdit4("Segment min color", &segment_color_min.x))
+        if (ImGui::ColorEdit4("Segment min color", &segment_color_min.x)) 
           changed = true;
         if (ImGui::ColorEdit4("Segment max color", &segment_color_max.x))
           changed = true;
@@ -50,7 +50,7 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       }
       case 6: {
         if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
-          changed = true;
+          changed = true; 
         break;
       }
     }
@@ -86,8 +86,8 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (ImGui::Checkbox("Uniform Particle", &render_uniform_particles))
     changed = true;
   if (render_uniform_particles) {
-    if (ImGui::Combo("Uniform particle mode", {"Default", "Segment color"}, uniform_particle_render_mode))
-      changed = true;
+    if (ImGui::Combo("Uniform particle mode", {"Default", "Segment color", "Single Particles"}, uniform_particle_render_mode)) 
+      changed = true; 
     switch (uniform_particle_render_mode) {
       case 0: {
         if (ImGui::ColorEdit4("Uniform particle color", &uniform_particle_main.x))
