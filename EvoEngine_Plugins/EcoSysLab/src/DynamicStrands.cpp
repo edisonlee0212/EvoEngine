@@ -83,6 +83,7 @@ struct TetrahedronFilteringPushConstant {
   float bifurcation_alpha = 0.0f;
   float max_dist_squared = 0.0f;
   int render_complex = 0;
+  float degen_triangle_threshold = 0.0f; 
 };
 
 DynamicStrands::DynamicStrands() {
@@ -145,11 +146,12 @@ DynamicStrands::DynamicStrands() {
 
   BuildRenderComputePipelines();
   BuildBranchesRenderingPipelines();
-  BuildSmallSegmentsRenderingPipelines();
-  BuildFoliageRenderingPipelines();
+  BuildSmallSegmentsRenderingPipelines(); 
+  BuildFoliageRenderingPipelines(); 
 }
 
 void DynamicStrands::BuildRenderComputePipelines() {
+  // Tetrahedrons
   branches_tetrahedron_filtering_pipeline = std::make_shared<ComputePipeline>();
   branches_tetrahedron_filtering_pipeline->compute_shader =
       Shader::CreateTemporary(ShaderType::Compute, Platform::Constants::shader_global_defines,
@@ -157,12 +159,28 @@ void DynamicStrands::BuildRenderComputePipelines() {
                                   "Shaders/Compute/DynamicStrands/Rendering/TetrahedronFiltering.comp");
   branches_tetrahedron_filtering_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
 
-  auto& filtering_push_constant_range = branches_tetrahedron_filtering_pipeline->push_constant_ranges.emplace_back();
-  filtering_push_constant_range.size = sizeof(TetrahedronFilteringPushConstant);
-  filtering_push_constant_range.offset = 0;
-  filtering_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  auto& tetrahedron_filtering_push_constant_range = branches_tetrahedron_filtering_pipeline->push_constant_ranges.emplace_back();
+  tetrahedron_filtering_push_constant_range.size = sizeof(TetrahedronFilteringPushConstant);
+  tetrahedron_filtering_push_constant_range.offset = 0;
+  tetrahedron_filtering_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
   branches_tetrahedron_filtering_pipeline->Initialize();
+
+  // Triangles
+  branches_triangle_filtering_pipeline = std::make_shared<ComputePipeline>();
+  branches_triangle_filtering_pipeline->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                              std::filesystem::path("./EcoSysLabResources") /
+                                  "Shaders/Compute/DynamicStrands/Rendering/TriangleFiltering.comp");
+  branches_triangle_filtering_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+
+  auto& triangle_filtering_push_constant_range =
+      branches_triangle_filtering_pipeline->push_constant_ranges.emplace_back();
+  triangle_filtering_push_constant_range.size = sizeof(TetrahedronFilteringPushConstant);
+  triangle_filtering_push_constant_range.offset = 0;
+  triangle_filtering_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+  branches_triangle_filtering_pipeline->Initialize();
 }
 
 void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_render_parameters,
@@ -172,6 +190,8 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
     return;
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
+
+  // Tetrahedrons
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     TetrahedronFilteringPushConstant filtering_push_constant;
     filtering_push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
@@ -179,12 +199,33 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
     filtering_push_constant.bifurcation_alpha = branches_render_parameters.bifurcation_alpha;
     filtering_push_constant.max_dist_squared = branches_render_parameters.max_dist_squared;
     filtering_push_constant.render_complex = branches_render_parameters.render_complex ? 1 : 0;
+    filtering_push_constant.degen_triangle_threshold =
+        pow(10.0f, -branches_render_parameters.degen_triangle_threshold_logairthmic);
     branches_tetrahedron_filtering_pipeline->Bind(vk_command_buffer);
     branches_tetrahedron_filtering_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_tetrahedron_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations),
                   1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+
+  // Triangles
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    TetrahedronFilteringPushConstant filtering_push_constant;
+    filtering_push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
+    filtering_push_constant.alpha = branches_render_parameters.alpha; 
+    filtering_push_constant.bifurcation_alpha = branches_render_parameters.bifurcation_alpha;
+    filtering_push_constant.max_dist_squared = branches_render_parameters.max_dist_squared;
+    filtering_push_constant.render_complex = branches_render_parameters.render_complex ? 1 : 0;
+    filtering_push_constant.degen_triangle_threshold =
+        pow(10.0f, -branches_render_parameters.degen_triangle_threshold_logairthmic);
+    branches_triangle_filtering_pipeline->Bind(vk_command_buffer);
+    branches_triangle_filtering_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    branches_triangle_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations),
+                  1, 1); 
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }

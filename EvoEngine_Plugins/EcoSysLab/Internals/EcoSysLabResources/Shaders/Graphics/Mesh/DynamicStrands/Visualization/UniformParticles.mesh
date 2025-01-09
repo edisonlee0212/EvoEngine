@@ -103,8 +103,6 @@ void main(){
 			color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
 		}
 	}
-
-	uniform_particles[uniform_particle_id].is_single_strand_particle = 1; // reset
 	
 	vec3 front = normalize(rotate_vec3(segment.q, vec3(0, 0, -1)));
 	vec4 rotation = quatLookAt(front, vec3(front.y, front.z, front.x));

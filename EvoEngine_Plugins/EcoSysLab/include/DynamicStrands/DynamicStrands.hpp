@@ -197,14 +197,15 @@ class DynamicStrands {
     bool render_complex = false;
     bool use_cgal = false;
     bool wireframe = false;
-    float alpha = 1.0f;
-    float bifurcation_alpha = 1.0f;
+    float alpha = 0.00005f;
+    float bifurcation_alpha = 0.00005f;
     float max_dist_squared = 1.0f;
-    enum VertexColors { Default, Normals, Tangents, Groups, TexCoords };
+    enum VertexColors { Default, Normals, Tangents, Groups, Degree };
     VertexColors vertex_colors = Default;
 
     float u_multiplier = 2;
     float v_multiplier = 0.25;
+    float degen_triangle_threshold_logairthmic = 5.0f;
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -542,6 +543,7 @@ class DynamicStrands {
   static void BuildSmallSegmentsRenderingPipelines();
 
   inline static std::shared_ptr<ComputePipeline> branches_tetrahedron_filtering_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> branches_triangle_filtering_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> branches_point_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> branches_spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> branches_directional_light_render_pipeline{};

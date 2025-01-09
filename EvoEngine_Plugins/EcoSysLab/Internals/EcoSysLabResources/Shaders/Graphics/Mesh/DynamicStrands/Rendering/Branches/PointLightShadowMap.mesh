@@ -46,9 +46,7 @@ taskPayloadSharedEXT Task ts_in;
 uint tet_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
 uint laneID = gl_LocalInvocationID.x;
 
-
-#include "AlphaShape.glsl"
-
+#include "DynamicStrandsRenderingConstants.glsl"
 void main(){
 
 	// report amount of accepted triangles

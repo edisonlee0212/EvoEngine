@@ -15,7 +15,7 @@ const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 layout(local_size_x = WORKGROUP_SIZE) in;
 layout(triangles) out;
 
-#define TETRAHEDRON_VERTICES_SIZE 4
+#define TETRAHEDRON_VERTICES_SIZE 12 // individual vertices for each triangle
 #define TETRAHEDRON_TRIANGLE_SIZE 4
 
 layout(max_vertices = TETRAHEDRON_VERTICES_SIZE, max_primitives = TETRAHEDRON_TRIANGLE_SIZE) out;
@@ -37,12 +37,12 @@ struct Task{
 };
 
 // order them such that the triangle index corresponds to the vertex index on the opposing side
-uvec3 triangles[] = {
+/*uvec3 triangles[] = {
 	uvec3(2, 1, 3),
 	uvec3(0, 2, 3),
 	uvec3(1, 0, 3),
 	uvec3(0, 1, 2),
-};
+};*/
 
 #define BARRIER() \
 	memoryBarrierShared(); \
@@ -54,6 +54,7 @@ taskPayloadSharedEXT Task ts_in;
 uint tet_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
 uint laneID = gl_LocalInvocationID.x;
 
+#include "DynamicStrandsRenderingConstants.glsl"
 #include "AlphaShape.glsl"
 
 vec3 PseudoRandomColor(int seed) {
@@ -75,43 +76,39 @@ vec3 PseudoRandomColor(int seed) {
     return vec3(r, g, b);
 }
 
+void SetUpTriangleVertex(uint vertex_index, vec3 vertex_normal, uint particle_index){
+	UniformParticle uniform_particle = uniform_particles[particle_index];
+	vec3 vertex_position = uniform_particle.position_t.xyz;
+	mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
+
+	ms_v_out[vertex_index].FragPos = vertex_position;
+	ms_v_out[vertex_index].Normal = vertex_normal;
+	ms_v_out[vertex_index].Tangent = uniform_particle.tangent.xyz;
+	float tex_x = mod(uniform_particle.profile_polar_coordinate.y * u_multiplier / 3.1415926f, 2.f);
+	if(tex_x > 1.f){
+		tex_x = 2.f - tex_x;
+	}
+	float tex_y = float(uniform_particle.segment_index) * v_multiplier;
+	ms_v_out[vertex_index].TexCoord = vec2(tex_x, tex_y);
+	if(vertex_colors == 0){
+
+	} else if(vertex_colors == 1){
+		ms_v_out[vertex_index].Normal = abs(vertex_normal.xyz);
+	} else if(vertex_colors == 2){
+		ms_v_out[vertex_index].Normal = abs(uniform_particle.tangent.xyz);
+	} else if(vertex_colors == 3){
+		ms_v_out[vertex_index].Normal = PseudoRandomColor(segments[uniform_particle.segment_handle].group_index);
+	} else if(vertex_colors == 4){
+		ms_v_out[vertex_index].Normal = vec3(mod(floor(uniform_particle.normal_deg.w / 4.0f), 2.0f), mod(floor(uniform_particle.normal_deg.w / 2.0f), 2.0f), mod(uniform_particle.normal_deg.w, 2.0f));
+	}
+	gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
+}
+
 void main(){
 
 	// report amount of accepted triangles
 	SetMeshOutputsEXT(TETRAHEDRON_VERTICES_SIZE, delaunay_tetrahedrons[tet_id].triangles_accepted);
 	DelaunayTetrahedron tet = delaunay_tetrahedrons[tet_id];
-	// set up vertex properties
-	mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
-	
-	[[unroll]]
-	for (uint i = 0; i < uint(TETRAHEDRON_VERTEX_ITERATIONS); ++i)
-	{
-		uint vertex_index = laneID + i * WORKGROUP_SIZE;
-		if (vertex_index >= TETRAHEDRON_VERTICES_SIZE) break;
-		UniformParticle uniform_particle = uniform_particles[tet.indices[vertex_index]];
-		vec3 vertex_position = uniform_particle.position_t.xyz;
-		vec3 vertex_normal = normalize(uniform_particle.normal_deg.xyz);
-
-		ms_v_out[vertex_index].FragPos = vertex_position;
-		ms_v_out[vertex_index].Normal = vertex_normal;
-		ms_v_out[vertex_index].Tangent = uniform_particle.tangent.xyz;
-		float tex_x = mod(uniform_particle.profile_polar_coordinate.y * u_multiplier / 3.1415926f, 2.f);
-		if(tex_x > 1.f){
-			tex_x = 2.f - tex_x;
-		}
-		float tex_y = float(uniform_particle.segment_index) * v_multiplier;
-		ms_v_out[vertex_index].TexCoord = vec2(tex_x, tex_y);
-		if(vertex_colors == 0){
-
-		} else if(vertex_colors == 1){
-			ms_v_out[vertex_index].Normal = abs(vertex_normal.xyz);
-		} else if(vertex_colors == 2){
-			ms_v_out[vertex_index].Normal = abs(uniform_particle.tangent.xyz);
-		} else if(vertex_colors == 3){
-			ms_v_out[vertex_index].Normal = PseudoRandomColor(segments[uniform_particle.segment_handle].group_index);
-		}
-		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
-	}
 
 	// assign all accepted triangles
 	[[unroll]]
@@ -125,6 +122,12 @@ void main(){
 				// count triangles downwards
 				int index = atomicAdd(delaunay_tetrahedrons[tet_id].triangles_accepted, -1);
 				gl_PrimitiveTriangleIndicesEXT[index - 1] = triangles[triangle_index];
+
+				for(int j = 0; j < 3; j++){
+					uint vertex_index = triangles[triangle_index][j];
+					uint particle_index = tet.indices[lookup[vertex_index]];
+					SetUpTriangleVertex(vertex_index, normalize(uniform_particles[particle_index].normal_deg.xyz), particle_index);
+				}
 			}
 		}
 	}
