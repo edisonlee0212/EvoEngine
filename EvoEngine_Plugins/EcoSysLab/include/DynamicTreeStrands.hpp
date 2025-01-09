@@ -9,6 +9,7 @@ using namespace evo_engine;
 namespace eco_sys_lab_plugin {
 class DynamicTreeStrands : public IPrivateComponent {
   Handle foliage_rendering_instance_handle;
+  Handle small_segments_rendering_instance_handle;
 
  public:
   bool enable_simulation = true;
@@ -85,7 +86,8 @@ class DynamicTreeStrands : public IPrivateComponent {
 
   void Visualization(const std::shared_ptr<Camera>& target_camera,
                      const DynamicStrands::VisualizationParameters& visualization_parameters) const;
-  void RegisterRenderInstance(const DynamicStrands::RenderParameters& render_parameters);
+  void RegisterBranchesRenderInstance(const DynamicStrands::BranchesRenderParameters& render_parameters);
+  void RegisterSmallSegmentsRenderInstance(const DynamicStrands::SmallSegmentsRenderParameters& render_parameters);
   void RegisterFoliageRenderInstance(const DynamicStrands::FoliageRenderParameters& render_parameters);
 };
 }  // namespace eco_sys_lab_plugin

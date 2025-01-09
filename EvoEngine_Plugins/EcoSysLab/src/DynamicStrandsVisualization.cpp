@@ -16,21 +16,12 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       case 0: {
         if (ImGui::ColorEdit4("Segment color", &segment_color_main.x))
           changed = true;
-        if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
-          changed = true;
-        break;
-      }
-      case 1: {
-        if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
-          changed = true;
         break;
       }
       case 2: {
-        if (ImGui::ColorEdit4("Segment min color", &segment_color_min.x)) 
+        if (ImGui::ColorEdit4("Segment min color", &segment_color_min.x))
           changed = true;
         if (ImGui::ColorEdit4("Segment max color", &segment_color_max.x))
-          changed = true;
-        if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
           changed = true;
         if (ImGui::DragFloat("Segment boundary distance modular", &segment_boundary_distance_modular, 0.001f, 0.001f,
                              1.f))
@@ -44,16 +35,11 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
           changed = true;
         if (ImGui::ColorEdit4("Segment max color", &segment_color_max.x))
           changed = true;
-        if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
-          changed = true;
-        break;
-      }
-      case 6: {
-        if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
-          changed = true; 
         break;
       }
     }
+    if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
+      changed = true;
   }
 
   if (ImGui::Checkbox("Segment Pair", &render_segment_pairs))
@@ -66,8 +52,6 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       case 0: {
         if (ImGui::ColorEdit4("Segment pair color", &segment_pair_color_main.x))
           changed = true;
-        if (ImGui::DragFloat("Segment pair radius multiplier", &segment_pair_radius_multiplier, 0.1f, 0.1f, 10.f))
-          changed = true;
         break;
       }
       case 1:
@@ -77,26 +61,27 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
           changed = true;
         if (ImGui::ColorEdit4("Segment pair max color", &segment_pair_color_max.x))
           changed = true;
-        if (ImGui::DragFloat("Segment pair radius multiplier", &segment_pair_radius_multiplier, 0.1f, 0.1f, 1000.f))
-          changed = true;
         break;
       }
     }
+    if (ImGui::DragFloat("Segment pair radius multiplier", &segment_pair_radius_multiplier, 0.1f, 0.1f, 10.f))
+      changed = true;
   }
   if (ImGui::Checkbox("Uniform Particle", &render_uniform_particles))
     changed = true;
   if (render_uniform_particles) {
-    if (ImGui::Combo("Uniform particle mode", {"Default", "Segment color", "Single Particles"}, uniform_particle_render_mode)) 
-      changed = true; 
+    if (ImGui::Combo("Uniform particle mode", {"Default", "Segment color", "Single Particles"},
+                     uniform_particle_render_mode))
+      changed = true;
     switch (uniform_particle_render_mode) {
       case 0: {
         if (ImGui::ColorEdit4("Uniform particle color", &uniform_particle_main.x))
           changed = true;
-        if (ImGui::DragFloat("Uniform Particle multiplier", &uniform_particle_radius_multiplier, 0.1f, 0.1f, 1000.f))
-          changed = true;
         break;
       }
     }
+    if (ImGui::DragFloat("Uniform Particle multiplier", &uniform_particle_radius_multiplier, 0.1f, 0.1f, 1000.f))
+      changed = true;
   }
 
   if (ImGui::Checkbox("Foliage", &render_foliage))
@@ -112,7 +97,6 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       }
     }
   }
-
   return changed;
 }
 
@@ -149,15 +133,15 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::Constants::shader_global_defines,
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Task/DynamicStrandSegmentsVisualization.task");
+                                "Shaders/Graphics/Task/DynamicStrands/Visualization/Segments.task");
     mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::Constants::shader_global_defines,
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Mesh/DynamicStrandSegmentsVisualization.mesh");
+                                "Shaders/Graphics/Mesh/DynamicStrands/Visualization/Segments.mesh");
     frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsVisualization.frag");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.frag");
     // Descriptor set layout
     segment_render_pipeline = std::make_shared<GraphicsPipeline>();
     segment_render_pipeline->task_shader = task_shader;
@@ -198,15 +182,15 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::Constants::shader_global_defines,
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Task/DynamicStrandSegmentPairsVisualization.task");
+                                "Shaders/Graphics/Task/DynamicStrands/Visualization/SegmentPairs.task");
     mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::Constants::shader_global_defines,
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Mesh/DynamicStrandSegmentPairsVisualization.mesh");
+                                "Shaders/Graphics/Mesh/DynamicStrands/Visualization/SegmentPairs.mesh");
     frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsVisualization.frag");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.frag");
     // Descriptor set layout
     segment_pair_render_pipeline = std::make_shared<GraphicsPipeline>();
     segment_pair_render_pipeline->task_shader = task_shader;
@@ -248,16 +232,16 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::Constants::shader_global_defines,
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Task/DynamicStrandUniformParticlesVisualization.task");
+                                "Shaders/Graphics/Task/DynamicStrands/Visualization/UniformParticles.task");
     mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::Constants::shader_global_defines,
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Mesh/DynamicStrandUniformParticlesVisualization.mesh");
+                                "Shaders/Graphics/Mesh/DynamicStrands/Visualization/UniformParticles.mesh");
 
     frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsVisualization.frag");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.frag");
     // Descriptor set layout
     uniform_particle_render_pipeline = std::make_shared<GraphicsPipeline>();
     uniform_particle_render_pipeline->task_shader = task_shader;
@@ -296,17 +280,17 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     static std::shared_ptr<Shader> frag_shader{};
     // Load shader
     task_shader = std::make_shared<Shader>();
-    task_shader->TryCompile(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandFoliageVisualization.task");
+    task_shader->TryCompile(ShaderType::Task, Platform::Constants::shader_global_defines,
+                            std::filesystem::path("./EcoSysLabResources") /
+                                "Shaders/Graphics/Task/DynamicStrands/Visualization/Foliage.task");
     mesh_shader = std::make_shared<Shader>();
-    mesh_shader->TryCompile(
-        ShaderType::Mesh, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/DynamicStrandFoliageVisualization.mesh");
+    mesh_shader->TryCompile(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+                            std::filesystem::path("./EcoSysLabResources") /
+                                "Shaders/Graphics/Mesh/DynamicStrands/Visualization/Foliage.mesh");
     frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsVisualization.frag");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.frag");
     // Descriptor set layout
     foliage_render_pipeline = std::make_shared<GraphicsPipeline>();
     foliage_render_pipeline->task_shader = task_shader;

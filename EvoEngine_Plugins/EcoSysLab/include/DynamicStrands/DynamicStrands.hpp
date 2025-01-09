@@ -193,8 +193,8 @@ class DynamicStrands {
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
-  struct RenderParameters {
-    bool render_alpha_shape_mesh = true;
+  struct BranchesRenderParameters {
+    bool enabled = true;
     bool render_complex = false;
     bool use_cgal = false;
     bool wireframe = false;
@@ -207,6 +207,13 @@ class DynamicStrands {
     float u_multiplier = 2;
     float v_multiplier = 0.25;
 
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  };
+
+  struct SmallSegmentsRenderParameters {
+    bool enabled = true;
+    bool cast_shadow = false;
+    bool wireframe = false;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -477,18 +484,20 @@ class DynamicStrands {
   void Clear();
 
   std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets;
-  uint32_t RenderToPointLightShadowMap(const RenderParameters& render_parameters,
-                                       const VkCommandBuffer vk_command_buffer,
-                                       const RenderLayer::PointLightShadowMapView& view) const;
-  uint32_t RenderToSpotLightShadowMap(const RenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
-                                      const RenderLayer::SpotLightShadowMapView& view) const;
-  uint32_t RenderToDirectionalLightShadowMap(const RenderParameters& render_parameters,
-                                             VkCommandBuffer vk_command_buffer,
-                                             const RenderLayer::DirectionalLightShadowMapView& view) const;
-  uint32_t RenderToCameraDeferred(const Handle& renderer_handle, const RenderParameters& render_parameters,
-                                  VkCommandBuffer vk_command_buffer,
-                                  const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                                  const RenderLayer::DeferredRenderingView& view) const;
+  uint32_t RenderBranchesToPointLightShadowMap(const BranchesRenderParameters& render_parameters,
+                                               const VkCommandBuffer vk_command_buffer,
+                                               const RenderLayer::PointLightShadowMapView& view) const;
+  uint32_t RenderBranchesToSpotLightShadowMap(const BranchesRenderParameters& render_parameters,
+                                              VkCommandBuffer vk_command_buffer,
+                                              const RenderLayer::SpotLightShadowMapView& view) const;
+  uint32_t RenderBranchesToDirectionalLightShadowMap(const BranchesRenderParameters& render_parameters,
+                                                     VkCommandBuffer vk_command_buffer,
+                                                     const RenderLayer::DirectionalLightShadowMapView& view) const;
+  uint32_t RenderBranchesToCameraDeferred(
+      const Handle& renderer_handle, const BranchesRenderParameters& render_parameters,
+      VkCommandBuffer vk_command_buffer,
+      const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+      const RenderLayer::DeferredRenderingView& view) const;
 
   uint32_t RenderFoliageToPointLightShadowMap(const FoliageRenderParameters& render_parameters,
                                               const VkCommandBuffer vk_command_buffer,
@@ -505,22 +514,42 @@ class DynamicStrands {
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;
 
+  uint32_t RenderSmallSegmentsToPointLightShadowMap(const SmallSegmentsRenderParameters& render_parameters,
+                                                    const VkCommandBuffer vk_command_buffer,
+                                                    const RenderLayer::PointLightShadowMapView& view) const;
+  uint32_t RenderSmallSegmentsToSpotLightShadowMap(const SmallSegmentsRenderParameters& render_parameters,
+                                                   VkCommandBuffer vk_command_buffer,
+                                                   const RenderLayer::SpotLightShadowMapView& view) const;
+  uint32_t RenderSmallSegmentsToDirectionalLightShadowMap(const SmallSegmentsRenderParameters& render_parameters,
+                                                          VkCommandBuffer vk_command_buffer,
+                                                          const RenderLayer::DirectionalLightShadowMapView& view) const;
+  uint32_t RenderSmallSegmentsToCameraDeferred(
+      const Handle& renderer_handle, const SmallSegmentsRenderParameters& render_parameters,
+      VkCommandBuffer vk_command_buffer,
+      const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+      const RenderLayer::DeferredRenderingView& view) const;
+
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const VisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
                const std::function<void()>& sub_step_action);
-  static void BuildRenderingPipelines();
+  static void BuildBranchesRenderingPipelines();
   static void BuildFoliageRenderingPipelines();
-
-  inline static std::shared_ptr<GraphicsPipeline> point_light_render_pipeline{};
-  inline static std::shared_ptr<GraphicsPipeline> spot_light_render_pipeline{};
-  inline static std::shared_ptr<GraphicsPipeline> directional_light_render_pipeline{};
-  inline static std::shared_ptr<GraphicsPipeline> render_pipeline{};
+  static void BuildSmallSegmentsRenderingPipelines();
+  inline static std::shared_ptr<GraphicsPipeline> branches_point_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> branches_spot_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> branches_directional_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> branches_render_pipeline{};
 
   inline static std::shared_ptr<GraphicsPipeline> foliage_point_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_render_pipeline{};
+
+  inline static std::shared_ptr<GraphicsPipeline> small_segments_point_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> small_segments_spot_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> small_segments_directional_light_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> small_segments_render_pipeline{};
 
  private:
   bool wait_for_upload = true;
