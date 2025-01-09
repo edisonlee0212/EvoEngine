@@ -624,6 +624,6 @@ void EcoSysLabLayer::Update() {
 void EcoSysLabLayer::LateUpdate() {
   DynamicSkeletonPhysics();
   DynamicSkeletonVisualization();
-  DynamicStrandPhysics();
+  DynamicStrandSimulation();
   DynamicStrandVisualization();
 }

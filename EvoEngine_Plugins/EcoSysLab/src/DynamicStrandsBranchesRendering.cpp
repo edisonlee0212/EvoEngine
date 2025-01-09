@@ -40,7 +40,7 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
   return changed;
 }
 
-struct RenderPushConstant {
+struct BranchesRenderPushConstant {
   union Index1 {
     int instance_index;
     int sub_light_index;
@@ -60,8 +60,8 @@ struct RenderPushConstant {
   int render_complex = 0;
   int vertex_colors = 0;
 };
+
 void DynamicStrands::BuildBranchesRenderingPipelines() {
-  // Descriptor set layout
   branches_point_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   branches_point_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::Constants::shader_global_defines,
@@ -79,7 +79,7 @@ void DynamicStrands::BuildBranchesRenderingPipelines() {
   branches_point_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
   branches_point_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   auto& point_light_push_constant_range = branches_point_light_render_pipeline->push_constant_ranges.emplace_back();
-  point_light_push_constant_range.size = sizeof(RenderPushConstant);
+  point_light_push_constant_range.size = sizeof(BranchesRenderPushConstant);
   point_light_push_constant_range.offset = 0;
   point_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
   branches_point_light_render_pipeline->Initialize();
@@ -101,7 +101,7 @@ void DynamicStrands::BuildBranchesRenderingPipelines() {
   branches_spot_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
   branches_spot_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   auto& spot_light_push_constant_range = branches_spot_light_render_pipeline->push_constant_ranges.emplace_back();
-  spot_light_push_constant_range.size = sizeof(RenderPushConstant);
+  spot_light_push_constant_range.size = sizeof(BranchesRenderPushConstant);
   spot_light_push_constant_range.offset = 0;
   spot_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
   branches_spot_light_render_pipeline->Initialize();
@@ -124,7 +124,7 @@ void DynamicStrands::BuildBranchesRenderingPipelines() {
   branches_directional_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   auto& directional_light_push_constant_range =
       branches_directional_light_render_pipeline->push_constant_ranges.emplace_back();
-  directional_light_push_constant_range.size = sizeof(RenderPushConstant);
+  directional_light_push_constant_range.size = sizeof(BranchesRenderPushConstant);
   directional_light_push_constant_range.offset = 0;
   directional_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
   branches_directional_light_render_pipeline->Initialize();
@@ -149,7 +149,7 @@ void DynamicStrands::BuildBranchesRenderingPipelines() {
   branches_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   branches_render_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
   auto& push_constant_range = branches_render_pipeline->push_constant_ranges.emplace_back();
-  push_constant_range.size = sizeof(RenderPushConstant);
+  push_constant_range.size = sizeof(BranchesRenderPushConstant);
   push_constant_range.offset = 0;
   push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
   branches_render_pipeline->Initialize();
@@ -163,7 +163,7 @@ uint32_t DynamicStrands::RenderBranchesToPointLightShadowMap(const BranchesRende
   }
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  RenderPushConstant push_constant;
+  BranchesRenderPushConstant push_constant;
   push_constant.index1.sub_light_index = view.face_index;
   push_constant.index2.light_index = view.light_index;
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
@@ -196,7 +196,7 @@ uint32_t DynamicStrands::RenderBranchesToSpotLightShadowMap(const BranchesRender
   }
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  RenderPushConstant push_constant;
+  BranchesRenderPushConstant push_constant;
   push_constant.index1.sub_light_index = 0;
   push_constant.index2.light_index = view.light_index;
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
@@ -229,7 +229,7 @@ uint32_t DynamicStrands::RenderBranchesToDirectionalLightShadowMap(
   }
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  RenderPushConstant push_constant;
+  BranchesRenderPushConstant push_constant;
   push_constant.index1.sub_light_index = view.split_index;
   push_constant.index2.light_index = view.light_index;
   push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
@@ -266,24 +266,27 @@ uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return 0;
   }
-  if (!branches_render_pipeline || !branches_render_pipeline->Initialized()) {
+  if (!branches_tetrahedron_filtering_pipeline || !branches_render_pipeline ||
+      !branches_render_pipeline->Initialized()) {
     return 0;
   }
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  RenderPushConstant push_constant;
-  push_constant.index1.instance_index =
+  const uint32_t compute_work_group_invocations = Platform::Constants::compute_work_group_invocations;
+
+  BranchesRenderPushConstant render_push_constant;
+  render_push_constant.index1.instance_index =
       Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(renderer_handle);
-  push_constant.index2.camera_index = view.camera_index;
-  push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
-  push_constant.alpha = render_parameters.alpha;
-  push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
-  push_constant.max_dist_squared = render_parameters.max_dist_squared;
-  push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
-  push_constant.vertex_colors = render_parameters.vertex_colors;
-  push_constant.u_multiplier = render_parameters.u_multiplier;
-  push_constant.v_multiplier = render_parameters.v_multiplier;
+  render_push_constant.index2.camera_index = view.camera_index;
+  render_push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
+  render_push_constant.alpha = render_parameters.alpha;
+  render_push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
+  render_push_constant.max_dist_squared = render_parameters.max_dist_squared;
+  render_push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
+  render_push_constant.vertex_colors = render_parameters.vertex_colors;
+  render_push_constant.u_multiplier = render_parameters.u_multiplier;
+  render_push_constant.v_multiplier = render_parameters.v_multiplier;
   branches_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   branches_render_pipeline->states.SetViewportScissor(view.viewport);
   branches_render_pipeline->states.polygon_mode =
@@ -297,6 +300,7 @@ uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
     EVOENGINE_LOG("RDOC API detected!");
   }
 #endif  //  USERENDERDOC
+
   branches_render_pipeline->Bind(vk_command_buffer);
   branches_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                               RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
@@ -305,7 +309,7 @@ uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
   branches_render_pipeline->BindDescriptorSet(vk_command_buffer, 2,
                                               RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
 
-  branches_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+  branches_render_pipeline->PushConstant(vk_command_buffer, 0, render_push_constant);
 
   const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
   vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
