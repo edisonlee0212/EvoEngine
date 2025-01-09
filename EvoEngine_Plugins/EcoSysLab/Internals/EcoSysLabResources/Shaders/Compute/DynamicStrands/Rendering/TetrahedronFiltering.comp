@@ -33,6 +33,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	float max_dist_squared;
 	int render_complex;
 	float degen_triangle_threshold;
+	float break_threshold;
 };
 
 #include "AlphaShape.glsl"
@@ -50,7 +51,7 @@ void main(){
 
 		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[delaunay_tetrahedron_index];
 
-		// reset flags
+		// reset flags; TODO: move to separate shader for more efficiency
 		[[unroll]]
 		for (uint j = 0; j < 4; ++j)
 		{
@@ -58,16 +59,33 @@ void main(){
 			uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg = vec4(0.0, 0.0, 0.0, 0.0);
 		}
 
-		if(!InsideAlpha(delaunay_tetrahedron, min_distance_squared))
-		{
-			delaunay_tetrahedron.color = vec4(0.8, 0.0, min_distance_squared, 1.0);
-			delaunay_tetrahedron.inside = 0;
+		// If a tetrahedron is ever outside the interior, it can never become part of the inside again
+		if(delaunay_tetrahedron.inside == 1){
+			delaunay_tetrahedron.inside = int(RemainInSameGroup(delaunay_tetrahedron));
 		}
-		else
-		{
-			delaunay_tetrahedron.color = vec4(0.0, 0.8, min_distance_squared, 1.0);
-			delaunay_tetrahedron.inside = 1;
+		
+		// Now check against stretch factor
+		if(delaunay_tetrahedron.inside == 1){
+			
+			// get vertices
+			vec3 v[4];
+			[[unroll]]
+			for(int i = 0; i < 4; ++i){
+				v[i] = uniform_particles[delaunay_tetrahedron.indices[i]].position_t.xyz;
+			}
+
+			// Compute sidelengths
+			[[unroll]]
+			for(int edge_index = 0; edge_index < 6; ++edge_index){
+				float sidelength_squared = DistSquared(v[tet_edges[edge_index].x], v[tet_edges[edge_index].y]);
+
+				if(sqrt(sidelength_squared) > break_threshold + delaunay_tetrahedron.sidelengths[edge_index]){
+					delaunay_tetrahedron.inside = 0;
+					break;
+				}
+			}
 		}
+
 		delaunay_tetrahedrons[delaunay_tetrahedron_index] = delaunay_tetrahedron;
 	}
 }

@@ -1,5 +1,9 @@
 #extension GL_EXT_control_flow_attributes : require
 
+uvec2 tet_edges[] = {
+    uvec2(0, 1), uvec2(0, 2), uvec2(0, 3), uvec2(1, 2), uvec2(1, 3), uvec2(2, 3),
+};
+
 void SortFourElements(inout uint a[4]) {
   uint min1, min2, max1, max2;
 
@@ -48,7 +52,7 @@ float DistSquared(vec3 A, vec3 B) {
 }
 
 // Note: seems to be unstable with a physics simulation
-float CircumsphereRadius(uint indices[4]) {
+/*float CircumsphereRadius(uint indices[4]) {
   // We sort the indices because a different order can lead to a different result due to numerical instability
   // This is important because the order varies depending on which neighbor calls this function, but it must be
   // consistent for a valid alpha-shape
@@ -109,6 +113,26 @@ float LongestSide(uint indices[4]) {
     }
   }
   return d;
+}*/
+
+bool InSameGroup(UniformParticle p0, UniformParticle p1) {
+  return segments[p0.segment_handle].group_index == segments[p1.segment_handle].group_index;
+}
+
+bool RemainInSameGroup(DelaunayTetrahedron tet) {
+  UniformParticle p[4];
+  [[unroll]]
+  for (uint i = 0; i < 4; i++) {
+    p[i] = uniform_particles[tet.indices[i]];
+  }
+
+  bool in_same_group = true;
+  [[unroll]] for (uint i = 0; i < 4; i++) {
+    [[unroll]] for (uint j = i + 1; j < 4; j++) {
+      in_same_group = in_same_group && InSameGroup(p[i], p[j]);
+    }
+  }
+  return in_same_group;
 }
 
 bool AreNeighbors(uint index0, uint index1)
@@ -122,7 +146,7 @@ bool AreNeighbors(uint index0, uint index1)
   }
 
   // generally filter for stuff too far apart
-  if (DistSquared(p0.position_t.xyz, p1.position_t.xyz) > max_dist_squared) {
+  if (DistSquared(p0.initial_position.xyz, p1.initial_position.xyz) > max_dist_squared) {
     return false;
   }
 
@@ -134,7 +158,7 @@ bool AreNeighbors(uint index0, uint index1)
       node_handle0 == node_handle1) {
 
     // same plane, now take alpha into account
-    vec3 vij = p0.position_t.xyz - p1.position_t.xyz;
+    vec3 vij = p0.initial_position.xyz - p1.initial_position.xyz;
     float dist_squared = dot(vij, vij);
 
     // distinguish bifurcation point
@@ -171,8 +195,8 @@ bool AreNeighbors(uint index0, uint index1)
       //  sqrt(alpha)
       //
       // TODO: also take into account broken particles
-      float vertical_dist_squared = DistSquared(uniform_particles[p0.prev_particle_handle].position_t.xyz, p0.position_t.xyz);
-      float dist_squared = DistSquared(p0.position_t.xyz, p1.position_t.xyz);
+      float vertical_dist_squared = DistSquared(uniform_particles[p0.prev_particle_handle].initial_position.xyz, p0.initial_position.xyz);
+      float dist_squared = DistSquared(p0.initial_position.xyz, p1.initial_position.xyz);
 
       // distinguish bifurcation point
       if ((node_handle0 == node_handle1 && p0.next_node_index == p1.next_node_index) ||
@@ -188,8 +212,8 @@ bool AreNeighbors(uint index0, uint index1)
     if (node_handle1 == node_handle0 || prev_node_handle1 == node_handle0) {
 
       // use pythagorean theorem to determine adapted alpha, same as above
-      float vertical_dist_squared = DistSquared(uniform_particles[p1.prev_particle_handle].position_t.xyz, p1.position_t.xyz);
-      float dist_squared = DistSquared(p1.position_t.xyz, p0.position_t.xyz);
+      float vertical_dist_squared = DistSquared(uniform_particles[p1.prev_particle_handle].initial_position.xyz, p1.initial_position.xyz);
+      float dist_squared = DistSquared(p1.initial_position.xyz, p0.initial_position.xyz);
 
       // distinguish bifurcation point
       if ((node_handle1 == node_handle0 && p1.next_node_index == p0.next_node_index) ||
@@ -208,11 +232,7 @@ bool AreNeighbors(uint index0, uint index1)
 }
 
 float SkeletonStructure(DelaunayTetrahedron tet) {
-  vec3 v[4];
 
-  for (uint i = 0; i < 4; i++) {
-    v[i] = uniform_particles[tet.indices[i]].position_t.xyz;
-  }
   float d = 0.0;
 
   [[unroll]] for (uint i = 0; i < 4; i++) {

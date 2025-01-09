@@ -13,18 +13,15 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
     changed = true;
   if (ImGui::Checkbox("Wireframe", &wireframe))
     changed = true;
-  if (ImGui::DragFloat("Alpha", &alpha, 0.00001f, 0.0f, 1.0f, "%.6f"))
-    changed = true;
-  if (ImGui::DragFloat("Bifurcation alpha", &bifurcation_alpha, 0.00001f, 0.0f, 1.0f, "%.6f"))
-    changed = true;
-  if (ImGui::DragFloat("Max dist squared", &max_dist_squared, 0.01f, 0.0f, 1.0f, "%.6f"))
-    changed = true;
   if (ImGui::DragFloat("Extrusion distance", &global_extrusion_distance, 0.0001f, 0.0f, 0.1f, "%.4f"))
     changed = true;
 
   if (ImGui::DragFloat("Degenerate triangle threshold 1e-x", &degen_triangle_threshold_logairthmic, 0.01f, 0.0f, 40.0f,
                        "%.6f"))
     changed = true;
+  if (ImGui::DragFloat("Break threshold", &break_threshold, 0.0001f, 0.0f, 1.0f, "%.4f")) {
+    changed = true;
+  }
 
   ImGui::Text("Use normal attribute for debugging");
 
@@ -35,6 +32,8 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
   if (ImGui::RadioButton("Groups", (int*)&vertex_colors, Groups))
     changed = true;
   if (ImGui::RadioButton("Degree", (int*)&vertex_colors, Degree))
+    changed = true;
+  if (ImGui::RadioButton("Bark", (int*)&vertex_colors, Bark))
     changed = true;
 
   if (ImGui::DragFloat("U-coordinate multiplier", &u_multiplier, 1.f, 1.f, 20))
@@ -69,6 +68,7 @@ struct BranchesRenderPushConstant {
   int inner_wood_material_index = 0;
   int snow_material_index = 0;
   float global_extrusion_distance = 0.0f;
+  float break_threshold = 0.01f; 
 };
 
 void DynamicStrands::BuildBranchesRenderingPipelines() {
@@ -183,6 +183,7 @@ uint32_t DynamicStrands::RenderBranchesToPointLightShadowMap(const BranchesRende
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
   push_constant.vertex_colors = render_parameters.vertex_colors;
   push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
+  push_constant.break_threshold = render_parameters.break_threshold;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   branches_point_light_render_pipeline->Bind(vk_command_buffer);
   branches_point_light_render_pipeline->BindDescriptorSet(
@@ -217,6 +218,7 @@ uint32_t DynamicStrands::RenderBranchesToSpotLightShadowMap(const BranchesRender
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
   push_constant.vertex_colors = render_parameters.vertex_colors;
   push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
+  push_constant.break_threshold = render_parameters.break_threshold;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   branches_spot_light_render_pipeline->Bind(vk_command_buffer);
   branches_spot_light_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
@@ -251,6 +253,7 @@ uint32_t DynamicStrands::RenderBranchesToDirectionalLightShadowMap(
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
   push_constant.vertex_colors = render_parameters.vertex_colors;
   push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
+  push_constant.break_threshold = render_parameters.break_threshold;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   branches_directional_light_render_pipeline->Bind(vk_command_buffer);
   branches_directional_light_render_pipeline->BindDescriptorSet(
@@ -302,6 +305,7 @@ uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
   render_push_constant.inner_wood_material_index = inner_wood_material_index;
   render_push_constant.snow_material_index = snow_material_index;
   render_push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
+  render_push_constant.break_threshold = render_parameters.break_threshold;
   branches_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   branches_render_pipeline->states.SetViewportScissor(view.viewport);
   branches_render_pipeline->states.polygon_mode =

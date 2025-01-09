@@ -174,6 +174,9 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   editor_layer->DragAndDropButton<Material>(snow_material_ref, "Snow Material");
   if (ImGui::TreeNode("Initialization settings")) {
     initialize_parameters.OnInspect(editor_layer);
+    if (ImGui::Button("Re-initialize mesh")) {
+      dynamic_strands->InitializeMesh(initialize_parameters);
+    }
     ImGui::Checkbox("Limit strand length", &limit_strand_length);
     if (limit_strand_length) {
       ImGui::DragFloat("Max strand length", &max_strand_length, 0.01f, 0.01f, 10.0f);

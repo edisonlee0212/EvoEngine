@@ -98,6 +98,7 @@ struct TetrahedronFilteringPushConstant {
   float max_dist_squared = 0.0f;
   int render_complex = 0;
   float degen_triangle_threshold = 0.0f;
+  float break_threshold = 0.02f; 
 };
 
 DynamicStrands::DynamicStrands() {
@@ -216,6 +217,7 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
     filtering_push_constant.render_complex = branches_render_parameters.render_complex ? 1 : 0;
     filtering_push_constant.degen_triangle_threshold =
         pow(10.0f, -branches_render_parameters.degen_triangle_threshold_logairthmic);
+    filtering_push_constant.break_threshold = branches_render_parameters.break_threshold; 
     branches_tetrahedron_filtering_pipeline->Bind(vk_command_buffer);
     branches_tetrahedron_filtering_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
@@ -235,6 +237,7 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
     filtering_push_constant.render_complex = branches_render_parameters.render_complex ? 1 : 0;
     filtering_push_constant.degen_triangle_threshold =
         pow(10.0f, -branches_render_parameters.degen_triangle_threshold_logairthmic);
+    filtering_push_constant.break_threshold = branches_render_parameters.break_threshold;
     branches_triangle_filtering_pipeline->Bind(vk_command_buffer);
     branches_triangle_filtering_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
@@ -324,6 +327,15 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     if (ImGui::Checkbox("Use CGAL", &use_cgal))
       changed = true;
 #endif  // USE_CGAL
+    if (ImGui::Checkbox("Triangulate per bundle", &triangulate_per_bundle))
+      changed = true;
+    if (ImGui::DragFloat("Alpha", &alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
+      changed = true;
+    if (ImGui::DragFloat("Bifurcation Alpha", &bifurcation_alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
+      changed = true;
+    if (ImGui::DragFloat("Max Distance Squared", &max_dist_squared, 0.000001f, 0.0f, 1.0f, "%.6f"))
+      changed = true;
+
     ImGui::TreePop();
   }
 
@@ -820,6 +832,7 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
     for (size_t i = 0; i < 4; i++) {
       gpu_tet.indices[i] = indices[i];
       gpu_tet.neighbor_tet_ids[i] = -1;
+      gpu_tet.is_bark[i] = -1;
     }
     // set up debugging members
     gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -903,6 +916,7 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
     for (size_t i = 0; i < 4; i++) {
       gpu_tet.indices[i] = indices[i];
       gpu_tet.neighbor_tet_ids[i] = -1;
+      gpu_tet.is_bark[i] = -1;
     }
     // set up debugging members
     gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
