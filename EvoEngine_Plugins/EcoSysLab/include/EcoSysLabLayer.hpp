@@ -200,7 +200,7 @@ class EcoSysLabLayer : public ILayer {
   void SoilVisualizationVector(const VoxelSoilModel& soil_model);  // called during LateUpdate()
   // This has to happen before LateUpdate.
   void RegisterStrandRenderingProcedure() const;
-  void DynamicStrandPhysics() const;
+  void DynamicStrandSimulation() const;
   void DynamicSkeletonPhysics() const;
   void DynamicSkeletonVisualization() const;
   // This has to happen during LateUpdate.

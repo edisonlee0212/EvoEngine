@@ -77,6 +77,14 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
   frame_index++;
 }
 
+struct TetrahedronFilteringPushConstant {
+  uint32_t tetrahedrons_size = 0;
+  float alpha = 0.0f;
+  float bifurcation_alpha = 0.0f;
+  float max_dist_squared = 0.0f;
+  int render_complex = 0;
+};
+
 DynamicStrands::DynamicStrands() {
 #ifdef USE_RENDERDOC
   if (rdoc_api == nullptr) {
@@ -136,9 +144,50 @@ DynamicStrands::DynamicStrands() {
   segment_collision = std::make_shared<DsSegmentCollision>();
   breaking = std::make_shared<DsBreaking>();
 
+  BuildRenderComputePipelines();
   BuildBranchesRenderingPipelines();
   BuildSmallSegmentsRenderingPipelines();
   BuildFoliageRenderingPipelines();
+}
+
+void DynamicStrands::BuildRenderComputePipelines() {
+  branches_tetrahedron_filtering_pipeline = std::make_shared<ComputePipeline>();
+  branches_tetrahedron_filtering_pipeline->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                              std::filesystem::path("./EcoSysLabResources") /
+                                  "Shaders/Compute/DynamicStrands/Rendering/TetrahedronFiltering.comp");
+  branches_tetrahedron_filtering_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+
+  auto& filtering_push_constant_range = branches_tetrahedron_filtering_pipeline->push_constant_ranges.emplace_back();
+  filtering_push_constant_range.size = sizeof(TetrahedronFilteringPushConstant);
+  filtering_push_constant_range.offset = 0;
+  filtering_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+  branches_tetrahedron_filtering_pipeline->Initialize();
+}
+
+void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_render_parameters,
+                                   const SmallSegmentsRenderParameters& small_segments_render_parameters,
+                                   const FoliageRenderParameters& foliage_render_parameters) const {
+  if (segments.empty())
+    return;
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    TetrahedronFilteringPushConstant filtering_push_constant;
+    filtering_push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
+    filtering_push_constant.alpha = branches_render_parameters.alpha;
+    filtering_push_constant.bifurcation_alpha = branches_render_parameters.bifurcation_alpha;
+    filtering_push_constant.max_dist_squared = branches_render_parameters.max_dist_squared;
+    filtering_push_constant.render_complex = branches_render_parameters.render_complex ? 1 : 0;
+    branches_tetrahedron_filtering_pipeline->Bind(vk_command_buffer);
+    branches_tetrahedron_filtering_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    branches_tetrahedron_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations),
+                  1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
 }
 
 uint32_t DynamicStrands::GetFrameIndex() const {
@@ -354,6 +403,8 @@ void DynamicStrands::Download() {
 void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters) const {
   if (segments.empty())
     return;
+
+  // Below will be executed at the start of next frame.
   struct GroupingPushConstant {
     uint32_t segment_size;
   };

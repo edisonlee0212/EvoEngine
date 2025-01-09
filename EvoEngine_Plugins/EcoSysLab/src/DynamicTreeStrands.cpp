@@ -148,17 +148,20 @@ void DynamicTreeStrands::CreateStaticRoot() {
 }
 
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
-  material_ref.Save("material_ref", out);
+  bark_material_ref.Save("bark_material_ref", out);
+  inner_wood_material_ref.Save("inner_wood_material_ref", out);
   leaf_material_ref.Save("leaf_material_ref", out);
 }
 
 void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
-  material_ref.Load("material_ref", in);
+  bark_material_ref.Load("bark_material_ref", in);
+  inner_wood_material_ref.Load("inner_wood_material_ref", in);
   leaf_material_ref.Load("leaf_material_ref", in);
 }
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  editor_layer->DragAndDropButton<Material>(material_ref, "Bark Material");
+  editor_layer->DragAndDropButton<Material>(bark_material_ref, "Bark Material");
+  editor_layer->DragAndDropButton<Material>(inner_wood_material_ref, "Inner wood Material");
   editor_layer->DragAndDropButton<Material>(leaf_material_ref, "Leaf Material");
 
   if (ImGui::TreeNode("Initialization settings")) {
@@ -287,11 +290,26 @@ void DynamicTreeStrands::OnCreate() {
   line_cut_operator = std::make_shared<DsLineCut>();
   saw_operator = std::make_shared<DsSaw>();
 
-  if (!material_ref.Get<Material>()) {
-    material_ref = ProjectManager::CreateTemporaryAsset<Material>();
+  if (!bark_material_ref.Get<Material>()) {
+    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    bark_material_ref = material;
+    material->material_properties.roughness = 0.5f;
+    material->material_properties.metallic = 0.1f;
+    material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+  }
+  if (!inner_wood_material_ref.Get<Material>()) {
+    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    inner_wood_material_ref = material;
+    material->material_properties.roughness = 0.5f;
+    material->material_properties.metallic = 0.0f;
+    material->material_properties.albedo_color = glm::vec3(0.2f, 0.1f, 0.0f);
   }
   if (!leaf_material_ref.Get<Material>()) {
-    leaf_material_ref = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    leaf_material_ref = material;
+    material->material_properties.roughness = 1.f;
+    material->material_properties.metallic = 0.3f;
+    material->material_properties.albedo_color = glm::vec3(0.2f, 0.5f, 0.05f);
   }
   foliage_rendering_instance_handle = Handle();
   small_segments_rendering_instance_handle = Handle();
@@ -912,7 +930,7 @@ void DynamicTreeStrands::RegisterBranchesRenderInstance(
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
   }
-  if (const auto material = material_ref.Get<Material>()) {
+  if (const auto material = bark_material_ref.Get<Material>()) {
     if (!dynamic_strands->segments.empty()) {
       if (!dynamic_strands->WaitForUpload()) {
         if (DynamicStrands::branches_point_light_render_pipeline &&
@@ -963,7 +981,7 @@ void DynamicTreeStrands::RegisterSmallSegmentsRenderInstance(
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
   }
-  if (const auto material = leaf_material_ref.Get<Material>()) {
+  if (const auto material = inner_wood_material_ref.Get<Material>()) {
     if (!dynamic_strands->segments.empty()) {
       if (!dynamic_strands->WaitForUpload()) {
         if (DynamicStrands::small_segments_point_light_render_pipeline &&

@@ -16,7 +16,7 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
-void EcoSysLabLayer::DynamicStrandPhysics() const {
+void EcoSysLabLayer::DynamicStrandSimulation() const {
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
     const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
@@ -40,6 +40,11 @@ void EcoSysLabLayer::DynamicStrandPhysics() const {
           dts->PhysicsStep(dynamic_strands_settings_.physics_parameters);
       });
     }
+    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+      dts->dynamic_strands->RenderCompute(dynamic_strands_settings_.branches_render_parameters,
+                                          dynamic_strands_settings_.small_segments_render_parameters,
+                                          dynamic_strands_settings_.foliage_render_parameters);
+    });
   }
 }
 

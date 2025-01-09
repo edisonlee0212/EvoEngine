@@ -40,7 +40,8 @@ class DynamicTreeStrands : public IPrivateComponent {
   std::vector<PivotAxis> axis_pivots;
   std::vector<PivotTransform> transform_pivots;
 
-  AssetRef material_ref;
+  AssetRef bark_material_ref;
+  AssetRef inner_wood_material_ref;
   AssetRef leaf_material_ref;
   std::shared_ptr<DsBoxSelection> box_selection_operator;
   std::shared_ptr<DsLineCut> line_cut_operator;

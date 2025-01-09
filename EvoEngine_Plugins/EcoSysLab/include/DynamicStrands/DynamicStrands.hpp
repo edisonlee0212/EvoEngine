@@ -533,9 +533,15 @@ class DynamicStrands {
                  const VisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
                const std::function<void()>& sub_step_action);
+  void RenderCompute(const BranchesRenderParameters& branches_render_parameters,
+                     const SmallSegmentsRenderParameters& small_segments_render_parameters,
+                     const FoliageRenderParameters& foliage_render_parameters) const;
+  static void BuildRenderComputePipelines();
   static void BuildBranchesRenderingPipelines();
   static void BuildFoliageRenderingPipelines();
   static void BuildSmallSegmentsRenderingPipelines();
+
+  inline static std::shared_ptr<ComputePipeline> branches_tetrahedron_filtering_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> branches_point_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> branches_spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> branches_directional_light_render_pipeline{};
