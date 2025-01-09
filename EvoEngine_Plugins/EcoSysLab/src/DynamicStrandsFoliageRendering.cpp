@@ -35,11 +35,11 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
   foliage_point_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   foliage_point_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::Constants::shader_global_defines,
-      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsFoliageRendering.task");
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.task");
   foliage_point_light_render_pipeline->mesh_shader =
       Shader::CreateTemporary(ShaderType::Mesh, Platform::Constants::shader_global_defines,
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Mesh/Foliage/DynamicStrandsPointLightShadowMap.mesh");
+                                  "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/PointLightShadowMap.mesh");
   foliage_point_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
@@ -57,11 +57,11 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
   foliage_spot_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   foliage_spot_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::Constants::shader_global_defines,
-      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsFoliageRendering.task");
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.task");
   foliage_spot_light_render_pipeline->mesh_shader =
       Shader::CreateTemporary(ShaderType::Mesh, Platform::Constants::shader_global_defines,
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Mesh/Foliage/DynamicStrandsSpotLightShadowMap.mesh");
+                                  "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/SpotLightShadowMap.mesh");
   foliage_spot_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
@@ -79,11 +79,11 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
   foliage_directional_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   foliage_directional_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::Constants::shader_global_defines,
-      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsFoliageRendering.task");
-  foliage_directional_light_render_pipeline->mesh_shader =
-      Shader::CreateTemporary(ShaderType::Mesh, Platform::Constants::shader_global_defines,
-                              std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Mesh/Foliage/DynamicStrandsDirectionalLightShadowMap.mesh");
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.task");
+  foliage_directional_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
+      ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      std::filesystem::path("./EcoSysLabResources") /
+          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/DirectionalLightShadowMap.mesh");
   foliage_directional_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
@@ -102,13 +102,15 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
   foliage_render_pipeline = std::make_shared<GraphicsPipeline>();
   foliage_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::Constants::shader_global_defines,
-      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrandsFoliageRendering.task");
-  foliage_render_pipeline->mesh_shader = Shader::CreateTemporary(
-      ShaderType::Mesh, Platform::Constants::shader_global_defines,
-      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Mesh/Foliage/DynamicStrandsRendering.mesh");
-  foliage_render_pipeline->fragment_shader = Shader::CreateTemporary(
-      ShaderType::Fragment, Platform::Constants::shader_global_defines,
-      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrandsFoliageRendering.frag");
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.task");
+  foliage_render_pipeline->mesh_shader =
+      Shader::CreateTemporary(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+                              std::filesystem::path("./EcoSysLabResources") /
+                                  "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/Rendering.mesh");
+  foliage_render_pipeline->fragment_shader =
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+                              std::filesystem::path("./EcoSysLabResources") /
+                                  "Shaders/Graphics/Fragment/DynamicStrands/Rendering/Foliage.frag");
   foliage_render_pipeline->geometry_type = GeometryType::Mesh;
   foliage_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
   foliage_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
@@ -126,6 +128,9 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
 uint32_t DynamicStrands::RenderFoliageToPointLightShadowMap(const FoliageRenderParameters& render_parameters,
                                                             const VkCommandBuffer vk_command_buffer,
                                                             const RenderLayer::PointLightShadowMapView& view) const {
+  if (!render_parameters.enabled) {
+    return 0;
+  }
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   FoliageRenderPushConstant push_constant;
@@ -152,6 +157,9 @@ uint32_t DynamicStrands::RenderFoliageToPointLightShadowMap(const FoliageRenderP
 uint32_t DynamicStrands::RenderFoliageToSpotLightShadowMap(const FoliageRenderParameters& render_parameters,
                                                            VkCommandBuffer vk_command_buffer,
                                                            const RenderLayer::SpotLightShadowMapView& view) const {
+  if (!render_parameters.enabled) {
+    return 0;
+  }
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   FoliageRenderPushConstant push_constant;
@@ -177,6 +185,9 @@ uint32_t DynamicStrands::RenderFoliageToSpotLightShadowMap(const FoliageRenderPa
 uint32_t DynamicStrands::RenderFoliageToDirectionalLightShadowMap(
     const FoliageRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
     const RenderLayer::DirectionalLightShadowMapView& view) const {
+  if (!render_parameters.enabled) {
+    return 0;
+  }
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   FoliageRenderPushConstant push_constant;
@@ -203,7 +214,6 @@ uint32_t DynamicStrands::RenderFoliageToCameraDeferred(
     const Handle& renderer_handle, const FoliageRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view) const {
-
   if (!render_parameters.enabled) {
     return 0;
   }
@@ -242,5 +252,5 @@ uint32_t DynamicStrands::RenderFoliageToCameraDeferred(
   if (rdoc_api)
     rdoc_api->EndFrameCapture(NULL, NULL);
 #endif
-  return segments.size();
+  return foliage.size();
 }

@@ -1,0 +1,83 @@
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shader_draw_parameters : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+
+#define DYNAMIC_STRANDS_SET 1
+#include "DynamicStrands.glsl"
+#include "Math.glsl"
+#include "DynamicStrandsSmallSegmentsRenderingConstants.glsl"
+
+const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((EXT_TASK_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * EXT_TASK_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+
+struct Task{
+	uint	baseID;
+	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
+};
+
+taskPayloadSharedEXT Task ts_out;
+
+#if EXT_TASK_SUBGROUP_COUNT > 1
+	shared uint s_out_uniform_particles_count;
+#endif
+
+#define BARRIER() \
+	memoryBarrierShared(); \
+	barrier();
+
+void main(){
+	
+#if EXT_TASK_SUBGROUP_COUNT > 1
+	if (laneID == 0) {
+		s_out_uniform_particles_count = 0;
+	}
+	BARRIER();
+#endif
+	uint out_uniform_particles_count = 0;
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint uniform_particle_index_local  = laneID + i * WORKGROUP_SIZE;
+		uint uniform_particle_index_global = baseID + uniform_particle_index_local;
+		
+		UniformParticle uniform_particle = uniform_particles[uniform_particle_index_global];
+
+		bool render = !(uniform_particle_index_global > uniform_particles_size - 1) && uniform_particle.is_single_strand_particle != 0;
+
+		uvec4 vote_uniform_particles = subgroupBallot(render);
+		uint num_uniform_particles  = subgroupBallotBitCount(vote_uniform_particles);
+
+#if EXT_TASK_SUBGROUP_COUNT > 1
+		if (gl_SubgroupInvocationID == 0) {
+			out_uniform_particles_count = atomicAdd(s_out_uniform_particles_count, num_uniform_particles);
+		}
+		out_uniform_particles_count = subgroupBroadcastFirst(out_uniform_particles_count);
+#endif
+		uint idx_offset  = subgroupBallotExclusiveBitCount(vote_uniform_particles) + out_uniform_particles_count;
+		if (render) 
+		{
+			ts_out.deltaIDs[idx_offset] = uint8_t(uniform_particle_index_local);
+		}
+#if EXT_TASK_SUBGROUP_COUNT == 1
+		out_uniform_particles_count += num_uniform_particles;
+#endif
+	}
+
+#if EXT_TASK_SUBGROUP_COUNT > 1
+	BARRIER();
+	out_uniform_particles_count = s_out_uniform_particles_count;
+#endif
+	if (laneID == 0) {
+		ts_out.baseID = baseID;
+	}
+	EmitMeshTasksEXT(out_uniform_particles_count, 1, 1);
+}

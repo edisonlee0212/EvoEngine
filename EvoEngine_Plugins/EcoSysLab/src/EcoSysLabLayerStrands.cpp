@@ -426,11 +426,18 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
   }
   ImGui::Checkbox("Rendering", &enable_rendering);
   if (ImGui::TreeNode("Render settings")) {
-    if (ImGui::Button("Rebuild pipelines")) {
-      DynamicStrands::BuildRenderingPipelines();
+    if (ImGui::Button("Rebuild branches pipelines")) {
+      DynamicStrands::BuildBranchesRenderingPipelines();
     }
-    if (ImGui::TreeNodeEx("Tree render settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-      render_parameters.OnInspect(editor_layer);
+    if (ImGui::TreeNodeEx("Branch render settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+      branches_render_parameters.OnInspect(editor_layer);
+      ImGui::TreePop();
+    }
+    if (ImGui::Button("Rebuild small segments pipelines")) {
+      DynamicStrands::BuildSmallSegmentsRenderingPipelines();
+    }
+    if (ImGui::TreeNodeEx("Small segments render settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+      small_segments_render_parameters.OnInspect(editor_layer);
       ImGui::TreePop();
     }
     if (ImGui::Button("Rebuild foliage pipelines")) {

@@ -136,7 +136,8 @@ DynamicStrands::DynamicStrands() {
   segment_collision = std::make_shared<DsSegmentCollision>();
   breaking = std::make_shared<DsBreaking>();
 
-  BuildRenderingPipelines();
+  BuildBranchesRenderingPipelines();
+  BuildSmallSegmentsRenderingPipelines();
   BuildFoliageRenderingPipelines();
 }
 
@@ -274,6 +275,7 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     changed = true;
   return changed;
 }
+
 void DynamicStrands::UpdateBindings() const {
   if (segments.empty())
     return;
