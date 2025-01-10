@@ -43,7 +43,7 @@ bool DsGravity::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Enable", &enabled))
     changed = true;
-  if (ImGui::DragFloat3("Gravity", &gravity.x, 0.01f, -100.0f, 100.0f))
+  if (ImGui::DragFloat3("Gravity", &gravity.x, 1.f))
     changed = true;
 
   if (ImGui::DragFloat("Ground height", &ground_height, 0.01f, -100.0f, 100.0f))

@@ -47,15 +47,26 @@ void main(){
 	
 	UniformParticle uniform_particle = uniform_particles[uniform_particle_id];
 	UniformParticle prev_uniform_particle = uniform_particles[uniform_particle.prev_particle_handle];
-
+	
 	Segment segment = segments[uniform_particle.segment_handle];
 	Segment prev_segment = segments[prev_uniform_particle.segment_handle];
 
 	vec3 start_position = prev_uniform_particle.position_t.xyz;
 	vec3 end_position = uniform_particle.position_t.xyz;
 
+	bool start_is_tip = true;
+	bool end_is_tip = true;
+
 	if(segment.group_index != prev_segment.group_index){
 		start_position = end_position - rotate_vec3(segment.q, vec3(0, 0, -1)) * segment.rest_length * 0.2f;
+	}else{
+		start_is_tip = false;
+	}
+
+	if(uniform_particle.next_particle_handle != -1){
+		if(segment.group_index == segments[uniform_particles[uniform_particle.next_particle_handle].segment_handle].group_index){
+			end_is_tip = false;
+		}
 	}
 
 	vec3 center_position = (start_position + end_position) * 0.5f;
@@ -76,7 +87,16 @@ void main(){
 	{
 		uint vertex_index = laneID + i * WORKGROUP_SIZE;
 		if (vertex_index > SMALL_SEGMENT_VERTICES_SIZE) break;
-		vec3 vertex_position = positions[vertex_index];
+
+		vec3 vertex_position = positions0[vertex_index];
+
+		if(start_is_tip && end_is_tip){
+			vertex_position = positions3[vertex_index];
+		}else if(start_is_tip && !end_is_tip){
+			vertex_position = positions2[vertex_index];
+		}else if(!start_is_tip && end_is_tip){
+			vertex_position = positions1[vertex_index];
+		}
 
 		ms_v_out[vertex_index].FragPos = vec4(instance_matrix * vec4(vertex_position, 1.0f)).xyz;
 		ms_v_out[vertex_index].TexCoord = tex_coords[vertex_index];

@@ -7,19 +7,32 @@ using namespace eco_sys_lab_plugin;
 
 bool DynamicSkeleton::InitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (ImGui::DragFloat("Wood density", &wood_density, 0.001f, 0.001f, 1.0f))
-    changed = true;
+
+  if (ImGui::TreeNode("Material Properties")) {
+    if (wood_density.OnInspect("Wood Density"))
+      changed = true;
+    if (max_youngs_modulus.OnInspect("Wood Young's modulus"))
+      changed = true;
+    if (max_shear_modulus.OnInspect("Wood Shear modulus"))
+      changed = true;
+    if (max_bending_modulus.OnInspect("Wood Bending modulus"))
+      changed = true;
+    if (max_torsion_modulus.OnInspect("Wood Torsion modulus"))
+      changed = true;
+    ImGui::TreePop();
+  }
+
   return changed;
 }
 
 bool DynamicSkeleton::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  /*
+
   if (ImGui::DragFloat("Time step", &time_step, 0.001f, 0.001f, 1.0f))
     changed = true;
   if (ImGui::DragInt("Sub step", &sub_step, 1, 1, 100)) {
     changed = true;
-  }*/
+  }
   if (ImGui::Checkbox("Breaking", &enable_breaking)) {
     changed = true;
   }
@@ -33,6 +46,11 @@ bool DynamicSkeleton::PhysicsParameters::OnInspect(const std::shared_ptr<EditorL
   if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
     changed = true;
 
+  return changed;
+}
+
+bool DynamicSkeleton::VisualizationParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
   return changed;
 }
 
@@ -55,21 +73,39 @@ void DynamicSkeleton::Initialize(const InitializeParameters& initialize_paramete
     node_data.q0 = node.data.q = node.data.last_q =
         initialize_parameters.root_transform.GetRotation() * node_info.global_rotation;
     node_data.angular_v = node_data.torque = glm::vec3(0.f);
-    const float mass = node_info.thickness * node_info.thickness * glm::pi<float>() * 0.25f *
-                       initialize_parameters.wood_density * node_info.length;
+
+    node_data.length = glm::max(1e-6f, node_info.length);
+    node_data.radius = glm::max(1e-6f, node_info.thickness * .5f);
+    const float mass = glm::max(1e-6f, node_data.radius * node_data.radius * glm::pi<float>() *
+                                           initialize_parameters.wood_density.GetValue() * node_data.length);
     node_data.inv_mass = 1.f / mass;
-    node_data.inertia_tensor = DynamicStrands::ComputeInertiaTensorRod(mass, node_info.thickness, node_info.length);
+    node_data.inertia_tensor = DynamicStrands::ComputeInertiaTensorRod(mass, node_data.radius, node_data.length);
     node_data.inv_inertia_tensor = 1.f / node_data.inertia_tensor;
+
+    const float area = glm::pi<float>() * node_data.radius * node_data.radius;
+    node_data.max_stretching_modulus = initialize_parameters.max_youngs_modulus.GetValue() * 1e9f;
+    node_data.max_shearing_modulus = initialize_parameters.max_shear_modulus.GetValue() * 1e9f;
+
+    node_data.stretching_alpha = 1.f / (node_data.max_stretching_modulus * area / node_data.length);
+    node_data.shearing_alpha = 1.f / (node_data.max_shearing_modulus * area / node_data.length);
+
+    node_data.max_bending_modulus = initialize_parameters.max_bending_modulus.GetValue() * 1e9f;
+    node_data.max_torsion_modulus = initialize_parameters.max_torsion_modulus.GetValue() * 1e9f;
+    const float average_segment_radius = node_data.radius;
+    const float average_segment_length = node_data.length;
+
+    const auto second_moment_of_area = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.25f;
+    const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.5f;
+    node_data.bending_alpha =
+        1.f / (node_data.max_bending_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f));
+    node_data.torsion_alpha = 1.f / (node_data.max_torsion_modulus * polar_moment_of_inertia / average_segment_length);
   });
-  if (initialize_parameters.static_root) {
-    dts_skeleton.RefNode(sorted_node_list[0]).data.inv_mass = 0.f;
-  }
 }
 
 void DynamicSkeleton::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
                               const std::function<void()>& sub_step_action) {
   pre_step_action();
-  for (int sub_step_index = 0; sub_step_index < sub_step; sub_step_index++) {
+  for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
     PreStep(physics_parameters);
     sub_step_action();
     Prediction(physics_parameters);
@@ -113,8 +149,8 @@ void DynamicSkeleton::PreStep(const PhysicsParameters& physics_parameters) {
 }
 
 void DynamicSkeleton::Prediction(const PhysicsParameters& physics_parameters) {
-  auto predict_node = [](const float sub_time_step, const PhysicsParameters& parameters,
-                         DynamicSkeletonNodeData& node_data) {
+  const auto sub_time_step = physics_parameters.time_step / physics_parameters.sub_step;
+  auto predict_node = [&](DynamicSkeletonNodeData& node_data) {
     auto update_inertia_w = [](DynamicSkeletonNodeData& target_node_data) {
       // Update w
       const glm::mat3 rotation_matrix = mat3_cast(target_node_data.q);
@@ -131,15 +167,15 @@ void DynamicSkeleton::Prediction(const PhysicsParameters& physics_parameters) {
     update_inertia_w(node_data);
     // Calculate angular velocity and apply torque.
     if (node_data.inv_mass != 0.0f) {
-      node_data.angular_v *= 1.0f - parameters.angular_velocity_damping * glm::length(node_data.angular_v);
+      node_data.angular_v *= 1.0f - physics_parameters.angular_velocity_damping * glm::length(node_data.angular_v);
       node_data.angular_v +=
           sub_time_step * node_data.inv_inertia_w *
           (node_data.torque - glm::cross(node_data.angular_v, node_data.inertia_w * node_data.angular_v));
 
-      node_data.particle0.v *= 1.0f - parameters.velocity_damping * glm::length(node_data.particle0.v);
+      node_data.particle0.v *= 1.0f - physics_parameters.velocity_damping * glm::length(node_data.particle0.v);
       node_data.particle0.v += node_data.particle0.a * sub_time_step;
 
-      node_data.particle1.v *= 1.0f - parameters.velocity_damping * glm::length(node_data.particle1.v);
+      node_data.particle1.v *= 1.0f - physics_parameters.velocity_damping * glm::length(node_data.particle1.v);
       node_data.particle1.v += node_data.particle1.a * sub_time_step;
     }
     // Shift rotation values
@@ -177,7 +213,7 @@ void DynamicSkeleton::Prediction(const PhysicsParameters& physics_parameters) {
   Jobs::RunParallelFor(sorted_node_list.size(), [&](const auto i) {
     auto& node = dts_skeleton.RefNode(sorted_node_list[i]);
     auto& node_data = node.data;
-    predict_node(time_step / sub_step, physics_parameters, node_data);
+    predict_node(node_data);
   });
 }
 
@@ -237,7 +273,7 @@ void DynamicSkeleton::ApplyStiffRodConstraint(const PhysicsParameters& physics_p
     q1_correction = q0 * lambda * inv_mass_q1 * -1.0f;
   };
 
-  const auto sub_time_step = time_step / sub_step;
+  const auto sub_time_step = physics_parameters.time_step / physics_parameters.sub_step;
   const auto inv_time_step = 1.f / sub_time_step;
 
   const auto& sorted_node_list = dts_skeleton.PeekSortedNodeList();
@@ -246,74 +282,64 @@ void DynamicSkeleton::ApplyStiffRodConstraint(const PhysicsParameters& physics_p
     auto& node = dts_skeleton.RefNode(node_handle);
     auto& node_data = node.data;
     const auto parent_handle = node.GetParentHandle();
-    float parent_inv_mass = node_data.inv_mass;
-    float children_inv_mass = node_data.inv_mass;
-
     if (parent_handle != -1) {
       auto& parent_node = dts_skeleton.RefNode(parent_handle);
-      const auto& parent_node_data = parent_node.data;
-      parent_inv_mass = parent_node_data.inv_mass;
-    } else {
-      parent_inv_mass = 0.f;
+      auto& parent_node_data = parent_node.data;
+      glm::quat parent_q_correction, q_correction;
+      const auto rest_darboux_vector = glm::conjugate(parent_node_data.q0) * node_data.q0;
+      const auto alpha = glm::vec3(0.f);
+      // = glm::vec3(node_data.bending_alpha, node_data.bending_alpha, node_data.torsion_alpha);
+      project_bend_twist_constraint(inv_time_step, parent_node_data.q, parent_node_data.inv_mass, node_data.q,
+                                    node_data.inv_mass, alpha, rest_darboux_vector, parent_q_correction, q_correction);
+      parent_node_data.q = glm::normalize(parent_node_data.q + parent_q_correction);
+      node_data.q = glm::normalize(node_data.q + q_correction);
     }
-    const auto& child_handles = node.PeekChildHandles();
-    if (!child_handles.empty()) {
-      float children_mass = 0.f;
-      for (const auto& child_handle : node.PeekChildHandles()) {
-        const auto child_inv_mass = dts_skeleton.PeekNode(child_handle).data.inv_mass;
-        if (child_inv_mass != 0.f) {
-          children_mass += 1.f / child_inv_mass;
-        } else {
-          children_mass = 0.f;
-          break;
-        }
-      }
-      if (children_mass != 0.f) {
-        children_inv_mass = 1.f / children_mass;
-      }
-    }
+  }
 
+  for (const auto& node_handle : sorted_node_list) {
+    // 1. If you have a parent node, apply bend and twist
+    auto& node = dts_skeleton.RefNode(node_handle);
+    auto& node_data = node.data;
     // 2. Stretch & shear
     glm::vec3 x0_correction, x1_correction;
     glm::quat q_correction;
+    const auto alpha = glm::vec3(0.f);
+    // glm::vec3(node_data.shearing_alpha, node_data.shearing_alpha, node_data.stretching_alpha);
     project_shear_stretch_constraint(inv_time_step, node_data.particle0.x, node_data.particle1.x, node_data.q,
-                                     parent_inv_mass, children_inv_mass, (parent_inv_mass + children_inv_mass) / 2.f,
-                                     glm::vec3(0.0f), node.info.length, x0_correction, x1_correction, q_correction);
+                                     node_data.inv_mass, node_data.inv_mass, node_data.inv_mass, alpha,
+                                     node.data.length, x0_correction, x1_correction, q_correction);
 
     node_data.particle0.x += x0_correction;
     node_data.particle1.x += x1_correction;
     node_data.q = glm::normalize(node_data.q + q_correction);
-    // 3. Connect
-    if (parent_handle != -1) {
-      dts_skeleton.RefNode(parent_handle).data.particle1.x = node_data.particle0.x;
-    }
-    q_correction.x = q_correction.y = q_correction.z = q_correction.w = 0.f;
-    if (!child_handles.empty()) {
-      for (const auto& child_handle : child_handles) {
-        dts_skeleton.RefNode(child_handle).data.particle0.x = node_data.particle1.x;
+  }
 
-        auto& child_node = dts_skeleton.RefNode(child_handle);
-        auto& child_node_data = child_node.data;
-        glm::quat child_q_correction, local_q_correction;
-        const auto rest_darboux_vector = glm::conjugate(node_data.q0) * child_node_data.q0;
-        project_bend_twist_constraint(inv_time_step, node_data.q, node_data.inv_mass, child_node_data.q,
-                                      child_node_data.inv_mass, glm::vec3(0.0f), rest_darboux_vector,
-                                      local_q_correction, child_q_correction);
-        child_node_data.q = glm::normalize(child_node_data.q + child_q_correction);
-        q_correction += local_q_correction;
-      }
-      q_correction.w /= child_handles.size();
-      q_correction.x /= child_handles.size();
-      q_correction.y /= child_handles.size();
-      q_correction.z /= child_handles.size();
-      node_data.q = glm::normalize(node_data.q + q_correction);
+  for (const auto& node_handle : sorted_node_list) {
+    // 1. If you have a parent node, apply bend and twist
+    auto& node = dts_skeleton.RefNode(node_handle);
+    auto& node_data = node.data;
+    const auto& child_handles = node.PeekChildHandles();
+    if (child_handles.empty())
+      continue;
+    glm::vec3 position_sum = node_data.particle1.x;
+    float weight_sum = 1.f / node_data.inv_mass;
+    for (const auto& child_handle : child_handles) {
+      const auto& child_node_data = dts_skeleton.PeekNode(child_handle).data;
+      position_sum += child_node_data.particle0.x;
+      weight_sum += 1.f / child_node_data.inv_mass;
     }
+    position_sum /= weight_sum;
+    for (const auto& child_handle : child_handles) {
+      auto& child_node_data = dts_skeleton.RefNode(child_handle).data;
+      child_node_data.particle0.x = position_sum;
+    }
+    node_data.particle1.x = position_sum;
   }
 }
 
 void DynamicSkeleton::VelocityUpdate(const PhysicsParameters& physics_parameters) {
   const auto& sorted_node_list = dts_skeleton.PeekSortedNodeList();
-  const auto sub_time_step = time_step / sub_step;
+  const auto sub_time_step = physics_parameters.time_step / physics_parameters.sub_step;
   const auto inv_time_step = 1.f / sub_time_step;
   Jobs::RunParallelFor(sorted_node_list.size(), [&](const auto i) {
     auto& node = dts_skeleton.RefNode(sorted_node_list[i]);

@@ -22,6 +22,7 @@
 #include "FoliageDescriptor.hpp"
 #include "FruitDescriptor.hpp"
 #include "ShootDescriptor.hpp"
+#include "DynamicTreeSkeleton.hpp"
 using namespace eco_sys_lab_plugin;
 
 void TreeDescriptor::OnCreate() {
@@ -40,6 +41,7 @@ bool TreeDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     if (ImGui::Button("Instantiate")) {
       const auto scene = Application::GetActiveScene();
       const auto tree_entity = scene->CreateEntity(GetTitle());
+      const auto dynamic_tree_skeleton_entity = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity).lock();
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       float height = 0;
       if (const auto soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>()) {
