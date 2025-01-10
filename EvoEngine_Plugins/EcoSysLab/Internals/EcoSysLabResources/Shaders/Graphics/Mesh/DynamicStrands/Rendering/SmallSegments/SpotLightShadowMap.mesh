@@ -20,14 +20,6 @@ layout(max_vertices = SMALL_SEGMENT_VERTICES_SIZE, max_primitives = SMALL_SEGMEN
 const uint SMALL_SEGMENT_VERTEX_ITERATIONS    = ((SMALL_SEGMENT_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 const uint SMALL_SEGMENT_PRIMITIVE_ITERATIONS = ((SMALL_SEGMENT_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-layout(location = 0) out MS_V_OUT {
-	vec3 FragPos;
-	vec3 Normal;
-	vec3 Tangent;
-	vec2 TexCoord;
-	vec4 Color;
-} ms_v_out[];
-
 struct Task{
 	uint	baseID;
 	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
@@ -46,17 +38,28 @@ void main(){
 	SetMeshOutputsEXT(SMALL_SEGMENT_VERTICES_SIZE, SMALL_SEGMENT_TRIANGLE_SIZE);
 	
 	UniformParticle uniform_particle = uniform_particles[uniform_particle_id];
-
-	vec3 uniform_particle_position = uniform_particle.position_t.xyz;
+	UniformParticle prev_uniform_particle = uniform_particles[uniform_particle.prev_particle_handle];
 
 	Segment segment = segments[uniform_particle.segment_handle];
+	Segment prev_segment = segments[prev_uniform_particle.segment_handle];
+	
+	vec3 start_position = prev_uniform_particle.position_t.xyz;
+	vec3 end_position = uniform_particle.position_t.xyz;
+	
+	if(segment.group_index != prev_segment.group_index){
+		start_position = end_position - rotate_vec3(segment.q, vec3(0, 0, -1)) * segment.rest_length * 0.2f;
+	}
+	
+	vec3 center_position = (start_position + end_position) * 0.5f;
+	
+	vec3 front = normalize(end_position - start_position);
+	vec4 uniform_particle_rotation = quatLookAt(front, vec3(front.y, front.z, front.x));
 
-	vec4 uniform_particle_rotation = segment.q;
 
-	float radius = segment.radius * 2.f;
-	vec3 uniform_particle_scale = vec3(radius, radius, segment.rest_length);
+	float radius = segment.radius * 2.f * thickness_multiplier;
+	vec3 uniform_particle_scale = vec3(radius, radius, distance(start_position, end_position));
 
-	mat4 instance_matrix = translate(uniform_particle_position) * mat4_cast(uniform_particle_rotation) * scale(uniform_particle_scale);
+	mat4 instance_matrix = translate(center_position) * mat4_cast(uniform_particle_rotation) * scale(uniform_particle_scale);
 	
 	mat4 transform = EE_SPOT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix * instance_matrix;
 	
@@ -66,12 +69,7 @@ void main(){
 		uint vertex_index = laneID + i * WORKGROUP_SIZE;
 		if (vertex_index > SMALL_SEGMENT_VERTICES_SIZE) break;
 		vec3 vertex_position = positions[vertex_index];
-
-		ms_v_out[vertex_index].FragPos = vec4(instance_matrix * vec4(vertex_position, 1.0f)).xyz;
-		ms_v_out[vertex_index].TexCoord = tex_coords[vertex_index];
-		ms_v_out[vertex_index].Normal = vec4(instance_matrix * vec4(0, 1, 0, 0)).xyz;
-		ms_v_out[vertex_index].Tangent = vec4(instance_matrix * vec4(0, 0, 1, 0)).xyz;
-		ms_v_out[vertex_index].Color = vec4(0, 0, 0, 1);
+		
 		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0f);
 	}
 

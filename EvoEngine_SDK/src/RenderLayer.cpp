@@ -1437,7 +1437,7 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
     }
   }
   RenderInstanceStorage::CalculateLodFactor(scene, lod_center, lod_max_distance);
-  Bound world_bound{};
+  auto world_bound = scene->GetBound();
   need_fade_ = false;
   const auto current_render_instances = render_instances_list_[current_frame_index];
   current_render_instances->BuildFromScene(render_settings, scene, world_bound);
@@ -2039,11 +2039,13 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
 }
 
 void RenderLayer::PreUpdate() {
-  if (const auto scene = GetScene(); !scene)
+  const auto scene = GetScene();
+  if (!scene)
     return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   current_render_instances->Clear();
+  scene->SetBound({});
 }
 
 uint32_t RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,

@@ -57,7 +57,7 @@ void SpotLight::Serialize(YAML::Emitter& out) const {
 void SpotLight::Deserialize(const YAML::Node& in) {
   cast_shadow = in["cast_shadow"].as<bool>();
   if (in["shadow_distance"])
-    shadow_distance = in["shadow_distance"].as<bool>();
+    shadow_distance = in["shadow_distance"].as<float>();
   inner_degrees = in["inner_degrees"].as<float>();
   outer_degrees = in["outer_degrees"].as<float>();
   constant = in["constant"].as<float>();
@@ -126,7 +126,7 @@ void PointLight::Serialize(YAML::Emitter& out) const {
 void PointLight::Deserialize(const YAML::Node& in) {
   cast_shadow = in["cast_shadow"].as<bool>();
   if (in["shadow_distance"])
-    shadow_distance = in["shadow_distance"].as<bool>();
+    shadow_distance = in["shadow_distance"].as<float>();
   constant = in["constant"].as<float>();
   linear = in["linear"].as<float>();
   quadratic = in["quadratic"].as<float>();

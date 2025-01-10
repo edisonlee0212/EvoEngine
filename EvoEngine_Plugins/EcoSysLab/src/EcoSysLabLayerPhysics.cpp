@@ -30,8 +30,7 @@ void EcoSysLabLayer::DynamicStrandSimulation() const {
           }
         };
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-      if (!dts->dynamic_strands->WaitForUpload())
-        dts->dynamic_strands->UpdateBindings();
+      dts->dynamic_strands->UpdateBindings();
     });
     if (dynamic_strands_settings_.enable_physics) {
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
@@ -143,6 +142,13 @@ void EcoSysLabLayer::DynamicStrandVisualization() const {
 void EcoSysLabLayer::RegisterStrandRenderingProcedure() const {
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
+
+    auto bound = scene->GetBound();
+    bound.min = glm::min(bound.min, glm::vec3(-5.f, -1.f, -5.f));
+    bound.max = glm::max(bound.max, glm::vec3(5.f, 5.f, 5.f));
+
+    scene->SetBound(bound);
+
     const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
     const auto for_each_dts_entity =
         [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {

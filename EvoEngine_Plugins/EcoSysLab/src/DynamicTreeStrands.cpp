@@ -150,18 +150,21 @@ void DynamicTreeStrands::CreateStaticRoot() {
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
   bark_material_ref.Save("bark_material_ref", out);
   inner_wood_material_ref.Save("inner_wood_material_ref", out);
+  splinter_material_ref.Save("splinter_material_ref", out);
   leaf_material_ref.Save("leaf_material_ref", out);
 }
 
 void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
   bark_material_ref.Load("bark_material_ref", in);
   inner_wood_material_ref.Load("inner_wood_material_ref", in);
+  splinter_material_ref.Load("splinter_material_ref", in);
   leaf_material_ref.Load("leaf_material_ref", in);
 }
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   editor_layer->DragAndDropButton<Material>(bark_material_ref, "Bark Material");
   editor_layer->DragAndDropButton<Material>(inner_wood_material_ref, "Inner wood Material");
+  editor_layer->DragAndDropButton<Material>(splinter_material_ref, "Splinter Material");
   editor_layer->DragAndDropButton<Material>(leaf_material_ref, "Leaf Material");
 
   if (ImGui::TreeNode("Initialization settings")) {
@@ -303,6 +306,13 @@ void DynamicTreeStrands::OnCreate() {
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
     material->material_properties.albedo_color = glm::vec3(0.2f, 0.1f, 0.0f);
+  }
+  if (!splinter_material_ref.Get<Material>()) {
+    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    splinter_material_ref = material;
+    material->material_properties.roughness = 0.5f;
+    material->material_properties.metallic = 0.0f;
+    material->material_properties.albedo_color = glm::vec3(1.0f, 0.0f, 0.0f);
   }
   if (!leaf_material_ref.Get<Material>()) {
     const auto material = ProjectManager::CreateTemporaryAsset<Material>();
@@ -869,57 +879,53 @@ void DynamicTreeStrands::InteractionStep() const {
 
 void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const {
   if (!dynamic_strands->segments.empty()) {
-    if (!dynamic_strands->WaitForUpload()) {
-      const auto scene = GetScene();
-      for (const auto& pivot_operator : transform_pivots) {
-        if (scene->IsEntityValid(pivot_operator.target_entity)) {
-          const auto global_transform = scene->GetDataComponent<GlobalTransform>(pivot_operator.target_entity);
-          pivot_operator.ds_pivot_transform->Update(global_transform, dynamic_strands);
-        }
+    const auto scene = GetScene();
+    for (const auto& pivot_operator : transform_pivots) {
+      if (scene->IsEntityValid(pivot_operator.target_entity)) {
+        const auto global_transform = scene->GetDataComponent<GlobalTransform>(pivot_operator.target_entity);
+        pivot_operator.ds_pivot_transform->Update(global_transform, dynamic_strands);
       }
-      for (const auto& pivot_operator : axis_pivots) {
-        if (scene->IsEntityValid(pivot_operator.target_entity)) {
-          const auto global_transform = scene->GetDataComponent<GlobalTransform>(pivot_operator.target_entity);
-          pivot_operator.ds_pivot_axis->Update(global_transform);
-        }
-      }
-      for (const auto& pivot_operator : point_pivots) {
-        if (scene->IsEntityValid(pivot_operator.target_entity)) {
-          const auto global_transform = scene->GetDataComponent<GlobalTransform>(pivot_operator.target_entity);
-          pivot_operator.ds_pivot_point->Update(global_transform);
-        }
-      }
-      dynamic_strands->Physics(
-          physics_parameters,
-          [&]() {
-            if (gravity->enabled)
-              gravity->Execute(physics_parameters, dynamic_strands);
-            if (leaf_drop->enabled)
-              leaf_drop->Execute(physics_parameters, dynamic_strands);
-
-            if (drag_operator->enabled) {
-              drag_operator->Execute(physics_parameters, dynamic_strands);
-            }
-
-            if (line_cut_operator->enabled) {
-              line_cut_operator->Execute(dynamic_strands);
-            }
-            if (saw_operator->enabled) {
-              saw_operator->Execute(dynamic_strands);
-            }
-          },
-          [&]() {
-
-          });
     }
+    for (const auto& pivot_operator : axis_pivots) {
+      if (scene->IsEntityValid(pivot_operator.target_entity)) {
+        const auto global_transform = scene->GetDataComponent<GlobalTransform>(pivot_operator.target_entity);
+        pivot_operator.ds_pivot_axis->Update(global_transform);
+      }
+    }
+    for (const auto& pivot_operator : point_pivots) {
+      if (scene->IsEntityValid(pivot_operator.target_entity)) {
+        const auto global_transform = scene->GetDataComponent<GlobalTransform>(pivot_operator.target_entity);
+        pivot_operator.ds_pivot_point->Update(global_transform);
+      }
+    }
+    dynamic_strands->Physics(
+        physics_parameters,
+        [&]() {
+          if (gravity->enabled)
+            gravity->Execute(physics_parameters, dynamic_strands);
+          if (leaf_drop->enabled)
+            leaf_drop->Execute(physics_parameters, dynamic_strands);
+
+          if (drag_operator->enabled) {
+            drag_operator->Execute(physics_parameters, dynamic_strands);
+          }
+
+          if (line_cut_operator->enabled) {
+            line_cut_operator->Execute(dynamic_strands);
+          }
+          if (saw_operator->enabled) {
+            saw_operator->Execute(dynamic_strands);
+          }
+        },
+        [&]() {
+
+        });
   }
 }
 void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
                                        const DynamicStrands::VisualizationParameters& visualization_parameters) const {
   if (!dynamic_strands->segments.empty()) {
-    if (!dynamic_strands->WaitForUpload()) {
-      dynamic_strands->Visualize(target_camera, visualization_parameters);
-    }
+    dynamic_strands->Visualize(target_camera, visualization_parameters);
   }
 }
 
@@ -930,45 +936,45 @@ void DynamicTreeStrands::RegisterBranchesRenderInstance(
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
   }
-  if (const auto material = bark_material_ref.Get<Material>()) {
+  const auto inner_wood_material = inner_wood_material_ref.Get<Material>();
+  if (const auto bark_material = bark_material_ref.Get<Material>(); bark_material && inner_wood_material) {
     if (!dynamic_strands->segments.empty()) {
-      if (!dynamic_strands->WaitForUpload()) {
-        if (DynamicStrands::branches_point_light_render_pipeline &&
-            DynamicStrands::branches_point_light_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-            return dynamic_strands_copy->RenderBranchesToPointLightShadowMap(render_parameters, vk_command_buffer,
-                                                                             view);
-          });
-        }
-        if (DynamicStrands::branches_spot_light_render_pipeline &&
-            DynamicStrands::branches_spot_light_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-            return dynamic_strands_copy->RenderBranchesToSpotLightShadowMap(render_parameters, vk_command_buffer, view);
-          });
-        }
-        if (DynamicStrands::branches_directional_light_render_pipeline &&
-            DynamicStrands::branches_directional_light_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-            return dynamic_strands_copy->RenderBranchesToDirectionalLightShadowMap(render_parameters, vk_command_buffer,
-                                                                                   view);
-          });
-        }
-        if (DynamicStrands::branches_render_pipeline && DynamicStrands::branches_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
-          const auto renderer_handle = GetHandle();
-          current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
-          render_layer->DeferredRenderingAllCameras(
-              [=](const VkCommandBuffer vk_command_buffer,
-                  const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                  const RenderLayer::DeferredRenderingView& view) {
-                return dynamic_strands_copy->RenderBranchesToCameraDeferred(
-                    renderer_handle, render_parameters, vk_command_buffer, geometry_pass_color_attachment_infos, view);
-              });
-        }
+      if (DynamicStrands::branches_point_light_render_pipeline &&
+          DynamicStrands::branches_point_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderBranchesToPointLightShadowMap(render_parameters, vk_command_buffer, view);
+        });
+      }
+      if (DynamicStrands::branches_spot_light_render_pipeline &&
+          DynamicStrands::branches_spot_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderBranchesToSpotLightShadowMap(render_parameters, vk_command_buffer, view);
+        });
+      }
+      if (DynamicStrands::branches_directional_light_render_pipeline &&
+          DynamicStrands::branches_directional_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderBranchesToDirectionalLightShadowMap(render_parameters, vk_command_buffer,
+                                                                                 view);
+        });
+      }
+      if (DynamicStrands::branches_render_pipeline && DynamicStrands::branches_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto renderer_handle = GetHandle();
+        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, bark_material);
+        const auto inner_material_index = current_render_storage->RegisterMaterial(inner_wood_material);
+        render_layer->DeferredRenderingAllCameras(
+            [=](const VkCommandBuffer vk_command_buffer,
+                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                const RenderLayer::DeferredRenderingView& view) {
+              return dynamic_strands_copy->RenderBranchesToCameraDeferred(renderer_handle, inner_material_index,
+                                                                          render_parameters, vk_command_buffer,
+                                                                          geometry_pass_color_attachment_infos, view);
+            });
       }
     }
   }
@@ -981,47 +987,45 @@ void DynamicTreeStrands::RegisterSmallSegmentsRenderInstance(
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
   }
-  if (const auto material = inner_wood_material_ref.Get<Material>()) {
+  if (const auto material = splinter_material_ref.Get<Material>()) {
     if (!dynamic_strands->segments.empty()) {
-      if (!dynamic_strands->WaitForUpload()) {
-        if (DynamicStrands::small_segments_point_light_render_pipeline &&
-            DynamicStrands::small_segments_point_light_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-            return dynamic_strands_copy->RenderSmallSegmentsToPointLightShadowMap(render_parameters, vk_command_buffer,
-                                                                                  view);
-          });
-        }
-        if (DynamicStrands::small_segments_spot_light_render_pipeline &&
-            DynamicStrands::small_segments_spot_light_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-            return dynamic_strands_copy->RenderSmallSegmentsToSpotLightShadowMap(render_parameters, vk_command_buffer,
-                                                                                 view);
-          });
-        }
-        if (DynamicStrands::small_segments_directional_light_render_pipeline &&
-            DynamicStrands::small_segments_directional_light_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-            return dynamic_strands_copy->RenderSmallSegmentsToDirectionalLightShadowMap(render_parameters,
-                                                                                        vk_command_buffer, view);
-          });
-        }
-        if (DynamicStrands::small_segments_render_pipeline &&
-            DynamicStrands::small_segments_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
-          const auto renderer_handle = small_segments_rendering_instance_handle;
-          current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
-          render_layer->DeferredRenderingAllCameras(
-              [=](const VkCommandBuffer vk_command_buffer,
-                  const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                  const RenderLayer::DeferredRenderingView& view) {
-                return dynamic_strands_copy->RenderSmallSegmentsToCameraDeferred(
-                    renderer_handle, render_parameters, vk_command_buffer, geometry_pass_color_attachment_infos, view);
-              });
-        }
+      if (DynamicStrands::small_segments_point_light_render_pipeline &&
+          DynamicStrands::small_segments_point_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderSmallSegmentsToPointLightShadowMap(render_parameters, vk_command_buffer,
+                                                                                view);
+        });
+      }
+      if (DynamicStrands::small_segments_spot_light_render_pipeline &&
+          DynamicStrands::small_segments_spot_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderSmallSegmentsToSpotLightShadowMap(render_parameters, vk_command_buffer,
+                                                                               view);
+        });
+      }
+      if (DynamicStrands::small_segments_directional_light_render_pipeline &&
+          DynamicStrands::small_segments_directional_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderSmallSegmentsToDirectionalLightShadowMap(render_parameters,
+                                                                                      vk_command_buffer, view);
+        });
+      }
+      if (DynamicStrands::small_segments_render_pipeline &&
+          DynamicStrands::small_segments_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto renderer_handle = small_segments_rendering_instance_handle;
+        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
+        render_layer->DeferredRenderingAllCameras(
+            [=](const VkCommandBuffer vk_command_buffer,
+                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                const RenderLayer::DeferredRenderingView& view) {
+              return dynamic_strands_copy->RenderSmallSegmentsToCameraDeferred(
+                  renderer_handle, render_parameters, vk_command_buffer, geometry_pass_color_attachment_infos, view);
+            });
       }
     }
   }
@@ -1036,42 +1040,40 @@ void DynamicTreeStrands::RegisterFoliageRenderInstance(
   }
   if (const auto material = leaf_material_ref.Get<Material>()) {
     if (!dynamic_strands->foliage.empty()) {
-      if (!dynamic_strands->WaitForUpload()) {
-        if (DynamicStrands::foliage_point_light_render_pipeline &&
-            DynamicStrands::foliage_point_light_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-            return dynamic_strands_copy->RenderFoliageToPointLightShadowMap(render_parameters, vk_command_buffer, view);
-          });
-        }
-        if (DynamicStrands::foliage_spot_light_render_pipeline &&
-            DynamicStrands::foliage_spot_light_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-            return dynamic_strands_copy->RenderFoliageToSpotLightShadowMap(render_parameters, vk_command_buffer, view);
-          });
-        }
-        if (DynamicStrands::foliage_directional_light_render_pipeline &&
-            DynamicStrands::foliage_directional_light_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-            return dynamic_strands_copy->RenderFoliageToDirectionalLightShadowMap(render_parameters, vk_command_buffer,
-                                                                                  view);
-          });
-        }
-        if (DynamicStrands::foliage_render_pipeline && DynamicStrands::foliage_render_pipeline->Initialized()) {
-          const auto dynamic_strands_copy = dynamic_strands;
-          const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
-          const auto renderer_handle = foliage_rendering_instance_handle;
-          current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
-          render_layer->DeferredRenderingAllCameras(
-              [=](const VkCommandBuffer vk_command_buffer,
-                  const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                  const RenderLayer::DeferredRenderingView& view) {
-                return dynamic_strands_copy->RenderFoliageToCameraDeferred(
-                    renderer_handle, render_parameters, vk_command_buffer, geometry_pass_color_attachment_infos, view);
-              });
-        }
+      if (DynamicStrands::foliage_point_light_render_pipeline &&
+          DynamicStrands::foliage_point_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderFoliageToPointLightShadowMap(render_parameters, vk_command_buffer, view);
+        });
+      }
+      if (DynamicStrands::foliage_spot_light_render_pipeline &&
+          DynamicStrands::foliage_spot_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderFoliageToSpotLightShadowMap(render_parameters, vk_command_buffer, view);
+        });
+      }
+      if (DynamicStrands::foliage_directional_light_render_pipeline &&
+          DynamicStrands::foliage_directional_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderFoliageToDirectionalLightShadowMap(render_parameters, vk_command_buffer,
+                                                                                view);
+        });
+      }
+      if (DynamicStrands::foliage_render_pipeline && DynamicStrands::foliage_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto renderer_handle = foliage_rendering_instance_handle;
+        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
+        render_layer->DeferredRenderingAllCameras(
+            [=](const VkCommandBuffer vk_command_buffer,
+                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                const RenderLayer::DeferredRenderingView& view) {
+              return dynamic_strands_copy->RenderFoliageToCameraDeferred(
+                  renderer_handle, render_parameters, vk_command_buffer, geometry_pass_color_attachment_infos, view);
+            });
       }
     }
   }

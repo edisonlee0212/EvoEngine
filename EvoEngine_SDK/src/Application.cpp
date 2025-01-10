@@ -169,17 +169,7 @@ void Application::UpdateInternal() {
     }
     return;
   }
-  application.application_execution_status_ = ApplicationExecutionStatus::Update;
-  for (const auto& i : application.external_update_functions_)
-    i();
-
-  for (auto& i : application.layers_) {
-    i->Update();
-  }
-  if (application.application_status_ == ApplicationStatus::Playing ||
-      application.application_status_ == ApplicationStatus::Step) {
-    application.active_scene_->Update();
-  }
+  
   const auto render_layer = GetLayer<RenderLayer>();
   if (const auto editor_layer = GetLayer<EditorLayer>()) {
     if (ImGui::BeginMainMenuBar()) {
@@ -203,6 +193,19 @@ void Application::UpdateInternal() {
       }
     }
   }
+  application.application_execution_status_ = ApplicationExecutionStatus::Update;
+  
+  for (const auto& i : application.external_update_functions_)
+    i();
+
+  for (auto& i : application.layers_) {
+    i->Update();
+  }
+  if (application.application_status_ == ApplicationStatus::Playing ||
+      application.application_status_ == ApplicationStatus::Step) {
+    application.active_scene_->Update();
+  }
+
   if (render_layer) {
     render_layer->PrepareForRendering();
     render_layer->ClearAllEditorCameras();

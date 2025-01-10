@@ -59,6 +59,7 @@ struct BranchesRenderPushConstant {
   float max_dist_squared = 0.0f;
   int render_complex = 0;
   int vertex_colors = 0;
+  int inner_wood_material_index = 0;
 };
 
 void DynamicStrands::BuildBranchesRenderingPipelines() {
@@ -255,7 +256,7 @@ uint32_t DynamicStrands::RenderBranchesToDirectionalLightShadowMap(
 }
 
 uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
-    const Handle& renderer_handle, const BranchesRenderParameters& render_parameters,
+    const Handle& renderer_handle, int inner_wood_material_index, const BranchesRenderParameters& render_parameters,
     const VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view) const {
@@ -273,7 +274,6 @@ uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  const uint32_t compute_work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
   BranchesRenderPushConstant render_push_constant;
   render_push_constant.index1.instance_index =
@@ -287,6 +287,7 @@ uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
   render_push_constant.vertex_colors = render_parameters.vertex_colors;
   render_push_constant.u_multiplier = render_parameters.u_multiplier;
   render_push_constant.v_multiplier = render_parameters.v_multiplier;
+  render_push_constant.inner_wood_material_index = inner_wood_material_index;
   branches_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   branches_render_pipeline->states.SetViewportScissor(view.viewport);
   branches_render_pipeline->states.polygon_mode =

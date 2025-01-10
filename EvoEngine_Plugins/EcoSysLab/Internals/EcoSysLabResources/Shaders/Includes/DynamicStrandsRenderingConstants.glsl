@@ -10,4 +10,5 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
   float max_dist_squared;
   int render_complex;
   int vertex_colors;
+  int inner_wood_material_index;
 };
