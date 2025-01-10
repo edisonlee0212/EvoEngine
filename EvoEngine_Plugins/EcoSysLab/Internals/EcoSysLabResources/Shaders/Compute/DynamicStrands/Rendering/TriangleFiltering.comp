@@ -48,26 +48,38 @@ void main(){
 
 		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[delaunay_tetrahedron_index];
 
-		// reset flags
-		[[unroll]]
-		for (uint j = 0; j < 4; ++j)
-		{
-			uniform_particles[delaunay_tetrahedron.indices[j]].is_single_strand_particle = 1;
-			uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg = vec4(0.0, 0.0, 0.0, 0.0);
-		}
+		if(delaunay_tetrahedron.inside == 0) continue;
 		
-		float min_distance_squared;
+		// determine which triangles need to be rendered
+		[[unroll]]
+		for (uint triangle_index = 0; triangle_index < 4; ++triangle_index)
+		{
+			float min_distance_squared;
+			// check if we are at the boundary of the alpha shape
+			if(render_complex == 0){
+				delaunay_tetrahedron.render_neighbor[triangle_index] = InsideAlpha(delaunay_tetrahedron, int(triangle_index % 4), min_distance_squared) ? 0 : 1;
+			}
+			else {
+				delaunay_tetrahedron.render_neighbor[triangle_index] = 1;
+			}
 
-		if(!InsideAlpha(delaunay_tetrahedron, -1, min_distance_squared))
-		{
-			delaunay_tetrahedron.color = vec4(0.8, 0.0, min_distance_squared, 1.0);
-			delaunay_tetrahedron.inside = 0;
+			if(delaunay_tetrahedron.render_neighbor[triangle_index] != 1) continue;
+
+			vec4 normal_deg = vec4(ComputeTetTriangleNormal(delaunay_tetrahedron, triangle_index), 1.0f);
+
+			// add normal to all triangle vertices, so we can later compute an average
+			[[unroll]]
+			for(int j = 0; j < 4; j++){
+				if(j != triangle_index){
+					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.x, normal_deg.x);
+					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.y, normal_deg.y);
+					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.z, normal_deg.z);
+					//atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.w, normal_deg.w);
+					uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.w = 3.0f;
+				}
+			}
 		}
-		else
-		{
-			delaunay_tetrahedron.color = vec4(0.0, 0.8, min_distance_squared, 1.0);
-			delaunay_tetrahedron.inside = 1;
-		}
+
 		delaunay_tetrahedrons[delaunay_tetrahedron_index] = delaunay_tetrahedron;
 	}
 }

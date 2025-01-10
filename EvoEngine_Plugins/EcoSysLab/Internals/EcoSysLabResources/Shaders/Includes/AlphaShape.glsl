@@ -1,7 +1,5 @@
 #extension GL_EXT_control_flow_attributes : require
 
-#include "DynamicStrandsRenderingConstants.glsl"
-
 void SortFourElements(inout uint a[4]) {
   uint min1, min2, max1, max2;
 
@@ -253,4 +251,48 @@ bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float d) {
   d = SkeletonStructure(indices);
 
   return d <= alpha;
+}
+
+uint lookup[] = {2, 1, 3, 0, 2, 3, 1, 0, 3, 0, 1, 2};
+
+uvec3 triangles[] = {
+    uvec3(0, 1, 2),
+    uvec3(3, 4, 5),
+    uvec3(6, 7, 8),
+    uvec3(9, 10, 11),
+};
+
+vec3 ComputeTriangleNormal(vec3 v0, vec3 v1, vec3 v2) {
+  // Compute the two edges of the triangle
+  vec3 edge1 = v1 - v0;
+  vec3 edge2 = v2 - v0;
+
+  // Compute the cross product of the two edges to get the normal
+  vec3 normal = cross(edge1, edge2);
+
+  // Normalize the result to ensure the normal has unit length
+  return normalize(normal);
+}
+
+vec3 ComputeTetTriangleNormal(DelaunayTetrahedron tet, uint triangle_index) {
+
+  uvec3 triangle = triangles[triangle_index];
+  return ComputeTriangleNormal(uniform_particles[tet.indices[lookup[triangle[0]]]].position_t.xyz,
+                               uniform_particles[tet.indices[lookup[triangle[1]]]].position_t.xyz,
+                               uniform_particles[tet.indices[lookup[triangle[2]]]].position_t.xyz);
+}
+
+bool IsDegenerateTriangle(vec3 v0, vec3 v1, vec3 v2, float epsilon) {
+  // Compute the edges of the triangle
+  vec3 edge1 = v1 - v0;
+  vec3 edge2 = v2 - v0;
+
+  // Compute the cross product of the edges
+  vec3 crossProduct = cross(edge1, edge2);
+
+  // Check the squared length of the cross product
+  float areaSquared = dot(crossProduct, crossProduct);
+
+  // If the squared area is less than epsilon, the triangle is degenerate
+  return areaSquared < epsilon;
 }

@@ -731,7 +731,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       push_constant_range.size = sizeof(BarkFlagInitializationPushConstant);
       push_constant_range.offset = 0;
       push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-      bark_flag_initialization_pipeline->Initialize();
+      bark_flag_initialization_pipeline->Initialize(); 
     }
     const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
