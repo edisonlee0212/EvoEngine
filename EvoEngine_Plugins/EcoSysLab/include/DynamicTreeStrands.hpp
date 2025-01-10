@@ -42,6 +42,7 @@ class DynamicTreeStrands : public IPrivateComponent {
 
   AssetRef bark_material_ref;
   AssetRef inner_wood_material_ref;
+  AssetRef splinter_material_ref;
   AssetRef leaf_material_ref;
   std::shared_ptr<DsBoxSelection> box_selection_operator;
   std::shared_ptr<DsLineCut> line_cut_operator;

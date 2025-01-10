@@ -68,7 +68,6 @@ class DynamicStrands {
  public:
   DynamicStrands();
   uint32_t GetFrameIndex() const;
-  [[nodiscard]] bool WaitForUpload() const;
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
   static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
 #pragma region Initialization
@@ -160,16 +159,16 @@ class DynamicStrands {
       GroupIndex,
     };
 
-    enum class UniformParticleRenderMode { Default, SegmentColor };
+    enum class UniformParticleRenderMode { Default, SegmentColor, SingleParticles };
     enum class SegmentPairRenderMode { Default, BendingStrain, TwistStrain, BundleStrain };
     bool render_segments = true;
-    bool render_segment_pairs = true;
+    bool render_segment_pairs = false;
     bool render_uniform_particles = true;
     bool render_foliage = true;
 
     uint32_t segment_render_mode = 6;
     uint32_t segment_pair_render_mode = 0;
-    uint32_t uniform_particle_render_mode = 0;
+    uint32_t uniform_particle_render_mode = 2;
     uint32_t foliage_render_mode = 0;
 
     glm::vec4 segment_color_min = glm::vec4(0, 0, 1, 1);
@@ -184,7 +183,7 @@ class DynamicStrands {
     float segment_pair_radius_multiplier = 0.9f;
 
     glm::vec4 uniform_particle_main = glm::vec4(1, 1, 1, 0.8f);
-    float uniform_particle_radius_multiplier = 0.1f;
+    float uniform_particle_radius_multiplier = 2.f;
 
     glm::vec4 foliage_color_min = glm::vec4(0, 0, 1, 1);
     glm::vec4 foliage_color_max = glm::vec4(1, 0, 0, 1);
@@ -212,8 +211,9 @@ class DynamicStrands {
 
   struct SmallSegmentsRenderParameters {
     bool enabled = true;
-    bool cast_shadow = false;
+    bool cast_shadow = true;
     bool wireframe = false;
+    float thickness_multiplier = 2.0f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -494,7 +494,7 @@ class DynamicStrands {
                                                      VkCommandBuffer vk_command_buffer,
                                                      const RenderLayer::DirectionalLightShadowMapView& view) const;
   uint32_t RenderBranchesToCameraDeferred(
-      const Handle& renderer_handle, const BranchesRenderParameters& render_parameters,
+      const Handle& renderer_handle, int inner_wood_material_index, const BranchesRenderParameters& render_parameters,
       VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;
@@ -558,7 +558,6 @@ class DynamicStrands {
   inline static std::shared_ptr<GraphicsPipeline> small_segments_render_pipeline{};
 
  private:
-  bool wait_for_upload = true;
   uint32_t frame_index = 0;
 
 #ifdef USE_CGAL

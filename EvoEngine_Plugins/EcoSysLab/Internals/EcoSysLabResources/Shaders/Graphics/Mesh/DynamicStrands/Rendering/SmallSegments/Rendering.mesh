@@ -46,17 +46,28 @@ void main(){
 	SetMeshOutputsEXT(SMALL_SEGMENT_VERTICES_SIZE, SMALL_SEGMENT_TRIANGLE_SIZE);
 	
 	UniformParticle uniform_particle = uniform_particles[uniform_particle_id];
-
-	vec3 uniform_particle_position = uniform_particle.position_t.xyz;
+	UniformParticle prev_uniform_particle = uniform_particles[uniform_particle.prev_particle_handle];
 
 	Segment segment = segments[uniform_particle.segment_handle];
+	Segment prev_segment = segments[prev_uniform_particle.segment_handle];
 
-	vec4 uniform_particle_rotation = segment.q;
+	vec3 start_position = prev_uniform_particle.position_t.xyz;
+	vec3 end_position = uniform_particle.position_t.xyz;
 
-	float radius = segment.radius * 2.f;
-	vec3 uniform_particle_scale = vec3(radius, radius, segment.rest_length);
+	if(segment.group_index != prev_segment.group_index){
+		start_position = end_position - rotate_vec3(segment.q, vec3(0, 0, -1)) * segment.rest_length * 0.2f;
+	}
 
-	mat4 instance_matrix = translate(uniform_particle_position) * mat4_cast(uniform_particle_rotation) * scale(uniform_particle_scale);
+	vec3 center_position = (start_position + end_position) * 0.5f;
+	
+	vec3 front = normalize(end_position - start_position);
+	vec4 uniform_particle_rotation = quatLookAt(front, vec3(front.y, front.z, front.x));
+
+
+	float radius = segment.radius * 2.f * thickness_multiplier;
+	vec3 uniform_particle_scale = vec3(radius, radius, distance(start_position, end_position));
+
+	mat4 instance_matrix = translate(center_position) * mat4_cast(uniform_particle_rotation) * scale(uniform_particle_scale);
 	
 	mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * instance_matrix;
 	
@@ -69,8 +80,8 @@ void main(){
 
 		ms_v_out[vertex_index].FragPos = vec4(instance_matrix * vec4(vertex_position, 1.0f)).xyz;
 		ms_v_out[vertex_index].TexCoord = tex_coords[vertex_index];
-		ms_v_out[vertex_index].Normal = vec4(instance_matrix * vec4(0, 1, 0, 0)).xyz;
-		ms_v_out[vertex_index].Tangent = vec4(instance_matrix * vec4(0, 0, 1, 0)).xyz;
+		ms_v_out[vertex_index].Normal = normalize(vec4(instance_matrix * vec4(normals[vertex_index], 0.0f)).xyz);
+		ms_v_out[vertex_index].Tangent = normalize(vec4(instance_matrix * vec4(tangents[vertex_index], 0.0f)).xyz);
 		ms_v_out[vertex_index].Color = vec4(0, 0, 0, 1);
 		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0f);
 	}

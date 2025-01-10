@@ -51,8 +51,7 @@ void main(){
 		
 		UniformParticle uniform_particle = uniform_particles[uniform_particle_index_global];
 
-		bool render = !(uniform_particle_index_global > uniform_particles_size - 1) && uniform_particle.is_single_strand_particle != 0;
-
+		bool render = !(uniform_particle_index_global > uniform_particles_size - 1) && uniform_particle.is_single_strand_particle != 0 && uniform_particle.prev_particle_handle != -1;
 		uvec4 vote_uniform_particles = subgroupBallot(render);
 		uint num_uniform_particles  = subgroupBallotBitCount(vote_uniform_particles);
 

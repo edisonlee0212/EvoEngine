@@ -605,8 +605,6 @@ bool RenderInstanceStorage::MaterialInfoBlock::operator!=(const MaterialInfoBloc
 void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>& target_scene, Bound& world_bound) {
   auto& min_bound = world_bound.min;
   auto& max_bound = world_bound.max;
-  min_bound = glm::vec3(FLT_MAX);
-  max_bound = glm::vec3(-FLT_MAX);
   geometry_storage_version = GeometryStorage::GetVersion();
   texture_storage_version = TextureStorage::GetVersion();
   bool has_render_instance = false;

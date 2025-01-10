@@ -708,7 +708,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     leaf.position_offset = glm::vec4(glm::inverse(segment.q0) * (leaf.x0 - segment.GetCenterX0()), 0.0f);
   });
   Upload();
-
   Platform::AddTemporaryBufferSyncAction([&]() {
     if (segments.empty())
       return;
@@ -728,7 +727,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       bark_flag_initialization_pipeline = std::make_shared<ComputePipeline>();
       bark_flag_initialization_pipeline->compute_shader = shader;
       bark_flag_initialization_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-      bark_flag_initialization_pipeline->map_entries.emplace_back(Platform::Constants::compute_work_group_invocations);
       auto& push_constant_range = bark_flag_initialization_pipeline->push_constant_ranges.emplace_back();
       push_constant_range.size = sizeof(BarkFlagInitializationPushConstant);
       push_constant_range.offset = 0;

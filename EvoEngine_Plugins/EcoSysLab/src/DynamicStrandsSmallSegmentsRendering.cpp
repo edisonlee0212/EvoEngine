@@ -18,6 +18,9 @@ bool DynamicStrands::SmallSegmentsRenderParameters::OnInspect(const std::shared_
   if (ImGui::Checkbox("Wireframe", &wireframe)) {
     changed = true;
   }
+  if (ImGui::DragFloat("Thickness multiplier", &thickness_multiplier, 0.1f, 0.1f, 10.f)) {
+    changed = true;
+  }
   return changed;
 }
 
@@ -31,6 +34,7 @@ struct SmallSegmentsRenderPushConstant {
     int light_index;
   } index2;
   uint32_t uniform_particle_size;
+  float thickness_multiplier;
 };
 
 void DynamicStrands::BuildSmallSegmentsRenderingPipelines() {
@@ -145,6 +149,7 @@ uint32_t DynamicStrands::RenderSmallSegmentsToPointLightShadowMap(
   push_constant.index1.sub_light_index = view.face_index;
   push_constant.index2.light_index = view.light_index;
   push_constant.uniform_particle_size = uniform_particles.size();
+  push_constant.thickness_multiplier = render_parameters.thickness_multiplier;
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   small_segments_point_light_render_pipeline->Bind(vk_command_buffer);
@@ -174,6 +179,8 @@ uint32_t DynamicStrands::RenderSmallSegmentsToSpotLightShadowMap(
   push_constant.index1.sub_light_index = 0;
   push_constant.index2.light_index = view.light_index;
   push_constant.uniform_particle_size = uniform_particles.size();
+  push_constant.thickness_multiplier = render_parameters.thickness_multiplier;
+
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   small_segments_spot_light_render_pipeline->Bind(vk_command_buffer);
   small_segments_spot_light_render_pipeline->BindDescriptorSet(
@@ -202,6 +209,8 @@ uint32_t DynamicStrands::RenderSmallSegmentsToDirectionalLightShadowMap(
   push_constant.index1.sub_light_index = view.split_index;
   push_constant.index2.light_index = view.light_index;
   push_constant.uniform_particle_size = uniform_particles.size();
+  push_constant.thickness_multiplier = render_parameters.thickness_multiplier;
+
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   small_segments_directional_light_render_pipeline->Bind(vk_command_buffer);
   small_segments_directional_light_render_pipeline->BindDescriptorSet(
@@ -234,6 +243,8 @@ uint32_t DynamicStrands::RenderSmallSegmentsToCameraDeferred(
       Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(renderer_handle);
   push_constant.index2.camera_index = view.camera_index;
   push_constant.uniform_particle_size = uniform_particles.size();
+  push_constant.thickness_multiplier = render_parameters.thickness_multiplier;
+
   small_segments_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   small_segments_render_pipeline->states.SetViewportScissor(view.viewport);
   small_segments_render_pipeline->states.polygon_mode =

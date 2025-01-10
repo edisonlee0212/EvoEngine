@@ -9,11 +9,18 @@
 #include "DynamicStrands.glsl"
 #include "Math.glsl"
 
-layout(local_size_x_id = 0) in; // Set value for local_size_x via specialization constant with id 0
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
-#define BARRIER()        \
-	memoryBarrierShared(); \
-	barrier();
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint segment_size;
@@ -28,7 +35,13 @@ layout(std430, set = 1, binding = 1) buffer NEW_GROUP_INDICES_BLOCK {
 };
 
 void main() {
-	int segment_index = int(gl_GlobalInvocationID.x);
-	if (segment_index >= segment_size) return;
-	segments[segment_index].group_index = new_group_indices[segment_index];
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint segment_index = baseID + local_index;
+
+		if(segment_index >= segment_size) break;
+		segments[segment_index].group_index = new_group_indices[segment_index];
+	}
 }
