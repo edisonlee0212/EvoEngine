@@ -59,14 +59,14 @@ void main(){
 				|| abs(segment0.shear_stretch_strain.y) > segment0.shear_stretch_strain_limit.y
 				|| abs(segment1.shear_stretch_strain.x) > segment1.shear_stretch_strain_limit.x
 				|| abs(segment1.shear_stretch_strain.y) > segment1.shear_stretch_strain_limit.y){
-				connectivity_integrity = -1.0f;
+				connectivity_integrity = 0.0f;
 			}
 		}
 		if(allow_breaking == 1){
 			if(abs(bend_twist_strain.x) > bending_twist_bundle_strain_limit.x
 				|| abs(bend_twist_strain.y) > bending_twist_bundle_strain_limit.z
 				|| bundle_strain > bending_twist_bundle_strain_limit.z){
-				bend_twist_bundle_integrity = -1.0f;
+				bend_twist_bundle_integrity = 0.0f;
 			}
 		}
 

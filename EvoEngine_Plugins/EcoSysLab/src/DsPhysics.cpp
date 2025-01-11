@@ -50,11 +50,13 @@ void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.time_step = physics_parameters.time_step;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
+  segment_push_constant.acceleration = physics_parameters.gravity;
 
   LeafPreStepPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
   leaf_push_constant.time_step = physics_parameters.time_step;
   leaf_push_constant.inv_time_step = 1.f / leaf_push_constant.time_step;
+  leaf_push_constant.acceleration = physics_parameters.gravity;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_pre_step_pipeline->Bind(vk_command_buffer);
@@ -304,11 +306,15 @@ void DsVelocityUpdate::Execute(const DynamicStrands::PhysicsParameters& physics_
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   SegmentPushConstant segment_push_constant;
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
+  segment_push_constant.max_angular_velocity = max_angular_velocity;
   segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
+  segment_push_constant.max_velocity = max_velocity;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
   LeafPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  leaf_push_constant.max_angular_velocity = max_angular_velocity;
   leaf_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
+  leaf_push_constant.max_velocity = max_velocity;
   leaf_push_constant.inv_time_step = 1.f / leaf_push_constant.time_step;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {

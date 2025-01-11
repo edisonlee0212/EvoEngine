@@ -129,15 +129,16 @@ class DynamicStrands {
     float time_step = 0.01f;
     int sub_step = 25;
 
-    int constraint_iteration = 1;
-    bool enable_segment_disconnection = false;
-    bool enable_segment_breaking = false;
+    int position_constraint_iteration = 1;
+    int velocity_constraint_iteration = 1;
+    bool enable_segment_disconnection = true;
+    bool enable_segment_breaking = true;
     bool enable_foliage_detachment = true;
     int segment_breaking_detection_frame = 1;
     int segment_disconnection_detection_frame = 1;
     int foliage_detachment_detection_frame = 1;
 
-    float segment_velocity_damping = 0.001f;
+    float segment_velocity_damping = 0.002f;
     float segment_angular_velocity_damping = 0.0001f;
 
     float leaf_velocity_damping = 0.005f;
@@ -145,6 +146,9 @@ class DynamicStrands {
 
     bool enable_segment_collision = false;
     bool enable_grouping = true;
+
+    glm::vec3 gravity = glm::vec3(0, -9.81f, 0);
+
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -206,7 +210,7 @@ class DynamicStrands {
     float u_multiplier = 2;
     float v_multiplier = 0.25;
     float degen_triangle_threshold_logairthmic = 5.0f;
-    float global_extrusion_distance = 0.0f;
+    float global_extrusion_distance = 0.001f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -322,6 +326,11 @@ class DynamicStrands {
 
     glm::vec2 max_shear_stretch_strain;
     glm::vec2 shear_stretch_strain_limit;
+
+    float property0;
+    float property1;
+    float property2;
+    float property3;
 
     GpuParticle particle0{};
     GpuParticle particle1{};

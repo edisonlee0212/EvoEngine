@@ -9,22 +9,21 @@ using namespace eco_sys_lab_plugin;
 
 bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (ImGui::Checkbox("Enabled", &enabled))
-    changed = true;
   if (ImGui::Checkbox("Render interior complex", &render_complex))
     changed = true;
   if (ImGui::Checkbox("Wireframe", &wireframe))
     changed = true;
-  if (ImGui::DragFloat("alpha", &alpha, 0.00001f, 0.0f, 1.0f, "%.6f"))
+  if (ImGui::DragFloat("Alpha", &alpha, 0.00001f, 0.0f, 1.0f, "%.6f"))
     changed = true;
-  if (ImGui::DragFloat("bifurcation alpha", &bifurcation_alpha, 0.00001f, 0.0f, 1.0f, "%.6f"))
+  if (ImGui::DragFloat("Bifurcation alpha", &bifurcation_alpha, 0.00001f, 0.0f, 1.0f, "%.6f"))
     changed = true;
-  if (ImGui::DragFloat("max dist squared", &max_dist_squared, 0.01f, 0.0f, 1.0f, "%.6f"))
+  if (ImGui::DragFloat("Max dist squared", &max_dist_squared, 0.01f, 0.0f, 1.0f, "%.6f"))
     changed = true;
-  if (ImGui::DragFloat("extrusion distance", &global_extrusion_distance, 0.0001f, 0.0f, 0.1f, "%.4f"))
+  if (ImGui::DragFloat("Extrusion distance", &global_extrusion_distance, 0.0001f, 0.0f, 0.1f, "%.4f"))
     changed = true;
 
-  if (ImGui::DragFloat("Degen triangle threshold 1e-x", &degen_triangle_threshold_logairthmic, 0.01f, 0.0f, 40.0f, "%.6f"))
+  if (ImGui::DragFloat("Degenerate triangle threshold 1e-x", &degen_triangle_threshold_logairthmic, 0.01f, 0.0f, 40.0f,
+                       "%.6f"))
     changed = true;
 
   ImGui::Text("Use normal attribute for debugging");
@@ -155,7 +154,7 @@ void DynamicStrands::BuildBranchesRenderingPipelines() {
   branches_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
   branches_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::lighting_layout);
   branches_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
-  branches_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED; 
+  branches_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   branches_render_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
   auto& push_constant_range = branches_render_pipeline->push_constant_ranges.emplace_back();
   push_constant_range.size = sizeof(BranchesRenderPushConstant);
@@ -278,8 +277,8 @@ uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return 0;
   }
-  if (!branches_tetrahedron_filtering_pipeline || !branches_triangle_filtering_pipeline ||
-    !branches_render_pipeline || !branches_render_pipeline->Initialized()) {
+  if (!branches_tetrahedron_filtering_pipeline || !branches_triangle_filtering_pipeline || !branches_render_pipeline ||
+      !branches_render_pipeline->Initialized()) {
     return 0;
   }
   const auto current_frame_index = Platform::GetCurrentFrameIndex();

@@ -36,14 +36,9 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   vec3 p1 = particle1.x;
 
   float inv_mass_q = segment.inv_mass;
-  float inv_mass_p0 = inv_mass_q;
-  float inv_mass_p1 = inv_mass_q;
-  if (segment.prev_handle != -1) {
-    inv_mass_p0 = segments[segment.prev_handle].inv_mass;
-  }
-  if (segment.next_handle != -1) {
-    inv_mass_p1 = segments[segment.next_handle].inv_mass;
-  }
+  float inv_mass_p0 = segment.prev_handle != -1 ? segments[segment.prev_handle].inv_mass : inv_mass_q;
+  float inv_mass_p1 = segment.next_handle != -1 ? segments[segment.next_handle].inv_mass : inv_mass_q;
+  
   vec4 q = segment.q;
   vec3 alpha = vec3(segment.shearing_alpha, segment.shearing_alpha, segment.stretching_alpha);
   float rest_length = segment.rest_length;
@@ -59,15 +54,11 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
 
   SegmentData segment_data = segment_data_list[segment_handle];
 
-  if (segment.prev_handle != -1) {
-    if (segment_pairs[segment_data.pair_handles[0]].connectivity_integrity > 0.f) {
-      segments[segment.prev_handle].particle1.x = particle0_new_position;
-    }
+  if (segment.prev_handle != -1 && segment_pairs[segment_data.pair_handles[0]].connectivity_integrity > 0.f) {
+    segments[segment.prev_handle].particle1.x = particle0_new_position;
   }
-  if (segment.next_handle != -1) {
-    if (segment_pairs[segment_data.pair_handles[1]].connectivity_integrity > 0.f) {
-      segments[segment.next_handle].particle0.x = particle1_new_position;
-    }
+  if (segment.next_handle != -1 && segment_pairs [segment_data.pair_handles[1]].connectivity_integrity > 0.f) {
+    segments[segment.next_handle].particle0.x = particle1_new_position;
   }
 }
 
@@ -82,14 +73,9 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   vec3 p1 = particle1.x;
 
   float inv_mass_q = segment.inv_mass;
-  float inv_mass_p0 = inv_mass_q;
-  float inv_mass_p1 = inv_mass_q;
-  if (segment.prev_handle != -1) {
-    inv_mass_p0 = segments[segment.prev_handle].inv_mass;
-  }
-  if (segment.next_handle != -1) {
-    inv_mass_p1 = segments[segment.next_handle].inv_mass;
-  }
+  float inv_mass_p0 = segment.prev_handle != -1 ? segments[segment.prev_handle].inv_mass : inv_mass_q;
+  float inv_mass_p1 = segment.next_handle != -1 ? segments[segment.next_handle].inv_mass : inv_mass_q;
+  
   vec4 q = segment.q;
   vec3 alpha = vec3(segment.shearing_alpha, segment.shearing_alpha, segment.stretching_alpha);
   float rest_length = segment.rest_length;
@@ -170,8 +156,8 @@ void project_bend_twist_constraint(in float inv_time_step, in vec4 q0, in float 
   vec4 lambda = quat_mul(conjugate(q0), q1);
   vec4 lambda_plus = lambda + rest_darboux_vector;
   lambda -= rest_darboux_vector;
-  if (squared_norm(lambda) > squared_norm(lambda_plus))
-    lambda = lambda_plus;
+  lambda = squared_norm(lambda) > squared_norm(lambda_plus) ? lambda_plus : lambda;
+
   float factor = max(1e-9f, inv_mass_q0 + inv_mass_q1);
 
   float t2 = inv_time_step * inv_time_step;
@@ -200,8 +186,8 @@ vec2 bend_twist_strain(in vec4 q0, in vec4 q1, in vec4 rest_darboux_vector) {
   vec4 lambda = quat_mul(conjugate(q0), q1);
   vec4 lambda_plus = lambda + rest_darboux_vector;
   lambda -= rest_darboux_vector;
-  if (squared_norm(lambda) > squared_norm(lambda_plus))
-    lambda = lambda_plus;
+  lambda = squared_norm(lambda) > squared_norm(lambda_plus) ? lambda_plus : lambda;
+
   return vec2(max(abs(lambda.x), abs(lambda.y)), lambda.z);
 }
 
@@ -256,14 +242,11 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
     movement1_sum += segment0_particle1_position_correction;
   }
 
-  if (sum != 0) {
-    float bundle_alpha = bundle_alpha_sum / sum;
-    segment_data_list[segment_handle].particle0_position_correction.xyz = movement0_sum / sum / (1.0f + bundle_alpha);
-    segment_data_list[segment_handle].particle1_position_correction.xyz = movement1_sum / sum / (1.0f + bundle_alpha);
-  } else {
-    segment_data_list[segment_handle].particle0_position_correction.xyz = vec3(0.0f, 0.0f, 0.0f);
-    segment_data_list[segment_handle].particle1_position_correction.xyz = vec3(0.0f, 0.0f, 0.0f);
-  }
+  segment_data_list[segment_handle].particle0_position_correction.xyz =
+      sum != 0 ? movement0_sum / sum / (1.0f + bundle_alpha_sum / sum) : vec3(0.0f, 0.0f, 0.0f);
+  segment_data_list[segment_handle].particle1_position_correction.xyz =
+      sum != 0 ? movement1_sum / sum / (1.0f + bundle_alpha_sum / sum) : vec3(0.0f, 0.0f, 0.0f);
+
 }
 
 // Assume vectors are normalized.
@@ -305,13 +288,9 @@ vec4 compute_rotation_between(in vec3 v1, in vec3 v2, in vec3 axis) {
   dot_product = clamp(dot_product, -1.0f, 1.0f);
 
   float angle = atan(sine / dot_product);
-  if (dot_product < 0) {
-    angle += (sine >= 0 ? 3.1415926f : -3.1415926f);
-  }
+  angle += dot_product < 0 ? (sine >= 0 ? 3.1415926f : -3.1415926f) : 0.f;
+  angle = dot(cross_product, axis) < 0 ? -angle : angle;
 
-  if (dot(cross_product, axis) < 0) {
-    angle = -angle;
-  }
   float half_angle = angle * .5f;
   float sin_angle = sin(half_angle);
   return vec4(axis * sin_angle, cos(half_angle));
@@ -368,12 +347,8 @@ void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in fl
       rotation_sum += 1.0f;
     }
   }
-
-  if (rotation_sum != 0) {
-    segment_data_list[segment_handle].q_correction = q_correction_sum / rotation_sum;
-  } else {
-    segment_data_list[segment_handle].q_correction = vec4(0.0f, 0.0f, 0.0f, 0.0f);
-  }
+  segment_data_list[segment_handle].q_correction =
+      rotation_sum != 0 ? q_correction_sum / rotation_sum : vec4(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
@@ -402,18 +377,7 @@ void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in f
     sum += 1.0f;
   }
 
-  if (sum != 0) {
-    vec4 q_correction = q_correction_sum / sum;
-    // vec3 alpha = alpha_sum / sum;
-    // float t2 = inv_time_step * inv_time_step;
-    // vec3 alpha_factor = vec3(t2 * alpha.x, t2 * alpha.y, t2 * alpha.z);
-    // q_correction.x /= (1.f + alpha_factor.x);
-    // q_correction.y /= (1.f + alpha_factor.y);
-    // q_correction.z /= (1.f + alpha_factor.z);
-    segment_data_list[segment_handle].q_correction = q_correction;
-  } else {
-    segment_data_list[segment_handle].q_correction = vec4(0.0f, 0.0f, 0.0f, 0.0f);
-  }
+  segment_data_list[segment_handle].q_correction = sum != 0 ? q_correction_sum / sum : vec4(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
@@ -428,14 +392,9 @@ void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
   vec3 p1 = particle1.x;
 
   float inv_mass_q = segment.inv_mass;
-  float inv_mass_p0 = inv_mass_q;
-  float inv_mass_p1 = inv_mass_q;
-  if (segment.prev_handle != -1) {
-    inv_mass_p0 = segments[segment.prev_handle].inv_mass;
-  }
-  if (segment.next_handle != -1) {
-    inv_mass_p1 = segments[segment.next_handle].inv_mass;
-  }
+  float inv_mass_p0 = segment.prev_handle != -1 ? segments[segment.prev_handle].inv_mass : inv_mass_q;
+  float inv_mass_p1 = segment.next_handle != -1 ? segments[segment.next_handle].inv_mass : inv_mass_q;
+  
   vec4 q = segment.q;
 
   vec3 alpha = vec3(segment.shearing_alpha, segment.shearing_alpha, segment.stretching_alpha);

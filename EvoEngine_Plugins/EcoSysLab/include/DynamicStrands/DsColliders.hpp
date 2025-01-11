@@ -18,7 +18,7 @@ class IDsCollider : public IPrivateComponent {
 
 class DsBoxCollider : public IDsCollider {
  public:
-  struct PushConstant {
+  struct SegmentPositionPushConstant {
     glm::quat obb_rotation;
     glm::vec3 obb_center;
     float padding0;
@@ -27,17 +27,53 @@ class DsBoxCollider : public IDsCollider {
     float softness = 1.0f;
     uint32_t segment_size;
   };
+  struct LeafPositionPushConstant {
+    glm::quat obb_rotation;
+    glm::vec3 obb_center;
+    float padding0;
+    glm::vec3 obb_scale;
+    float padding1;
+    float softness = 1.0f;
+    uint32_t leaf_size;
+  };
 
-  glm::vec3 scale = glm::vec3(0.5f);
+  struct SegmentVelocityPushConstant {
+    glm::quat obb_rotation;
+    glm::vec3 obb_center;
+    float padding0;
+    glm::vec3 obb_scale;
+    float padding1;
+    float friction = 1.0f;
+    uint32_t segment_size;
+  };
+  struct LeafVelocityPushConstant {
+    glm::quat obb_rotation;
+    glm::vec3 obb_center;
+    float padding0;
+    glm::vec3 obb_scale;
+    float padding1;
+    float friction = 1.0f;
+    uint32_t leaf_size;
+  };
+
+  glm::vec3 scale = glm::vec3(0.501f);
 
   float softness = 1.f;
+  float friction = 0.2f;
 
   void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Camera>& editor_camera,
                    const glm::vec4& color) override;
-  inline static std::shared_ptr<ComputePipeline> pipeline;
+  inline static std::shared_ptr<ComputePipeline> segment_position_pipeline;
+  inline static std::shared_ptr<ComputePipeline> leaf_position_pipeline;
+  inline static std::shared_ptr<ComputePipeline> segment_velocity_pipeline;
+  inline static std::shared_ptr<ComputePipeline> leaf_velocity_pipeline;
+
   DsBoxCollider();
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                 const DynamicStrands& target_dynamic_strands) override;
+
+  void ProjectVelocityConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
@@ -45,7 +81,7 @@ class DsBoxCollider : public IDsCollider {
 
 class DsCylinderCollider : public IDsCollider {
  public:
-  struct PushConstant {
+  struct SegmentPushConstant {
     glm::quat obb_rotation;
     glm::vec3 obb_center;
     float padding;
@@ -55,14 +91,24 @@ class DsCylinderCollider : public IDsCollider {
     uint32_t segment_size;
   };
 
-  float radius = .5f;
-  float height = .5f;
+  struct LeafPushConstant {
+    glm::quat obb_rotation;
+    glm::vec3 obb_center;
+    float padding;
+    float radius;
+    float height;
+    float softness = 1.0f;
+    uint32_t leaf_size;
+  };
+  float radius = .501f;
+  float height = .501f;
 
   float softness = 1.f;
 
   void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Camera>& editor_camera,
                    const glm::vec4& color) override;
-  inline static std::shared_ptr<ComputePipeline> pipeline;
+  inline static std::shared_ptr<ComputePipeline> segment_position_pipeline;
+  inline static std::shared_ptr<ComputePipeline> leaf_position_pipeline;
   DsCylinderCollider();
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -73,19 +119,29 @@ class DsCylinderCollider : public IDsCollider {
 
 class DsSphereCollider : public IDsCollider {
  public:
-  struct PushConstant {
+  struct SegmentPushConstant {
     glm::vec3 obb_center;
     float padding;
     float radius;
     float softness = 1.0f;
     uint32_t segment_size;
   };
-  float radius = .5f;
+
+  struct LeafPushConstant {
+    glm::vec3 obb_center;
+    float padding;
+    float radius;
+    float softness = 1.0f;
+    uint32_t leaf_size;
+  };
+
+  float radius = .501f;
   float softness = 1.f;
 
   void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Camera>& editor_camera,
                    const glm::vec4& color) override;
-  inline static std::shared_ptr<ComputePipeline> pipeline;
+  inline static std::shared_ptr<ComputePipeline> segment_position_pipeline;
+  inline static std::shared_ptr<ComputePipeline> leaf_position_pipeline;
   DsSphereCollider();
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,

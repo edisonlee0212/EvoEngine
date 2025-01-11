@@ -8,15 +8,18 @@ class DsPreStep {
   DsPreStep();
 
   struct SegmentPreStepPushConstant {
+    glm::vec3 acceleration;
     uint32_t segment_size = 0;
     float time_step = 0.01f;
     float inv_time_step = 100.f;
   };
   struct LeafPreStepPushConstant {
+    glm::vec3 acceleration;
     uint32_t leaf_size = 0;
     float time_step = 0.01f;
     float inv_time_step = 100.f;
   };
+
   inline static std::shared_ptr<ComputePipeline> segment_pre_step_pipeline;
   inline static std::shared_ptr<ComputePipeline> leaf_pre_step_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -73,16 +76,25 @@ class DsBreaking {
 class DsVelocityUpdate {
  public:
   struct SegmentPushConstant {
-    uint32_t segment_size = 0;
+    glm::vec3 max_angular_velocity;
     float time_step = 0.01f;
+    glm::vec3 max_velocity;
     float inv_time_step = 100.f;
+
+    uint32_t segment_size = 0;
   };
   struct LeafPushConstant {
-    uint32_t leaf_size = 0;
+    glm::vec3 max_angular_velocity;
     float time_step = 0.01f;
+    glm::vec3 max_velocity;
     float inv_time_step = 100.f;
+
+    uint32_t leaf_size = 0;
   };
   DsVelocityUpdate();
+
+  glm::vec3 max_angular_velocity = glm::vec3(1e6f);
+  glm::vec3 max_velocity = glm::vec3(1e6f);
 
   inline static std::shared_ptr<ComputePipeline> segment_pipeline;
   inline static std::shared_ptr<ComputePipeline> leaf_pipeline;

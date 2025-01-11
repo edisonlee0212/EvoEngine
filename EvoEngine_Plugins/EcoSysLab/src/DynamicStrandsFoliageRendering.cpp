@@ -9,9 +9,7 @@ using namespace eco_sys_lab_plugin;
 
 bool DynamicStrands::FoliageRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (ImGui::Checkbox("Enabled", &enabled)) {
-    changed = true;
-  }
+
   if (ImGui::Checkbox("Wireframe", &wireframe)) {
     changed = true;
   }

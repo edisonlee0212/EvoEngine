@@ -23,6 +23,7 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
+	vec3 acceleration;
 	uint segment_size;
 	float time_step;
 	float inv_time_step;
@@ -42,8 +43,8 @@ void main(){
 		segment.inv_mass = segment.original_inv_mass;
 
 		segment.shear_stretch_strain = vec2(0.0, 0.0);
-		segment.particle0.acceleration = vec3(0.0, 0.0, 0.0);
-		segment.particle1.acceleration = vec3(0.0, 0.0, 0.0);
+		segment.particle0.acceleration = segment.inv_mass != 0.0f ? acceleration : vec3(0.0, 0.0, 0.0);
+		segment.particle1.acceleration = segment.inv_mass != 0.0f ? acceleration : vec3(0.0, 0.0, 0.0);
 
 		segments[segment_index] = segment;
 	}

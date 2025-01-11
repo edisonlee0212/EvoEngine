@@ -24,7 +24,7 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	vec3 acceleration;
-	uint leaf_size;
+	uint segment_size;
 	float time_step;
 	float inv_time_step;
 };
@@ -34,17 +34,12 @@ void main(){
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint leaf_index = baseID + local_index;
+		uint segment_index = baseID + local_index;
 
-		if(leaf_index >= leaf_size) break;
+		if(segment_index >= segment_size) break;
 
-		Leaf leaf = foliage[leaf_index];
-		leaf.torque = vec3(0.0, 0.0, 0.0);
-		leaf.inv_mass = leaf.original_inv_mass;
-
-		leaf.rotation_strain = 0.0f;
-		leaf.position_strain = 0.0f;
-		leaf.acceleration = leaf.inv_mass != 0.0f ? acceleration : vec3(0.0, 0.0, 0.0);
-		foliage[leaf_index] = leaf;
+		Segment segment = segments[segment_index];
+		
+		segments[segment_index] = segment;
 	}
 }

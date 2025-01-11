@@ -39,12 +39,7 @@ void main(){
 		if(leaf_index >= leaf_size) break;
 
 		Leaf leaf = foliage[leaf_index];
-		leaf.torque = vec3(0.0, 0.0, 0.0);
-		leaf.inv_mass = leaf.original_inv_mass;
-
-		leaf.rotation_strain = 0.0f;
-		leaf.position_strain = 0.0f;
-		leaf.acceleration = leaf.inv_mass != 0.0f ? acceleration : vec3(0.0, 0.0, 0.0);
+		
 		foliage[leaf_index] = leaf;
 	}
 }

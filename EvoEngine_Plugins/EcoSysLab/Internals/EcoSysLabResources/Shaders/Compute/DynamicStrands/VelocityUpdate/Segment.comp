@@ -22,9 +22,12 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint segment_size;
+	vec3 max_angular_velocity;
 	float time_step;
+	vec3 max_velocity;
 	float inv_time_step;
+
+	uint segment_size;
 };
 
 void main(){
@@ -49,8 +52,8 @@ void main(){
 			p1_velocity = inv_time_step * (segment.particle1.x - segment.particle1.last_x);
 		}
 
-		segments[segment_index].angular_v = angular_velocity;
-		segments[segment_index].particle0.v = p0_velocity;
-		segments[segment_index].particle1.v = p1_velocity;
+		segments[segment_index].angular_v = min(inv_time_step * max_angular_velocity, angular_velocity);
+		segments[segment_index].particle0.v = min(inv_time_step * max_velocity, p0_velocity);
+		segments[segment_index].particle1.v = min(inv_time_step * max_velocity, p1_velocity);
 	}
 }

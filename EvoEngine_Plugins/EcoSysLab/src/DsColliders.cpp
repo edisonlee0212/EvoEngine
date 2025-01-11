@@ -28,23 +28,78 @@ void DsBoxCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer
 }
 
 DsBoxCollider::DsBoxCollider() {
-  if (!pipeline) {
+  if (!segment_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Colliders/BoxCollider.comp");
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentBox.comp");
 
-    pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader = shader;
-    pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    segment_position_pipeline = std::make_shared<ComputePipeline>();
+    segment_position_pipeline->compute_shader = shader;
+    segment_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
-    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(PushConstant);
+    auto& push_constant_range = segment_position_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentPositionPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    pipeline->Initialize();
+    segment_position_pipeline->Initialize();
+  }
+  if (!leaf_position_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafBox.comp");
+
+    leaf_position_pipeline = std::make_shared<ComputePipeline>();
+    leaf_position_pipeline->compute_shader = shader;
+    leaf_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_position_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafPositionPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_position_pipeline->Initialize();
+  }
+
+  if (!segment_velocity_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Velocity/Colliders/SegmentBox.comp");
+
+    segment_velocity_pipeline = std::make_shared<ComputePipeline>();
+    segment_velocity_pipeline->compute_shader = shader;
+    segment_velocity_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = segment_velocity_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentVelocityPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    segment_velocity_pipeline->Initialize();
+  }
+  if (!leaf_velocity_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Velocity/Colliders/LeafBox.comp");
+
+    leaf_velocity_pipeline = std::make_shared<ComputePipeline>();
+    leaf_velocity_pipeline->compute_shader = shader;
+    leaf_velocity_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_velocity_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafVelocityPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_velocity_pipeline->Initialize();
   }
 }
 
@@ -68,7 +123,9 @@ bool DsBoxCollider::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) 
   if (ImGui::DragFloat("Softness", &softness, 0.01f, 0.0f, 1.0f)) {
     changed = true;
   }
-
+  if (ImGui::DragFloat("Friction", &friction, 0.01f, 0.0f, 1.0f)) {
+    changed = true;
+  }
   ImGui::ColorEdit4("Bound Color:##DsBoxCollider", (float*)(void*)&bound_color);
   static bool display_bound = true;
   ImGui::Checkbox("Display bounds##DsBoxCollider", &display_bound);
@@ -84,8 +141,7 @@ void DsBoxCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations =
-      Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   glm::vec3 size = scale * global_transform.GetScale();
   if (size.x < 0.001f)
     size.x = 0.001f;
@@ -93,22 +149,86 @@ void DsBoxCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
     size.z = 0.001f;
   if (size.y < 0.001f)
     size.y = 0.001f;
-  PushConstant segment_push_constant;
+  SegmentPositionPushConstant segment_push_constant;
   segment_push_constant.obb_center = global_transform.GetPosition();
   segment_push_constant.obb_scale = size;
   segment_push_constant.obb_rotation = global_transform.GetRotation();
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.softness = softness;
 
+  LeafPositionPushConstant leaf_push_constant;
+  leaf_push_constant.obb_center = global_transform.GetPosition();
+  leaf_push_constant.obb_scale = size;
+  leaf_push_constant.obb_rotation = global_transform.GetRotation();
+  leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  leaf_push_constant.softness = softness;
+
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    pipeline->Bind(vk_command_buffer);
-    pipeline->BindDescriptorSet(
+    segment_position_pipeline->Bind(vk_command_buffer);
+    segment_position_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
-    pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations),
-                  1, 1);
+    segment_position_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    leaf_position_pipeline->Bind(vk_command_buffer);
+    leaf_position_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    leaf_position_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+}
+
+void DsBoxCollider::ProjectVelocityConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                              const DynamicStrands& target_dynamic_strands) {
+  const auto scene = GetScene();
+  const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
+
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  glm::vec3 size = scale * global_transform.GetScale();
+  if (size.x < 0.001f)
+    size.x = 0.001f;
+  if (size.z < 0.001f)
+    size.z = 0.001f;
+  if (size.y < 0.001f)
+    size.y = 0.001f;
+  SegmentVelocityPushConstant segment_push_constant;
+  segment_push_constant.obb_center = global_transform.GetPosition();
+  segment_push_constant.obb_scale = size;
+  segment_push_constant.obb_rotation = global_transform.GetRotation();
+  segment_push_constant.segment_size = target_dynamic_strands.segments.size();
+  segment_push_constant.friction = friction;
+
+  LeafVelocityPushConstant leaf_push_constant;
+  leaf_push_constant.obb_center = global_transform.GetPosition();
+  leaf_push_constant.obb_scale = size;
+  leaf_push_constant.obb_rotation = global_transform.GetRotation();
+  leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  leaf_push_constant.friction = friction;
+
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    segment_velocity_pipeline->Bind(vk_command_buffer);
+    segment_velocity_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    segment_velocity_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    leaf_velocity_pipeline->Bind(vk_command_buffer);
+    leaf_velocity_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    leaf_velocity_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -152,23 +272,42 @@ void DsCylinderCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_
 }
 
 DsCylinderCollider::DsCylinderCollider() {
-  if (!pipeline) {
+  if (!segment_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Colliders/CylinderCollider.comp");
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentCylinder.comp");
 
-    pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader = shader;
-    pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    segment_position_pipeline = std::make_shared<ComputePipeline>();
+    segment_position_pipeline->compute_shader = shader;
+    segment_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
-    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(PushConstant);
+    auto& push_constant_range = segment_position_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    pipeline->Initialize();
+    segment_position_pipeline->Initialize();
+  }
+
+  if (!leaf_position_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafCylinder.comp");
+
+    leaf_position_pipeline = std::make_shared<ComputePipeline>();
+    leaf_position_pipeline->compute_shader = shader;
+    leaf_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_position_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_position_pipeline->Initialize();
   }
 }
 
@@ -199,15 +338,14 @@ void DsCylinderCollider::ProjectPositionConstraint(const DynamicStrands::Physics
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations =
-      Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const glm::vec3 scale = global_transform.GetScale();
   auto size = glm::vec2(radius * glm::max(scale.x, scale.z), height * scale.y);
   if (size.x < 0.001f)
     size.x = 0.001f;
   if (size.y < 0.001f)
     size.y = 0.001f;
-  PushConstant segment_push_constant;
+  SegmentPushConstant segment_push_constant;
   segment_push_constant.obb_center = global_transform.GetPosition();
   segment_push_constant.radius = size.x;
   segment_push_constant.height = size.y;
@@ -215,15 +353,31 @@ void DsCylinderCollider::ProjectPositionConstraint(const DynamicStrands::Physics
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.softness = softness;
 
+  LeafPushConstant leaf_push_constant;
+  leaf_push_constant.obb_center = global_transform.GetPosition();
+  leaf_push_constant.radius = size.x;
+  leaf_push_constant.height = size.y;
+  leaf_push_constant.obb_rotation = global_transform.GetRotation();
+  leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  leaf_push_constant.softness = softness;
+
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    pipeline->Bind(vk_command_buffer);
-    pipeline->BindDescriptorSet(
+    segment_position_pipeline->Bind(vk_command_buffer);
+    segment_position_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
-    pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations),
-                  1, 1);
+    segment_position_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    leaf_position_pipeline->Bind(vk_command_buffer);
+    leaf_position_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    leaf_position_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -265,23 +419,42 @@ void DsSphereCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_la
 }
 
 DsSphereCollider::DsSphereCollider() {
-  if (!pipeline) {
+  if (!segment_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
-                std::filesystem::path("./EcoSysLabResources") /
-                    "Shaders/Compute/DynamicStrands/Colliders/SphereCollider.comp");
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentSphere.comp");
 
-    pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader = shader;
-    pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    segment_position_pipeline = std::make_shared<ComputePipeline>();
+    segment_position_pipeline->compute_shader = shader;
+    segment_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
-    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(PushConstant);
+    auto& push_constant_range = segment_position_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    pipeline->Initialize();
+    segment_position_pipeline->Initialize();
+  }
+
+  if (!leaf_position_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafSphere.comp");
+
+    leaf_position_pipeline = std::make_shared<ComputePipeline>();
+    leaf_position_pipeline->compute_shader = shader;
+    leaf_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_position_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_position_pipeline->Initialize();
   }
 }
 
@@ -311,28 +484,41 @@ void DsSphereCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations =
-      Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const glm::vec3 scale = global_transform.GetScale();
   float size = radius * glm::max(glm::max(scale.x, scale.y), scale.z);
   if (size < 0.001f)
     size = 0.001f;
 
-  PushConstant segment_push_constant;
+  SegmentPushConstant segment_push_constant;
   segment_push_constant.obb_center = global_transform.GetPosition();
   segment_push_constant.radius = size;
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.softness = softness;
 
+  LeafPushConstant leaf_push_constant;
+  leaf_push_constant.obb_center = global_transform.GetPosition();
+  leaf_push_constant.radius = size;
+  leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  leaf_push_constant.softness = softness;
+
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    pipeline->Bind(vk_command_buffer);
-    pipeline->BindDescriptorSet(
+    segment_position_pipeline->Bind(vk_command_buffer);
+    segment_position_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
-    pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations),
-                  1, 1);
+    segment_position_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    leaf_position_pipeline->Bind(vk_command_buffer);
+    leaf_position_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    leaf_position_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }

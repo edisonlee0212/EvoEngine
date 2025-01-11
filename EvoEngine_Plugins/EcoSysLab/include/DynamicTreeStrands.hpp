@@ -48,7 +48,6 @@ class DynamicTreeStrands : public IPrivateComponent {
   std::shared_ptr<DsLineCut> line_cut_operator;
   std::shared_ptr<DsSaw> saw_operator;
   std::shared_ptr<DsDrag> drag_operator;
-  std::shared_ptr<DsGravity> gravity;
   std::shared_ptr<DsLeafDrop> leaf_drop;
   void UpdateDynamicStrands();
   void CreateStaticRoot();
