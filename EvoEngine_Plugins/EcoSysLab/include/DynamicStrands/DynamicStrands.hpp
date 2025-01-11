@@ -391,7 +391,7 @@ class DynamicStrands {
 
   struct GpuDelaunayTetrahedron {
     int indices[4];
-    int neighbors[4];
+    int neighbor_tet_ids[4];
     int render_neighbor[4];
     float neighbor_circumference[4];
     glm::vec4 color;  // for debugging

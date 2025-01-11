@@ -38,6 +38,8 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 #include "AlphaShape.glsl"
 
 void main(){
+	float min_distance_squared;
+
 	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
 	{
@@ -55,10 +57,8 @@ void main(){
 			uniform_particles[delaunay_tetrahedron.indices[j]].is_single_strand_particle = 1;
 			uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg = vec4(0.0, 0.0, 0.0, 0.0);
 		}
-		
-		float min_distance_squared;
 
-		if(!InsideAlpha(delaunay_tetrahedron, -1, min_distance_squared))
+		if(!InsideAlpha(delaunay_tetrahedron, min_distance_squared))
 		{
 			delaunay_tetrahedron.color = vec4(0.8, 0.0, min_distance_squared, 1.0);
 			delaunay_tetrahedron.inside = 0;

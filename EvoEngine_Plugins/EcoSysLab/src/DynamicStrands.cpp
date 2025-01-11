@@ -201,7 +201,7 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
     filtering_push_constant.render_complex = branches_render_parameters.render_complex ? 1 : 0;
     filtering_push_constant.degen_triangle_threshold =
         pow(10.0f, -branches_render_parameters.degen_triangle_threshold_logairthmic);
-    branches_tetrahedron_filtering_pipeline->Bind(vk_command_buffer);
+    branches_tetrahedron_filtering_pipeline->Bind(vk_command_buffer); 
     branches_tetrahedron_filtering_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_tetrahedron_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
@@ -763,8 +763,8 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
         }
         const auto mismatch_indices = DynamicStrandUtils::CompareIndices(tet0.indices, tet1.indices);
 
-        tet0.neighbors[mismatch_indices.first] = tet1.indices[mismatch_indices.second];
-        tet1.neighbors[mismatch_indices.second] = tet0.indices[mismatch_indices.first];
+        tet0.neighbor_tet_ids[mismatch_indices.first] = adjacent_tets[j];
+        tet1.neighbor_tet_ids[mismatch_indices.second] = adjacent_tets[i];
       }
     }
   }
@@ -796,7 +796,7 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
     GpuDelaunayTetrahedron gpu_tet;
     for (size_t i = 0; i < 4; i++) {
       gpu_tet.indices[i] = indices[i];
-      gpu_tet.neighbors[i] = -1;
+      gpu_tet.neighbor_tet_ids[i] = -1;
     }
     // set up debugging members
     gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -840,7 +840,8 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
       // TODO: according to CGAL documentation, this is guaranteed anyway, so we do not need to match both sides
       // store it such that the neighboring tetrahedron always consists of different indices
       // e. g. for the triangle 1 2 4 we store the corresponding neighboring index at position 3
-      gpu_tet.neighbors[mismatch_indices.first] = neighbor_indices[mismatch_indices.second];
+      //gpu_tet.neighbor_tet_ids[mismatch_indices.first] = neighbor.index();
+      EVOENGINE_ERROR("CGAL does not provide neighbor indices");
     }
 
     tetrahedrons.emplace_back(gpu_tet);
@@ -852,8 +853,10 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
                                  std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
   const auto tets = Delaunay3D::GenerateTetrahedrons(points);
 
+  std::vector<int> valid_index_map(tets.size(), -1);
   int valid_neighbors = 0;
-  for (const auto& tet : tets) {
+  for (size_t orig_tet_index = 0; orig_tet_index < tets.size(); orig_tet_index++) {
+    auto& tet = tets[orig_tet_index];
     int indices[4];
     bool invalid = false;
     for (size_t i = 0; i < 4; i++) {
@@ -876,7 +879,7 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
     GpuDelaunayTetrahedron gpu_tet;
     for (size_t i = 0; i < 4; i++) {
       gpu_tet.indices[i] = indices[i];
-      gpu_tet.neighbors[i] = -1;
+      gpu_tet.neighbor_tet_ids[i] = -1;
     }
     // set up debugging members
     gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -930,16 +933,27 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
         continue;
       }
 
+      // TODO: probably not needed
       const auto mismatch_indices = DynamicStrandUtils::CompareIndices(gpu_tet.indices, neighbor_indices);
-      // TODO: according to CGAL documentation, this is guaranteed anyway, so we do not need to match both sides
-      // store it such that the neighboring tetrahedron always consists of different indices
-      // e. g. for the triangle 1 2 4 we store the corresponding neighboring index at position 3
-      gpu_tet.neighbors[mismatch_indices.first] = neighbor_indices[mismatch_indices.second];
+
+      gpu_tet.neighbor_tet_ids[mismatch_indices.first] = tet.neighbor_tet_indices[i];
       valid_neighbors++;
     }
 
+    valid_index_map[orig_tet_index] = tetrahedrons.size();
     tetrahedrons.emplace_back(gpu_tet);
   }
+
+  // correct neighbor indices
+  Jobs::RunParallelFor(tetrahedrons.size(), [&](const size_t tet_index) {
+    auto& tet = tetrahedrons[tet_index];
+    for (size_t i = 0; i < 4; i++) {
+      if (tet.neighbor_tet_ids[i] == -1) {
+        continue;
+      }
+      tet.neighbor_tet_ids[i] = valid_index_map[tet.neighbor_tet_ids[i]];
+    }
+  });
 
   EVOENGINE_LOG("Found " << valid_neighbors << " valid neighbors");
 }
