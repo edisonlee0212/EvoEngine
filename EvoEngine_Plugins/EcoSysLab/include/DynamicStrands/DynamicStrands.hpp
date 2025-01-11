@@ -127,9 +127,9 @@ class DynamicStrands {
 #pragma region Step
   struct PhysicsParameters {
     float time_step = 0.01f;
-    int sub_step = 10;
+    int sub_step = 25;
 
-    int constraint_iteration = 5;
+    int constraint_iteration = 1;
     bool enable_segment_disconnection = false;
     bool enable_segment_breaking = false;
     bool enable_foliage_detachment = true;
@@ -137,8 +137,8 @@ class DynamicStrands {
     int segment_disconnection_detection_frame = 1;
     int foliage_detachment_detection_frame = 1;
 
-    float segment_velocity_damping = 0.005f;
-    float segment_angular_velocity_damping = 0.0005f;
+    float segment_velocity_damping = 0.001f;
+    float segment_angular_velocity_damping = 0.0001f;
 
     float leaf_velocity_damping = 0.005f;
     float leaf_angular_velocity_damping = 0.0001f;
