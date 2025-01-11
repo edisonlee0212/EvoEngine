@@ -41,10 +41,10 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.prev_handle = target_strand_segment.GetPrevHandle();
     segment.next_handle = target_strand_segment.GetNextHandle();
     segment.strand_handle = target_strand_segment.GetStrandHandle();
-    segment.rest_length = strand_group.GetStrandSegmentLength(static_cast<int>(segment_handle));
+    segment.rest_length = glm::max(1e-6f, strand_group.GetStrandSegmentLength(static_cast<int>(segment_handle)));
     segment.color = target_strand_segment.end_color;
 
-    segment.radius = target_strand_segment.end_thickness * .5f;
+    segment.radius = glm::max(1e-6f, target_strand_segment.end_thickness * .5f);
     segment.q0 = segment.q = segment.last_q =
         initialize_parameters.root_transform.GetRotation() * target_strand_segment.rotation;
     segment.torque = glm::vec3(0.f);
@@ -52,8 +52,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     const float ratio = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f /
                         initialize_parameters.max_distance_to_boundary;
 
-    const float mass = segment.radius * segment.radius * glm::pi<float>() *
-                       initialize_parameters.wood_density.GetValue(ratio) * segment.rest_length;
+    const float mass = glm::max(1e-6f, segment.radius * segment.radius * glm::pi<float>() *
+                       initialize_parameters.wood_density.GetValue(ratio) * segment.rest_length);
     segment.inertia_tensor = ComputeInertiaTensorRod(mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     segment.original_inv_mass = 1.f / mass;

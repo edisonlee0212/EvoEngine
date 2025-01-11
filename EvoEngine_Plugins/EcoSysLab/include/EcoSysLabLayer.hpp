@@ -121,7 +121,7 @@ class EcoSysLabLayer : public ILayer {
 
   friend class TreeVisualizer;
   friend class Tree;
-
+  friend class DynamicTreeSkeleton;
   std::vector<int> shoot_versions_;
   std::vector<glm::vec3> random_colors_;
 

@@ -1,4 +1,5 @@
 #pragma once
+#include "Plot2D.hpp"
 #include "Skeleton.hpp"
 
 using namespace evo_engine;
@@ -28,6 +29,18 @@ struct DynamicSkeletonNodeData {
   float stretching_alpha = 0;
   glm::mat3 inertia_w{};
   glm::mat3 inv_inertia_w{};
+
+  float length;
+  float radius;
+
+  float max_shearing_modulus;
+  float max_stretching_modulus;
+
+  float max_bending_modulus;
+  float max_torsion_modulus;
+
+  float bending_alpha = 0.0f;
+  float torsion_alpha = 0.0f;
 };
 
 struct DynamicSkeletonFlowData {};
@@ -39,14 +52,22 @@ class DynamicSkeleton {
   DtsSkeleton dts_skeleton;
   struct InitializeParameters {
     bool static_root = true;
-    float wood_density = 600.f;
+    SingleDistribution<float> wood_density = {600.0f, 700.0f};
+    SingleDistribution<float> max_shear_modulus = {9.5f, 13.5f};
+    SingleDistribution<float> max_youngs_modulus = {9.5f, 13.5f};
+
+    SingleDistribution<float> max_bending_modulus = {0.8f, 2.f};
+    SingleDistribution<float> max_torsion_modulus = {0.8f, 2.f};
+
     GlobalTransform root_transform{};
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
-  float time_step = 0.01f;
-  int sub_step = 10;
   struct PhysicsParameters {
+    float time_step = 0.01f;
+    int sub_step = 10;
+
     int constraint_iteration = 5;
+
     bool enable_disconnection = false;
     bool enable_breaking = false;
     float velocity_damping = 0.005f;
@@ -55,7 +76,9 @@ class DynamicSkeleton {
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
-  struct VisualizationParameters {};
+  struct VisualizationParameters {
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  };
 
   template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
   void Initialize(const InitializeParameters& initialize_parameters,

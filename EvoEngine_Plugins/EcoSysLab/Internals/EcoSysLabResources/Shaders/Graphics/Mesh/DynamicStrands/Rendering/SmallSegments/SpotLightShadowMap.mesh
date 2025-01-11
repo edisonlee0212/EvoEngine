@@ -15,10 +15,10 @@ const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 layout(local_size_x = WORKGROUP_SIZE) in;
 layout(triangles) out;
 
-layout(max_vertices = SMALL_SEGMENT_VERTICES_SIZE, max_primitives = SMALL_SEGMENT_TRIANGLE_SIZE) out;
+layout(max_vertices = SMALL_SEGMENT_SHADOW_MAP_VERTICES_SIZE, max_primitives = SMALL_SEGMENT_SHADOW_MAP_TRIANGLE_SIZE) out;
 
-const uint SMALL_SEGMENT_VERTEX_ITERATIONS    = ((SMALL_SEGMENT_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-const uint SMALL_SEGMENT_PRIMITIVE_ITERATIONS = ((SMALL_SEGMENT_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint SMALL_SEGMENT_VERTEX_ITERATIONS    = ((SMALL_SEGMENT_SHADOW_MAP_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint SMALL_SEGMENT_PRIMITIVE_ITERATIONS = ((SMALL_SEGMENT_SHADOW_MAP_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
 struct Task{
 	uint	baseID;
@@ -35,7 +35,7 @@ uint laneID = gl_LocalInvocationID.x;
 void main(){
 	if(uniform_particle_id >= uniform_particles_size) return;
 
-	SetMeshOutputsEXT(SMALL_SEGMENT_VERTICES_SIZE, SMALL_SEGMENT_TRIANGLE_SIZE);
+	SetMeshOutputsEXT(SMALL_SEGMENT_SHADOW_MAP_VERTICES_SIZE, SMALL_SEGMENT_SHADOW_MAP_TRIANGLE_SIZE);
 	
 	UniformParticle uniform_particle = uniform_particles[uniform_particle_id];
 	UniformParticle prev_uniform_particle = uniform_particles[uniform_particle.prev_particle_handle];
@@ -67,8 +67,8 @@ void main(){
 	for (uint i = 0; i < uint(SMALL_SEGMENT_VERTEX_ITERATIONS); ++i)
 	{
 		uint vertex_index = laneID + i * WORKGROUP_SIZE;
-		if (vertex_index > SMALL_SEGMENT_VERTICES_SIZE) break;
-		vec3 vertex_position = positions[vertex_index];
+		if (vertex_index > SMALL_SEGMENT_SHADOW_MAP_VERTICES_SIZE) break;
+		vec3 vertex_position = shadow_map_positions[vertex_index];
 		
 		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0f);
 	}
@@ -77,8 +77,8 @@ void main(){
 	for (uint i = 0; i < uint(SMALL_SEGMENT_PRIMITIVE_ITERATIONS); ++i)
 	{
 		uint triangle_index = laneID + i * WORKGROUP_SIZE;
-		if(triangle_index <= SMALL_SEGMENT_TRIANGLE_SIZE){
-			gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
+		if(triangle_index <= SMALL_SEGMENT_SHADOW_MAP_TRIANGLE_SIZE){
+			gl_PrimitiveTriangleIndicesEXT[triangle_index] = shadow_map_triangles[triangle_index];
 		}
 	}
 }

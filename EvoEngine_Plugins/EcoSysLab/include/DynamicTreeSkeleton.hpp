@@ -9,7 +9,7 @@ class DynamicTreeSkeleton : public IPrivateComponent {
   DynamicSkeleton dynamic_skeleton{};
   DynamicSkeleton::InitializeParameters initialize_parameters{};
   std::shared_ptr<ParticleInfoList> debug_matrices;
-  bool simulate = true;
+  bool simulate = false;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void LateUpdate() override;
   void OnCreate() override;

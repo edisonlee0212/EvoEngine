@@ -214,7 +214,7 @@ class DynamicStrands {
     bool enabled = true;
     bool cast_shadow = true;
     bool wireframe = false;
-    float thickness_multiplier = 2.0f;
+    float thickness_multiplier = 1.0f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
