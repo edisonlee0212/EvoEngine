@@ -207,18 +207,18 @@ bool AreNeighbors(uint index0, uint index1)
 
 }
 
-float SkeletonStructure(uint indices[4]) {
+float SkeletonStructure(DelaunayTetrahedron tet) {
   vec3 v[4];
 
   for (uint i = 0; i < 4; i++) {
-    v[i] = uniform_particles[indices[i]].position_t.xyz;
+    v[i] = uniform_particles[tet.indices[i]].position_t.xyz;
   }
   float d = 0.0;
 
   [[unroll]] for (uint i = 0; i < 4; i++) {
     [[unroll]] for (uint j = i + 1; j < 4; j++) {
       
-      if (!AreNeighbors(indices[i], indices[j])) {
+      if (!AreNeighbors(tet.indices[i], tet.indices[j])) {
         return 2 * alpha; // something certainly larger than alpha
       }
       // TODO: compute longest edge nontheless, maybe filtered by distance, though
@@ -228,27 +228,10 @@ float SkeletonStructure(uint indices[4]) {
   return d;
 }
 
-bool InsideAlpha(DelaunayTetrahedron tet, int neighbor_index, out float d) {
-  // check if neighbor is invalid
-  if (neighbor_index != -1 && tet.neighbors[neighbor_index] == -1) {
-    d = 100000.0f;  // marker for this condition
-    return false;
-  }
-  //return true; // debug: should give us the convex hull
-  // prepare indices
-  uint indices[4];
-
-  [[unroll]]
-  for (uint i = 0; i < 4; i++) {
-    if (i != neighbor_index) {
-      indices[i] = tet.indices[i];
-    } else {
-      indices[i] = tet.neighbors[i];
-    }
-  }
+bool InsideAlpha(DelaunayTetrahedron tet, out float d) {
 
   //d = LongestSide(indices);
-  d = SkeletonStructure(indices);
+  d = SkeletonStructure(tet);
 
   return d <= alpha;
 }

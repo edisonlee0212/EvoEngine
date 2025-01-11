@@ -54,10 +54,9 @@ void main(){
 		[[unroll]]
 		for (uint triangle_index = 0; triangle_index < 4; ++triangle_index)
 		{
-			float min_distance_squared;
 			// check if we are at the boundary of the alpha shape
-			if(render_complex == 0){
-				delaunay_tetrahedron.render_neighbor[triangle_index] = InsideAlpha(delaunay_tetrahedron, int(triangle_index % 4), min_distance_squared) ? 0 : 1;
+			if(render_complex == 0 && delaunay_tetrahedron.neighbor_tet_ids[triangle_index] != -1){
+				delaunay_tetrahedron.render_neighbor[triangle_index] = 1 - delaunay_tetrahedrons[delaunay_tetrahedron.neighbor_tet_ids[triangle_index]].inside;
 			}
 			else {
 				delaunay_tetrahedron.render_neighbor[triangle_index] = 1;
@@ -74,8 +73,8 @@ void main(){
 					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.x, normal_deg.x);
 					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.y, normal_deg.y);
 					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.z, normal_deg.z);
+					// DEBUG: count how many normals are added, disabled for efficiency
 					//atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.w, normal_deg.w);
-					uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.w = 3.0f;
 				}
 			}
 		}
