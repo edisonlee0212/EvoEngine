@@ -53,14 +53,14 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
                         initialize_parameters.max_distance_to_boundary;
 
     const float mass = glm::max(1e-6f, segment.radius * segment.radius * glm::pi<float>() *
-                       initialize_parameters.wood_density.GetValue(ratio) * segment.rest_length);
+                                           initialize_parameters.wood_density.GetValue(ratio) * segment.rest_length);
     segment.inertia_tensor = ComputeInertiaTensorRod(mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     segment.original_inv_mass = 1.f / mass;
     const float area = glm::pi<float>() * segment.radius * segment.radius;
-    segment.max_stretching_modulus = initialize_parameters.max_youngs_modulus.GetValue(ratio) * 1e9f;
-    segment.max_shearing_modulus = initialize_parameters.max_shear_modulus.GetValue(ratio) * 1e9f;
-    segment.moisture_content = initialize_parameters.moisture_content.GetValue(ratio);
+    segment.max_stretching_modulus = glm::max(1e-9f, initialize_parameters.max_youngs_modulus.GetValue(ratio)) * 1e9f;
+    segment.max_shearing_modulus = glm::max(1e-9f, initialize_parameters.max_shear_modulus.GetValue(ratio)) * 1e9f;
+    segment.moisture_content = glm::max(1e-9f, initialize_parameters.moisture_content.GetValue(ratio));
     segment.boundary_distance = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f;
     segment.profile_position = target_strand_segment_data.profile_position;
     segment.profile_polar_coordinate = target_strand_segment_data.profile_polar_coordinate;
@@ -578,8 +578,10 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     const float ratio0 = segment0.boundary_distance / initialize_parameters.max_distance_to_boundary;
     const float ratio1 = segment1.boundary_distance / initialize_parameters.max_distance_to_boundary;
     const float ratio = (ratio0 + ratio1) * .5f;
-    segment_pair.max_bending_modulus = initialize_parameters.max_bending_modulus.GetValue(ratio) * 1e9f;
-    segment_pair.max_torsion_modulus = initialize_parameters.max_torsion_modulus.GetValue(ratio) * 1e9f;
+    segment_pair.max_bending_modulus =
+        glm::max(1e-9f, initialize_parameters.max_bending_modulus.GetValue(ratio)) * 1e9f;
+    segment_pair.max_torsion_modulus =
+        glm::max(1e-9f, initialize_parameters.max_torsion_modulus.GetValue(ratio)) * 1e9f;
     const float average_segment_radius = (segment0.radius + segment1.radius) * .5f;
     const float average_segment_length = (segment0.rest_length + segment1.rest_length) * .5f;
     const auto second_moment_of_area = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.25f;
@@ -731,7 +733,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       push_constant_range.size = sizeof(BarkFlagInitializationPushConstant);
       push_constant_range.offset = 0;
       push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-      bark_flag_initialization_pipeline->Initialize(); 
+      bark_flag_initialization_pipeline->Initialize();
     }
     const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
