@@ -21,6 +21,8 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
     changed = true;
   if (ImGui::DragFloat("max dist squared", &max_dist_squared, 0.01f, 0.0f, 1.0f, "%.6f"))
     changed = true;
+  if (ImGui::DragFloat("extrusion distance", &global_extrusion_distance, 0.0001f, 0.0f, 0.1f, "%.4f"))
+    changed = true;
 
   if (ImGui::DragFloat("Degen triangle threshold 1e-x", &degen_triangle_threshold_logairthmic, 0.01f, 0.0f, 40.0f, "%.6f"))
     changed = true;
@@ -65,6 +67,7 @@ struct BranchesRenderPushConstant {
   int render_complex = 0;
   int vertex_colors = 0;
   int inner_wood_material_index = 0;
+  float global_extrusion_distance = 0.0f;
 };
 
 void DynamicStrands::BuildBranchesRenderingPipelines() {
@@ -177,7 +180,8 @@ uint32_t DynamicStrands::RenderBranchesToPointLightShadowMap(const BranchesRende
   push_constant.bifurcation_alpha = render_parameters.bifurcation_alpha;
   push_constant.max_dist_squared = render_parameters.max_dist_squared;
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
-  push_constant.vertex_colors = render_parameters.vertex_colors; 
+  push_constant.vertex_colors = render_parameters.vertex_colors;
+  push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   branches_point_light_render_pipeline->Bind(vk_command_buffer);
   branches_point_light_render_pipeline->BindDescriptorSet(
@@ -211,6 +215,7 @@ uint32_t DynamicStrands::RenderBranchesToSpotLightShadowMap(const BranchesRender
   push_constant.max_dist_squared = render_parameters.max_dist_squared;
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
   push_constant.vertex_colors = render_parameters.vertex_colors;
+  push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   branches_spot_light_render_pipeline->Bind(vk_command_buffer);
   branches_spot_light_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
@@ -244,6 +249,7 @@ uint32_t DynamicStrands::RenderBranchesToDirectionalLightShadowMap(
   push_constant.max_dist_squared = render_parameters.max_dist_squared;
   push_constant.render_complex = render_parameters.render_complex ? 1 : 0;
   push_constant.vertex_colors = render_parameters.vertex_colors;
+  push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   branches_directional_light_render_pipeline->Bind(vk_command_buffer);
   branches_directional_light_render_pipeline->BindDescriptorSet(
@@ -293,6 +299,7 @@ uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
   render_push_constant.u_multiplier = render_parameters.u_multiplier;
   render_push_constant.v_multiplier = render_parameters.v_multiplier;
   render_push_constant.inner_wood_material_index = inner_wood_material_index;
+  render_push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
   branches_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   branches_render_pipeline->states.SetViewportScissor(view.viewport);
   branches_render_pipeline->states.polygon_mode =
