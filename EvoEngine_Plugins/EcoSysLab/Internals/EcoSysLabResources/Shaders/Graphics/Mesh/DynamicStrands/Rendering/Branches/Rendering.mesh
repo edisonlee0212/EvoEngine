@@ -78,7 +78,7 @@ vec3 PseudoRandomColor(int seed) {
 
 void SetUpTriangleVertex(uint vertex_index, vec3 vertex_normal, uint particle_index){
 	UniformParticle uniform_particle = uniform_particles[particle_index];
-	vec3 vertex_position = uniform_particle.position_t.xyz;
+	vec3 vertex_position = uniform_particle.position_t.xyz + vertex_normal * (global_extrusion_distance + uniform_particle.local_extrusion_distance);
 	mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
 
 	ms_v_out[vertex_index].FragPos = vertex_position;

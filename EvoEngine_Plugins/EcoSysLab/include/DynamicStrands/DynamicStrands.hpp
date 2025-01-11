@@ -206,7 +206,7 @@ class DynamicStrands {
     float u_multiplier = 2;
     float v_multiplier = 0.25;
     float degen_triangle_threshold_logairthmic = 5.0f;
-
+    float global_extrusion_distance = 0.0f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -384,7 +384,7 @@ class DynamicStrands {
     int strand_index;
 
     int is_single_strand_particle;
-    int padding1;
+    float local_extrusion_distance;
     int padding2;
     int padding3;
   };

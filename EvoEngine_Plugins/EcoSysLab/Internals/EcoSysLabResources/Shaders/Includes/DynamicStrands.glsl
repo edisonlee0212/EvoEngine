@@ -132,7 +132,7 @@ struct UniformParticle {
   int strand_index;
 
   int is_single_strand_particle;
-  int padding1;
+  float local_extrusion_distance;
   int padding2;
   int padding3;
 };

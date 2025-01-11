@@ -11,4 +11,5 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
   int render_complex;
   int vertex_colors;
   int inner_wood_material_index;
+  float global_extrusion_distance;
 };
