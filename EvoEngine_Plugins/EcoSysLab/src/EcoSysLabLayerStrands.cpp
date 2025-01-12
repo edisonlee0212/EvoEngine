@@ -399,54 +399,66 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
 }
 
 void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Combo("Transform Mode", {"None", "Translate", "Rotate"}, transform_mode);
-  ImGui::Combo("Operator Mode", {"Drag", "Saw", "Line Cut"}, operator_mode);
-
-  switch (static_cast<OperatorMode>(operator_mode)) {
-    case OperatorMode::Drag: {
-      ImGui::DragFloat("Drag acceleration multiplier", &drag_multiplier, 0.001f, 0.0f, 1.0f);
-      break;
+  if (ImGui::TreeNode("Operators")) {
+    ImGui::Combo("Transform Mode", {"None", "Translate", "Rotate"}, transform_mode);
+    ImGui::Combo("Operator Mode", {"Drag", "Saw", "Line Cut"}, operator_mode);
+    switch (static_cast<OperatorMode>(operator_mode)) {
+      case OperatorMode::Drag: {
+        ImGui::DragFloat("Drag acceleration multiplier", &drag_multiplier, 0.001f, 0.0f, 1.0f);
+        break;
+      }
+      case OperatorMode::Saw:
+      case OperatorMode::LineCut: {
+        ImGui::Checkbox("Cut Bend/Twist/Bundle only", &cut_bend_twist_bundle_only);
+        break;
+      }
     }
-    case OperatorMode::Saw:
-    case OperatorMode::LineCut: {
-      ImGui::Checkbox("Cut Bend/Twist/Bundle only", &cut_bend_twist_bundle_only);
-      break;
-    }
+    ImGui::TreePop();
   }
-
   ImGui::Checkbox("Physics", &enable_physics);
-  if (ImGui::TreeNode("Physics parameters")) {
+  if (enable_physics && ImGui::TreeNode("Physics parameters")) {
     physics_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
   }
-  ImGui::Checkbox("Visualization", &enable);
-  if (ImGui::TreeNode("Visualization settings")) {
-    visualization_parameters.OnInspect(editor_layer);
+
+  ImGui::Checkbox("Rendering", &enable_rendering);
+  if (enable_rendering && ImGui::TreeNode("Dynamic strand rendering")) {
+    ImGui::Checkbox("Render branches", &branches_render_parameters.enabled);
+    if (branches_render_parameters.enabled) {
+      if (ImGui::TreeNodeEx("Branch render settings")) {
+        if (ImGui::Button("Rebuild branches pipelines")) {
+          DynamicStrands::BuildBranchesRenderingPipelines();
+        }
+        branches_render_parameters.OnInspect(editor_layer);
+        ImGui::TreePop();
+      }
+    }
+    ImGui::Checkbox("Render splinters", &small_segments_render_parameters.enabled);
+    if (small_segments_render_parameters.enabled) {
+      if (ImGui::TreeNodeEx("Splinter render settings")) {
+        if (ImGui::Button("Rebuild splinter pipelines")) {
+          DynamicStrands::BuildSmallSegmentsRenderingPipelines();
+        }
+        small_segments_render_parameters.OnInspect(editor_layer);
+        ImGui::TreePop();
+      }
+    }
+    ImGui::Checkbox("Render foliage", &foliage_render_parameters.enabled);
+    if (foliage_render_parameters.enabled) {
+      if (ImGui::TreeNodeEx("Foliage render settings")) {
+        if (ImGui::Button("Rebuild foliage pipelines")) {
+          DynamicStrands::BuildFoliageRenderingPipelines();
+        }
+        foliage_render_parameters.OnInspect(editor_layer);
+        ImGui::TreePop();
+      }
+    }
     ImGui::TreePop();
   }
-  ImGui::Checkbox("Rendering", &enable_rendering);
-  if (ImGui::TreeNode("Render settings")) {
-    if (ImGui::Button("Rebuild branches pipelines")) {
-      DynamicStrands::BuildBranchesRenderingPipelines();
-    }
-    if (ImGui::TreeNodeEx("Branch render settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-      branches_render_parameters.OnInspect(editor_layer);
-      ImGui::TreePop();
-    }
-    if (ImGui::Button("Rebuild small segments pipelines")) {
-      DynamicStrands::BuildSmallSegmentsRenderingPipelines();
-    }
-    if (ImGui::TreeNodeEx("Small segments render settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-      small_segments_render_parameters.OnInspect(editor_layer);
-      ImGui::TreePop();
-    }
-    if (ImGui::Button("Rebuild foliage pipelines")) {
-      DynamicStrands::BuildFoliageRenderingPipelines();
-    }
-    if (ImGui::TreeNodeEx("Foliage render settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-      foliage_render_parameters.OnInspect(editor_layer);
-      ImGui::TreePop();
-    }
+
+  ImGui::Checkbox("Visualization", &enable_visualization);
+  if (enable_visualization && ImGui::TreeNode("Visualization settings")) {
+    visualization_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
   }
 }

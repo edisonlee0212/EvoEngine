@@ -11,6 +11,8 @@ using namespace evo_engine;
 namespace eco_sys_lab_plugin {
 class EcoSysLabLayer : public ILayer {
  public:
+  void VisualizationCameraDragAndDrop() const;
+
   [[nodiscard]] float GetSimulatedTime() const;
   void ExportAllTrees(const std::filesystem::path& path) const;
 
@@ -97,7 +99,7 @@ class EcoSysLabLayer : public ILayer {
     enum class OperatorMode { Drag, Saw, LineCut };
     unsigned operator_mode = static_cast<unsigned>(OperatorMode::Drag);
     bool cut_bend_twist_bundle_only = false;
-    bool enable = true;
+    bool enable_visualization = true;
     bool enable_physics = true;
     bool enable_rendering = true;
     void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);

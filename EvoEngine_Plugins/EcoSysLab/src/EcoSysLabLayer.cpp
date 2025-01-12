@@ -16,6 +16,7 @@
 #include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "ForestDescriptor.hpp"
+#include "Prefab.hpp"
 #include "Shader.hpp"
 #include "Soil.hpp"
 #include "SpatialPlantDistributionSimulator.hpp"
@@ -93,7 +94,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   ImGui::Checkbox("Show Trees", &tree_visualization_settings_.enable);
   if (tree_visualization_settings_.enable) {
     const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-    if (ImGui::TreeNodeEx("Tree settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::TreeNodeEx("Tree settings")) {
       if (tree_entities && !tree_entities->empty()) {
         if (scene->IsEntityValid(selected_tree)) {
           const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
@@ -131,35 +132,6 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
           }
         } else {
           ImGui::Text("Select a tree entity to enable editing & visualization!");
-        }
-        if (ImGui::TreeNodeEx("Tree Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
-          if (ImGui::TreeNode("Simulation Settings")) {
-            simulation_settings.OnInspect(editor_layer);
-            ImGui::TreePop();
-          }
-          if (ImGui::Button("Reset all trees")) {
-            ResetAllTrees(tree_entities);
-            ClearMeshes();
-            ClearGroundFruitAndLeaf();
-            target_time = 0.0f;
-          }
-          ImGui::Text(("Simulated time: " + std::to_string(simulated_time_) + " years").c_str());
-          ImGui::DragFloat("Target years", &extra_time, 0.1f, simulated_time_, 999);
-          if (auto_time_grow) {
-            if (ImGui::Button("Force stop")) {
-              auto_time_grow = false;
-              target_time = simulated_time_;
-            }
-          } else {
-            if (ImGui::Button(("Grow " + std::to_string(extra_time) + " years").c_str())) {
-              auto_time_grow = true;
-              target_time += extra_time;
-            }
-          }
-          if (ImGui::Button("Grow 1 iteration")) {
-            simulate = true;
-          }
-          ImGui::TreePop();
         }
         if (!simulation_settings.auto_clear_fruit_and_leaves && ImGui::Button("Clear ground leaves and fruits")) {
           ClearGroundFruitAndLeaf();
@@ -226,6 +198,14 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
           ImGui::TreePop();
         }
         simulation_stats.OnInspect(editor_layer);
+
+        if (ImGui::TreeNodeEx("Tree Visualization settings")) {
+          if (ImGui::Button("Update")) {
+            need_full_flow_update = true;
+          }
+          tree_visualization_settings_.OnInspect(editor_layer);
+          ImGui::TreePop();
+        }
       } else {
         ImGui::Text("No trees in the scene!");
         ResetAllTrees(nullptr);
@@ -233,14 +213,42 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       }
       ImGui::TreePop();
     }
-    if (ImGui::TreeNodeEx("Tree Visualization settings")) {
-      if (ImGui::Button("Update")) {
-        need_full_flow_update = true;
+    if (ImGui::TreeNodeEx("Tree Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (tree_entities && !tree_entities->empty()) {
+        if (ImGui::TreeNode("Simulation Settings")) {
+          simulation_settings.OnInspect(editor_layer);
+          ImGui::TreePop();
+        }
+        if (ImGui::Button("Reset all trees")) {
+          ResetAllTrees(tree_entities);
+          ClearMeshes();
+          ClearGroundFruitAndLeaf();
+          target_time = 0.0f;
+        }
+        ImGui::Text(("Simulated time: " + std::to_string(simulated_time_) + " years").c_str());
+        ImGui::DragFloat("Target years", &extra_time, 0.1f, simulated_time_, 999);
+        if (auto_time_grow) {
+          if (ImGui::Button("Force stop")) {
+            auto_time_grow = false;
+            target_time = simulated_time_;
+          }
+        } else {
+          if (ImGui::Button(("Grow " + std::to_string(extra_time) + " years").c_str())) {
+            auto_time_grow = true;
+            target_time += extra_time;
+          }
+        }
+        if (ImGui::Button("Grow 1 iteration")) {
+          simulate = true;
+        }
+      } else {
+        ImGui::Text("No trees in the scene!");
+        ResetAllTrees(nullptr);
+        target_time = 0.0f;
       }
-      tree_visualization_settings_.OnInspect(editor_layer);
-
       ImGui::TreePop();
     }
+
     if (ImGui::TreeNodeEx("Soil visualization settings")) {
       soil_visualization_settings_.OnInspect(editor_layer);
       ImGui::TreePop();
@@ -250,7 +258,12 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     if (ImGui::Button("Initialize dynamic strands for all trees")) {
       GenerateDynamicStrandsForAllTrees();
     }
-    dynamic_strands_settings_.OnInspect(editor_layer);
+    if (const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+        dts_entities && !dts_entities->empty()) {
+      dynamic_strands_settings_.OnInspect(editor_layer);
+    } else {
+      ImGui::Text("No dynamic strands in the scene!");
+    }
     ImGui::TreePop();
   }
 
@@ -297,6 +310,9 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       visualization_camera_resolution_y = view_port_size.y;
       ImGui::Image(visualization_camera_->GetRenderTexture()->GetColorImTextureId(),
                    ImVec2(view_port_size.x, view_port_size.y), ImVec2(0, 1), ImVec2(1, 0));
+
+      VisualizationCameraDragAndDrop();
+
       visualization_camera_mouse_position = glm::vec2(FLT_MAX, -FLT_MAX);
       auto scene_camera_rotation = editor_layer->GetSceneCameraRotation();
       auto scene_camera_position = editor_layer->GetSceneCameraPosition();
@@ -394,7 +410,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   }
   if (tree_visualization_settings_.enable)
     TreeVisualization(editor_layer);
-  if (dynamic_strands_settings_.enable)
+  if (dynamic_strands_settings_.enable_visualization)
     DynamicStrandsVisualization(editor_layer);
   if (soil_visualization_settings_.enable) {
     SoilVisualization();
@@ -601,6 +617,17 @@ void EcoSysLabLayer::UpdateGroundFruitAndLeaves() const {
   }
   ground_fruit_matrices_->SetParticleInfos(fruit_matrices);
   ground_leaf_matrices_->SetParticleInfos(leaf_matrices);
+}
+
+void EcoSysLabLayer::VisualizationCameraDragAndDrop() const {
+  if (AssetRef asset_ref; EditorLayer::UnsafeDroppableAsset(asset_ref, {"Scene", "Prefab", "Mesh", "TreeDescriptor"})) {
+    const auto scene = GetScene();
+    if (const auto asset = asset_ref.Get<IAsset>(); asset->GetTypeName() == "TreeDescriptor") {
+      const auto entity = scene->CreateEntity(asset->GetTitle());
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
+      tree->tree_descriptor_ref = std::dynamic_pointer_cast<TreeDescriptor>(asset);
+    }
+  }
 }
 
 float EcoSysLabLayer::GetSimulatedTime() const {

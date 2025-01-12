@@ -30,7 +30,7 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
       }
     }
     sub_step_action();
-    for (int iteration_i = 0; iteration_i < physics_parameters.constraint_iteration; iteration_i++) {
+    for (int iteration_i = 0; iteration_i < physics_parameters.position_constraint_iteration; iteration_i++) {
       for (const auto& c : constraints) {
         if (c->enabled)
           c->ProjectPositionConstraint(physics_parameters, *this);
@@ -66,6 +66,17 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
     });
     if (velocity_update)
       velocity_update->Execute(physics_parameters, *this);
+
+    for (int iteration_i = 0; iteration_i < physics_parameters.velocity_constraint_iteration; iteration_i++) {
+      for (const auto& c : constraints) {
+        if (c->enabled)
+          c->ProjectVelocityConstraint(physics_parameters, *this);
+      }
+    }
+
+    for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
+      dts->ProjectVelocityConstraint(physics_parameters, *this);
+    });
   }
   if (physics_parameters.enable_segment_collision) {
     dynamic_hashed_grid->BuildGrid(physics_parameters, *this);
@@ -83,7 +94,7 @@ struct TetrahedronFilteringPushConstant {
   float bifurcation_alpha = 0.0f;
   float max_dist_squared = 0.0f;
   int render_complex = 0;
-  float degen_triangle_threshold = 0.0f; 
+  float degen_triangle_threshold = 0.0f;
 };
 
 DynamicStrands::DynamicStrands() {
@@ -146,8 +157,8 @@ DynamicStrands::DynamicStrands() {
 
   BuildRenderComputePipelines();
   BuildBranchesRenderingPipelines();
-  BuildSmallSegmentsRenderingPipelines(); 
-  BuildFoliageRenderingPipelines(); 
+  BuildSmallSegmentsRenderingPipelines();
+  BuildFoliageRenderingPipelines();
 }
 
 void DynamicStrands::BuildRenderComputePipelines() {
@@ -159,7 +170,8 @@ void DynamicStrands::BuildRenderComputePipelines() {
                                   "Shaders/Compute/DynamicStrands/Rendering/TetrahedronFiltering.comp");
   branches_tetrahedron_filtering_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
 
-  auto& tetrahedron_filtering_push_constant_range = branches_tetrahedron_filtering_pipeline->push_constant_ranges.emplace_back();
+  auto& tetrahedron_filtering_push_constant_range =
+      branches_tetrahedron_filtering_pipeline->push_constant_ranges.emplace_back();
   tetrahedron_filtering_push_constant_range.size = sizeof(TetrahedronFilteringPushConstant);
   tetrahedron_filtering_push_constant_range.offset = 0;
   tetrahedron_filtering_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -201,7 +213,7 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
     filtering_push_constant.render_complex = branches_render_parameters.render_complex ? 1 : 0;
     filtering_push_constant.degen_triangle_threshold =
         pow(10.0f, -branches_render_parameters.degen_triangle_threshold_logairthmic);
-    branches_tetrahedron_filtering_pipeline->Bind(vk_command_buffer); 
+    branches_tetrahedron_filtering_pipeline->Bind(vk_command_buffer);
     branches_tetrahedron_filtering_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_tetrahedron_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
@@ -214,7 +226,7 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     TetrahedronFilteringPushConstant filtering_push_constant;
     filtering_push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
-    filtering_push_constant.alpha = branches_render_parameters.alpha; 
+    filtering_push_constant.alpha = branches_render_parameters.alpha;
     filtering_push_constant.bifurcation_alpha = branches_render_parameters.bifurcation_alpha;
     filtering_push_constant.max_dist_squared = branches_render_parameters.max_dist_squared;
     filtering_push_constant.render_complex = branches_render_parameters.render_complex ? 1 : 0;
@@ -225,7 +237,7 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_triangle_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations),
-                  1, 1); 
+                  1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -344,20 +356,26 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::Checkbox("Grouping", &enable_grouping)) {
     changed = true;
   }
-  if (ImGui::Checkbox("Segment Collision", &enable_segment_collision)) {
+  if (ImGui::Checkbox("Segment collision", &enable_segment_collision)) {
     changed = true;
   }
-  if (ImGui::DragInt("Constraint Iteration", &constraint_iteration, 1, 1, 500))
+  if (ImGui::DragInt("Position constraint iteration", &position_constraint_iteration, 1, 1, 50))
     changed = true;
-  if (ImGui::DragFloat("Segment Velocity damping", &segment_velocity_damping, 0.01f, 0.01f, 1.0f))
+  if (ImGui::DragInt("Velocity constraint iteration", &velocity_constraint_iteration, 1, 1, 50))
     changed = true;
-  if (ImGui::DragFloat("Segment Angular velocity damping", &segment_angular_velocity_damping, 0.00001f, 0.0f, 1.0f,
+  if (ImGui::DragFloat("Segment Velocity damping", &segment_velocity_damping, 0.0001f, 0.f, 1.f, "%.4f"))
+    changed = true;
+  if (ImGui::DragFloat("Segment Angular velocity damping", &segment_angular_velocity_damping, 0.00001f, 0.f, 1.f,
                        "%.5f"))
     changed = true;
-  if (ImGui::DragFloat("Leaf Velocity damping", &leaf_velocity_damping, 0.01f, 0.01f, 1.0f))
+  if (ImGui::DragFloat("Leaf Velocity damping", &leaf_velocity_damping, 0.0001f, 0.f, 1.f, "%.4f"))
     changed = true;
-  if (ImGui::DragFloat("Leaf Angular velocity damping", &leaf_angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
+  if (ImGui::DragFloat("Leaf Angular velocity damping", &leaf_angular_velocity_damping, 0.00001f, 0.f, 1.f, "%.5f"))
     changed = true;
+
+  if (ImGui::DragFloat3("Gravity", &gravity.x, 1.f))
+    changed = true;
+
   return changed;
 }
 
@@ -407,31 +425,29 @@ void DynamicStrands::Upload() {
 }
 
 void DynamicStrands::Download() {
-  Platform::AddTemporaryBufferSyncAction([&]() {
-    if (!strands.empty())
-      device_strands_buffer->DownloadVector(strands, strands.size());
-    if (!nodes.empty())
-      device_nodes_buffer->DownloadVector(nodes, nodes.size());
-    if (!segments.empty())
-      device_segments_buffer->DownloadVector(segments, segments.size());
-    if (!segment_pairs.empty())
-      device_segment_pairs_buffer->DownloadVector(segment_pairs, segment_pairs.size());
-    if (!segment_data_list.empty())
-      device_segment_data_list_buffer->DownloadVector(segment_data_list, segment_data_list.size());
-    if (!uniform_particles.empty())
-      device_uniform_particles_buffer->DownloadVector(uniform_particles, uniform_particles.size());
-    if (!delaunay_tetrahedrons.empty())
-      device_delaunay_tetrahedrons_buffer->DownloadVector(delaunay_tetrahedrons, delaunay_tetrahedrons.size());
-    if (!hashed_grid_elements.empty())
-      device_hashed_grid_elements_buffer->DownloadVector(hashed_grid_elements, hashed_grid_elements.size());
-    if (!hashed_grid_cell_starts.empty())
-      device_hashed_grid_cell_starts_buffer->DownloadVector(hashed_grid_cell_starts, hashed_grid_cell_starts.size());
-    if (!foliage.empty())
-      device_foliage_buffer->DownloadVector(foliage, foliage.size());
-    for (const auto& c : constraints) {
-      c->DownloadData();
-    }
-  });
+  if (!strands.empty())
+    device_strands_buffer->DownloadVector(strands, strands.size());
+  if (!nodes.empty())
+    device_nodes_buffer->DownloadVector(nodes, nodes.size());
+  if (!segments.empty())
+    device_segments_buffer->DownloadVector(segments, segments.size());
+  if (!segment_pairs.empty())
+    device_segment_pairs_buffer->DownloadVector(segment_pairs, segment_pairs.size());
+  if (!segment_data_list.empty())
+    device_segment_data_list_buffer->DownloadVector(segment_data_list, segment_data_list.size());
+  if (!uniform_particles.empty())
+    device_uniform_particles_buffer->DownloadVector(uniform_particles, uniform_particles.size());
+  if (!delaunay_tetrahedrons.empty())
+    device_delaunay_tetrahedrons_buffer->DownloadVector(delaunay_tetrahedrons, delaunay_tetrahedrons.size());
+  if (!hashed_grid_elements.empty())
+    device_hashed_grid_elements_buffer->DownloadVector(hashed_grid_elements, hashed_grid_elements.size());
+  if (!hashed_grid_cell_starts.empty())
+    device_hashed_grid_cell_starts_buffer->DownloadVector(hashed_grid_cell_starts, hashed_grid_cell_starts.size());
+  if (!foliage.empty())
+    device_foliage_buffer->DownloadVector(foliage, foliage.size());
+  for (const auto& c : constraints) {
+    c->DownloadData();
+  }
 }
 
 void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters) const {
@@ -840,7 +856,7 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
       // TODO: according to CGAL documentation, this is guaranteed anyway, so we do not need to match both sides
       // store it such that the neighboring tetrahedron always consists of different indices
       // e. g. for the triangle 1 2 4 we store the corresponding neighboring index at position 3
-      //gpu_tet.neighbor_tet_ids[mismatch_indices.first] = neighbor.index();
+      // gpu_tet.neighbor_tet_ids[mismatch_indices.first] = neighbor.index();
       EVOENGINE_ERROR("CGAL does not provide neighbor indices");
     }
 

@@ -81,6 +81,11 @@ struct Segment {
   vec2 max_shear_stretch_strain;
   vec2 shear_stretch_strain_limit;
 
+  float property0;
+  float property1;
+  float property2;
+  float property3;
+
   Particle particle0;
   Particle particle1;
 };

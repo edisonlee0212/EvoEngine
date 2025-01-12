@@ -14,28 +14,6 @@ class IDsPhysicsOperator {
   bool enabled = true;
 };
 
-class DsGravity final : public IDsPhysicsOperator {
- public:
-  struct SegmentGravityPushConstant {
-    glm::vec3 acceleration;
-    uint32_t segment_size = 0;
-    float ground_height = -1.0f;
-  };
-  struct LeafGravityPushConstant {
-    glm::vec3 acceleration;
-    uint32_t leaf_size = 0;
-    float ground_height = -1.0f;
-  };
-  float ground_height = -1.0f;
-  glm::vec3 gravity = glm::vec3(0, -9.81, 0);
-  inline static std::shared_ptr<ComputePipeline> segment_gravity_force_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> leaf_gravity_force_pipeline{};
-  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  DsGravity();
-};
-
 class DsLeafDrop final : public IDsPhysicsOperator {
  public:
   struct LeafDropPushConstant {

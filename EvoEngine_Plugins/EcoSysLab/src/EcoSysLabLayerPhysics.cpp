@@ -126,7 +126,7 @@ void EcoSysLabLayer::DynamicStrandVisualization() const {
             }
           }
         };
-    if (dynamic_strands_settings_.enable) {
+    if (dynamic_strands_settings_.enable_visualization) {
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
         dts->Visualization(visualization_camera_, dynamic_strands_settings_.visualization_parameters);
       });

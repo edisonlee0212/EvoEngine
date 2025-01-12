@@ -106,7 +106,6 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
   dynamic_strands->constraints.emplace_back(std::make_shared<DsStiffRod>());
   dynamic_strands->constraints.emplace_back(std::make_shared<DsBundle>());
   dynamic_strands->constraints.emplace_back(std::make_shared<DsLeafAttachment>());
-  dynamic_strands->constraints.emplace_back(std::make_shared<DsGroundPlane>());
   subdivided_strand_group.RandomAssignColor();
 
   transform_pivots.clear();
@@ -245,12 +244,6 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
         }
         ImGui::TreePop();
       }
-      if (gravity) {
-        if (ImGui::TreeNodeEx("Gravity", ImGuiTreeNodeFlags_DefaultOpen)) {
-          gravity->OnInspect(editor_layer);
-          ImGui::TreePop();
-        }
-      }
       if (leaf_drop) {
         if (ImGui::TreeNodeEx("Leaf Drop", ImGuiTreeNodeFlags_DefaultOpen)) {
           leaf_drop->OnInspect(editor_layer);
@@ -286,7 +279,6 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
 void DynamicTreeStrands::OnCreate() {
   dynamic_strands = std::make_shared<DynamicStrands>();
-  gravity = std::make_shared<DsGravity>();
   leaf_drop = std::make_shared<DsLeafDrop>();
   box_selection_operator = std::make_shared<DsBoxSelection>();
   drag_operator = std::make_shared<DsDrag>();
@@ -327,7 +319,6 @@ void DynamicTreeStrands::OnCreate() {
 
 void DynamicTreeStrands::OnDestroy() {
   dynamic_strands.reset();
-  gravity.reset();
   leaf_drop.reset();
   box_selection_operator.reset();
   drag_operator.reset();
@@ -901,8 +892,6 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
     dynamic_strands->Physics(
         physics_parameters,
         [&]() {
-          if (gravity->enabled)
-            gravity->Execute(physics_parameters, dynamic_strands);
           if (leaf_drop->enabled)
             leaf_drop->Execute(physics_parameters, dynamic_strands);
 
