@@ -77,6 +77,9 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
     for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
       dts->ProjectVelocityConstraint(physics_parameters, *this);
     });
+
+
+    simulated_time += physics_parameters.time_step / static_cast<float>(physics_parameters.sub_step);
   }
   if (physics_parameters.enable_segment_collision) {
     dynamic_hashed_grid->BuildGrid(physics_parameters, *this);
@@ -244,6 +247,10 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
 
 uint32_t DynamicStrands::GetFrameIndex() const {
   return frame_index;
+}
+
+float DynamicStrands::GetSimulatedTime() const {
+  return simulated_time;
 }
 
 bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {

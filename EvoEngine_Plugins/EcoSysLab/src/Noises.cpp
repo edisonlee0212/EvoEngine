@@ -63,16 +63,12 @@ bool Noise2D::OnInspect() {
         ImGui::TreePop();
         continue;
       }
-      changed =
-          ImGui::Combo("Type", {"Constant", "Linear", "Simplex", "Perlin"}, noise_descriptors[i].type) || changed;
+      changed = ImGui::Combo("Type", {"Constant", "Linear", "Simplex", "Perlin"}, noise_descriptors[i].type) || changed;
       switch (static_cast<NoiseType>(noise_descriptors[i].type)) {
         case NoiseType::Perlin:
-          changed =
-              ImGui::DragFloat("Frequency", &noise_descriptors[i].frequency, 0.00001f, 0, 0, "%.5f") || changed;
-          changed =
-              ImGui::DragFloat("Intensity", &noise_descriptors[i].intensity, 0.00001f, 1, 0, "%.5f") || changed;
-          changed =
-              ImGui::DragFloat("Multiplier", &noise_descriptors[i].multiplier, 0.00001f, 0, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Frequency", &noise_descriptors[i].frequency, 0.00001f, 0, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Intensity", &noise_descriptors[i].intensity, 0.00001f, 1, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Multiplier", &noise_descriptors[i].multiplier, 0.00001f, 0, 0, "%.5f") || changed;
           if (ImGui::DragFloat("Min", &noise_descriptors[i].min, 0.01f, -99999, noise_descriptors[i].max)) {
             changed = true;
             noise_descriptors[i].min = glm::min(noise_descriptors[i].min, noise_descriptors[i].max);
@@ -85,12 +81,9 @@ bool Noise2D::OnInspect() {
           changed = ImGui::Checkbox("Ridgid", &noise_descriptors[i].ridgid) || changed;
           break;
         case NoiseType::Simplex:
-          changed =
-              ImGui::DragFloat("Frequency", &noise_descriptors[i].frequency, 0.00001f, 0, 0, "%.5f") || changed;
-          changed =
-              ImGui::DragFloat("Intensity", &noise_descriptors[i].intensity, 0.00001f, 1, 0, "%.5f") || changed;
-          changed =
-              ImGui::DragFloat("Multiplier", &noise_descriptors[i].multiplier, 0.00001f, 0, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Frequency", &noise_descriptors[i].frequency, 0.00001f, 0, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Intensity", &noise_descriptors[i].intensity, 0.00001f, 1, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Multiplier", &noise_descriptors[i].multiplier, 0.00001f, 0, 0, "%.5f") || changed;
           if (ImGui::DragFloat("Min", &noise_descriptors[i].min, 0.01f, -99999, noise_descriptors[i].max)) {
             changed = true;
             noise_descriptors[i].min = glm::min(noise_descriptors[i].min, noise_descriptors[i].max);
@@ -243,16 +236,12 @@ bool Noise3D::OnInspect() {
         ImGui::TreePop();
         continue;
       }
-      changed =
-          ImGui::Combo("Type", {"Constant", "Linear", "Simplex", "Perlin"}, noise_descriptors[i].type) || changed;
+      changed = ImGui::Combo("Type", {"Constant", "Linear", "Simplex", "Perlin"}, noise_descriptors[i].type) || changed;
       switch (static_cast<NoiseType>(noise_descriptors[i].type)) {
         case NoiseType::Perlin:
-          changed =
-              ImGui::DragFloat("Frequency", &noise_descriptors[i].frequency, 0.00001f, 0, 0, "%.5f") || changed;
-          changed =
-              ImGui::DragFloat("Intensity", &noise_descriptors[i].intensity, 0.00001f, 1, 0, "%.5f") || changed;
-          changed =
-              ImGui::DragFloat("Multiplier", &noise_descriptors[i].multiplier, 0.00001f, 0, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Frequency", &noise_descriptors[i].frequency, 0.00001f, 0, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Intensity", &noise_descriptors[i].intensity, 0.00001f, 1, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Multiplier", &noise_descriptors[i].multiplier, 0.00001f, 0, 0, "%.5f") || changed;
           if (ImGui::DragFloat("Min", &noise_descriptors[i].min, 0.01f, -99999, noise_descriptors[i].max)) {
             changed = true;
             noise_descriptors[i].min = glm::min(noise_descriptors[i].min, noise_descriptors[i].max);
@@ -266,12 +255,9 @@ bool Noise3D::OnInspect() {
           changed = ImGui::Checkbox("Ridgid", &noise_descriptors[i].ridgid) || changed;
           break;
         case NoiseType::Simplex:
-          changed =
-              ImGui::DragFloat("Frequency", &noise_descriptors[i].frequency, 0.00001f, 0, 0, "%.5f") || changed;
-          changed =
-              ImGui::DragFloat("Intensity", &noise_descriptors[i].intensity, 0.00001f, 1, 0, "%.5f") || changed;
-          changed =
-              ImGui::DragFloat("Multiplier", &noise_descriptors[i].multiplier, 0.00001f, 0, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Frequency", &noise_descriptors[i].frequency, 0.00001f, 0, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Intensity", &noise_descriptors[i].intensity, 0.00001f, 1, 0, "%.5f") || changed;
+          changed = ImGui::DragFloat("Multiplier", &noise_descriptors[i].multiplier, 0.00001f, 0, 0, "%.5f") || changed;
           if (ImGui::DragFloat("Min", &noise_descriptors[i].min, 0.01f, -99999, noise_descriptors[i].max)) {
             changed = true;
             noise_descriptors[i].min = glm::min(noise_descriptors[i].min, noise_descriptors[i].max);

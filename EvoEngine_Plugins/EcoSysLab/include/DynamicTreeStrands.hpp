@@ -12,6 +12,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   Handle small_segments_rendering_instance_handle;
 
  public:
+  int seed = 0;
   bool enable_simulation = true;
 
   StrandModelSkeleton strand_model_skeleton{};
@@ -52,6 +53,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   std::shared_ptr<DsDrag> drag_operator;
   std::shared_ptr<DsLeafDrop> leaf_drop;
   std::shared_ptr<DsSnow> snow;
+  std::shared_ptr<DsWind> wind;
   void UpdateDynamicStrands();
   void CreateStaticRoot();
   void Serialize(YAML::Emitter& out) const override;

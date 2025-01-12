@@ -1,6 +1,4 @@
 #include "StrandModel.hpp"
-
-#include <any>
 using namespace evo_engine;
 using namespace eco_sys_lab_plugin;
 
@@ -16,6 +14,8 @@ void StrandModel::ResetAllProfiles(const StrandModelParameters& strand_model_par
 }
 
 void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_parameters) {
+  random_engine_ = std::mt19937(static_cast<uint32_t>(seed));
+
   strand_model_skeleton.data.strand_group = {};
   auto& strand_group = strand_model_skeleton.data.strand_group;
   const auto& sorted_internode_list = strand_model_skeleton.PeekSortedNodeList();
@@ -86,7 +86,7 @@ void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_p
           const auto position =
               strand_model_parameters.end_node_strands == 1
                   ? glm::vec2(0.f)
-                  : glm::diskRand(glm::sqrt(static_cast<float>(strand_model_parameters.end_node_strands)));
+                  : DiskRand(random_engine_, glm::sqrt(static_cast<float>(strand_model_parameters.end_node_strands)));
           const auto new_strand_segment_handle = strand_group.Extend(strand_handle);
           const auto new_particle_handle = profile.AllocateParticle();
           auto& new_particle = profile.RefParticle(new_particle_handle);
@@ -814,4 +814,17 @@ float StrandModel::InterpolateStrandSegmentRadius(StrandSegmentHandle strand_seg
   float radius, tangent;
   Strands::CubicInterpolation(p[0], p[1], p[2], p[3], radius, tangent, a);
   return radius;
+}
+
+glm::vec2 StrandModel::DiskRand(std::mt19937& random_engine, const float radius) {
+  // Generate radius and angle
+  std::uniform_real_distribution<> distribution(0.0, 1.0);
+  const float r =
+      radius * static_cast<float>(std::sqrt(distribution(random_engine)));  // Adjust radius for uniform area
+  const float theta =
+      2.0f * glm::pi<float>() * static_cast<float>(distribution(random_engine));  // Uniform angle [0, 2pi]
+  // Convert to Cartesian coordinates
+  float x = r * std::cos(theta);
+  float y = r * std::sin(theta);
+  return {x, y};
 }

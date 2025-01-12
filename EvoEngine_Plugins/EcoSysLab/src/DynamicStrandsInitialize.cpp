@@ -15,6 +15,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
                                 const DtsStrandGroup& strand_group) {
   Clear();
   frame_index = 0;
+  simulated_time = 0.f;
   assert(initialize_parameters.root_transform.GetScale() == glm::vec3(1.0f));
   const auto& target_strands = strand_group.PeekStrands();
   const auto& target_strand_segments = strand_group.PeekStrandSegments();

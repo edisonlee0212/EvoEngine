@@ -28,11 +28,14 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
   }
 
   dynamic_strands->constraints.clear();
+  std::mt19937 random_engine(seed);
 
   source_strand_group.Subdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
       subdivided_strand_group,
       [&]() {
-        return glm::linearRand(initialize_parameters.min_segment_length, initialize_parameters.max_segment_length);
+        std::uniform_real_distribution distribution(initialize_parameters.min_segment_length,
+                                                    initialize_parameters.max_segment_length);
+        return distribution(random_engine);
       },
       [](StrandHandle src_handle, DtsStrandData& strand_data) {
       },
@@ -163,6 +166,7 @@ void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
 }
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::DragInt("Seed", &seed, 1, 0, INT_MAX);
   editor_layer->DragAndDropButton<Material>(bark_material_ref, "Bark Material");
   editor_layer->DragAndDropButton<Material>(inner_wood_material_ref, "Inner wood Material");
   editor_layer->DragAndDropButton<Material>(splinter_material_ref, "Splinter Material");
@@ -262,6 +266,12 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
           ImGui::TreePop();
         }
       }
+      if (wind) {
+        if (ImGui::TreeNodeEx("Wind", ImGuiTreeNodeFlags_DefaultOpen)) {
+          wind->OnInspect(editor_layer);
+          ImGui::TreePop();
+        }
+      }
       ImGui::TreePop();
     }
     if (ImGui::TreeNode("Constraint")) {
@@ -293,6 +303,7 @@ void DynamicTreeStrands::OnCreate() {
   dynamic_strands = std::make_shared<DynamicStrands>();
   leaf_drop = std::make_shared<DsLeafDrop>();
   snow = std::make_shared<DsSnow>();
+  wind = std::make_shared<DsWind>();
   box_selection_operator = std::make_shared<DsBoxSelection>();
   point_cut_operator = std::make_shared<DsPointCut>();
   drag_operator = std::make_shared<DsDrag>();
@@ -342,6 +353,7 @@ void DynamicTreeStrands::OnDestroy() {
   dynamic_strands.reset();
   leaf_drop.reset();
   snow.reset();
+  wind.reset();
   point_cut_operator.reset();
   box_selection_operator.reset();
   drag_operator.reset();
@@ -601,6 +613,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   }
   strand_model_skeleton.SortLists();
   strand_model_skeleton.CalculateRegulatedGlobalRotation();
+  std::mt19937 random_engine(seed);
 
   StrandModelProfile<CellParticlePhysicsData> profile;
   for (int i = 0; i < settings.rod_size; i++) {
@@ -609,8 +622,9 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     new_particle.strand_handle = i;
     new_particle.strand_segment_handle = 0;
     new_particle.base = false;
-    const auto position =
-        settings.rod_size == 1 ? glm::vec2(0.f) : glm::diskRand(glm::sqrt(static_cast<float>(settings.rod_size)));
+    const auto position = settings.rod_size == 1
+                              ? glm::vec2(0.f)
+                              : StrandModel::DiskRand(random_engine, glm::sqrt(static_cast<float>(settings.rod_size)));
     new_particle.SetPosition(position);
     new_particle.SetInitialPosition(position);
   }
@@ -782,7 +796,6 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       pivot_operator.ds_pivot_point->Initialize(operator_root_transform, dynamic_strands, segment_list);
       dynamic_strands->constraints.emplace_back(pivot_operator.ds_pivot_point);
       break;
-      break;
     }
     case PivotType::Axis: {
       const auto scene = Application::GetActiveScene();
@@ -924,7 +937,9 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
           if (snow->enabled) {
             snow->Execute(physics_parameters, dynamic_strands);
           }
-
+          if (wind->enabled) {
+            wind->Execute(physics_parameters, dynamic_strands);
+          }
           if (line_cut_operator->enabled) {
             line_cut_operator->Execute(dynamic_strands);
           }

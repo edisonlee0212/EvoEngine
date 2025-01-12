@@ -68,6 +68,7 @@ class DynamicStrands {
  public:
   DynamicStrands();
   uint32_t GetFrameIndex() const;
+  float GetSimulatedTime() const;
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
   static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
 #pragma region Initialization
@@ -577,7 +578,7 @@ class DynamicStrands {
 
  private:
   uint32_t frame_index = 0;
-
+  float simulated_time = 0.f;
 #ifdef USE_CGAL
   void CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned>>& points,
                     std::vector<GpuDelaunayTetrahedron>& tetrahedrons);

@@ -165,7 +165,7 @@ class DsSaw : public IDsOperator {
 
 class DsSnow : public IDsPhysicsOperator {
  public:
-  struct SegmentSnowPushConstant {
+  struct SegmentPushConstant {
     uint32_t segment_size;
     float snow_intensity;
     float snow_retain_ratio;
@@ -173,7 +173,7 @@ class DsSnow : public IDsPhysicsOperator {
 
   inline static std::shared_ptr<ComputePipeline> segment_pipeline{};
 
-  struct LeafSnowPushConstant {
+  struct LeafPushConstant {
     uint32_t leaf_size;
     float snow_intensity;
     float snow_retain_ratio;
@@ -184,6 +184,39 @@ class DsSnow : public IDsPhysicsOperator {
   float snow_intensity = 0.000f;
   float snow_retain_ratio = 0.2f;
   DsSnow();
+  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+};
+
+class DsWind : public IDsPhysicsOperator {
+ public:
+  struct SegmentPushConstant {
+    glm::vec3 main_force;
+    uint32_t segment_size;
+
+    float turbulence_direction_frequency;
+    float turbulence_speed_frequency;
+    float turbulence_strength;
+    float simulated_time;
+  };
+  struct LeafPushConstant {
+    glm::vec3 main_force;
+    uint32_t leaf_size;
+
+    float turbulence_direction_frequency;
+    float turbulence_speed_frequency;
+    float turbulence_strength;
+    float simulated_time;
+  };
+
+  glm::vec3 main_force = glm::vec3(0.f);
+  float turbulence_strength = 0.5f;
+  float turbulence_direction_frequency = 0.1f;
+  float turbulence_speed_frequency = 0.1f;
+  inline static std::shared_ptr<ComputePipeline> segment_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> leaf_pipeline{};
+  DsWind();
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;

@@ -62,7 +62,7 @@ void main(){
 				leaf.torque += axis * angle * rotation_correction_strength;
 			}
 			float l_a = length(leaf.acceleration);
-			leaf.torque += vec3(EE_SIMPLEX_NOISE(leaf.x * disturbance_frequency.x), EE_SIMPLEX_NOISE((leaf.x + vec3(10.f, 10.f, 10.f)) * disturbance_frequency.y), EE_SIMPLEX_NOISE((leaf.x + vec3(20.f, 20.f, 20.f)) * disturbance_frequency.z))
+			leaf.torque += vec3(EE_SIMPLEX_NOISE(leaf.x * disturbance_frequency.x) * 2.f - 1.f, EE_SIMPLEX_NOISE((leaf.x + vec3(10.f, 10.f, 10.f)) * disturbance_frequency.y) * 2.f - 1.f, EE_SIMPLEX_NOISE((leaf.x + vec3(20.f, 20.f, 20.f)) * disturbance_frequency.z) * 2.f - 1.f)
 							* l_a * disturbance_strength;
 			leaf.acceleration += up * l_a * air_resistance_strength;
 		}

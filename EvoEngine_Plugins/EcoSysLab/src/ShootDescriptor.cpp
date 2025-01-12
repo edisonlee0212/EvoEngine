@@ -13,8 +13,9 @@ std::shared_ptr<Texture2D> ShootDescriptor::GenerateThumbnailTexture() {
 }
 
 void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_controller) const {
-  shoot_growth_controller.m_baseInternodeCount = base_internode_count;
-  shoot_growth_controller.m_breakingForce = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.base_internode_count = base_internode_count;
+  shoot_growth_controller.breaking_force = [&](std::mt19937& random_engine,
+                                               const SkeletonNode<InternodeGrowthData>& internode) {
     if (branch_strength != 0.f && !internode.IsEndNode() && internode.info.thickness != 0.f &&
         internode.info.length != 0.f) {
       float branch_water_factor = 1.f;
@@ -28,29 +29,39 @@ void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_cont
     }
     return FLT_MAX;
   };
-  shoot_growth_controller.m_sagging = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.sagging = [&](std::mt19937& random_engine,
+                                        const SkeletonNode<InternodeGrowthData>& internode) {
     float strength = end_node_thickness * internode.data.sagging_force * gravity_bending_strength /
                      glm::pow(internode.info.thickness / end_node_thickness, gravity_bending_thickness_factor);
     strength = gravity_bending_max * (1.f - glm::exp(-glm::abs(strength)));
     return glm::max(internode.data.sagging, strength);
   };
-  shoot_growth_controller.m_baseNodeApicalAngle = [&](const SkeletonNode<InternodeGrowthData>& internode) {
-    return glm::gaussRand(base_node_apical_angle_mean_variance.x, base_node_apical_angle_mean_variance.y);
+  shoot_growth_controller.base_node_apical_angle = [&](std::mt19937& random_engine,
+                                                       const SkeletonNode<InternodeGrowthData>& internode) {
+    std::normal_distribution distribution{base_node_apical_angle_mean_variance.x,
+                                          base_node_apical_angle_mean_variance.y};
+    return distribution(random_engine);
   };
 
-  shoot_growth_controller.m_internodeGrowthRate = growth_rate / internode_length;
+  shoot_growth_controller.internode_growth_rate = growth_rate / internode_length;
 
-  shoot_growth_controller.m_branchingAngle = [&](const SkeletonNode<InternodeGrowthData>& internode) {
-    float value = glm::gaussRand(branching_angle_mean_variance.x, branching_angle_mean_variance.y);
+  shoot_growth_controller.branching_angle = [&](std::mt19937& random_engine,
+                                                const SkeletonNode<InternodeGrowthData>& internode) {
+    std::normal_distribution distribution{branching_angle_mean_variance.x, branching_angle_mean_variance.y};
+
+    const float value = distribution(random_engine);
     /*
-            if(const auto noise = m_branchingAngle.Get<ProceduralNoise2D>())
+            if(const auto noise = branching_angle.Get<ProceduralNoise2D>())
             {
                     noise->Process(glm::vec2(internode.GetHandle(), internode.info.m_rootDistance), value);
             }*/
     return value;
   };
-  shoot_growth_controller.m_rollAngle = [&](const SkeletonNode<InternodeGrowthData>& internode) {
-    float value = glm::gaussRand(roll_angle_mean_variance.x, roll_angle_mean_variance.y);
+  shoot_growth_controller.roll_angle = [&](std::mt19937& random_engine,
+                                           const SkeletonNode<InternodeGrowthData>& internode) {
+    std::normal_distribution distribution{roll_angle_mean_variance.x, roll_angle_mean_variance.y};
+
+    float value = distribution(random_engine);
     /*
             if (const auto noise = roll_angle.Get<ProceduralNoise2D>())
             {
@@ -59,10 +70,13 @@ void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_cont
     value += roll_angle_noise_2d.GetValue(glm::vec2(internode.GetHandle(), internode.info.root_distance));
     return value;
   };
-  shoot_growth_controller.m_apicalAngle = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.apical_angle = [&](std::mt19937& random_engine,
+                                             const SkeletonNode<InternodeGrowthData>& internode) {
     if (straight_trunk != 0.f && internode.data.order == 0 && internode.info.root_distance < straight_trunk)
       return 0.f;
-    float value = glm::gaussRand(apical_angle_mean_variance.x, apical_angle_mean_variance.y);
+    std::normal_distribution distribution{apical_angle_mean_variance.x, apical_angle_mean_variance.y};
+
+    float value = distribution(random_engine);
     /*
             if (const auto noise = apical_angle.Get<ProceduralNoise2D>())
             {
@@ -71,63 +85,73 @@ void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_cont
     value += apical_angle_noise_2d.GetValue(glm::vec2(internode.GetHandle(), internode.info.root_distance));
     return value;
   };
-  shoot_growth_controller.m_gravitropism = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.gravitropism = [&](std::mt19937& random_engine,
+                                             const SkeletonNode<InternodeGrowthData>& internode) {
     return gravitropism;
   };
-  shoot_growth_controller.m_phototropism = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.phototropism = [&](std::mt19937& random_engine,
+                                             const SkeletonNode<InternodeGrowthData>& internode) {
     return phototropism;
   };
-  shoot_growth_controller.m_horizontalTropism = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.horizontal_tropism = [&](std::mt19937& random_engine,
+                                                   const SkeletonNode<InternodeGrowthData>& internode) {
     return horizontal_tropism;
   };
 
-  shoot_growth_controller.m_internodeStrength = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.internode_strength = [&](std::mt19937& random_engine,
+                                                   const SkeletonNode<InternodeGrowthData>& internode) {
     return 1.f;
   };
 
-  shoot_growth_controller.m_internodeLength = internode_length;
-  shoot_growth_controller.m_internodeLengthThicknessFactor = internode_length_thickness_factor;
-  shoot_growth_controller.m_endNodeThickness = end_node_thickness;
-  shoot_growth_controller.m_thicknessAccumulationFactor = thickness_accumulation_factor;
-  shoot_growth_controller.m_thicknessAgeFactor = thickness_age_factor;
-  shoot_growth_controller.m_internodeShadowFactor = internode_shadow_factor;
+  shoot_growth_controller.internode_length = internode_length;
+  shoot_growth_controller.internode_length_thickness_factor = internode_length_thickness_factor;
+  shoot_growth_controller.end_node_thickness = end_node_thickness;
+  shoot_growth_controller.thickness_accumulation_factor = thickness_accumulation_factor;
+  shoot_growth_controller.thickness_age_factor = thickness_age_factor;
+  shoot_growth_controller.internode_shadow_factor = internode_shadow_factor;
 
-  shoot_growth_controller.m_lateralBudCount = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.lateral_bud_count = [&](std::mt19937& random_engine,
+                                                  const SkeletonNode<InternodeGrowthData>& internode) {
     if (max_order == -1 || internode.data.order < max_order) {
       return lateral_bud_count;
     }
     return 0;
   };
-  shoot_growth_controller.m_m_apicalBudExtinctionRate = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.apical_bud_extinction_rate = [&](std::mt19937& random_engine,
+                                                           const SkeletonNode<InternodeGrowthData>& internode) {
     if (internode.info.root_distance < 0.5f)
       return 0.f;
     return apical_bud_extinction_rate;
   };
-  shoot_growth_controller.m_lateralBudFlushingRate = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.lateral_bud_flushing_rate = [&](std::mt19937& random_engine,
+                                                          const SkeletonNode<InternodeGrowthData>& internode) {
     float flushing_rate = lateral_bud_flushing_rate;
     if (internode.data.inhibitor_sink > 0.0f)
       flushing_rate *= glm::exp(-internode.data.inhibitor_sink);
     return flushing_rate;
   };
-  shoot_growth_controller.m_apicalControl = apical_control;
-  shoot_growth_controller.m_rootDistanceControl = root_distance_control;
-  shoot_growth_controller.m_heightControl = height_control;
+  shoot_growth_controller.apical_control = apical_control;
+  shoot_growth_controller.root_distance_control = root_distance_control;
+  shoot_growth_controller.height_control = height_control;
 
-  shoot_growth_controller.m_apicalDominance = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.apical_dominance = [&](std::mt19937& random_engine,
+                                                 const SkeletonNode<InternodeGrowthData>& internode) {
     return apical_dominance * internode.data.light_intake;
   };
-  shoot_growth_controller.m_apicalDominanceLoss = apical_dominance_loss;
-  shoot_growth_controller.m_leaf = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.apical_dominance_loss = apical_dominance_loss;
+  shoot_growth_controller.leaf = [&](std::mt19937& random_engine, const SkeletonNode<InternodeGrowthData>& internode) {
     return internode.data.light_intake > leaf_flushing_lighting_requirement;
   };
 
-  shoot_growth_controller.m_leafFallProbability = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.leaf_fall_probability = [&](std::mt19937& random_engine,
+                                                      const SkeletonNode<InternodeGrowthData>& internode) {
     return leaf_fall_probability;
   };
-  shoot_growth_controller.m_fruit = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.fruit = [&](std::mt19937& random_engine, const SkeletonNode<InternodeGrowthData>& internode) {
     return internode.data.light_intake > fruit_flushing_lighting_requirement;
   };
-  shoot_growth_controller.m_fruitFallProbability = [&](const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller.fruit_fall_probability = [&](std::mt19937& random_engine,
+                                                       const SkeletonNode<InternodeGrowthData>& internode) {
     return fruit_fall_probability;
   };
 }
@@ -309,12 +333,12 @@ bool ShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer
     if (ImGui::TreeNodeEx("Angles")) {
       changed = ImGui::DragFloat2("Branching angle base/var", &branching_angle_mean_variance.x, 0.1f, 0.0f, 100.0f) ||
                 changed;
-      // editorLayer->DragAndDropButton<ProceduralNoise2D>(m_branchingAngle, "Branching Angle Noise");
+      // editorLayer->DragAndDropButton<ProceduralNoise2D>(branching_angle, "Branching Angle Noise");
       changed = ImGui::DragFloat2("Roll angle base/var", &roll_angle_mean_variance.x, 0.1f, 0.0f, 100.0f) || changed;
-      // editorLayer->DragAndDropButton<ProceduralNoise2D>(m_rollAngle, "Roll Angle Noise");
+      // editorLayer->DragAndDropButton<ProceduralNoise2D>(roll_angle, "Roll Angle Noise");
       changed =
           ImGui::DragFloat2("Apical angle base/var", &apical_angle_mean_variance.x, 0.1f, 0.0f, 100.0f) || changed;
-      // editorLayer->DragAndDropButton<ProceduralNoise2D>(m_apicalAngle, "Apical Angle Noise");
+      // editorLayer->DragAndDropButton<ProceduralNoise2D>(apical_angle, "Apical Angle Noise");
       if (ImGui::TreeNodeEx("Roll Angle Noise2D")) {
         changed = roll_angle_noise_2d.OnInspect() | changed;
         ImGui::TreePop();

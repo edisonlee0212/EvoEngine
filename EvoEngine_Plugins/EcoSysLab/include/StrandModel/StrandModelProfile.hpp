@@ -35,6 +35,7 @@ class StrandModelProfile {
   std::vector<std::pair<int, int>> initial_edges_{};
   std::vector<std::pair<int, int>> initial_boundary_edges_{};
   std::vector<glm::ivec3> initial_triangles_{};
+
  public:
   [[nodiscard]] const std::vector<std::pair<int, int>>& PeekBoundaryEdges() const;
   [[nodiscard]] const std::vector<glm::ivec3>& PeekTriangles() const;
@@ -86,7 +87,7 @@ void StrandModelProfile<T>::SolveCollision(ParticleHandle p1_handle, ParticleHan
   if (distance < 2.0f) {
     glm::vec2 axis;
     if (distance < glm::epsilon<float>()) {
-      const auto dir = glm::circularRand(1.0f);
+      constexpr auto dir = glm::vec2(0, 1);
       if (p1_handle >= p2_handle) {
         axis = dir;
       } else {
@@ -219,7 +220,7 @@ void StrandModelProfile<ParticleData>::RenderEdges(ImVec2 origin, float zoom_fac
     const auto& p1 = particles_2d_[edge.first].position_;
     const auto& p2 = particles_2d_[edge.second].position_;
     draw_list->AddLine(ImVec2(origin.x + p1.x * zoom_factor, origin.y + p1.y * zoom_factor),
-                      ImVec2(origin.x + p2.x * zoom_factor, origin.y + p2.y * zoom_factor), color, thickness);
+                       ImVec2(origin.x + p2.x * zoom_factor, origin.y + p2.y * zoom_factor), color, thickness);
   }
 }
 
@@ -232,7 +233,7 @@ void StrandModelProfile<ParticleData>::RenderBoundary(ImVec2 origin, float zoom_
     const auto& p1 = particles_2d_[edge.first].position_;
     const auto& p2 = particles_2d_[edge.second].position_;
     draw_list->AddLine(ImVec2(origin.x + p1.x * zoom_factor, origin.y + p1.y * zoom_factor),
-                      ImVec2(origin.x + p2.x * zoom_factor, origin.y + p2.y * zoom_factor), color, thickness);
+                       ImVec2(origin.x + p2.x * zoom_factor, origin.y + p2.y * zoom_factor), color, thickness);
   }
 }
 
@@ -461,9 +462,9 @@ void StrandModelProfile<T>::SimulateByTime(
 }
 
 template <typename T>
-void StrandModelProfile<T>::Simulate(const size_t iterations,
-                                     const std::function<void(ParticleGrid2D& grid, bool grid_resized)>& modify_grid_func,
-                                     const std::function<void(Particle2D<T>& particle)>& modify_particle_func) {
+void StrandModelProfile<T>::Simulate(
+    const size_t iterations, const std::function<void(ParticleGrid2D& grid, bool grid_resized)>& modify_grid_func,
+    const std::function<void(Particle2D<T>& particle)>& modify_particle_func) {
   for (int i = 0; i < iterations; i++) {
     Update(modify_grid_func, modify_particle_func);
   }
@@ -514,7 +515,8 @@ glm::vec2 StrandModelProfile<ParticleData>::CircularFindPosition(int index) cons
   const glm::vec2 walker_direction =
       glm::vec2(glm::cos(glm::radians((edge_index + 2) * 60.0f)), glm::sin(glm::radians((edge_index + 2) * 60.0f)));
 
-  return edge_direction * static_cast<float>(layer) * 2.0f + walker_direction * static_cast<float>(index_in_edge) * 2.0f;
+  return edge_direction * static_cast<float>(layer) * 2.0f +
+         walker_direction * static_cast<float>(index_in_edge) * 2.0f;
 }
 
 template <typename ParticleData>
@@ -523,9 +525,9 @@ double StrandModelProfile<ParticleData>::GetLastSimulationTime() const {
 }
 
 template <typename T>
-void StrandModelProfile<T>::OnInspect(const std::function<void(glm::vec2 position)>& func,
-                                      const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func,
-                                      bool show_grid) {
+void StrandModelProfile<T>::OnInspect(
+    const std::function<void(glm::vec2 position)>& func,
+    const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func, bool show_grid) {
   static auto scrolling = glm::vec2(0.0f);
   static float zoom_factor = 5.f;
   ImGui::Text(("Particle count: " + std::to_string(particles_2d_.size()) +
@@ -562,12 +564,14 @@ void StrandModelProfile<T>::OnInspect(const std::function<void(glm::vec2 positio
 
   // Pan (we use a zero mouse threshold when there's no context menu)
   // You may decide to make that threshold dynamic based on whether the mouse is hovering something etc.
-  if (constexpr float mouse_threshold_for_pan = -1.0f; is_mouse_active && ImGui::IsMouseDragging(ImGuiMouseButton_Right, mouse_threshold_for_pan)) {
+  if (constexpr float mouse_threshold_for_pan = -1.0f;
+      is_mouse_active && ImGui::IsMouseDragging(ImGuiMouseButton_Right, mouse_threshold_for_pan)) {
     scrolling.x += io.MouseDelta.x;
     scrolling.y += io.MouseDelta.y;
   }
   // Context menu (under default mouse threshold)
-  if (const ImVec2 drag_delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right); drag_delta.x == 0.0f && drag_delta.y == 0.0f)
+  if (const ImVec2 drag_delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
+      drag_delta.x == 0.0f && drag_delta.y == 0.0f)
     ImGui::OpenPopupOnItemClick("context", ImGuiPopupFlags_MouseButtonRight);
   if (ImGui::BeginPopup("context")) {
     ImGui::EndPopup();
@@ -590,8 +594,8 @@ void StrandModelProfile<T>::OnInspect(const std::function<void(glm::vec2 positio
         ImVec2(origin.x + point_position.x * zoom_factor, origin.y + point_position.y * zoom_factor);
 
     draw_list->AddCircleFilled(canvas_position, glm::clamp(zoom_factor, 1.0f, 100.0f),
-                              IM_COL32(255.0f * point_color.x, 255.0f * point_color.y, 255.0f * point_color.z,
-                                       particle.IsBoundary() ? 255.0f : 128.0f));
+                               IM_COL32(255.0f * point_color.x, 255.0f * point_color.y, 255.0f * point_color.z,
+                                        particle.IsBoundary() ? 255.0f : 128.0f));
   }
   draw_list->AddCircle(origin, glm::clamp(zoom_factor, 1.0f, 100.0f), IM_COL32(255, 0, 0, 255));
   if (show_grid) {
@@ -608,7 +612,7 @@ void StrandModelProfile<T>::OnInspect(const std::function<void(glm::vec2 positio
             ImVec2(min.x, min.y + particle_grid_2d.cell_size_) * zoom_factor + origin, IM_COL32(0, 0, 255, 128));
         const auto cell_target = cell_center + cell.target;
         draw_list->AddLine(ImVec2(cell_center.x, cell_center.y) * zoom_factor + origin,
-                          ImVec2(cell_target.x, cell_target.y) * zoom_factor + origin, IM_COL32(255, 0, 0, 128));
+                           ImVec2(cell_target.x, cell_target.y) * zoom_factor + origin, IM_COL32(255, 0, 0, 128));
       }
     }
   }
