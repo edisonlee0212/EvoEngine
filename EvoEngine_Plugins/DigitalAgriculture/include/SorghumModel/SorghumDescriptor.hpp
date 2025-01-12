@@ -63,8 +63,8 @@ class SorghumDescriptor : public IAsset {
   [[maybe_unused]] Entity CreateEntity(const std::string& name) const;
 
   static void ReconstructFromYAML(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
-                                  std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>& yaml_content,
-                                  float theta);
+                                   std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>& yaml_content,
+                                  float theta, float scale);
 
   std::optional<std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>> ImportPrediction(
       const std::filesystem::path& yaml_path);

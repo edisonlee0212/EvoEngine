@@ -1,8 +1,9 @@
-#include "SorghumDescriptor.hpp"
+﻿#include "SorghumDescriptor.hpp"
 
 #include "IVolume.hpp"
 #include "Sorghum.hpp"
 #include "SorghumLayer.hpp"
+#include "assimp/code/AssetLib/3MF/3MFXmlTags.h"
 using namespace digital_agriculture_plugin;
 
 bool SorghumMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -245,6 +246,283 @@ void SorghumLeafDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std:
     }
   }
 }
+struct CubicBezierPoint {
+  glm::vec3 position;
+  // the third control point for the preceding bezier
+  glm::vec3 left_handle;
+
+  // the second control point for the next bezier
+  glm::vec3 right_handle;
+
+  bool IsC1Continuity() const{
+    return right_handle - position == position - left_handle;
+  }
+};
+
+// position = (Strands::CubicInterpolation(joints[i].position, joints[i].right_handle, joints[i + 1].left_handle, joints[i + 1].position, t))
+struct SplineSample {
+  int segmentIndex;
+  float t;
+  glm::vec3 position;
+};
+struct CubicBezierSpline {
+  // n+1 joints -> n segments -> 3n+1 control points
+  std::vector<CubicBezierPoint> joints;
+
+  // recording segmentLengths;
+  std::vector<float> segmentLengths;
+
+  // get length of the whole spline and update segmentLengths
+  float getLength() {
+    float result = 0;
+    segmentLengths.clear();
+    for (int i = 0; i < joints.size() - 1; i++) {
+      float segmentLength = Strands::CalculateLengthAdaptive<glm::vec3>(
+          joints[i].position, joints[i].right_handle, joints[i + 1].left_handle, joints[i + 1].position);
+      result += segmentLength;
+      segmentLengths.push_back(segmentLength);
+    }
+    return result;
+  }
+
+  // return uniform sample points on the spline
+  std::vector<SplineSample> getUniformSamples(int num) {
+    std::vector<SplineSample> samples;
+    float length = getLength();
+    float lengthPerSample = length / (num + 1);
+    float sampleLength = lengthPerSample;
+    float currentLength = 0;
+    for (int i = 0; i < segmentLengths.size(); i++) {
+      SplineSample s;
+      while (currentLength < sampleLength) {
+        currentLength += segmentLengths[i++];
+
+      }
+      i--;
+      float t = Strands::FindTAdaptive(joints[i].position, joints[i].right_handle, joints[i + 1].left_handle,
+                                       joints[i + 1].position, 0, sampleLength - currentLength + segmentLengths[i]);
+      glm::vec3 pos = (Strands::CubicInterpolation(joints[i].position, joints[i].right_handle,
+                                                    joints[i + 1].left_handle, joints[i + 1].position, t));
+      s.position = pos;
+      s.segmentIndex = i;
+      s.t = t;
+      samples.push_back(s);
+
+      sampleLength += lengthPerSample;
+    }
+
+    assert(samples.size() == num);
+    return samples;
+  }
+
+  // return intersection of the spline and a plane
+  [[nodiscard]] std::vector<glm::vec3> getSurfaceIntersection(const glm::vec3& planePoint, const glm::vec3& normal) const {
+
+    // todo: how to handle multiple intersections?
+    std::vector<glm::vec3> results;
+    for (int i = 0; i < joints.size() - 1; i++) {
+      glm::vec3 p0 = joints[i].position;
+      glm::vec3 p1 = joints[i].right_handle;
+      glm::vec3 p2 = joints[i + 1].left_handle;
+      glm::vec3 p3 = joints[i + 1].position;
+
+      // assume each of the bezier curves should only intersect with the plane once
+      float t = bisectionMethod(0.0f, 1.0f, p0, p1, p2, p3, planePoint, normal);
+
+      t = newtonMethod(t, p0, p1, p2, p3, planePoint, normal);
+
+      glm::vec3 intersectionPoint = Strands::CubicInterpolation(p0, p1, p2, p3, t);
+      results.push_back(intersectionPoint);
+    }
+    return results;
+
+  }
+
+  static float planeEquation(const glm::vec3& point, const glm::vec3& normal, const glm::vec3& planePoint) {
+    return glm::dot(normal, point - planePoint);
+  }
+
+  // bisection for t
+  static float bisectionMethod(float t_min, float t_max, const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
+                        const glm::vec3& v3, const glm::vec3& planePoint, const glm::vec3& normal,
+                        float epsilon = 0.0001f) {
+    float t_mid;
+    while (t_max - t_min > epsilon) {
+      t_mid = (t_min + t_max) / 2.0f;
+      glm::vec3 bezierPoint = Strands::CubicInterpolation(v0, v1, v2, v3, t_mid);
+      float value = planeEquation(bezierPoint, normal, planePoint);
+      if (value > 0) {
+        t_max = t_mid; 
+      } else {
+        t_min = t_mid;  
+      }
+    }
+    return (t_min + t_max) / 2.0f;
+  }
+
+  // newton method for intersection t
+  static float newtonMethod(float t, const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2, const glm::vec3& v3,
+                     const glm::vec3& planePoint, const glm::vec3& normal, float epsilon = 0.0001f, int maxIter = 100) {
+    for (int i = 0; i < maxIter; ++i) {
+      glm::vec3 bezierPoint = Strands::CubicInterpolation(v0, v1, v2, v3, t);
+      float value = planeEquation(bezierPoint, normal, planePoint);
+      if (std::abs(value) < epsilon) {
+        return t;  // 找到交点
+      }
+
+      // 计算切线（导数）
+      glm::vec3 bezierDerivative = getTangent(v0, v1, v2, v3, t);
+      float derivative = glm::dot(normal, bezierDerivative);  // 计算平面方程的导数
+      if (std::abs(derivative) < epsilon) {
+        break;
+      }
+      t -= value / derivative;        // 使用牛顿法更新 t
+      t = std::clamp(t, 0.0f, 1.0f);  // 保证 t 在 [0, 1] 范围内
+    }
+    return t;
+  }
+
+
+  // return the tangent of a point on the spline
+  [[nodiscard]] glm::vec3 getTangent(const SplineSample& sample) const {
+    glm::vec3 p0 = joints[sample.segmentIndex].position;
+    glm::vec3 p1 = joints[sample.segmentIndex].right_handle;
+    glm::vec3 p2 = joints[sample.segmentIndex + 1].left_handle;
+    glm::vec3 p3 = joints[sample.segmentIndex + 1].position;
+    float t = sample.t;
+    return getTangent(p0, p1, p2, p3, t);
+     
+  }
+
+
+  static glm::vec3 getTangent(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2, const glm::vec3& v3, float t) {
+    return normalize(3.0f * (1.0f - t) * (1.0f - t) * (v1 - v0) + 6.0f * (1.0f - t) * t * (v2 - v1) + 3.0f * t * t * (v3 - v2));
+  }
+  
+};
+
+
+// yaml content to splines
+[[nodiscard]]std::vector<std::unordered_map<std::string, CubicBezierSpline>> ReconstructBezierSplineFromYAML(
+    std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>& yaml_content) {
+  if (yaml_content.empty()) {
+    EVOENGINE_ERROR("Empty yaml loaded")
+  }
+  std::vector<std::unordered_map<std::string, CubicBezierSpline>> bezierSplines;
+
+  std::vector<std::string> keys = {"leftPoints", "rightPoints", "centerPoints"};
+
+  // iteration for leaves
+  for (int i = 0; i < yaml_content.size(); i++) {
+    std::unordered_map<std::string, CubicBezierSpline> leafRepresentation;
+
+    auto& leaf = yaml_content[i];
+
+    // iteration for lines
+    for (int j = 0; j < keys.size(); j++) {
+      CubicBezierSpline bezierSpline;
+
+      // iteration for points
+      for (int k = 0; k < leaf["centerPoints"].size(); k++) {
+        std::vector<glm::vec3> points = leaf[keys[j]];
+
+        // generate CubicBezierSpline from the points
+        glm::vec3 front;
+        if (k == leaf[keys[j]].size() - 1) {
+          front = glm::normalize((points[k] - points[k - 1]));
+        } else {
+          front = glm::normalize((points[k + 1] - points[k]));
+        }
+
+        CubicBezierPoint p;
+        p.position = points[k];
+        // C1 continuity
+        p.right_handle = p.position + front * 0.25f;
+        p.left_handle = p.position - front * 0.25f;
+
+        bezierSpline.joints.push_back(p);
+      }
+
+      leafRepresentation.insert(std::make_pair(keys[j], bezierSpline));
+    }
+
+    bezierSplines.emplace_back(leafRepresentation);
+  }
+
+  return bezierSplines;
+}
+
+// splines to sorghum
+void ReconstructSorghumFromBezierSplines(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
+                                    const std::vector<std::unordered_map<std::string, CubicBezierSpline>>& bezierSplines,
+                                    float theta, float scale) {
+  std::vector<std::string> keys = {"leftPoints", "rightPoints", "centerPoints"};
+  for (int i = 0; i < bezierSplines.size(); i++) {
+    auto leafSplines = bezierSplines[i];
+
+    SorghumSpline sorghumSpline;
+    auto leftLine = leafSplines[keys[0]];
+    auto rightLine = leafSplines[keys[1]];
+    auto centerLine = leafSplines[keys[2]];
+
+    // get uniform samples from the centerLine
+    auto samples = centerLine.getUniformSamples(32);
+
+    // reconstruct the local coordinate at each of the samples
+    for(SplineSample sample : samples) {
+      SorghumSplineSegment segment;
+
+      // position
+      segment.position = sample.position;
+
+      // front
+      segment.front = centerLine.getTangent(sample);
+
+      // get the intersections of the left and right lines on the profile
+      glm::vec3 position = sample.position;
+      glm::vec3 normal = segment.front;
+      // todo: assume the closest intersection point should be the right one
+      std::vector<glm::vec3> leftCandidates = leftLine.getSurfaceIntersection(position, normal);
+      auto leftIntersection = std::min_element(leftCandidates.begin(), leftCandidates.end(),
+                                   [&position](const glm::vec3& a, const glm::vec3& b) {
+                                     return glm::distance(a, position) < glm::distance(b, position);
+      });
+      assert(leftIntersection != leftCandidates.end());
+
+      std::vector<glm::vec3> rightCandidates = leftLine.getSurfaceIntersection(position, normal);
+      auto rightIntersection = std::min_element(rightCandidates.begin(), rightCandidates.end(),
+                                   [&position](const glm::vec3& a, const glm::vec3& b) {
+                                     return glm::distance(a, position) < glm::distance(b, position);
+                                   });
+      assert(rightIntersection != rightCandidates.end());
+
+      // from the profile, reconstruct the up vector
+      glm::vec3 rightLocal = *rightIntersection - sample.position;
+      glm::vec3 leftLocal = *leftIntersection - sample.position;
+
+      glm::vec3 right = glm::cross(segment.front, glm::vec3(0, 1, 0));
+      right = glm::dot(right, rightLocal) < 0 ? -right : right;
+
+      segment.up = normalize(glm::cross(right, segment.front));
+
+      // reconstruct theta, radius, height_offsets
+      segment.theta = theta;
+      segment.radius = std::max(std::max(glm::length(leftLocal), glm::length(rightLocal)), 0.01f);
+
+      segment.left_height_offset = leftLocal.y;
+      segment.right_height_offset = rightLocal.y;
+
+      sorghumSpline.segments.push_back(segment);
+    }
+
+    SorghumLeafDescriptor leaf_descriptor;
+    leaf_descriptor.spline = sorghumSpline;
+    leaf_descriptor.index = i;
+
+    sorghum_descriptor->leaves.push_back(leaf_descriptor);
+  }
+    
+}
 
 bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::Button("Instantiate")) {
@@ -308,6 +586,10 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
     ImGui::TreePop();
   }
 
+  //------------------------------------
+  // load and reconstruct from yaml
+  //------------------------------------
+
   // loaded yamlContent
   static std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>> yamlContent;
 
@@ -318,8 +600,10 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   // use gizmo to visualize all the points
   static std::shared_ptr<ParticleInfoList> pi;
   static bool drawPoints;
-  static float theta = 0.001f;
+  static float theta = 30.0f;
   static Entity reconstructed_entity;
+  // enlarge the sorghum
+  static float scale = 1.0f;
   Transform transform;
   transform.SetPosition({0, 0, 0});
   transform.SetEulerRotation(glm::radians(glm::vec3(0, 0, 0)));
@@ -332,7 +616,7 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
     editor_layer->DrawGizmoCubes(pi, 1.0f, 1, gizmo_settings);
   }
   if (ImGui::SliderFloat("theta", &theta, 0.0f, 180.0f)) {
-    ReconstructFromYAML(sorghum_descriptor, yamlContent, theta);
+    ReconstructFromYAML(sorghum_descriptor, yamlContent, theta, scale);
     // const auto scene = Application::GetActiveScene();
     // const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(reconstructed_entity).lock();
     // sorghum->ClearGeometryEntities();
@@ -349,6 +633,41 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
     reconstructed_entity = sorghum_descriptor->CreateEntity("Temp Sorghum");
   }
 
+  if (ImGui::SliderFloat("scale", &scale, 1.0f, 10.0f)) {
+    ReconstructFromYAML(sorghum_descriptor, yamlContent, theta, scale);
+    const auto scene = Application::GetActiveScene();
+    scene->DeleteEntity(reconstructed_entity);
+    reconstructed_entity = sorghum_descriptor->CreateEntity("Temp Sorghum");
+
+    // update the gizmo together
+    int leafCount = yamlContent.size();
+    int PointsCount = yamlContent[0]["centerPoints"].size();
+    std::vector<ParticleInfo> particle_infos(leafCount * PointsCount * 3);
+    Jobs::RunParallelFor(leafCount * PointsCount, [&](const auto i) {
+      auto& center_info = particle_infos[i];
+      center_info.instance_color = glm::vec4(256, 0, 0, 256) / 256.f;
+      center_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["centerPoints"][i % PointsCount]) *
+                                              scale);
+
+      center_info.instance_matrix.SetScale(glm::vec3(0.01f));
+
+      auto& left_info = particle_infos[i + leafCount * PointsCount];
+      left_info.instance_color = glm::vec4(0, 256, 0, 256) / 256.f;
+      left_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["leftPoints"][i % PointsCount]) *
+                                            scale);
+
+      left_info.instance_matrix.SetScale(glm::vec3(0.01f));
+
+      auto& right_info = particle_infos[i + 2 * leafCount * PointsCount];
+      right_info.instance_color = glm::vec4(0, 0, 256, 256) / 256.f;
+      right_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["rightPoints"][i % PointsCount]) *
+                                             scale);
+
+      right_info.instance_matrix.SetScale(glm::vec3(0.01f));
+    });
+
+    pi->SetParticleInfos(particle_infos);
+  }
   // load points from yaml
   if (yamlContent.empty()) {
     std::filesystem::path yamlPath(
@@ -360,10 +679,9 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
         // todo: generate stem descriptor
         yamlContent = *tempResult;
         std::cout << "imported from yaml" << std::endl;
-
-        ReconstructFromYAML(sorghum_descriptor, yamlContent, theta);
-        // std::cout << "sorghum_descriptor content: " << sorghum_descriptor->leaves.size() << std::endl;
-        // std::cout << "GetSelf() result: " << sorghum_descriptor->GetSelf() << std::endl;
+        auto splines = ReconstructBezierSplineFromYAML(yamlContent);
+        ReconstructSorghumFromBezierSplines(sorghum_descriptor, splines, theta, scale);
+        //ReconstructFromYAML(sorghum_descriptor, yamlContent, theta, scale);
 
         // draw sorghum
         reconstructed_entity = sorghum_descriptor->CreateEntity("Temp Sorghum");
@@ -382,23 +700,23 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
       auto& center_info = particle_infos[i];
       center_info.instance_color = glm::vec4(256, 0, 0, 256) / 256.f;
       center_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["centerPoints"][i % PointsCount]) *
-                                              10.0f);
+                                              scale);
 
-      center_info.instance_matrix.SetScale(glm::vec3(0.1f));
+      center_info.instance_matrix.SetScale(glm::vec3(0.01f));
 
       auto& left_info = particle_infos[i + leafCount * PointsCount];
       left_info.instance_color = glm::vec4(0, 256, 0, 256) / 256.f;
       left_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["leftPoints"][i % PointsCount]) *
-                                            10.0f);
+                                            scale);
 
-      left_info.instance_matrix.SetScale(glm::vec3(0.1f));
+      left_info.instance_matrix.SetScale(glm::vec3(0.01f));
 
       auto& right_info = particle_infos[i + 2 * leafCount * PointsCount];
       right_info.instance_color = glm::vec4(0, 0, 256, 256) / 256.f;
       right_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["rightPoints"][i % PointsCount]) *
-                                             10.0f);
+                                             scale);
 
-      right_info.instance_matrix.SetScale(glm::vec3(0.1f));
+      right_info.instance_matrix.SetScale(glm::vec3(0.01f));
     });
 
     pi->SetParticleInfos(particle_infos);
@@ -407,9 +725,11 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   return changed;
 }
 
+
+
 void SorghumDescriptor::ReconstructFromYAML(
     const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
-    std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>& yaml_content, float theta) {
+    std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>& yaml_content, float theta, float scale) {
   if (yaml_content.empty()) {
     EVOENGINE_ERROR("Empty yaml loaded")
   }
@@ -418,6 +738,8 @@ void SorghumDescriptor::ReconstructFromYAML(
 
   // generate SorghumDescriptor from loaded content
   // SorghumSplineSegment -> SorghumSpline -> SorghumLeafDescriptor
+
+  std::vector<std::string> keys = {"leftPoints", "rightPoints", "centerPoints"};
 
   // todo: switch to parallel mode
   for (int i = 0; i < yaml_content.size(); i++) {
@@ -432,8 +754,6 @@ void SorghumDescriptor::ReconstructFromYAML(
       glm::vec3 right_point = leaf["rightPoints"][j];
       glm::vec3 center_point = leaf["centerPoints"][j];
 
-      // enlarge the sorghum
-      float scale = 10.0f;
       left_point = scale * glm::vec4(left_point, 1.0f);
       right_point = scale * glm::vec4(right_point, 1.0f);
       center_point = scale * glm::vec4(center_point, 1.0f);
@@ -446,7 +766,7 @@ void SorghumDescriptor::ReconstructFromYAML(
       // todo: front vector might come from an interpolated curve
 
       // front: (0,0,-1)
-      if (i == leaf.size() - 1) {
+      if (j == leaf["centerPoints"].size() - 1) {
         segment.front = glm::normalize((leaf["centerPoints"][j] - leaf["centerPoints"][j - 1]));
       } else {
         segment.front = glm::normalize((leaf["centerPoints"][j + 1] - leaf["centerPoints"][j]));
@@ -463,7 +783,9 @@ void SorghumDescriptor::ReconstructFromYAML(
       segment.theta = theta;
 
       // reconstruct radius, height_offsets
-      segment.radius = std::max(std::abs(left_point_local.x), std::abs(right_point_local.x));
+      //segment.radius = std::max(std::abs(left_point_local.x), std::abs(right_point_local.x));
+      segment.radius = std::max(std::max(glm::length(left_point_local), glm::length(right_point_local)),0.01f);
+      
 
       segment.left_height_offset = left_point_local.y;
       segment.right_height_offset = right_point_local.y;
