@@ -52,11 +52,13 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     const float ratio = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f /
                         initialize_parameters.max_distance_to_boundary;
 
-    const float mass = glm::max(1e-6f, segment.radius * segment.radius * glm::pi<float>() *
-                                           initialize_parameters.wood_density.GetValue(ratio) * segment.rest_length);
-    segment.inertia_tensor = ComputeInertiaTensorRod(mass, segment.radius, segment.rest_length);
+    segment.original_mass =
+        glm::max(1e-6f, segment.radius * segment.radius * glm::pi<float>() *
+                            initialize_parameters.wood_density.GetValue(ratio) * segment.rest_length);
+    segment.extra_mass = 0.f;
+    segment.property1 = segment.property2 = segment.property3 = 0.f;
+    segment.inertia_tensor = ComputeInertiaTensorRod(segment.original_mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
-    segment.original_inv_mass = 1.f / mass;
     const float area = glm::pi<float>() * segment.radius * segment.radius;
     segment.max_stretching_modulus = glm::max(1e-9f, initialize_parameters.max_youngs_modulus.GetValue(ratio)) * 1e9f;
     segment.max_shearing_modulus = glm::max(1e-9f, initialize_parameters.max_shear_modulus.GetValue(ratio)) * 1e9f;
@@ -198,7 +200,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     first_uniform_particle.strand_index = strand_index;
     first_uniform_particle.is_single_strand_particle = 1;
     first_uniform_particle.local_extrusion_distance = 0.0f;
-
+    first_uniform_particle.override_color = glm::vec4(0.f);
     // First 2 particles within same strand will always have same profile position/polar coordinate.
     first_uniform_particle.profile_position = first_uniform_segment_data.profile_position;
     first_uniform_particle.profile_polar_coordinate = first_uniform_segment_data.profile_polar_coordinate;
@@ -221,7 +223,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       uniform_particle.strand_index = strand_index;
       uniform_particle.is_single_strand_particle = 1;
       uniform_particle.local_extrusion_distance = 0.0f;
-
+      uniform_particle.override_color = glm::vec4(0.f);
       uniform_particle.profile_position = uniform_segment_data.profile_position;
       uniform_particle.profile_polar_coordinate = uniform_segment_data.profile_polar_coordinate;
 
@@ -697,9 +699,10 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     leaf.x0 = leaf.x = leaf.last_x = leaf_info.matrix.GetPosition();
     leaf.rotation_integrity = 1.f;
     leaf.scale = leaf_info.matrix.GetScale();
-    const float mass = 0.0001f;
-    leaf.inv_mass = leaf.original_inv_mass = 1.f / mass;  // 0.1g
-
+    leaf.original_mass = 0.0001f;
+    leaf.extra_mass = 0.0f;
+    leaf.inv_mass = 1.f / leaf.original_mass;  // 0.1g
+    leaf.property1 = leaf.property2 = leaf.property3 = 0.f;
     leaf.inertia_tensor = ComputeInertiaTensorBox(1.f, leaf.scale.x, leaf.scale.y, leaf.scale.z);
     leaf.inv_inertia_tensor = 1.f / leaf.inertia_tensor;
 

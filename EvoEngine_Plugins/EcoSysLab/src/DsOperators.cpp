@@ -291,6 +291,52 @@ void DsLineCut::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_st
   enabled = false;
 }
 
+DsPointCut::DsPointCut() {
+  if (!pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/PointCut.comp");
+    pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader = shader;
+    pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(PointCutPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    pipeline->Initialize();
+  }
+}
+
+void DsPointCut::Update(const glm::vec2& point, const glm::vec2& screen_size, const float point_size,
+                        const glm::mat4& projection_view, const unsigned cut_mode) {
+  push_constant.point = point;
+  push_constant.screen_size = screen_size;
+  push_constant.point_size = point_size;
+  push_constant.projection_view = projection_view;
+  push_constant.cut_mode = cut_mode;
+}
+
+void DsPointCut::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  push_constant.segment_pair_size = target_dynamic_strands->segment_pairs.size();
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    pipeline->Bind(vk_command_buffer);
+    pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+
+    vkCmdDispatch(vk_command_buffer,
+                  Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+  enabled = false;
+}
+
 DsSaw::DsSaw() {
   if (!layout) {
     layout = std::make_shared<DescriptorSetLayout>();
@@ -371,4 +417,91 @@ void DsSaw::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strand
                   Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
+}
+
+DsSnow::DsSnow() {
+  if (!segment_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/SegmentSnow.comp");
+    segment_pipeline = std::make_shared<ComputePipeline>();
+    segment_pipeline->compute_shader = shader;
+    segment_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = segment_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentSnowPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    segment_pipeline->Initialize();
+  }
+
+  if (!leaf_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LeafSnow.comp");
+    leaf_pipeline = std::make_shared<ComputePipeline>();
+    leaf_pipeline->compute_shader = shader;
+    leaf_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafSnowPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_pipeline->Initialize();
+  }
+}
+
+void DsSnow::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+                     const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
+  SegmentSnowPushConstant segment_push_constant;
+  segment_push_constant.segment_size = target_dynamic_strands->segments.size();
+  segment_push_constant.snow_intensity = snow_intensity * physics_parameters.time_step;
+  segment_push_constant.snow_retain_ratio = snow_retain_ratio;
+
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    segment_pipeline->Bind(vk_command_buffer);
+    segment_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    segment_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
+
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+    /*
+    LeafSnowPushConstant leaf_push_constant;
+    leaf_push_constant.leaf_size = target_dynamic_strands->foliage.size();
+    leaf_push_constant.snow_intensity = snow_intensity * physics_parameters.time_step;
+    leaf_push_constant.snow_retain_ratio = snow_retain_ratio;
+    leaf_pipeline->Bind(vk_command_buffer);
+    leaf_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    leaf_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+    */
+  });
+}
+
+bool DsSnow::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
+
+  if (ImGui::DragFloat("Snow intensity", &snow_intensity, 0.0001f, -0.002f, 0.002f, "%.4f")) {
+    changed = true;
+  }
+  if (ImGui::SliderFloat("Snow retain ratio after break", &snow_retain_ratio, 0.0f, 1.0f)) {
+    changed = true;
+  }
+  return changed;
 }

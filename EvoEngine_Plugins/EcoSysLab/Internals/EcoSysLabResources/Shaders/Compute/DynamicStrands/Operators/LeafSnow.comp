@@ -23,10 +23,9 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	vec3 acceleration;
 	uint leaf_size;
-	float time_step;
-	float inv_time_step;
+	float snow_intensity;
+	float snow_retain_ratio;
 };
 
 void main(){
@@ -39,7 +38,16 @@ void main(){
 		if(leaf_index >= leaf_size) break;
 
 		Leaf leaf = foliage[leaf_index];
+		int group_index = segments[leaf.segment_handle].group_index;
 		
+		if(group_index == 0){
+			leaf.property1 += snow_intensity;
+		}else if(snow_intensity < 0.f){
+			leaf.property1 += snow_intensity;
+		}
+
+		leaf.property1 = max(0.0f, leaf.property1);
+		leaf.extra_mass += leaf.property1 * (group_index == 0 ? 1.0f : snow_retain_ratio);
 		foliage[leaf_index] = leaf;
 	}
 }

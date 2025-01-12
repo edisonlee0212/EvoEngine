@@ -44,11 +44,14 @@ class DynamicTreeStrands : public IPrivateComponent {
   AssetRef inner_wood_material_ref;
   AssetRef splinter_material_ref;
   AssetRef leaf_material_ref;
+  AssetRef snow_material_ref;
   std::shared_ptr<DsBoxSelection> box_selection_operator;
   std::shared_ptr<DsLineCut> line_cut_operator;
+  std::shared_ptr<DsPointCut> point_cut_operator;
   std::shared_ptr<DsSaw> saw_operator;
   std::shared_ptr<DsDrag> drag_operator;
   std::shared_ptr<DsLeafDrop> leaf_drop;
+  std::shared_ptr<DsSnow> snow;
   void UpdateDynamicStrands();
   void CreateStaticRoot();
   void Serialize(YAML::Emitter& out) const override;

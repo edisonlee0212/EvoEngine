@@ -39,6 +39,12 @@ void main(){
 	// also store the per-fragment normals into the gbuffer
 	outNormal.rgb = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
 	outNormal.a = EE_INSTANCE_INDEX + 1;
-	
-	outMaterial = vec4(tex_coord.x, tex_coord.y, instance.info_index, instance.material_index);
+	uint material_index = instance.material_index;
+	if(fs_in.Color.x > 1e-6f){
+		material_index = uint(snow_material_index);
+	}else if(fs_in.Color.y > 1e-6f){
+		material_index = uint(inner_wood_material_index);
+	}
+
+	outMaterial = vec4(tex_coord.x, tex_coord.y, instance.info_index, material_index);
 }

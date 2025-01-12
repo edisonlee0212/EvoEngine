@@ -124,6 +124,25 @@ class DsLineCut : public IDsOperator {
   void Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
 };
 
+class DsPointCut : public IDsOperator {
+ public:
+  struct PointCutPushConstant {
+    glm::mat4 projection_view;
+    glm::vec2 point;
+    glm::vec2 screen_size;
+
+    uint32_t segment_pair_size;
+    uint32_t cut_mode = 0;
+    float point_size;
+  };
+  inline static std::shared_ptr<ComputePipeline> pipeline{};
+  PointCutPushConstant push_constant;
+  DsPointCut();
+  void Update(const glm::vec2& point, const glm::vec2& screen_size, float point_size, const glm::mat4& projection_view,
+              unsigned cut_mode);
+  void Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
+};
+
 class DsSaw : public IDsOperator {
  public:
   struct SawPushConstant {
@@ -142,6 +161,32 @@ class DsSaw : public IDsOperator {
   DsSaw();
   void Update(const std::vector<glm::vec2>& line, const glm::mat4& projection_view, unsigned cut_mode);
   void Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
+};
+
+class DsSnow : public IDsPhysicsOperator {
+ public:
+  struct SegmentSnowPushConstant {
+    uint32_t segment_size;
+    float snow_intensity;
+    float snow_retain_ratio;
+  };
+
+  inline static std::shared_ptr<ComputePipeline> segment_pipeline{};
+
+  struct LeafSnowPushConstant {
+    uint32_t leaf_size;
+    float snow_intensity;
+    float snow_retain_ratio;
+  };
+
+  inline static std::shared_ptr<ComputePipeline> leaf_pipeline{};
+
+  float snow_intensity = 0.000f;
+  float snow_retain_ratio = 0.2f;
+  DsSnow();
+  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 }  // namespace eco_sys_lab_plugin

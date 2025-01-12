@@ -63,9 +63,11 @@ struct BranchesRenderPushConstant {
   float alpha = 0.0f;
   float bifurcation_alpha = 0.0f;
   float max_dist_squared = 0.0f;
+
   int render_complex = 0;
   int vertex_colors = 0;
   int inner_wood_material_index = 0;
+  int snow_material_index = 0;
   float global_extrusion_distance = 0.0f;
 };
 
@@ -266,8 +268,8 @@ uint32_t DynamicStrands::RenderBranchesToDirectionalLightShadowMap(
 }
 
 uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
-    const Handle& renderer_handle, int inner_wood_material_index, const BranchesRenderParameters& render_parameters,
-    const VkCommandBuffer vk_command_buffer,
+    const Handle& renderer_handle, int inner_wood_material_index, int snow_material_index,
+    const BranchesRenderParameters& render_parameters, const VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view) const {
   if (!render_parameters.enabled) {
@@ -298,6 +300,7 @@ uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
   render_push_constant.u_multiplier = render_parameters.u_multiplier;
   render_push_constant.v_multiplier = render_parameters.v_multiplier;
   render_push_constant.inner_wood_material_index = inner_wood_material_index;
+  render_push_constant.snow_material_index = snow_material_index;
   render_push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
   branches_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   branches_render_pipeline->states.SetViewportScissor(view.viewport);

@@ -135,6 +135,17 @@ DsPrediction::DsPrediction() {
   }
 }
 
+bool DsPrediction::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
+  if (ImGui::DragFloat("Snow factor", &snow_factor, 1.f, 1.f, 100.f)) {
+    changed = true;
+  }
+  if (ImGui::DragFloat("Snow deduction", &snow_deduction, .01f, .0f, 1.f)) {
+    changed = true;
+  }
+  return changed;
+}
+
 void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                            const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -142,7 +153,8 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
 
   UniformParticlePredictionPushConstant uniform_particle_push_constant;
   uniform_particle_push_constant.uniform_particle_size = target_dynamic_strands.uniform_particles.size();
-
+  uniform_particle_push_constant.snow_deduction = snow_deduction;
+  uniform_particle_push_constant.snow_factor = snow_factor;
   SegmentPredictionPushConstant segment_push_constant;
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;

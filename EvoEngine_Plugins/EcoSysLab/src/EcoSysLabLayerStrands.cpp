@@ -271,6 +271,19 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
                     IM_COL32(255, 0, 0, 255));
                 break;
               }
+              case DynamicStrandsSettings::OperatorMode::PointCut: {
+                draw_list->AddCircleFilled(
+                    canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_current.y),
+                    dynamic_strands_settings_.point_cut_thickness, IM_COL32(255, 0, 0, 255));
+                for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+                  dts->point_cut_operator->enabled = true;
+                  dts->point_cut_operator->Update(
+                      strands_operator_mouse_current, glm::vec2(canvas_size.x, canvas_size.y),
+                      dynamic_strands_settings_.point_cut_thickness, camera_projection_view,
+                      editor_layer->GetKey(GLFW_KEY_R) != Input::KeyActionType::Hold ? 0 : 1);
+                });
+                break;
+              }
               default:
                 break;
             }
@@ -401,7 +414,7 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
 void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Operators")) {
     ImGui::Combo("Transform Mode", {"None", "Translate", "Rotate"}, transform_mode);
-    ImGui::Combo("Operator Mode", {"Drag", "Saw", "Line Cut"}, operator_mode);
+    ImGui::Combo("Operator Mode", {"Drag", "Saw", "Line Cut", "Point Cut"}, operator_mode);
     switch (static_cast<OperatorMode>(operator_mode)) {
       case OperatorMode::Drag: {
         ImGui::DragFloat("Drag acceleration multiplier", &drag_multiplier, 0.001f, 0.0f, 1.0f);
@@ -410,6 +423,10 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
       case OperatorMode::Saw:
       case OperatorMode::LineCut: {
         ImGui::Checkbox("Cut Bend/Twist/Bundle only", &cut_bend_twist_bundle_only);
+        break;
+      }
+      case OperatorMode::PointCut: {
+        ImGui::DragFloat("Cutter thickness", &point_cut_thickness, 1.f, 1.0f, 100.0f);
         break;
       }
     }

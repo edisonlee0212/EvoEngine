@@ -75,13 +75,13 @@ struct Segment {
   mat4 inv_inertia_w;
 
   vec2 shear_stretch_strain;
-  float original_inv_mass;
+  float original_mass;
   int group_index;
 
   vec2 max_shear_stretch_strain;
   vec2 shear_stretch_strain_limit;
 
-  float property0;
+  float extra_mass;
   float property1;
   float property2;
   float property3;
@@ -126,6 +126,8 @@ struct UniformParticle {
 
   vec2 profile_position;
   vec2 profile_polar_coordinate;
+
+  vec4 override_color;
 
   int segment_handle;
   int node_index;
@@ -183,7 +185,7 @@ struct Leaf {
   float inv_mass;
 
   vec3 position_offset;
-  float original_inv_mass;
+  float original_mass;
 
   vec3 v;
   float position_strain;
@@ -205,6 +207,11 @@ struct Leaf {
 
   mat4 inertia_w;
   mat4 inv_inertia_w;
+
+  float extra_mass;
+  float property1;
+  float property2;
+  float property3;
 };
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 0) buffer STRANDS_BLOCK {

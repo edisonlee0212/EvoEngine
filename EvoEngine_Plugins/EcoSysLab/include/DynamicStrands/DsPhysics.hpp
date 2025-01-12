@@ -37,6 +37,8 @@ class DsPrediction {
   };
   struct UniformParticlePredictionPushConstant {
     uint32_t uniform_particle_size = 0;
+    float snow_factor = 50.f;
+    float snow_deduction = 0.1f;
   };
   struct LeafPredictionPushConstant {
     uint32_t leaf_size = 0;
@@ -45,9 +47,13 @@ class DsPrediction {
     float angular_velocity_damping;
     float velocity_damping;
   };
+
+  float snow_factor = 100.f;
+  float snow_deduction = 0.1f;
+
   inline static std::shared_ptr<ComputePipeline> uniform_particle_prediction_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_prediction_pipeline;
-
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   inline static std::shared_ptr<ComputePipeline> leaf_prediction_pipeline;
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
