@@ -151,6 +151,7 @@ void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
   inner_wood_material_ref.Save("inner_wood_material_ref", out);
   splinter_material_ref.Save("splinter_material_ref", out);
   leaf_material_ref.Save("leaf_material_ref", out);
+  snow_material_ref.Save("snow_material_ref", out);
 }
 
 void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
@@ -158,6 +159,7 @@ void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
   inner_wood_material_ref.Load("inner_wood_material_ref", in);
   splinter_material_ref.Load("splinter_material_ref", in);
   leaf_material_ref.Load("leaf_material_ref", in);
+  snow_material_ref.Load("snow_material_ref", in);
 }
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -165,7 +167,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   editor_layer->DragAndDropButton<Material>(inner_wood_material_ref, "Inner wood Material");
   editor_layer->DragAndDropButton<Material>(splinter_material_ref, "Splinter Material");
   editor_layer->DragAndDropButton<Material>(leaf_material_ref, "Leaf Material");
-
+  editor_layer->DragAndDropButton<Material>(snow_material_ref, "Snow Material");
   if (ImGui::TreeNode("Initialization settings")) {
     initialize_parameters.OnInspect(editor_layer);
     ImGui::Checkbox("Limit strand length", &limit_strand_length);
@@ -237,7 +239,11 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
   ImGui::Checkbox("Physics", &enable_physics);
   if (ImGui::TreeNode("Physics settings")) {
-    if (ImGui::TreeNode("Operators")) {
+    if (ImGui::TreeNodeEx("Prediction", ImGuiTreeNodeFlags_DefaultOpen)) {
+      dynamic_strands->prediction->OnInspect(editor_layer);
+      ImGui::TreePop();
+    }
+    if (ImGui::TreeNodeEx("Operators", ImGuiTreeNodeFlags_DefaultOpen)) {
       if (ImGui::TreeNode("Transform operators")) {
         for (auto& i : transform_pivots) {
           i.ds_pivot_transform->OnInspect(editor_layer);
@@ -247,6 +253,12 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       if (leaf_drop) {
         if (ImGui::TreeNodeEx("Leaf Drop", ImGuiTreeNodeFlags_DefaultOpen)) {
           leaf_drop->OnInspect(editor_layer);
+          ImGui::TreePop();
+        }
+      }
+      if (snow) {
+        if (ImGui::TreeNodeEx("Snow", ImGuiTreeNodeFlags_DefaultOpen)) {
+          snow->OnInspect(editor_layer);
           ImGui::TreePop();
         }
       }
@@ -280,7 +292,9 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 void DynamicTreeStrands::OnCreate() {
   dynamic_strands = std::make_shared<DynamicStrands>();
   leaf_drop = std::make_shared<DsLeafDrop>();
+  snow = std::make_shared<DsSnow>();
   box_selection_operator = std::make_shared<DsBoxSelection>();
+  point_cut_operator = std::make_shared<DsPointCut>();
   drag_operator = std::make_shared<DsDrag>();
   line_cut_operator = std::make_shared<DsLineCut>();
   saw_operator = std::make_shared<DsSaw>();
@@ -313,6 +327,13 @@ void DynamicTreeStrands::OnCreate() {
     material->material_properties.metallic = 0.3f;
     material->material_properties.albedo_color = glm::vec3(0.2f, 0.5f, 0.05f);
   }
+  if (!snow_material_ref.Get<Material>()) {
+    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    snow_material_ref = material;
+    material->material_properties.roughness = 0.5f;
+    material->material_properties.metallic = 0.0f;
+    material->material_properties.albedo_color = glm::vec3(1.0f);
+  }
   foliage_rendering_instance_handle = Handle();
   small_segments_rendering_instance_handle = Handle();
 }
@@ -320,6 +341,8 @@ void DynamicTreeStrands::OnCreate() {
 void DynamicTreeStrands::OnDestroy() {
   dynamic_strands.reset();
   leaf_drop.reset();
+  snow.reset();
+  point_cut_operator.reset();
   box_selection_operator.reset();
   drag_operator.reset();
   saw_operator.reset();
@@ -894,9 +917,12 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
         [&]() {
           if (leaf_drop->enabled)
             leaf_drop->Execute(physics_parameters, dynamic_strands);
-
           if (drag_operator->enabled) {
             drag_operator->Execute(physics_parameters, dynamic_strands);
+          }
+
+          if (snow->enabled) {
+            snow->Execute(physics_parameters, dynamic_strands);
           }
 
           if (line_cut_operator->enabled) {
@@ -904,6 +930,9 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
           }
           if (saw_operator->enabled) {
             saw_operator->Execute(dynamic_strands);
+          }
+          if (point_cut_operator->enabled) {
+            point_cut_operator->Execute(dynamic_strands);
           }
         },
         [&]() {
@@ -926,7 +955,9 @@ void DynamicTreeStrands::RegisterBranchesRenderInstance(
     return;
   }
   const auto inner_wood_material = inner_wood_material_ref.Get<Material>();
-  if (const auto bark_material = bark_material_ref.Get<Material>(); bark_material && inner_wood_material) {
+  const auto snow_material = snow_material_ref.Get<Material>();
+  if (const auto bark_material = bark_material_ref.Get<Material>();
+      bark_material && inner_wood_material && snow_material) {
     if (!dynamic_strands->segments.empty()) {
       if (DynamicStrands::branches_point_light_render_pipeline &&
           DynamicStrands::branches_point_light_render_pipeline->Initialized()) {
@@ -956,13 +987,14 @@ void DynamicTreeStrands::RegisterBranchesRenderInstance(
         const auto renderer_handle = GetHandle();
         current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, bark_material);
         const auto inner_material_index = current_render_storage->RegisterMaterial(inner_wood_material);
+        const auto snow_material_index = current_render_storage->RegisterMaterial(snow_material);
         render_layer->DeferredRenderingAllCameras(
             [=](const VkCommandBuffer vk_command_buffer,
                 const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
                 const RenderLayer::DeferredRenderingView& view) {
-              return dynamic_strands_copy->RenderBranchesToCameraDeferred(renderer_handle, inner_material_index,
-                                                                          render_parameters, vk_command_buffer,
-                                                                          geometry_pass_color_attachment_infos, view);
+              return dynamic_strands_copy->RenderBranchesToCameraDeferred(
+                  renderer_handle, inner_material_index, snow_material_index, render_parameters, vk_command_buffer,
+                  geometry_pass_color_attachment_infos, view);
             });
       }
     }

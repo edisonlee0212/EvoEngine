@@ -94,9 +94,10 @@ class EcoSysLabLayer : public ILayer {
     DynamicStrands::VisualizationParameters visualization_parameters{};
 
     float drag_multiplier = 1.f;
+    float point_cut_thickness = 2.f;
     enum class TransformMode { Disabled, Translate, Rotate };
     unsigned transform_mode = static_cast<unsigned>(TransformMode::Disabled);
-    enum class OperatorMode { Drag, Saw, LineCut };
+    enum class OperatorMode { Drag, Saw, LineCut, PointCut };
     unsigned operator_mode = static_cast<unsigned>(OperatorMode::Drag);
     bool cut_bend_twist_bundle_only = false;
     bool enable_visualization = true;

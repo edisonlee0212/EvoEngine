@@ -321,16 +321,16 @@ class DynamicStrands {
     glm::mat4 inv_inertia_w;
 
     glm::vec2 shear_stretch_strain = glm::vec2(0.f);
-    float original_inv_mass = 0.0f;
+    float original_mass = 0.0f;
     int32_t group_index = 0;
 
     glm::vec2 max_shear_stretch_strain;
     glm::vec2 shear_stretch_strain_limit;
 
-    float property0;
-    float property1;
-    float property2;
-    float property3;
+    float extra_mass = 0.f;
+    float property1 = 0.f;
+    float property2 = 0.f;
+    float property3 = 0.f;
 
     GpuParticle particle0{};
     GpuParticle particle1{};
@@ -383,6 +383,8 @@ class DynamicStrands {
     glm::vec2 profile_position;
     glm::vec2 profile_polar_coordinate;
 
+    glm::vec4 override_color = glm::vec4(0.f);
+
     int segment_handle;
     int node_index;
     int segment_index;
@@ -425,7 +427,7 @@ class DynamicStrands {
     float inv_mass;
 
     glm::vec3 position_offset;
-    float original_inv_mass;
+    float original_mass;
 
     glm::vec3 v;
     float position_strain;
@@ -446,6 +448,11 @@ class DynamicStrands {
 
     glm::mat4 inertia_w;
     glm::mat4 inv_inertia_w;
+
+    float extra_mass = 0.f;
+    float property1 = 0.f;
+    float property2 = 0.f;
+    float property3 = 0.f;
   };
 
   struct GpuHashedGridElement {
@@ -504,8 +511,8 @@ class DynamicStrands {
                                                      VkCommandBuffer vk_command_buffer,
                                                      const RenderLayer::DirectionalLightShadowMapView& view) const;
   uint32_t RenderBranchesToCameraDeferred(
-      const Handle& renderer_handle, int inner_wood_material_index, const BranchesRenderParameters& render_parameters,
-      VkCommandBuffer vk_command_buffer,
+      const Handle& renderer_handle, int inner_wood_material_index, int snow_material_index,
+      const BranchesRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;
 

@@ -99,7 +99,7 @@ class ScreenSpaceReflection : public IPostProcessing {
   float distance_confidence = 0.2f;
   int max_iteration_count = 128;
   int initial_steps = 32;
-  float thickness = 0.05f;
+  float thickness = 0.5f;
   bool blur = true;
 
   struct PushConstant {

@@ -16,7 +16,7 @@ bool ScreenSpaceReflection::OnInspect(const std::shared_ptr<EditorLayer>& editor
   bool changed = false;
   if (ImGui::DragFloat("Max march distance", &max_distance, 0.01f, 0.01f, 100.0f))
     changed = true;
-  if (ImGui::DragFloat("Resolution", &distance_confidence, 0.1f, 0.0f, 128.0f))
+  if (ImGui::DragFloat("Distance confidence", &distance_confidence, 0.1f, 0.0f, 128.0f))
     changed = true;
   if (ImGui::DragInt("Max iteration count", &max_iteration_count, 1, 1, 256))
     changed = true;

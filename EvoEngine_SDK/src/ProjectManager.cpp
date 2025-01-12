@@ -933,15 +933,19 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
           }
           ImGui::EndDisabled();
         }
-
         static bool show_extension = false;
         ImGui::SameLine();
         ImGui::Checkbox("Ext", &show_extension);
-
         ImGui::SameLine();
         ImGui::Text(current_focused_folder->GetProjectRelativePath().string().c_str());
-        ImGui::Separator();
 
+        ImGui::SameLine();
+
+        ImGui::PushItemWidth(60);
+        ImGui::SliderFloat("##Thumbnail size", &thumbnail_size_padding.x, 10, 150, "%.0f", ImGuiSliderFlags_None);
+        ImGui::PopItemWidth();
+
+        ImGui::Separator();
         bool updated = false;
         if (ImGui::BeginPopupContextWindow("NewAssetPopup")) {
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
