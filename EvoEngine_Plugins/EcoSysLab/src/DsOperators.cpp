@@ -28,7 +28,9 @@ void DsLeafDrop::Execute(const DynamicStrands::PhysicsParameters& physics_parame
 
 bool DsLeafDrop::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-
+  if (ImGui::Checkbox("Enabled", &enabled)) {
+    changed = true;
+  }
   if (ImGui::DragFloat("Ground height", &ground_height, 0.01f, -100.0f, 100.0f))
     changed = true;
 
@@ -496,7 +498,9 @@ void DsSnow::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
 
 bool DsSnow::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-
+  if (ImGui::Checkbox("Enabled", &enabled)) {
+    changed = true;
+  }
   if (ImGui::DragFloat("Snow intensity", &snow_intensity, 0.0001f, -0.002f, 0.002f, "%.4f")) {
     changed = true;
   }
@@ -507,6 +511,7 @@ bool DsSnow::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 }
 
 DsWind::DsWind() {
+  enabled = false;
   if (!segment_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -588,6 +593,9 @@ void DsWind::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
 
 bool DsWind::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
+  if (ImGui::Checkbox("Enabled", &enabled)) {
+    changed = true;
+  }
   if (ImGui::DragFloat3("Main force", &main_force.x, 0.001f, -1.f, 1.f)) {
     changed = true;
   }

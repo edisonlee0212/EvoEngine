@@ -191,3 +191,35 @@ vec2 SquareToPolygonMapping(vec2 uv, float edgeCount, float shapeRotation) {
 
   return vec2(polar_coord.x * cos(polar_coord.y), polar_coord.x * sin(polar_coord.y));
 }
+
+void CalculateAlignUpDirectionRotation(in vec4 q, in vec3 direction, out float angle, out vec3 axis) {
+  vec3 up = normalize(rotate_vec3(q, vec3(0, 1, 0)));
+  float dot_product = dot(up, direction);
+  bool valid = dot_product <= 1.f - 1e-6f;
+  axis = valid ? normalize(cross(up, direction)) : direction;
+  angle = valid ? acos(dot_product) : 0.f;
+}
+
+void CalculateAlignDownDirectionRotation(in vec4 q, in vec3 direction, out float angle, out vec3 axis) {
+  vec3 down = normalize(rotate_vec3(q, vec3(0, -1, 0)));
+  float dot_product = dot(down, direction);
+  bool valid = dot_product <= 1.f - 1e-6f;
+  axis = valid ? normalize(cross(down, direction)) : direction;
+  angle = valid ? acos(dot_product) : 0.f;
+}
+
+void CalculateAlignFrontDirectionRotation(in vec4 q, in vec3 direction, out float angle, out vec3 axis) {
+  vec3 front = normalize(rotate_vec3(q, vec3(0, 0, -1)));
+  float dot_product = dot(front, direction);
+  bool valid = dot_product <= 1.f - 1e-6f;
+  axis = valid ? normalize(cross(front, direction)) : direction;
+  angle = valid ? acos(dot_product) : 0.f;
+}
+
+void CalculateAlignRightDirectionRotation(in vec4 q, in vec3 direction, out float angle, out vec3 axis) {
+  vec3 right = normalize(rotate_vec3(q, vec3(1, 0, 0)));
+  float dot_product = dot(right, direction);
+  bool valid = dot_product <= 1.f - 1e-6f;
+  axis = valid ? normalize(cross(right, direction)) : direction;
+  angle = valid ? acos(dot_product) : 0.f;
+}

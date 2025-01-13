@@ -159,15 +159,11 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
-  segment_push_constant.angular_velocity_damping = physics_parameters.segment_angular_velocity_damping;
-  segment_push_constant.velocity_damping = physics_parameters.segment_velocity_damping;
 
   LeafPredictionPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
   leaf_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   leaf_push_constant.inv_time_step = 1.f / leaf_push_constant.time_step;
-  leaf_push_constant.angular_velocity_damping = physics_parameters.leaf_angular_velocity_damping;
-  leaf_push_constant.velocity_damping = physics_parameters.leaf_velocity_damping;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_prediction_pipeline->Bind(vk_command_buffer);
@@ -322,12 +318,17 @@ void DsVelocityUpdate::Execute(const DynamicStrands::PhysicsParameters& physics_
   segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   segment_push_constant.max_velocity = max_velocity;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
+  segment_push_constant.angular_velocity_damping = physics_parameters.segment_angular_velocity_damping;
+  segment_push_constant.velocity_damping = physics_parameters.segment_velocity_damping;
+
   LeafPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
   leaf_push_constant.max_angular_velocity = max_angular_velocity;
   leaf_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   leaf_push_constant.max_velocity = max_velocity;
   leaf_push_constant.inv_time_step = 1.f / leaf_push_constant.time_step;
+  leaf_push_constant.angular_velocity_damping = physics_parameters.leaf_angular_velocity_damping;
+  leaf_push_constant.velocity_damping = physics_parameters.leaf_velocity_damping;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_pipeline->Bind(vk_command_buffer);

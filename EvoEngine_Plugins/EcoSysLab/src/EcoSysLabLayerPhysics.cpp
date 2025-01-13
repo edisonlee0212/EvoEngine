@@ -110,19 +110,22 @@ void EcoSysLabLayer::DynamicStrandVisualization() const {
           if (box_collider_entities && !box_collider_entities->empty()) {
             for (const auto& i : *box_collider_entities) {
               const auto box_collider = scene->GetOrSetPrivateComponent<DsBoxCollider>(i).lock();
-              action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
+              if (scene->IsEntityEnabled(i) && box_collider->IsEnabled())
+                action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
             }
           }
           if (sphere_collider_entities && !sphere_collider_entities->empty()) {
             for (const auto& i : *sphere_collider_entities) {
               const auto sphere_collider = scene->GetOrSetPrivateComponent<DsSphereCollider>(i).lock();
-              action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
+              if (scene->IsEntityEnabled(i) && sphere_collider->IsEnabled())
+                action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
             }
           }
           if (cylinder_collider_entities && !cylinder_collider_entities->empty()) {
             for (const auto& i : *cylinder_collider_entities) {
               const auto cylinder_collider = scene->GetOrSetPrivateComponent<DsCylinderCollider>(i).lock();
-              action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
+              if (scene->IsEntityEnabled(i) && cylinder_collider->IsEnabled())
+                action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
             }
           }
         };

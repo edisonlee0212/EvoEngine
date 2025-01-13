@@ -14,3 +14,13 @@
 #include "glm/gtx/rotate_vector.hpp"
 #include "glm/gtx/transform.hpp"
 
+namespace evo_engine {
+
+class Random {
+ public:
+  static float Uniform(std::mt19937& random_engine, float min_value, float max_value);
+  static float Gaussian(std::mt19937& random_engine, float mean, float std_dev);
+  static glm::vec2 Disk(std::mt19937& random_engine, float radius);
+};
+
+}  // namespace evo_engine

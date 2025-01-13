@@ -53,7 +53,7 @@ void main(){
 
 		float turbulence_base_speed = EE_SIMPLEX_NOISE(vec4((position + vec3(400, 400, 400)) * turbulence_speed_frequency, simulated_time));
 
-		float max_turbulence_speed = length(main_force);
+		float max_turbulence_speed = length(main_force) * turbulence_strength;
 		vec3 turbulance = length(turbulence_direction) == 0.f ? vec3(0.0f) : normalize(turbulence_direction) * max_turbulence_speed * turbulence_base_speed;
 		vec3 wind_force = main_force + turbulance;
 

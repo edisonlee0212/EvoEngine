@@ -126,6 +126,15 @@ bool DsBoxCollider::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) 
   if (ImGui::DragFloat("Friction", &friction, 0.01f, 0.0f, 1.0f)) {
     changed = true;
   }
+  if (ImGui::DragFloat("Rotational friction", &rotational_friction, 0.01f, 0.0f, 1.0f)) {
+    changed = true;
+  }
+  if (ImGui::DragFloat("Velocity friction", &velocity_friction, 0.01f, 0.0f, 1.0f)) {
+    changed = true;
+  }
+  if (ImGui::DragFloat("Angular velocity friction", &angular_velocity_friction, 0.01f, 0.0f, 1.0f)) {
+    changed = true;
+  }
   ImGui::ColorEdit4("Bound Color:##DsBoxCollider", (float*)(void*)&bound_color);
   static bool display_bound = true;
   ImGui::Checkbox("Display bounds##DsBoxCollider", &display_bound);
@@ -155,13 +164,16 @@ void DsBoxCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
   segment_push_constant.obb_rotation = global_transform.GetRotation();
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.softness = softness;
-
+  segment_push_constant.friction = friction;
+  segment_push_constant.rotational_friction = rotational_friction;
   LeafPositionPushConstant leaf_push_constant;
   leaf_push_constant.obb_center = global_transform.GetPosition();
   leaf_push_constant.obb_scale = size;
   leaf_push_constant.obb_rotation = global_transform.GetRotation();
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
   leaf_push_constant.softness = softness;
+  leaf_push_constant.friction = friction;
+  leaf_push_constant.rotational_friction = rotational_friction;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_position_pipeline->Bind(vk_command_buffer);
@@ -203,14 +215,15 @@ void DsBoxCollider::ProjectVelocityConstraint(const DynamicStrands::PhysicsParam
   segment_push_constant.obb_scale = size;
   segment_push_constant.obb_rotation = global_transform.GetRotation();
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
-  segment_push_constant.friction = friction;
-
+  segment_push_constant.velocity_friction = velocity_friction;
+  segment_push_constant.angular_velocity_friction = angular_velocity_friction;
   LeafVelocityPushConstant leaf_push_constant;
   leaf_push_constant.obb_center = global_transform.GetPosition();
   leaf_push_constant.obb_scale = size;
   leaf_push_constant.obb_rotation = global_transform.GetRotation();
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
-  leaf_push_constant.friction = friction;
+  leaf_push_constant.velocity_friction = velocity_friction;
+  leaf_push_constant.angular_velocity_friction = angular_velocity_friction;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_velocity_pipeline->Bind(vk_command_buffer);

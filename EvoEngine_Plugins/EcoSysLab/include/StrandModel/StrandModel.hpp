@@ -26,7 +26,5 @@ class StrandModel {
   [[nodiscard]] glm::vec3 InterpolateStrandSegmentPosition(StrandSegmentHandle strand_segment_handle, float a) const;
   [[nodiscard]] glm::vec3 InterpolateStrandSegmentAxis(StrandSegmentHandle strand_segment_handle, float a) const;
   [[nodiscard]] float InterpolateStrandSegmentRadius(StrandSegmentHandle strand_segment_handle, float a) const;
-
-  static glm::vec2 DiskRand(std::mt19937& random_engine, float radius);
 };
 }  // namespace eco_sys_lab_plugin

@@ -1,6 +1,7 @@
 
 #include "DynamicTreeStrands.hpp"
-#include "Delaunay.hpp"
+
+#include "BarkDescriptor.hpp"
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"
 #include "DsPhysics.hpp"
@@ -33,9 +34,8 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
   source_strand_group.Subdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
       subdivided_strand_group,
       [&]() {
-        std::uniform_real_distribution distribution(initialize_parameters.min_segment_length,
-                                                    initialize_parameters.max_segment_length);
-        return distribution(random_engine);
+        return Random::Uniform(random_engine, initialize_parameters.min_segment_length,
+                               initialize_parameters.max_segment_length);
       },
       [](StrandHandle src_handle, DtsStrandData& strand_data) {
       },
@@ -187,6 +187,17 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (EditorLayer::DragAndDropButton<Tree>(dynamic_tree_strands_tree_ref, "Download Strands from Tree...")) {
     if (const auto tree = dynamic_tree_strands_tree_ref.Get<Tree>()) {
       tree->BuildStrandModel();
+      if (const auto td = tree->tree_descriptor_ref.Get<TreeDescriptor>()) {
+        initialize_parameters.foliage_descriptor = td->foliage_descriptor;
+        if (const auto fd = td->foliage_descriptor.Get<FoliageDescriptor>()) {
+          if (const auto mat = fd->leaf_material_ref.Get<Material>())
+            leaf_material_ref = mat;
+        }
+        if (const auto bd = td->bark_descriptor.Get<BarkDescriptor>()) {
+          if (const auto mat = bd->bark_material_ref.Get<Material>())
+            bark_material_ref = mat;
+        }
+      }
       strand_model_skeleton = tree->strand_model.strand_model_skeleton;
       UpdateDynamicStrands();
       CreateStaticRoot();
@@ -627,7 +638,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     new_particle.base = false;
     const auto position = settings.rod_size == 1
                               ? glm::vec2(0.f)
-                              : StrandModel::DiskRand(random_engine, glm::sqrt(static_cast<float>(settings.rod_size)));
+                              : Random::Disk(random_engine, glm::sqrt(static_cast<float>(settings.rod_size)));
     new_particle.SetPosition(position);
     new_particle.SetInitialPosition(position);
   }
@@ -928,34 +939,29 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
         pivot_operator.ds_pivot_point->Update(global_transform);
       }
     }
-    dynamic_strands->Physics(
-        physics_parameters,
-        [&]() {
-          if (leaf_drop->enabled)
-            leaf_drop->Execute(physics_parameters, dynamic_strands);
-          if (drag_operator->enabled) {
-            drag_operator->Execute(physics_parameters, dynamic_strands);
-          }
+    dynamic_strands->Physics(physics_parameters, [&]() {
+      if (leaf_drop->enabled)
+        leaf_drop->Execute(physics_parameters, dynamic_strands);
+      if (drag_operator->enabled) {
+        drag_operator->Execute(physics_parameters, dynamic_strands);
+      }
 
-          if (snow->enabled) {
-            snow->Execute(physics_parameters, dynamic_strands);
-          }
-          if (wind->enabled) {
-            wind->Execute(physics_parameters, dynamic_strands);
-          }
-          if (line_cut_operator->enabled) {
-            line_cut_operator->Execute(dynamic_strands);
-          }
-          if (saw_operator->enabled) {
-            saw_operator->Execute(dynamic_strands);
-          }
-          if (point_cut_operator->enabled) {
-            point_cut_operator->Execute(dynamic_strands);
-          }
-        },
-        [&]() {
-
-        });
+      if (snow->enabled) {
+        snow->Execute(physics_parameters, dynamic_strands);
+      }
+      if (wind->enabled) {
+        wind->Execute(physics_parameters, dynamic_strands);
+      }
+      if (line_cut_operator->enabled) {
+        line_cut_operator->Execute(dynamic_strands);
+      }
+      if (saw_operator->enabled) {
+        saw_operator->Execute(dynamic_strands);
+      }
+      if (point_cut_operator->enabled) {
+        point_cut_operator->Execute(dynamic_strands);
+      }
+    });
   }
 }
 void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_camera,

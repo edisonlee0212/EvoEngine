@@ -30,6 +30,12 @@ layout(std430, set = 1, binding = 0) buffer NEW_GROUP_INDICES_BLOCK {
 	int new_group_indices[];
 };
 
+
+layout(std430, set = 1, binding = 1) buffer WORK_GROUP_SYNC_BLOCK {
+	uint work_group_updated[];
+};
+
+
 void main() {
 	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
@@ -57,5 +63,6 @@ void main() {
 			}
 		}
 		new_group_indices[segment_index] = min_group_index;
+		atomicOr(work_group_updated[gl_WorkGroupID.x], updated);
 	}
 }

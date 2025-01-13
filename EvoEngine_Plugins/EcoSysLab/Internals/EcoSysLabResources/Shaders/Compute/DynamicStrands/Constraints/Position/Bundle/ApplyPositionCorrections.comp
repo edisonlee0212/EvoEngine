@@ -37,9 +37,8 @@ void main(){
 		uint segment_index = (baseID + local_index) * skip_size + skip_index;
 		if(segment_index >= segment_size) break;
 		
-		SegmentData segment_data = segment_data_list[segment_index];
-		segments[segment_index].particle0.x += segment_data.particle0_position_correction.xyz;
-		segments[segment_index].particle1.x += segment_data.particle1_position_correction.xyz;
+		segments[segment_index].particle0.x += segment_data_list[segment_index].particle0_position_correction.xyz;
+		segments[segment_index].particle1.x += segment_data_list[segment_index].particle1_position_correction.xyz;
 		
 		segment_data_list[segment_index].particle0_position_correction.xyz = vec3(0, 0, 0);
 		segment_data_list[segment_index].particle1_position_correction.xyz = vec3(0, 0, 0);

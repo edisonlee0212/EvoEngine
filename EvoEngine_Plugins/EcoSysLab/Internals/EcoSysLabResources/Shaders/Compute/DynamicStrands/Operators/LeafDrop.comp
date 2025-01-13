@@ -52,15 +52,12 @@ void main(){
 		if(leaf_index >= leaf_size) break;
 		Leaf leaf = foliage[leaf_index];
 		
-		if(leaf.inv_mass != 0.0f && leaf.x.y > ground_height){
-			vec3 front = rotate_vec3(leaf.q, vec3(0, 0, -1));
+		if(leaf.inv_mass != 0.0f){
 			vec3 up = rotate_vec3(leaf.q, vec3(0, 1, 0));
-			float dot_product = dot(up, vec3(0, 1, 0));
-			if(dot_product <= 1.f - 1e-6f){
-				vec3 axis = normalize(cross(up, vec3(0, 1, 0)));
-				float angle = acos(dot_product);
-				leaf.torque += axis * angle * rotation_correction_strength;
-			}
+			float angle;
+			vec3 axis;
+			CalculateAlignUpDirectionRotation(leaf.q, vec3(0, 1, 0), angle, axis);
+			leaf.torque += axis * angle * rotation_correction_strength;
 			float l_a = length(leaf.acceleration);
 			leaf.torque += vec3(EE_SIMPLEX_NOISE(leaf.x * disturbance_frequency.x) * 2.f - 1.f, EE_SIMPLEX_NOISE((leaf.x + vec3(10.f, 10.f, 10.f)) * disturbance_frequency.y) * 2.f - 1.f, EE_SIMPLEX_NOISE((leaf.x + vec3(20.f, 20.f, 20.f)) * disturbance_frequency.z) * 2.f - 1.f)
 							* l_a * disturbance_strength;

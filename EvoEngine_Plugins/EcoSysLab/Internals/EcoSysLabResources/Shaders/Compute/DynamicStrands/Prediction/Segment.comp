@@ -25,40 +25,9 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	uint segment_size;
 	float time_step;
 	float inv_time_step;
-	float angular_velocity_damping;
-	float velocity_damping;
+	
 };
 
-void update_inertia_w(inout Segment segment){
-	//Update w
-	mat3 rot = mat3_cast(segment.q);
-	mat3 inertia_tensor_diag =
-		mat3(
-			segment.inertia_tensor.x, 0.0, 0.0, 
-			0.0, segment.inertia_tensor.y, 0.0, 
-			0.0, 0.0, segment.inertia_tensor.z);
-	mat3 inertia_w = rot * inertia_tensor_diag * transpose(rot);
-
-	mat3 inverse_inertia_tensor_diag =
-		mat3(
-			segment.inv_inertia_tensor.x, 0.0, 0.0, 
-			0.0, segment.inv_inertia_tensor.y, 0.0, 
-			0.0, 0.0, segment.inv_inertia_tensor.z);
-	mat3 inverse_inertia_w = rot * inverse_inertia_tensor_diag * transpose(rot);
-
-	segment.inertia_w = mat4(
-		inertia_w[0][0], inertia_w[0][1], inertia_w[0][2], 0.0,
-		inertia_w[1][0], inertia_w[1][1], inertia_w[1][2], 0.0,
-		inertia_w[2][0], inertia_w[2][1], inertia_w[2][2], 0.0,
-		0.0, 0.0, 0.0, 0.0
-		);
-	segment.inv_inertia_w = mat4(
-		inverse_inertia_w[0][0], inverse_inertia_w[0][1], inverse_inertia_w[0][2], 0.0,
-		inverse_inertia_w[1][0], inverse_inertia_w[1][1], inverse_inertia_w[1][2], 0.0,
-		inverse_inertia_w[2][0], inverse_inertia_w[2][1], inverse_inertia_w[2][2], 0.0,
-		0.0, 0.0, 0.0, 0.0
-		);
-}
 
 void main(){
 	[[unroll]]
@@ -70,31 +39,18 @@ void main(){
 		if(segment_index >= segment_size) break;
 
 		Segment segment = segments[segment_index];
-		update_inertia_w(segment);
-
-		//Calculate angular velocity and apply torque.
-		vec3 angular_velocity = segment.angular_v;
-		if(segment.inv_mass != 0.0f){
-			angular_velocity *= 1.0f - angular_velocity_damping * length(angular_velocity);
-			angular_velocity += time_step * mat3(segment.inv_inertia_w) * (segment.torque - cross(angular_velocity, mat3(segment.inertia_w) * angular_velocity));
 		
-			segment.particle0.v *= 1.0f - velocity_damping * length(segment.particle0.v);
-			segment.particle0.v += segment.particle0.acceleration.xyz * time_step;
-
-			segment.particle1.v *= 1.0f - velocity_damping * length(segment.particle1.v);
-			segment.particle1.v += segment.particle1.acceleration.xyz * time_step;
-		}
 		//Shift rotation values
 		segment.last_q = segment.q;
 		//Apply angular velocity
-		vec4 angular_velocity_q = vec4(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0.0f);
+		vec4 angular_velocity_q = vec4(segment.angular_v, 0.0f);
 
 		segment.q += 0.5f * time_step * quat_mul(angular_velocity_q, segment.q);
 		segment.q = normalize(segment.q);
 
 		//Update w
-		update_inertia_w(segment);
-		
+		update_inertia_w(segment.q, segment.inertia_tensor, segment.inv_inertia_tensor, segment.inertia_w, segment.inv_inertia_w);
+
 		//Shift position values
 		segment.particle0.last_x = segment.particle0.x;
 		//Apply velocity
@@ -115,8 +71,6 @@ void main(){
 
 		//Update shear_stretch_strain_limit
 		segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain;
-
-
 		segments[segment_index] = segment;
 	}
 }
