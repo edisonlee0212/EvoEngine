@@ -9,6 +9,93 @@
 
 using namespace eco_sys_lab_plugin;
 
+void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_parameters) {
+  // same as RenderPushConstant, might change this later
+  struct BarkFlagInitializationPushConstant {
+    union Index1 {
+      int instance_index;
+      int sub_light_index;
+    } index1;
+    union Index2 {
+      int camera_index;
+      int light_index;
+    } index2;
+
+    float u_multiplier = 1.f;
+    float v_multiplier = 1.f;
+
+    uint32_t tetrahedrons_size = 0;
+    float alpha = 0.0f;
+    float bifurcation_alpha = 0.0f;
+    float max_dist_squared = 0.0f;
+    int render_complex = 0;
+    int vertex_colors = 0;
+  };
+
+  static std::shared_ptr<ComputePipeline> interior_initialization_pipeline;
+  if (!interior_initialization_pipeline) {
+    std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Initialization/Interior.comp");
+    interior_initialization_pipeline = std::make_shared<ComputePipeline>();
+    interior_initialization_pipeline->compute_shader = shader;
+    interior_initialization_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    auto& push_constant_range = interior_initialization_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(BarkFlagInitializationPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    interior_initialization_pipeline->Initialize();
+  }
+
+  static std::shared_ptr<ComputePipeline> bark_flag_initialization_pipeline;
+  if (!bark_flag_initialization_pipeline) {
+    std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Initialization/BarkFlag.comp");
+    bark_flag_initialization_pipeline = std::make_shared<ComputePipeline>();
+    bark_flag_initialization_pipeline->compute_shader = shader;
+    bark_flag_initialization_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    auto& push_constant_range = bark_flag_initialization_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(BarkFlagInitializationPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bark_flag_initialization_pipeline->Initialize();
+  }
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+
+  // Update push constant here. You should only access data within dynamic strands.
+  BarkFlagInitializationPushConstant push_constant;
+  push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
+  push_constant.alpha = initialize_parameters.alpha;
+  push_constant.bifurcation_alpha = initialize_parameters.bifurcation_alpha;
+  push_constant.max_dist_squared = initialize_parameters.max_dist_squared;
+
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto group_size = Platform::DivUp(delaunay_tetrahedrons.size(), work_group_invocations);
+
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    interior_initialization_pipeline->Bind(vk_command_buffer);
+    interior_initialization_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    interior_initialization_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    bark_flag_initialization_pipeline->Bind(vk_command_buffer);
+    bark_flag_initialization_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    bark_flag_initialization_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+}
+
 void DynamicStrands::Initialize(const InitializeParameters& initialize_parameters,
                                 const StrandModelSkeleton& strand_model_skeleton,
                                 const StrandModelStrandGroup& strand_model_strand_group,
@@ -270,6 +357,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     const auto& particle1 = segment.particle1;
 
     uniform_particle.position = glm::mix(particle0.x0, particle1.x0, uniform_particle.t);
+    uniform_particle.initial_position = uniform_particle.position;
     uniform_particle.normal = glm::vec3(0.0f);
     uniform_particle.deg = 0.0f;
   });
@@ -716,41 +804,5 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     leaf.position_offset = glm::vec4(glm::inverse(segment.q0) * (leaf.x0 - segment.GetCenterX0()), 0.0f);
   });
   Upload();
-  // Feel free to modify the push constants.
-  struct BarkFlagInitializationPushConstant {
-    uint32_t delaunay_tetrahedron_size;
-  };
-
-  static std::shared_ptr<ComputePipeline> bark_flag_initialization_pipeline;
-  if (!bark_flag_initialization_pipeline) {
-    std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Initialization/BarkFlag.comp");
-    bark_flag_initialization_pipeline = std::make_shared<ComputePipeline>();
-    bark_flag_initialization_pipeline->compute_shader = shader;
-    bark_flag_initialization_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    auto& push_constant_range = bark_flag_initialization_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(BarkFlagInitializationPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    bark_flag_initialization_pipeline->Initialize();
-  }
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
-
-  // Update push constant here. You should only access data within dynamic strands.
-  BarkFlagInitializationPushConstant push_constant;
-  push_constant.delaunay_tetrahedron_size = delaunay_tetrahedrons.size();
-
-  const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const auto group_size = Platform::DivUp(delaunay_tetrahedrons.size(), work_group_invocations);
-  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    bark_flag_initialization_pipeline->Bind(vk_command_buffer);
-    bark_flag_initialization_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    bark_flag_initialization_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
-  });
+  InitializeMesh(initialize_parameters);
 }

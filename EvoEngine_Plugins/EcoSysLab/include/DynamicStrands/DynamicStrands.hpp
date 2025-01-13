@@ -118,11 +118,19 @@ class DynamicStrands {
     bool use_cgal = false;
     bool triangulate_per_bundle = false;
 
+    // same parameters as for rendering
+    // TODO: maybe we can remove them for rendering
+    float alpha = 0.00005f;
+    float bifurcation_alpha = 0.00005f;
+    float max_dist_squared = 1.0f;
+
     AssetRef foliage_descriptor;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   void Initialize(const InitializeParameters& initialize_parameters, const StrandModelSkeleton& strand_model_skeleton,
                   const StrandModelStrandGroup& strand_model_strand_group, const DtsStrandGroup& strand_group);
+
+  void InitializeMesh(const InitializeParameters& initialize_parameters);
 
 #pragma endregion
 #pragma region Step
@@ -205,13 +213,14 @@ class DynamicStrands {
     float alpha = 0.00005f;
     float bifurcation_alpha = 0.00005f;
     float max_dist_squared = 1.0f;
-    enum VertexColors { Default, Normals, Tangents, Groups, Degree };
+    enum VertexColors { Default, Normals, Tangents, Groups, Degree, Bark };
     VertexColors vertex_colors = Default;
 
     float u_multiplier = 2;
     float v_multiplier = 0.25;
     float degen_triangle_threshold_logairthmic = 5.0f;
     float global_extrusion_distance = 0.001f;
+    float break_threshold = 0.01;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -399,18 +408,23 @@ class DynamicStrands {
     float local_extrusion_distance;
     int padding2;
     int padding3;
+    glm::vec3 initial_position;
+    int padding4;
   };
 
   struct GpuDelaunayTetrahedron {
     int indices[4];
     int neighbor_tet_ids[4];
     int render_neighbor[4];
-    float neighbor_circumference[4];
+    int is_bark[4]; 
     glm::vec4 color;  // for debugging
     unsigned int task_looked_at = 0;
     unsigned int mesh_looked_at = 0;
     int inside = -1;
     int triangles_accepted = 0;
+    float sidelengths[6];
+    float padding0;
+    float padding1;
   };
 
   struct GpuLeaf {

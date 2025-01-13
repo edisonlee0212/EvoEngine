@@ -142,18 +142,23 @@ struct UniformParticle {
   float local_extrusion_distance;
   int padding2;
   int padding3;
+
+  vec4 initial_position;
 };
 
 struct DelaunayTetrahedron {
   int indices[4];
   int neighbor_tet_ids[4];
   int render_neighbor[4];
-  float neighbor_circumference[4];
+  int is_bark[4];
   vec4 color;  // for debugging
   uint task_looked_at;
   uint mesh_looked_at;
   int inside;
   int triangles_accepted;
+  float sidelengths[6];
+  int padding0;
+  int padding1;
 };
 
 struct HashedGridElement {

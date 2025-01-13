@@ -1,0 +1,43 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+#include "Math.glsl"
+
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+#include "DynamicStrandsRenderingConstants.glsl"
+#include "AlphaShape.glsl"
+
+void main(){
+
+	float min_distance_squared;
+
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint delaunay_tetrahedron_index = baseID + local_index;
+
+		if(delaunay_tetrahedron_index >= tetrahedrons_size) break;
+
+		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[delaunay_tetrahedron_index];		
+		delaunay_tetrahedrons[delaunay_tetrahedron_index].inside = int(InsideAlpha(delaunay_tetrahedron, min_distance_squared));
+	}
+}

@@ -13,4 +13,5 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
   int inner_wood_material_index;
   int snow_material_index;
   float global_extrusion_distance;
+  float break_threshold;
 };
