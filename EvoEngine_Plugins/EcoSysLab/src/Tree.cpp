@@ -362,12 +362,8 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (const auto td = tree_descriptor_ref.Get<TreeDescriptor>()) {
     const auto sd = td->shoot_descriptor.Get<ShootDescriptor>();
     if (sd) {
-      /*
-      ImGui::DragInt("Seed", &tree_model.m_seed, 1, 0);
-      if (ImGui::Button("Reset")) {
-              Reset();
-              modelChanged = true;
-      }*/
+      ImGui::DragInt("TreeModel Seed", &tree_model.seed, 1, 0);
+      ImGui::DragInt("StrandModel Seed", &strand_model.seed, 1, 0);
       if (ImGui::TreeNode("Tree settings")) {
         if (ImGui::TreeNode("Pruning settings")) {
           if (pruning_settings.OnInspect(editor_layer))
@@ -392,7 +388,8 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
               ImGui::DragFloat("Bending angle factor", &sd->gravity_bending_max, 0.01f, 0.0f, 1.0f, "%.3f") ||
               bending_changed;
           if (bending_changed) {
-            shoot_growth_controller_.m_sagging = [=](const SkeletonNode<InternodeGrowthData>& internode) {
+            shoot_growth_controller_.sagging = [=](std::mt19937& random_engine,
+                                                   const SkeletonNode<InternodeGrowthData>& internode) {
               float strength =
                   internode.data.sagging_force * sd->gravity_bending_strength /
                   glm::pow(internode.info.thickness / sd->end_node_thickness, sd->gravity_bending_thickness_factor);
@@ -2920,8 +2917,9 @@ void Tree::PrepareController(const SimulationSettings& simulation_settings,
                              const std::shared_ptr<Soil>& soil, const std::shared_ptr<Climate>& climate) {
   shoot_descriptor->PrepareController(shoot_growth_controller_);
 
-  shoot_growth_controller_.m_endToRootPruningFactor = [&](const glm::mat4&, ClimateModel&, const ShootSkeleton&,
-                                                          const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller_.end_to_root_pruning_factor = [&](std::mt19937& random_engine, const glm::mat4&,
+                                                            ClimateModel&, const ShootSkeleton&,
+                                                            const SkeletonNode<InternodeGrowthData>& internode) {
     if (shoot_descriptor->trunk_protection && internode.data.order == 0) {
       return 0.f;
     }
@@ -2939,9 +2937,9 @@ void Tree::PrepareController(const SimulationSettings& simulation_settings,
     }
     return pruning_probability;
   };
-  shoot_growth_controller_.m_rootToEndPruningFactor =
-      [&](const glm::mat4& global_transform, ClimateModel& climate_model, const ShootSkeleton& shoot_skeleton,
-          const SkeletonNode<InternodeGrowthData>& internode) {
+  shoot_growth_controller_.root_to_end_pruning_factor =
+      [&](std::mt19937& random_engine, const glm::mat4& global_transform, ClimateModel& climate_model,
+          const ShootSkeleton& shoot_skeleton, const SkeletonNode<InternodeGrowthData>& internode) {
         if (shoot_descriptor->trunk_protection && internode.data.order == 0) {
           return 0.f;
         }
@@ -2950,7 +2948,7 @@ void Tree::PrepareController(const SimulationSettings& simulation_settings,
           return 999.f;
         }
         if (const auto max_distance = shoot_skeleton.PeekNode(0).info.end_distance;
-            max_distance > 5.0f * shoot_growth_controller_.m_internodeLength && internode.data.order > 0 &&
+            max_distance > 5.0f * shoot_growth_controller_.internode_length && internode.data.order > 0 &&
             internode.info.root_distance / max_distance < pruning_settings.low_branch_pruning) {
           if (const auto parent_handle = internode.GetParentHandle(); parent_handle != -1) {
             const auto& parent = shoot_skeleton.PeekNode(parent_handle);

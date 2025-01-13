@@ -1,3 +1,4 @@
+
 float EE_SIMPLEX_NOISE(vec2 v);
 float EE_SIMPLEX_NOISE(vec3 v);
 float EE_SIMPLEX_NOISE(vec4 v);

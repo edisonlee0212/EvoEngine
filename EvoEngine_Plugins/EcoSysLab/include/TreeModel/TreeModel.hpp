@@ -68,7 +68,7 @@ class TreeModel {
 
   void ResetReproductiveModule();
 
-  int current_seed_value_ = 0;
+  std::mt19937 random_engine_;
 
  public:
   void Initialize(const ShootGrowthController& shoot_growth_controller);
@@ -81,7 +81,7 @@ class TreeModel {
 
   void CalculateTransform(const ShootGrowthController& shoot_growth_controller, bool sagging);
 
-  int m_seed = 0;
+  int seed = 0;
 
   void RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model,
                      const ShootGrowthController& shoot_growth_controller);
@@ -162,11 +162,11 @@ template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
 void TreeModel::Initialize(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& src_skeleton) {
   if (initialized_)
     Clear();
+  random_engine_ = std::mt19937(static_cast<uint32_t>(seed));
   shoot_skeleton_.Clone(src_skeleton);
   shoot_skeleton_.CalculateDistance();
   shoot_skeleton_.CalculateRegulatedGlobalRotation();
   shoot_skeleton_.SortLists();
-  current_seed_value_ = m_seed;
   initialized_ = true;
 }
 }  // namespace eco_sys_lab_plugin
