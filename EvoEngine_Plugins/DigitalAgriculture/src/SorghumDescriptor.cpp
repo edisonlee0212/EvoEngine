@@ -285,6 +285,7 @@ struct CubicBezierSpline {
     return result;
   }
 
+  // todo: bugs here
   // return uniform sample points on the spline
   std::vector<SplineSample> getUniformSamples(int num) {
     std::vector<SplineSample> samples;
@@ -292,26 +293,40 @@ struct CubicBezierSpline {
     float lengthPerSample = length / (num + 1);
     float sampleLength = lengthPerSample;
     float currentLength = 0;
+    int prevI = -1;
+    std::cout << "segment count in getUniform: " << segmentLengths.size() << "\n";
     for (int i = 0; i < segmentLengths.size(); i++) {
-      SplineSample s;
+      
       while (currentLength < sampleLength) {
         currentLength += segmentLengths[i++];
 
       }
       i--;
+      
       float t = Strands::FindTAdaptive(joints[i].position, joints[i].right_handle, joints[i + 1].left_handle,
                                        joints[i + 1].position, 0, sampleLength - currentLength + segmentLengths[i]);
       glm::vec3 pos = (Strands::CubicInterpolation(joints[i].position, joints[i].right_handle,
                                                     joints[i + 1].left_handle, joints[i + 1].position, t));
+      if (prevI == i) {
+        std::cout << "i doesn't change:" << i << "\n";
+
+      }
+      prevI = i;
+
+      SplineSample s;
       s.position = pos;
       s.segmentIndex = i;
       s.t = t;
-      samples.push_back(s);
+      samples.emplace_back(s);
 
+      if (samples.size() == num) {
+        break;
+      }
       sampleLength += lengthPerSample;
     }
-
-    assert(samples.size() == num);
+    if (samples.size() != num) {
+      EVOENGINE_ERROR("invalid samples count in getUniformSamples")
+    }
     return samples;
   }
 
@@ -402,7 +417,7 @@ struct CubicBezierSpline {
 };
 
 
-// yaml content to splines
+    // yaml content to splines
 [[nodiscard]]std::vector<std::unordered_map<std::string, CubicBezierSpline>> ReconstructBezierSplineFromYAML(
     std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>& yaml_content) {
   if (yaml_content.empty()) {
@@ -421,17 +436,17 @@ struct CubicBezierSpline {
     // iteration for lines
     for (int j = 0; j < keys.size(); j++) {
       CubicBezierSpline bezierSpline;
-
+      std::vector<glm::vec3> points = leaf[keys[j]];
       // iteration for points
-      for (int k = 0; k < leaf["centerPoints"].size(); k++) {
-        std::vector<glm::vec3> points = leaf[keys[j]];
+      for (int k = 0; k < points.size(); k++) {
+        
 
         // generate CubicBezierSpline from the points
         glm::vec3 front;
-        if (k == leaf[keys[j]].size() - 1) {
-          front = glm::normalize((points[k] - points[k - 1]));
+        if (k == points.size() - 1) {
+          front = (points[k] - points[k - 1]);
         } else {
-          front = glm::normalize((points[k + 1] - points[k]));
+          front = (points[k + 1] - points[k]);
         }
 
         CubicBezierPoint p;
@@ -440,7 +455,7 @@ struct CubicBezierSpline {
         p.right_handle = p.position + front * 0.25f;
         p.left_handle = p.position - front * 0.25f;
 
-        bezierSpline.joints.push_back(p);
+        bezierSpline.joints.emplace_back(p);
       }
 
       leafRepresentation.insert(std::make_pair(keys[j], bezierSpline));
@@ -453,10 +468,15 @@ struct CubicBezierSpline {
 }
 
 // splines to sorghum
-void ReconstructSorghumFromBezierSplines(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
+// todo: fix bugs in get samples
+std::vector < glm::vec3> ReconstructSorghumFromBezierSplines(
+      const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
                                     const std::vector<std::unordered_map<std::string, CubicBezierSpline>>& bezierSplines,
                                     float theta, float scale) {
   std::vector<std::string> keys = {"leftPoints", "rightPoints", "centerPoints"};
+  int leafCount = bezierSplines.size();
+
+  std::vector<glm::vec3> results;
   for (int i = 0; i < bezierSplines.size(); i++) {
     auto leafSplines = bezierSplines[i];
 
@@ -465,13 +485,13 @@ void ReconstructSorghumFromBezierSplines(const std::shared_ptr<SorghumDescriptor
     auto rightLine = leafSplines[keys[1]];
     auto centerLine = leafSplines[keys[2]];
 
+
     // get uniform samples from the centerLine
     auto samples = centerLine.getUniformSamples(32);
-
     // reconstruct the local coordinate at each of the samples
     for(SplineSample sample : samples) {
       SorghumSplineSegment segment;
-
+       
       // position
       segment.position = sample.position;
 
@@ -489,12 +509,21 @@ void ReconstructSorghumFromBezierSplines(const std::shared_ptr<SorghumDescriptor
       });
       assert(leftIntersection != leftCandidates.end());
 
-      std::vector<glm::vec3> rightCandidates = leftLine.getSurfaceIntersection(position, normal);
+      std::vector<glm::vec3> rightCandidates = rightLine.getSurfaceIntersection(position, normal);
       auto rightIntersection = std::min_element(rightCandidates.begin(), rightCandidates.end(),
                                    [&position](const glm::vec3& a, const glm::vec3& b) {
                                      return glm::distance(a, position) < glm::distance(b, position);
                                    });
       assert(rightIntersection != rightCandidates.end());
+
+      //-----------------------
+      // debug info
+      //-----------------------
+      results.emplace_back(sample.position);
+      results.emplace_back(*leftIntersection);
+      results.emplace_back(*rightIntersection);
+
+
 
       // from the profile, reconstruct the up vector
       glm::vec3 rightLocal = *rightIntersection - sample.position;
@@ -521,7 +550,61 @@ void ReconstructSorghumFromBezierSplines(const std::shared_ptr<SorghumDescriptor
 
     sorghum_descriptor->leaves.push_back(leaf_descriptor);
   }
-    
+  std::cout << "total samples count: " << results.size() << "\n";
+  return results;
+}
+
+void FillYAMLPointsParticle(
+    int leafIndex, float scale,
+    std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>> & yamlContent, std::vector<ParticleInfo>& particleInfos,
+    int leafCount = 1, int PointsCount = 32) {
+  Jobs::RunParallelFor(leafCount * PointsCount, [&](const auto i) {
+    int yamlContentIndex = leafIndex > -1 ? leafIndex : i / PointsCount;
+    auto& center_info = particleInfos[i];
+    center_info.instance_color = glm::vec4(256, 0, 0, 256) / 256.f;
+    center_info.instance_matrix.SetPosition(glm::vec3(yamlContent[yamlContentIndex]["centerPoints"][i % PointsCount]) *
+                                            scale);
+    center_info.instance_matrix.SetScale(glm::vec3(0.01f));
+
+    auto& left_info = particleInfos[i + leafCount * PointsCount];
+    left_info.instance_color = glm::vec4(0, 256, 0, 256) / 256.f;
+    left_info.instance_matrix.SetPosition(glm::vec3(yamlContent[yamlContentIndex]["centerPoints"][i % PointsCount]) *
+                                          scale);
+    left_info.instance_matrix.SetScale(glm::vec3(0.01f));
+
+    auto& right_info = particleInfos[i + 2 * leafCount * PointsCount];
+    right_info.instance_color = glm::vec4(0, 0, 256, 256) / 256.f;
+    right_info.instance_matrix.SetPosition(glm::vec3(yamlContent[yamlContentIndex]["centerPoints"][i % PointsCount]) *
+                                           scale);
+    right_info.instance_matrix.SetScale(glm::vec3(0.01f));
+  });
+}
+
+
+void FillBezierSplinePointsParticle(int leafIndex, float scale,
+                            std::vector<glm::vec3> & bezierSplinePoints,
+                            std::vector<ParticleInfo>& particleInfos, int leafCount = 1, int PointsCount = 32) {
+  Jobs::RunParallelFor(leafCount * PointsCount, [&](const auto i) {
+    int startIndex = 3 * i;
+    int leafStartIndex = leafIndex > -1 ? leafIndex * PointsCount * 3 : 0;
+    auto& centerInfo = particleInfos[startIndex];
+
+    centerInfo.instance_matrix.SetPosition(bezierSplinePoints[leafStartIndex + startIndex] * scale);
+    centerInfo.instance_matrix.SetScale(glm::vec3(0.01f));
+    centerInfo.instance_color = glm::vec4(0, 256, 256, 256) / 256.f;
+
+    auto& leftInfo = particleInfos[startIndex + 1];
+
+    leftInfo.instance_matrix.SetPosition(bezierSplinePoints[leafStartIndex + startIndex ] * scale);
+    leftInfo.instance_matrix.SetScale(glm::vec3(0.01f));
+    leftInfo.instance_color = glm::vec4(256, 0, 256, 256) / 256.f;
+
+    auto& rightInfo = particleInfos[startIndex + 2];
+
+    rightInfo.instance_matrix.SetPosition(bezierSplinePoints[leafStartIndex + startIndex ] * scale);
+    rightInfo.instance_matrix.SetScale(glm::vec3(0.01f));
+    rightInfo.instance_color = glm::vec4(256, 256, 0, 256) / 256.f;
+  });
 }
 
 bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -598,8 +681,14 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
       ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
 
   // use gizmo to visualize all the points
-  static std::shared_ptr<ParticleInfoList> pi;
-  static bool drawPoints;
+  static std::shared_ptr<ParticleInfoList> yamlPoints;
+  static std::shared_ptr<ParticleInfoList> bezierSamples;
+  static std::vector<glm::vec3> bezierSampleResults;
+  static int gizmoType = 2;
+  static bool splitLeaf;
+  static bool prevSplitLeaf;
+  static int pointsCount = 32;
+  static int leafIndex;
   static float theta = 30.0f;
   static Entity reconstructed_entity;
   // enlarge the sorghum
@@ -610,11 +699,6 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   GizmoSettings gizmo_settings;
   gizmo_settings.draw_settings.blending = true;
 
-  ImGui::Checkbox("Enable yaml Gizmo", &drawPoints);
-
-  if (drawPoints) {
-    editor_layer->DrawGizmoCubes(pi, 1.0f, 1, gizmo_settings);
-  }
   if (ImGui::SliderFloat("theta", &theta, 0.0f, 180.0f)) {
     ReconstructFromYAML(sorghum_descriptor, yamlContent, theta, scale);
     // const auto scene = Application::GetActiveScene();
@@ -643,32 +727,68 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
     int leafCount = yamlContent.size();
     int PointsCount = yamlContent[0]["centerPoints"].size();
     std::vector<ParticleInfo> particle_infos(leafCount * PointsCount * 3);
-    Jobs::RunParallelFor(leafCount * PointsCount, [&](const auto i) {
-      auto& center_info = particle_infos[i];
-      center_info.instance_color = glm::vec4(256, 0, 0, 256) / 256.f;
-      center_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["centerPoints"][i % PointsCount]) *
-                                              scale);
 
-      center_info.instance_matrix.SetScale(glm::vec3(0.01f));
+    FillYAMLPointsParticle(-1, scale, yamlContent, particle_infos, leafCount);
 
-      auto& left_info = particle_infos[i + leafCount * PointsCount];
-      left_info.instance_color = glm::vec4(0, 256, 0, 256) / 256.f;
-      left_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["leftPoints"][i % PointsCount]) *
-                                            scale);
-
-      left_info.instance_matrix.SetScale(glm::vec3(0.01f));
-
-      auto& right_info = particle_infos[i + 2 * leafCount * PointsCount];
-      right_info.instance_color = glm::vec4(0, 0, 256, 256) / 256.f;
-      right_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["rightPoints"][i % PointsCount]) *
-                                             scale);
-
-      right_info.instance_matrix.SetScale(glm::vec3(0.01f));
-    });
-
-    pi->SetParticleInfos(particle_infos);
+    yamlPoints->SetParticleInfos(particle_infos);
   }
-  // load points from yaml
+
+  ImGui::Text("Gizmo");
+  ImGui::RadioButton("yamlContent", &gizmoType, 0);
+  ImGui::RadioButton("bezierContent", &gizmoType, 1);
+  ImGui::RadioButton("Disable", &gizmoType, 2);
+
+  
+  switch (gizmoType) {
+    case 0:
+      editor_layer->DrawGizmoCubes(yamlPoints, 1.0f, 1, gizmo_settings);
+      break;
+    case 1:
+      editor_layer->DrawGizmoCubes(bezierSamples, 1.0f, 1, gizmo_settings);
+      break;
+    default:
+      break;
+
+  }
+  ImGui::Checkbox("SplitLeaf", &splitLeaf);
+  if (splitLeaf != prevSplitLeaf ) {
+    if (splitLeaf) {
+      // update particleInfo
+      std::vector<ParticleInfo> particle_infos(pointsCount * 3);
+      FillYAMLPointsParticle(leafIndex, scale, yamlContent, particle_infos);
+      yamlPoints->SetParticleInfos(particle_infos);
+
+      FillBezierSplinePointsParticle(leafIndex, scale, bezierSampleResults, particle_infos);
+      bezierSamples->SetParticleInfos(particle_infos);
+    } else {
+      int leafCount = yamlContent.size();
+      int PointsCount = yamlContent[0]["centerPoints"].size();
+      std::vector<ParticleInfo> particle_infos(leafCount * PointsCount * 3);
+
+      FillYAMLPointsParticle(-1, scale, yamlContent, particle_infos, leafCount);
+      yamlPoints->SetParticleInfos(particle_infos);
+
+
+      FillBezierSplinePointsParticle(-1, scale, bezierSampleResults, particle_infos, leafCount);
+      bezierSamples->SetParticleInfos(particle_infos);
+    }
+    prevSplitLeaf = splitLeaf;
+  }
+  if (ImGui::SliderInt("LeafIndex", &leafIndex, 0, 20) && splitLeaf) {
+    // update particleInfo
+    std::vector<ParticleInfo> particle_infos(pointsCount * 3);
+    FillYAMLPointsParticle(leafIndex, scale, yamlContent, particle_infos);
+    yamlPoints->SetParticleInfos(particle_infos);
+
+    FillBezierSplinePointsParticle(leafIndex, scale, bezierSampleResults, particle_infos);
+    bezierSamples->SetParticleInfos(particle_infos);
+  }
+
+
+
+  //--------------------------
+  // load points from yaml and reconstruct the mesh
+  //--------------------------
   if (yamlContent.empty()) {
     std::filesystem::path yamlPath(
         "E:/Computer Graphics/spline.yml");
@@ -678,50 +798,49 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
       if (tempResult) {
         // todo: generate stem descriptor
         yamlContent = *tempResult;
-        std::cout << "imported from yaml" << std::endl;
+        std::cout << "imported from yaml"
+                  << "\n"
+                  << "leaf count: " << yamlContent.size() << "\n"
+                  << "total points: " << yamlContent[0]["centerPoints"].size() * yamlContent.size() * 3 << "\n";
+
         auto splines = ReconstructBezierSplineFromYAML(yamlContent);
-        ReconstructSorghumFromBezierSplines(sorghum_descriptor, splines, theta, scale);
+        bezierSampleResults = ReconstructSorghumFromBezierSplines(sorghum_descriptor, splines, theta, scale);
+
+        std::cout << "fit bezier splines"
+                  << "\n"
+                  << "leaf count: " << bezierSampleResults.size() / (3 * 32) << "\n"
+                  << "total points: " << bezierSampleResults.size() << "\n";
+        
         //ReconstructFromYAML(sorghum_descriptor, yamlContent, theta, scale);
 
         // draw sorghum
-        reconstructed_entity = sorghum_descriptor->CreateEntity("Temp Sorghum");
+        //reconstructed_entity = sorghum_descriptor->CreateEntity("Temp Sorghum");
       }
     }
   }
 
-  // gizmo setup
-  if (!pi && !yamlContent.empty()) {
-    pi = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  //--------------------------
+  // gizmo data setup
+  //--------------------------
+  if (!yamlPoints && !yamlContent.empty()) {
+    yamlPoints = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
     int leafCount = yamlContent.size();
     int PointsCount = yamlContent[0]["centerPoints"].size();
     std::vector<ParticleInfo> particle_infos(leafCount * PointsCount * 3);
 
-    Jobs::RunParallelFor(leafCount * PointsCount, [&](const auto i) {
-      auto& center_info = particle_infos[i];
-      center_info.instance_color = glm::vec4(256, 0, 0, 256) / 256.f;
-      center_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["centerPoints"][i % PointsCount]) *
-                                              scale);
+    FillYAMLPointsParticle(-1, scale, yamlContent, particle_infos, leafCount);
 
-      center_info.instance_matrix.SetScale(glm::vec3(0.01f));
-
-      auto& left_info = particle_infos[i + leafCount * PointsCount];
-      left_info.instance_color = glm::vec4(0, 256, 0, 256) / 256.f;
-      left_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["leftPoints"][i % PointsCount]) *
-                                            scale);
-
-      left_info.instance_matrix.SetScale(glm::vec3(0.01f));
-
-      auto& right_info = particle_infos[i + 2 * leafCount * PointsCount];
-      right_info.instance_color = glm::vec4(0, 0, 256, 256) / 256.f;
-      right_info.instance_matrix.SetPosition(glm::vec3(yamlContent[i / PointsCount]["rightPoints"][i % PointsCount]) *
-                                             scale);
-
-      right_info.instance_matrix.SetScale(glm::vec3(0.01f));
-    });
-
-    pi->SetParticleInfos(particle_infos);
+    yamlPoints->SetParticleInfos(particle_infos);
   }
 
+  if (!bezierSamples && ! bezierSampleResults.empty()) {
+    bezierSamples = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    std::vector<ParticleInfo> particle_infos(bezierSampleResults.size());
+    int leafCount = bezierSampleResults.size() / (3 * 32);
+    FillBezierSplinePointsParticle(-1, scale, bezierSampleResults, particle_infos, leafCount);
+
+    bezierSamples->SetParticleInfos(particle_infos);
+  }
   return changed;
 }
 
