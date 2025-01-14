@@ -281,9 +281,6 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     PlottedDistributionSettings wood_young_settings{};
     if (max_youngs_modulus.OnInspect("Wood Young's modulus", wood_young_settings))
       changed = true;
-    PlottedDistributionSettings wood_shear_settings{};
-    if (max_shear_modulus.OnInspect("Wood Shear modulus", wood_shear_settings))
-      changed = true;
     PlottedDistributionSettings wood_bending_settings{};
     if (max_bending_modulus.OnInspect("Wood Bending modulus", wood_bending_settings))
       changed = true;
@@ -294,11 +291,8 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     PlottedDistributionSettings max_bundle_strain_settings{};
     if (max_bundle_strain.OnInspect("Max bundle strain", max_bundle_strain_settings))
       changed = true;
-    PlottedDistributionSettings max_shear_strain_settings{};
-    if (max_shear_strain.OnInspect("Max shear strain", max_shear_strain_settings))
-      changed = true;
-    PlottedDistributionSettings max_stretch_strain_settings{};
-    if (max_stretch_strain.OnInspect("Max stretch strain", max_stretch_strain_settings))
+    PlottedDistributionSettings max_shear_stretch_strain_settings{};
+    if (max_shear_stretch_strain.OnInspect("Max shear/stretch strain", max_shear_stretch_strain_settings))
       changed = true;
 
     PlottedDistributionSettings max_bend_strain_settings{};

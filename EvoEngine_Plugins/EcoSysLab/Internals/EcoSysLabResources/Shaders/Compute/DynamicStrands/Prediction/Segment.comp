@@ -61,7 +61,7 @@ void main(){
 		//Apply velocity
 		segment.particle1.x += time_step * segment.particle1.v;
 
-		vec2 shear_stretch_strain = shear_stretch_strain(
+		float shear_stretch_strain = shear_stretch_strain(
 			segment.particle0.x, 
 			segment.particle1.x, 
 			segment.q, segment.rest_length);

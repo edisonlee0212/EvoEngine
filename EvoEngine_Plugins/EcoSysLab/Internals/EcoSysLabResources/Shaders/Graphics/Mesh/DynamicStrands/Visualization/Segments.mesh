@@ -118,12 +118,8 @@ void main(){
 	}else if(color_mode == 3){
 		color = mix(color0, color1, clamp(segment.moisture_content, 0.0f, 1.0f));
 	}else if(color_mode == 4){
-		color = mix(color0, color1, clamp(
-					abs(segment.shear_stretch_strain.x) / segment.shear_stretch_strain_limit.x, 0.0, 1.0));
+		color = mix(color0, color1, clamp(abs(segment.shear_stretch_strain) / segment.shear_stretch_strain_limit, 0.0, 1.0));
 	}else if(color_mode == 5){
-		color = mix(color0, color1, clamp(
-					abs(segment.shear_stretch_strain.y) / segment.shear_stretch_strain_limit.y, 0.0, 1.0));
-	}else if(color_mode == 6){
 		color = segment.group_index == 0 ? vec4(0.6, 0.3, 0.0, 1.0) : segments[segment.group_index].color;
 	}
 	
