@@ -38,8 +38,7 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   float inv_mass_p1 = next_handle != -1 ? segments[next_handle].inv_mass : inv_mass_q;
 
   vec4 q = segments[segment_handle].q;
-  vec3 alpha = vec3(segments[segment_handle].shearing_alpha, segments[segment_handle].shearing_alpha,
-                    segments[segment_handle].stretching_alpha);
+  vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
   float rest_length = segments[segment_handle].rest_length;
 
   project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
@@ -74,8 +73,7 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   float inv_mass_p1 = next_handle != -1 ? segments[next_handle].inv_mass : inv_mass_q;
 
   vec4 q = segments[segment_handle].q;
-  vec3 alpha = vec3(segments[segment_handle].shearing_alpha, segments[segment_handle].shearing_alpha,
-                    segments[segment_handle].stretching_alpha);
+  vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
   float rest_length = segments[segment_handle].rest_length;
 
   project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
@@ -167,14 +165,14 @@ void project_bend_twist_constraint(in float inv_time_step, in vec4 q0, in float 
   q1_correction = quat_mul(q0, lambda) * inv_mass_q1 * -1.0f;
 }
 
-vec2 shear_stretch_strain(in vec3 p0, in vec3 p1, in vec4 q, in float rest_length) {
+float shear_stretch_strain(in vec3 p0, in vec3 p1, in vec4 q, in float rest_length) {
   vec3 d3;
   d3[0] = -2.0f * (q.x * q.z + q.w * q.y);
   d3[1] = -2.0f * (q.y * q.z - q.w * q.x);
   d3[2] = -q.w * q.w + q.x * q.x + q.y * q.y - q.z * q.z;
 
   vec3 lambda = (p1 - p0) / rest_length - d3;
-  return vec2(max(abs(lambda.x), abs(lambda.y)), lambda.z);
+  return length(lambda);
 }
 
 vec2 bend_twist_strain(in vec4 q0, in vec4 q1, in vec4 rest_darboux_vector) {
@@ -183,7 +181,7 @@ vec2 bend_twist_strain(in vec4 q0, in vec4 q1, in vec4 rest_darboux_vector) {
   lambda -= rest_darboux_vector;
   lambda = squared_norm(lambda) > squared_norm(lambda_plus) ? lambda_plus : lambda;
 
-  return vec2(max(abs(lambda.x), abs(lambda.y)), lambda.z);
+  return vec2(max(abs(lambda.x), abs(lambda.y)), abs(lambda.z));
 }
 
 void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
@@ -395,10 +393,7 @@ void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
 
   vec4 q = segments[segment_handle].q;
 
-  vec3 alpha = vec3(segments[segment_handle].shearing_alpha, segments[segment_handle].shearing_alpha,
-                    segments[segment_handle].stretching_alpha);
-
-  // vec3 alpha = vec3(1.0, 1.0, 0.0);
+  vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
 
   float rest_length = segments[segment_handle].rest_length;
 

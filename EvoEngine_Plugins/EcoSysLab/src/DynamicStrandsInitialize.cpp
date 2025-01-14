@@ -133,19 +133,16 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.inertia_tensor = ComputeInertiaTensorRod(segment.original_mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     const float area = glm::pi<float>() * segment.radius * segment.radius;
-    segment.max_stretching_modulus = glm::max(1e-9f, initialize_parameters.max_youngs_modulus.GetValue(ratio)) * 1e9f;
-    segment.max_shearing_modulus = glm::max(1e-9f, initialize_parameters.max_shear_modulus.GetValue(ratio)) * 1e9f;
+    segment.max_young_modulus = glm::max(1e-9f, initialize_parameters.max_youngs_modulus.GetValue(ratio)) * 1e9f;
     segment.moisture_content = glm::max(1e-9f, initialize_parameters.moisture_content.GetValue(ratio));
     segment.boundary_distance = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f;
     segment.profile_position = target_strand_segment_data.profile_position;
     segment.profile_polar_coordinate = target_strand_segment_data.profile_polar_coordinate;
 
-    segment.stretching_alpha = 1.f / (segment.max_stretching_modulus * area / segment.rest_length);
-    segment.shearing_alpha = 1.f / (segment.max_shearing_modulus * area / segment.rest_length);
-    const float max_shear_strain = glm::max(0.001f, initialize_parameters.max_shear_strain.GetValue(ratio));
-    const float max_stretch_strain = glm::max(0.001f, initialize_parameters.max_stretch_strain.GetValue(ratio));
-    segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain =
-        glm::vec2(max_shear_strain, max_stretch_strain);
+    segment.shear_stretch_alpha = 1.f / (segment.max_young_modulus * area / segment.rest_length);
+    const float max_shear_stretch_strain =
+        glm::max(0.001f, initialize_parameters.max_shear_stretch_strain.GetValue(ratio));
+    segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain = max_shear_stretch_strain;
 
     const auto& strand_segment = strand_group.PeekStrandSegment(static_cast<int>(segment_handle));
     const auto& strand_segment_data = strand_group.PeekStrandSegmentData(static_cast<int>(segment_handle));

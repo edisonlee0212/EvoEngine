@@ -81,8 +81,6 @@ class DynamicStrands {
     PlottedDistribution<float> wood_density = {{600.0f, 700.0f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
                                                {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    PlottedDistribution<float> max_shear_modulus = {{9.5f, 13.5f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
-                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
     PlottedDistribution<float> max_youngs_modulus = {{9.5f, 13.5f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
                                                      {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
@@ -99,10 +97,8 @@ class DynamicStrands {
     PlottedDistribution<float> max_bundle_strain = {{0.08f, 0.12f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                     {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    PlottedDistribution<float> max_shear_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
-                                                   {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-    PlottedDistribution<float> max_stretch_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
-                                                     {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
+    PlottedDistribution<float> max_shear_stretch_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+                                                           {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
     PlottedDistribution<float> max_bend_strain = {{0.15f, 0.15f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                   {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
@@ -167,8 +163,7 @@ class DynamicStrands {
       SegmentColor,
       BoundaryDistance,
       MoistureContent,
-      ShearStrain,
-      StretchStrain,
+      ShearStretchStrain,
       GroupIndex,
     };
 
@@ -179,7 +174,7 @@ class DynamicStrands {
     bool render_uniform_particles = true;
     bool render_foliage = true;
 
-    uint32_t segment_render_mode = 6;
+    uint32_t segment_render_mode = 5;
     uint32_t segment_pair_render_mode = 0;
     uint32_t uniform_particle_render_mode = 2;
     uint32_t foliage_render_mode = 0;
@@ -315,8 +310,8 @@ class DynamicStrands {
     glm::vec3 torque = glm::vec3(0.f);
     float rest_length;
 
-    float max_shearing_modulus;
-    float max_stretching_modulus;
+    float max_young_modulus;
+    float shear_stretch_alpha;
     float moisture_content;
     float boundary_distance;
 
@@ -324,20 +319,18 @@ class DynamicStrands {
     glm::vec2 profile_polar_coordinate;
 
     glm::vec3 inertia_tensor;
-    float shearing_alpha;
+    float max_shear_stretch_strain;
 
     glm::vec3 inv_inertia_tensor;
-    float stretching_alpha;
+    float shear_stretch_strain_limit;
 
     glm::mat4 inertia_w;
     glm::mat4 inv_inertia_w;
 
-    glm::vec2 shear_stretch_strain = glm::vec2(0.f);
+    float shear_stretch_strain;
+    float padding;
     float original_mass = 0.0f;
     int32_t group_index = 0;
-
-    glm::vec2 max_shear_stretch_strain;
-    glm::vec2 shear_stretch_strain_limit;
 
     float extra_mass = 0.f;
     float property1 = 0.f;

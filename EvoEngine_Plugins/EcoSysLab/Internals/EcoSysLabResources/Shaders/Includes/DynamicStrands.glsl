@@ -58,8 +58,8 @@ struct Segment {
   vec3 torque;
   float rest_length;
 
-  float max_shearing_modulus;
-  float max_stretching_modulus;
+  float max_young_modulus;
+  float shear_stretch_alpha;
   float moisture_content;
   float boundary_distance;
 
@@ -67,19 +67,17 @@ struct Segment {
   vec2 profile_polar_coordinate;
 
   vec3 inertia_tensor;
-  float shearing_alpha;
+  float max_shear_stretch_strain;
   vec3 inv_inertia_tensor;
-  float stretching_alpha;
+  float shear_stretch_strain_limit;
 
   mat4 inertia_w;
   mat4 inv_inertia_w;
 
-  vec2 shear_stretch_strain;
+  float shear_stretch_strain;
+  float padding;
   float original_mass;
   int group_index;
-
-  vec2 max_shear_stretch_strain;
-  vec2 shear_stretch_strain_limit;
 
   float extra_mass;
   float property1;

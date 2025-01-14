@@ -42,7 +42,7 @@ void main(){
 		segment.torque = vec3(0.0, 0.0, 0.0);
 		segment.inv_mass = 1.f / (segment.original_mass + segment.extra_mass);
 		
-		segment.shear_stretch_strain = vec2(0.0, 0.0);
+		segment.shear_stretch_strain = 0.0f;
 		segment.particle0.acceleration = segment.inv_mass != 0.0f ? acceleration * (segment.original_mass + segment.extra_mass) / segment.original_mass : vec3(0.0, 0.0, 0.0);
 		segment.particle1.acceleration = segment.inv_mass != 0.0f ? acceleration * (segment.original_mass + segment.extra_mass) / segment.original_mass : vec3(0.0, 0.0, 0.0);
 		

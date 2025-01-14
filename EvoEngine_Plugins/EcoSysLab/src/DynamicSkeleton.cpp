@@ -88,11 +88,9 @@ void DynamicSkeleton::Initialize(const InitializeParameters& initialize_paramete
     node_data.inv_inertia_tensor = 1.f / node_data.inertia_tensor;
 
     const float area = glm::pi<float>() * node_data.radius * node_data.radius;
-    node_data.max_stretching_modulus = glm::max(1e-9f, initialize_parameters.max_youngs_modulus.GetValue()) * 1e9f;
-    node_data.max_shearing_modulus = glm::max(1e-9f, initialize_parameters.max_shear_modulus.GetValue()) * 1e9f;
+    node_data.max_youngs_modulus = glm::max(1e-9f, initialize_parameters.max_youngs_modulus.GetValue()) * 1e9f;
 
-    node_data.stretching_alpha = 1.f / (node_data.max_stretching_modulus * area / node_data.length);
-    node_data.shearing_alpha = 1.f / (node_data.max_shearing_modulus * area / node_data.length);
+    node_data.shear_stretch_alpha = 1.f / (node_data.max_youngs_modulus * area / node_data.length);
 
     node_data.max_bending_modulus = glm::max(1e-9f, initialize_parameters.max_bending_modulus.GetValue()) * 1e9f;
     node_data.max_torsion_modulus = glm::max(1e-9f, initialize_parameters.max_torsion_modulus.GetValue()) * 1e9f;
@@ -318,7 +316,7 @@ void DynamicSkeleton::ApplyStiffRodConstraint(const PhysicsParameters& physics_p
     // 2. Stretch & shear
     glm::vec3 x0_correction, x1_correction;
     glm::quat q_correction;
-    const auto alpha = glm::vec3(node_data.shearing_alpha, node_data.shearing_alpha, node_data.stretching_alpha);
+    const auto alpha = glm::vec3(node_data.shear_stretch_alpha);
     project_shear_stretch_constraint(inv_time_step, node_data.particle0.x, node_data.particle1.x, node_data.q,
                                      node_data.inv_mass, node_data.inv_mass, node_data.inv_mass, alpha,
                                      node.data.length, x0_correction, x1_correction, q_correction);

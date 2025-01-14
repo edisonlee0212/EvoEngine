@@ -25,17 +25,15 @@ struct DynamicSkeletonNodeData {
   float inv_mass = 0;
   float mass = 0.f;
   glm::vec3 inertia_tensor = glm::vec3{0.f};
-  float shearing_alpha = 0;
+  float shear_stretch_alpha = 0;
   glm::vec3 inv_inertia_tensor = glm::vec3{0.f};
-  float stretching_alpha = 0;
   glm::mat3 inertia_w{};
   glm::mat3 inv_inertia_w{};
 
   float length;
   float radius;
 
-  float max_shearing_modulus;
-  float max_stretching_modulus;
+  float max_youngs_modulus;
 
   float max_bending_modulus;
   float max_torsion_modulus;

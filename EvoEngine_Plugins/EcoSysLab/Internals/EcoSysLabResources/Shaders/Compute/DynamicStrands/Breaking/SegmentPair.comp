@@ -36,41 +36,29 @@ void main(){
 		uint pair_index = baseID + local_index;
 		if(pair_index >= pair_size) break;
 		SegmentPair segment_pair = segment_pairs[pair_index];
-		float connectivity_integrity = segment_pair.connectivity_integrity;
-		float bend_twist_bundle_integrity = segment_pair.bend_twist_bundle_integrity;
+		float connectivity_integrity = segment_pairs[pair_index].connectivity_integrity;
+		float bend_twist_bundle_integrity = segment_pairs[pair_index].bend_twist_bundle_integrity;
 		//Modify limit here.
 		vec4 bending_twist_bundle_strain_limit = segment_pair.max_bending_twist_bundle_strain;
-		
-		Segment segment0 = segments[segment_pair.segment0_handle];
-		Segment segment1 = segments[segment_pair.segment1_handle];
+		vec4 bending_twist_bundle_strain = segment_pairs[pair_index].bending_twist_bundle_strain;
 
-		float original_distance0 = distance(segment0.particle0.x0.xyz, segment1.particle0.x0.xyz);
-		float current_distance0 = distance(segment0.particle0.x, segment1.particle0.x);
-		float strain0 = abs(current_distance0 - original_distance0) / (segment0.rest_length + segment1.rest_length) * 2.0f;
-		float original_distance1 = distance(segment0.particle1.x0.xyz, segment1.particle1.x0.xyz);
-		float current_distance1 = distance(segment0.particle1.x, segment1.particle1.x);
-		float strain1 = abs(current_distance1 - original_distance1) / (segment0.rest_length + segment1.rest_length) * 2.0f;
-
-		float bundle_strain = max(strain0, strain1);
-		vec2 bend_twist_strain = bend_twist_strain(segment0.q, segment1.q, segment_pair.rest_darboux_vector);
+		int segment0_handle = segment_pairs[pair_index].segment0_handle;
+		int segment1_handle = segment_pairs[pair_index].segment1_handle;
 
 		if(allow_disconnection == 1){
-			if(abs(segment0.shear_stretch_strain.x) > segment0.shear_stretch_strain_limit.x
-				|| abs(segment0.shear_stretch_strain.y) > segment0.shear_stretch_strain_limit.y
-				|| abs(segment1.shear_stretch_strain.x) > segment1.shear_stretch_strain_limit.x
-				|| abs(segment1.shear_stretch_strain.y) > segment1.shear_stretch_strain_limit.y){
+			if(abs(segments[segment0_handle].shear_stretch_strain) > segments[segment0_handle].shear_stretch_strain_limit
+				|| abs(segments[segment1_handle].shear_stretch_strain) > segments[segment1_handle].shear_stretch_strain_limit){
 				connectivity_integrity = 0.0f;
 			}
 		}
 		if(allow_breaking == 1){
-			if(abs(bend_twist_strain.x) > bending_twist_bundle_strain_limit.x
-				|| abs(bend_twist_strain.y) > bending_twist_bundle_strain_limit.z
-				|| bundle_strain > bending_twist_bundle_strain_limit.z){
+			if(abs(bending_twist_bundle_strain.x) > bending_twist_bundle_strain_limit.x
+				|| abs(bending_twist_bundle_strain.y) > bending_twist_bundle_strain_limit.y
+				|| abs(bending_twist_bundle_strain.z) > bending_twist_bundle_strain_limit.z){
 				bend_twist_bundle_integrity = 0.0f;
 			}
 		}
 
-		segment_pairs[pair_index].bending_twist_bundle_strain = vec4(bend_twist_strain.x, bend_twist_strain.y, bundle_strain, 0.0f);
 		segment_pairs[pair_index].bend_twist_bundle_integrity = bend_twist_bundle_integrity;
 		segment_pairs[pair_index].connectivity_integrity = connectivity_integrity;
 	}

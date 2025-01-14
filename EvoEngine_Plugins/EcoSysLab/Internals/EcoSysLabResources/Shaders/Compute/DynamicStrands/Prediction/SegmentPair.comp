@@ -1,0 +1,54 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrandsPhysics.glsl"
+
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint pair_size;
+};
+
+void main(){
+
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint pair_index = baseID + local_index;
+		if(pair_index >= pair_size) break;
+		//Modify limit here.
+		vec4 bending_twist_bundle_strain_limit = segment_pairs[pair_index].max_bending_twist_bundle_strain;
+		int segment0_handle = segment_pairs[pair_index].segment0_handle;
+		int segment1_handle = segment_pairs[pair_index].segment1_handle;
+
+		float original_distance0 = distance(segments[segment0_handle].particle0.x0.xyz, segments[segment1_handle].particle0.x0.xyz);
+		float current_distance0 = distance(segments[segment0_handle].particle0.x, segments[segment1_handle].particle0.x);
+		float strain0 = abs(current_distance0 - original_distance0) / (segments[segment0_handle].rest_length + segments[segment1_handle].rest_length) * 2.0f;
+		float original_distance1 = distance(segments[segment0_handle].particle1.x0.xyz, segments[segment1_handle].particle1.x0.xyz);
+		float current_distance1 = distance(segments[segment0_handle].particle1.x, segments[segment1_handle].particle1.x);
+		float strain1 = abs(current_distance1 - original_distance1) / (segments[segment0_handle].rest_length + segments[segment1_handle].rest_length) * 2.0f;
+
+		float bundle_strain = max(strain0, strain1);
+		vec2 bend_twist_strain = bend_twist_strain(segments[segment0_handle].q, segments[segment1_handle].q, segment_pairs[pair_index].rest_darboux_vector);
+
+		segment_pairs[pair_index].bending_twist_bundle_strain = vec4(bend_twist_strain.x, bend_twist_strain.y, bundle_strain, 0.0f);
+		segment_pairs[pair_index].bending_twist_bundle_strain_limit = bending_twist_bundle_strain_limit;
+	}
+}

@@ -13,6 +13,7 @@
 #include "ClassRegistry.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
+#include "DynamicStrandsDemo.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "ForestDescriptor.hpp"
@@ -35,6 +36,9 @@ AssetRegistration<RadialBoundingVolume> rbv_registry("RadialBoundingVolume", {".
 AssetRegistration<CubeVolume> cube_volume_registry("CubeVolume", {".cubevolume"});
 
 AssetRegistration<ForestPatch> forest_patch_registry("ForestPatch", {".forestpatch"});
+
+PrivateComponentRegistration<DynamicStrandsDemo> dynamic_strands_demo_registry("DynamicStrandsDemo");
+
 #ifdef BILLBOARD_CLOUDS_PLUGIN
 PrivateComponentRegistration<BillboardCloudsConverter> billboard_clouds_converter_register("BillboardCloudsConverter");
 #endif
