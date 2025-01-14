@@ -9,7 +9,7 @@ struct SorghumMeshGeneratorSettings {
   bool enable_leaf_sheath = true;
   int single_leaf_index = -1;
   bool bottom_face = true;
-  bool leaf_separated = false;
+  bool leaf_separated = true;
   float leaf_thickness = 0.001f;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 };
