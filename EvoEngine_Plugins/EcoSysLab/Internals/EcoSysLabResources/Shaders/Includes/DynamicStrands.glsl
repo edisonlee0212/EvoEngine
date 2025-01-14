@@ -139,7 +139,7 @@ struct UniformParticle {
   int next_node_index;
   int strand_index;
 
-  int is_single_strand_particle;
+  int is_single_strand_particle;  // amout of connected tetrahedrons
   float local_extrusion_distance;
   int is_on_surface;  // mark if particle is on the surface of the mesh to initialize the normal
   int padding3;
@@ -159,8 +159,11 @@ struct DelaunayTetrahedron {
   int inside;
   int triangles_accepted;
   float sidelengths[6];
-  int inside_at_init;
+  int padding0;
   int padding1;
+  int segment_pair_index[6];
+  int inside_at_init;
+  int padding2;
 };
 
 struct HashedGridElement {

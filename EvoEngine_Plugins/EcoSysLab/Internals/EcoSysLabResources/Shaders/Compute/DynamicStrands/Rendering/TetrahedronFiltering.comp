@@ -38,6 +38,35 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 
 #include "AlphaShape.glsl"
 
+bool VertexConnected(DelaunayTetrahedron delaunay_tetrahedron, uint vertex_index){
+	int connected = 0;
+	int disconnected = 0;
+	//int unknown = 0;
+
+	[[unroll]]
+	for(int i = 0; i < 3; i++){
+		int segment_pair_index = delaunay_tetrahedron.segment_pair_index[tet_edge_indices[vertex_index][i]];
+		if(segment_pair_index == -1){
+			//unknown++;
+			continue;
+		}
+		
+		SegmentPair segment_pair = segment_pairs[segment_pair_index];
+		if(segment_pair.connectivity_integrity > 0.0f || segment_pair.bend_twist_bundle_integrity > 0.0f){
+			connected++;
+		} else {
+			disconnected++;
+		}
+	}
+
+	// Note: this connection can be skipped for more aggressive mesh breaking
+	if(connected > 0){
+		return true;
+	}
+		
+	return (disconnected == 0);
+}
+
 void main(){
 	float min_distance_squared;
 
@@ -76,8 +105,8 @@ void main(){
 			// get vertices
 			vec3 v[4];
 			[[unroll]]
-			for(int i = 0; i < 4; ++i){
-				v[i] = uniform_particles[delaunay_tetrahedron.indices[i]].position_t.xyz;
+			for(int k = 0; k < 4; ++k){
+				v[k] = uniform_particles[delaunay_tetrahedron.indices[k]].position_t.xyz;
 			}
 
 			// Compute sidelengths
@@ -86,6 +115,18 @@ void main(){
 				float sidelength_squared = DistSquared(v[tet_edges[edge_index].x], v[tet_edges[edge_index].y]);
 
 				if(sqrt(sidelength_squared) > break_threshold + delaunay_tetrahedron.sidelengths[edge_index]){
+					delaunay_tetrahedron.inside = 0;
+					break;
+				}
+			}
+		}
+
+		// Check against Segment pairs
+		if(delaunay_tetrahedron.inside == 1){
+
+			[[unroll]]
+			for(int k = 0; k < 4; ++k){
+				if(VertexConnected(delaunay_tetrahedron, k) == false){
 					delaunay_tetrahedron.inside = 0;
 					break;
 				}
