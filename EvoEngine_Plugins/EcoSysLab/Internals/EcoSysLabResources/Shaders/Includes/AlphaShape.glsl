@@ -1,5 +1,7 @@
 #extension GL_EXT_control_flow_attributes : require
 
+#include "Math.glsl"
+
 uvec2 tet_edges[] = {
     uvec2(0, 1), uvec2(0, 2), uvec2(0, 3), uvec2(1, 2), uvec2(1, 3), uvec2(2, 3),
 };
@@ -44,11 +46,6 @@ void SortFourElements(inout uint a[4]) {
     a[1] = a[2];
     a[2] = tmp;
   }
-}
-
-float DistSquared(vec3 A, vec3 B) {
-  vec3 C = A - B;
-  return dot(C, C);
 }
 
 // Note: seems to be unstable with a physics simulation
@@ -169,7 +166,8 @@ bool AreNeighbors(uint index0, uint index1)
     }
   }
 
-  // vertical neighbors -> always true, TODO: except if broken
+  // vertical neighbors -> always true
+  // node handle does not need to checked because the strand is the same
   if (p0.segment_index - 1 == p1.segment_index) { // p0 is higher
     if (p0.prev_particle_handle == index1) {
       return true;
@@ -194,7 +192,6 @@ bool AreNeighbors(uint index0, uint index1)
       //    *---* p1
       //  sqrt(alpha)
       //
-      // TODO: also take into account broken particles
       float vertical_dist_squared = DistSquared(uniform_particles[p0.prev_particle_handle].initial_position.xyz, p0.initial_position.xyz);
       float dist_squared = DistSquared(p0.initial_position.xyz, p1.initial_position.xyz);
 
@@ -204,7 +201,7 @@ bool AreNeighbors(uint index0, uint index1)
         return dist_squared < alpha + vertical_dist_squared; // = adapted_alpha
       } else {
         //return dist_squared < bifurcation_alpha + vertical_dist_squared; // = adapted_alpha
-        return dist_squared < alpha + vertical_dist_squared;
+        return dist_squared < alpha + vertical_dist_squared; // TODO: adapted bifurcation_alpha gave odd results
       }
     } 
   } else if (p1.segment_index - 1 == p0.segment_index) {  // p1 is higher

@@ -4,10 +4,10 @@
 #extension GL_KHR_shader_subgroup_vote : require
 #extension GL_ARB_shading_language_include : enable
 #extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_shader_atomic_float : require
 
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrands.glsl"
-#include "Math.glsl"
 
 const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
@@ -55,6 +55,23 @@ void main(){
 				}
 				else{
 					delaunay_tetrahedron.is_bark[triangle_index] = 1;
+				}
+
+				// compute normal and add to vertices
+				if(delaunay_tetrahedron.is_bark[triangle_index] == 1){
+					vec4 normal_deg = vec4(ComputeTetTriangleNormal(delaunay_tetrahedron, triangle_index), 1.0f);
+
+					// add normal to all triangle vertices, so we can later compute an average
+					[[unroll]]
+					for(int j = 0; j < 4; j++){
+						if(j != triangle_index){
+							atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.x, normal_deg.x);
+							atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.y, normal_deg.y);
+							atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.z, normal_deg.z);
+							// DEBUG: count how many normals are added, disabled for efficiency
+							//atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.w, normal_deg.w);
+						}
+					}
 				}
 			}
 

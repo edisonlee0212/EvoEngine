@@ -27,7 +27,9 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
 
   if (ImGui::RadioButton("Disabled", (int*)&vertex_colors, Default))
     changed = true;
-  if (ImGui::RadioButton("Tangents", (int*)&vertex_colors, Tangents))
+  if (ImGui::RadioButton("Absolute Normals", (int*)&vertex_colors, Normals))
+    changed = true;
+  if (ImGui::RadioButton("Tangents", (int*)&vertex_colors, Tangents)) 
     changed = true;
   if (ImGui::RadioButton("Groups", (int*)&vertex_colors, Groups))
     changed = true;
@@ -35,8 +37,19 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
     changed = true;
   if (ImGui::RadioButton("Bark", (int*)&vertex_colors, Bark))
     changed = true;
-
-  if (ImGui::DragFloat("U-coordinate multiplier", &u_multiplier, 1.f, 1.f, 20))
+  if (ImGui::RadioButton("Normal Quaternion", (int*)&vertex_colors, NormalQuaternion))
+    changed = true;
+  if (ImGui::RadioButton("Up", (int*)&vertex_colors, Up))
+    changed = true;
+  if (ImGui::RadioButton("Initial Up", (int*)&vertex_colors, InitUp))
+    changed = true;
+  if (ImGui::RadioButton("Axis", (int*)&vertex_colors, Axis))
+    changed = true;
+  if (ImGui::RadioButton("Initial Axis", (int*)&vertex_colors, InitAxis))
+    changed = true;
+  if (ImGui::RadioButton("Inital Angle", (int*)&vertex_colors, InitAngle)) 
+    changed = true;
+  if (ImGui::DragFloat("U-coordinate multiplier", &u_multiplier, 1.f, 1.f, 20)) 
     changed = true;
 
   if (ImGui::DragFloat("V-coordinate multiplier", &v_multiplier, 0.001f, 0.0f, 100.0f))

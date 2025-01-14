@@ -11,7 +11,6 @@
 
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrands.glsl"
-#include "Math.glsl"
 
 const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
@@ -57,7 +56,9 @@ void main(){
 		for (uint j = 0; j < 4; ++j)
 		{
 			uniform_particles[delaunay_tetrahedron.indices[j]].is_single_strand_particle = 1;
-			uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg = vec4(0.0, 0.0, 0.0, 0.0);
+			if(uniform_particles[delaunay_tetrahedron.indices[j]].is_on_surface == 0){
+				uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg = vec4(0.0, 0.0, 0.0, 0.0);
+			}
 		}
 
 		if(persistent_damage == 0){

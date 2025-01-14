@@ -141,10 +141,11 @@ struct UniformParticle {
 
   int is_single_strand_particle;
   float local_extrusion_distance;
-  int padding2;
+  int is_on_surface;  // mark if particle is on the surface of the mesh to initialize the normal
   int padding3;
 
   vec4 initial_position;
+  vec4 normal_q;
 };
 
 struct DelaunayTetrahedron {

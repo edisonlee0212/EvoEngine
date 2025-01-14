@@ -18,6 +18,11 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
     float max_dist_squared = 0.0f;
   };
 
+  struct UniformParticleInitializationPushConstant {
+    uint32_t uniform_particle_size = 0;
+  };
+
+  // Process tetrahedrons in two shader passes
   static std::shared_ptr<ComputePipeline> interior_initialization_pipeline;
   if (!interior_initialization_pipeline) {
     std::shared_ptr<Shader> shader{};
@@ -51,6 +56,25 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     bark_flag_initialization_pipeline->Initialize();
   }
+
+  // Process uniform particles
+  static std::shared_ptr<ComputePipeline> uniform_particle_initialization_pipeline;
+  if (!uniform_particle_initialization_pipeline) {
+    std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Initialization/Normal.comp");
+    uniform_particle_initialization_pipeline = std::make_shared<ComputePipeline>();
+    uniform_particle_initialization_pipeline->compute_shader = shader;
+    uniform_particle_initialization_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    auto& push_constant_range = uniform_particle_initialization_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(UniformParticleInitializationPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    uniform_particle_initialization_pipeline->Initialize();
+  }
+
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
   // Update push constant here. You should only access data within dynamic strands.
@@ -60,15 +84,19 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
   push_constant.bifurcation_alpha = initialize_parameters.bifurcation_alpha;
   push_constant.max_dist_squared = initialize_parameters.max_dist_squared;
 
+  UniformParticleInitializationPushConstant uniform_particle_push_constant;
+  uniform_particle_push_constant.uniform_particle_size = uniform_particles.size();
+
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const auto group_size = Platform::DivUp(delaunay_tetrahedrons.size(), work_group_invocations);
+  const auto delaunay_tetrahedrons_group_size = Platform::DivUp(delaunay_tetrahedrons.size(), work_group_invocations);
+  const auto uniform_particles_group_size = Platform::DivUp(uniform_particles.size(), work_group_invocations);
 
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     interior_initialization_pipeline->Bind(vk_command_buffer);
     interior_initialization_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     interior_initialization_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+    vkCmdDispatch(vk_command_buffer, delaunay_tetrahedrons_group_size, 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 
@@ -77,8 +105,17 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
     bark_flag_initialization_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     bark_flag_initialization_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+    vkCmdDispatch(vk_command_buffer, delaunay_tetrahedrons_group_size, 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
+  });
+
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    uniform_particle_initialization_pipeline->Bind(vk_command_buffer);
+    uniform_particle_initialization_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    uniform_particle_initialization_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
+    vkCmdDispatch(vk_command_buffer, uniform_particles_group_size, 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer); 
   });
 }
 
@@ -271,6 +308,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     first_uniform_particle.strand_index = strand_index;
     first_uniform_particle.is_single_strand_particle = 1;
     first_uniform_particle.local_extrusion_distance = 0.0f;
+    first_uniform_particle.is_on_surface = 0;
     first_uniform_particle.override_color = glm::vec4(0.f);
     // First 2 particles within same strand will always have same profile position/polar coordinate.
     first_uniform_particle.profile_position = first_uniform_segment_data.profile_position;
@@ -294,6 +332,7 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
       uniform_particle.strand_index = strand_index;
       uniform_particle.is_single_strand_particle = 1;
       uniform_particle.local_extrusion_distance = 0.0f;
+      uniform_particle.is_on_surface = 0;
       uniform_particle.override_color = glm::vec4(0.f);
       uniform_particle.profile_position = uniform_segment_data.profile_position;
       uniform_particle.profile_polar_coordinate = uniform_segment_data.profile_polar_coordinate;
