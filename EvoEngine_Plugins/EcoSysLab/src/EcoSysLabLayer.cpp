@@ -255,8 +255,11 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     }
   }
   if (ImGui::TreeNodeEx("Dynamic Strands settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::Button("Initialize dynamic strands for all trees")) {
+    if (ImGui::Button("Initialize all")) {
       GenerateDynamicStrandsForAllTrees();
+    }
+    if (ImGui::Button("Refresh meshes")) {
+      RefreshMeshForAllDynamicStrands();
     }
     if (const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
         dts_entities && !dts_entities->empty()) {

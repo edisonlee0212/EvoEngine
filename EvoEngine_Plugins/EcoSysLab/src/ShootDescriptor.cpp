@@ -38,18 +38,20 @@ void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_cont
   };
   shoot_growth_controller.base_node_apical_angle = [&](std::mt19937& random_engine,
                                                        const SkeletonNode<InternodeGrowthData>& internode) {
-    std::normal_distribution distribution{base_node_apical_angle_mean_variance.x,
-                                          base_node_apical_angle_mean_variance.y};
-    return distribution(random_engine);
+    return Random::Gaussian(random_engine, base_node_apical_angle_mean_variance.x,
+                            base_node_apical_angle_mean_variance.y);
   };
 
   shoot_growth_controller.internode_growth_rate = growth_rate / internode_length;
 
   shoot_growth_controller.branching_angle = [&](std::mt19937& random_engine,
                                                 const SkeletonNode<InternodeGrowthData>& internode) {
-    std::normal_distribution distribution{branching_angle_mean_variance.x, branching_angle_mean_variance.y};
+    if (branching_angle_mean_variance.y == 0.f) {
+      return branching_angle_mean_variance.x;
+    }
 
-    const float value = distribution(random_engine);
+    const float value =
+        Random::Gaussian(random_engine, branching_angle_mean_variance.x, branching_angle_mean_variance.y);
     /*
             if(const auto noise = branching_angle.Get<ProceduralNoise2D>())
             {
@@ -59,9 +61,11 @@ void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_cont
   };
   shoot_growth_controller.roll_angle = [&](std::mt19937& random_engine,
                                            const SkeletonNode<InternodeGrowthData>& internode) {
-    std::normal_distribution distribution{roll_angle_mean_variance.x, roll_angle_mean_variance.y};
+    if (roll_angle_mean_variance.y == 0.f) {
+      return roll_angle_mean_variance.x;
+    }
 
-    float value = distribution(random_engine);
+    float value = Random::Gaussian(random_engine, roll_angle_mean_variance.x, roll_angle_mean_variance.y);
     /*
             if (const auto noise = roll_angle.Get<ProceduralNoise2D>())
             {
@@ -74,9 +78,8 @@ void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_cont
                                              const SkeletonNode<InternodeGrowthData>& internode) {
     if (straight_trunk != 0.f && internode.data.order == 0 && internode.info.root_distance < straight_trunk)
       return 0.f;
-    std::normal_distribution distribution{apical_angle_mean_variance.x, apical_angle_mean_variance.y};
 
-    float value = distribution(random_engine);
+    float value = Random::Gaussian(random_engine, apical_angle_mean_variance.x, apical_angle_mean_variance.y);
     /*
             if (const auto noise = apical_angle.Get<ProceduralNoise2D>())
             {

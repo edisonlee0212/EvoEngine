@@ -12,24 +12,10 @@ using namespace eco_sys_lab_plugin;
 void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_parameters) {
   // same as RenderPushConstant, might change this later
   struct BarkFlagInitializationPushConstant {
-    union Index1 {
-      int instance_index;
-      int sub_light_index;
-    } index1;
-    union Index2 {
-      int camera_index;
-      int light_index;
-    } index2;
-
-    float u_multiplier = 1.f;
-    float v_multiplier = 1.f;
-
     uint32_t tetrahedrons_size = 0;
     float alpha = 0.0f;
     float bifurcation_alpha = 0.0f;
     float max_dist_squared = 0.0f;
-    int render_complex = 0;
-    int vertex_colors = 0;
   };
 
   static std::shared_ptr<ComputePipeline> interior_initialization_pipeline;
@@ -103,7 +89,6 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   Clear();
   frame_index = 0;
   simulated_time = 0.f;
-  assert(initialize_parameters.root_transform.GetScale() == glm::vec3(1.0f));
   const auto& target_strands = strand_group.PeekStrands();
   const auto& target_strand_segments = strand_group.PeekStrandSegments();
   const auto& target_strand_segment_data_list = strand_group.PeekStrandSegmentDataList();
@@ -714,8 +699,9 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
   // Create foliage here.
   auto initialize_parameters_copy = initialize_parameters;
   auto fd = initialize_parameters_copy.foliage_descriptor.Get<FoliageDescriptor>();
-  if (!fd)
+  if (!fd) {
     fd = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+  }
   const auto& node_list = strand_model_skeleton.PeekSortedNodeList();
   const auto tree_dim = strand_model_skeleton.max - strand_model_skeleton.min;
 

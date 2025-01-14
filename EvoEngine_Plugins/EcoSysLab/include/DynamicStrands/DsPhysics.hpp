@@ -32,8 +32,6 @@ class DsPrediction {
     uint32_t segment_size = 0;
     float time_step = 0.01f;
     float inv_time_step = 100.f;
-    float angular_velocity_damping;
-    float velocity_damping;
   };
   struct UniformParticlePredictionPushConstant {
     uint32_t uniform_particle_size = 0;
@@ -44,8 +42,6 @@ class DsPrediction {
     uint32_t leaf_size = 0;
     float time_step = 0.01f;
     float inv_time_step = 100.f;
-    float angular_velocity_damping;
-    float velocity_damping;
   };
 
   float snow_factor = 100.f;
@@ -88,6 +84,8 @@ class DsVelocityUpdate {
     float inv_time_step = 100.f;
 
     uint32_t segment_size = 0;
+    float angular_velocity_damping;
+    float velocity_damping;
   };
   struct LeafPushConstant {
     glm::vec3 max_angular_velocity;
@@ -96,6 +94,8 @@ class DsVelocityUpdate {
     float inv_time_step = 100.f;
 
     uint32_t leaf_size = 0;
+    float angular_velocity_damping;
+    float velocity_damping;
   };
   DsVelocityUpdate();
 

@@ -22,7 +22,14 @@ layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 memoryBarrierShared(); \
 barrier();
 
-#include "DynamicStrandsRenderingConstants.glsl"
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint tetrahedrons_size;
+  float alpha;
+  float bifurcation_alpha;
+  float max_dist_squared;
+};
+
 #include "AlphaShape.glsl"
 
 void main(){

@@ -42,6 +42,10 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
   if (ImGui::DragFloat("V-coordinate multiplier", &v_multiplier, 0.001f, 0.0f, 100.0f))
     changed = true;
 
+  if (ImGui::Checkbox("Persistent damage", &persistent_damage)) {
+    changed = true;
+  }
+
   return changed;
 }
 
@@ -68,7 +72,7 @@ struct BranchesRenderPushConstant {
   int inner_wood_material_index = 0;
   int snow_material_index = 0;
   float global_extrusion_distance = 0.0f;
-  float break_threshold = 0.01f; 
+  float break_threshold = 0.01f;
 };
 
 void DynamicStrands::BuildBranchesRenderingPipelines() {

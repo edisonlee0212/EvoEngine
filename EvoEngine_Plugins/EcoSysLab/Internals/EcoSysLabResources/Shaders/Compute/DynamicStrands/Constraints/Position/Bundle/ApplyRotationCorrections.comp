@@ -37,8 +37,7 @@ void main(){
 		uint segment_index = (baseID + local_index) * skip_size + skip_index;
 		if(segment_index >= segment_size) break;
 		
-		SegmentData segment_data = segment_data_list[segment_index];
-		segments[segment_index].q = normalize(segment_data.q_correction + segments[segment_index].q);
+		segments[segment_index].q = normalize(segment_data_list[segment_index].q_correction + segments[segment_index].q);
 
 		segment_data_list[segment_index].q_correction = vec4(0, 0, 0, 0);
 	}

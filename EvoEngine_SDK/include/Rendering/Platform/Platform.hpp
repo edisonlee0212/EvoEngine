@@ -194,8 +194,8 @@ class Platform final {
     inline static bool use_mesh_shader = true;
     inline static bool use_ray_tracing = false;
     inline static uint32_t directional_light_shadow_map_resolution = 2048;
-    inline static uint32_t point_light_shadow_map_resolution = 1024;
-    inline static uint32_t spot_light_shadow_map_resolution = 1024;
+    inline static uint32_t point_light_shadow_map_resolution = 2048;
+    inline static uint32_t spot_light_shadow_map_resolution = 2048;
     inline static uint32_t max_texture_2d_resource_size = 2048;
     inline static uint32_t max_cubemap_resource_size = 256;
 

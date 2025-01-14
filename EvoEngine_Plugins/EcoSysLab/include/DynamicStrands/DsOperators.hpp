@@ -210,10 +210,10 @@ class DsWind : public IDsPhysicsOperator {
     float simulated_time;
   };
 
-  glm::vec3 main_force = glm::vec3(0.f);
+  glm::vec3 main_force = glm::vec3(0.02f, 0.f, 0.f);
   float turbulence_strength = 0.5f;
-  float turbulence_direction_frequency = 0.1f;
-  float turbulence_speed_frequency = 0.1f;
+  float turbulence_direction_frequency = 100.f;
+  float turbulence_speed_frequency = 100.f;
   inline static std::shared_ptr<ComputePipeline> segment_pipeline{};
   inline static std::shared_ptr<ComputePipeline> leaf_pipeline{};
   DsWind();

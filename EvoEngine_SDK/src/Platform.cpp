@@ -325,8 +325,23 @@ VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_seve
       break;
   }
   msg += std::string(p_callback_data->pMessage);
-
-  EVOENGINE_LOG(msg);
+  switch (message_severity) {
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: {
+      EVOENGINE_LOG(msg);
+    } break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT: {
+      EVOENGINE_LOG(msg);
+    } break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT: {
+      EVOENGINE_WARNING(msg);
+    } break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT: {
+      EVOENGINE_ERROR(msg);
+    } break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_FLAG_BITS_MAX_ENUM_EXT:
+      break;
+  }
+  
   return VK_FALSE;
 }
 

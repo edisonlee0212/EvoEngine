@@ -34,6 +34,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	int render_complex;
 	float degen_triangle_threshold;
 	float break_threshold;
+	int persistent_damage;
 };
 
 #include "AlphaShape.glsl"
@@ -57,6 +58,10 @@ void main(){
 		{
 			uniform_particles[delaunay_tetrahedron.indices[j]].is_single_strand_particle = 1;
 			uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg = vec4(0.0, 0.0, 0.0, 0.0);
+		}
+
+		if(persistent_damage == 0){
+			delaunay_tetrahedron.inside = 1;
 		}
 
 		// If a tetrahedron is ever outside the interior, it can never become part of the inside again

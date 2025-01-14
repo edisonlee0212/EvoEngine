@@ -26,6 +26,9 @@ class DsBoxCollider : public IDsCollider {
     float padding1;
     float softness = 1.0f;
     uint32_t segment_size;
+    float friction = 1.0f;
+    float rotational_friction;
+
   };
   struct LeafPositionPushConstant {
     glm::quat obb_rotation;
@@ -35,6 +38,8 @@ class DsBoxCollider : public IDsCollider {
     float padding1;
     float softness = 1.0f;
     uint32_t leaf_size;
+    float friction = 1.0f;
+    float rotational_friction;
   };
 
   struct SegmentVelocityPushConstant {
@@ -43,7 +48,8 @@ class DsBoxCollider : public IDsCollider {
     float padding0;
     glm::vec3 obb_scale;
     float padding1;
-    float friction = 1.0f;
+    float velocity_friction = 1.0f;
+    float angular_velocity_friction;
     uint32_t segment_size;
   };
   struct LeafVelocityPushConstant {
@@ -52,15 +58,19 @@ class DsBoxCollider : public IDsCollider {
     float padding0;
     glm::vec3 obb_scale;
     float padding1;
-    float friction = 1.0f;
+    float velocity_friction = 1.0f;
+    float angular_velocity_friction;
     uint32_t leaf_size;
   };
 
-  glm::vec3 scale = glm::vec3(0.501f);
+  glm::vec3 scale = glm::vec3(0.51f);
 
   float softness = 1.f;
-  float friction = 0.2f;
+  float friction = 1.0f;
+  float rotational_friction = 1.0f;
 
+  float velocity_friction = 0.0f;
+  float angular_velocity_friction = 0.0f;
   void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Camera>& editor_camera,
                    const glm::vec4& color) override;
   inline static std::shared_ptr<ComputePipeline> segment_position_pipeline;
@@ -100,8 +110,8 @@ class DsCylinderCollider : public IDsCollider {
     float softness = 1.0f;
     uint32_t leaf_size;
   };
-  float radius = .501f;
-  float height = .501f;
+  float radius = .51f;
+  float height = .51f;
 
   float softness = 1.f;
 
@@ -135,7 +145,7 @@ class DsSphereCollider : public IDsCollider {
     uint32_t leaf_size;
   };
 
-  float radius = .501f;
+  float radius = .51f;
   float softness = 1.f;
 
   void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Camera>& editor_camera,

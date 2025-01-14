@@ -222,11 +222,9 @@ void TreeModel::Initialize(const ShootGrowthController& shoot_growth_controller)
       apical_bud.type = BudType::Apical;
       apical_bud.status = BudStatus::Dormant;
 
-      std::uniform_real_distribution<> distribution(0.f, 360.f);
-
       apical_bud.local_rotation =
           glm::vec3(glm::radians(shoot_growth_controller.base_node_apical_angle(random_engine_, node)), 0.0f,
-                    glm::radians(distribution(random_engine_)));
+                    glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
     }
   }
 
@@ -564,10 +562,9 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
       auto& new_lateral_bud = internode_data.buds.back();
       new_lateral_bud.type = BudType::Lateral;
       new_lateral_bud.status = BudStatus::Dormant;
-      std::uniform_real_distribution<> distribution(0.f, 360.f);
       new_lateral_bud.local_rotation =
           glm::vec3(0.f, glm::radians(shoot_growth_controller.branching_angle(random_engine_, internode)),
-                    distribution(random_engine_));
+                    Random::Uniform(random_engine_, 0.f, 360.f));
     }
 
     // Allocate Fruit bud for current internode
@@ -578,11 +575,10 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
         auto& new_fruit_bud = internode_data.buds.back();
         new_fruit_bud.type = BudType::Fruit;
         new_fruit_bud.status = BudStatus::Dormant;
-        std::uniform_real_distribution<> distribution(0.f, 360.f);
 
         new_fruit_bud.local_rotation =
             glm::vec3(glm::radians(shoot_growth_controller.branching_angle(random_engine_, internode)), 0.0f,
-                      glm::radians(distribution(random_engine_)));
+                      glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
       }
     }
     // Allocate Leaf bud for current internode
@@ -594,11 +590,10 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
         // Hack: Leaf bud will be given vigor for the first time.
         new_leaf_bud.type = BudType::Leaf;
         new_leaf_bud.status = BudStatus::Dormant;
-        std::uniform_real_distribution<> distribution(0.f, 360.f);
 
         new_leaf_bud.local_rotation =
             glm::vec3(glm::radians(shoot_growth_controller.branching_angle(random_engine_, internode)), 0.0f,
-                      glm::radians(distribution(random_engine_)));
+                      glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
       }
     }
 
@@ -622,9 +617,8 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
     new_internode.data.desired_local_rotation =
         glm::inverse(old_internode.info.global_rotation) * new_internode.info.global_rotation;
 
-    std::uniform_real_distribution<> distribution(0.f, 1.f);
     if (shoot_growth_controller.apical_bud_extinction_rate(random_engine_, old_internode) <
-        distribution(random_engine_)) {
+        Random::Uniform(random_engine_, 0.f, 1.f)) {
       // Allocate apical bud for new internode
       new_internode.data.buds.emplace_back();
       auto& new_apical_bud = new_internode.data.buds.back();
@@ -709,8 +703,7 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
         flush_probability *=
             internode_data.growth_rate * current_delta_time_ * shoot_growth_controller.internode_growth_rate;
       }
-      std::uniform_real_distribution<> distribution(0.f, 1.f);
-      if (flush_probability >= distribution(random_engine_)) {
+      if (flush_probability >= Random::Uniform(random_engine_, 0.f, 1.f)) {
         graph_changed = true;
         // Prepare information for new internode
         const auto desired_global_rotation = internode_info.global_rotation * bud.local_rotation;
@@ -821,9 +814,8 @@ bool TreeModel::GrowReproductiveModules(ClimateModel& climate_model, const Skele
       }*/
     } else if (bud.type == BudType::Leaf) {
       if (bud.status == BudStatus::Dormant) {
-        std::uniform_real_distribution<> distribution(0.f, 1.f);
         if (const float flush_probability = current_delta_time_ * 1.;
-            flush_probability >= distribution(random_engine_)) {
+            flush_probability >= Random::Uniform(random_engine_, 0.f, 1.f)) {
           bud.status = BudStatus::Died;
         }
       } else if (bud.status == BudStatus::Died) {
@@ -1123,13 +1115,12 @@ bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel&
           }
         }
       }
-      std::uniform_real_distribution<> distribution(0.f, 1.f);
 
       if (const float pruning_probability =
               shoot_growth_controller.root_to_end_pruning_factor(random_engine_, global_transform, climate_model,
                                                                  shoot_skeleton_, internode) *
               current_delta_time_;
-          !pruning && pruning_probability > distribution(random_engine_))
+          !pruning && pruning_probability > Random::Uniform(random_engine_, 0.f, 1.f))
         pruning = true;
 
       if (pruning) {
@@ -1168,12 +1159,11 @@ bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel&
           }
         }
       }
-      std::uniform_real_distribution<> distribution(0.f, 1.f);
       if (const float pruning_probability =
               shoot_growth_controller.end_to_root_pruning_factor(random_engine_, global_transform, climate_model,
                                                                  shoot_skeleton_, internode) *
               current_delta_time_;
-          !pruning && pruning_probability > distribution(random_engine_))
+          !pruning && pruning_probability > Random::Uniform(random_engine_, 0.f, 1.f))
         pruning = true;
       if (pruning) {
         pruning_node_handles.emplace_back(internode_handle);

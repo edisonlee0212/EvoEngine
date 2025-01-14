@@ -1,3 +1,4 @@
+
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_ballot : require
@@ -8,7 +9,6 @@
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrands.glsl"
 #include "Math.glsl"
-
 const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
 const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
@@ -28,40 +28,61 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	vec4 obb_scale;
 	float softness;
 	uint leaf_size;
+	float friction;
+	float rotational_friction;
 };
 
-vec3 process_point(in vec3 p){
+vec3 project_velocity_on_plane(in vec3 n, in vec3 v){
+	float dist = dot(v, n);
+	return v - dist * n;
+}
+
+void process_point(inout vec3 p, in vec4 q, in vec3 v, inout vec3 torque, inout vec3 acceleration){
 	vec3 projected_p = p - obb_center.xyz;
 	projected_p = rotate_vec3(conjugate(obb_rotation), projected_p);
+	vec3 projected_v = rotate_vec3(conjugate(obb_rotation), v);
+
 	float abs_x = abs(projected_p.x);
 	float abs_y = abs(projected_p.y);
 	float abs_z = abs(projected_p.z);
 
-	if(abs_x > obb_scale.x || abs_y > obb_scale.y || abs_z > obb_scale.z) return p;
+	if(abs_x > obb_scale.x || abs_y > obb_scale.y || abs_z > obb_scale.z) return;
 	float factor_x = obb_scale.x - abs_x;
 	float factor_y = obb_scale.y - abs_y;
 	float factor_z = obb_scale.z - abs_z;
+
+	vec3 axis;
+	float angle;
 	if(factor_x <= factor_y && factor_x <= factor_z){
 		if(projected_p.x < 0.f){
 			projected_p.x -= softness * (obb_scale.x - abs_x);
+			CalculateAlignUpDirectionRotation(q, normalize(rotate_vec3(obb_rotation, vec3(-1, 0, 0))), angle, axis);
 		}else{
 			projected_p.x += softness * (obb_scale.x - abs_x);
+			CalculateAlignUpDirectionRotation(q, normalize(rotate_vec3(obb_rotation, vec3(1, 0, 0))), angle, axis);
 		}
+		acceleration -= length(vec3(0.f, projected_v.y, projected_v.z)) > 1e-9f ? friction * normalize(rotate_vec3(obb_rotation, vec3(0.f, projected_v.y, projected_v.z))) : vec3(0.f);
 	}else if(factor_y <= factor_z){
 		if(projected_p.y < 0.f){
 			projected_p.y -= softness * (obb_scale.y - abs_y);
+			CalculateAlignUpDirectionRotation(q, normalize(rotate_vec3(obb_rotation, vec3(0, -1, 0))), angle, axis);
 		}else{
 			projected_p.y += softness * (obb_scale.y - abs_y);
+			CalculateAlignUpDirectionRotation(q, normalize(rotate_vec3(obb_rotation, vec3(0, 1, 0))), angle, axis);
 		}
+		acceleration -= length(vec3(projected_v.x, 0.f, projected_v.z)) > 1e-9f ? friction * normalize(rotate_vec3(obb_rotation, vec3(projected_v.x, 0.f, projected_v.z))) : vec3(0.f);
 	}else{
 		if(projected_p.z < 0.f){
 			projected_p.z -= softness * (obb_scale.z - abs_z);
+			CalculateAlignUpDirectionRotation(q, normalize(rotate_vec3(obb_rotation, vec3(0, 0, -1))), angle, axis);
 		}else{
 			projected_p.z += softness * (obb_scale.z - abs_z);
+			CalculateAlignUpDirectionRotation(q, normalize(rotate_vec3(obb_rotation, vec3(0, 0, 1))), angle, axis);
 		}
+		acceleration -= length(vec3(projected_v.x, projected_v.y, 0.f)) > 1e-9f ? friction * normalize(rotate_vec3(obb_rotation, vec3(projected_v.x, projected_v.y, 0.f))) : vec3(0.f);
 	}
-	//return projected_p + obb_center.xyz;
-	return rotate_vec3(obb_rotation, projected_p) + obb_center.xyz;
+	p = rotate_vec3(obb_rotation, projected_p) + obb_center.xyz;
+	torque = axis * angle;
 }
 
 void main(){
@@ -74,7 +95,9 @@ void main(){
 		if(leaf_index >= leaf_size) break;
 
 		Leaf leaf = foliage[leaf_index];
-		leaf.x = process_point(leaf.x);
+		process_point(leaf.x, leaf.q, leaf.v, leaf.torque, leaf.acceleration);
 		foliage[leaf_index].x = leaf.x;
+		foliage[leaf_index].torque = leaf.torque;
+		foliage[leaf_index].acceleration = leaf.acceleration;
 	}
 }

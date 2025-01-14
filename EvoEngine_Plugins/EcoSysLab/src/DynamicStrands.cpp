@@ -15,8 +15,8 @@ inline glm::vec3 cgal_to_glm(const Point_CGAL& p) {
   return {p.x(), p.y(), p.z()};
 }
 #endif
-void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
-                             const std::function<void()>& sub_step_action) {
+void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
+                             const std::function<void()>& pre_step_action) {
   if (pre_step)
     pre_step->Execute(physics_parameters, *this);
   pre_step_action();
@@ -27,9 +27,9 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
       if (physics_parameters.enable_segment_breaking || physics_parameters.enable_segment_disconnection ||
           physics_parameters.enable_foliage_detachment) {
         breaking->Execute(physics_parameters, *this);
+        CalculateGroups(physics_parameters);
       }
     }
-    sub_step_action();
     for (int iteration_i = 0; iteration_i < physics_parameters.position_constraint_iteration; iteration_i++) {
       for (const auto& c : constraints) {
         if (c->enabled)
@@ -45,19 +45,22 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
           if (box_collider_entities && !box_collider_entities->empty()) {
             for (const auto& i : *box_collider_entities) {
               const auto box_collider = scene->GetOrSetPrivateComponent<DsBoxCollider>(i).lock();
-              action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
+              if (scene->IsEntityEnabled(i) && box_collider->IsEnabled())
+                action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
             }
           }
           if (sphere_collider_entities && !sphere_collider_entities->empty()) {
             for (const auto& i : *sphere_collider_entities) {
               const auto sphere_collider = scene->GetOrSetPrivateComponent<DsSphereCollider>(i).lock();
-              action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
+              if (scene->IsEntityEnabled(i) && sphere_collider->IsEnabled())
+                action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
             }
           }
           if (cylinder_collider_entities && !cylinder_collider_entities->empty()) {
             for (const auto& i : *cylinder_collider_entities) {
               const auto cylinder_collider = scene->GetOrSetPrivateComponent<DsCylinderCollider>(i).lock();
-              action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
+              if (scene->IsEntityEnabled(i) && cylinder_collider->IsEnabled())
+                action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
             }
           }
         };
@@ -78,16 +81,13 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const 
       dts->ProjectVelocityConstraint(physics_parameters, *this);
     });
 
-
     simulated_time += physics_parameters.time_step / static_cast<float>(physics_parameters.sub_step);
   }
   if (physics_parameters.enable_segment_collision) {
     dynamic_hashed_grid->BuildGrid(physics_parameters, *this);
     segment_collision->Execute(physics_parameters, *this);
   }
-  if (physics_parameters.enable_grouping && frame_index > 0) {
-    CalculateGroups(physics_parameters);
-  }
+
   frame_index++;
 }
 
@@ -98,7 +98,8 @@ struct TetrahedronFilteringPushConstant {
   float max_dist_squared = 0.0f;
   int render_complex = 0;
   float degen_triangle_threshold = 0.0f;
-  float break_threshold = 0.02f; 
+  float break_threshold = 0.02f;
+  int persistent_damage;
 };
 
 DynamicStrands::DynamicStrands() {
@@ -217,7 +218,9 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
     filtering_push_constant.render_complex = branches_render_parameters.render_complex ? 1 : 0;
     filtering_push_constant.degen_triangle_threshold =
         pow(10.0f, -branches_render_parameters.degen_triangle_threshold_logairthmic);
-    filtering_push_constant.break_threshold = branches_render_parameters.break_threshold; 
+    filtering_push_constant.break_threshold = branches_render_parameters.break_threshold;
+    filtering_push_constant.persistent_damage = branches_render_parameters.persistent_damage ? 1 : 0;
+
     branches_tetrahedron_filtering_pipeline->Bind(vk_command_buffer);
     branches_tetrahedron_filtering_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
@@ -372,8 +375,14 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
       changed = true;
   }
 
-  if (ImGui::Checkbox("Grouping", &enable_grouping)) {
+  if (ImGui::Checkbox("Dynamic Grouping", &dynamic_grouping)) {
     changed = true;
+  }
+  if (!dynamic_grouping) {
+    if (ImGui::DragInt("Grouping iteration", &grouping_iteration, 1, 1, 500)) {
+      grouping_iteration = glm::clamp(grouping_iteration, 1, 500);
+      changed = true;
+    }
   }
   if (ImGui::Checkbox("Segment collision", &enable_segment_collision)) {
     changed = true;
@@ -478,11 +487,14 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     uint32_t segment_size;
   };
 
-  static std::shared_ptr<ComputePipeline> reset_pipeline, step_pipeline, apply_pipeline{};
+  static std::shared_ptr<ComputePipeline> reset_pipeline, step_pipeline, dynamic_step_pipeline, apply_pipeline{};
   static std::shared_ptr<Buffer> feedback_buffer;
   static std::shared_ptr<Buffer> new_group_index_buffer;
-  static std::shared_ptr<DescriptorSetLayout> feedback_layout{};
-  static std::shared_ptr<DescriptorSet> feedback_descriptor_set{};
+
+  static std::shared_ptr<DescriptorSetLayout> grouping_layout{};
+  static std::shared_ptr<DescriptorSetLayout> dynamic_grouping_layout{};
+  static std::shared_ptr<DescriptorSet> grouping_descriptor_set{};
+  static std::shared_ptr<DescriptorSet> dynamic_grouping_descriptor_set{};
 
   if (!reset_pipeline) {
     std::shared_ptr<Shader> shader{};
@@ -500,11 +512,20 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
 
     reset_pipeline->Initialize();
   }
-  if (!feedback_layout) {
-    feedback_layout = std::make_shared<DescriptorSetLayout>();
-    feedback_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    feedback_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    feedback_layout->Initialize();
+
+  if (!grouping_layout) {
+    grouping_layout = std::make_shared<DescriptorSetLayout>();
+    grouping_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    grouping_layout->Initialize();
+  }
+
+  if (!dynamic_grouping_layout) {
+    dynamic_grouping_layout = std::make_shared<DescriptorSetLayout>();
+    dynamic_grouping_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                   0);
+    dynamic_grouping_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                   0);
+    dynamic_grouping_layout->Initialize();
   }
 
   if (!step_pipeline) {
@@ -516,7 +537,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     step_pipeline = std::make_shared<ComputePipeline>();
     step_pipeline->compute_shader = shader;
     step_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    step_pipeline->descriptor_set_layouts.emplace_back(feedback_layout);
+    step_pipeline->descriptor_set_layouts.emplace_back(grouping_layout);
     auto& push_constant_range = step_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(GroupingPushConstant);
     push_constant_range.offset = 0;
@@ -524,7 +545,23 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
 
     step_pipeline->Initialize();
   }
+  if (!dynamic_step_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/DynamicStep.comp");
+    dynamic_step_pipeline = std::make_shared<ComputePipeline>();
+    dynamic_step_pipeline->compute_shader = shader;
+    dynamic_step_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    dynamic_step_pipeline->descriptor_set_layouts.emplace_back(dynamic_grouping_layout);
+    auto& push_constant_range = dynamic_step_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(GroupingPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
+    dynamic_step_pipeline->Initialize();
+  }
   if (!apply_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -534,7 +571,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     apply_pipeline = std::make_shared<ComputePipeline>();
     apply_pipeline->compute_shader = shader;
     apply_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    apply_pipeline->descriptor_set_layouts.emplace_back(feedback_layout);
+    apply_pipeline->descriptor_set_layouts.emplace_back(grouping_layout);
     auto& push_constant_range = apply_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(GroupingPushConstant);
     push_constant_range.offset = 0;
@@ -542,7 +579,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
 
     apply_pipeline->Initialize();
   }
-  if (!feedback_buffer || !new_group_index_buffer) {
+  if (!new_group_index_buffer) {
     VkBufferCreateInfo buffer_create_info{};
     buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buffer_create_info.usage =
@@ -554,66 +591,105 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     feedback_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
     new_group_index_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   }
-  if (!feedback_descriptor_set) {
-    feedback_descriptor_set = std::make_shared<DescriptorSet>(feedback_layout);
+  if (!dynamic_grouping_descriptor_set) {
+    dynamic_grouping_descriptor_set = std::make_shared<DescriptorSet>(dynamic_grouping_layout);
   }
-
+  if (!grouping_descriptor_set) {
+    grouping_descriptor_set = std::make_shared<DescriptorSet>(grouping_layout);
+  }
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
-  const auto start_time = Times::Now();
   GroupingPushConstant push_constant;
   push_constant.segment_size = segments.size();
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto group_size = Platform::DivUp(segments.size(), work_group_invocations);
   std::vector<uint32_t> feedback(group_size);
-  feedback_buffer->Resize(sizeof(uint32_t) * group_size);
-  feedback_descriptor_set->UpdateBufferDescriptorBinding(0, feedback_buffer);
-  new_group_index_buffer->Resize(sizeof(int) * segments.size());
-  feedback_descriptor_set->UpdateBufferDescriptorBinding(1, new_group_index_buffer);
-  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    reset_pipeline->Bind(vk_command_buffer);
-    reset_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                      strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    reset_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
-  });
-  bool updated = true;
-  const auto step = [&]() {
-    Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-      vkCmdFillBuffer(vk_command_buffer, feedback_buffer->GetVkBuffer(), 0, VK_WHOLE_SIZE, 0);
-      Platform::EverythingBarrier(vk_command_buffer);
-      step_pipeline->Bind(vk_command_buffer);
-      step_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                       strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      step_pipeline->BindDescriptorSet(vk_command_buffer, 1, feedback_descriptor_set->GetVkDescriptorSet());
-      step_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
-      Platform::EverythingBarrier(vk_command_buffer);
 
-      apply_pipeline->Bind(vk_command_buffer);
-      apply_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+  new_group_index_buffer->Resize(sizeof(int) * segments.size());
+  grouping_descriptor_set->UpdateBufferDescriptorBinding(0, new_group_index_buffer);
+
+  if (physics_parameters.dynamic_grouping) {
+    const auto start_time = Times::Now();
+    feedback_buffer->Resize(sizeof(uint32_t) * group_size);
+    dynamic_grouping_descriptor_set->UpdateBufferDescriptorBinding(0, new_group_index_buffer);
+    dynamic_grouping_descriptor_set->UpdateBufferDescriptorBinding(1, feedback_buffer);
+
+    Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+      reset_pipeline->Bind(vk_command_buffer);
+      reset_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                         strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      apply_pipeline->BindDescriptorSet(vk_command_buffer, 1, feedback_descriptor_set->GetVkDescriptorSet());
-      apply_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+      reset_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
       vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     });
-    feedback_buffer->DownloadVector(feedback, feedback.size());
-  };
-  int iterations = 0;
-  while (updated) {
-    updated = false;
-    step();
-    for (const auto& i : feedback) {
-      if (i != 0) {
-        updated = true;
-        break;
+    bool updated = true;
+    const auto step = [&]() {
+      Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+        vkCmdFillBuffer(vk_command_buffer, feedback_buffer->GetVkBuffer(), 0, VK_WHOLE_SIZE, 0);
+        Platform::EverythingBarrier(vk_command_buffer);
+        dynamic_step_pipeline->Bind(vk_command_buffer);
+        dynamic_step_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                 strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        dynamic_step_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                                 dynamic_grouping_descriptor_set->GetVkDescriptorSet());
+        dynamic_step_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+        vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+
+        apply_pipeline->Bind(vk_command_buffer);
+        apply_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                          strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        apply_pipeline->BindDescriptorSet(vk_command_buffer, 1, grouping_descriptor_set->GetVkDescriptorSet());
+        apply_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+        vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+      });
+      feedback_buffer->DownloadVector(feedback, feedback.size());
+    };
+    static int max_iterations = 0;
+    int iterations = 0;
+    while (updated) {
+      updated = false;
+      step();
+      for (const auto& i : feedback) {
+        if (i != 0) {
+          updated = true;
+          break;
+        }
       }
+      iterations++;
     }
-    iterations++;
+    max_iterations = glm::max(iterations, max_iterations);
+    // EVOENGINE_LOG("Iterations: " + std::to_string(iterations), + ", max: " + std::to_string(max_iterations));
+    const auto method3_time = std::to_string(Times::Now() - start_time);
+
+  } else {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+      reset_pipeline->Bind(vk_command_buffer);
+      reset_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                        strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+      reset_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+      vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+      Platform::EverythingBarrier(vk_command_buffer);
+      for (int iteration = 0; iteration < physics_parameters.grouping_iteration; iteration++) {
+        step_pipeline->Bind(vk_command_buffer);
+        step_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                         strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        step_pipeline->BindDescriptorSet(vk_command_buffer, 1, grouping_descriptor_set->GetVkDescriptorSet());
+        step_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+        vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+
+        apply_pipeline->Bind(vk_command_buffer);
+        apply_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                          strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+        apply_pipeline->BindDescriptorSet(vk_command_buffer, 1, grouping_descriptor_set->GetVkDescriptorSet());
+        apply_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+        vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+        Platform::EverythingBarrier(vk_command_buffer);
+      }
+    });
   }
-  const auto method3_time = std::to_string(Times::Now() - start_time);
 }
 
 void DynamicStrands::Clear() {

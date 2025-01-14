@@ -7,6 +7,7 @@
 #  include <RayTracerLayer.hpp>
 #endif
 
+#include "BarkDescriptor.hpp"
 #include "ClassRegistry.hpp"
 #include "DsColliders.hpp"
 #include "DsOperators.hpp"
@@ -93,9 +94,32 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       tree->BuildStrandModel();
       const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+      if (const auto td = tree->tree_descriptor_ref.Get<TreeDescriptor>()) {
+        ds->initialize_parameters.foliage_descriptor = td->foliage_descriptor;
+        if (const auto fd = td->foliage_descriptor.Get<FoliageDescriptor>()) {
+          if (const auto mat = fd->leaf_material_ref.Get<Material>())
+            ds->leaf_material_ref = mat;
+        }
+        if (const auto bd = td->bark_descriptor.Get<BarkDescriptor>()) {
+          if (const auto mat = bd->bark_material_ref.Get<Material>())
+            ds->bark_material_ref = mat;
+        }
+      }
+
       ds->strand_model_skeleton = tree->strand_model.strand_model_skeleton;
       ds->UpdateDynamicStrands();
       ds->CreateStaticRoot();
+    }
+  }
+}
+
+void EcoSysLabLayer::RefreshMeshForAllDynamicStrands() const {
+  const auto scene = GetScene();
+  if (const std::vector<Entity>* ds_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+      ds_entities && !ds_entities->empty()) {
+    for (auto ds_entity : *ds_entities) {
+      const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(ds_entity).lock();
+      ds->dynamic_strands->InitializeMesh(ds->initialize_parameters);
     }
   }
 }
@@ -106,7 +130,6 @@ void EcoSysLabLayer::GenerateDynamicSkeletonForAllTrees() const {
       tree_entities && !tree_entities->empty()) {
     for (auto tree_entity : *tree_entities) {
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-      tree->BuildStrandModel();
       const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity).lock();
       ds->initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(tree_entity);
       ds->dynamic_skeleton.Initialize(ds->initialize_parameters, tree->strand_model.strand_model_skeleton);
@@ -134,19 +157,22 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
         if (box_collider_entities && !box_collider_entities->empty()) {
           for (const auto& i : *box_collider_entities) {
             const auto box_collider = scene->GetOrSetPrivateComponent<DsBoxCollider>(i).lock();
-            action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
+            if (scene->IsEntityEnabled(i) && box_collider->IsEnabled())
+              action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
           }
         }
         if (sphere_collider_entities && !sphere_collider_entities->empty()) {
           for (const auto& i : *sphere_collider_entities) {
             const auto sphere_collider = scene->GetOrSetPrivateComponent<DsSphereCollider>(i).lock();
-            action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
+            if (scene->IsEntityEnabled(i) && sphere_collider->IsEnabled())
+              action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
           }
         }
         if (cylinder_collider_entities && !cylinder_collider_entities->empty()) {
           for (const auto& i : *cylinder_collider_entities) {
             const auto cylinder_collider = scene->GetOrSetPrivateComponent<DsCylinderCollider>(i).lock();
-            action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
+            if (scene->IsEntityEnabled(i) && cylinder_collider->IsEnabled())
+              action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
           }
         }
       };

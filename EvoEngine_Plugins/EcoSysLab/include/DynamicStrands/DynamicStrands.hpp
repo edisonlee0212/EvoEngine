@@ -147,15 +147,15 @@ class DynamicStrands {
     int segment_disconnection_detection_frame = 1;
     int foliage_detachment_detection_frame = 1;
 
-    float segment_velocity_damping = 0.002f;
-    float segment_angular_velocity_damping = 0.0001f;
+    float segment_velocity_damping = 1.f;
+    float segment_angular_velocity_damping = 1.f;
 
-    float leaf_velocity_damping = 0.005f;
-    float leaf_angular_velocity_damping = 0.0001f;
+    float leaf_velocity_damping = 10.f;
+    float leaf_angular_velocity_damping = 10.f;
 
     bool enable_segment_collision = false;
-    bool enable_grouping = true;
-
+    bool dynamic_grouping = false;
+    int grouping_iteration = 128;
     glm::vec3 gravity = glm::vec3(0, -9.81f, 0);
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
@@ -221,6 +221,8 @@ class DynamicStrands {
     float degen_triangle_threshold_logairthmic = 5.0f;
     float global_extrusion_distance = 0.001f;
     float break_threshold = 0.01;
+
+    bool persistent_damage = false;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -416,7 +418,7 @@ class DynamicStrands {
     int indices[4];
     int neighbor_tet_ids[4];
     int render_neighbor[4];
-    int is_bark[4]; 
+    int is_bark[4];
     glm::vec4 color;  // for debugging
     unsigned int task_looked_at = 0;
     unsigned int mesh_looked_at = 0;
@@ -563,8 +565,7 @@ class DynamicStrands {
 
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const VisualizationParameters& visualization_parameters) const;
-  void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
-               const std::function<void()>& sub_step_action);
+  void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action);
   void RenderCompute(const BranchesRenderParameters& branches_render_parameters,
                      const SmallSegmentsRenderParameters& small_segments_render_parameters,
                      const FoliageRenderParameters& foliage_render_parameters) const;

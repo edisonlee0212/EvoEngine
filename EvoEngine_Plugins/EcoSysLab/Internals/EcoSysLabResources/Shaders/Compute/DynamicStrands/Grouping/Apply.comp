@@ -26,11 +26,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	uint segment_size;
 };
 
-layout(std430, set = 1, binding = 0) buffer WORK_GROUP_SYNC_BLOCK {
-	uint work_group_updated[];
-};
-
-layout(std430, set = 1, binding = 1) buffer NEW_GROUP_INDICES_BLOCK {
+layout(std430, set = 1, binding = 0) buffer NEW_GROUP_INDICES_BLOCK {
 	int new_group_indices[];
 };
 
