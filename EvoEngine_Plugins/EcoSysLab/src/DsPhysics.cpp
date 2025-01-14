@@ -97,6 +97,23 @@ DsPrediction::DsPrediction() {
 
     segment_prediction_pipeline->Initialize();
   }
+  if (!segment_pair_prediction_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Prediction/SegmentPair.comp");
+    segment_pair_prediction_pipeline = std::make_shared<ComputePipeline>();
+    segment_pair_prediction_pipeline->compute_shader = shader;
+    segment_pair_prediction_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = segment_pair_prediction_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentPairPredictionPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    segment_pair_prediction_pipeline->Initialize();
+  }
   if (!leaf_prediction_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -160,6 +177,9 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
 
+  SegmentPairPredictionPushConstant segment_pair_push_constant;
+  segment_pair_push_constant.pair_size = target_dynamic_strands.segment_pairs.size();
+
   LeafPredictionPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
   leaf_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
@@ -172,7 +192,6 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     segment_prediction_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
-
     uniform_particle_prediction_pipeline->Bind(vk_command_buffer);
     uniform_particle_prediction_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
@@ -186,6 +205,15 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     leaf_prediction_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    segment_pair_prediction_pipeline->Bind(vk_command_buffer);
+    segment_pair_prediction_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    segment_pair_prediction_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_pair_push_constant.pair_size, work_group_invocations), 1,
+                  1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }

@@ -174,7 +174,7 @@ vec2 shear_stretch_strain(in vec3 p0, in vec3 p1, in vec4 q, in float rest_lengt
   d3[2] = -q.w * q.w + q.x * q.x + q.y * q.y - q.z * q.z;
 
   vec3 lambda = (p1 - p0) / rest_length - d3;
-  return vec2(max(abs(lambda.x), abs(lambda.y)), lambda.z);
+  return vec2(max(abs(lambda.x), abs(lambda.y)), abs(lambda.z));
 }
 
 vec2 bend_twist_strain(in vec4 q0, in vec4 q1, in vec4 rest_darboux_vector) {
@@ -183,7 +183,7 @@ vec2 bend_twist_strain(in vec4 q0, in vec4 q1, in vec4 rest_darboux_vector) {
   lambda -= rest_darboux_vector;
   lambda = squared_norm(lambda) > squared_norm(lambda_plus) ? lambda_plus : lambda;
 
-  return vec2(max(abs(lambda.x), abs(lambda.y)), lambda.z);
+  return vec2(max(abs(lambda.x), abs(lambda.y)), abs(lambda.z));
 }
 
 void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
