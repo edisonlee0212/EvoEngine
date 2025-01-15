@@ -653,11 +653,11 @@ void EcoSysLabLayer::PreUpdate() {
 
 void EcoSysLabLayer::Update() {
   RegisterStrandRenderingProcedure();
+  DynamicSkeletonPhysics();
+  DynamicStrandSimulation();
 }
 
 void EcoSysLabLayer::LateUpdate() {
-  DynamicSkeletonPhysics();
   DynamicSkeletonVisualization();
-  DynamicStrandSimulation();
   DynamicStrandVisualization();
 }

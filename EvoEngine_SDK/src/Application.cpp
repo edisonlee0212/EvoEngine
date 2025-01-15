@@ -194,18 +194,18 @@ void Application::UpdateInternal() {
     }
   }
   application.application_execution_status_ = ApplicationExecutionStatus::Update;
-  
-  for (const auto& i : application.external_update_functions_)
-    i();
 
   for (auto& i : application.layers_) {
     i->Update();
   }
+
   if (application.application_status_ == ApplicationStatus::Playing ||
       application.application_status_ == ApplicationStatus::Step) {
     application.active_scene_->Update();
   }
 
+  for (const auto& i : application.external_update_functions_)
+    i();
   if (render_layer) {
     render_layer->PrepareForRendering();
     render_layer->ClearAllEditorCameras();
@@ -226,16 +226,16 @@ void Application::LateUpdateInternal() {
   const auto window_layer = GetLayer<WindowLayer>();
   if (application.application_status_ != ApplicationStatus::NoProject) {
     application.application_execution_status_ = ApplicationExecutionStatus::LateUpdate;
-    for (const auto& i : application.external_late_update_functions_)
-      i();
 
+    for (auto i = application.layers_.rbegin(); i != application.layers_.rend(); ++i) {
+      (*i)->LateUpdate();
+    }
     if (application.application_status_ == ApplicationStatus::Playing ||
         application.application_status_ == ApplicationStatus::Step) {
       application.active_scene_->LateUpdate();
     }
-    for (auto i = application.layers_.rbegin(); i != application.layers_.rend(); ++i) {
-      (*i)->LateUpdate();
-    }
+    for (const auto& i : application.external_late_update_functions_)
+      i();
     if (render_layer) {
       render_layer->RenderAll();
       render_layer->RenderGizmos();

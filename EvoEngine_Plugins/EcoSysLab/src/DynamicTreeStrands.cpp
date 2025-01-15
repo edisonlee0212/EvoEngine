@@ -212,13 +212,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (ImGui::TreeNodeEx("Experiments", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::TreeNode("Board Experiment")) {
       static BoardExperimentSetupSettings multiple_rod_experiment_setup_settings{};
-      ImGui::DragFloat("Rod length", &multiple_rod_experiment_setup_settings.segment_length, 0.01f, 0.01f, 10.0f);
-      ImGui::DragFloat("Rod radius", &multiple_rod_experiment_setup_settings.radius, 0.001f, 0.001f, 1.0f);
-      ImGui::DragInt3("Rod dimension (3D)", &multiple_rod_experiment_setup_settings.rod_dimension.x, 1, 1, 1000);
-      ImGui::Combo("Left Pivot Type", {"Empty", "Point", "Axis", "Transform"},
-                   multiple_rod_experiment_setup_settings.left_pivot_type);
-      ImGui::Combo("Right Pivot Type", {"Empty", "Point", "Axis", "Transform"},
-                   multiple_rod_experiment_setup_settings.right_pivot_type);
+      multiple_rod_experiment_setup_settings.OnInspect(editor_layer);
       if (ImGui::Button("Initialize")) {
         BoardExperimentSetup(multiple_rod_experiment_setup_settings);
       }
@@ -226,14 +220,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     }
     if (ImGui::TreeNode("Log Experiment")) {
       static LogExperimentSetupSettings log_experiment_setup_settings{};
-      ImGui::DragFloat("Rod length", &log_experiment_setup_settings.segment_length, 0.01f, 0.01f, 10.0f);
-      ImGui::DragFloat("Rod radius", &log_experiment_setup_settings.radius, 0.001f, 0.001f, 1.0f);
-      ImGui::DragInt("Rod size", &log_experiment_setup_settings.rod_size, 1, 1, 1000);
-      ImGui::DragInt("Rod segment size", &log_experiment_setup_settings.rod_segment_count, 1, 1, 1000);
-      ImGui::Combo("Left Pivot Type", {"Empty", "Point", "Axis", "Transform"},
-                   log_experiment_setup_settings.left_pivot_type);
-      ImGui::Combo("Right Pivot Type", {"Empty", "Point", "Axis", "Transform"},
-                   log_experiment_setup_settings.right_pivot_type);
+      log_experiment_setup_settings.OnInspect(editor_layer);
       if (ImGui::Button("Initialize")) {
         LogExperimentSetup(log_experiment_setup_settings);
       }
@@ -375,6 +362,25 @@ void DynamicTreeStrands::OnDestroy() {
 }
 
 void DynamicTreeStrands::CollectAssetRef(std::vector<AssetRef>& list) {
+}
+
+bool DynamicTreeStrands::BoardExperimentSetupSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::DragFloat("Rod length", &segment_length, 0.01f, 0.01f, 10.0f);
+  ImGui::DragFloat("Rod radius", &radius, 0.001f, 0.001f, 1.0f);
+  ImGui::DragInt3("Rod dimension (3D)", &rod_dimension.x, 1, 1, 1000);
+  ImGui::Combo("Left Pivot Type", {"Empty", "Point", "Axis", "Transform"}, left_pivot_type);
+  ImGui::Combo("Right Pivot Type", {"Empty", "Point", "Axis", "Transform"}, right_pivot_type);
+  return false;
+}
+
+bool DynamicTreeStrands::LogExperimentSetupSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::DragFloat("Rod length", &segment_length, 0.01f, 0.01f, 10.0f);
+  ImGui::DragFloat("Rod radius", &radius, 0.001f, 0.001f, 1.0f);
+  ImGui::DragInt("Rod size", &rod_size, 1, 1, 1000);
+  ImGui::DragInt("Rod segment size", &rod_segment_count, 1, 1, 1000);
+  ImGui::Combo("Left Pivot Type", {"Empty", "Point", "Axis", "Transform"}, left_pivot_type);
+  ImGui::Combo("Right Pivot Type", {"Empty", "Point", "Axis", "Transform"}, right_pivot_type);
+  return false;
 }
 
 void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings& settings) {
@@ -532,7 +538,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 
       auto operator_root_transform = GlobalTransform();
       operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
-          glm::vec3(static_cast<float>(settings.rod_dimension.z + 2) * settings.segment_length, 0, 0)));
+          glm::vec3(static_cast<float>(settings.rod_dimension.z) * settings.segment_length, 0, 0)));
       scene->SetDataComponent(operator_entity, operator_root_transform);
       scene->SetParent(operator_entity, GetOwner());
 
@@ -562,7 +568,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 
       auto operator_root_transform = GlobalTransform();
       operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
-          glm::vec3(static_cast<float>(settings.rod_dimension.z + 2) * settings.segment_length, 0, 0)));
+          glm::vec3(static_cast<float>(settings.rod_dimension.z) * settings.segment_length, 0, 0)));
       scene->SetDataComponent(operator_entity, operator_root_transform);
       scene->SetParent(operator_entity, GetOwner());
 
@@ -592,7 +598,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 
       auto operator_root_transform = GlobalTransform();
       operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
-          glm::vec3(static_cast<float>(settings.rod_dimension.z + 2) * settings.segment_length, 0, 0)));
+          glm::vec3(static_cast<float>(settings.rod_dimension.z) * settings.segment_length, 0, 0)));
       scene->SetDataComponent(operator_entity, operator_root_transform);
       scene->SetParent(operator_entity, GetOwner());
 
@@ -795,7 +801,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
 
       auto operator_root_transform = GlobalTransform();
       operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
-          glm::vec3(static_cast<float>(settings.rod_segment_count + 1) * settings.segment_length, 0, 0)));
+          glm::vec3(static_cast<float>(settings.rod_segment_count) * settings.segment_length, 0, 0)));
       scene->SetDataComponent(operator_entity, operator_root_transform);
       scene->SetParent(operator_entity, GetOwner());
 
@@ -825,7 +831,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
 
       auto operator_root_transform = GlobalTransform();
       operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
-          glm::vec3(static_cast<float>(settings.rod_segment_count + 1) * settings.segment_length, 0, 0)));
+          glm::vec3(static_cast<float>(settings.rod_segment_count) * settings.segment_length, 0, 0)));
       scene->SetDataComponent(operator_entity, operator_root_transform);
       scene->SetParent(operator_entity, GetOwner());
 
@@ -855,7 +861,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
 
       auto operator_root_transform = GlobalTransform();
       operator_root_transform.SetPosition(initialize_parameters.root_transform.TransformPoint(
-          glm::vec3(static_cast<float>(settings.rod_segment_count + 1) * settings.segment_length, 0, 0)));
+          glm::vec3(static_cast<float>(settings.rod_segment_count) * settings.segment_length, 0, 0)));
       scene->SetDataComponent(operator_entity, operator_root_transform);
       scene->SetParent(operator_entity, GetOwner());
 

@@ -170,12 +170,12 @@ class DynamicStrands {
     enum class UniformParticleRenderMode { Default, SegmentColor, SingleParticles };
     enum class SegmentPairRenderMode { Default, BendingStrain, TwistStrain, BundleStrain };
     bool render_segments = true;
-    bool render_segment_pairs = false;
-    bool render_uniform_particles = true;
+    bool render_segment_pairs = true;
+    bool render_uniform_particles = false;
     bool render_foliage = true;
 
-    uint32_t segment_render_mode = 5;
-    uint32_t segment_pair_render_mode = 0;
+    uint32_t segment_render_mode = 4;
+    uint32_t segment_pair_render_mode = 1;
     uint32_t uniform_particle_render_mode = 2;
     uint32_t foliage_render_mode = 0;
 

@@ -13,8 +13,6 @@ class DynamicTreeStrands : public IPrivateComponent {
 
  public:
   int seed = 0;
-  bool enable_simulation = true;
-
   StrandModelSkeleton strand_model_skeleton{};
   DtsStrandGroup subdivided_strand_group{};
 
@@ -71,6 +69,7 @@ class DynamicTreeStrands : public IPrivateComponent {
     glm::ivec3 rod_dimension = {10, 40, 20};
     unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);
     unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   struct LogExperimentSetupSettings {
     float segment_length = 0.05f;
@@ -80,6 +79,7 @@ class DynamicTreeStrands : public IPrivateComponent {
     float center_attraction_strength = 40000;
     unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);
     unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   void BoardExperimentSetup(const BoardExperimentSetupSettings& settings);
   void LogExperimentSetup(const LogExperimentSetupSettings& settings);
