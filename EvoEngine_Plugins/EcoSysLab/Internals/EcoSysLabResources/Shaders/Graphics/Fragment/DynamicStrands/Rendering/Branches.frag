@@ -42,7 +42,7 @@ void main(){
 	uint material_index = instance.material_index;
 	if(fs_in.Color.x > 1e-6f){
 		material_index = uint(snow_material_index);
-	}else if(fs_in.Color.y > 1e-6f){
+	}else if(fs_in.Color.y > 0.5f){
 		material_index = uint(inner_wood_material_index);
 	}
 

@@ -90,7 +90,12 @@ void SetUpTriangleVertex(uint vertex_index, vec3 vertex_normal, uint particle_in
 	}
 	float tex_y = float(uniform_particle.segment_index) * v_multiplier;
 	ms_v_out[vertex_index].TexCoord = vec2(tex_x, tex_y);
-	ms_v_out[vertex_index].Color = uniform_particle.override_color;
+	vec4 vertex_color = uniform_particle.override_color;
+	if(is_bark == 0){
+		vertex_color.y = 1.f;
+	}
+	ms_v_out[vertex_index].Color = vertex_color;
+	
 	if(vertex_colors == 0){
 
 	} else if(vertex_colors == 1){
