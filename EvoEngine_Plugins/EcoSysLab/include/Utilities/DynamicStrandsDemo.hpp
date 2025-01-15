@@ -6,7 +6,7 @@
 
 namespace eco_sys_lab_plugin {
 class DynamicStrandsDemo : public IPrivateComponent {
-  float target_simulation_time = 100.f;
+  float target_simulation_time = 10.f;
   float simulated_time = 0.f;
 
   float target_factor0 = 1.f;
@@ -15,7 +15,8 @@ class DynamicStrandsDemo : public IPrivateComponent {
  public:
   enum class DemoType {
     Empty,
-    DryBreak,
+    DryBreakRod,
+    DryBreakBoard,
     SquishyBreak,
   };
   DynamicStrands::PhysicsParameters physics_parameters{};

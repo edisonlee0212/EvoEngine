@@ -38,22 +38,22 @@ void main(){
 		if(uniform_particle_index >= uniform_particle_size) break;
 		UniformParticle uniform_particle = uniform_particles[uniform_particle_index];
 
-		Segment segment = segments[uniform_particle.segment_handle];
-
-		Particle particle0 = segment.particle0;
-		Particle particle1 = segment.particle1;
+		vec3 p0 = segments[uniform_particle.segment_handle].particle0.x;
+		vec3 p1 = segments[uniform_particle.segment_handle].particle1.x;
 
 		vec3 normal = normalize(uniform_particle.normal_deg.xyz);
 		float local_extrusion_distance = uniform_particle.local_extrusion_distance;
-		if(segment.group_index == 0){
-			local_extrusion_distance = normal.y > max(1e-6f, 1.f - segment.property1 * snow_factor) ? segment.property1 : 0.f;
+		float snow_property = segments[uniform_particle.segment_handle].property1;
+
+		if(segments[uniform_particle.segment_handle].group_index == 0){
+			local_extrusion_distance = normal.y > max(1e-6f, 1.f - snow_property * snow_factor) ? snow_property : 0.f;
 			uniform_particles[uniform_particle_index].local_extrusion_distance = local_extrusion_distance;
 		}else{
 			local_extrusion_distance -= snow_deduction;
 		}
 		uniform_particles[uniform_particle_index].override_color = local_extrusion_distance > 1e-6f ? vec4(1, 0, 0, 0) : vec4(0, 0, 0, 0);
 		uniform_particles[uniform_particle_index].position_t.xyz = 
-			mix(particle0.x, particle1.x, uniform_particle.position_t.w);
-		uniform_particles[uniform_particle_index].tangent.xyz = normalize(particle1.x - particle0.x);
+			mix(p0, p1, uniform_particle.position_t.w);
+		uniform_particles[uniform_particle_index].tangent.xyz = normalize(p1 - p0);
 	}
 }

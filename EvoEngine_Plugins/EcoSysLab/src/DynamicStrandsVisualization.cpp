@@ -29,8 +29,7 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
         break;
       }
       case 3:
-      case 4:
-      case 5: {
+      case 4: {
         if (ImGui::ColorEdit4("Segment min color", &segment_color_min.x))
           changed = true;
         if (ImGui::ColorEdit4("Segment max color", &segment_color_max.x))
@@ -45,8 +44,10 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (ImGui::Checkbox("Segment Pair", &render_segment_pairs))
     changed = true;
   if (render_segment_pairs) {
-    if (ImGui::Combo("Segment Pair mode", {"Default", "Bending Strain", "Twisting Strain", "Bundle Strain"},
-                     segment_pair_render_mode))
+    if (ImGui::Combo(
+            "Segment Pair mode",
+            {"Default", "Bending Strain", "Twisting Strain", "Bundle Strain", "Combined Strain", "Connectivity Strain"},
+            segment_pair_render_mode))
       changed = true;
     switch (segment_pair_render_mode) {
       case 0: {
@@ -56,7 +57,9 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       }
       case 1:
       case 2:
-      case 3: {
+      case 3:
+      case 4:
+      case 5: {
         if (ImGui::ColorEdit4("Segment pair min color", &segment_pair_color_min.x))
           changed = true;
         if (ImGui::ColorEdit4("Segment pair max color", &segment_pair_color_max.x))

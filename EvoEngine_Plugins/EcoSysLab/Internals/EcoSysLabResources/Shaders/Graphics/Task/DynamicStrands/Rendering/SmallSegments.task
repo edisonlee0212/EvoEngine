@@ -50,8 +50,47 @@ void main(){
 		uint uniform_particle_index_global = baseID + uniform_particle_index_local;
 		
 		UniformParticle uniform_particle = uniform_particles[uniform_particle_index_global];
+		
+		bool single = uniform_particle.is_single_strand_particle != 0;
+		bool prev_single = false;
+		bool prev_prev_single = false;
+		bool next_single = false;
 
-		bool render = !(uniform_particle_index_global > uniform_particles_size - 1) && uniform_particle.is_single_strand_particle != 0 && uniform_particle.prev_particle_handle != -1;
+		bool length_valid = true;
+		if(uniform_particle.prev_particle_handle != -1){
+			UniformParticle prev_uniform_particle = uniform_particles[uniform_particle.prev_particle_handle];
+
+			int group_index = segments[uniform_particle.segment_handle].group_index;
+			int prev_group_index = segments[prev_uniform_particle.segment_handle].group_index;
+		
+			vec3 start_position = prev_uniform_particle.position_t.xyz;
+			vec3 end_position = uniform_particle.position_t.xyz;
+		
+			vec3 p0 = segments[uniform_particle.segment_handle].particle0.x0;
+			vec3 p1 = segments[uniform_particle.segment_handle].particle1.x0;
+
+			vec3 uniform_particle_p0 = mix(segments[uniform_particle.segment_handle].particle0.x0, segments[uniform_particle.segment_handle].particle1.x0, uniform_particle.position_t.w);
+			vec3 prev_uniform_particle_p0 = mix(segments[prev_uniform_particle.segment_handle].particle0.x0, segments[prev_uniform_particle.segment_handle].particle1.x0, prev_uniform_particle.position_t.w);
+
+			float current_length = distance(start_position, end_position);
+			float original_length = distance(uniform_particle_p0, prev_uniform_particle_p0);
+
+			length_valid = current_length / original_length < 1.25f;
+			prev_single = prev_uniform_particle.is_single_strand_particle != 0;
+			if(prev_uniform_particle.prev_particle_handle != -1){
+				prev_prev_single = uniform_particles[prev_uniform_particle.prev_particle_handle].is_single_strand_particle != 0;
+			}
+		}
+
+		if(uniform_particle.next_particle_handle != -1){
+			next_single = uniform_particles[uniform_particle.next_particle_handle].is_single_strand_particle != 0;
+		}
+
+		bool render = !(uniform_particle_index_global > uniform_particles_size - 1) 
+						&& uniform_particle.prev_particle_handle != -1
+						&& length_valid;
+		//render = render && (single || prev_single || prev_prev_single || next_single);
+		
 		uvec4 vote_uniform_particles = subgroupBallot(render);
 		uint num_uniform_particles  = subgroupBallotBitCount(vote_uniform_particles);
 

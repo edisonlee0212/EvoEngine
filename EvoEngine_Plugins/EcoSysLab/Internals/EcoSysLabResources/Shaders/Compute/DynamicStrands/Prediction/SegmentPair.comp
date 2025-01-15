@@ -34,21 +34,38 @@ void main(){
 		uint pair_index = baseID + local_index;
 		if(pair_index >= pair_size) break;
 		//Modify limit here.
-		vec4 bending_twist_bundle_strain_limit = segment_pairs[pair_index].max_bending_twist_bundle_strain;
+		vec3 bending_twist_bundle_strain_limit = segment_pairs[pair_index].max_bending_twist_bundle_strain;
+		float connectivity_strain_limit = segment_pairs[pair_index].max_connectivity_strain;
+
 		int segment0_handle = segment_pairs[pair_index].segment0_handle;
 		int segment1_handle = segment_pairs[pair_index].segment1_handle;
+		
+		vec3 s0p0 = segments[segment0_handle].particle0.x;
+		vec3 s0p1 = segments[segment0_handle].particle1.x;
+		vec3 s1p0 = segments[segment1_handle].particle0.x;
+		vec3 s1p1 = segments[segment1_handle].particle1.x;
+		float l0 = segments[segment0_handle].rest_length;
+		float l1 = segments[segment1_handle].rest_length;
 
-		float original_distance0 = distance(segments[segment0_handle].particle0.x0.xyz, segments[segment1_handle].particle0.x0.xyz);
-		float current_distance0 = distance(segments[segment0_handle].particle0.x, segments[segment1_handle].particle0.x);
-		float strain0 = abs(current_distance0 - original_distance0) / (segments[segment0_handle].rest_length + segments[segment1_handle].rest_length) * 2.0f;
-		float original_distance1 = distance(segments[segment0_handle].particle1.x0.xyz, segments[segment1_handle].particle1.x0.xyz);
-		float current_distance1 = distance(segments[segment0_handle].particle1.x, segments[segment1_handle].particle1.x);
-		float strain1 = abs(current_distance1 - original_distance1) / (segments[segment0_handle].rest_length + segments[segment1_handle].rest_length) * 2.0f;
-
-		float bundle_strain = max(strain0, strain1);
+		vec3 segment0_center_position = (s0p0 + s0p1) * .5f;
+		vec3 segment1_center_position = (s1p0 + s1p1) * .5f;
+		float current_distance = distance(segment0_center_position, segment1_center_position);
+		vec3 orginal_segment0_center_position = (segments[segment0_handle].particle0.x0 + segments[segment0_handle].particle1.x0) * .5f;
+		vec3 orginal_segment1_center_position = (segments[segment1_handle].particle0.x0 + segments[segment1_handle].particle1.x0) * .5f;
+		float orginal_distance = distance(orginal_segment0_center_position, orginal_segment1_center_position);
+		float bundle_strain = (current_distance - orginal_distance) / (l0 + l1) * 2.0f;
+		
 		vec2 bend_twist_strain = bend_twist_strain(segments[segment0_handle].q, segments[segment1_handle].q, segment_pairs[pair_index].rest_darboux_vector);
 
-		segment_pairs[pair_index].bending_twist_bundle_strain = vec4(bend_twist_strain.x, bend_twist_strain.y, bundle_strain, 0.0f);
+		//bool is_connection = segment_pairs[pair_index].connectivity_integrity != 0.f && (segments[segment0_handle].next_handle == segment1_handle || segments[segment1_handle].next_handle == segment0_handle);
+		
+		float segment0_stretch_strain = (distance(s0p0, s0p1) - l0) / l0;
+		float segment1_stretch_strain = (distance(s1p0, s1p1) - l1) / l1;
+		float connectivity_strain = max(segment0_stretch_strain, segment1_stretch_strain);
+		
+		segment_pairs[pair_index].bending_twist_bundle_strain = segment_pairs[pair_index].bend_twist_bundle_integrity != 0.f ? vec3(bend_twist_strain.x, bend_twist_strain.y, bundle_strain) : vec3(0.f);
+		segment_pairs[pair_index].connectivity_strain = connectivity_strain;
 		segment_pairs[pair_index].bending_twist_bundle_strain_limit = bending_twist_bundle_strain_limit;
+		segment_pairs[pair_index].connectivity_strain_limit = connectivity_strain_limit;
 	}
 }

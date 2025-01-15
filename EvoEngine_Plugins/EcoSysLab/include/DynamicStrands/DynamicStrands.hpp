@@ -94,9 +94,6 @@ class DynamicStrands {
 
     float neighbor_vertical_range = 3.0f;
     float neighbor_horizontal_range = 3.0f;
-    PlottedDistribution<float> max_bundle_strain = {{0.08f, 0.12f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
-                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-
     PlottedDistribution<float> max_shear_stretch_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                            {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
@@ -104,6 +101,11 @@ class DynamicStrands {
                                                   {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
     PlottedDistribution<float> max_twist_strain = {{0.15f, 0.15f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
+    PlottedDistribution<float> max_bundle_strain = {{0.08f, 0.12f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
+
+    PlottedDistribution<float> max_connectivity_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
+                                                          {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
     SingleDistribution<float> leaf_position_alpha = {0.01f, 0.1f};
     SingleDistribution<float> leaf_rotation_alpha = {0.01f, 0.1f};
@@ -168,7 +170,14 @@ class DynamicStrands {
     };
 
     enum class UniformParticleRenderMode { Default, SegmentColor, SingleParticles };
-    enum class SegmentPairRenderMode { Default, BendingStrain, TwistStrain, BundleStrain };
+    enum class SegmentPairRenderMode {
+      Default,
+      BendingStrain,
+      TwistStrain,
+      BundleStrain,
+      BendingTwistingBundleStrain,
+      ConnectivityStrain
+    };
     bool render_segments = true;
     bool render_segment_pairs = true;
     bool render_uniform_particles = false;
@@ -214,8 +223,8 @@ class DynamicStrands {
     float u_multiplier = 2;
     float v_multiplier = 0.25;
     float degen_triangle_threshold_logairthmic = 5.0f;
-    float global_extrusion_distance = 0.001f;
-    float break_threshold = 0.01;
+    float global_extrusion_distance = 0.002f;
+    float break_threshold = 0.01f;
 
     bool persistent_damage = false;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
@@ -225,7 +234,7 @@ class DynamicStrands {
     bool enabled = true;
     bool cast_shadow = true;
     bool wireframe = false;
-    float thickness_multiplier = 1.0f;
+    float thickness_multiplier = 0.5f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -359,11 +368,11 @@ class DynamicStrands {
     glm::quat rest_darboux_vector;
 
     glm::vec3 bending_twist_bundle_strain;
-    float padding0;
+    float connectivity_strain;
     glm::vec3 max_bending_twist_bundle_strain;
-    float padding1 = 0.f;
-    glm::vec3 bending_twist_bundle_limit;
-    float padding2;
+    float max_connectivity_strain = 0.f;
+    glm::vec3 bending_twist_bundle_strain_limit;
+    float connectivity_strain_limit;
   };
 
   struct GpuSegmentData {

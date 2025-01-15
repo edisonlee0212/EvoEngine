@@ -5,6 +5,11 @@
 using namespace eco_sys_lab_plugin;
 
 bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  if (ImGui::TreeNode("Physics Parameters")) {
+    physics_parameters.OnInspect(editor_layer);
+    ImGui::TreePop();
+  }
+
   if (demo_type != DemoType::Empty) {
     ImGui::Text("Demo started");
     ImGui::Text(("Simulated time: " + std::to_string(simulated_time)).c_str());
@@ -19,28 +24,36 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   const auto owner = GetOwner();
   const auto scene = GetScene();
   const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
-  dts->enable_physics = false;
-
-  if (ImGui::TreeNode("Physics Parameters")) {
-    physics_parameters.OnInspect(editor_layer);
-    ImGui::TreePop();
+  if (ImGui::TreeNode("Initialize Parameters")) {
+    dts->initialize_parameters.OnInspect(editor_layer);
   }
-
   ImGui::DragFloat("Target simulation time", &target_simulation_time, 0.1f, 0.1f, 100.f);
   ImGui::DragFloat("Target factor 0", &target_factor0, 0.01f, 0.0f, 1.f);
   ImGui::DragFloat("Target factor 1", &target_factor1, 0.01f, 0.0f, 1.f);
-  if (ImGui::TreeNode("Dry break")) {
+  if (ImGui::TreeNode("Rod settings")) {
     log_experiment_setup_settings.OnInspect(editor_layer);
-    if (ImGui::Button("Start")) {
-      simulated_time = 0.f;
-      demo_type = DemoType::DryBreak;
-      log_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
-      log_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
-      dts->LogExperimentSetup(log_experiment_setup_settings);
-    }
     ImGui::TreePop();
   }
-
+  if (ImGui::TreeNode("Board settings")) {
+    board_experiment_setup_settings.OnInspect(editor_layer);
+    ImGui::TreePop();
+  }
+  if (ImGui::Button("Dry break (Rod)")) {
+    simulated_time = 0.f;
+    demo_type = DemoType::DryBreakRod;
+    log_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    log_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    dts->LogExperimentSetup(log_experiment_setup_settings);
+    dts->enable_physics = false;
+  }
+  if (ImGui::Button("Dry break (Board)")) {
+    simulated_time = 0.f;
+    demo_type = DemoType::DryBreakBoard;
+    board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    dts->BoardExperimentSetup(board_experiment_setup_settings);
+    dts->enable_physics = false;
+  }
   return changed;
 }
 
@@ -73,11 +86,29 @@ void DynamicStrandsDemo::Update() {
   const float progress = simulated_time / target_simulation_time;
 
   switch (demo_type) {
-    case DemoType::DryBreak: {
+    case DemoType::DryBreakRod: {
       const float log_distance = static_cast<float>(log_experiment_setup_settings.rod_segment_count) *
                                  log_experiment_setup_settings.segment_length;
       const float left_distance = log_distance * 0.5f * progress * target_factor0;
       const float right_distance = log_distance * (1.f - 0.5f * progress * target_factor0);
+
+      auto left_operator_root_transform = GlobalTransform();
+      left_operator_root_transform.SetPosition(
+          dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(left_distance, 0, 0)));
+      auto right_operator_root_transform = GlobalTransform();
+      right_operator_root_transform.SetPosition(
+          dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(right_distance, 0, 0)));
+      const float angle = glm::acos(1.f - progress * target_factor1);
+      left_operator_root_transform.SetEulerRotation(glm::vec3(0, 0, -angle));
+      right_operator_root_transform.SetEulerRotation(glm::vec3(0, 0, angle));
+      scene->SetDataComponent(left_pivot, left_operator_root_transform);
+      scene->SetDataComponent(right_pivot, right_operator_root_transform);
+    } break;
+    case DemoType::DryBreakBoard: {
+      const float board_distance = static_cast<float>(board_experiment_setup_settings.rod_dimension.z) *
+                                   board_experiment_setup_settings.segment_length;
+      const float left_distance = board_distance * 0.5f * progress * target_factor0;
+      const float right_distance = board_distance * (1.f - 0.5f * progress * target_factor0);
 
       auto left_operator_root_transform = GlobalTransform();
       left_operator_root_transform.SetPosition(
