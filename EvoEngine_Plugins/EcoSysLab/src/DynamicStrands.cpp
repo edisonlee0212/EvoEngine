@@ -288,18 +288,18 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     if (max_torsion_modulus.OnInspect("Wood Torsion modulus", wood_torsion_settings))
       changed = true;
 
-    PlottedDistributionSettings max_bundle_strain_settings{};
-    if (max_bundle_strain.OnInspect("Max bundle strain", max_bundle_strain_settings))
-      changed = true;
-    PlottedDistributionSettings max_shear_stretch_strain_settings{};
-    if (max_shear_stretch_strain.OnInspect("Max shear/stretch strain", max_shear_stretch_strain_settings))
-      changed = true;
-
     PlottedDistributionSettings max_bend_strain_settings{};
     if (max_bend_strain.OnInspect("Max bend strain", max_bend_strain_settings))
       changed = true;
     PlottedDistributionSettings max_twist_strain_settings{};
     if (max_twist_strain.OnInspect("Max twist strain", max_twist_strain_settings))
+      changed = true;
+
+    PlottedDistributionSettings max_bundle_strain_settings{};
+    if (max_bundle_strain.OnInspect("Max bundle strain", max_bundle_strain_settings))
+      changed = true;
+    PlottedDistributionSettings max_connectivity_strain_settings{};
+    if (max_connectivity_strain.OnInspect("Max connectivity strain", max_connectivity_strain_settings))
       changed = true;
 
     if (leaf_position_alpha.OnInspect("Leaf position alpha"))

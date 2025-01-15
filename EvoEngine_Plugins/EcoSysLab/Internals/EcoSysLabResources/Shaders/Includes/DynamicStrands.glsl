@@ -104,9 +104,12 @@ struct SegmentPair {
 
   vec4 rest_darboux_vector;
 
-  vec4 bending_twist_bundle_strain;
-  vec4 max_bending_twist_bundle_strain;
-  vec4 bending_twist_bundle_strain_limit;
+  vec3 bending_twist_bundle_strain;
+  float connectivity_strain;
+  vec3 max_bending_twist_bundle_strain;
+  float max_connectivity_strain;
+  vec3 bending_twist_bundle_strain_limit;
+  float connectivity_strain_limit;
 };
 
 #define BUNDLE_MAX_CONNECTION 16

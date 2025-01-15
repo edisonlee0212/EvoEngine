@@ -46,18 +46,27 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
 
   vec3 particle0_new_position = p0 + x0_correction;
   vec3 particle1_new_position = p1 + x1_correction;
-  segments[segment_handle].particle0.x = particle0_new_position;
-  segments[segment_handle].particle1.x = particle1_new_position;
-  segments[segment_handle].q = normalize(q_correction + q);
 
   if (prev_handle != -1 &&
       segment_pairs[segment_data_list[segment_handle].pair_handles[0]].connectivity_integrity > 0.f) {
+    float neighbor_inv_mass = segments[prev_handle].inv_mass;
+    particle0_new_position =
+        (particle0_new_position * neighbor_inv_mass + segments[prev_handle].particle1.x * inv_mass_q) /
+        (inv_mass_q + neighbor_inv_mass);
     segments[prev_handle].particle1.x = particle0_new_position;
   }
   if (next_handle != -1 &&
       segment_pairs[segment_data_list[segment_handle].pair_handles[1]].connectivity_integrity > 0.f) {
+    float neighbor_inv_mass = segments[next_handle].inv_mass;
+    particle1_new_position =
+        (particle1_new_position * neighbor_inv_mass + segments[next_handle].particle0.x * inv_mass_q) /
+        (inv_mass_q + neighbor_inv_mass);
     segments[next_handle].particle0.x = particle1_new_position;
   }
+
+  segments[segment_handle].particle0.x = particle0_new_position;
+  segments[segment_handle].particle1.x = particle1_new_position;
+  segments[segment_handle].q = normalize(q_correction + q);
 }
 
 void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle, out vec3 x0_correction,

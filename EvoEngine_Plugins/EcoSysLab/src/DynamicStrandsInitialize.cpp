@@ -671,8 +671,11 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     const float max_bend_strain = glm::max(0.001f, initialize_parameters.max_bend_strain.GetValue(ratio));
     const float max_twist_strain = glm::max(0.001f, initialize_parameters.max_twist_strain.GetValue(ratio));
     const float max_bundle_strain = glm::max(0.001f, initialize_parameters.max_bundle_strain.GetValue(ratio));
-    segment_pair.max_bending_twist_bundle_strain = segment_pair.bending_twist_bundle_limit =
+    const float max_connectivity_strain =
+        glm::max(0.001f, initialize_parameters.max_connectivity_strain.GetValue(ratio));
+    segment_pair.max_bending_twist_bundle_strain = segment_pair.bending_twist_bundle_strain_limit =
         glm::vec3(max_bend_strain, max_twist_strain, max_bundle_strain);
+    segment_pair.max_connectivity_strain = segment_pair.connectivity_strain_limit = max_connectivity_strain;
   });
   // set up nodes
   auto& skeleton_nodes = strand_model_skeleton.PeekRawNodes();
