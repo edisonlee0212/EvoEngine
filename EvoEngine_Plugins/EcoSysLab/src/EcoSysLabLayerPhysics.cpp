@@ -35,14 +35,16 @@ void EcoSysLabLayer::DynamicStrandSimulation() const {
     if (dynamic_strands_settings_.enable_physics) {
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
         dts->InteractionStep();
-        if (dts->enable_physics)
+        if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled() && dts->enable_physics)
           dts->PhysicsStep(dynamic_strands_settings_.physics_parameters);
       });
     }
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-      dts->dynamic_strands->RenderCompute(dynamic_strands_settings_.branches_render_parameters,
-                                          dynamic_strands_settings_.small_segments_render_parameters,
-                                          dynamic_strands_settings_.foliage_render_parameters);
+      if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {
+        dts->dynamic_strands->RenderCompute(dynamic_strands_settings_.branches_render_parameters,
+                                            dynamic_strands_settings_.small_segments_render_parameters,
+                                            dynamic_strands_settings_.foliage_render_parameters);
+      }
     });
   }
 }
