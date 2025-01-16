@@ -45,5 +45,6 @@ void main(){
 
 		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[delaunay_tetrahedron_index];		
 		delaunay_tetrahedrons[delaunay_tetrahedron_index].inside = int(InsideAlpha(delaunay_tetrahedron, min_distance_squared));
+		delaunay_tetrahedrons[delaunay_tetrahedron_index].inside_at_init = delaunay_tetrahedrons[delaunay_tetrahedron_index].inside;
 	}
 }

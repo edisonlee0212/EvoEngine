@@ -159,7 +159,7 @@ struct DelaunayTetrahedron {
   int inside;
   int triangles_accepted;
   float sidelengths[6];
-  int padding0;
+  int inside_at_init;
   int padding1;
 };
 
