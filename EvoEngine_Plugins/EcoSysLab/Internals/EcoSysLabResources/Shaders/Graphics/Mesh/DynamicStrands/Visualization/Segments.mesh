@@ -112,7 +112,7 @@ void main(){
 	if(color_mode == 0){
 		color = color0;
 	}else if(color_mode == 1){
-		color = segment.color;
+		color = segments[segment.node_handle].color;
 	}else if(color_mode == 2){
 		color = mix(color0, color1, clamp(mod(segment.boundary_distance, boundary_layer_radius) / boundary_layer_radius, 0.0, 1.0));
 	}else if(color_mode == 3){

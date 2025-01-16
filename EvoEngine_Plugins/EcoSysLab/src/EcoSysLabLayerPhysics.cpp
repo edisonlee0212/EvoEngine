@@ -16,7 +16,7 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
-void EcoSysLabLayer::DynamicStrandSimulation() const {
+void EcoSysLabLayer::DynamicStrandSimulation() {
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
     const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
@@ -32,12 +32,16 @@ void EcoSysLabLayer::DynamicStrandSimulation() const {
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
       dts->dynamic_strands->UpdateBindings();
     });
-    if (dynamic_strands_settings_.enable_physics) {
+    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+      dts->InteractionStep();
+    });
+    if (dynamic_strands_settings_.enable_physics || dynamic_strands_settings_.remaining_step > 0) {
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        dts->InteractionStep();
         if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled() && dts->enable_physics)
           dts->PhysicsStep(dynamic_strands_settings_.physics_parameters);
       });
+      if (dynamic_strands_settings_.remaining_step > 0)
+        dynamic_strands_settings_.remaining_step--;
     }
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
       if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {

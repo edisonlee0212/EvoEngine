@@ -41,7 +41,7 @@ class DsVelocityUpdate;
 struct DtsStrandGroupData {};
 
 struct DtsStrandData {};
-#define BUNDLE_MAX_CONNECTION 16
+#define BUNDLE_MAX_CONNECTION 64
 #define HASH_GRID_CELL_SIZE 2 << 15
 struct DtsStrandSegmentData {
   float start_root_distance = 0.0f;
@@ -76,6 +76,7 @@ class DynamicStrands {
     float min_segment_length = 0.03f;
     float max_segment_length = 0.06f;
     int uniform_subdivision = 5;
+    bool use_voxel_grid_for_segment_pairs = true;
 
     float max_distance_to_boundary = 1.0f;
     PlottedDistribution<float> wood_density = {{600.0f, 700.0f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
@@ -303,7 +304,7 @@ class DynamicStrands {
     int prev_handle = -1;
     int next_handle = -1;
     int strand_handle = -1;
-    float inv_mass;
+    float inv_mass = 0.0f;
     glm::vec4 color;
 
     // Initial rotation
@@ -314,30 +315,30 @@ class DynamicStrands {
     glm::quat last_q;
     // Angular velocity
     glm::vec3 angular_v;
-    float radius;
+    float radius = 0.0f;
 
     glm::vec3 torque = glm::vec3(0.f);
-    float rest_length;
+    float rest_length = 0.0f;
 
-    float max_young_modulus;
-    float shear_stretch_alpha;
-    float moisture_content;
-    float boundary_distance;
+    float max_young_modulus = 0.0f;
+    float shear_stretch_alpha = 0.0f;
+    float moisture_content = 0.0f;
+    float boundary_distance = 0.0f;
 
     glm::vec2 profile_position;
     glm::vec2 profile_polar_coordinate;
 
     glm::vec3 inertia_tensor;
-    float max_shear_stretch_strain;
+    float max_shear_stretch_strain = 0.0f;
 
     glm::vec3 inv_inertia_tensor;
-    float shear_stretch_strain_limit;
+    float shear_stretch_strain_limit = 0.0f;
 
     glm::mat4 inertia_w;
     glm::mat4 inv_inertia_w;
 
-    float shear_stretch_strain;
-    float padding;
+    float shear_stretch_strain = 0.0f;
+    int32_t node_handle = 0.0f;
     float original_mass = 0.0f;
     int32_t group_index = 0;
 
@@ -368,18 +369,18 @@ class DynamicStrands {
     glm::quat rest_darboux_vector;
 
     glm::vec3 bending_twist_bundle_strain;
-    float connectivity_strain;
+    float connectivity_strain = 0.0f;
     glm::vec3 max_bending_twist_bundle_strain;
     float max_connectivity_strain = 0.f;
     glm::vec3 bending_twist_bundle_strain_limit;
-    float connectivity_strain_limit;
+    float connectivity_strain_limit = 0.0f;
   };
 
   struct GpuSegmentData {
     glm::vec3 particle0_position_correction;
-    float padding0;
+    float padding0 = 0.0f;
     glm::vec3 particle1_position_correction;
-    float padding1;
+    float padding1 = 0.0f;
 
     glm::quat q_correction;
 
