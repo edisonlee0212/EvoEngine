@@ -75,11 +75,13 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
     });
 
     simulated_time += physics_parameters.time_step / static_cast<float>(physics_parameters.sub_step);
+    if (physics_parameters.enable_segment_breaking || physics_parameters.enable_segment_disconnection ||
+        physics_parameters.enable_foliage_detachment) {
+      breaking->Execute(physics_parameters, *this);
+    }
   }
 
-  if (physics_parameters.enable_segment_breaking || physics_parameters.enable_segment_disconnection ||
-      physics_parameters.enable_foliage_detachment) {
-    breaking->Execute(physics_parameters, *this);
+  if (physics_parameters.enable_segment_disconnection) {
     CalculateGroups(physics_parameters);
   }
 
