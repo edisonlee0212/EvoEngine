@@ -316,21 +316,21 @@ void DynamicTreeStrands::OnCreate() {
     bark_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.1f;
-    material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+    material->material_properties.albedo_color = glm::vec3(0.4f, 0.3f, 0.2f);
   }
   if (!inner_wood_material_ref.Get<Material>()) {
     const auto material = ProjectManager::CreateTemporaryAsset<Material>();
     inner_wood_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
-    material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+    material->material_properties.albedo_color = glm::vec3(1.f, 0.6f, 0.3f);
   }
   if (!splinter_material_ref.Get<Material>()) {
     const auto material = ProjectManager::CreateTemporaryAsset<Material>();
     splinter_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
-    material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+    material->material_properties.albedo_color = glm::vec3(1.f, 0.6f, 0.3f);
   }
   if (!leaf_material_ref.Get<Material>()) {
     const auto material = ProjectManager::CreateTemporaryAsset<Material>();
