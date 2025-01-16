@@ -11,7 +11,6 @@
 
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrands.glsl"
-#include "Math.glsl"
 
 const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
@@ -69,7 +68,7 @@ void main(){
 			// add normal to all triangle vertices, so we can later compute an average
 			[[unroll]]
 			for(int j = 0; j < 4; j++){
-				if(j != triangle_index){
+				if(j != triangle_index && uniform_particles[delaunay_tetrahedron.indices[j]].is_on_surface == 0){
 					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.x, normal_deg.x);
 					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.y, normal_deg.y);
 					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.z, normal_deg.z);

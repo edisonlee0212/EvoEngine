@@ -1,4 +1,6 @@
 
+#ifndef _MATH_GLSL_
+#define _MATH_GLSL_
 
 mat4 translate(in vec3 d) {
   return mat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, d.x, d.y, d.z, 1);
@@ -223,3 +225,20 @@ void CalculateAlignRightDirectionRotation(in vec4 q, in vec3 direction, out floa
   axis = valid ? normalize(cross(right, direction)) : direction;
   angle = valid ? acos(dot_product) : 0.f;
 }
+
+float DistSquared(vec3 A, vec3 B) {
+  vec3 C = A - B;
+  return dot(C, C);
+}
+
+vec3 ProjectOntoPlane(vec3 vector, vec3 normalizedPlaneNormal) {
+  // Compute the dot product of the vector and the plane normal
+  float dotProduct = dot(vector, normalizedPlaneNormal);
+
+  // Subtract the component of the vector that is parallel to the plane normal
+  vec3 projection = vector - dotProduct * normalizedPlaneNormal;
+
+  return projection;
+}
+
+#endif  // _MATH_GLSL_

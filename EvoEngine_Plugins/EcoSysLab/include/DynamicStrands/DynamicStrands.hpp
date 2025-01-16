@@ -218,7 +218,7 @@ class DynamicStrands {
     float alpha = 0.00005f;
     float bifurcation_alpha = 0.00005f;
     float max_dist_squared = 1.0f;
-    enum VertexColors { Default, Normals, Tangents, Groups, Degree, Bark };
+    enum VertexColors { Default, Normals, Tangents, Groups, Degree, Bark, NormalQuaternion, Up, InitUp, Axis, InitAxis, InitAngle };
     VertexColors vertex_colors = Default;
 
     float u_multiplier = 2;
@@ -411,10 +411,11 @@ class DynamicStrands {
 
     int is_single_strand_particle;
     float local_extrusion_distance;
-    int padding2;
+    int is_on_surface;
     int padding3;
     glm::vec3 initial_position;
     int padding4;
+    glm::vec4 normal_q;
   };
 
   struct GpuDelaunayTetrahedron {

@@ -22,10 +22,12 @@ layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 memoryBarrierShared(); \
 barrier();
 
+#include "Math.glsl"
+
+const float PI = 3.1415926535897932384626433832795;
+
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint uniform_particle_size;
-	float snow_factor;
-	float snow_deduction;
 };
 
 void main(){
@@ -38,22 +40,22 @@ void main(){
 		if(uniform_particle_index >= uniform_particle_size) break;
 		UniformParticle uniform_particle = uniform_particles[uniform_particle_index];
 
-		vec3 p0 = segments[uniform_particle.segment_handle].particle0.x;
-		vec3 p1 = segments[uniform_particle.segment_handle].particle1.x;
-
-		vec3 normal = normalize(uniform_particle.normal_deg.xyz);
-		float local_extrusion_distance = uniform_particle.local_extrusion_distance;
-		float snow_property = segments[uniform_particle.segment_handle].property1;
-
-		if(segments[uniform_particle.segment_handle].group_index == 0){
-			local_extrusion_distance = normal.y > max(1e-6f, 1.f - snow_property * snow_factor) ? snow_property : 0.f;
-			uniform_particles[uniform_particle_index].local_extrusion_distance = local_extrusion_distance;
-		}else{
-			local_extrusion_distance -= snow_deduction;
+		// Initialize normal quaternion
+		if(uniform_particle.normal_deg == vec4(0.0, 0.0, 0.0, 0.0)){
+			uniform_particle.normal_q = vec4(0.0, 0.0, 0.0, 0.0);
+			continue;
 		}
-		uniform_particles[uniform_particle_index].override_color = local_extrusion_distance > 1e-6f ? vec4(1, 0, 0, 0) : vec4(0, 0, 0, 0);
-		uniform_particles[uniform_particle_index].position_t.xyz = 
-			mix(p0, p1, uniform_particle.position_t.w);
-		uniform_particles[uniform_particle_index].tangent.xyz = rotate_vec3(segments[uniform_particle.segment_handle].q, vec3(0, 0, 1));
+
+		uniform_particle.normal_deg.xyz = normalize(ProjectOntoPlane(uniform_particle.normal_deg.xyz, uniform_particle.tangent.xyz));
+		Segment segment = segments[uniform_particle.segment_handle];
+		vec3 up = rotate_vec3(segment.q0, vec3(0, 1, 0));
+
+		// Compute the angle between the two vectors
+		float angle = acos(dot(normalize(up), uniform_particle.normal_deg.xyz));
+		uniform_particle.normal_deg.w = angle;
+		vec3 axis = rotate_vec3(segment.q0, vec3(0, 0, 1));
+		uniform_particle.normal_q = angle_axis(angle, axis);
+		uniform_particle.is_on_surface = 1;
+		uniform_particles[uniform_particle_index] = uniform_particle;
 	}
 }

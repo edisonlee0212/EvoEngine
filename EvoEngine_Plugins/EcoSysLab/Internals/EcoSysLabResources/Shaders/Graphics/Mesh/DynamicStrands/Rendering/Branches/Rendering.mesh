@@ -12,6 +12,8 @@
 
 const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
+const float PI = 3.1415926535897932384626433832795;
+
 layout(local_size_x = WORKGROUP_SIZE) in;
 layout(triangles) out;
 
@@ -35,14 +37,6 @@ struct Task{
 	uint	baseID;
 	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
-
-// order them such that the triangle index corresponds to the vertex index on the opposing side
-/*uvec3 triangles[] = {
-	uvec3(2, 1, 3),
-	uvec3(0, 2, 3),
-	uvec3(1, 0, 3),
-	uvec3(0, 1, 2),
-};*/
 
 #define BARRIER() \
 	memoryBarrierShared(); \
@@ -76,8 +70,7 @@ vec3 PseudoRandomColor(int seed) {
     return vec3(r, g, b);
 }
 
-void SetUpTriangleVertex(uint vertex_index, vec3 vertex_normal, uint particle_index, int is_bark){
-	UniformParticle uniform_particle = uniform_particles[particle_index];
+void SetUpTriangleVertex(uint vertex_index, vec3 vertex_normal, UniformParticle uniform_particle, int is_bark){
 	vec3 vertex_position = uniform_particle.position_t.xyz + vertex_normal * (global_extrusion_distance + uniform_particle.local_extrusion_distance);
 	mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
 
@@ -99,7 +92,7 @@ void SetUpTriangleVertex(uint vertex_index, vec3 vertex_normal, uint particle_in
 	if(vertex_colors == 0){
 
 	} else if(vertex_colors == 1){
-		ms_v_out[vertex_index].Normal = abs(vertex_normal.xyz);
+		ms_v_out[vertex_index].Normal = abs(vertex_normal);
 	} else if(vertex_colors == 2){
 		ms_v_out[vertex_index].Normal = abs(uniform_particle.tangent.xyz);
 	} else if(vertex_colors == 3){
@@ -108,7 +101,30 @@ void SetUpTriangleVertex(uint vertex_index, vec3 vertex_normal, uint particle_in
 		ms_v_out[vertex_index].Normal = vec3(mod(floor(uniform_particle.normal_deg.w / 4.0f), 2.0f), mod(floor(uniform_particle.normal_deg.w / 2.0f), 2.0f), mod(uniform_particle.normal_deg.w, 2.0f));
 	} else if(vertex_colors == 5){
 		ms_v_out[vertex_index].Normal = vec3(1.0 - is_bark, 0.0, is_bark);
+	} else if(vertex_colors == 6){
+		ms_v_out[vertex_index].Normal = 0.5 * (vec3(1, 1, 1) + uniform_particle.normal_q.xyz); // normal quaternion
+	} else if(vertex_colors == 7){
+		Segment segment = segments[uniform_particle.segment_handle];
+		ms_v_out[vertex_index].Normal = abs(rotate_vec3(segment.q, vec3(0, 1, 0))); // up
+	} else if(vertex_colors == 8){
+		Segment segment = segments[uniform_particle.segment_handle];
+		ms_v_out[vertex_index].Normal = abs(rotate_vec3(segment.q0, vec3(0, 1, 0))); // initial up
+	} else if(vertex_colors == 9){
+		Segment segment = segments[uniform_particle.segment_handle];
+		vec3 up = rotate_vec3(segment.q, vec3(0, 1, 0));
+		ms_v_out[vertex_index].Normal = abs(rotate_vec3(segment.q, vec3(0, 0, 1))); // axis
+	} else if(vertex_colors == 10){
+		Segment segment = segments[uniform_particle.segment_handle];
+		vec3 up = rotate_vec3(segment.q0, vec3(0, 1, 0));
+		ms_v_out[vertex_index].Normal = abs(rotate_vec3(segment.q0, vec3(0, 0, 1))); // initial axis
+	} else if(vertex_colors == 11){
+		Segment segment = segments[uniform_particle.segment_handle];
+		vec3 up = rotate_vec3(segment.q0, vec3(0, 1, 0));
+		// Compute the angle between the two vectors
+		float angle = uniform_particle.normal_deg.w;
+		ms_v_out[vertex_index].Normal = vec3(angle/PI, -angle/PI, 0); // init angle
 	}
+
 	gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
 }
 
@@ -135,7 +151,23 @@ void main(){
 				for(int j = 0; j < 3; j++){
 					uint vertex_index = triangles[triangle_index][j];
 					uint particle_index = tet.indices[lookup[vertex_index]];
-					SetUpTriangleVertex(vertex_index, normalize(uniform_particles[particle_index].normal_deg.xyz), particle_index, tet.is_bark[triangle_index]);
+					UniformParticle uniform_particle = uniform_particles[particle_index];
+
+					if(uniform_particle.is_on_surface == 1){
+					Segment segment = segments[uniform_particle.segment_handle];
+					vec3 up = rotate_vec3(segment.q, vec3(0, 1, 0));
+					vec3 axis = rotate_vec3(segment.q, vec3(0, 0, 1)); // axis
+					float angle = uniform_particle.normal_deg.w;
+					uniform_particle.normal_q = angle_axis(angle, axis);
+					// compute Normal
+					vec3 normal = rotate_vec3(uniform_particle.normal_q, up);
+					SetUpTriangleVertex(vertex_index, normal, uniform_particle, tet.is_bark[triangle_index]);
+					}
+					else{
+						SetUpTriangleVertex(vertex_index, normalize(uniform_particle.normal_deg.xyz), uniform_particle, tet.is_bark[triangle_index]);
+					}
+
+					
 				}
 			}
 		}
