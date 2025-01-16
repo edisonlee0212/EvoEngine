@@ -61,7 +61,7 @@ void main(){
 			}
 		}
 
-		if(persistent_damage == 0){
+		if(persistent_damage == 0 && delaunay_tetrahedron.inside_at_init == 1){
 			delaunay_tetrahedron.inside = 1;
 		}
 
