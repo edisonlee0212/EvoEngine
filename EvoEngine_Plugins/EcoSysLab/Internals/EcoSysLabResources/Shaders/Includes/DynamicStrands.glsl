@@ -75,7 +75,7 @@ struct Segment {
   mat4 inv_inertia_w;
 
   float shear_stretch_strain;
-  float padding;
+  int node_handle;
   float original_mass;
   int group_index;
 
@@ -112,7 +112,7 @@ struct SegmentPair {
   float connectivity_strain_limit;
 };
 
-#define BUNDLE_MAX_CONNECTION 16
+#define BUNDLE_MAX_CONNECTION 64
 struct SegmentData {
   vec4 particle0_position_correction;
   vec4 particle1_position_correction;

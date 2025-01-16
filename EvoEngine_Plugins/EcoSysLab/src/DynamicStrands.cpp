@@ -23,13 +23,6 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
   for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
     if (prediction)
       prediction->Execute(physics_parameters, *this);
-    if (sub_step_index == 0) {
-      if (physics_parameters.enable_segment_breaking || physics_parameters.enable_segment_disconnection ||
-          physics_parameters.enable_foliage_detachment) {
-        breaking->Execute(physics_parameters, *this);
-        CalculateGroups(physics_parameters);
-      }
-    }
     for (int iteration_i = 0; iteration_i < physics_parameters.position_constraint_iteration; iteration_i++) {
       for (const auto& c : constraints) {
         if (c->enabled)
@@ -83,6 +76,13 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
 
     simulated_time += physics_parameters.time_step / static_cast<float>(physics_parameters.sub_step);
   }
+
+  if (physics_parameters.enable_segment_breaking || physics_parameters.enable_segment_disconnection ||
+      physics_parameters.enable_foliage_detachment) {
+    breaking->Execute(physics_parameters, *this);
+    CalculateGroups(physics_parameters);
+  }
+
   if (physics_parameters.enable_segment_collision) {
     dynamic_hashed_grid->BuildGrid(physics_parameters, *this);
     segment_collision->Execute(physics_parameters, *this);
@@ -265,7 +265,9 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     changed = true;
   if (ImGui::DragFloat("Max segment length", &max_segment_length, 0.001f, min_segment_length, 1.0f))
     changed = true;
-
+  if (ImGui::Checkbox("Use grid for segment pairs", &use_voxel_grid_for_segment_pairs)) {
+    changed = true;
+  }
   if (ImGui::DragInt("Uniform subdivision", &uniform_subdivision, 1, 1, 16)) {
     uniform_subdivision = glm::clamp(uniform_subdivision, 1, 16);
     changed = true;

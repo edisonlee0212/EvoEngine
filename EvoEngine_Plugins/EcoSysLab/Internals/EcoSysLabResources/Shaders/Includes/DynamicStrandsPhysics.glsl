@@ -203,6 +203,9 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
   vec3 segment0_particle0_position = segments[segment_handle].particle0.x;
   vec3 segment0_particle1_position = segments[segment_handle].particle1.x;
   vec3 segment0_center_position = (segment0_particle0_position + segment0_particle1_position) * 0.5f;
+
+  float t2 = inv_time_step * inv_time_step;
+
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
     int pair_handle = segment_data_list[segment_handle].pair_handles[i];
     if (pair_handle < 0)
@@ -217,15 +220,23 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
     vec3 neighbor_segment_center_position =
         (neighbor_segment_particle0_position + neighbor_segment_particle1_position) * 0.5f;
 
+    
     vec3 target_segment0_center_position =
         neighbor_segment_center_position +
         rotate_vec3(segments[neighbor_segment_handle].q, is_segment0 ? segment_pairs[pair_handle].segment0_offset.xyz
                                                                      : segment_pairs[pair_handle].segment1_offset.xyz);
-
-    float t2 = inv_time_step * inv_time_step;
-    // bundle_alpha_sum += t2 * segment_pair.bundle_alpha;
-    float lambda = max(1e-9f, segments[segment_handle].inv_mass + segments[neighbor_segment_handle].inv_mass);
+    
+    /*
+    float current_distance = distance(segment0_center_position, neighbor_segment_center_position);
+    float target_distance = length(segment_pairs[pair_handle].segment0_offset);
+    vec3 target_segment0_center_position =
+        segment0_center_position + (target_distance - current_distance) * 0.5f *
+                                       normalize(segment0_center_position - neighbor_segment_center_position);
+    */
     // Always enforce inf stiffness.
+    bundle_alpha_sum += 0.0f; // t2 * segment_pairs[pair_handle].bending_alpha;
+    float lambda = max(1e-9f, segments[segment_handle].inv_mass + segments[neighbor_segment_handle].inv_mass);
+    
     float factor0 = segments[segment_handle].inv_mass / lambda;
 
     float segment_length = distance(segment0_particle0_position, segment0_particle1_position);
@@ -318,7 +329,11 @@ void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in fl
         (segments[neighbor_segment_handle].particle0.x + segments[neighbor_segment_handle].particle1.x) * 0.5f;
 
     float t2 = inv_time_step * inv_time_step;
-    // bundle_alpha_sum += t2 * segment_pairs[pair_handle].bundle_alpha;
+    float bending_alpha = segment_pairs[pair_handle].bending_alpha;
+    float twisting_alpha = segment_pairs[pair_handle].twisting_alpha;
+
+    vec3 alpha_factor = t2 * vec3(bending_alpha, bending_alpha, twisting_alpha);
+
     float factor = max(1e-9f, inv_mass + segments[neighbor_segment_handle].inv_mass);
 
     if (segments[segment_handle].strand_handle != segments[neighbor_segment_handle].strand_handle) {
@@ -337,7 +352,9 @@ void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in fl
       lambda.x /= factor;
       lambda.y /= factor;
       lambda.z /= factor;
+
       lambda.w = 0.0f;
+
       vec4 rotation_correction = quat_mul(q, lambda) * inv_mass;
       q_correction_sum += expected_rotation;
       rotation_sum += 1.0f;
@@ -349,11 +366,11 @@ void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in fl
 
 void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
   vec4 q_correction_sum = vec4(0.0f, 0.0f, 0.0f, 0.0f);
-  // vec3 alpha_sum;
   float sum = 0.f;
 
   vec4 q = segments[segment_handle].q;
   float inv_mass = segments[segment_handle].inv_mass;
+  float t2 = inv_time_step * inv_time_step;
 
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
     int pair_handle = segment_data_list[segment_handle].pair_handles[i];
@@ -375,15 +392,29 @@ void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in f
                                            : conjugate(segment_pairs[pair_handle].rest_darboux_vector);
 
     vec4 q0_correction, q1_correction;
-    vec3 bend_twist_alpha = vec3(0.0f, 0.0f, 0.0f);
-    // alpha_sum += vec3(segment_pair.bending_alpha, segment_pair.bending_alpha, segment_pair.twisting_alpha);
-    project_bend_twist_constraint(inv_time_step, q, inv_mass, neighbor_q, neighbor_inv_mass, bend_twist_alpha,
-                                  rest_darboux_vector, q0_correction, q1_correction);
-    q_correction_sum += q0_correction;
-    sum += 1.0f;
+    float bending_alpha = 0.0f; //segment_pairs[pair_handle].bending_alpha;
+    float twisting_alpha = 0.0f; // segment_pairs[pair_handle].twisting_alpha;
+    
+    vec4 lambda = quat_mul(conjugate(q), neighbor_q);
+    vec4 lambda_plus = lambda + rest_darboux_vector;
+    lambda -= rest_darboux_vector;
+    lambda = squared_norm(lambda) > squared_norm(lambda_plus) ? lambda_plus : lambda;
+    float factor = max(1e-9f, inv_mass + neighbor_inv_mass);
+
+    lambda.x /= factor + bending_alpha * t2;
+    lambda.y /= factor + twisting_alpha * t2;
+    lambda.z /= factor + twisting_alpha * t2;
+
+    lambda.w = 0.0f;
+
+    vec4 q_correction = quat_mul(neighbor_q, lambda) * inv_mass;
+    q_correction_sum += q_correction;
+    sum += 1.f;
   }
 
-  segment_data_list[segment_handle].q_correction = sum != 0 ? q_correction_sum / sum : vec4(0.0f, 0.0f, 0.0f, 0.0f);
+  vec4 q_correction = q_correction_sum / sum;
+  segment_data_list[segment_handle]
+          .q_correction = sum != 0 ? q_correction : vec4(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {

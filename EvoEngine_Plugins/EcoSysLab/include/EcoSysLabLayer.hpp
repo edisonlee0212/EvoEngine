@@ -104,12 +104,15 @@ class EcoSysLabLayer : public ILayer {
     bool enable_visualization = true;
     bool enable_physics = true;
     bool enable_rendering = true;
+
+    int remaining_step = 0;
     void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   TreeVisualizationSettings tree_visualization_settings_;
 
   struct DynamicSkeletonSettings {
     bool enable_physics = true;
+
     bool enable_visualization = true;
     DynamicSkeleton::PhysicsParameters physics_parameters{};
     DynamicSkeleton::VisualizationParameters visualization_parameters{};
@@ -204,7 +207,7 @@ class EcoSysLabLayer : public ILayer {
   void SoilVisualizationVector(const VoxelSoilModel& soil_model);  // called during LateUpdate()
   // This has to happen before LateUpdate.
   void RegisterStrandRenderingProcedure() const;
-  void DynamicStrandSimulation() const;
+  void DynamicStrandSimulation();
   void DynamicSkeletonPhysics() const;
   void DynamicSkeletonVisualization() const;
   // This has to happen during LateUpdate.

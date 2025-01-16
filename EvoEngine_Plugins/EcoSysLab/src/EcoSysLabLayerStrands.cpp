@@ -459,13 +459,16 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
     ImGui::TreePop();
   }
   ImGui::Checkbox("Physics", &enable_physics);
-  if (enable_physics && ImGui::TreeNode("Physics parameters")) {
+  if (!enable_physics && ImGui::Button("Physics step")) {
+    remaining_step++;
+  }
+  if (ImGui::TreeNode("Physics settings")) {
     physics_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
   }
 
   ImGui::Checkbox("Rendering", &enable_rendering);
-  if (enable_rendering && ImGui::TreeNode("Dynamic strand rendering")) {
+  if (ImGui::TreeNode("Rendering settings")) {
     ImGui::Checkbox("Render branches", &branches_render_parameters.enabled);
     if (branches_render_parameters.enabled) {
       if (ImGui::TreeNodeEx("Branch render settings")) {
@@ -500,7 +503,7 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
   }
 
   ImGui::Checkbox("Visualization", &enable_visualization);
-  if (enable_visualization && ImGui::TreeNode("Visualization settings")) {
+  if (ImGui::TreeNode("Visualization settings")) {
     visualization_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
   }
