@@ -48,7 +48,7 @@ void main(){
 		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[delaunay_tetrahedron_index];
 
 		if(delaunay_tetrahedron.inside == 0) continue;
-		
+
 		// determine which triangles need to be rendered
 		[[unroll]]
 		for (uint triangle_index = 0; triangle_index < 4; ++triangle_index)
@@ -60,20 +60,37 @@ void main(){
 			else {
 				delaunay_tetrahedron.render_neighbor[triangle_index] = 1;
 			}
+		}
+		// filter rogue tetrahedrons
+		if(render_complex == 0 && delaunay_tetrahedron.render_neighbor[0] == 1 && delaunay_tetrahedron.render_neighbor[1] == 1
+			&& delaunay_tetrahedron.render_neighbor[2] == 1 && delaunay_tetrahedron.render_neighbor[3] == 1){
+			delaunay_tetrahedron.inside = 0;
+		} else {
 
-			if(delaunay_tetrahedron.render_neighbor[triangle_index] != 1) continue;
-
-			vec4 normal_deg = vec4(ComputeTetTriangleNormal(delaunay_tetrahedron, triangle_index), 1.0f);
-
-			// add normal to all triangle vertices, so we can later compute an average
+			// count how many tetrahedrons are adjacent to each uniform particle
 			[[unroll]]
-			for(int j = 0; j < 4; j++){
-				if(j != triangle_index && uniform_particles[delaunay_tetrahedron.indices[j]].is_on_surface == 0){
-					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.x, normal_deg.x);
-					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.y, normal_deg.y);
-					atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.z, normal_deg.z);
-					// DEBUG: count how many normals are added, disabled for efficiency
-					//atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.w, normal_deg.w);
+			for (uint j = 0; j < 4; ++j)
+			{
+				uniform_particles[delaunay_tetrahedron.indices[j]].is_single_strand_particle = 0;
+			}
+
+			[[unroll]]
+			for (uint triangle_index = 0; triangle_index < 4; ++triangle_index)
+			{
+				if(delaunay_tetrahedron.render_neighbor[triangle_index] != 1) continue;
+
+				vec4 normal_deg = vec4(ComputeTetTriangleNormal(delaunay_tetrahedron, triangle_index), 1.0f);
+
+				// add normal to all triangle vertices, so we can later compute an average
+				[[unroll]]
+				for(int j = 0; j < 4; j++){
+					if(j != triangle_index && uniform_particles[delaunay_tetrahedron.indices[j]].is_on_surface == 0){
+						atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.x, normal_deg.x);
+						atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.y, normal_deg.y);
+						atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.z, normal_deg.z);
+						// DEBUG: count how many normals are added, disabled for efficiency
+						//atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.w, normal_deg.w);
+					}
 				}
 			}
 		}

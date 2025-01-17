@@ -6,6 +6,13 @@ uvec2 tet_edges[] = {
     uvec2(0, 1), uvec2(0, 2), uvec2(0, 3), uvec2(1, 2), uvec2(1, 3), uvec2(2, 3),
 };
 
+uvec3 tet_edge_indices[] = {
+    uvec3(0, 1, 2),
+    uvec3(0, 3, 4),
+    uvec3(1, 3, 5),
+    uvec3(2, 4, 5),
+};
+
 void SortFourElements(inout uint a[4]) {
   uint min1, min2, max1, max2;
 

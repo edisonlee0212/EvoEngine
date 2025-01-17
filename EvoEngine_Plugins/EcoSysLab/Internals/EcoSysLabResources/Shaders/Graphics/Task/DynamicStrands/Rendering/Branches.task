@@ -67,12 +67,6 @@ void main(){
 		}
 		else
 		{
-			// flag uniform particle as part of mesh, the remaining ones must be single particles
-			[[unroll]]
-			for (uint j = 0; j < 4; ++j)
-			{
-				uniform_particles[delaunay_tetrahedron.indices[j]].is_single_strand_particle = 0;
-			}
 			// determine which triangles need to be rendered
 			[[unroll]]
 			for (uint triangle_index = 0; triangle_index < 4; ++triangle_index)

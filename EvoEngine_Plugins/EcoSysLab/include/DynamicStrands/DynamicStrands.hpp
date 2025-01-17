@@ -448,8 +448,11 @@ class DynamicStrands {
     int inside = -1;
     int triangles_accepted = 0;
     float sidelengths[6];
-    float inside_at_init = 0;
-    float padding1;
+    int padding0;
+    int padding1;
+    int segment_pair_index[6];
+    int inside_at_init;
+    int padding2;
   };
 
   struct GpuLeaf {

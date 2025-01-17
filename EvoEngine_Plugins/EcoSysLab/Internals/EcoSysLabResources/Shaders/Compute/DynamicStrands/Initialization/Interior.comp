@@ -43,8 +43,47 @@ void main(){
 
 		if(delaunay_tetrahedron_index >= tetrahedrons_size) break;
 
-		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[delaunay_tetrahedron_index];		
-		delaunay_tetrahedrons[delaunay_tetrahedron_index].inside = int(InsideAlpha(delaunay_tetrahedron, min_distance_squared));
-		delaunay_tetrahedrons[delaunay_tetrahedron_index].inside_at_init = delaunay_tetrahedrons[delaunay_tetrahedron_index].inside;
+		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[delaunay_tetrahedron_index];
+		
+		// Find all segment pairs
+		// This is probably very slow, but it is only at initialization, so whatever
+		[[unroll]]
+		for(uint e = 0; e < 6; e++){
+			uint j = tet_edges[e].x;
+			uint k = tet_edges[e].y;
+
+			delaunay_tetrahedron.segment_pair_index[e] = -1;
+			UniformParticle uniform_particle0 = uniform_particles[delaunay_tetrahedron.indices[j]];
+			uint segment_handle0 = uniform_particle0.segment_handle;
+
+			UniformParticle uniform_particle1 = uniform_particles[delaunay_tetrahedron.indices[k]];
+			uint segment_handle1 = uniform_particle1.segment_handle;
+
+			[[unroll]]
+			for(uint l = 0; l < BUNDLE_MAX_CONNECTION; l++){
+				int segment_pair_index0 = segment_data_list[segment_handle0].pair_handles[l];
+				if(segment_pair_index0 == -1 || delaunay_tetrahedron.segment_pair_index[e] != -1){
+					break;
+				}
+
+				[[unroll]]
+				for(uint m = 0; m < BUNDLE_MAX_CONNECTION; m++){
+					int segment_pair_index1 = segment_data_list[segment_handle1].pair_handles[m];
+					if(segment_pair_index1 == -1){
+						break;
+					}
+
+					if(segment_pair_index0 == segment_pair_index1){
+						delaunay_tetrahedron.segment_pair_index[e] = segment_pair_index0;
+						break;
+					}
+				}
+			}			
+		}
+
+		delaunay_tetrahedron.inside = int(InsideAlpha(delaunay_tetrahedron, min_distance_squared));
+		delaunay_tetrahedron.inside_at_init = delaunay_tetrahedrons[delaunay_tetrahedron_index].inside;
+
+		delaunay_tetrahedrons[delaunay_tetrahedron_index] = delaunay_tetrahedron;
 	}
 }
