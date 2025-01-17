@@ -40,6 +40,8 @@ void main(){
 		int segment0_handle = segment_pairs[pair_index].segment0_handle;
 		int segment1_handle = segment_pairs[pair_index].segment1_handle;
 		
+		float strength = (segments[segment0_handle].strength + segments[segment1_handle].strength) * .5f;
+
 		vec3 s0p0 = segments[segment0_handle].particle0.x;
 		vec3 s0p1 = segments[segment0_handle].particle1.x;
 		vec3 s1p0 = segments[segment1_handle].particle0.x;
@@ -65,7 +67,7 @@ void main(){
 		
 		segment_pairs[pair_index].bending_twist_bundle_strain = segment_pairs[pair_index].bend_twist_bundle_integrity != 0.f ? vec3(bend_twist_strain.x, bend_twist_strain.y, bundle_strain) : vec3(0.f);
 		segment_pairs[pair_index].connectivity_strain = connectivity_strain;
-		segment_pairs[pair_index].bending_twist_bundle_strain_limit = bending_twist_bundle_strain_limit;
-		segment_pairs[pair_index].connectivity_strain_limit = connectivity_strain_limit;
+		segment_pairs[pair_index].bending_twist_bundle_strain_limit = clamp(bending_twist_bundle_strain_limit * strength, vec3(0.0f), vec3(1.0f));
+		segment_pairs[pair_index].connectivity_strain_limit = clamp(connectivity_strain_limit * strength, 0.0f, 1.0f);
 	}
 }

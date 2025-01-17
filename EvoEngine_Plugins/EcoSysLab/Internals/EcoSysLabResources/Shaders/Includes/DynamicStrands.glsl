@@ -60,7 +60,7 @@ struct Segment {
 
   float max_young_modulus;
   float shear_stretch_alpha;
-  float moisture_content;
+  float strength;
   float boundary_distance;
 
   vec2 profile_position;

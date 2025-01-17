@@ -28,7 +28,7 @@ struct NoiseDescriptor {
 };
 class Noise2D {
  public:
-  glm::vec2 min_max = glm::vec2(-1000, 1000);
+  glm::vec2 min_max = glm::vec2(0, 1);
 
   std::vector<NoiseDescriptor> noise_descriptors;
   Noise2D();
@@ -41,7 +41,7 @@ class Noise2D {
 
 class Noise3D {
  public:
-  glm::vec2 min_max = glm::vec2(-1000, 1000);
+  glm::vec2 min_max = glm::vec2(0, 1);
   std::vector<NoiseDescriptor> noise_descriptors;
   Noise3D();
   bool OnInspect();

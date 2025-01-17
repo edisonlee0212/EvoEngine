@@ -73,6 +73,7 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
 	uint segment_pairs_size;
 	uint color_mode;
 	float multiplier;
+	float factor;
 };
 
 taskPayloadSharedEXT Task ts_in;
@@ -128,6 +129,18 @@ void main(){
 	}else if(color_mode == 5){
 		float connectivity = segment_pair.connectivity_strain / segment_pair.connectivity_strain_limit;
 		color = mix(color0, color1, clamp(connectivity, 0.0, 1.0));
+	}else if(color_mode == 6){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain_limit.x) / factor, 0.0, 1.0));
+	}else if(color_mode == 7){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain_limit.y) / factor, 0.0, 1.0));
+	}else if(color_mode == 8){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain_limit.z) / factor, 0.0, 1.0));
+	}else if(color_mode == 9){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.connectivity_strain_limit) / factor, 0.0, 1.0));
 	}
 
 

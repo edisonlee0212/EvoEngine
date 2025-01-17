@@ -115,7 +115,7 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     uniform_particle_initialization_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
     vkCmdDispatch(vk_command_buffer, uniform_particles_group_size, 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer); 
+    Platform::EverythingBarrier(vk_command_buffer);
   });
 }
 
@@ -172,7 +172,11 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     const float area = glm::pi<float>() * segment.radius * segment.radius;
     segment.max_young_modulus = glm::max(1e-9f, initialize_parameters.max_youngs_modulus.GetValue(ratio)) * 1e9f;
-    segment.moisture_content = glm::max(1e-9f, initialize_parameters.moisture_content.GetValue(ratio));
+    segment.strength =
+        glm::max(1e-9f, 1.0f - initialize_parameters.damage.GetValue(
+                                   glm::vec3(target_strand_segment_data.profile_position * segment.radius * 2.f,
+                                             target_strand_segment_data.end_root_distance) /
+                                   initialize_parameters.damage_scale_factor));
     segment.boundary_distance = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f;
     segment.profile_position = target_strand_segment_data.profile_position;
     segment.profile_polar_coordinate = target_strand_segment_data.profile_polar_coordinate;

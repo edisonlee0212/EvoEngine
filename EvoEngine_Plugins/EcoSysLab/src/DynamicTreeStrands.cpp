@@ -973,7 +973,7 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
 void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
                                        const DynamicStrands::VisualizationParameters& visualization_parameters) const {
   if (!dynamic_strands->segments.empty()) {
-    dynamic_strands->Visualize(target_camera, visualization_parameters);
+    dynamic_strands->Visualize(target_camera, initialize_parameters, visualization_parameters);
   }
 }
 

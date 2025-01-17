@@ -26,6 +26,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
   if (ImGui::TreeNode("Initialize Parameters")) {
     dts->initialize_parameters.OnInspect(editor_layer);
+    ImGui::TreePop();
   }
   ImGui::DragFloat("Target simulation time", &target_simulation_time, 0.1f, 0.1f, 100.f);
   ImGui::DragFloat("Target factor 0", &target_factor0, 0.01f, 0.0f, 1.f);
