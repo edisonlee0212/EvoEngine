@@ -302,13 +302,7 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     changed = true;
   if (ImGui::DragFloat("Neighbor horizontal range", &neighbor_horizontal_range, 0.01f, 0.01f, 10.0f))
     changed = true;
-  if (ImGui::TreeNodeEx("Material properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::DragFloat("Max distance to boundary", &max_distance_to_boundary, 0.01f, 0.0f, 1.0f)) {
-      changed = true;
-    }
-    PlottedDistributionSettings wood_density_settings{};
-    if (wood_density.OnInspect("Density", wood_density_settings))
-      changed = true;
+  if (ImGui::TreeNodeEx("Physical properties", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::TreeNode("Damage")) {
       if (damage.OnInspect()) {
         changed = true;
@@ -319,43 +313,79 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
       changed = true;
     }
 
-    PlottedDistributionSettings wood_young_settings{};
-    if (max_youngs_modulus.OnInspect("Shear/stretch's modulus", wood_young_settings))
+    if (ImGui::DragFloat("Sapwood offset", &sapwood_offset, 0.01f, 0.0f, 1.0f)) {
       changed = true;
-    PlottedDistributionSettings wood_bending_settings{};
-    if (max_bending_modulus.OnInspect("Bending modulus", wood_bending_settings))
+    }
+    if (ImGui::DragFloat("Sapwood transition", &wood_transition, 0.001f, 0.001f, 1.f)) {
+      wood_transition = glm::clamp(wood_transition, 0.001f, 1.f);
       changed = true;
-    PlottedDistributionSettings wood_torsion_settings{};
-    if (max_torsion_modulus.OnInspect("Torsion modulus", wood_torsion_settings))
-      changed = true;
-    PlottedDistributionSettings max_shear_stretch_strain_settings{};
-    if (max_shear_stretch_strain.OnInspect("Max shear/stretch strain", max_shear_stretch_strain_settings))
-      changed = true;
-    PlottedDistributionSettings max_bend_strain_settings{};
-    if (max_bend_strain.OnInspect("Max bend strain", max_bend_strain_settings))
-      changed = true;
-    PlottedDistributionSettings max_twist_strain_settings{};
-    if (max_twist_strain.OnInspect("Max twist strain", max_twist_strain_settings))
-      changed = true;
+    }
+    if (ImGui::TreeNode("Wood material")) {
+      if (ImGui::DragFloat2("Density", &density.x, 1.f, 1, 1000)) {
+        changed = true;
+      }
 
-    PlottedDistributionSettings max_bundle_strain_settings{};
-    if (max_bundle_strain.OnInspect("Max bundle strain", max_bundle_strain_settings))
-      changed = true;
-    PlottedDistributionSettings max_connectivity_strain_settings{};
-    if (max_connectivity_strain.OnInspect("Max connectivity strain", max_connectivity_strain_settings))
-      changed = true;
+      if (ImGui::DragFloat2("Shear/Stretch modulus", &max_stretch_shear_modulus.x, 0.01f, 0.f, 1000.f)) {
+        changed = true;
+      }
+      if (ImGui::DragFloat2("Bending modulus", &max_bending_modulus.x, 0.01f, 0.f, 1000.f)) {
+        changed = true;
+      }
+      if (ImGui::DragFloat2("Twisting modulus", &max_twisting_modulus.x, 0.01f, 0.f, 1000.f)) {
+        changed = true;
+      }
+      ImGui::TreePop();
+    }
 
-    if (leaf_position_alpha.OnInspect("Leaf position alpha"))
+    if (ImGui::DragFloat2("Shear/Stretch strength", &shear_stretch_strength.x, 0.01f, 0.f, 1000.f)) {
       changed = true;
+    }
 
-    if (leaf_rotation_alpha.OnInspect("Leaf rotation alpha"))
+    if (ImGui::DragFloat2("Bending strength", &bending_strength.x, 0.01f, 0.f, 1000.f)) {
       changed = true;
+    }
+    if (ImGui::DragFloat2("Twisting strength", &twisting_strength.x, 0.01f, 0.f, 1000.f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat2("Bundle strength", &max_bundle_strength.x, 0.01f, 0.f, 1000.f)) {
+      changed = true;
+    }
 
-    if (max_leaf_position_strain.OnInspect("Max leaf position strain"))
+    if (ImGui::DragFloat2("Segment Pair strength", &connectivity_strength.x, 0.01f, 0.f, 1000.f)) {
       changed = true;
+    }
+    if (ImGui::Checkbox("Trunk", &trunk)) {
+      changed = true;
+    }
+    if (trunk) {
+      if (ImGui::DragFloat("Trunk offset", &trunk_offset, 0.01f, 0.0f, 1.0f)) {
+        changed = true;
+      }
+      if (ImGui::DragFloat("Trunk transition", &trunk_transition, 0.01f, 0.001f, 1.f)) {
+        trunk_transition = glm::clamp(trunk_transition, 0.001f, 10.f);
+        changed = true;
+      }
+      if (ImGui::DragFloat("Trunk additional strength", &trunk_additional_strength_factor, 0.01f, 0.001f, 1.f)) {
+        trunk_additional_strength_factor = glm::clamp(trunk_additional_strength_factor, 0.0f, 1.f);
+        changed = true;
+      }
+    }
 
-    if (max_leaf_rotation_strain.OnInspect("Max leaf rotation strain"))
-      changed = true;
+    if (ImGui::TreeNode("Foliage attachments")) {
+      if (leaf_position_alpha.OnInspect("Leaf position alpha"))
+        changed = true;
+
+      if (leaf_rotation_alpha.OnInspect("Leaf rotation alpha"))
+        changed = true;
+
+      if (max_leaf_position_strain.OnInspect("Max leaf position strain"))
+        changed = true;
+
+      if (max_leaf_rotation_strain.OnInspect("Max leaf rotation strain"))
+        changed = true;
+
+      ImGui::TreePop();
+    }
 
     ImGui::TreePop();
   }

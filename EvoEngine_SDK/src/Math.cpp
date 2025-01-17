@@ -29,3 +29,33 @@ glm::vec2 Random::Disk(std::mt19937& random_engine, const float radius) {
   float y = r * std::sin(theta);
   return {x, y};
 }
+
+float ActivationFunction::Sigmoid(const float a, const float b, const float offset, const float speed, const float x) {
+  const float d_x = -(x - offset) * speed;
+  return glm::mix(a, b, 1.f / (1.f + std::exp(d_x)));
+}
+
+float ActivationFunction::SoftSign(const float a, const float b, const float offset, const float speed, const float x) {
+  const float d_x = -(x - offset) * speed;
+  return glm::mix(a, b, x / (1.f + std::abs(d_x)));
+}
+
+float ActivationFunction::Tanh(const float a, const float b, const float offset, const float speed, const float x) {
+  const float d_x = -(x - offset) * speed;
+  return glm::mix(a, b, std::tanh(d_x));
+}
+
+float ActivationFunction::Sigmoid(const float offset, const float speed, const float x) {
+  const float d_x = -(x - offset) * speed;
+  return 1.f / (1.f + std::exp(d_x));
+}
+
+float ActivationFunction::SoftSign(const float offset, const float speed, const float x) {
+  const float d_x = -(x - offset) * speed;
+  return x / (1.f + std::abs(d_x));
+}
+
+float ActivationFunction::Tanh(const float offset, const float speed, const float x) {
+  const float d_x = -(x - offset) * speed;
+  return std::tanh(d_x);
+}

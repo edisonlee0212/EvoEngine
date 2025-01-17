@@ -23,4 +23,14 @@ class Random {
   static glm::vec2 Disk(std::mt19937& random_engine, float radius);
 };
 
+class ActivationFunction {
+ public:
+  static float Sigmoid(float a, float b, float offset, float speed, float x);
+  static float SoftSign(float a, float b, float offset, float speed, float x);
+  static float Tanh(float a, float b, float offset, float speed, float x);
+  static float Sigmoid(float offset, float speed, float x);
+  static float SoftSign(float offset, float speed, float x);
+  static float Tanh(float offset, float speed, float x);
+};
+
 }  // namespace evo_engine
