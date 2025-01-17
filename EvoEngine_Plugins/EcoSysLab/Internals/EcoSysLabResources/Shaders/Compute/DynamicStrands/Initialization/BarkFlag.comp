@@ -42,6 +42,15 @@ void main(){
 
 		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[delaunay_tetrahedron_index];
 
+		// check if end of strand
+		for (int j = 0; j < 4; j++){
+			UniformParticle uniform_particle = uniform_particles[delaunay_tetrahedron.indices[j]];
+			if((uniform_particle.position_t.w == 0.0 && segments[uniform_particle.segment_handle].prev_handle == -1)
+				|| (uniform_particle.position_t.w == 1.0 && segments[uniform_particle.segment_handle].next_handle == -1)){
+				uniform_particles[delaunay_tetrahedron.indices[j]].is_on_surface = 2; // temporary flag for normal stage
+			}
+		}
+
 		// Assign bark flags here
 		if(delaunay_tetrahedron.inside == 1){
 
@@ -55,6 +64,16 @@ void main(){
 				}
 				else{
 					delaunay_tetrahedron.is_bark[triangle_index] = 1;
+				}
+
+				// special case for end of strands
+				bool triangle_on_end = true;
+				[[unroll]]
+				for (int j = 0; j < 4; j++){
+					if(triangle_index == j) continue;
+
+					UniformParticle uniform_particle = uniform_particles[delaunay_tetrahedron.indices[j]];
+					triangle_on_end = triangle_on_end && (uniform_particle.is_on_surface == 2);
 				}
 
 				// compute normal and add to vertices
@@ -73,6 +92,8 @@ void main(){
 						}
 					}
 				}
+
+				delaunay_tetrahedron.is_bark[triangle_index] = triangle_on_end ? 0 : 1;
 			}
 
 			// get vertices
