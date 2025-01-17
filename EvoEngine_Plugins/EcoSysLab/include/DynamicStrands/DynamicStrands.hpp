@@ -78,35 +78,29 @@ class DynamicStrands {
     float max_segment_length = 0.06f;
     int uniform_subdivision = 5;
     bool use_voxel_grid_for_segment_pairs = true;
-
-    float max_distance_to_boundary = 0.1f;
-    PlottedDistribution<float> wood_density = {{600.0f, 700.0f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
-                                               {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-
-    PlottedDistribution<float> max_youngs_modulus = {{9.5f, 13.5f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
-                                                     {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-
-    PlottedDistribution<float> max_bending_modulus = {{0.8f, 2.f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
-                                                      {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-    PlottedDistribution<float> max_torsion_modulus = {{0.8f, 2.f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
-                                                      {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-
     Noise3D damage{};
     glm::vec3 damage_scale_factor = glm::vec3(0.01f);
     float neighbor_vertical_range = 3.0f;
     float neighbor_horizontal_range = 3.0f;
-    PlottedDistribution<float> max_shear_stretch_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
-                                                           {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    PlottedDistribution<float> max_bend_strain = {{0.15f, 0.15f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
-                                                  {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-    PlottedDistribution<float> max_twist_strain = {{0.15f, 0.15f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
-                                                   {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-    PlottedDistribution<float> max_bundle_strain = {{0.08f, 0.12f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
-                                                    {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
+    float sapwood_offset = 0.05f;
+    float wood_transition = 0.005f;
 
-    PlottedDistribution<float> max_connectivity_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
-                                                          {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
+    glm::vec2 density = {600.f, 700.f};
+    glm::vec2 max_stretch_shear_modulus = {9.5f, 13.5f};
+    glm::vec2 max_bending_modulus = {0.15f, 2.f};
+    glm::vec2 max_twisting_modulus = {0.15f, 2.f};
+
+    glm::vec2 shear_stretch_strength = {0.2f, 0.1f};
+    glm::vec2 bending_strength = {0.2f, 0.1f};
+    glm::vec2 twisting_strength = {0.2f, 0.1f};
+    glm::vec2 max_bundle_strength = {0.2f, 0.1f};
+    glm::vec2 connectivity_strength = {0.1f, 0.05f};
+
+    bool trunk = true;
+    float trunk_offset = 0.3f;
+    float trunk_transition = 0.1f;
+    float trunk_additional_strength_factor = 0.5f;
 
     SingleDistribution<float> leaf_position_alpha = {0.01f, 0.1f};
     SingleDistribution<float> leaf_rotation_alpha = {0.01f, 0.1f};
@@ -190,8 +184,8 @@ class DynamicStrands {
     bool render_uniform_particles = false;
     bool render_foliage = true;
 
-    uint32_t segment_render_mode = 4;
-    uint32_t segment_pair_render_mode = 1;
+    uint32_t segment_render_mode = 6;
+    uint32_t segment_pair_render_mode = 5;
     uint32_t uniform_particle_render_mode = 2;
     uint32_t foliage_render_mode = 0;
 

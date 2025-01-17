@@ -17,7 +17,7 @@ bool DynamicSkeleton::InitializeParameters::OnInspect(const std::shared_ptr<Edit
       changed = true;
     if (max_bending_modulus.OnInspect("Wood Bending modulus"))
       changed = true;
-    if (max_torsion_modulus.OnInspect("Wood Torsion modulus"))
+    if (max_twisting_modulus.OnInspect("Wood Torsion modulus"))
       changed = true;
     ImGui::TreePop();
   }
@@ -88,12 +88,12 @@ void DynamicSkeleton::Initialize(const InitializeParameters& initialize_paramete
     node_data.inv_inertia_tensor = 1.f / node_data.inertia_tensor;
 
     const float area = glm::pi<float>() * node_data.radius * node_data.radius;
-    node_data.max_youngs_modulus = glm::max(1e-9f, initialize_parameters.max_youngs_modulus.GetValue()) * 1e9f;
+    node_data.max_stretch_shear_modulus = glm::max(1e-9f, initialize_parameters.max_youngs_modulus.GetValue()) * 1e9f;
 
-    node_data.shear_stretch_alpha = 1.f / (node_data.max_youngs_modulus * area / node_data.length);
+    node_data.shear_stretch_alpha = 1.f / (node_data.max_stretch_shear_modulus * area / node_data.length);
 
     node_data.max_bending_modulus = glm::max(1e-9f, initialize_parameters.max_bending_modulus.GetValue()) * 1e9f;
-    node_data.max_torsion_modulus = glm::max(1e-9f, initialize_parameters.max_torsion_modulus.GetValue()) * 1e9f;
+    node_data.max_twisting_modulus = glm::max(1e-9f, initialize_parameters.max_twisting_modulus.GetValue()) * 1e9f;
     const float average_segment_radius = node_data.radius;
     const float average_segment_length = node_data.length;
 
@@ -101,7 +101,7 @@ void DynamicSkeleton::Initialize(const InitializeParameters& initialize_paramete
     const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.5f;
     node_data.bending_alpha =
         1.f / (node_data.max_bending_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f));
-    node_data.torsion_alpha = 1.f / (node_data.max_torsion_modulus * polar_moment_of_inertia / average_segment_length);
+    node_data.torsion_alpha = 1.f / (node_data.max_twisting_modulus * polar_moment_of_inertia / average_segment_length);
   });
   Jobs::RunParallelFor(sorted_node_list.size(), [&](const auto i) {
     auto& node = dts_skeleton.RefNode(sorted_node_list[i]);

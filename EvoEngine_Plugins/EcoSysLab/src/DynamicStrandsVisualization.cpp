@@ -352,7 +352,9 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
       break;
     }
     case VisualizationParameters::SegmentRenderMode::StretchShearLimit: {
-      segment_push_constant.factor = initialize_parameters.max_shear_stretch_strain.mean.max_value;
+      segment_push_constant.factor =
+          initialize_parameters.trunk_additional_strength_factor +
+          glm::max(initialize_parameters.shear_stretch_strength.x, initialize_parameters.shear_stretch_strength.y);
       break;
     }
     default: {
@@ -376,19 +378,27 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   switch (
       static_cast<VisualizationParameters::SegmentPairRenderMode>(visualization_parameters.segment_pair_render_mode)) {
     case VisualizationParameters::SegmentPairRenderMode::BendingLimit: {
-      segment_pair_push_constant.factor = initialize_parameters.max_bend_strain.mean.max_value;
+      segment_pair_push_constant.factor =
+          initialize_parameters.trunk_additional_strength_factor +
+          glm::max(initialize_parameters.bending_strength.x, initialize_parameters.bending_strength.y);
       break;
     }
     case VisualizationParameters::SegmentPairRenderMode::TwistLimit: {
-      segment_pair_push_constant.factor = initialize_parameters.max_twist_strain.mean.max_value;
+      segment_pair_push_constant.factor =
+          initialize_parameters.trunk_additional_strength_factor +
+          glm::max(initialize_parameters.twisting_strength.x, initialize_parameters.twisting_strength.y);
       break;
     }
     case VisualizationParameters::SegmentPairRenderMode::BundleLimit: {
-      segment_pair_push_constant.factor = initialize_parameters.max_bundle_strain.mean.max_value;
+      segment_pair_push_constant.factor =
+          initialize_parameters.trunk_additional_strength_factor +
+          glm::max(initialize_parameters.max_bundle_strength.x, initialize_parameters.max_bundle_strength.y);
       break;
     }
     case VisualizationParameters::SegmentPairRenderMode::ConnectivityLimit: {
-      segment_pair_push_constant.factor = initialize_parameters.max_connectivity_strain.mean.max_value;
+      segment_pair_push_constant.factor =
+          initialize_parameters.trunk_additional_strength_factor +
+          glm::max(initialize_parameters.connectivity_strength.x, initialize_parameters.connectivity_strength.y);
       break;
     }
     default: {

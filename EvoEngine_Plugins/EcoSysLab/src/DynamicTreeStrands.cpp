@@ -427,7 +427,12 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
   strand_group.CalculateRotations();
   const bool saved_strand_length_limit = limit_strand_length;
   limit_strand_length = false;
+
+  const bool trunk = initialize_parameters.trunk;
+  initialize_parameters.trunk = false;
   UpdateDynamicStrands();
+  initialize_parameters.trunk = trunk;
+
   limit_strand_length = saved_strand_length_limit;
 
   switch (static_cast<PivotType>(settings.left_pivot_type)) {
@@ -690,7 +695,12 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   strand_group.CalculateRotations();
   const bool saved_strand_length_limit = limit_strand_length;
   limit_strand_length = false;
+
+  const bool trunk = initialize_parameters.trunk;
+  initialize_parameters.trunk = false;
   UpdateDynamicStrands();
+  initialize_parameters.trunk = trunk;
+
   limit_strand_length = saved_strand_length_limit;
 
   switch (static_cast<PivotType>(settings.left_pivot_type)) {

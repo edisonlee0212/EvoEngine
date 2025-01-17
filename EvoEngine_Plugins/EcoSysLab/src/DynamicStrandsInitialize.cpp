@@ -160,30 +160,48 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
         initialize_parameters.root_transform.GetRotation() * target_strand_segment.rotation;
     segment.torque = glm::vec3(0.f);
     // 0.6046 = area radio of the circle within its bounding equilateral triangle.
-    const float ratio = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f /
-                        initialize_parameters.max_distance_to_boundary;
-
-    segment.original_mass =
-        glm::max(1e-6f, segment.radius * segment.radius * glm::pi<float>() *
-                            initialize_parameters.wood_density.GetValue(ratio) * segment.rest_length);
+    const float distance_to_boundary = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f;
+    const float root_distance =
+        (target_strand_segment_data.start_root_distance + target_strand_segment_data.end_root_distance) * .5f;
+    const float trunk_strength_factor =
+        initialize_parameters.trunk
+            ? ActivationFunction::Sigmoid(initialize_parameters.trunk_additional_strength_factor, 0.f,
+                                          initialize_parameters.trunk_offset,
+                                          1.f / initialize_parameters.trunk_transition, root_distance)
+            : 0.f;
+    segment.original_mass = glm::max(
+        1e-6f, segment.radius * segment.radius * glm::pi<float>() *
+                   ActivationFunction::Sigmoid(initialize_parameters.density.x, initialize_parameters.density.y,
+                                               initialize_parameters.sapwood_offset,
+                                               1.f / initialize_parameters.wood_transition, distance_to_boundary) *
+                   segment.rest_length);
     segment.extra_mass = 0.f;
     segment.property1 = segment.property2 = segment.property3 = 0.f;
     segment.inertia_tensor = ComputeInertiaTensorRod(segment.original_mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     const float area = glm::pi<float>() * segment.radius * segment.radius;
-    segment.max_young_modulus = glm::max(1e-9f, initialize_parameters.max_youngs_modulus.GetValue(ratio)) * 1e9f;
+    segment.max_young_modulus =
+        glm::max(1e-9f, ActivationFunction::Sigmoid(
+                            initialize_parameters.max_stretch_shear_modulus.x,
+                            initialize_parameters.max_stretch_shear_modulus.y, initialize_parameters.sapwood_offset,
+                            1.f / initialize_parameters.wood_transition, distance_to_boundary)) *
+        1e9f;
     segment.strength =
         glm::max(1e-9f, 1.0f - initialize_parameters.damage.GetValue(
                                    glm::vec3(target_strand_segment_data.profile_position * segment.radius * 2.f,
                                              target_strand_segment_data.end_root_distance) /
                                    initialize_parameters.damage_scale_factor));
-    segment.boundary_distance = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f;
+    segment.boundary_distance = distance_to_boundary;
     segment.profile_position = target_strand_segment_data.profile_position;
     segment.profile_polar_coordinate = target_strand_segment_data.profile_polar_coordinate;
 
     segment.shear_stretch_alpha = 1.f / (segment.max_young_modulus * area / segment.rest_length);
-    const float max_shear_stretch_strain =
-        glm::max(0.001f, initialize_parameters.max_shear_stretch_strain.GetValue(ratio));
+    const float max_shear_stretch_strain = glm::max(
+        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.shear_stretch_strength.x,
+                                                                    initialize_parameters.shear_stretch_strength.y,
+                                                                    initialize_parameters.sapwood_offset,
+                                                                    1.f / initialize_parameters.wood_transition,
+                                                                    distance_to_boundary));
     segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain = max_shear_stretch_strain;
 
     const auto& strand_segment = strand_group.PeekStrandSegment(static_cast<int>(segment_handle));
@@ -743,6 +761,20 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     auto& segment_pair = segment_pairs[pair_index];
     auto& segment0 = segments[segment_pair.segment0_handle];
     auto& segment1 = segments[segment_pair.segment1_handle];
+
+    const auto& target_strand_segment0_data = target_strand_segment_data_list[segment_pair.segment0_handle];
+    const auto& target_strand_segment1_data = target_strand_segment_data_list[segment_pair.segment1_handle];
+
+    const float root_distance =
+        (target_strand_segment0_data.start_root_distance + target_strand_segment0_data.end_root_distance +
+         target_strand_segment1_data.start_root_distance + target_strand_segment1_data.end_root_distance) *
+        .25f;
+    const float trunk_strength_factor =
+        initialize_parameters.trunk
+            ? ActivationFunction::Sigmoid(initialize_parameters.trunk_additional_strength_factor, 0.f,
+                                          initialize_parameters.trunk_offset,
+                                          1.f / initialize_parameters.trunk_transition, root_distance)
+            : 0.f;
     const bool direct_connection = segment_data_list[segment_pair.segment0_handle].pair_handles[1] == pair_index;
     auto& segment0_particle0 = segment0.particle0;
     auto& segment0_particle1 = segment0.particle1;
@@ -757,31 +789,56 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     segment_pair.rest_darboux_vector = glm::conjugate(segment0.q0) * segment1.q0;
     segment_pair.bend_twist_bundle_integrity = 1.0f;
     segment_pair.connectivity_integrity = direct_connection ? 1.0f : 0.0f;
-    const float ratio0 = segment0.boundary_distance / initialize_parameters.max_distance_to_boundary;
-    const float ratio1 = segment1.boundary_distance / initialize_parameters.max_distance_to_boundary;
-    const float ratio = (ratio0 + ratio1) * .5f;
+    const float distance_to_boundary = (segment0.boundary_distance + segment1.boundary_distance) * .5f;
     segment_pair.max_bending_modulus =
-        glm::max(1e-9f, initialize_parameters.max_bending_modulus.GetValue(ratio)) * 1e9f;
+        glm::max(1e-9f, ActivationFunction::Sigmoid(
+                            initialize_parameters.max_bending_modulus.x, initialize_parameters.max_bending_modulus.y,
+                            initialize_parameters.sapwood_offset, 1.f / initialize_parameters.wood_transition,
+                            distance_to_boundary)) *
+        1e9f;
     segment_pair.max_torsion_modulus =
-        glm::max(1e-9f, initialize_parameters.max_torsion_modulus.GetValue(ratio)) * 1e9f;
-    const float average_segment_radius = (segment0.radius + segment1.radius) * .5f;
-    const float average_segment_length = (segment0.rest_length + segment1.rest_length) * .5f;
-    const auto second_moment_of_area = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.25f;
-    const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(average_segment_radius, 4.f) * 0.5f;
+        glm::max(1e-9f, ActivationFunction::Sigmoid(
+                            initialize_parameters.max_twisting_modulus.x, initialize_parameters.max_twisting_modulus.y,
+                            initialize_parameters.sapwood_offset, 1.f / initialize_parameters.wood_transition,
+                            distance_to_boundary)) *
+        1e9f;
+    const float segment_radius = (segment0.radius + segment1.radius) * .5f;
+    const float segment_length = (segment0.rest_length + segment1.rest_length) * .5f;
+    const auto second_moment_of_area = glm::pi<float>() * std::pow(segment_radius, 4.f) * 0.25f;
+    const auto polar_moment_of_inertia = glm::pi<float>() * std::pow(segment_radius, 4.f) * 0.5f;
     segment_pair.bending_alpha =
-        1.f / (segment_pair.max_bending_modulus * second_moment_of_area / glm::pow(average_segment_length, 3.f));
-    segment_pair.torsion_alpha =
-        1.f / (segment_pair.max_torsion_modulus * polar_moment_of_inertia / average_segment_length);
+        1.f / (segment_pair.max_bending_modulus * second_moment_of_area / glm::pow(segment_length, 3.f));
+    segment_pair.torsion_alpha = 1.f / (segment_pair.max_torsion_modulus * polar_moment_of_inertia / segment_length);
     const auto& q0 = segment0.q0;
     const auto& q1 = segment1.q0;
     segment_pair.rest_darboux_vector = glm::conjugate(q0) * q1;
-    const float max_bend_strain = glm::max(0.001f, initialize_parameters.max_bend_strain.GetValue(ratio));
-    const float max_twist_strain = glm::max(0.001f, initialize_parameters.max_twist_strain.GetValue(ratio));
-    const float max_bundle_strain = glm::max(0.001f, initialize_parameters.max_bundle_strain.GetValue(ratio));
-    const float max_connectivity_strain =
-        glm::max(0.001f, initialize_parameters.max_connectivity_strain.GetValue(ratio));
+    const float max_bending_strain = glm::max(
+        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.bending_strength.x,
+                                                                    initialize_parameters.bending_strength.y,
+                                                                    initialize_parameters.sapwood_offset,
+                                                                    1.f / initialize_parameters.wood_transition,
+                                                                    distance_to_boundary));
+    const float max_twisting_strain = glm::max(
+        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.twisting_strength.x,
+                                                                    initialize_parameters.twisting_strength.y,
+                                                                    initialize_parameters.sapwood_offset,
+                                                                    1.f / initialize_parameters.wood_transition,
+                                                                    distance_to_boundary));
+
+    const float max_bundle_strain = glm::max(
+        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.max_bundle_strength.x,
+                                                                    initialize_parameters.max_bundle_strength.y,
+                                                                    initialize_parameters.sapwood_offset,
+                                                                    1.f / initialize_parameters.wood_transition,
+                                                                    distance_to_boundary));
+    const float max_connectivity_strain = glm::max(
+        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.connectivity_strength.x,
+                                                                    initialize_parameters.connectivity_strength.y,
+                                                                    initialize_parameters.sapwood_offset,
+                                                                    1.f / initialize_parameters.wood_transition,
+                                                                    distance_to_boundary));
     segment_pair.max_bending_twist_bundle_strain = segment_pair.bending_twist_bundle_strain_limit =
-        glm::vec3(max_bend_strain, max_twist_strain, max_bundle_strain);
+        glm::vec3(max_bending_strain, max_twisting_strain, max_bundle_strain);
     segment_pair.max_connectivity_strain = segment_pair.connectivity_strain_limit = max_connectivity_strain;
   });
   // set up nodes

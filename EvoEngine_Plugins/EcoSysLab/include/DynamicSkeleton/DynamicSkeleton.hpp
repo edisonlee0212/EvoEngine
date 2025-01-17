@@ -33,10 +33,10 @@ struct DynamicSkeletonNodeData {
   float length;
   float radius;
 
-  float max_youngs_modulus;
+  float max_stretch_shear_modulus;
 
   float max_bending_modulus;
-  float max_torsion_modulus;
+  float max_twisting_modulus;
 
   float bending_alpha = 0.0f;
   float torsion_alpha = 0.0f;
@@ -56,7 +56,7 @@ class DynamicSkeleton {
     SingleDistribution<float> max_youngs_modulus = {9.5f, 0.1f};
 
     SingleDistribution<float> max_bending_modulus = {1.f, .1f};
-    SingleDistribution<float> max_torsion_modulus = {1.f, .1f};
+    SingleDistribution<float> max_twisting_modulus = {1.f, .1f};
 
     GlobalTransform root_transform{};
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
