@@ -66,7 +66,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   struct BoardExperimentSetupSettings {
     float segment_length = 0.05f;
     float radius = 0.002f;
-    glm::ivec3 rod_dimension = {10, 40, 20};
+    glm::ivec3 rod_dimension = {20, 40, 20};
     unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);
     unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
@@ -74,8 +74,8 @@ class DynamicTreeStrands : public IPrivateComponent {
   struct LogExperimentSetupSettings {
     float segment_length = 0.05f;
     float radius = 0.002f;
-    int rod_size = 400;
-    int rod_segment_count = 10;
+    int rod_size = 800;
+    int rod_segment_count = 20;
     float center_attraction_strength = 40000;
     unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);
     unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);

@@ -7,10 +7,10 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (ImGui::Checkbox("Segments", &render_segments))
     changed = true;
   if (render_segments) {
-    if (ImGui::Combo(
-            "Segment mode",
-            {"Default", "Segment color", "Boundary distance", "Moister Content", "Shear/Strain strain", "Group Index"},
-            segment_render_mode))
+    if (ImGui::Combo("Segment mode",
+                     {"Default", "Segment color", "Group index", "Boundary distance", "Strength", "Shear/Strain strain",
+                      "Shear/Stretch limit"},
+                     segment_render_mode))
       changed = true;
     switch (segment_render_mode) {
       case 0: {
@@ -28,8 +28,12 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
           changed = true;
         break;
       }
-      case 3:
-      case 4: {
+      case 3: {
+        break;
+      }
+      case 4:
+      case 5:
+      case 6: {
         if (ImGui::ColorEdit4("Segment min color", &segment_color_min.x))
           changed = true;
         if (ImGui::ColorEdit4("Segment max color", &segment_color_max.x))
@@ -44,10 +48,10 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (ImGui::Checkbox("Segment Pair", &render_segment_pairs))
     changed = true;
   if (render_segment_pairs) {
-    if (ImGui::Combo(
-            "Segment Pair mode",
-            {"Default", "Bending Strain", "Twisting Strain", "Bundle Strain", "Combined Strain", "Connectivity Strain"},
-            segment_pair_render_mode))
+    if (ImGui::Combo("Segment Pair mode",
+                     {"Default", "Bending strain", "Twisting strain", "Bundle strain", "Combined strain",
+                      "Connectivity strain", "Bending Limit", "Twisting limit", "Bundle limit", "Connectivity limit"},
+                     segment_pair_render_mode))
       changed = true;
     switch (segment_pair_render_mode) {
       case 0: {
@@ -59,7 +63,11 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       case 2:
       case 3:
       case 4:
-      case 5: {
+      case 5:
+      case 6:
+      case 7:
+      case 8:
+      case 9: {
         if (ImGui::ColorEdit4("Segment pair min color", &segment_pair_color_min.x))
           changed = true;
         if (ImGui::ColorEdit4("Segment pair max color", &segment_pair_color_max.x))
@@ -104,6 +112,7 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
 }
 
 void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
+                               const InitializeParameters& initialize_parameters,
                                const VisualizationParameters& visualization_parameters) const {
   if (!Platform::Constants::support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
@@ -124,8 +133,8 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     uint32_t camera_index = 0;
     uint32_t strand_segment_size = 0;
     uint32_t render_mode = 2;
-    float multiplier = 10.0f;
-    float boundary_distance_modular = 10.0f;
+    float multiplier = 1.0f;
+    float factor = 1.0f;
   };
 
   if (!segment_render_pipeline) {
@@ -174,7 +183,8 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     uint32_t camera_index = 0;
     uint32_t strand_segment_pair_size = 0;
     uint32_t render_mode = 2;
-    float multiplier = 10.0f;
+    float multiplier = 1.0f;
+    float factor = 1.0f;
   };
 
   if (!segment_pair_render_pipeline) {
@@ -336,7 +346,21 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   segment_push_constant.camera_index =
       render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
   segment_push_constant.multiplier = visualization_parameters.segment_radius_multiplier;
-  segment_push_constant.boundary_distance_modular = visualization_parameters.segment_boundary_distance_modular;
+  switch (static_cast<VisualizationParameters::SegmentRenderMode>(visualization_parameters.segment_render_mode)) {
+    case VisualizationParameters::SegmentRenderMode::BoundaryDistance: {
+      segment_push_constant.factor = visualization_parameters.segment_boundary_distance_modular;
+      break;
+    }
+    case VisualizationParameters::SegmentRenderMode::StretchShearLimit: {
+      segment_push_constant.factor = initialize_parameters.max_shear_stretch_strain.mean.max_value;
+      break;
+    }
+    default: {
+      segment_push_constant.factor = 1.f;
+      break;
+    }
+  }
+
   segment_push_constant.strand_segment_size = segments.size();
 
   SegmentPairRenderPushConstant segment_pair_push_constant;
@@ -349,6 +373,29 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
       render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
   segment_pair_push_constant.multiplier = visualization_parameters.segment_pair_radius_multiplier;
   segment_pair_push_constant.strand_segment_pair_size = segment_pairs.size();
+  switch (
+      static_cast<VisualizationParameters::SegmentPairRenderMode>(visualization_parameters.segment_pair_render_mode)) {
+    case VisualizationParameters::SegmentPairRenderMode::BendingLimit: {
+      segment_pair_push_constant.factor = initialize_parameters.max_bend_strain.mean.max_value;
+      break;
+    }
+    case VisualizationParameters::SegmentPairRenderMode::TwistLimit: {
+      segment_pair_push_constant.factor = initialize_parameters.max_twist_strain.mean.max_value;
+      break;
+    }
+    case VisualizationParameters::SegmentPairRenderMode::BundleLimit: {
+      segment_pair_push_constant.factor = initialize_parameters.max_bundle_strain.mean.max_value;
+      break;
+    }
+    case VisualizationParameters::SegmentPairRenderMode::ConnectivityLimit: {
+      segment_pair_push_constant.factor = initialize_parameters.max_connectivity_strain.mean.max_value;
+      break;
+    }
+    default: {
+      segment_pair_push_constant.factor = 1.f;
+      break;
+    }
+  }
 
   FoliageRenderPushConstant foliage_push_constant;
   foliage_push_constant.render_mode = visualization_parameters.foliage_render_mode;

@@ -73,7 +73,7 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
 	uint segments_size;
 	uint color_mode;
 	float multiplier;
-	float boundary_layer_radius;
+	float factor;
 };
 
 taskPayloadSharedEXT Task ts_in;
@@ -114,13 +114,15 @@ void main(){
 	}else if(color_mode == 1){
 		color = segments[segment.node_handle].color;
 	}else if(color_mode == 2){
-		color = mix(color0, color1, clamp(mod(segment.boundary_distance, boundary_layer_radius) / boundary_layer_radius, 0.0, 1.0));
-	}else if(color_mode == 3){
-		color = mix(color0, color1, clamp(segment.moisture_content, 0.0f, 1.0f));
-	}else if(color_mode == 4){
-		color = mix(color0, color1, clamp(abs(segment.shear_stretch_strain) / segment.shear_stretch_strain_limit, 0.0, 1.0));
-	}else if(color_mode == 5){
 		color = segment.group_index == 0 ? vec4(0.6, 0.3, 0.0, 1.0) : segments[segment.group_index].color;
+	}else if(color_mode == 3){
+		color = mix(color0, color1, clamp(mod(segment.boundary_distance, factor) / factor, 0.0, 1.0));
+	}else if(color_mode == 4){
+		color = mix(color0, color1, clamp(segment.strength, 0.0f, 1.0f));
+	}else if(color_mode == 5){
+		color = mix(color0, color1, clamp(abs(segment.shear_stretch_strain) / segment.shear_stretch_strain_limit, 0.0, 1.0));
+	}else if(color_mode == 6){
+		color = mix(color0, color1, clamp(segment.shear_stretch_strain_limit / factor, 0.0, 1.0));
 	}
 	
 	float highlight1_ratio = 0.0f;

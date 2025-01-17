@@ -1,4 +1,5 @@
 #pragma once
+#include "Noises.hpp"
 #include "RenderLayer.hpp"
 #include "StrandGroup.hpp"
 #include "StrandModelData.hpp"
@@ -78,7 +79,7 @@ class DynamicStrands {
     int uniform_subdivision = 5;
     bool use_voxel_grid_for_segment_pairs = true;
 
-    float max_distance_to_boundary = 1.0f;
+    float max_distance_to_boundary = 0.1f;
     PlottedDistribution<float> wood_density = {{600.0f, 700.0f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
                                                {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
@@ -90,9 +91,8 @@ class DynamicStrands {
     PlottedDistribution<float> max_torsion_modulus = {{0.8f, 2.f, {0.0f, 1.0f, {0, 0}, {1, 1}}},
                                                       {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
 
-    PlottedDistribution<float> moisture_content = {{0.08f, 0.12f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
-                                                   {0.0f, 0.0f, {0.5f, 0.5f, {0, 0}, {1, 1}}}};
-
+    Noise3D damage{};
+    glm::vec3 damage_scale_factor = glm::vec3(0.01f);
     float neighbor_vertical_range = 3.0f;
     float neighbor_horizontal_range = 3.0f;
     PlottedDistribution<float> max_shear_stretch_strain = {{0.05f, 0.05f, {1.0f, 0.0f, {0, 0}, {1, 1}}},
@@ -164,10 +164,11 @@ class DynamicStrands {
     enum class SegmentRenderMode {
       Default,
       SegmentColor,
-      BoundaryDistance,
-      MoistureContent,
-      ShearStretchStrain,
       GroupIndex,
+      BoundaryDistance,
+      Strength,
+      ShearStretchStrain,
+      StretchShearLimit
     };
 
     enum class UniformParticleRenderMode { Default, SegmentColor, SingleParticles };
@@ -177,7 +178,12 @@ class DynamicStrands {
       TwistStrain,
       BundleStrain,
       BendingTwistingBundleStrain,
-      ConnectivityStrain
+      ConnectivityStrain,
+
+      BendingLimit,
+      TwistLimit,
+      BundleLimit,
+      ConnectivityLimit
     };
     bool render_segments = true;
     bool render_segment_pairs = true;
@@ -218,7 +224,20 @@ class DynamicStrands {
     float alpha = 0.00005f;
     float bifurcation_alpha = 0.00005f;
     float max_dist_squared = 1.0f;
-    enum VertexColors { Default, Normals, Tangents, Groups, Degree, Bark, NormalQuaternion, Up, InitUp, Axis, InitAxis, InitAngle };
+    enum VertexColors {
+      Default,
+      Normals,
+      Tangents,
+      Groups,
+      Degree,
+      Bark,
+      NormalQuaternion,
+      Up,
+      InitUp,
+      Axis,
+      InitAxis,
+      InitAngle
+    };
     VertexColors vertex_colors = Default;
 
     float u_multiplier = 2;
@@ -322,7 +341,7 @@ class DynamicStrands {
 
     float max_young_modulus = 0.0f;
     float shear_stretch_alpha = 0.0f;
-    float moisture_content = 0.0f;
+    float strength = 0.0f;
     float boundary_distance = 0.0f;
 
     glm::vec2 profile_position;
@@ -567,7 +586,7 @@ class DynamicStrands {
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;
 
-  void Visualize(const std::shared_ptr<Camera>& target_camera,
+  void Visualize(const std::shared_ptr<Camera>& target_camera, const InitializeParameters& initialize_parameters,
                  const VisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action);
   void RenderCompute(const BranchesRenderParameters& branches_render_parameters,
@@ -578,6 +597,7 @@ class DynamicStrands {
   static void BuildFoliageRenderingPipelines();
   static void BuildSmallSegmentsRenderingPipelines();
 
+  inline static std::shared_ptr<ComputePipeline> branches_uniform_particle_update_pipeline;
   inline static std::shared_ptr<ComputePipeline> branches_tetrahedron_filtering_pipeline{};
   inline static std::shared_ptr<ComputePipeline> branches_triangle_filtering_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> branches_point_light_render_pipeline{};

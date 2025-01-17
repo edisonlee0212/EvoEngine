@@ -38,10 +38,10 @@ void main(){
 		SegmentPair segment_pair = segment_pairs[pair_index];
 		float connectivity_integrity = segment_pairs[pair_index].connectivity_integrity;
 		float bend_twist_bundle_integrity = segment_pairs[pair_index].bend_twist_bundle_integrity;
-		vec3 bending_twist_bundle_strain_limit = segment_pair.max_bending_twist_bundle_strain;
+		vec3 bending_twist_bundle_strain_limit = segment_pair.bending_twist_bundle_strain_limit;
 		vec3 bending_twist_bundle_strain = segment_pairs[pair_index].bending_twist_bundle_strain;
 
-		float connectivity_strain_limit = segment_pair.max_connectivity_strain;
+		float connectivity_strain_limit = segment_pair.connectivity_strain_limit;
 		float connectivity_strain = segment_pairs[pair_index].connectivity_strain;
 
 

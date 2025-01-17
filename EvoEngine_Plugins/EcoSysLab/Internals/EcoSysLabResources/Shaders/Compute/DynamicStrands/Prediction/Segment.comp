@@ -70,7 +70,7 @@ void main(){
 		//Update moisture content.
 
 		//Update shear_stretch_strain_limit
-		segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain;
+		segment.shear_stretch_strain_limit = clamp(segment.max_shear_stretch_strain * segment.strength, 0.0f, 1.0f);
 		segments[segment_index] = segment;
 	}
 }
