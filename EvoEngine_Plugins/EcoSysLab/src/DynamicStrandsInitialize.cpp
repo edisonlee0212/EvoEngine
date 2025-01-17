@@ -119,10 +119,10 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
   });
 }
 
-void DynamicStrands::Initialize(const InitializeParameters& initialize_parameters,
-                                const StrandModelSkeleton& strand_model_skeleton,
-                                const StrandModelStrandGroup& strand_model_strand_group,
-                                const DtsStrandGroup& strand_group) {
+void DynamicStrands::InitializeData(const InitializeParameters& initialize_parameters,
+                                    const StrandModelSkeleton& strand_model_skeleton,
+                                    const StrandModelStrandGroup& strand_model_strand_group,
+                                    const DtsStrandGroup& strand_group) {
   Clear();
   frame_index = 0;
   simulated_time = 0.f;
@@ -826,8 +826,8 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
                                                                     distance_to_boundary));
 
     const float max_bundle_strain = glm::max(
-        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.max_bundle_strength.x,
-                                                                    initialize_parameters.max_bundle_strength.y,
+        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.bundle_strength.x,
+                                                                    initialize_parameters.bundle_strength.y,
                                                                     initialize_parameters.sapwood_offset,
                                                                     1.f / initialize_parameters.wood_transition,
                                                                     distance_to_boundary));
@@ -961,6 +961,4 @@ void DynamicStrands::Initialize(const InitializeParameters& initialize_parameter
     const auto& segment = segments[target_segment_handle];
     leaf.position_offset = glm::vec4(glm::inverse(segment.q0) * (leaf.x0 - segment.GetCenterX0()), 0.0f);
   });
-  Upload();
-  InitializeMesh(initialize_parameters);
 }

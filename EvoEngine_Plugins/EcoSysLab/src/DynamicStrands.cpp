@@ -347,7 +347,7 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     if (ImGui::DragFloat2("Twisting strength", &twisting_strength.x, 0.01f, 0.f, 1000.f)) {
       changed = true;
     }
-    if (ImGui::DragFloat2("Bundle strength", &max_bundle_strength.x, 0.01f, 0.f, 1000.f)) {
+    if (ImGui::DragFloat2("Bundle strength", &bundle_strength.x, 0.01f, 0.f, 1000.f)) {
       changed = true;
     }
 

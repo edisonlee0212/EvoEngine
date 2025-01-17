@@ -8,6 +8,7 @@
 #  include <RayTracerLayer.hpp>
 #endif
 
+#include "PostProcessingStack.hpp"
 #include "Times.hpp"
 #ifdef ECOSYSLAB_PLUGIN
 #  include "EcoSysLabLayer.hpp"
@@ -113,6 +114,14 @@ int main() {
   const auto editor_layer = Application::GetLayer<EditorLayer>();
   editor_layer->velocity = 2.f;
   editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
+  auto& camera_settings = editor_layer->GetSceneCamera()->camera_settings;
+  camera_settings.use_clear_color = true;
+  camera_settings.clear_color = glm::vec3(1.f);
+  camera_settings.background_intensity = 3.f;
+  const auto post_processing_stack =
+      editor_layer->GetSceneCamera()->post_processing_stack_ref.Get<PostProcessingStack>();
+  post_processing_stack->enable_bloom = false;
+  post_processing_stack->enable_screen_space_ambient_occlusion = false;
   auto render_layer = Application::GetLayer<RenderLayer>();
 #pragma region Engine Loop
   Application::Start();
