@@ -72,7 +72,8 @@ class DynamicTreeStrands : public IPrivateComponent {
     float center_damage = 0.5f;
     float center_distance_offset = 0.1f;
     float center_damage_transition = 0.1f;
-
+    glm::vec3 initial_velocity = glm::vec3(0.f);
+    glm::vec3 initial_angular_velocity = glm::vec3(0.f);
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   struct LogExperimentSetupSettings {
@@ -86,6 +87,8 @@ class DynamicTreeStrands : public IPrivateComponent {
     float center_damage_transition = 0.1f;
     unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);
     unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);
+    glm::vec3 initial_velocity = glm::vec3(0.f);
+    glm::vec3 initial_angular_velocity = glm::vec3(0.f);
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   void BoardExperimentSetup(const BoardExperimentSetupSettings& settings);

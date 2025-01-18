@@ -379,6 +379,9 @@ bool DynamicTreeStrands::BoardExperimentSetupSettings::OnInspect(const std::shar
 
   ImGui::Combo("Left Pivot Type", {"Empty", "Point", "Axis", "Transform"}, left_pivot_type);
   ImGui::Combo("Right Pivot Type", {"Empty", "Point", "Axis", "Transform"}, right_pivot_type);
+
+  ImGui::DragFloat3("Initial velocity", &initial_velocity.x, 0.01f, 0.0f, 1.0f);
+  ImGui::DragFloat3("Initial angular velocity", &initial_angular_velocity.x, 0.01f, 0.0f, 1.0f);
   return false;
 }
 
@@ -394,6 +397,9 @@ bool DynamicTreeStrands::LogExperimentSetupSettings::OnInspect(const std::shared
 
   ImGui::Combo("Left Pivot Type", {"Empty", "Point", "Axis", "Transform"}, left_pivot_type);
   ImGui::Combo("Right Pivot Type", {"Empty", "Point", "Axis", "Transform"}, right_pivot_type);
+
+  ImGui::DragFloat3("Initial velocity", &initial_velocity.x, 0.01f, 0.0f, 1.0f);
+  ImGui::DragFloat3("Initial angular velocity", &initial_angular_velocity.x, 0.01f, 0.0f, 1.0f);
   return false;
 }
 
@@ -458,6 +464,9 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
         glm::clamp(ActivationFunction::Sigmoid(settings.center_damage, 0.f, settings.center_distance_offset,
                                                1.f / settings.center_damage_transition, distance_to_center),
                    0.f, 1.f);
+    segment.particle0.v = settings.initial_velocity;
+    segment.particle1.v = settings.initial_velocity;
+    segment.angular_v = settings.initial_angular_velocity;
   });
 
   dynamic_strands->Upload();
@@ -750,6 +759,9 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
         glm::clamp(ActivationFunction::Sigmoid(settings.center_damage, 0.f, settings.center_distance_offset,
                                                1.f / settings.center_damage_transition, distance_to_center),
                    0.f, 1.f);
+    segment.particle0.v = settings.initial_velocity;
+    segment.particle1.v = settings.initial_velocity;
+    segment.angular_v = settings.initial_angular_velocity;
   });
 
   dynamic_strands->Upload();

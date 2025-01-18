@@ -91,11 +91,11 @@ class DynamicStrands {
     glm::vec2 max_bending_modulus = {0.15f, 2.f};
     glm::vec2 max_twisting_modulus = {0.15f, 2.f};
 
-    glm::vec2 shear_stretch_strength = {0.2f, 0.1f};
-    glm::vec2 bending_strength = {0.2f, 0.1f};
-    glm::vec2 twisting_strength = {0.2f, 0.1f};
-    glm::vec2 bundle_strength = {0.2f, 0.1f};
-    glm::vec2 connectivity_strength = {0.1f, 0.05f};
+    glm::vec2 shear_stretch_strength = {500.f, 250.f};
+    glm::vec2 bending_strength = {500.f, 250.f};
+    glm::vec2 twisting_strength = {500.f, 250.f};
+    glm::vec2 bundle_strength = {500.f, 250.f};
+    glm::vec2 connectivity_strength = {250, 125.f};
 
     bool trunk = true;
     float trunk_offset = 0.3f;
@@ -104,8 +104,8 @@ class DynamicStrands {
 
     SingleDistribution<float> leaf_position_alpha = {0.01f, 0.1f};
     SingleDistribution<float> leaf_rotation_alpha = {0.01f, 0.1f};
-    SingleDistribution<float> max_leaf_position_strain = {0.02f, 0.05f};
-    SingleDistribution<float> max_leaf_rotation_strain = {0.02f, 0.05f};
+    SingleDistribution<float> max_leaf_position_strain = {50.f, 100.f};
+    SingleDistribution<float> max_leaf_rotation_strain = {50.f, 100.f};
 
     GlobalTransform root_transform{};
     bool use_cgal = false;

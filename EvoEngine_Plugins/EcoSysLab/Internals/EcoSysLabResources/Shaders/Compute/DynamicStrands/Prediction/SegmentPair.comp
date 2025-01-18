@@ -23,6 +23,8 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint pair_size;
+	float time_step;
+	float inv_time_step;
 };
 
 void main(){
@@ -65,9 +67,9 @@ void main(){
 		float segment1_stretch_strain = (distance(s1p0, s1p1) - l1) / l1;
 		float connectivity_strain = max(segment0_stretch_strain, segment1_stretch_strain);
 		
-		segment_pairs[pair_index].bending_twist_bundle_strain = segment_pairs[pair_index].bend_twist_bundle_integrity != 0.f ? vec3(bend_twist_strain.x, bend_twist_strain.y, bundle_strain) : vec3(0.f);
-		segment_pairs[pair_index].connectivity_strain = connectivity_strain;
-		segment_pairs[pair_index].bending_twist_bundle_strain_limit = clamp(bending_twist_bundle_strain_limit * strength, vec3(0.0f), vec3(1.0f));
-		segment_pairs[pair_index].connectivity_strain_limit = clamp(connectivity_strain_limit * strength, 0.0f, 1.0f);
+		segment_pairs[pair_index].bending_twist_bundle_strain = segment_pairs[pair_index].bend_twist_bundle_integrity != 0.f ? vec3(bend_twist_strain.x, bend_twist_strain.y, bundle_strain) * inv_time_step : vec3(0.f);
+		segment_pairs[pair_index].connectivity_strain = connectivity_strain * inv_time_step;
+		segment_pairs[pair_index].bending_twist_bundle_strain_limit = bending_twist_bundle_strain_limit * strength;
+		segment_pairs[pair_index].connectivity_strain_limit = connectivity_strain_limit * strength;
 	}
 }

@@ -337,21 +337,21 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
       ImGui::TreePop();
     }
 
-    if (ImGui::DragFloat2("Shear/Stretch strength", &shear_stretch_strength.x, 0.01f, 0.f, 1000.f)) {
+    if (ImGui::DragFloat2("Shear/Stretch strength", &shear_stretch_strength.x, 1.f, 0.f, 2000.f)) {
       changed = true;
     }
 
-    if (ImGui::DragFloat2("Bending strength", &bending_strength.x, 0.01f, 0.f, 1000.f)) {
+    if (ImGui::DragFloat2("Bending strength", &bending_strength.x, 1.f, 0.f, 2000.f)) {
       changed = true;
     }
-    if (ImGui::DragFloat2("Twisting strength", &twisting_strength.x, 0.01f, 0.f, 1000.f)) {
+    if (ImGui::DragFloat2("Twisting strength", &twisting_strength.x, 1.f, 0.f, 2000.f)) {
       changed = true;
     }
-    if (ImGui::DragFloat2("Bundle strength", &bundle_strength.x, 0.01f, 0.f, 1000.f)) {
+    if (ImGui::DragFloat2("Bundle strength", &bundle_strength.x, 1.f, 0.f, 2000.f)) {
       changed = true;
     }
 
-    if (ImGui::DragFloat2("Segment Pair strength", &connectivity_strength.x, 0.01f, 0.f, 1000.f)) {
+    if (ImGui::DragFloat2("Segment Pair strength", &connectivity_strength.x, 1.f, 0.f, 2000.f)) {
       changed = true;
     }
     if (ImGui::Checkbox("Trunk", &trunk)) {
