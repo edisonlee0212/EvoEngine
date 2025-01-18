@@ -40,9 +40,15 @@ void main(){
 		if(uniform_particle_index >= uniform_particle_size) break;
 		UniformParticle uniform_particle = uniform_particles[uniform_particle_index];
 
+		// check if end of strand
+		if(uniform_particle.is_on_surface == 2){
+			uniform_particles[uniform_particle_index].is_on_surface = 0;
+			continue;
+		}
+
 		// Initialize normal quaternion
 		if(uniform_particle.normal_deg == vec4(0.0, 0.0, 0.0, 0.0)){
-			uniform_particle.normal_q = vec4(0.0, 0.0, 0.0, 0.0);
+			uniform_particles[uniform_particle_index].normal_q = vec4(0.0, 0.0, 0.0, 0.0);
 			continue;
 		}
 
