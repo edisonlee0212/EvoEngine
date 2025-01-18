@@ -54,13 +54,15 @@ void main(){
 
 		uniform_particle.normal_deg.xyz = normalize(ProjectOntoPlane(uniform_particle.normal_deg.xyz, uniform_particle.tangent.xyz));
 		Segment segment = segments[uniform_particle.segment_handle];
+		
+		// basis vectors of segment space
+		vec3 right = rotate_vec3(segment.q0, vec3(1, 0, 0));
 		vec3 up = rotate_vec3(segment.q0, vec3(0, 1, 0));
+		vec3 forward = rotate_vec3(segment.q0, vec3(0, 0, 1));
 
-		// Compute the angle between the two vectors
-		float angle = acos(dot(normalize(up), uniform_particle.normal_deg.xyz));
-		uniform_particle.normal_deg.w = angle;
-		vec3 axis = rotate_vec3(segment.q0, vec3(0, 0, 1));
-		uniform_particle.normal_q = angle_axis(angle, axis);
+		// now do a basis transformation from world space to segment space
+		uniform_particle.normal_deg.xyz = vec3(dot(uniform_particle.normal_deg.xyz, right), dot(uniform_particle.normal_deg.xyz, up), dot(uniform_particle.normal_deg.xyz, forward));
+
 		uniform_particle.is_on_surface = 1;
 		uniform_particles[uniform_particle_index] = uniform_particle;
 	}
