@@ -155,12 +155,15 @@ void main(){
 
 					if(uniform_particle.is_on_surface == 1){
 					Segment segment = segments[uniform_particle.segment_handle];
+					// basis vectors of segment space
+					vec3 right = rotate_vec3(segment.q, vec3(1, 0, 0));
 					vec3 up = rotate_vec3(segment.q, vec3(0, 1, 0));
-					vec3 axis = rotate_vec3(segment.q, vec3(0, 0, 1)); // axis
-					float angle = uniform_particle.normal_deg.w;
-					uniform_particle.normal_q = angle_axis(angle, axis);
-					// compute Normal
-					vec3 normal = rotate_vec3(uniform_particle.normal_q, up);
+					vec3 forward = rotate_vec3(segment.q, vec3(0, 0, 1));
+
+					// now do a basis transform from segment to world space
+					mat3 seg_to_world = mat3(right, up, forward);
+					vec3 normal = normalize(seg_to_world * uniform_particle.normal_deg.xyz);
+
 					SetUpTriangleVertex(vertex_index, normal, uniform_particle, tet.is_bark[triangle_index]);
 					}
 					else{
