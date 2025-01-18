@@ -108,6 +108,9 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
 
       ds->strand_model_skeleton = tree->strand_model.strand_model_skeleton;
       ds->UpdateDynamicStrands();
+
+      ds->dynamic_strands->Upload();
+      ds->dynamic_strands->InitializeMesh(ds->initialize_parameters);
       ds->CreateStaticRoot();
     }
   }

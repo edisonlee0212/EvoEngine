@@ -94,7 +94,7 @@ class DynamicStrands {
     glm::vec2 shear_stretch_strength = {0.2f, 0.1f};
     glm::vec2 bending_strength = {0.2f, 0.1f};
     glm::vec2 twisting_strength = {0.2f, 0.1f};
-    glm::vec2 max_bundle_strength = {0.2f, 0.1f};
+    glm::vec2 bundle_strength = {0.2f, 0.1f};
     glm::vec2 connectivity_strength = {0.1f, 0.05f};
 
     bool trunk = true;
@@ -120,8 +120,9 @@ class DynamicStrands {
     AssetRef foliage_descriptor;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
-  void Initialize(const InitializeParameters& initialize_parameters, const StrandModelSkeleton& strand_model_skeleton,
-                  const StrandModelStrandGroup& strand_model_strand_group, const DtsStrandGroup& strand_group);
+  void InitializeData(const InitializeParameters& initialize_parameters,
+                      const StrandModelSkeleton& strand_model_skeleton,
+                      const StrandModelStrandGroup& strand_model_strand_group, const DtsStrandGroup& strand_group);
 
   void InitializeMesh(const InitializeParameters& initialize_parameters);
 

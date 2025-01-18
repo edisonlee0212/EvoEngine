@@ -47,11 +47,129 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->LogExperimentSetup(log_experiment_setup_settings);
     dts->enable_physics = false;
   }
-  if (ImGui::Button("Dry break (Board)")) {
+  if (ImGui::Button("Board break [L]")) {
     simulated_time = 0.f;
-    demo_type = DemoType::DryBreakBoard;
+    demo_type = DemoType::BreakBoardLow;
+    board_experiment_setup_settings.center_damage = 0.f;
     board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
     board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    dts->BoardExperimentSetup(board_experiment_setup_settings);
+    dts->initialize_parameters.shear_stretch_strength = {0.2f, 0.1f};
+    dts->initialize_parameters.bending_strength = {0.2f, 0.1f};
+    dts->initialize_parameters.twisting_strength = {0.2f, 0.1f};
+    dts->initialize_parameters.bundle_strength = {0.02f, 0.02f};
+    dts->initialize_parameters.connectivity_strength = {0.1f, 0.1f};
+    dts->enable_physics = false;
+  }
+  if (ImGui::Button("Board break [M]")) {
+    simulated_time = 0.f;
+    demo_type = DemoType::BreakBoardMed;
+    board_experiment_setup_settings.center_damage = 0.f;
+    board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    dts->BoardExperimentSetup(board_experiment_setup_settings);
+    dts->initialize_parameters.shear_stretch_strength = {0.2f, 0.1f};
+    dts->initialize_parameters.bending_strength = {0.2f, 0.1f};
+    dts->initialize_parameters.twisting_strength = {0.2f, 0.1f};
+    dts->initialize_parameters.bundle_strength = {0.04f, 0.04f};
+    dts->initialize_parameters.connectivity_strength = {0.1f, 0.1f};
+    dts->enable_physics = false;
+  }
+  if (ImGui::Button("Board break [H]")) {
+    simulated_time = 0.f;
+    demo_type = DemoType::BreakBoardHigh;
+    board_experiment_setup_settings.center_damage = 0.f;
+    board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    dts->initialize_parameters.shear_stretch_strength = {0.2f, 0.1f};
+    dts->initialize_parameters.bending_strength = {0.2f, 0.1f};
+    dts->initialize_parameters.twisting_strength = {0.2f, 0.1f};
+    dts->initialize_parameters.bundle_strength = {0.07f, 0.07f};
+    dts->initialize_parameters.connectivity_strength = {0.1f, 0.1f};
+    dts->BoardExperimentSetup(board_experiment_setup_settings);
+    dts->enable_physics = false;
+  }
+
+  if (ImGui::Button("Twisting break")) {
+    simulated_time = 0.f;
+    demo_type = DemoType::TwistingBreak;
+    target_factor0 = 0.f;
+    dts->initialize_parameters.shear_stretch_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.bending_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.twisting_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.bundle_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.connectivity_strength = glm::vec2(0.1f);
+
+    dts->initialize_parameters.damage.noise_descriptors.clear();
+    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
+    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+
+    board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.rod_dimension = {160, 10, 20};
+    dts->BoardExperimentSetup(board_experiment_setup_settings);
+    dts->enable_physics = false;
+  }
+  if (ImGui::Button("Bending break")) {
+    simulated_time = 0.f;
+    target_factor0 = 0.f;
+    demo_type = DemoType::BendingBreak;
+
+    dts->initialize_parameters.shear_stretch_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.bending_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.twisting_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.bundle_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.connectivity_strength = glm::vec2(0.1f);
+
+    dts->initialize_parameters.damage.noise_descriptors.clear();
+    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
+    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+
+    board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.rod_dimension = {160, 10, 20};
+    dts->BoardExperimentSetup(board_experiment_setup_settings);
+    dts->enable_physics = false;
+  }
+  if (ImGui::Button("Shearing break")) {
+    simulated_time = 0.f;
+    target_factor0 = 0.f;
+    demo_type = DemoType::ShearingBreak;
+
+    dts->initialize_parameters.shear_stretch_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.bending_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.twisting_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.bundle_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.connectivity_strength = glm::vec2(0.1f);
+
+    dts->initialize_parameters.damage.noise_descriptors.clear();
+    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
+    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+
+    board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.rod_dimension = {160, 10, 20};
+    dts->BoardExperimentSetup(board_experiment_setup_settings);
+    dts->enable_physics = false;
+  }
+  if (ImGui::Button("Stretching break")) {
+    simulated_time = 0.f;
+    target_factor0 = 0.f;
+    demo_type = DemoType::StretchingBreak;
+
+    dts->initialize_parameters.shear_stretch_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.bending_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.twisting_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.bundle_strength = glm::vec2(0.1f);
+    dts->initialize_parameters.connectivity_strength = glm::vec2(0.1f);
+
+    dts->initialize_parameters.damage.noise_descriptors.clear();
+    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
+    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+
+    board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.rod_dimension = {160, 10, 20};
     dts->BoardExperimentSetup(board_experiment_setup_settings);
     dts->enable_physics = false;
   }
@@ -74,7 +192,7 @@ void DynamicStrandsDemo::Update() {
   const auto scene = GetScene();
   const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
   const auto children = scene->GetChildren(owner);
-
+  const auto owner_gt = scene->GetDataComponent<GlobalTransform>(owner);
   Entity left_pivot, right_pivot;
   for (const auto& child : children) {
     if (scene->GetEntityName(child) == "Left Pivot") {
@@ -100,12 +218,14 @@ void DynamicStrandsDemo::Update() {
       right_operator_root_transform.SetPosition(
           dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(right_distance, 0, 0)));
       const float angle = glm::acos(1.f - progress * target_factor1);
-      left_operator_root_transform.SetEulerRotation(glm::vec3(0, 0, -angle));
-      right_operator_root_transform.SetEulerRotation(glm::vec3(0, 0, angle));
+      left_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, -angle)));
+      right_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, angle)));
       scene->SetDataComponent(left_pivot, left_operator_root_transform);
       scene->SetDataComponent(right_pivot, right_operator_root_transform);
     } break;
-    case DemoType::DryBreakBoard: {
+    case DemoType::BreakBoardLow:
+    case DemoType::BreakBoardMed:
+    case DemoType::BreakBoardHigh: {
       const float board_distance = static_cast<float>(board_experiment_setup_settings.rod_dimension.z) *
                                    board_experiment_setup_settings.segment_length;
       const float left_distance = board_distance * 0.5f * progress * target_factor0;
@@ -118,12 +238,76 @@ void DynamicStrandsDemo::Update() {
       right_operator_root_transform.SetPosition(
           dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(right_distance, 0, 0)));
       const float angle = glm::acos(1.f - progress * target_factor1);
-      left_operator_root_transform.SetEulerRotation(glm::vec3(0, 0, -angle));
-      right_operator_root_transform.SetEulerRotation(glm::vec3(0, 0, angle));
+      left_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, -angle)));
+      right_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, angle)));
       scene->SetDataComponent(left_pivot, left_operator_root_transform);
       scene->SetDataComponent(right_pivot, right_operator_root_transform);
     } break;
-    case DemoType::SquishyBreak: {
+    case DemoType::TwistingBreak: {
+      const float board_distance = static_cast<float>(board_experiment_setup_settings.rod_dimension.z) *
+                                   board_experiment_setup_settings.segment_length;
+      const float left_distance = board_distance * 0.5f * progress * target_factor0;
+      const float right_distance = board_distance * (1.f - 0.5f * progress * target_factor0);
+
+      auto left_operator_root_transform = GlobalTransform();
+      left_operator_root_transform.SetPosition(
+          dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(left_distance, 0, 0)));
+      auto right_operator_root_transform = GlobalTransform();
+      right_operator_root_transform.SetPosition(
+          dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(right_distance, 0, 0)));
+      const float angle = glm::acos(1.f - progress * target_factor1);
+      left_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(-angle, 0, 0)));
+      right_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(angle, 0, 0)));
+      scene->SetDataComponent(left_pivot, left_operator_root_transform);
+      scene->SetDataComponent(right_pivot, right_operator_root_transform);
+    } break;
+    case DemoType::BendingBreak: {
+      const float board_distance = static_cast<float>(board_experiment_setup_settings.rod_dimension.z) *
+                                   board_experiment_setup_settings.segment_length;
+      const float left_distance = board_distance * 0.5f * progress * target_factor0;
+      const float right_distance = board_distance * (1.f - 0.5f * progress * target_factor0);
+
+      auto left_operator_root_transform = GlobalTransform();
+      left_operator_root_transform.SetPosition(
+          dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(left_distance, 0, 0)));
+      auto right_operator_root_transform = GlobalTransform();
+      right_operator_root_transform.SetPosition(
+          dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(right_distance, 0, 0)));
+      const float angle = glm::acos(1.f - progress * target_factor1);
+      left_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, -angle)));
+      right_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, angle)));
+      scene->SetDataComponent(left_pivot, left_operator_root_transform);
+      scene->SetDataComponent(right_pivot, right_operator_root_transform);
+    } break;
+    case DemoType::ShearingBreak: {
+      const float board_distance = static_cast<float>(board_experiment_setup_settings.rod_dimension.z) *
+                                   board_experiment_setup_settings.segment_length;
+      const float left_distance = board_distance * 0.5f * progress * target_factor0;
+      const float right_distance = board_distance * (1.f - 0.5f * progress * target_factor0);
+
+      auto left_operator_root_transform = GlobalTransform();
+      left_operator_root_transform.SetPosition(dts->initialize_parameters.root_transform.TransformPoint(
+          glm::vec3(left_distance, -board_distance * 0.5f * progress * target_factor1, 0)));
+      auto right_operator_root_transform = GlobalTransform();
+      right_operator_root_transform.SetPosition(dts->initialize_parameters.root_transform.TransformPoint(
+          glm::vec3(right_distance, board_distance * 0.5f * progress * target_factor1, 0)));
+      scene->SetDataComponent(left_pivot, left_operator_root_transform);
+      scene->SetDataComponent(right_pivot, right_operator_root_transform);
+    } break;
+    case DemoType::StretchingBreak: {
+      const float board_distance = static_cast<float>(board_experiment_setup_settings.rod_dimension.z) *
+                                   board_experiment_setup_settings.segment_length;
+      const float left_distance = board_distance * 0.5f * progress * target_factor0;
+      const float right_distance = board_distance * (1.f - 0.5f * progress * target_factor0);
+
+      auto left_operator_root_transform = GlobalTransform();
+      left_operator_root_transform.SetPosition(dts->initialize_parameters.root_transform.TransformPoint(
+          glm::vec3(left_distance - board_distance * 0.5f * progress * target_factor1, 0.f, 0.f)));
+      auto right_operator_root_transform = GlobalTransform();
+      right_operator_root_transform.SetPosition(dts->initialize_parameters.root_transform.TransformPoint(
+          glm::vec3(right_distance + board_distance * 0.5f * progress * target_factor1, 0.f, 0.f)));
+      scene->SetDataComponent(left_pivot, left_operator_root_transform);
+      scene->SetDataComponent(right_pivot, right_operator_root_transform);
     } break;
     default:
       break;

@@ -69,6 +69,10 @@ class DynamicTreeStrands : public IPrivateComponent {
     glm::ivec3 rod_dimension = {20, 40, 20};
     unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);
     unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);
+    float center_damage = 0.5f;
+    float center_distance_offset = 0.1f;
+    float center_damage_transition = 0.1f;
+
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   struct LogExperimentSetupSettings {
@@ -77,6 +81,9 @@ class DynamicTreeStrands : public IPrivateComponent {
     int rod_size = 800;
     int rod_segment_count = 20;
     float center_attraction_strength = 40000;
+    float center_damage = 0.5f;
+    float center_distance_offset = 0.1f;
+    float center_damage_transition = 0.1f;
     unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);
     unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);

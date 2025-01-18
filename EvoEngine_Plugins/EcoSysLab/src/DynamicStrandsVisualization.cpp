@@ -392,7 +392,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     case VisualizationParameters::SegmentPairRenderMode::BundleLimit: {
       segment_pair_push_constant.factor =
           initialize_parameters.trunk_additional_strength_factor +
-          glm::max(initialize_parameters.max_bundle_strength.x, initialize_parameters.max_bundle_strength.y);
+          glm::max(initialize_parameters.bundle_strength.x, initialize_parameters.bundle_strength.y);
       break;
     }
     case VisualizationParameters::SegmentPairRenderMode::ConnectivityLimit: {

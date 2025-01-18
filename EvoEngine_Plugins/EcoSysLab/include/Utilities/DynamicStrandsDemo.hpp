@@ -16,8 +16,13 @@ class DynamicStrandsDemo : public IPrivateComponent {
   enum class DemoType {
     Empty,
     DryBreakRod,
-    DryBreakBoard,
-    SquishyBreak,
+    BreakBoardLow,
+    BreakBoardMed,
+    BreakBoardHigh,
+    TwistingBreak,
+    BendingBreak,
+    ShearingBreak,
+    StretchingBreak
   };
   DynamicStrands::PhysicsParameters physics_parameters{};
   DynamicTreeStrands::LogExperimentSetupSettings log_experiment_setup_settings{};
