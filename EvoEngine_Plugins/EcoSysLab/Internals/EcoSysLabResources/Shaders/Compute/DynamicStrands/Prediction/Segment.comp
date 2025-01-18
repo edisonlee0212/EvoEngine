@@ -66,11 +66,11 @@ void main(){
 			segment.particle1.x, 
 			segment.q, segment.rest_length);
 
-		segment.shear_stretch_strain = shear_stretch_strain;
+		segment.shear_stretch_strain = shear_stretch_strain * inv_time_step;
 		//Update moisture content.
 
 		//Update shear_stretch_strain_limit
-		segment.shear_stretch_strain_limit = clamp(segment.max_shear_stretch_strain * segment.strength, 0.0f, 1.0f);
+		segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain * segment.strength;
 		segments[segment_index] = segment;
 	}
 }
