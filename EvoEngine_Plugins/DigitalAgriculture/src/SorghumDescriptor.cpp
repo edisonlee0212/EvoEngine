@@ -99,7 +99,25 @@ void SorghumPanicleDescriptor::GenerateGeometry(const glm::vec3& stem_tip, std::
 }
 
 bool SorghumStemDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  return false;
+  bool changed = false;
+  for (int i = 0; i < spline.segments.size(); i++) {
+    auto segment = spline.segments[i];
+    std::string label = "segment No." + std::to_string(i);
+    if (ImGui::TreeNode(label.c_str())) {
+      ImGui::Text("position: (%.2f, %.2f, %.2f)", segment.position.x, segment.position.y, segment.position.z);
+      ImGui::Text("up: (%.2f, %.2f, %.2f)", segment.up.x, segment.up.y, segment.up.z);
+      ImGui::Text("front: (%.2f, %.2f, %.2f)", segment.front.x, segment.front.y, segment.front.z);
+      ImGui::Text("radius: %.2f", segment.radius);
+      ImGui::Text("theta: (%.2f)", segment.theta);
+      ImGui::Text("left height offset: (%.2f)", segment.left_height_offset);
+      ImGui::Text("right height offset: (%.2f)", segment.right_height_offset);
+
+      changed = true;
+      ImGui::TreePop();
+    }
+  }
+  
+  return changed;
 }
 
 void SorghumStemDescriptor::Serialize(YAML::Emitter& out) const {
@@ -161,7 +179,27 @@ void SorghumStemDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std:
 }
 
 bool SorghumLeafDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  return false;
+  bool changed = false;
+  for (int i = 0; i < spline.segments.size(); i++){
+    auto segment = spline.segments[i];
+    std::string label = "segment No." + std::to_string(i);
+    if (ImGui::TreeNode(label.c_str() )){
+      ImGui::Text("position: (%.2f, %.2f, %.2f)", segment.position.x, segment.position.y, segment.position.z);
+      ImGui::Text("up: (%.2f, %.2f, %.2f)", segment.up.x, segment.up.y, segment.up.z);
+      ImGui::Text("front: (%.2f, %.2f, %.2f)", segment.front.x, segment.front.y, segment.front.z);
+      ImGui::Text("radius: %.2f", segment.radius);
+      ImGui::Text("theta: (%.2f)", segment.theta);
+      ImGui::Text("left height offset: (%.2f)", segment.left_height_offset);
+      ImGui::Text("right height offset: (%.2f)", segment.right_height_offset);
+
+      changed = true;
+      ImGui::TreePop();
+      
+    }
+  }
+  
+
+  return changed;
 }
 
 void SorghumLeafDescriptor::Serialize(YAML::Emitter& out) const {
@@ -689,13 +727,13 @@ std::vector < glm::vec3> ReconstructSorghumFromBezierSplines(
 
       // reconstruct theta, radius, height_offsets
       float freq = 0.35f; 
-      segment.theta = (theta + j);
+      segment.theta = theta;
       //segment.radius = std::max(std::max(glm::length(leftLocal), glm::length(rightLocal)), 0.01f);
       segment.radius = std::max(std::max(std::abs(leftLocal.x), std::abs(rightLocal.x)), 0.01f);
       //segment.radius = radius;
 
-      segment.left_height_offset = leftLocal.y * 2;
-      segment.right_height_offset = rightLocal.y * 2;
+      segment.left_height_offset = leftLocal.y;
+      segment.right_height_offset = rightLocal.y;
 
       sorghumSpline.segments.push_back(segment);
     }
@@ -769,50 +807,87 @@ void FillBezierSplinePointsParticle(int leafIndex, float scale,
   });
 }
 
-void FillBezierFrameParticle(int leafIndex, float scale, SorghumDescriptor& sorghum_descriptor,
-                             std::vector<ParticleInfo>& particleInfos, int leafCount) {
+void FillLeafSegmentFrameParticle(int leafIndex, float scale, SorghumDescriptor& sorghum_descriptor,
+                             std::vector<ParticleInfo>& particleInfos, int leafCount, bool uniformSegmentCount=true) {
   std::vector<glm::vec4> colors = {glm::vec4(256, 256, 256, 256) , glm::vec4(0, 256, 256, 256), glm::vec4(256, 0, 256, 256),
                                    glm::vec4(256, 256, 0, 256)};
   int samplePoints = 10;
+  // assume all leaves have the same segment length
   int segmentCount = sorghum_descriptor.leaves[0].spline.segments.size();
   float dis =
       glm::distance(sorghum_descriptor.leaves[0].spline.segments[0].position, sorghum_descriptor.leaves[0].spline.segments[1].position);
-  particleInfos.assign(leafCount * segmentCount * samplePoints, ParticleInfo{});
+  
 
-  dis = dis / 3;
-  Jobs::RunParallelFor(leafCount * segmentCount, [&](const auto i) {
+  dis = 0.003f;
+  if (uniformSegmentCount) {
+    particleInfos.assign(leafCount * segmentCount * samplePoints, ParticleInfo{});
+    Jobs::RunParallelFor(leafCount * segmentCount, [&](const auto i) {
+      int leafStartIndex = leafIndex > -1 ? leafIndex : i / segmentCount;
+      int segmentIndex = i % segmentCount;
 
+      auto segment = sorghum_descriptor.leaves[leafStartIndex].spline.segments[segmentIndex];
+      auto position = segment.position;
+      auto front = segment.front;
+      auto up = segment.up;
+      auto right = normalize(glm::cross(front, up));
 
-    int leafStartIndex = leafIndex > -1 ? leafIndex : i / segmentCount;
-    int segmentIndex = i % segmentCount;
+      for (int j = 0; j < samplePoints; j++) {
+        auto& info = particleInfos[i + j * leafCount * segmentCount];
+        if (j == 0) {
+          info.instance_color = colors[0] / 256.f;
+          info.instance_matrix.SetPosition(position * scale);
+        } else if (j < 3) {
+          info.instance_color = colors[1] / 256.f;
+          info.instance_matrix.SetPosition(((3 - j) * dis * (front) + position) * scale);
+        } else if (j < 6) {
+          info.instance_color = colors[2] / 256.f;
+          info.instance_matrix.SetPosition(((6 - j) * dis * (up) + position) * scale);
+        } else {
+          info.instance_color = colors[3] / 256.f;
+          info.instance_matrix.SetPosition(((9 - j) * dis * (right) + position) * scale);
+        }
 
-    auto segment = sorghum_descriptor.leaves[leafStartIndex].spline.segments[segmentIndex];
-    auto position = segment.position;
-    auto front = segment.front;
-    auto up = segment.up;
-    auto right = normalize(glm::cross(front, up));
-
-    for (int j = 0; j < 10; j++) {
-      auto& info = particleInfos[i + j * leafCount * segmentCount];
-      if (j == 0) {
-        info.instance_color = colors[0] / 256.f;
-        info.instance_matrix.SetPosition(position * scale);
-      } else if (j < 3) {
-        info.instance_color = colors[1] / 256.f;
-        info.instance_matrix.SetPosition(((3 - j) * dis * (front) + position) * scale);
-      } else if (j < 6) {
-        info.instance_color = colors[2] / 256.f;
-        info.instance_matrix.SetPosition(((6 - j) * dis * (up ) + position) * scale);
-      } else {
-        info.instance_color = colors[3] / 256.f;
-        info.instance_matrix.SetPosition(((9 - j) * dis * (right ) + position) * scale);
+        info.instance_matrix.SetScale(glm::vec3(0.002f));
       }
-      
-      info.instance_matrix.SetScale(glm::vec3(0.002f));
+    });
+  } else {
+    particleInfos.clear();
+    int leafStartIndex = leafIndex > -1 ? leafIndex : 0;
+    // for loop
+    for (int i = leafStartIndex; i < leafStartIndex+leafCount; i++) {
+      auto leaf = sorghum_descriptor.leaves[i];
+
+      for (auto segment: leaf.spline.segments) {
+        auto position = segment.position;
+        auto front = normalize(segment.front);
+        auto up = normalize(segment.up);
+        auto right = normalize(glm::cross(front, up));
+
+        for (int j = 0; j < samplePoints; j++) {
+          ParticleInfo info;
+          if (j == 0) {
+            info.instance_color = colors[0] / 256.f;
+            info.instance_matrix.SetPosition(position * scale);
+          } else if (j < 3) {
+            info.instance_color = colors[1] / 256.f;
+            info.instance_matrix.SetPosition(((3 - j) * dis * (front) + position) * scale);
+          } else if (j < 6) {
+            info.instance_color = colors[2] / 256.f;
+            info.instance_matrix.SetPosition(((6 - j) * dis * (up) + position) * scale);
+          } else {
+            info.instance_color = colors[3] / 256.f;
+            info.instance_matrix.SetPosition(((9 - j) * dis * (right) + position) * scale);
+          }
+          info.instance_matrix.SetScale(glm::vec3(0.002f));
+
+
+          particleInfos.emplace_back(info);
+        }
+      }
     }
 
     
-  });
+  }
 }
 
 bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -892,6 +967,7 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   static std::shared_ptr<ParticleInfoList> bezierSamples;
   static std::shared_ptr<ParticleInfoList> bezierVisualization;
   static std::shared_ptr<ParticleInfoList> bezierFrames;
+  static std::shared_ptr<ParticleInfoList> exampleVisualization;
   static std::vector<glm::vec3> bezierSampleResults;
   static std::vector<std::unordered_map<std::string, CubicBezierSpline>> splines;
   static int gizmoType = 2;
@@ -943,8 +1019,11 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
       FillYAMLPointsParticle(leafIndex, scale, lineData, particle_infos, 1, 3, PointsCount);
       bezierVisualization->SetParticleInfos(particle_infos);
 
-      FillBezierFrameParticle(leafIndex, 1, *sorghum_descriptor, particle_infos, 1);
+      FillLeafSegmentFrameParticle(leafIndex, 1, *sorghum_descriptor, particle_infos, 1);
       bezierFrames->SetParticleInfos(particle_infos);
+
+      FillLeafSegmentFrameParticle(leafIndex, 1, *this, particle_infos, 1, false);
+      exampleVisualization->SetParticleInfos(particle_infos);
 
     } else {
       int leafCount = yamlContent.size();
@@ -964,8 +1043,11 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
       FillYAMLPointsParticle(-1, scale, lineData, particle_infos, leafCount, lineCount, PointsCount);
       bezierVisualization->SetParticleInfos(particle_infos);
 
-      FillBezierFrameParticle(-1, 1, *sorghum_descriptor, particle_infos, sorghum_descriptor->leaves.size());
+      FillLeafSegmentFrameParticle(-1, 1, *sorghum_descriptor, particle_infos, sorghum_descriptor->leaves.size());
       bezierFrames->SetParticleInfos(particle_infos);
+
+      FillLeafSegmentFrameParticle(-1, 1, *this, particle_infos, this->leaves.size(), false);
+      exampleVisualization->SetParticleInfos(particle_infos);
     }
   }
 
@@ -1022,8 +1104,11 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
       FillYAMLPointsParticle(leafIndex, scale, lineData, particle_infos, 1, 3, PointsCount);
       bezierVisualization->SetParticleInfos(particle_infos);
 
-      FillBezierFrameParticle(leafIndex, 1, *sorghum_descriptor, particle_infos, 1);
+      FillLeafSegmentFrameParticle(leafIndex, 1, *sorghum_descriptor, particle_infos, 1);
       bezierFrames->SetParticleInfos(particle_infos);
+
+      FillLeafSegmentFrameParticle(leafIndex, 1, *this, particle_infos, 1, false);
+      exampleVisualization->SetParticleInfos(particle_infos);
 
     } else {
       int leafCount = yamlContent.size();
@@ -1043,8 +1128,11 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
       FillYAMLPointsParticle(-1, scale, lineData, particle_infos, leafCount, lineCount, PointsCount);
       bezierVisualization->SetParticleInfos(particle_infos);
 
-      FillBezierFrameParticle(-1, 1, *sorghum_descriptor, particle_infos, sorghum_descriptor->leaves.size());
+      FillLeafSegmentFrameParticle(-1, 1, *sorghum_descriptor, particle_infos, sorghum_descriptor->leaves.size());
       bezierFrames->SetParticleInfos(particle_infos);
+
+      FillLeafSegmentFrameParticle(-1, 1, *this, particle_infos, this->leaves.size(), false);
+      exampleVisualization->SetParticleInfos(particle_infos);
     }
     prevSplitLeaf = splitLeaf;
   }
@@ -1062,8 +1150,11 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
     FillYAMLPointsParticle(leafIndex, scale, lineData, particle_infos, 1, 3, PointsCount);
     bezierVisualization->SetParticleInfos(particle_infos);
 
-    FillBezierFrameParticle(leafIndex, 1, *sorghum_descriptor, particle_infos, 1);
+    FillLeafSegmentFrameParticle(leafIndex, 1, *sorghum_descriptor, particle_infos, 1, false);
     bezierFrames->SetParticleInfos(particle_infos);
+
+    FillLeafSegmentFrameParticle(leafIndex, 1, *this, particle_infos, 1, false);
+    exampleVisualization->SetParticleInfos(particle_infos);
   }
 
 
@@ -1137,10 +1228,19 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   if (!bezierFrames && !bezierSampleResults.empty()) {
     bezierFrames = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
     std::vector<ParticleInfo> particle_infos;
-    FillBezierFrameParticle(-1, 1, *sorghum_descriptor, particle_infos, sorghum_descriptor->leaves.size());
+    FillLeafSegmentFrameParticle(-1, 1, *sorghum_descriptor, particle_infos, sorghum_descriptor->leaves.size());
     bezierFrames->SetParticleInfos(particle_infos);
 
   }
+
+  if (!exampleVisualization) {
+    exampleVisualization = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    std::vector<ParticleInfo> particle_infos;
+    FillLeafSegmentFrameParticle(-1, 1, *this, particle_infos, this->leaves.size());
+    exampleVisualization->SetParticleInfos(particle_infos);
+    
+  }
+  editor_layer->DrawGizmoCubes(exampleVisualization, 1.0f, 1, gizmo_settings);
 
   return changed;
 }
