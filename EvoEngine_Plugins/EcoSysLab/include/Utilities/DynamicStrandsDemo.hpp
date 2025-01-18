@@ -13,6 +13,7 @@ class DynamicStrandsDemo : public IPrivateComponent {
   float target_factor1 = 1.f;
   EntityRef temp_entity_ref;
   GlobalTransform object_initial_pose{};
+
  public:
   enum class DemoType {
     Empty,
@@ -27,7 +28,9 @@ class DynamicStrandsDemo : public IPrivateComponent {
     SapHeartEqual,
     SapHeartDecrease,
     ShortRodSphereCollision,
-    LongRodSphereCollision
+    LongRodSphereCollision,
+    SmallCylinderCollision,
+    BigCylinderCollision,
   };
   DynamicStrands::PhysicsParameters physics_parameters{};
   DynamicTreeStrands::LogExperimentSetupSettings log_experiment_setup_settings{};
