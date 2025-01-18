@@ -35,6 +35,8 @@ class DsPrediction {
   };
   struct SegmentPairPredictionPushConstant {
     uint32_t pair_size = 0;
+    float time_step = 0.01f;
+    float inv_time_step = 100.f;
   };
 
   struct LeafPredictionPushConstant {

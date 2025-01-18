@@ -62,7 +62,7 @@ void main(){
 			vec3 desired_position = segment_center_position + rotate_vec3(segment.q, leaf.position_offset);
 
 			float offset_length = length(leaf.position_offset);
-			leaf.position_strain = length(desired_position - leaf.x) / offset_length;
+			leaf.position_strain = length(desired_position - leaf.x) / offset_length * inv_time_step;
 		}
 
 		foliage[leaf_index] = leaf;
