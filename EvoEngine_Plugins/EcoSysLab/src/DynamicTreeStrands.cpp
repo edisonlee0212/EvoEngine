@@ -186,23 +186,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   static PrivateComponentRef dynamic_tree_strands_tree_ref{};
   if (EditorLayer::DragAndDropButton<Tree>(dynamic_tree_strands_tree_ref, "Download Strands from Tree...")) {
     if (const auto tree = dynamic_tree_strands_tree_ref.Get<Tree>()) {
-      tree->BuildStrandModel();
-      if (const auto td = tree->tree_descriptor_ref.Get<TreeDescriptor>()) {
-        initialize_parameters.foliage_descriptor = td->foliage_descriptor;
-        if (const auto fd = td->foliage_descriptor.Get<FoliageDescriptor>()) {
-          if (const auto mat = fd->leaf_material_ref.Get<Material>())
-            leaf_material_ref = mat;
-        }
-        if (const auto bd = td->bark_descriptor.Get<BarkDescriptor>()) {
-          if (const auto mat = bd->bark_material_ref.Get<Material>())
-            bark_material_ref = mat;
-        }
-      }
-      strand_model_skeleton = tree->strand_model.strand_model_skeleton;
-      UpdateDynamicStrands();
-      dynamic_strands->Upload();
-      dynamic_strands->InitializeMesh(initialize_parameters);
-      CreateStaticRoot();
+      InitializeFromTree(tree);
       dynamic_tree_strands_tree_ref.Clear();
     }
   }
@@ -1005,6 +989,26 @@ void DynamicTreeStrands::InteractionStep() const {
   if (box_selection_operator->enabled) {
     box_selection_operator->Execute(dynamic_strands);
   }
+}
+
+void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree) {
+  tree->BuildStrandModel();
+  if (const auto td = tree->tree_descriptor_ref.Get<TreeDescriptor>()) {
+    initialize_parameters.foliage_descriptor = td->foliage_descriptor;
+    if (const auto fd = td->foliage_descriptor.Get<FoliageDescriptor>()) {
+      if (const auto mat = fd->leaf_material_ref.Get<Material>())
+        leaf_material_ref = mat;
+    }
+    if (const auto bd = td->bark_descriptor.Get<BarkDescriptor>()) {
+      if (const auto mat = bd->bark_material_ref.Get<Material>())
+        bark_material_ref = mat;
+    }
+  }
+  strand_model_skeleton = tree->strand_model.strand_model_skeleton;
+  UpdateDynamicStrands();
+  dynamic_strands->Upload();
+  dynamic_strands->InitializeMesh(initialize_parameters);
+  CreateStaticRoot();
 }
 
 void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const {
