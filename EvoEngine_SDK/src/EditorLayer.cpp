@@ -176,6 +176,9 @@ void EditorLayer::OnCreate() {
   scene_camera->post_processing_stack_ref = ProjectManager::CreateTemporaryAsset<PostProcessingStack>();
   RegisterEditorCamera(scene_camera);
   scene_camera_handle_ = scene_camera->GetHandle();
+  auto& editor_camera = editor_cameras_[scene_camera_handle_];
+  editor_camera.position = default_scene_camera_position;
+  editor_camera.rotation = default_scene_camera_rotation;
 }
 
 void EditorLayer::OnDestroy() {
@@ -1162,6 +1165,14 @@ void EditorLayer::RegisterEditorCamera(const std::shared_ptr<Camera>& camera) {
   }
 }
 
+glm::vec3& EditorLayer::RefEditorCameraPosition(const Handle& handle) {
+  return editor_cameras_.at(handle).position;
+}
+
+glm::quat& EditorLayer::RefEditorCameraRotation(const Handle& handle) {
+  return editor_cameras_.at(handle).rotation;
+}
+
 glm::vec2 EditorLayer::GetMouseSceneCameraPosition() const {
   return mouse_scene_window_position_;
 }
@@ -1182,12 +1193,12 @@ glm::quat EditorLayer::GetSceneCameraRotation() const {
   return editor_cameras_.at(scene_camera_handle_).rotation;
 }
 
-void EditorLayer::SetCameraPosition(const std::shared_ptr<Camera>& camera, const glm::vec3& target_position) {
-  editor_cameras_.at(camera->GetHandle()).position = target_position;
+void EditorLayer::SetSceneCameraPosition(const glm::vec3& target_position) {
+  editor_cameras_.at(scene_camera_handle_).position = target_position;
 }
 
-void EditorLayer::SetCameraRotation(const std::shared_ptr<Camera>& camera, const glm::quat& target_rotation) {
-  editor_cameras_.at(camera->GetHandle()).rotation = target_rotation;
+void EditorLayer::SetSceneCameraRotation(const glm::quat& target_rotation) {
+  editor_cameras_.at(scene_camera_handle_).rotation = target_rotation;
 }
 
 void EditorLayer::UpdateTextureId(ImTextureID& target, const VkSampler image_sampler, const VkImageView image_view,

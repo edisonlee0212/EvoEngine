@@ -18,11 +18,11 @@
 #include "TreeMeshGenerator.hpp"
 
 #include "BarkDescriptor.hpp"
+#include "DynamicTreeSkeleton.hpp"
 #include "FlowerDescriptor.hpp"
 #include "FoliageDescriptor.hpp"
 #include "FruitDescriptor.hpp"
 #include "ShootDescriptor.hpp"
-#include "DynamicTreeSkeleton.hpp"
 using namespace eco_sys_lab_plugin;
 
 void TreeDescriptor::OnCreate() {
@@ -39,20 +39,7 @@ bool TreeDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     soil = soil_candidate.lock();
   if (soil && climate) {
     if (ImGui::Button("Instantiate")) {
-      const auto scene = Application::GetActiveScene();
-      const auto tree_entity = scene->CreateEntity(GetTitle());
-      const auto dynamic_tree_skeleton_entity = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity).lock();
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-      float height = 0;
-      if (const auto soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>()) {
-        if (const auto height_field = soil_descriptor->height_field.Get<HeightField>())
-          height = height_field->GetValue({0.0f, 0.0f}) - 0.05f;
-      }
-      GlobalTransform global_transform;
-      global_transform.SetPosition(glm::vec3(0, height, 0));
-      scene->SetDataComponent(tree_entity, global_transform);
-      tree->tree_descriptor_ref = ProjectManager::GetAsset(GetHandle());
-      editor_layer->SetSelectedEntity(tree_entity);
+      editor_layer->SetSelectedEntity(Instantiate());
     }
   } else {
     ImGui::Text("Create soil and climate entity to instantiate!");
@@ -82,6 +69,33 @@ void TreeDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
 
   if (bark_descriptor.Get<BarkDescriptor>())
     list.push_back(bark_descriptor);
+}
+
+Entity TreeDescriptor::Instantiate() const {
+  std::shared_ptr<Climate> climate;
+  std::shared_ptr<Soil> soil;
+  if (const auto climate_candidate = EcoSysLabLayer::FindClimate(); !climate_candidate.expired())
+    climate = climate_candidate.lock();
+  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
+    soil = soil_candidate.lock();
+  if (soil && climate) {
+    const auto scene = Application::GetActiveScene();
+    const auto tree_entity = scene->CreateEntity(GetTitle());
+    const auto dynamic_tree_skeleton_entity = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity).lock();
+    const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+    float height = 0;
+    if (const auto soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>()) {
+      if (const auto height_field = soil_descriptor->height_field.Get<HeightField>())
+        height = height_field->GetValue({0.0f, 0.0f}) - 0.05f;
+    }
+    GlobalTransform global_transform;
+    global_transform.SetPosition(glm::vec3(0, height, 0));
+    scene->SetDataComponent(tree_entity, global_transform);
+    tree->tree_descriptor_ref = ProjectManager::GetAsset(GetHandle());
+    return tree_entity;
+  }
+
+  return {};
 }
 
 void TreeDescriptor::Serialize(YAML::Emitter& out) const {

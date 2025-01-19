@@ -40,11 +40,14 @@ void main(){
 	outNormal.rgb = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
 	outNormal.a = EE_INSTANCE_INDEX;
 	int material_index = instance.material_index;
-	if(fs_in.Color.x > 1e-6f){
-		material_index = snow_material_index;
-	}else if(fs_in.Color.y > 0.5f){
+	if(fs_in.Color.a > 0.7f){
 		material_index = inner_wood_material_index;
+	}else if(fs_in.Color.a > 0.5f){
+		material_index = snow_material_index;
 	}
-
-	outMaterial = vec4(tex_coord.x, tex_coord.y, material_index, instance.info_index);
+	if(fs_in.Color.a > 0.9f){
+		outMaterial = vec4(fs_in.Color.xyz, instance.info_index + 2);
+	}else{
+		outMaterial = vec4(tex_coord.x, tex_coord.y, material_index, instance.info_index);
+	}
 }

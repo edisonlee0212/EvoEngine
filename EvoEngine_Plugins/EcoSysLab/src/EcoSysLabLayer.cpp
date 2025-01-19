@@ -380,16 +380,16 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
               const glm::vec3 up = glm::normalize(glm::cross(right, front));
               scene_camera_rotation = glm::quatLookAt(front, up);
             }
-            editor_layer->SetCameraRotation(editor_layer->GetSceneCamera(), scene_camera_rotation);
-            editor_layer->SetCameraPosition(editor_layer->GetSceneCamera(), scene_camera_position);
+            editor_layer->SetSceneCameraRotation(scene_camera_rotation);
+            editor_layer->SetSceneCameraPosition(scene_camera_position);
           }
 #pragma endregion
         }
       } else {
         visualization_camera_window_focused_ = false;
       }
-      editor_layer->SetCameraRotation(visualization_camera_, scene_camera_rotation);
-      editor_layer->SetCameraPosition(visualization_camera_, scene_camera_position);
+      editor_layer->RefEditorCameraRotation(visualization_camera_->GetHandle()) = scene_camera_rotation;
+      editor_layer->RefEditorCameraPosition(visualization_camera_->GetHandle()) = scene_camera_position;
     }
     ImGui::EndChild();
     auto* window = ImGui::FindWindowByName("Plant Visual");
@@ -630,9 +630,7 @@ void EcoSysLabLayer::VisualizationCameraDragAndDrop() const {
   if (AssetRef asset_ref; EditorLayer::UnsafeDroppableAsset(asset_ref, {"Scene", "Prefab", "Mesh", "TreeDescriptor"})) {
     const auto scene = GetScene();
     if (const auto asset = asset_ref.Get<IAsset>(); asset->GetTypeName() == "TreeDescriptor") {
-      const auto entity = scene->CreateEntity(asset->GetTitle());
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
-      tree->tree_descriptor_ref = std::dynamic_pointer_cast<TreeDescriptor>(asset);
+      std::dynamic_pointer_cast<TreeDescriptor>(asset)->Instantiate();
     }
   }
 }

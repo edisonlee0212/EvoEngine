@@ -234,11 +234,6 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
           }
           if (editor_layer->GetKey(GLFW_KEY_Q) == Input::KeyActionType::Hold || is_box_selection_previously) {
             is_box_selection_previously = true;
-            draw_list->AddQuad(canvas_p0 + ImVec2(strands_operator_mouse_start.x, strands_operator_mouse_start.y),
-                               canvas_p0 + ImVec2(strands_operator_mouse_start.x, strands_operator_mouse_current.y),
-                               canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_current.y),
-                               canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_start.y),
-                               IM_COL32(255, 255, 255, 255));
             for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
               dts->box_selection_operator->enabled = true;
               dts->box_selection_operator->Update(
@@ -246,6 +241,15 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
                   strands_operator_mouse_current / glm::vec2(canvas_size.x, canvas_size.y), camera_projection_view,
                   editor_layer->GetKey(GLFW_KEY_R) != Input::KeyActionType::Hold ? 0 : 1);
             });
+            draw_list->AddQuad(canvas_p0 + ImVec2(strands_operator_mouse_start.x, strands_operator_mouse_start.y),
+                               canvas_p0 + ImVec2(strands_operator_mouse_start.x, strands_operator_mouse_current.y),
+                               canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_current.y),
+                               canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_start.y),
+                               editor_layer->GetKey(GLFW_KEY_R) != Input::KeyActionType::Hold
+                                   ? IM_COL32(0, 0, 255, 255)
+                                   : IM_COL32(255, 0, 255, 255),
+                               3);
+
           } else if (editor_layer->GetKey(GLFW_KEY_E) == Input::KeyActionType::Hold || is_operating_previously) {
             is_operating_previously = true;
 
@@ -254,14 +258,14 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
                 draw_list->AddLine(
                     canvas_p0 + ImVec2(strands_operator_mouse_start.x, strands_operator_mouse_start.y),
                     canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_current.y),
-                    IM_COL32(255, 255, 255, 255));
+                    IM_COL32(255, 0, 0, 255));
                 const auto screen_vector = strands_operator_mouse_current - strands_operator_mouse_start;
                 const float line_distance = glm::length(screen_vector);
                 draw_list->AddCircle(
                     canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_current.y),
-                    line_distance * 0.05f, IM_COL32(255, 255, 255, 255));
+                    line_distance * 0.05f, IM_COL32(255, 0, 0, 255), 0, 3);
                 draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_mouse_start.x, strands_operator_mouse_start.y),
-                                     5.0f, IM_COL32(255, 255, 255, 255));
+                                     5.0f, IM_COL32(255, 0, 0, 255), 0, 3);
 
                 const glm::vec3 acceleration = dynamic_strands_settings_.drag_multiplier *
                                                (camera_right * screen_vector.x - camera_up * screen_vector.y);
@@ -283,7 +287,7 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
                                                         strand_operator_mouse_points[line_index].y),
                                      canvas_p0 + ImVec2(strand_operator_mouse_points[line_index + 1].x,
                                                         strand_operator_mouse_points[line_index + 1].y),
-                                     IM_COL32(255, 0, 0, 128));
+                                     IM_COL32(255, 0, 0, 128), 3);
                 }
                 break;
               }
@@ -294,7 +298,7 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
                 draw_list->AddLine(
                     canvas_p0 + ImVec2(strands_operator_mouse_start.x, strands_operator_mouse_start.y),
                     canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_current.y),
-                    IM_COL32(255, 0, 0, 128));
+                    IM_COL32(255, 0, 0, 128), 3);
                 draw_list->AddCircleFilled(
                     canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_current.y), 4.0f,
                     IM_COL32(255, 0, 0, 255));

@@ -75,16 +75,25 @@ class IDsOperator {
 
 class DsBoxSelection : public IDsOperator {
  public:
-  struct BoxSelectionPushConstant {
+  struct SegmentBoxSelectionPushConstant {
     glm::vec2 box_min;
     glm::vec2 box_max;
     glm::mat4 projection_view;
     uint32_t selection_mode;
     uint32_t segment_size;
   };
+  struct LeafBoxSelectionPushConstant {
+    glm::vec2 box_min;
+    glm::vec2 box_max;
+    glm::mat4 projection_view;
+    uint32_t selection_mode;
+    uint32_t leaf_size;
+  };
 
-  inline static std::shared_ptr<ComputePipeline> pipeline{};
-  BoxSelectionPushConstant push_constant;
+  inline static std::shared_ptr<ComputePipeline> segment_pipeline{};
+  SegmentBoxSelectionPushConstant segment_push_constant;
+  inline static std::shared_ptr<ComputePipeline> leaf_pipeline{};
+  LeafBoxSelectionPushConstant leaf_push_constant;
   DsBoxSelection();
   void Update(const glm::vec2& box_start, const glm::vec2& box_end, const glm::mat4& projection_view,
               uint32_t selection_mode);

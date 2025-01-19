@@ -70,7 +70,7 @@ vec3 PseudoRandomColor(int seed) {
     return vec3(r, g, b);
 }
 
-void SetUpTriangleVertex(uint vertex_index, vec3 vertex_normal, UniformParticle uniform_particle, int is_bark){
+void SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in UniformParticle uniform_particle, int is_bark){
 	vec3 vertex_position = uniform_particle.position_t.xyz + vertex_normal * (global_extrusion_distance + uniform_particle.local_extrusion_distance);
 	mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
 
@@ -83,11 +83,45 @@ void SetUpTriangleVertex(uint vertex_index, vec3 vertex_normal, UniformParticle 
 	}
 	float tex_y = float(uniform_particle.segment_index) * v_multiplier;
 	ms_v_out[vertex_index].TexCoord = vec2(tex_x, tex_y);
-	vec4 vertex_color = uniform_particle.override_color;
-	if(is_bark == 0){
-		vertex_color.y = 1.f;
+	vec4 color = vec4(0, 0, 0, 0);
+
+	int segment_handle = uniform_particle.segment_handle;
+
+	bool highlight1 = false;
+	bool highlight2 = false;
+	bool selected = false;
+
+	if(segments[segment_handle].particle0.highlighted == 1){
+		highlight1 = true;
 	}
-	ms_v_out[vertex_index].Color = vertex_color;
+	if(segments[segment_handle].particle0.highlighted == 2){
+		highlight2 = true;
+	}
+	if(segments[segment_handle].particle0.selected == 1){
+		selected = true;
+	}
+	if(segments[segment_handle].particle1.highlighted == 1){
+		highlight1 = true;
+	}
+	if(segments[segment_handle].particle1.highlighted == 2){
+		highlight2 = true;
+	}
+	if(segments[segment_handle].particle1.selected == 1){
+		selected = true;
+	}
+
+	if(highlight2){
+		color = vec4(1, 0, 1, 1.0);
+	}else if(selected){
+		color = vec4(1, 0, 0, 1.0);
+	}else if(highlight1){
+		color = vec4(0, 0, 1, 1.0);
+	}
+
+	if(is_bark == 0){
+		color.a = 0.8f;
+	}
+	ms_v_out[vertex_index].Color = color;
 	
 	if(vertex_colors == 0){
 

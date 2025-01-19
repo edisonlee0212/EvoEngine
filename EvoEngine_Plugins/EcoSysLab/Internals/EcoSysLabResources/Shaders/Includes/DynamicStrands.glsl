@@ -139,7 +139,7 @@ struct UniformParticle {
   int next_node_index;
   int strand_index;
 
-  int is_single_strand_particle;  // amout of connected tetrahedrons
+  int is_single_strand_particle;  // amount of connected tetrahedrons
   float local_extrusion_distance;
   int is_on_surface;  // mark if particle is on the surface of the mesh to initialize the normal
   int padding3;
@@ -222,6 +222,11 @@ struct Leaf {
   float property1;
   float property2;
   float property3;
+
+  int selected;
+  int highlighted;
+  int padding0;
+  int padding1;
 };
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 0) buffer STRANDS_BLOCK {

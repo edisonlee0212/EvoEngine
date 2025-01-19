@@ -444,11 +444,9 @@ void RayTracerLayer::LateUpdate() {
 void RayTracerLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Editor")) {
     if (ImGui::TreeNode("Scene")) {
-      
       ImGui::TreePop();
     }
     if (ImGui::TreeNode("Camera")) {
-      
       ImGui::TreePop();
     }
     ImGui::TreePop();
@@ -588,8 +586,8 @@ void RayTracerLayer::SceneCameraWindow() {
             const glm::vec3 up = glm::normalize(glm::cross(right, front));
             scene_camera_rotation = glm::quatLookAt(front, up);
           }
-          editor_layer->SetCameraPosition(editor_layer->GetSceneCamera(), scene_camera_position);
-          editor_layer->SetCameraRotation(editor_layer->GetSceneCamera(), scene_camera_rotation);
+          editor_layer->SetSceneCameraPosition(scene_camera_position);
+          editor_layer->SetSceneCameraRotation(scene_camera_rotation);
         }
 #pragma endregion
       }

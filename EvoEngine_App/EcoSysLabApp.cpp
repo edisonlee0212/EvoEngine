@@ -113,7 +113,6 @@ int main() {
   // adjust default camera speed
   const auto editor_layer = Application::GetLayer<EditorLayer>();
   editor_layer->velocity = 2.f;
-  editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
   auto& camera_settings = editor_layer->GetSceneCamera()->camera_settings;
   camera_settings.use_clear_color = true;
   camera_settings.clear_color = glm::vec3(1.f);

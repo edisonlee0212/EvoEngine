@@ -161,45 +161,77 @@ bool DsAttraction::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 }
 
 DsBoxSelection::DsBoxSelection() {
-  if (!pipeline) {
+  if (!segment_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/BoxSelection.comp");
-    pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader = shader;
-    pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(BoxSelectionPushConstant);
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Operators/SegmentBoxSelection.comp");
+    segment_pipeline = std::make_shared<ComputePipeline>();
+    segment_pipeline->compute_shader = shader;
+    segment_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    auto& push_constant_range = segment_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentBoxSelectionPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    pipeline->Initialize();
+    segment_pipeline->Initialize();
+  }
+  if (!leaf_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Operators/LeafBoxSelection.comp");
+    leaf_pipeline = std::make_shared<ComputePipeline>();
+    leaf_pipeline->compute_shader = shader;
+    leaf_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    auto& push_constant_range = leaf_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafBoxSelectionPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_pipeline->Initialize();
   }
 }
 
 void DsBoxSelection::Update(const glm::vec2& box_start, const glm::vec2& box_end, const glm::mat4& projection_view,
                             const uint32_t selection_mode) {
-  push_constant.box_min = glm::min(box_start, box_end);
-  push_constant.box_max = glm::max(box_start, box_end);
+  segment_push_constant.box_min = glm::min(box_start, box_end);
+  segment_push_constant.box_max = glm::max(box_start, box_end);
 
-  push_constant.projection_view = projection_view;
-  push_constant.selection_mode = selection_mode;
+  segment_push_constant.projection_view = projection_view;
+  segment_push_constant.selection_mode = selection_mode;
+
+  leaf_push_constant.box_min = glm::min(box_start, box_end);
+  leaf_push_constant.box_max = glm::max(box_start, box_end);
+
+  leaf_push_constant.projection_view = projection_view;
+  leaf_push_constant.selection_mode = selection_mode;
 }
 
 void DsBoxSelection::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  push_constant.segment_size = target_dynamic_strands->segments.size();
+  segment_push_constant.segment_size = target_dynamic_strands->segments.size();
+  leaf_push_constant.leaf_size = target_dynamic_strands->foliage.size();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    pipeline->Bind(vk_command_buffer);
-    pipeline->BindDescriptorSet(
+    segment_pipeline->Bind(vk_command_buffer);
+    segment_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    segment_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.segment_size, work_group_invocations), 1, 1);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    leaf_pipeline->Bind(vk_command_buffer);
+    leaf_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    leaf_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
   enabled = false;
