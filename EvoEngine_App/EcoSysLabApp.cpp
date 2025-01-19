@@ -121,7 +121,6 @@ int main() {
   const auto post_processing_stack =
       editor_layer->GetSceneCamera()->post_processing_stack_ref.Get<PostProcessingStack>();
   post_processing_stack->enable_bloom = false;
-  post_processing_stack->enable_screen_space_ambient_occlusion = false;
   auto render_layer = Application::GetLayer<RenderLayer>();
 #pragma region Engine Loop
   Application::Start();

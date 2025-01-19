@@ -3,6 +3,7 @@
 #include "DsOperators.hpp"
 #include "DynamicStrands.hpp"
 #include "StrandModelData.hpp"
+#include "Tree.hpp"
 #include "TreeGrowthData.hpp"
 
 using namespace evo_engine;
@@ -97,7 +98,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   void ClearStrandParticles() const;
 
   void InteractionStep() const;
-
+  void InitializeFromTree(const std::shared_ptr<Tree>& tree);
   void PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const;
 
   void Visualization(const std::shared_ptr<Camera>& target_camera,
