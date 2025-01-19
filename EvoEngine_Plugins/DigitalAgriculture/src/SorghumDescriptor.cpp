@@ -556,9 +556,12 @@ struct CubicBezierSpline {
 //-------------------------
 // todo: delete this global variable, this is only for debugging
 static float radius = 0.003;
-static float theta = 30.0f;
+static float theta = 50.0f;
 // enlarge the sorghum
 static float scale = 1.6f;
+static float left_height_offset = 0.0f;
+static float right_height_offset = 0.0f;
+
 
 
 
@@ -666,6 +669,8 @@ std::vector < glm::vec3> ReconstructSorghumFromBezierSplines(
 
     // get uniform samples from the centerLine
     auto samples = centerLine.getUniformSamples(32);
+
+    std::set<int> set({20, 25, 30, 31, 10, 15, 5});
     // reconstruct the local coordinate at each of the samples
     for (int j = 0; j < samples.size(); j++) {
       SplineSample sample = samples[j];
@@ -675,18 +680,18 @@ std::vector < glm::vec3> ReconstructSorghumFromBezierSplines(
       glm::vec3 position = sample.position * scale;
       glm::vec3 normal = centerLine.getTangent(sample);
       // assume the closest intersection point should be the correct one
-      // todo: how to deal with no intersection? 
+      // todo: how to deal with no intersection?
       std::vector<glm::vec3> leftCandidates = leftLine.getSurfaceIntersection(sample.position, normal);
       auto leftIntersection = std::min_element(leftCandidates.begin(), leftCandidates.end(),
-                                   [&position](const glm::vec3& a, const glm::vec3& b) {
-                                     return glm::distance(a, position) < glm::distance(b, position);
-      });
+                                               [&position](const glm::vec3& a, const glm::vec3& b) {
+                                                 return glm::distance(a, position) < glm::distance(b, position);
+                                               });
 
       std::vector<glm::vec3> rightCandidates = rightLine.getSurfaceIntersection(sample.position, normal);
       auto rightIntersection = std::min_element(rightCandidates.begin(), rightCandidates.end(),
-                                   [&position](const glm::vec3& a, const glm::vec3& b) {
-                                     return glm::distance(a, position) < glm::distance(b, position);
-                                   });
+                                                [&position](const glm::vec3& a, const glm::vec3& b) {
+                                                  return glm::distance(a, position) < glm::distance(b, position);
+                                                });
 
       glm::vec3 leftPoint;
       glm::vec3 rightPoint;
@@ -701,43 +706,53 @@ std::vector < glm::vec3> ReconstructSorghumFromBezierSplines(
       if (leftIntersection == leftCandidates.end() || rightIntersection == rightCandidates.end()) {
         std::cout << "error in leaf: " << i << "\n";
       }
-      
 
-      //----------------------- 
+      //-----------------------
       // debug info
       //-----------------------
       results.emplace_back(position);
       results.emplace_back(leftPoint);
       results.emplace_back(rightPoint);
 
+      //----------------------------
       // from the profile, reconstruct the up vector
-      glm::vec3 rightLocal = rightPoint - position;
-      glm::vec3 leftLocal = leftPoint - position;
-
-      glm::vec3 right = glm::cross(normal, glm::vec3(0, 1, 0));
+      //----------------------------
+      glm::vec3 right = normalize(glm::cross(normal, glm::vec3(0, 1, 0)));
       //right = glm::dot(right, rightLocal) < 0 ? right : -right;
 
       // position
       segment.position = position;
 
       // front
-      segment.front = normal;
+      segment.front = normal;                                                                                                                                                                                                          
 
       segment.up = normalize(glm::cross(right, segment.front));
+
+      // w->l
+      glm::mat4 worldToLocal = inverse(glm::mat4(right.x, right.y, right.z, 0,         // 1st column
+                                         segment.up.x, segment.up.y, segment.up.z, 0,  // 2nd column
+                                         -normal.x, -normal.y, -normal.z, 0,  // 3rd column
+                                         position.x, position.y, position.z , 1.0f      // 4th column
+                                                   ));
+      glm::vec3 rightLocal = worldToLocal * glm::vec4(rightPoint, 1.0f);
+      glm::vec3 leftLocal = worldToLocal * glm::vec4(leftPoint, 1.0f);
 
       // reconstruct theta, radius, height_offsets
       float freq = 0.35f; 
       segment.theta = theta;
       //segment.radius = std::max(std::max(glm::length(leftLocal), glm::length(rightLocal)), 0.01f);
-      segment.radius = std::max(std::max(std::abs(leftLocal.x), std::abs(rightLocal.x)), 0.01f);
+      segment.radius = std::max(std::abs(leftLocal.x), std::abs(rightLocal.x));
       //segment.radius = radius;
 
-      segment.left_height_offset = leftLocal.y;
-      segment.right_height_offset = rightLocal.y;
+      segment.left_height_offset = -leftLocal.y * 1.5;
+      segment.right_height_offset = -rightLocal.y * 1.5;
+      //segment.left_height_offset = left_height_offset;
+      //segment.right_height_offset = right_height_offset;
+
 
       sorghumSpline.segments.push_back(segment);
     }
-
+    
     SorghumLeafDescriptor leaf_descriptor;
     leaf_descriptor.spline = sorghumSpline;
     leaf_descriptor.index = i;
@@ -854,7 +869,7 @@ void FillLeafSegmentFrameParticle(int leafIndex, float scale, SorghumDescriptor&
     particleInfos.clear();
     int leafStartIndex = leafIndex > -1 ? leafIndex : 0;
     // for loop
-    for (int i = leafStartIndex; i < leafStartIndex+leafCount; i++) {
+    for (int i = leafStartIndex; i < sorghum_descriptor.leaves.size()&& i <  leafStartIndex + leafCount; i++) {
       auto leaf = sorghum_descriptor.leaves[i];
 
       for (auto segment: leaf.spline.segments) {
@@ -977,7 +992,9 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   static int leafIndex;
 
   static Entity reconstructed_entity;
-  
+
+  bool updateMesh = false;
+  bool updateGizmo = false;
 
   Transform transform;
   transform.SetPosition({0, 0, 0});
@@ -987,79 +1004,22 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
 
 
   if (ImGui::SliderFloat("theta", &theta, 0.0f, 180.0f)) {
-    //ReconstructFromYAML(sorghum_descriptor, yamlContent, theta, scale);
-    splines = ReconstructBezierSplineFromYAML(yamlContent);
-    bezierSampleResults = ReconstructSorghumFromBezierSplines(sorghum_descriptor, splines, theta, scale);
-
-    const auto scene = Application::GetActiveScene();
-    scene->DeleteEntity(reconstructed_entity);
-    reconstructed_entity = sorghum_descriptor->CreateEntity("Temp Sorghum");
+    updateMesh = true;
   }
 
   if (ImGui::SliderFloat("scale", &scale, 1.0f, 10.0f)) {
-    //ReconstructFromYAML(sorghum_descriptor, yamlContent, theta, scale);
-    splines = ReconstructBezierSplineFromYAML(yamlContent);
-    bezierSampleResults = ReconstructSorghumFromBezierSplines(sorghum_descriptor, splines, theta, scale);
-    const auto scene = Application::GetActiveScene();
-    scene->DeleteEntity(reconstructed_entity);
-    reconstructed_entity = sorghum_descriptor->CreateEntity("Temp Sorghum");
-
-    // update the gizmo together
-    if (splitLeaf) {
-      // update particleInfo
-      std::vector<ParticleInfo> particle_infos;
-      FillYAMLPointsParticle(leafIndex, scale, yamlContent, particle_infos);
-      yamlPoints->SetParticleInfos(particle_infos);
-
-      FillBezierSplinePointsParticle(leafIndex, 1, bezierSampleResults, particle_infos);
-      bezierSamples->SetParticleInfos(particle_infos);
-
-      auto lineData = GetLineSamplesFromBezierSplines(splines, 4);
-      int PointsCount = lineData[0]["centerPoints"].size();
-      FillYAMLPointsParticle(leafIndex, scale, lineData, particle_infos, 1, 3, PointsCount);
-      bezierVisualization->SetParticleInfos(particle_infos);
-
-      FillLeafSegmentFrameParticle(leafIndex, 1, *sorghum_descriptor, particle_infos, 1);
-      bezierFrames->SetParticleInfos(particle_infos);
-
-      FillLeafSegmentFrameParticle(leafIndex, 1, *this, particle_infos, 1, false);
-      exampleVisualization->SetParticleInfos(particle_infos);
-
-    } else {
-      int leafCount = yamlContent.size();
-      int PointsCount = yamlContent[0]["centerPoints"].size();
-      std::vector<ParticleInfo> particle_infos;
-
-      FillYAMLPointsParticle(-1, scale, yamlContent, particle_infos, leafCount);
-      yamlPoints->SetParticleInfos(particle_infos);
-
-      FillBezierSplinePointsParticle(-1, 1, bezierSampleResults, particle_infos, leafCount);
-      bezierSamples->SetParticleInfos(particle_infos);
-
-      auto lineData = GetLineSamplesFromBezierSplines(splines, 4);
-      leafCount = splines.size();
-      int lineCount = 3;
-      PointsCount = lineData[0]["centerPoints"].size();
-      FillYAMLPointsParticle(-1, scale, lineData, particle_infos, leafCount, lineCount, PointsCount);
-      bezierVisualization->SetParticleInfos(particle_infos);
-
-      FillLeafSegmentFrameParticle(-1, 1, *sorghum_descriptor, particle_infos, sorghum_descriptor->leaves.size());
-      bezierFrames->SetParticleInfos(particle_infos);
-
-      FillLeafSegmentFrameParticle(-1, 1, *this, particle_infos, this->leaves.size(), false);
-      exampleVisualization->SetParticleInfos(particle_infos);
-    }
+    updateMesh = true;
+    updateGizmo = true;
   }
 
   if (ImGui::SliderFloat("radius", &radius, 0.001f, 10.0f)) {
-    // ReconstructFromYAML(sorghum_descriptor, yamlContent, theta, scale);
-    splines = ReconstructBezierSplineFromYAML(yamlContent);
-    bezierSampleResults = ReconstructSorghumFromBezierSplines(sorghum_descriptor, splines, theta, scale);
-    const auto scene = Application::GetActiveScene();
-    scene->DeleteEntity(reconstructed_entity);
-    reconstructed_entity = sorghum_descriptor->CreateEntity("Temp Sorghum");
-
-    
+    updateMesh = true;
+  }
+  if (ImGui::SliderFloat("left height offset", &left_height_offset, -1, 1)) {
+    updateMesh = true;
+  }
+  if (ImGui::SliderFloat("right height offset", &right_height_offset, -1, 1)) {
+    updateMesh = true;
   }
 
   ImGui::Text("Gizmo");
@@ -1087,8 +1047,43 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
       break;
 
   }
-  
+ 
   if (splitLeaf != prevSplitLeaf ) {
+    updateGizmo = true;
+    prevSplitLeaf = splitLeaf;
+  }
+  if (ImGui::SliderInt("LeafIndex", &leafIndex, 0, 20) && splitLeaf) {
+    // update particleInfo
+    std::vector<ParticleInfo> particle_infos;
+    FillYAMLPointsParticle(leafIndex, scale, yamlContent, particle_infos);
+    yamlPoints->SetParticleInfos(particle_infos);
+
+    FillBezierSplinePointsParticle(leafIndex, 1, bezierSampleResults, particle_infos);
+    bezierSamples->SetParticleInfos(particle_infos);
+
+    auto lineData = GetLineSamplesFromBezierSplines(splines, 4);
+    int PointsCount = lineData[0]["centerPoints"].size();
+    FillYAMLPointsParticle(leafIndex, scale, lineData, particle_infos, 1, 3, PointsCount);
+    bezierVisualization->SetParticleInfos(particle_infos);
+
+    FillLeafSegmentFrameParticle(leafIndex, 1, *sorghum_descriptor, particle_infos, 1, false);
+    bezierFrames->SetParticleInfos(particle_infos);
+
+    FillLeafSegmentFrameParticle(leafIndex, 1, *this, particle_infos, 1, false);
+    exampleVisualization->SetParticleInfos(particle_infos);
+  }
+
+
+  if (updateMesh) {
+    // ReconstructFromYAML(sorghum_descriptor, yamlContent, theta, scale);
+    splines = ReconstructBezierSplineFromYAML(yamlContent);
+    bezierSampleResults = ReconstructSorghumFromBezierSplines(sorghum_descriptor, splines, theta, scale);
+
+    const auto scene = Application::GetActiveScene();
+    scene->DeleteEntity(reconstructed_entity);
+    reconstructed_entity = sorghum_descriptor->CreateEntity("Temp Sorghum");
+  }
+  if (updateGizmo) {
     // update the gizmo together
     if (splitLeaf) {
       // update particleInfo
@@ -1134,30 +1129,64 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
       FillLeafSegmentFrameParticle(-1, 1, *this, particle_infos, this->leaves.size(), false);
       exampleVisualization->SetParticleInfos(particle_infos);
     }
-    prevSplitLeaf = splitLeaf;
-  }
-  if (ImGui::SliderInt("LeafIndex", &leafIndex, 0, 20) && splitLeaf) {
-    // update particleInfo
-    std::vector<ParticleInfo> particle_infos;
-    FillYAMLPointsParticle(leafIndex, scale, yamlContent, particle_infos);
-    yamlPoints->SetParticleInfos(particle_infos);
-
-    FillBezierSplinePointsParticle(leafIndex, 1, bezierSampleResults, particle_infos);
-    bezierSamples->SetParticleInfos(particle_infos);
-
-    auto lineData = GetLineSamplesFromBezierSplines(splines, 4);
-    int PointsCount = lineData[0]["centerPoints"].size();
-    FillYAMLPointsParticle(leafIndex, scale, lineData, particle_infos, 1, 3, PointsCount);
-    bezierVisualization->SetParticleInfos(particle_infos);
-
-    FillLeafSegmentFrameParticle(leafIndex, 1, *sorghum_descriptor, particle_infos, 1, false);
-    bezierFrames->SetParticleInfos(particle_infos);
-
-    FillLeafSegmentFrameParticle(leafIndex, 1, *this, particle_infos, 1, false);
-    exampleVisualization->SetParticleInfos(particle_infos);
   }
 
+  if (ImGui::Button("dump leaf segment info")) {
+    if (splitLeaf) {
+      int i = 0;
+      for (auto segment : leaves[leafIndex].spline.segments) {
+        std::cout << "radius in segment" << i << ": "<< segment.radius << "\n";
+        i++;
+      }
 
+      i = 0;
+      for (auto segment : leaves[leafIndex].spline.segments) {
+        std::cout << "theta in segment" << i << ": " << segment.theta << "\n";
+        i++;
+      }
+
+      i = 0;
+      for (auto segment : leaves[leafIndex].spline.segments) {
+        std::cout << "left height offset in segment" << i << ": " << segment.left_height_offset << "\n";
+        i++;
+      }
+
+      i = 0;
+      for (auto segment : leaves[leafIndex].spline.segments) {
+        std::cout << "right height offset in segment" << i << ": " << segment.right_height_offset << "\n";
+        i++;
+      }
+
+    }
+  }
+
+  if (ImGui::Button("dump reconstruction leaf segment info")) {
+    if (splitLeaf) {
+      int i = 0;
+      for (auto segment : sorghum_descriptor->leaves[leafIndex].spline.segments) {
+        std::cout << "radius in segment" << i << ": " << segment.radius << "\n";
+        i++;
+      }
+
+      i = 0;
+      for (auto segment : sorghum_descriptor->leaves[leafIndex].spline.segments) {
+        std::cout << "theta in segment" << i << ": " << segment.theta << "\n";
+        i++;
+      }
+
+      i = 0;
+      for (auto segment : sorghum_descriptor->leaves[leafIndex].spline.segments) {
+        std::cout << "left height offset in segment" << i << ": " << segment.left_height_offset << "\n";
+        i++;
+      }
+
+      i = 0;
+      for (auto segment : sorghum_descriptor->leaves[leafIndex].spline.segments) {
+        std::cout << "right height offset in segment" << i << ": " << segment.right_height_offset << "\n";
+        i++;
+      }
+    }
+  }
 
   //--------------------------
   // load points from yaml and reconstruct the mesh
@@ -1240,7 +1269,7 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
     exampleVisualization->SetParticleInfos(particle_infos);
     
   }
-  editor_layer->DrawGizmoCubes(exampleVisualization, 1.0f, 1, gizmo_settings);
+  //editor_layer->DrawGizmoCubes(exampleVisualization, 1.0f, 1, gizmo_settings);
 
   return changed;
 }
