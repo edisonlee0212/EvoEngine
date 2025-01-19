@@ -83,7 +83,7 @@ void RenderInstanceStorage::ExternalRenderInstance::Apply(InstanceInfoBlock& ins
   instance_info_block.triangle_offset = 0;
   instance_info_block.meshlet_index_offset = 0;
   instance_info_block.meshlet_size = 0;
-  instance_info_block.entity_selected = entity_selected;
+  instance_info_block.info_index = entity_selected ? 1 : 0;
 }
 
 uint32_t RenderInstanceStorage::ExternalRenderInstance::Render(
@@ -125,7 +125,7 @@ bool RenderInstanceStorage::MeshRenderInstance::operator!=(const MeshRenderInsta
 void RenderInstanceStorage::MeshRenderInstance::Apply(InstanceInfoBlock& instance_info_block) const {
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = entity_selected;
+  instance_info_block.info_index = entity_selected ? 1 : 0;
   instance_info_block.triangle_offset = mesh->triangle_range_->offset;
   instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
   instance_info_block.meshlet_size = mesh->meshlet_range_->range;
@@ -185,7 +185,7 @@ bool RenderInstanceStorage::SkinnedMeshRenderInstance::operator!=(const SkinnedM
 void RenderInstanceStorage::SkinnedMeshRenderInstance::Apply(InstanceInfoBlock& instance_info_block) const {
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = entity_selected;
+  instance_info_block.info_index = entity_selected ? 1 : 0;
   instance_info_block.triangle_offset = skinned_mesh->skinned_triangle_range_->offset;
   instance_info_block.meshlet_index_offset = skinned_mesh->skinned_meshlet_range_->offset;
   instance_info_block.meshlet_size = skinned_mesh->skinned_meshlet_range_->range;
@@ -237,7 +237,7 @@ bool RenderInstanceStorage::InstancedRenderInstance::operator!=(const InstancedR
 void RenderInstanceStorage::InstancedRenderInstance::Apply(InstanceInfoBlock& instance_info_block) const {
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = entity_selected;
+  instance_info_block.info_index = entity_selected ? 1 : 0;
   instance_info_block.triangle_offset = mesh->triangle_range_->offset;
   instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
   instance_info_block.meshlet_size = mesh->meshlet_range_->range;
@@ -287,7 +287,7 @@ bool RenderInstanceStorage::StrandsRenderInstance::operator!=(const StrandsRende
 void RenderInstanceStorage::StrandsRenderInstance::Apply(InstanceInfoBlock& instance_info_block) const {
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
-  instance_info_block.entity_selected = entity_selected;
+  instance_info_block.info_index = entity_selected ? 1 : 0;
   instance_info_block.triangle_offset = strands->segment_range_->offset;
   instance_info_block.meshlet_index_offset = strands->strand_meshlet_range_->offset;
   instance_info_block.meshlet_size = strands->strand_meshlet_range_->range;
@@ -518,7 +518,7 @@ bool RenderInstanceStorage::InstanceInfoBlock::operator!=(const InstanceInfoBloc
     return true;
   if (meshlet_size != other.meshlet_size)
     return true;
-  if (entity_selected != other.entity_selected)
+  if (info_index != other.info_index)
     return true;
   return false;
 }
@@ -1541,6 +1541,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   } else {
     deferred_render_instances->Register(render_instance);
   }
+
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
     const uint32_t task_work_group_invocations =
         Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;

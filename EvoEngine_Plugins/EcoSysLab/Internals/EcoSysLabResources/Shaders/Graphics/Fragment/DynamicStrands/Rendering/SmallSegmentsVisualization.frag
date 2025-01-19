@@ -1,7 +1,7 @@
 #extension GL_ARB_shader_draw_parameters : enable
 #extension GL_ARB_shading_language_include : enable
 
-#include "DynamicStrandsRenderingConstants.glsl"
+#include "DynamicStrandsSmallSegmentsRenderingVisualizationConstants.glsl"
 
 #include "PerFrame.glsl"
 #define EE_PER_GROUP_SET 2
@@ -39,12 +39,6 @@ void main(){
 	// also store the per-fragment normals into the gbuffer
 	outNormal.rgb = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
 	outNormal.a = EE_INSTANCE_INDEX;
-	int material_index = instance.material_index;
-	if(fs_in.Color.x > 1e-6f){
-		material_index = snow_material_index;
-	}else if(fs_in.Color.y > 0.5f){
-		material_index = inner_wood_material_index;
-	}
-
-	outMaterial = vec4(tex_coord.x, tex_coord.y, material_index, instance.info_index);
+	
+	outMaterial = vec4(fs_in.Color.xyz, instance.info_index + 2);
 }

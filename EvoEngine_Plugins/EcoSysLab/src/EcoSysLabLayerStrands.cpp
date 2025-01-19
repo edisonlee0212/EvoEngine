@@ -482,14 +482,22 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
         ImGui::TreePop();
       }
     }
-    ImGui::Checkbox("Render splinters", &small_segments_render_parameters.enabled);
-    if (small_segments_render_parameters.enabled) {
-      if (ImGui::TreeNodeEx("Splinter render settings")) {
-        if (ImGui::Button("Rebuild splinter pipelines")) {
-          DynamicStrands::BuildSmallSegmentsRenderingPipelines();
+    ImGui::Checkbox("Render Visualization", &visualization_rendering);
+    if (visualization_rendering) {
+      ImGui::Checkbox("Render strands", &small_segments_visualization_render_parameters.enabled);
+      if (small_segments_visualization_render_parameters.enabled) {
+        if (ImGui::TreeNodeEx("Strands render settings")) {
+          small_segments_visualization_render_parameters.OnInspect(editor_layer);
+          ImGui::TreePop();
         }
-        small_segments_render_parameters.OnInspect(editor_layer);
-        ImGui::TreePop();
+      }
+    } else {
+      ImGui::Checkbox("Render splinters", &small_segments_render_parameters.enabled);
+      if (small_segments_render_parameters.enabled) {
+        if (ImGui::TreeNodeEx("Splinter render settings")) {
+          small_segments_render_parameters.OnInspect(editor_layer);
+          ImGui::TreePop();
+        }
       }
     }
     ImGui::Checkbox("Render foliage", &foliage_render_parameters.enabled);

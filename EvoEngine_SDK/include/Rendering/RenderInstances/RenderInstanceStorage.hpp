@@ -73,15 +73,15 @@ class RenderInstanceStorage {
 
   struct InstanceInfoBlock {
     GlobalTransform model = {};
-    uint32_t material_index = 0;
-    uint32_t triangle_offset = 0;
-    uint32_t meshlet_index_offset = 0;
-    uint32_t meshlet_size = 0;
+    int32_t material_index = 0;
+    int32_t triangle_offset = 0;
+    int32_t meshlet_index_offset = 0;
+    int32_t meshlet_size = 0;
 
-    uint32_t entity_selected = 0;
-    uint32_t padding0 = 0;
-    uint32_t padding1 = 0;
-    uint32_t padding2 = 0;
+    int32_t info_index = 0;
+    int32_t padding0 = 0;
+    int32_t padding1 = 0;
+    int32_t padding2 = 0;
     bool operator!=(const InstanceInfoBlock& other) const;
   };
 
@@ -109,8 +109,8 @@ class RenderInstanceStorage {
   };
 
   struct IRenderInstance {
-    uint32_t instance_index = 0;
-    uint32_t material_index = 0;
+    int32_t instance_index = 0;
+    int32_t material_index = 0;
     RenderInstanceType command_type = RenderInstanceType::Unknown;
     Entity owner = Entity();
     Handle entity_handle;

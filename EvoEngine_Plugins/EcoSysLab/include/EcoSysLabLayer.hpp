@@ -90,10 +90,11 @@ class EcoSysLabLayer : public ILayer {
   struct DynamicStrandsSettings {
     DynamicStrands::BranchesRenderParameters branches_render_parameters{};
     DynamicStrands::SmallSegmentsRenderParameters small_segments_render_parameters{};
+    DynamicStrands::SmallSegmentsVisualizationRenderParameters small_segments_visualization_render_parameters{};
     DynamicStrands::FoliageRenderParameters foliage_render_parameters{};
     DynamicStrands::PhysicsParameters physics_parameters{};
     DynamicStrands::VisualizationParameters visualization_parameters{};
-
+    bool visualization_rendering = false;
     float drag_multiplier = 1.f;
     float point_cut_thickness = 2.f;
     enum class TransformMode { Disabled, Translate, Rotate };

@@ -1450,7 +1450,7 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
     if (scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
       for (const auto& i : current_render_instances->instance_info_blocks_) {
-        if (i.entity_selected) {
+        if (i.info_index) {
           need_fade_ = true;
         }
       }

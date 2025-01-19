@@ -105,6 +105,9 @@ class DynamicTreeStrands : public IPrivateComponent {
                      const DynamicStrands::VisualizationParameters& visualization_parameters) const;
   void RegisterBranchesRenderInstance(const DynamicStrands::BranchesRenderParameters& render_parameters);
   void RegisterSmallSegmentsRenderInstance(const DynamicStrands::SmallSegmentsRenderParameters& render_parameters);
+  void RegisterSmallSegmentsVisualizationRenderInstance(
+      const DynamicStrands::SmallSegmentsRenderParameters& render_parameters,
+      const DynamicStrands::SmallSegmentsVisualizationRenderParameters& visualization_render_parameters);
   void RegisterFoliageRenderInstance(const DynamicStrands::FoliageRenderParameters& render_parameters);
 };
 }  // namespace eco_sys_lab_plugin
