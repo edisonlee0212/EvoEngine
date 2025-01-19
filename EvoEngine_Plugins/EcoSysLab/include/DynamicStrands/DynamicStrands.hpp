@@ -100,12 +100,12 @@ class DynamicStrands {
     bool trunk = true;
     float trunk_offset = 0.3f;
     float trunk_transition = 0.1f;
-    float trunk_additional_strength_factor = 0.5f;
+    float trunk_additional_strength_factor = 1250.f;
 
     SingleDistribution<float> leaf_position_alpha = {0.01f, 0.1f};
     SingleDistribution<float> leaf_rotation_alpha = {0.01f, 0.1f};
-    SingleDistribution<float> max_leaf_position_strain = {50.f, 100.f};
-    SingleDistribution<float> max_leaf_rotation_strain = {50.f, 100.f};
+    SingleDistribution<float> max_leaf_position_strain = {300.f, 5.f};
+    SingleDistribution<float> max_leaf_rotation_strain = {300.f, 5.f};
 
     GlobalTransform root_transform{};
     bool use_cgal = false;

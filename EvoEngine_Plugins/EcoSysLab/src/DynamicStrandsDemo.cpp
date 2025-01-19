@@ -259,7 +259,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->enable_physics = false;
   }
 
-  if (ImGui::Button("Short Rod sphere Collision")) {
+  if (ImGui::Button("Short rod sphere Collision")) {
     simulated_time = 0.f;
     physics_parameters = {};
     physics_parameters.time_step = 0.01f;
@@ -283,7 +283,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
     board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
-    
+
     const auto sphere_entity = scene->CreateEntity("Sphere");
     scene->GetOrSetPrivateComponent<DsSphereCollider>(sphere_entity);
     const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(sphere_entity).lock();
@@ -301,7 +301,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->BoardExperimentSetup(board_experiment_setup_settings);
     dts->enable_physics = false;
   }
-  if (ImGui::Button("Long Rod sphere Collision")) {
+  if (ImGui::Button("Long rod sphere Collision")) {
     simulated_time = 0.f;
     physics_parameters = {};
     physics_parameters.time_step = 0.01f;
@@ -343,11 +343,98 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->BoardExperimentSetup(board_experiment_setup_settings);
     dts->enable_physics = false;
   }
+
+  if (ImGui::Button("Small cylinder Collision")) {
+    simulated_time = 0.f;
+    physics_parameters = {};
+    physics_parameters.time_step = 0.01f;
+    target_factor0 = 0.f;
+    demo_type = DemoType::SmallCylinderCollision;
+
+    dts->initialize_parameters.shear_stretch_strength = glm::vec2(100.f);
+    dts->initialize_parameters.bending_strength = glm::vec2(100.f);
+    dts->initialize_parameters.twisting_strength = glm::vec2(100.f);
+    dts->initialize_parameters.bundle_strength = glm::vec2(100.f);
+    dts->initialize_parameters.connectivity_strength = glm::vec2(100.f);
+    dts->initialize_parameters.max_segment_length = 0.06f;
+    dts->initialize_parameters.min_segment_length = 0.03f;
+    dts->initialize_parameters.damage.noise_descriptors.clear();
+    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
+    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    noise.multiplier = 0.99f;
+    // noise.shift = glm::vec3(1000.f);
+    board_experiment_setup_settings.center_damage = 0.0f;
+    dts->initialize_parameters.damage_scale_factor = glm::vec3(0.005f, 0.1f, 0.05f);
+    board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.rod_dimension = {160, 10, 20};
+
+    const auto cylinder_entity = scene->CreateEntity("Cylinder");
+    scene->GetOrSetPrivateComponent<DsCylinderCollider>(cylinder_entity);
+    const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(cylinder_entity).lock();
+    mmr->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    mmr->material = ProjectManager::CreateTemporaryAsset<Material>();
+    object_initial_pose.SetPosition(glm::vec3(0.5f, 1.3f, 0));
+    object_initial_pose.SetEulerRotation(glm::radians(glm::vec3(90.f, 0, 0)));
+    object_initial_pose.SetScale(glm::vec3(0.2f));
+    scene->SetDataComponent(cylinder_entity, object_initial_pose);
+
+    const auto temp_entity = temp_entity_ref.Get();
+    if (scene->IsEntityValid(temp_entity)) {
+      scene->DeleteEntity(temp_entity);
+    }
+    temp_entity_ref = cylinder_entity;
+    dts->BoardExperimentSetup(board_experiment_setup_settings);
+    dts->enable_physics = false;
+  }
+
+  if (ImGui::Button("Big cylinder Collision")) {
+    simulated_time = 0.f;
+    physics_parameters = {};
+    physics_parameters.time_step = 0.01f;
+    target_factor0 = 0.f;
+    demo_type = DemoType::BigCylinderCollision;
+
+    dts->initialize_parameters.shear_stretch_strength = glm::vec2(100.f);
+    dts->initialize_parameters.bending_strength = glm::vec2(100.f);
+    dts->initialize_parameters.twisting_strength = glm::vec2(100.f);
+    dts->initialize_parameters.bundle_strength = glm::vec2(100.f);
+    dts->initialize_parameters.connectivity_strength = glm::vec2(100.f);
+    dts->initialize_parameters.max_segment_length = 0.06f;
+    dts->initialize_parameters.min_segment_length = 0.03f;
+    dts->initialize_parameters.damage.noise_descriptors.clear();
+    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
+    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    noise.multiplier = 0.99f;
+    // noise.shift = glm::vec3(1000.f);
+    board_experiment_setup_settings.center_damage = 0.0f;
+    dts->initialize_parameters.damage_scale_factor = glm::vec3(0.005f, 0.1f, 0.05f);
+    board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+    board_experiment_setup_settings.rod_dimension = {160, 10, 20};
+
+    const auto cylinder_entity = scene->CreateEntity("Cylinder");
+    scene->GetOrSetPrivateComponent<DsCylinderCollider>(cylinder_entity);
+    const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(cylinder_entity).lock();
+    mmr->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    mmr->material = ProjectManager::CreateTemporaryAsset<Material>();
+    object_initial_pose.SetPosition(glm::vec3(0.5f, 1.3f, 0));
+    object_initial_pose.SetEulerRotation(glm::radians(glm::vec3(90.f, 0, 0)));
+    object_initial_pose.SetScale(glm::vec3(0.4f));
+    scene->SetDataComponent(cylinder_entity, object_initial_pose);
+
+    const auto temp_entity = temp_entity_ref.Get();
+    if (scene->IsEntityValid(temp_entity)) {
+      scene->DeleteEntity(temp_entity);
+    }
+    temp_entity_ref = cylinder_entity;
+    dts->BoardExperimentSetup(board_experiment_setup_settings);
+    dts->enable_physics = false;
+  }
   return changed;
 }
 
 void DynamicStrandsDemo::Update() {
-  
   if (demo_type != DemoType::Empty && simulated_time >= target_simulation_time) {
     const auto owner = GetOwner();
     const auto scene = GetScene();
@@ -476,13 +563,10 @@ void DynamicStrandsDemo::Update() {
       scene->SetDataComponent(left_pivot, leaf_operator_root_transform);
       break;
     }
-    case DemoType::ShortRodSphereCollision: {
-      GlobalTransform gt = object_initial_pose;
-      const auto temp_entity = temp_entity_ref.Get();
-      gt.SetPosition(object_initial_pose.GetPosition() + glm::vec3(0, -50, 0) * progress);
-      scene->SetDataComponent(temp_entity, gt);
-    }
-    case DemoType::LongRodSphereCollision: {
+    case DemoType::ShortRodSphereCollision:
+    case DemoType::LongRodSphereCollision:
+    case DemoType::SmallCylinderCollision:
+    case DemoType::BigCylinderCollision: {
       GlobalTransform gt = object_initial_pose;
       const auto temp_entity = temp_entity_ref.Get();
       gt.SetPosition(object_initial_pose.GetPosition() + glm::vec3(0, -50, 0) * progress);
