@@ -18,7 +18,7 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
           changed = true;
         break;
       }
-      case 2: {
+      case 3: {
         if (ImGui::ColorEdit4("Segment min color", &segment_color_min.x))
           changed = true;
         if (ImGui::ColorEdit4("Segment max color", &segment_color_max.x))
@@ -26,9 +26,6 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
         if (ImGui::DragFloat("Segment boundary distance modular", &segment_boundary_distance_modular, 0.001f, 0.001f,
                              1.f))
           changed = true;
-        break;
-      }
-      case 3: {
         break;
       }
       case 4:
@@ -40,6 +37,8 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
           changed = true;
         break;
       }
+      default:
+        break;
     }
     if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
       changed = true;

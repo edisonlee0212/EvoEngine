@@ -250,6 +250,20 @@ class DynamicStrands {
     bool cast_shadow = true;
     bool wireframe = false;
     float thickness_multiplier = 0.5f;
+
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  };
+
+  struct SmallSegmentsVisualizationRenderParameters {
+    bool enabled = true;
+    float thickness_multiplier = 0.5f;
+
+    glm::vec4 segment_color_min = glm::vec4(0, 0, 1, 1);
+    glm::vec4 segment_color_max = glm::vec4(1, 0, 0, 1);
+    glm::vec4 segment_color_main = glm::vec4(0.3, 0.15, 0.0, 0.5);
+    uint32_t segment_render_mode = 6;
+    float segment_boundary_distance_modular = 0.03f;
+
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -584,6 +598,12 @@ class DynamicStrands {
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;
 
+  uint32_t RenderSmallSegmentsVisualizationToCameraDeferred(
+      const Handle& renderer_handle, const InitializeParameters& initialize_parameters,
+      const SmallSegmentsVisualizationRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
+      const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+      const RenderLayer::DeferredRenderingView& view) const;
+
   void Visualize(const std::shared_ptr<Camera>& target_camera, const InitializeParameters& initialize_parameters,
                  const VisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action);
@@ -594,7 +614,6 @@ class DynamicStrands {
   static void BuildBranchesRenderingPipelines();
   static void BuildFoliageRenderingPipelines();
   static void BuildSmallSegmentsRenderingPipelines();
-
   inline static std::shared_ptr<ComputePipeline> branches_uniform_particle_update_pipeline;
   inline static std::shared_ptr<ComputePipeline> branches_tetrahedron_filtering_pipeline{};
   inline static std::shared_ptr<ComputePipeline> branches_triangle_filtering_pipeline{};
@@ -612,6 +631,7 @@ class DynamicStrands {
   inline static std::shared_ptr<GraphicsPipeline> small_segments_spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> small_segments_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> small_segments_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> small_segments_visualization_render_pipeline{};
 
  private:
   uint32_t frame_index = 0;

@@ -1151,6 +1151,7 @@ void DynamicTreeStrands::RegisterSmallSegmentsRenderInstance(
                                                                                       vk_command_buffer, view);
         });
       }
+
       if (DynamicStrands::small_segments_render_pipeline &&
           DynamicStrands::small_segments_render_pipeline->Initialized()) {
         const auto dynamic_strands_copy = dynamic_strands;
@@ -1163,6 +1164,59 @@ void DynamicTreeStrands::RegisterSmallSegmentsRenderInstance(
                 const RenderLayer::DeferredRenderingView& view) {
               return dynamic_strands_copy->RenderSmallSegmentsToCameraDeferred(
                   renderer_handle, render_parameters, vk_command_buffer, geometry_pass_color_attachment_infos, view);
+            });
+      }
+    }
+  }
+}
+
+void DynamicTreeStrands::RegisterSmallSegmentsVisualizationRenderInstance(
+    const DynamicStrands::SmallSegmentsRenderParameters& render_parameters,
+    const DynamicStrands::SmallSegmentsVisualizationRenderParameters& visualization_render_parameters) {
+  const auto render_layer = Application::GetLayer<RenderLayer>();
+  if (!render_layer) {
+    EVOENGINE_LOG("Failed to render! RenderLayer not present!")
+    return;
+  }
+  if (const auto material = splinter_material_ref.Get<Material>()) {
+    if (!dynamic_strands->segments.empty()) {
+      if (DynamicStrands::small_segments_point_light_render_pipeline &&
+          DynamicStrands::small_segments_point_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderSmallSegmentsToPointLightShadowMap(render_parameters, vk_command_buffer,
+                                                                                view);
+        });
+      }
+      if (DynamicStrands::small_segments_spot_light_render_pipeline &&
+          DynamicStrands::small_segments_spot_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderSmallSegmentsToSpotLightShadowMap(render_parameters, vk_command_buffer,
+                                                                               view);
+        });
+      }
+      if (DynamicStrands::small_segments_directional_light_render_pipeline &&
+          DynamicStrands::small_segments_directional_light_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+          return dynamic_strands_copy->RenderSmallSegmentsToDirectionalLightShadowMap(render_parameters,
+                                                                                      vk_command_buffer, view);
+        });
+      }
+      if (DynamicStrands::small_segments_visualization_render_pipeline &&
+          DynamicStrands::small_segments_visualization_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto renderer_handle = small_segments_rendering_instance_handle;
+        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
+        render_layer->DeferredRenderingAllCameras(
+            [=](const VkCommandBuffer vk_command_buffer,
+                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                const RenderLayer::DeferredRenderingView& view) {
+              return dynamic_strands_copy->RenderSmallSegmentsVisualizationToCameraDeferred(
+                  renderer_handle, initialize_parameters, visualization_render_parameters, vk_command_buffer,
+                  geometry_pass_color_attachment_infos, view);
             });
       }
     }

@@ -18,8 +18,8 @@ layout(location = 5) in flat uint currentInstanceIndex;
 
 void main()
 {
-	uint instanceIndex = currentInstanceIndex;
-	Instance instance = EE_INSTANCES[instanceIndex];
+	int instance_index = int(currentInstanceIndex);
+	Instance instance = EE_INSTANCES[instance_index];
 	MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[instance.material_index];
 	vec2 tex_coord = fs_in.TexCoord;
 	vec4 albedo = materialProperties.albedo;
@@ -38,7 +38,7 @@ void main()
 
 	// also store the per-fragment normals into the gbuffer
 	outNormal.rgb = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
-	outNormal.a = instanceIndex + 1;
+	outNormal.a = instance_index;
 	
-	outMaterial = vec4(tex_coord.x, tex_coord.y, instance.info_index, instance.material_index);
+	outMaterial = vec4(tex_coord.x, tex_coord.y, instance.material_index, instance.info_index);
 }

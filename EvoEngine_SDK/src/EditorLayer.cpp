@@ -1463,33 +1463,25 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
     image_copy.imageOffset.y = point.y;
     image_copy.imageOffset.z = 0;
     entity_index_read_buffer_->CopyFromImage(*g_buffer_normal, image_copy);
-
+    float val = -1;
     switch (Platform::Constants::texture_2d) {
       case VK_FORMAT_R32G32B32A32_SFLOAT: {
         const auto* ptr = static_cast<float*>(mapped_entity_index_data_);
-        if (const float instance_index_with_one_added = glm::roundEven(ptr[3]); instance_index_with_one_added > 0) {
-          const auto render_layer = Application::GetLayer<RenderLayer>();
-          const auto scene = GetScene();
-          const auto handle = render_layer->GetCurrentRenderInstanceStorage()->GetInstanceEntityHandle(
-              static_cast<uint32_t>(instance_index_with_one_added - 1));
-          if (handle != 0)
-            ret_val = scene->GetEntity(handle);
-        }
+        val = glm::round(ptr[3]);
         break;
       }
       case VK_FORMAT_R16G16B16A16_SFLOAT: {
         const auto* ptr = static_cast<glm::detail::hdata*>(mapped_entity_index_data_);
-        if (const float instance_index_with_one_added = glm::roundEven(glm::detail::toFloat32(ptr[3]));
-            instance_index_with_one_added > 0) {
-          const auto render_layer = Application::GetLayer<RenderLayer>();
-          const auto scene = GetScene();
-          const auto handle = render_layer->GetCurrentRenderInstanceStorage()->GetInstanceEntityHandle(
-              static_cast<uint32_t>(instance_index_with_one_added - 1));
-          if (handle != 0)
-            ret_val = scene->GetEntity(handle);
-        }
+        val = glm::round(glm::detail::toFloat32(ptr[3]));
         break;
       }
+    }
+    if (const int32_t instance_index = static_cast<int>(val); instance_index > 0) {
+      const auto render_layer = Application::GetLayer<RenderLayer>();
+      const auto scene = GetScene();
+      if (const auto handle = render_layer->GetCurrentRenderInstanceStorage()->GetInstanceEntityHandle(instance_index);
+          handle != 0)
+        ret_val = scene->GetEntity(handle);
     }
   }
   return ret_val;
@@ -1636,9 +1628,7 @@ void EditorLayer::CameraWindowDragAndDrop() const {
       ProjectManager::SetStartScene(new_scene);
       ProjectManager::SaveProject();
       Application::Attach(new_scene);
-    }
-
-    else if (asset->GetTypeName() == "Prefab") {
+    } else if (asset->GetTypeName() == "Prefab") {
       const auto entity = std::dynamic_pointer_cast<Prefab>(asset)->ToEntity(scene, true, true);
       scene->SetEntityName(entity, asset->GetTitle());
     } else if (asset->GetTypeName() == "Mesh") {
@@ -1647,9 +1637,7 @@ void EditorLayer::CameraWindowDragAndDrop() const {
       mesh_renderer->mesh.Set<Mesh>(std::dynamic_pointer_cast<Mesh>(asset));
       const auto material = ProjectManager::CreateTemporaryAsset<Material>();
       mesh_renderer->material.Set<Material>(material);
-    }
-
-    else if (asset->GetTypeName() == "Strands") {
+    } else if (asset->GetTypeName() == "Strands") {
       const auto entity = scene->CreateEntity(asset->GetTitle());
       const auto strands_renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(entity).lock();
       strands_renderer->strands.Set<Strands>(std::dynamic_pointer_cast<Strands>(asset));

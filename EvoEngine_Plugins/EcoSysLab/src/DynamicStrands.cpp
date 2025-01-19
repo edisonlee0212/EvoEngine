@@ -183,7 +183,7 @@ void DynamicStrands::BuildRenderComputePipelines() {
 
   branches_uniform_particle_update_pipeline = std::make_shared<ComputePipeline>();
   branches_uniform_particle_update_pipeline->compute_shader = shader;
-  branches_uniform_particle_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  branches_uniform_particle_update_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
 
   auto& push_constant_range = branches_uniform_particle_update_pipeline->push_constant_ranges.emplace_back();
   push_constant_range.size = sizeof(UniformParticlePredictionPushConstant);

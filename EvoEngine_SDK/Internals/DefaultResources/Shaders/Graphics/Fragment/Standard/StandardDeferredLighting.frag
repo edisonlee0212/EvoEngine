@@ -30,7 +30,8 @@ void main()
 	vec3 normal = 		texture(inNormal, fs_in.TexCoord).xyz;
 	float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
 
-	int material_index = int(round(texture(inMaterial, fs_in.TexCoord).w));
+	int material_index = int(round(texture(inMaterial, fs_in.TexCoord).z));
+
 	vec2 materialTexCoord = texture(inMaterial, fs_in.TexCoord).xy;
 	MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[material_index];
 
