@@ -226,19 +226,17 @@ void CalculateAlignRightDirectionRotation(in vec4 q, in vec3 direction, out floa
   angle = valid ? acos(dot_product) : 0.f;
 }
 
-float DistSquared(vec3 A, vec3 B) {
+float DistSquared(in vec3 A, in vec3 B) {
   vec3 C = A - B;
   return dot(C, C);
 }
 
-vec3 ProjectOntoPlane(vec3 vector, vec3 normalizedPlaneNormal) {
+vec3 ProjectOntoPlane(in vec3 vector, in vec3 normalizedPlaneNormal) {
   // Compute the dot product of the vector and the plane normal
   float dotProduct = dot(vector, normalizedPlaneNormal);
 
   // Subtract the component of the vector that is parallel to the plane normal
-  vec3 projection = vector - dotProduct * normalizedPlaneNormal;
-
-  return projection;
+  return vector - dotProduct * normalizedPlaneNormal;
 }
 
 #endif  // _MATH_GLSL_
