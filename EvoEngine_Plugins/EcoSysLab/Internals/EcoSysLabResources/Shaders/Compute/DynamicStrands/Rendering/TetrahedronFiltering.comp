@@ -38,7 +38,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 
 #include "AlphaShape.glsl"
 
-bool VertexConnected(DelaunayTetrahedron delaunay_tetrahedron, uint vertex_index){
+bool VertexConnected(in DelaunayTetrahedron delaunay_tetrahedron, uint vertex_index){
 	int connected = 0;
 	int disconnected = 0;
 	//int unknown = 0;
