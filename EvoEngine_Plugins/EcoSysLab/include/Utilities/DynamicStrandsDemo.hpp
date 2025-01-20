@@ -25,6 +25,7 @@ class DynamicStrandsDemo : public IPrivateComponent {
  public:
   enum class DemoType {
     Empty,
+    LogBreak,
     BoardBreak,
     TwistingBreak,
     BendingBreak,

@@ -191,7 +191,7 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   });
 }
 
-DsBreaking::DsBreaking() {
+DsStructuralDamage::DsStructuralDamage() {
   if (!segment_pair_breaking_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -228,22 +228,22 @@ DsBreaking::DsBreaking() {
   }
 }
 
-void DsBreaking::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-                         const DynamicStrands& target_dynamic_strands) {
+void DsStructuralDamage::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                 const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
   SegmentPairBreakingPushConstant segment_pair_push_constant;
   segment_pair_push_constant.segment_pair_size = target_dynamic_strands.segment_pairs.size();
-  segment_pair_push_constant.allow_breaking =
-      physics_parameters.enable_segment_breaking
-          ? target_dynamic_strands.GetFrameIndex() % physics_parameters.segment_breaking_detection_frame == 0 ? 1 : 0
-          : 0;
-  segment_pair_push_constant.allow_disconnection =
-      physics_parameters.enable_segment_disconnection
-          ? target_dynamic_strands.GetFrameIndex() % physics_parameters.segment_disconnection_detection_frame == 0 ? 1
-                                                                                                                   : 0
-          : 0;
+  segment_pair_push_constant.allow_breaking = physics_parameters.enable_segment_breaking ? 1 : 0;
+  segment_pair_push_constant.allow_disconnection = physics_parameters.enable_segment_disconnection ? 1 : 0;
+  segment_pair_push_constant.compression_strength_factor = physics_parameters.compression_strength_factor;
+
+  segment_pair_push_constant.tensile_disconnection = physics_parameters.enable_segment_tensile_disconnection ? 1 : 0;
+  segment_pair_push_constant.compression_disconnection =
+      physics_parameters.enable_segment_compression_disconnection ? 1 : 0;
+  segment_pair_push_constant.positional_breaking = physics_parameters.enable_positional_breaking ? 1 : 0;
+  segment_pair_push_constant.rotational_breaking = physics_parameters.enable_rotational_breaking ? 1 : 0;
 
   LeafBreakingPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
@@ -259,16 +259,14 @@ void DsBreaking::Execute(const DynamicStrands::PhysicsParameters& physics_parame
                     Platform::DivUp(segment_pair_push_constant.segment_pair_size, work_group_invocations), 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     }
-    if (physics_parameters.enable_foliage_detachment &&
-        target_dynamic_strands.GetFrameIndex() % physics_parameters.foliage_detachment_detection_frame == 0) {
-      leaf_breaking_pipeline->Bind(vk_command_buffer);
-      leaf_breaking_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0,
-          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-      leaf_breaking_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
-      vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
-      Platform::EverythingBarrier(vk_command_buffer);
-    }
+
+    leaf_breaking_pipeline->Bind(vk_command_buffer);
+    leaf_breaking_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    leaf_breaking_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
   });
 }
 

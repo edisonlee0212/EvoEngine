@@ -840,6 +840,9 @@ void DynamicStrands::InitializeData(const InitializeParameters& initialize_param
     segment_pair.max_bending_twist_bundle_strain = segment_pair.bending_twist_bundle_strain_limit =
         glm::vec3(max_bending_strain, max_twisting_strain, max_bundle_strain);
     segment_pair.max_connectivity_strain = segment_pair.connectivity_strain_limit = max_connectivity_strain;
+
+    segment_pair.compression_lock = segment_pair.positional_lock = segment_pair.rotational_lock =
+        segment_pair.tensile_lock = 0;
   });
   // set up nodes
   auto& skeleton_nodes = strand_model_skeleton.PeekRawNodes();

@@ -75,9 +75,8 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
     });
 
     simulated_time += physics_parameters.time_step / static_cast<float>(physics_parameters.sub_step);
-    if (physics_parameters.enable_segment_breaking || physics_parameters.enable_segment_disconnection ||
-        physics_parameters.enable_foliage_detachment) {
-      breaking->Execute(physics_parameters, *this);
+    if (physics_parameters.enable_structural_damage) {
+      structural_damage->Execute(physics_parameters, *this);
     }
   }
 
@@ -166,7 +165,7 @@ DynamicStrands::DynamicStrands() {
   velocity_update = std::make_shared<DsVelocityUpdate>();
   dynamic_hashed_grid = std::make_shared<DsDynamicHashedGrid>();
   segment_collision = std::make_shared<DsSegmentCollision>();
-  breaking = std::make_shared<DsBreaking>();
+  structural_damage = std::make_shared<DsStructuralDamage>();
 
   BuildRenderComputePipelines();
   BuildBranchesRenderingPipelines();
@@ -419,27 +418,46 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::DragInt("Sub step", &sub_step, 1, 1, 100)) {
     changed = true;
   }
-  if (ImGui::Checkbox("Segment breaking", &enable_segment_breaking)) {
+
+  if (ImGui::Checkbox("Structural damage", &enable_structural_damage)) {
     changed = true;
-  }
-  if (enable_segment_breaking) {
-    if (ImGui::DragInt("Segment breaking detection frame", &segment_breaking_detection_frame, 1, 1, 500))
-      changed = true;
-  }
-  if (ImGui::Checkbox("Segment disconnection", &enable_segment_disconnection)) {
-    changed = true;
-  }
-  if (enable_segment_disconnection) {
-    if (ImGui::DragInt("Segment disconnection detection frame", &segment_disconnection_detection_frame, 1, 1, 500))
-      changed = true;
   }
 
-  if (ImGui::Checkbox("Foliage detachment", &enable_foliage_detachment)) {
-    changed = true;
-  }
-  if (enable_foliage_detachment) {
-    if (ImGui::DragInt("Foliage detachment detection frame", &foliage_detachment_detection_frame, 1, 1, 500))
+  if (enable_structural_damage) {
+    if (ImGui::Checkbox("Segment breaking", &enable_segment_breaking)) {
       changed = true;
+    }
+    if (ImGui::Checkbox("Segment disconnection", &enable_segment_disconnection)) {
+      changed = true;
+    }
+    if (enable_segment_breaking) {
+      if (ImGui::TreeNode("Segment breaking")) {
+        if (ImGui::Checkbox("Segment positional breaking", &enable_positional_breaking)) {
+          changed = true;
+        }
+        if (ImGui::Checkbox("Segment rotational breaking", &enable_rotational_breaking)) {
+          changed = true;
+        }
+        ImGui::TreePop();
+      }
+    }
+    if (enable_segment_disconnection) {
+      if (ImGui::TreeNode("Segment disconnection")) {
+        if (ImGui::Checkbox("Segment tensile disconnection", &enable_segment_tensile_disconnection)) {
+          changed = true;
+        }
+        if (ImGui::Checkbox("Segment compression disconnection", &enable_segment_compression_disconnection)) {
+          changed = true;
+        }
+        if (enable_segment_compression_disconnection) {
+          ImGui::DragFloat("Compression strength factor", &compression_strength_factor, 0.1f, 0.1f, 1000.f);
+        }
+        ImGui::TreePop();
+      }
+    }
+    if (ImGui::Checkbox("Foliage detachment", &enable_foliage_detachment)) {
+      changed = true;
+    }
   }
 
   if (ImGui::Checkbox("Dynamic Grouping", &dynamic_grouping)) {

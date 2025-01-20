@@ -734,6 +734,9 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
 
   const auto& target_strand_segment_data_list = subdivided_strand_group.PeekStrandSegmentDataList();
 
+  GlobalTransform inv_root_transform;
+  inv_root_transform.value = glm::inverse(initialize_parameters.root_transform.value);
+
   Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
     auto& segment = dynamic_strands->segments[i];
     const auto& strand_segment_data = target_strand_segment_data_list[i];
@@ -747,7 +750,47 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     segment.particle1.v = settings.initial_velocity;
     segment.angular_v = settings.initial_angular_velocity;
   });
-
+  if (settings.lock_upper) {
+    Jobs::RunParallelFor(dynamic_strands->segment_pairs.size(), [&](const auto i) {
+      auto& segment_pair = dynamic_strands->segment_pairs[i];
+      const auto& segment0 = dynamic_strands->segments[segment_pair.segment0_handle];
+      const auto& segment1 = dynamic_strands->segments[segment_pair.segment1_handle];
+      const auto segment0_x0 = (segment0.particle0.x0 + segment0.particle1.x0) * .5f;
+      const auto segment1_x0 = (segment1.particle0.x0 + segment1.particle1.x0) * .5f;
+      const auto segment_pair_x0 = inv_root_transform.TransformPoint((segment0_x0 + segment1_x0) * .5f);
+      if (segment_pair_x0.y > 0.f) {
+        segment_pair.compression_lock = 1;
+        segment_pair.positional_lock = 1;
+        segment_pair.positional_lock = 1;
+        segment_pair.rotational_lock = 1;
+      }
+    });
+  }
+  if (settings.t_cut) {
+    Jobs::RunParallelFor(dynamic_strands->segment_pairs.size(), [&](const auto i) {
+      auto& segment_pair = dynamic_strands->segment_pairs[i];
+      auto& segment0 = dynamic_strands->segments[segment_pair.segment0_handle];
+      auto& segment1 = dynamic_strands->segments[segment_pair.segment1_handle];
+      const auto segment0_x0 = inv_root_transform.TransformPoint((segment0.particle0.x0 + segment0.particle1.x0) * .5f);
+      const auto segment1_x0 = inv_root_transform.TransformPoint((segment1.particle0.x0 + segment1.particle1.x0) * .5f);
+      const auto segment_pair_x0 = (segment0_x0 + segment1_x0) * .5f;
+      const auto half_log_length = log_length * .5f;
+      if (glm::abs(segment0_x0.x - half_log_length) / half_log_length < settings.t_cut_width ||
+          glm::abs(segment1_x0.x - half_log_length) / half_log_length < settings.t_cut_width) {
+        if ((segment0_x0.y >= 0.f && segment1_x0.y <= 0.f) || (segment0_x0.y <= 0.f && segment1_x0.y >= 0.f)) {
+          segment_pair.bend_twist_bundle_integrity = 0.f;
+          segment_pair.connectivity_integrity = 0.f;
+        }
+      }
+      if (glm::abs(segment0_x0.x - half_log_length) / half_log_length < 0.05f ||
+          glm::abs(segment1_x0.x - half_log_length) / half_log_length < 0.05f) {
+        if (glm::linearRand(0.f, 1.f) > 0.5f && segment0_x0.y <= 0.f && segment1_x0.y <= 0.f) {
+          segment0.strength = 0.01f;
+          segment1.strength = 0.01f;
+        }
+      }
+    });
+  }
   dynamic_strands->Upload();
   dynamic_strands->InitializeMesh(initialize_parameters);
   initialize_parameters.trunk = trunk;

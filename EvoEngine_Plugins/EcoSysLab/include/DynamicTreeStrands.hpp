@@ -90,6 +90,9 @@ class DynamicTreeStrands : public IPrivateComponent {
     unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);
     glm::vec3 initial_velocity = glm::vec3(0.f);
     glm::vec3 initial_angular_velocity = glm::vec3(0.f);
+    bool lock_upper = false;
+    bool t_cut = false;
+    float t_cut_width = 0.7f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   void BoardExperimentSetup(const BoardExperimentSetupSettings& settings);
