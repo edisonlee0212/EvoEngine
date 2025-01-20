@@ -86,6 +86,27 @@ void main(){
 		color = mix(color0, color1, clamp(leaf.rotation_integrity, 0.0f, 1.f));
 	}
 
+
+	float highlight1_ratio = 0.0f;
+	float highlight2_ratio = 0.0f;
+	float selected_ratio = 0.0f;
+
+	if(leaf.highlighted == 1){
+		highlight1_ratio += 0.8f;
+	}else if(leaf.highlighted == 2){
+		highlight2_ratio += 0.8f;
+	}else if(leaf.selected == 1){
+		selected_ratio += 0.8f;
+	}
+	
+	if(highlight1_ratio != 0.f){
+		color = mix(color, vec4(0, 0, 1, 1), highlight1_ratio);
+	}else if(highlight2_ratio != 0.f){
+		color = mix(color, vec4(1, 0, 1, 1), highlight2_ratio);
+	}else if(selected_ratio != 0.f){
+		color = mix(color, vec4(1, 0, 0, 1), selected_ratio);
+	}
+
 	[[unroll]]
 	for (uint i = 0; i < uint(LEAF_VERTEX_ITERATIONS); ++i)
 	{

@@ -82,7 +82,8 @@ class EditorLayer : public ILayer {
   bool transform_read_only = false;
 
   void RegisterEditorCamera(const std::shared_ptr<Camera>& camera);
-
+  glm::vec3& RefEditorCameraPosition(const Handle& handle);
+  glm::quat& RefEditorCameraRotation(const Handle& handle);
   [[nodiscard]] glm::vec2 GetMouseSceneCameraPosition() const;
 
   [[nodiscard]] static Input::KeyActionType GetKey(int key);
@@ -90,8 +91,8 @@ class EditorLayer : public ILayer {
   [[nodiscard]] glm::vec3 GetSceneCameraPosition() const;
   [[nodiscard]] glm::quat GetSceneCameraRotation() const;
 
-  void SetCameraPosition(const std::shared_ptr<Camera>& camera, const glm::vec3& target_position);
-  void SetCameraRotation(const std::shared_ptr<Camera>& camera, const glm::quat& target_rotation);
+  void SetSceneCameraPosition(const glm::vec3& target_position);
+  void SetSceneCameraRotation(const glm::quat& target_rotation);
   void MoveCamera(const glm::quat& target_rotation, const glm::vec3& target_position,
                   const float& transition_time = 1.0f);
 

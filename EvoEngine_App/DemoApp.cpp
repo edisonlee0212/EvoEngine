@@ -301,7 +301,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
 
         if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
-          editor_layer->SetCameraPosition(editor_layer->GetSceneCamera(), glm::vec3(0, 0, 3));
+          editor_layer->SetSceneCameraPosition(glm::vec3(0, 0, 3));
         }
 
 #pragma endregion

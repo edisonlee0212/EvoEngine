@@ -18,7 +18,9 @@ class DynamicStrandsDemo : public IPrivateComponent {
   EntityRef tree_entity_ref;
   GlobalTransform object_initial_pose{};
   GlobalTransform tree_initial_pose{};
-  void ResetEnvironment();
+
+  GlobalTransform camera_pose;
+  void ResetEnvironment(const std::shared_ptr<EditorLayer>& editor_layer);
 
  public:
   enum class DemoType {
@@ -47,7 +49,6 @@ class DynamicStrandsDemo : public IPrivateComponent {
   DemoStatus demo_status = DemoStatus::Idle;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Update() override;
-  void LateUpdate() override;
 };
 
 }  // namespace eco_sys_lab_plugin

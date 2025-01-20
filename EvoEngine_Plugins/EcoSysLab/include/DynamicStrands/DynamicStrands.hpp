@@ -505,6 +505,11 @@ class DynamicStrands {
     float property1 = 0.f;
     float property2 = 0.f;
     float property3 = 0.f;
+
+    int selected = 0;
+    int highlighted = 0;
+    int padding0 = 0;
+    int padding1 = 0;
   };
 
   struct GpuHashedGridElement {

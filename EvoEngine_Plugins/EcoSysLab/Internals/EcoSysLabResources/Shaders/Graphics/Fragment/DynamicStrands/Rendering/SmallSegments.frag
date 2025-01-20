@@ -39,7 +39,10 @@ void main(){
 	// also store the per-fragment normals into the gbuffer
 	outNormal.rgb = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
 	outNormal.a = EE_INSTANCE_INDEX;
-	
-	outMaterial = vec4(tex_coord.x, tex_coord.y, instance.material_index, instance.info_index);
-	//outMaterial = vec4(vec3(1, 0, 1), instance.info_index + 2);
+
+	if(fs_in.Color.a > 0.5f){
+		outMaterial = vec4(fs_in.Color.xyz, instance.info_index + 2);
+	}else{
+		outMaterial = vec4(tex_coord.x, tex_coord.y, instance.material_index, instance.info_index);
+	}
 }

@@ -15,7 +15,7 @@ class TreeDescriptor : public IAsset {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   void CollectAssetRef(std::vector<AssetRef>& list) override;
-
+  Entity Instantiate() const;
   void Serialize(YAML::Emitter& out) const override;
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
   void Deserialize(const YAML::Node& in) override;

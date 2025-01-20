@@ -6,18 +6,19 @@
 
 using namespace eco_sys_lab_plugin;
 
-void DynamicStrandsDemo::ResetEnvironment() {
+void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto owner = GetOwner();
   const auto scene = GetScene();
   const auto children = scene->GetChildren(owner);
-
+  if (scene->HasPrivateComponent<DynamicTreeStrands>(owner)) {
+    scene->RemovePrivateComponent<DynamicTreeStrands>(owner);
+  }
   const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
+
   target_simulation_time = 10.f;
   simulated_time = 0.f;
-
   target_factor0 = 1.f;
   target_factor1 = 1.f;
-
   physics_parameters = {};
   physics_parameters.time_step = 0.01f;
 
@@ -40,7 +41,11 @@ void DynamicStrandsDemo::ResetEnvironment() {
   dts->enable_physics = false;
   object_initial_pose = {};
   tree_initial_pose = {};
-
+  tree_initial_pose.SetPosition(glm::vec3(0, -0.05, 0));
+  camera_pose = {};
+  camera_pose.SetPosition(glm::vec3(0, 1, 4.5));
+  camera_pose.SetEulerRotation(glm::radians(glm::vec3(0, 0, 0)));
+  editor_layer->GetSceneCamera()->camera_settings.fov = 120;
   for (const auto& child : children) {
     scene->DeleteEntity(child);
   }
@@ -97,34 +102,48 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   }
 
   if (ImGui::Button("Board break [Low]")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 1.5, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-20, -45, 0)));
     demo_type = DemoType::BoardBreak;
     demo_status = DemoStatus::Simulation;
     board_experiment_setup_settings.center_damage = 0.f;
     dts->initialize_parameters.bundle_strength = {500.f, 50.f};
     dts->initialize_parameters.connectivity_strength = {250.f, 250.f};
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   if (ImGui::Button("Board break [Medium]")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 1.5, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-20, -45, 0)));
     demo_type = DemoType::BoardBreak;
     demo_status = DemoStatus::Simulation;
     board_experiment_setup_settings.center_damage = 0.f;
     dts->initialize_parameters.bundle_strength = {100.f, 100.f};
     dts->initialize_parameters.connectivity_strength = {250.f, 250.f};
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   if (ImGui::Button("Board break [High]")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 1.5, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-20, -45, 0)));
     demo_type = DemoType::BoardBreak;
     demo_status = DemoStatus::Simulation;
     dts->initialize_parameters.bundle_strength = {175.f, 175.f};
     dts->initialize_parameters.connectivity_strength = {250.f, 250.f};
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
 
   if (ImGui::Button("Twisting break")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
     demo_type = DemoType::TwistingBreak;
     demo_status = DemoStatus::Simulation;
     target_factor0 = 0.f;
@@ -139,9 +158,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   if (ImGui::Button("Bending break")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
     target_factor0 = 0.f;
     demo_type = DemoType::BendingBreak;
     demo_status = DemoStatus::Simulation;
@@ -158,9 +181,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   if (ImGui::Button("Shearing break")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
     target_factor0 = 0.f;
     demo_type = DemoType::ShearingBreak;
     demo_status = DemoStatus::Simulation;
@@ -174,9 +201,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   if (ImGui::Button("Stretching break")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
     target_factor0 = 0.f;
     demo_type = DemoType::StretchingBreak;
     demo_status = DemoStatus::Simulation;
@@ -190,10 +221,14 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
 
   if (ImGui::Button("Sap/Heart Increase")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-1, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
     target_factor0 = 1.5f;
     demo_type = DemoType::SapHeart;
     demo_status = DemoStatus::Simulation;
@@ -208,9 +243,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.bundle_strength = glm::vec2(750.f, 50.f);
     dts->initialize_parameters.connectivity_strength = glm::vec2(750.f, 50.f);
     dts->LogExperimentSetup(log_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   if (ImGui::Button("Sap/Heart Equal")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-1, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
     target_factor0 = 1.5f;
     demo_type = DemoType::SapHeart;
     demo_status = DemoStatus::Simulation;
@@ -225,9 +264,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.bundle_strength = glm::vec2(500.f);
     dts->initialize_parameters.connectivity_strength = glm::vec2(500.f);
     dts->LogExperimentSetup(log_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   if (ImGui::Button("Sap/Heart Decrease")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-1, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
     target_factor0 = 1.5f;
     demo_type = DemoType::SapHeart;
     demo_status = DemoStatus::Simulation;
@@ -242,10 +285,14 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.bundle_strength = glm::vec2(50.f, 750.f);
     dts->initialize_parameters.connectivity_strength = glm::vec2(50.f, 750.f);
     dts->LogExperimentSetup(log_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
 
   if (ImGui::Button("Short rod sphere Collision")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
     target_factor0 = 0.f;
     demo_type = DemoType::BoardCollision;
     demo_status = DemoStatus::Simulation;
@@ -280,9 +327,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     }
     temp_entity1_ref = sphere_entity;
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   if (ImGui::Button("Long rod sphere Collision")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
     target_factor0 = 0.f;
     demo_type = DemoType::BoardCollision;
     demo_status = DemoStatus::Simulation;
@@ -309,10 +360,14 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     scene->SetDataComponent(sphere_entity, object_initial_pose);
     temp_entity1_ref = sphere_entity;
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
 
   if (ImGui::Button("Small cylinder Collision")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
     target_factor0 = 0.f;
     demo_type = DemoType::BoardCollision;
     demo_status = DemoStatus::Simulation;
@@ -341,9 +396,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     temp_entity1_ref = cylinder_entity;
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   if (ImGui::Button("Big cylinder Collision")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
     target_factor0 = 0.f;
     demo_type = DemoType::BoardCollision;
     demo_status = DemoStatus::Simulation;
@@ -371,39 +430,49 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     temp_entity1_ref = cylinder_entity;
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
 
   if (ImGui::Button("Trunk Strength [Low]")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
     demo_type = DemoType::TrunkStrength;
     demo_status = DemoStatus::TreeGrowth;
     const auto tree_entity = scene->CreateEntity("Tree");
     tree_entity_ref = tree_entity;
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+    tree->tree_model.seed = 10;
     // tree.
     scene->SetDataComponent(tree_entity, tree_initial_pose);
     target_growth_time = 8.f;
     tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Acacia.tree");
     const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
     tree_dts->initialize_parameters.trunk_additional_strength_factor = 500.f;
+    tree_dts->enable_physics = false;
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   if (ImGui::Button("Trunk Strength [High]")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
     demo_type = DemoType::TrunkStrength;
     demo_status = DemoStatus::TreeGrowth;
     const auto tree_entity = scene->CreateEntity("Tree");
     tree_entity_ref = tree_entity;
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+    tree->tree_model.seed = 10;
     // tree.
     scene->SetDataComponent(tree_entity, tree_initial_pose);
     target_growth_time = 8.f;
     tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Acacia.tree");
     const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+    tree_dts->enable_physics = false;
     tree_dts->initialize_parameters.trunk_additional_strength_factor = 1250.f;
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
 
   if (ImGui::Button("Wind [Low]")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
     demo_type = DemoType::Wind;
     demo_status = DemoStatus::TreeGrowth;
     const auto tree_entity = scene->CreateEntity("Tree");
@@ -414,12 +483,15 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     target_growth_time = 8.f;
     tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Oak.tree");
     const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
-    target_factor0 = 0.03f;
+    tree_dts->enable_physics = false;
+    target_factor0 = 0.05f;
     physics_parameters.segment_velocity_damping = 10.f;
     physics_parameters.segment_angular_velocity_damping = 10.f;
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   if (ImGui::Button("Wind [High]")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
     demo_type = DemoType::Wind;
     demo_status = DemoStatus::TreeGrowth;
     const auto tree_entity = scene->CreateEntity("Tree");
@@ -430,13 +502,16 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     target_growth_time = 8.f;
     tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Oak.tree");
     const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+    tree_dts->enable_physics = false;
     target_factor0 = 0.16f;
     physics_parameters.segment_velocity_damping = 10.f;
     physics_parameters.segment_angular_velocity_damping = 10.f;
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
 
   if (ImGui::Button("Tree Collision")) {
-    ResetEnvironment();
+    ResetEnvironment(editor_layer);
     demo_type = DemoType::TreeCollision;
     demo_status = DemoStatus::TreeGrowth;
     const auto tree_entity = scene->CreateEntity("Tree");
@@ -447,6 +522,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     target_growth_time = 8.f;
     tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Acacia.tree");
     const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+    tree_dts->enable_physics = false;
     target_factor0 = 0.03f;
     tree->tree_model.seed = 8;
     const auto cylinder_entity = scene->CreateEntity("Cylinder");
@@ -460,6 +536,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     scene->SetDataComponent(cylinder_entity, object_initial_pose);
 
     temp_entity1_ref = cylinder_entity;
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
   return changed;
 }
@@ -525,6 +603,7 @@ void DynamicStrandsDemo::Update() {
       right_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, angle)));
       scene->SetDataComponent(left_pivot, left_operator_root_transform);
       scene->SetDataComponent(right_pivot, right_operator_root_transform);
+      dts->PhysicsStep(physics_parameters);
     } break;
     case DemoType::TwistingBreak: {
       const float board_distance = static_cast<float>(board_experiment_setup_settings.rod_dimension.z) *
@@ -543,6 +622,7 @@ void DynamicStrandsDemo::Update() {
       right_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(angle, 0, 0)));
       scene->SetDataComponent(left_pivot, left_operator_root_transform);
       scene->SetDataComponent(right_pivot, right_operator_root_transform);
+      dts->PhysicsStep(physics_parameters);
     } break;
     case DemoType::BendingBreak: {
       const float board_distance = static_cast<float>(board_experiment_setup_settings.rod_dimension.z) *
@@ -561,6 +641,7 @@ void DynamicStrandsDemo::Update() {
       right_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, angle)));
       scene->SetDataComponent(left_pivot, left_operator_root_transform);
       scene->SetDataComponent(right_pivot, right_operator_root_transform);
+      dts->PhysicsStep(physics_parameters);
     } break;
     case DemoType::ShearingBreak: {
       const float board_distance = static_cast<float>(board_experiment_setup_settings.rod_dimension.z) *
@@ -576,6 +657,7 @@ void DynamicStrandsDemo::Update() {
           glm::vec3(right_distance, board_distance * 0.5f * progress * target_factor1, 0)));
       scene->SetDataComponent(left_pivot, left_operator_root_transform);
       scene->SetDataComponent(right_pivot, right_operator_root_transform);
+      dts->PhysicsStep(physics_parameters);
     } break;
     case DemoType::StretchingBreak: {
       const float board_distance = static_cast<float>(board_experiment_setup_settings.rod_dimension.z) *
@@ -591,6 +673,7 @@ void DynamicStrandsDemo::Update() {
           glm::vec3(right_distance + board_distance * 0.5f * progress * target_factor1, 0.f, 0.f)));
       scene->SetDataComponent(left_pivot, left_operator_root_transform);
       scene->SetDataComponent(right_pivot, right_operator_root_transform);
+      dts->PhysicsStep(physics_parameters);
     } break;
     case DemoType::SapHeart: {
       const float log_distance = static_cast<float>(log_experiment_setup_settings.rod_segment_count) *
@@ -602,6 +685,7 @@ void DynamicStrandsDemo::Update() {
       const float angle = glm::acos(1.f - progress * target_factor1);
       leaf_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(angle, 0, 0)));
       scene->SetDataComponent(left_pivot, leaf_operator_root_transform);
+      dts->PhysicsStep(physics_parameters);
       break;
     }
     case DemoType::BoardCollision: {
@@ -609,6 +693,7 @@ void DynamicStrandsDemo::Update() {
       const auto temp_entity = temp_entity1_ref.Get();
       gt.SetPosition(object_initial_pose.GetPosition() + glm::vec3(0, -50, 0) * progress);
       scene->SetDataComponent(temp_entity, gt);
+      dts->PhysicsStep(physics_parameters);
       break;
     }
     case DemoType::TrunkStrength: {
@@ -618,6 +703,8 @@ void DynamicStrandsDemo::Update() {
         const float real_progress = glm::clamp(simulated_time / (target_simulation_time * .005f), 0.f, 1.f);
         gt.SetEulerRotation(glm::radians(glm::vec3(0, glm::pow(real_progress, 2.f) * 180.f, 0)));
         scene->SetDataComponent(tree_entity, gt);
+        const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+        tree_dts->PhysicsStep(physics_parameters);
       }
       break;
     }
@@ -628,6 +715,7 @@ void DynamicStrandsDemo::Update() {
         const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
         tree_dts->wind->enabled = true;
         tree_dts->wind->main_force = glm::vec3((simulated_time > 1.f ? 0.f : -target_factor0 * real_progress), 0, 0);
+        tree_dts->PhysicsStep(physics_parameters);
       }
       break;
     }
@@ -637,15 +725,16 @@ void DynamicStrandsDemo::Update() {
       const float real_progress = glm::clamp((simulated_time - .5f) / (target_simulation_time * 0.02f), 0.f, 1.f);
       gt.SetPosition(object_initial_pose.GetPosition() + glm::vec3(2, 0, 0) * real_progress);
       scene->SetDataComponent(temp_entity, gt);
+      const auto tree_entity = tree_entity_ref.Get();
+      if (scene->IsEntityValid(tree_entity)) {
+        const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+        tree_dts->PhysicsStep(physics_parameters);
+      }
       break;
     }
     default:
       break;
   }
 
-  dts->PhysicsStep(physics_parameters);
   simulated_time += physics_parameters.time_step;
-}
-
-void DynamicStrandsDemo::LateUpdate() {
 }
