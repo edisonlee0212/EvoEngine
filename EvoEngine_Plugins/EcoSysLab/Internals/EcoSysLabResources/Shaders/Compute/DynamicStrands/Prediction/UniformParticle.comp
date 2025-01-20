@@ -28,6 +28,29 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	float snow_deduction;
 };
 
+vec3 CubicHermiteSpline(in vec3 P0, in vec3 P1, in vec3 M0, in vec3 M1, float t) {
+    float t2 = t * t;
+    float t3 = t2 * t;
+
+    float h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+    float h10 = t3 - 2.0 * t2 + t;
+    float h01 = -2.0 * t3 + 3.0 * t2;
+    float h11 = t3 - t2;
+
+    return h00 * P0 + h10 * M0 + h01 * P1 + h11 * M1;
+}
+
+vec3 CubicHermiteSplineTangent(in vec3 P0, in vec3 P1, in vec3 M0, in vec3 M1, float t) {
+    float t2 = t * t;
+
+    float h00 = 6.0 * t2 - 6.0 * t;
+    float h10 = 3.0 * t2 - 4.0 * t + 1.0;
+    float h01 = -6.0 * t2 + 6.0 * t;
+    float h11 = 3.0 * t2 - 2.0 * t;
+
+    return h00 * P0 + h10 * M0 + h01 * P1 + h11 * M1;
+}
+
 void main(){
 	[[unroll]]
 	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
@@ -52,8 +75,35 @@ void main(){
 			local_extrusion_distance -= snow_deduction;
 		}
 		uniform_particles[uniform_particle_index].override_color = local_extrusion_distance > 1e-6f ? vec4(1, 0, 0, 0) : vec4(0, 0, 0, 0);
-		uniform_particles[uniform_particle_index].position_t.xyz = 
-			mix(p0, p1, uniform_particle.position_t.w);
-		uniform_particles[uniform_particle_index].tangent.xyz = rotate_vec3(segments[uniform_particle.segment_handle].q, vec3(0, 0, 1));
+
+		// use cubic hermite spline interpolation to update uniform particles
+
+		// particle0 tangent
+		int prev_segment_handle = segments[uniform_particle.segment_handle].prev_handle;
+		vec3 M0;
+		if(prev_segment_handle == -1) {
+			// start point tangent
+			M0 = 0.5 * (p1 - p0);
+		} else {
+			vec3 p_prev = segments[prev_segment_handle].particle0.x;
+			M0 = 0.5 * (p1 - p_prev);
+		}
+
+		// particle1 tangent
+		int next_segment_handle = segments[uniform_particle.segment_handle].next_handle;
+		vec3 M1;
+		if(next_segment_handle == -1) {
+			// end point tangent
+			M1 = 0.5 * (p1 - p0);
+		} else {
+			vec3 p_next = segments[next_segment_handle].particle1.x;
+			M1 = 0.5 * (p_next - p0);
+		}
+
+
+		uniform_particles[uniform_particle_index].position_t.xyz =
+			CubicHermiteSpline(p0, p1, M0, M1, uniform_particle.position_t.w);
+		uniform_particles[uniform_particle_index].tangent.xyz =
+			CubicHermiteSplineTangent(p0, p1, M0, M1, uniform_particle.position_t.w);
 	}
 }

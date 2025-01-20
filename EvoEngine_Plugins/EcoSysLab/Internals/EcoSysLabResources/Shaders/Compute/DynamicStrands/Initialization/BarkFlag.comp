@@ -27,6 +27,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
   float alpha;
   float bifurcation_alpha;
   float max_dist_squared;
+  int use_skeleton_nodes;
 };
 
 #include "AlphaShape.glsl"

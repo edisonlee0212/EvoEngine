@@ -139,24 +139,29 @@ bool RemainInSameGroup(in DelaunayTetrahedron tet) {
   return in_same_group;
 }
 
-bool AreNeighbors(uint index0, uint index1)
+bool AreNeighbors(uint index0, uint index1, bool skeleton_nodes)
 {
   UniformParticle p0 = uniform_particles[index0];
   UniformParticle p1 = uniform_particles[index1];
 
   // first check groups
-  if (segments[p0.segment_handle].group_index != segments[p1.segment_handle].group_index) {
+  /*if (segments[p0.segment_handle].group_index != segments[p1.segment_handle].group_index) {
     return false;
-  }
-
-  // generally filter for stuff too far apart
-  if (DistSquared(p0.initial_position.xyz, p1.initial_position.xyz) > max_dist_squared) {
-    return false;
-  }
+  }*/
 
   int node_handle0 = p0.node_index;
   int node_handle1 = p1.node_index;
+  int prev_node_handle0 = nodes[node_handle0].prev_handle;
+  int prev_node_handle1 = nodes[node_handle1].prev_handle;
+  float width_estimator = min(nodes[node_handle0].width_estimator, nodes[node_handle1].width_estimator);
 
+  /*if (!skeleton_nodes) {
+    node_handle0 = -1;
+    node_handle1 = -1;
+    prev_node_handle0 = -1;
+    prev_node_handle1 = -1;
+  }
+  
   // horizontal neighbors
   if (p0.segment_index == p1.segment_index &&
       node_handle0 == node_handle1) {
@@ -167,9 +172,9 @@ bool AreNeighbors(uint index0, uint index1)
 
     // distinguish bifurcation point
     if (p0.next_node_index == p1.next_node_index) {
-      return dist_squared < alpha;
+      return dist_squared < alpha * width_estimator;
     } else {
-      return dist_squared < bifurcation_alpha;
+      return dist_squared < alpha * width_estimator;
     }
   }
 
@@ -187,7 +192,6 @@ bool AreNeighbors(uint index0, uint index1)
 
   // diagonal neighbors
   if (p0.segment_index - 1 == p1.segment_index) {  // p0 is higher
-    int prev_node_handle0 = nodes[node_handle0].prev_handle;
     if (node_handle0 == node_handle1 || prev_node_handle0 == node_handle1) {
 
       // use pythagorean theorem to determine adapted alpha:
@@ -205,14 +209,14 @@ bool AreNeighbors(uint index0, uint index1)
       // distinguish bifurcation point
       if ((node_handle0 == node_handle1 && p0.next_node_index == p1.next_node_index) ||
           (prev_node_handle0 == node_handle1 && node_handle0 == p1.next_node_index)) {
-        return dist_squared < alpha + vertical_dist_squared; // = adapted_alpha
+        return dist_squared < (alpha + vertical_dist_squared) * width_estimator;  // = adapted_alpha
       } else {
         //return dist_squared < bifurcation_alpha + vertical_dist_squared; // = adapted_alpha
-        return dist_squared < alpha + vertical_dist_squared; // TODO: adapted bifurcation_alpha gave odd results
+        return dist_squared <
+               (alpha + vertical_dist_squared) * width_estimator;  // TODO: adapted bifurcation_alpha gave odd results
       }
     } 
   } else if (p1.segment_index - 1 == p0.segment_index) {  // p1 is higher
-    int prev_node_handle1 = nodes[node_handle1].prev_handle;
     if (node_handle1 == node_handle0 || prev_node_handle1 == node_handle0) {
 
       // use pythagorean theorem to determine adapted alpha, same as above
@@ -222,42 +226,34 @@ bool AreNeighbors(uint index0, uint index1)
       // distinguish bifurcation point
       if ((node_handle1 == node_handle0 && p1.next_node_index == p0.next_node_index) ||
           (prev_node_handle1 == node_handle0 && node_handle1 == p0.next_node_index)) {
-        return dist_squared < alpha + vertical_dist_squared; // = adapted_alpha
+        return dist_squared < (alpha + vertical_dist_squared) * width_estimator;  // = adapted_alpha
       } else {
         //return dist_squared < bifurcation_alpha + vertical_dist_squared; // = adapted_alpha
-        return dist_squared < alpha + vertical_dist_squared;
+        return dist_squared < (alpha + vertical_dist_squared) * width_estimator;
       }
     }
-  }
+  }*/
 
-
-  return false;
-
+  // now use width estimator to determine if it should be connected anyway
+  return DistSquared(p0.initial_position.xyz, p1.initial_position.xyz) < alpha * width_estimator;
 }
 
-float SkeletonStructure(in DelaunayTetrahedron tet) {
-
-  float d = 0.0;
+bool SkeletonStructure(in DelaunayTetrahedron tet, bool skeleton_nodes) {
 
   [[unroll]] for (uint i = 0; i < 4; i++) {
     [[unroll]] for (uint j = i + 1; j < 4; j++) {
       
-      if (!AreNeighbors(tet.indices[i], tet.indices[j])) {
-        return 2 * alpha; // something certainly larger than alpha
+      if (!AreNeighbors(tet.indices[i], tet.indices[j], skeleton_nodes)) {
+        return false;
       }
-      // TODO: compute longest edge nontheless, maybe filtered by distance, though
     }
   }
 
-  return d;
+  return true;
 }
 
-bool InsideAlpha(in DelaunayTetrahedron tet, out float d) {
-
-  //d = LongestSide(indices);
-  d = SkeletonStructure(tet);
-
-  return d <= alpha;
+bool InsideAlpha(in DelaunayTetrahedron tet, bool skeleton_nodes) {
+  return SkeletonStructure(tet, skeleton_nodes);
 }
 
 uint lookup[] = {2, 1, 3, 0, 2, 3, 1, 0, 3, 0, 1, 2};

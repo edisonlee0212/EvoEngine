@@ -19,7 +19,7 @@ struct Strand {
 
 struct Node {
   int prev_handle;
-  int padding0;
+  float width_estimator;
   int padding1;
   int padding2;
 };

@@ -398,11 +398,7 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
 #endif  // USE_CGAL
     if (ImGui::Checkbox("Triangulate per bundle", &triangulate_per_bundle))
       changed = true;
-    if (ImGui::DragFloat("Alpha", &alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
-      changed = true;
-    if (ImGui::DragFloat("Bifurcation Alpha", &bifurcation_alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
-      changed = true;
-    if (ImGui::DragFloat("Max Distance Squared", &max_dist_squared, 0.000001f, 0.0f, 1.0f, "%.6f"))
+    if (ImGui::DragFloat("Alpha", &alpha, 0.001f, 0.0f, 2.0f, "%.3f"))
       changed = true;
 
     ImGui::TreePop();
@@ -1068,10 +1064,11 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
       continue;  // discard this tetrahedron
     }
 
+    // Note: sounded like a good idea to save gpu memory, but breaks branching points when strands cross
     // only take tetrahedra that sit between two neighboring planes
-    if (!DynamicStrandUtils::IsBetweenPlanes(indices, uniform_particles)) {
+    /* if (!DynamicStrandUtils::IsBetweenPlanes(indices, uniform_particles)) {
       continue;
-    }
+    }*/
 
     GpuDelaunayTetrahedron gpu_tet;
     for (size_t i = 0; i < 4; i++) {
@@ -1080,7 +1077,7 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
       gpu_tet.is_bark[i] = -1;
     }
     // set up debugging members
-    gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+    gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f); 
     for (int& i : gpu_tet.render_neighbor) {
       i = -1;
     }
@@ -1168,7 +1165,7 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
       points.emplace_back(p_cgal, i);
     }
 
-    CGALDelaunay(points, tetrahedrons);
+    CGALDelaunay(points, tetrahedrons); 
   }
 #endif
   if (!use_cgal) {

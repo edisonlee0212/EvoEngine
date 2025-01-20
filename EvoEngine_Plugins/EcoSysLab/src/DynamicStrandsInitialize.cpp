@@ -16,6 +16,7 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
     float alpha = 0.0f;
     float bifurcation_alpha = 0.0f;
     float max_dist_squared = 0.0f;
+    int use_skeleton_nodes = 0;
   };
 
   struct UniformParticleInitializationPushConstant {
@@ -83,6 +84,7 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
   push_constant.alpha = initialize_parameters.alpha;
   push_constant.bifurcation_alpha = initialize_parameters.bifurcation_alpha;
   push_constant.max_dist_squared = initialize_parameters.max_dist_squared;
+  push_constant.use_skeleton_nodes = int(initialize_parameters.use_skeleton_nodes);
 
   UniformParticleInitializationPushConstant uniform_particle_push_constant;
   uniform_particle_push_constant.uniform_particle_size = uniform_particles.size();
@@ -92,7 +94,7 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
   const auto uniform_particles_group_size = Platform::DivUp(uniform_particles.size(), work_group_invocations);
 
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    interior_initialization_pipeline->Bind(vk_command_buffer);
+    interior_initialization_pipeline->Bind(vk_command_buffer); 
     interior_initialization_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     interior_initialization_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
@@ -850,6 +852,14 @@ void DynamicStrands::InitializeData(const InitializeParameters& initialize_param
 
   for (size_t i = 0; i < skeleton_nodes.size(); i++) {
     nodes[i].prev_handle = skeleton_nodes[i].GetParentHandle();
+    nodes[i].width_estimator = sqrt(float(max(skeleton_nodes[i].data.strand_count, 1))) * std::max(0.001f, skeleton_nodes[i].data.strand_radius);
+    if (skeleton_nodes[i].data.strand_count == 0) {
+      EVOENGINE_LOG("Node " + std::to_string(i) + " has no strands."); 
+    }
+    //EVOENGINE_LOG("Radius: " + std::to_string(skeleton_nodes[i].data.strand_radius));
+    if (skeleton_nodes[i].data.strand_radius == 0) {
+      EVOENGINE_LOG("Node " + std::to_string(i) + " has no radius."); 
+    }
   }
 
   if (!initialize_parameters.triangulate_per_bundle) {

@@ -61,7 +61,7 @@ void main(){
 		atomicAdd(delaunay_tetrahedrons[tetrahedron_index_global].task_looked_at, 1);
 		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[tetrahedron_index_global];
 
-		if(delaunay_tetrahedrons[tetrahedron_index_global].inside == 0)
+		if(delaunay_tetrahedron.inside == 0)
 		{
 			render = false;				
 		}
@@ -71,7 +71,7 @@ void main(){
 			[[unroll]]
 			for (uint triangle_index = 0; triangle_index < 4; ++triangle_index)
 			{
-				if(delaunay_tetrahedrons[tetrahedron_index_global].render_neighbor[triangle_index] == 1){
+				if(delaunay_tetrahedron.render_neighbor[triangle_index] == 1){
 					atomicAdd(delaunay_tetrahedrons[tetrahedron_index_global].triangles_accepted, 1);
 				}
 			}

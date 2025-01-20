@@ -113,9 +113,10 @@ class DynamicStrands {
 
     // same parameters as for rendering
     // TODO: maybe we can remove them for rendering
-    float alpha = 0.00005f;
-    float bifurcation_alpha = 0.00005f;
-    float max_dist_squared = 1.0f;
+    float alpha = 0.09f;
+    float bifurcation_alpha = 0.09f;
+    float max_dist_squared = 0.09f;
+    bool use_skeleton_nodes = false;
 
     AssetRef foliage_descriptor;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
@@ -225,7 +226,7 @@ class DynamicStrands {
     bool wireframe = false;
     float alpha = 0.00005f;
     float bifurcation_alpha = 0.00005f;
-    float max_dist_squared = 1.0f;
+    float max_dist_squared = 0.0005f;
     enum VertexColors {
       Default,
       Normals,
@@ -311,7 +312,7 @@ class DynamicStrands {
 
   struct GpuNode {
     int prev_handle = -1;
-    int padding0;
+    float width_estimator = 1.0f;
     int padding1;
     int padding2;
   };
