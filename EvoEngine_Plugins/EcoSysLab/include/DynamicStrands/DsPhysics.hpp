@@ -53,14 +53,20 @@ class DsPrediction {
                const DynamicStrands& target_dynamic_strands);
 };
 
-class DsBreaking {
+class DsStructuralDamage {
  public:
-  DsBreaking();
+  DsStructuralDamage();
 
   struct SegmentPairBreakingPushConstant {
     uint32_t segment_pair_size = 0;
     uint32_t allow_disconnection;
     uint32_t allow_breaking;
+    float compression_strength_factor;
+
+    uint32_t tensile_disconnection;
+    uint32_t compression_disconnection;
+    uint32_t positional_breaking;
+    uint32_t rotational_breaking;
   };
 
   struct LeafBreakingPushConstant {

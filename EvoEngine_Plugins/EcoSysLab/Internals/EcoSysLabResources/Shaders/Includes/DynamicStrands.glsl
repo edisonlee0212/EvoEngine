@@ -110,6 +110,11 @@ struct SegmentPair {
   float max_connectivity_strain;
   vec3 bending_twist_bundle_strain_limit;
   float connectivity_strain_limit;
+
+  int tensile_lock;
+  int compression_lock;
+  int positional_lock;
+  int rotational_lock;
 };
 
 #define BUNDLE_MAX_CONNECTION 64

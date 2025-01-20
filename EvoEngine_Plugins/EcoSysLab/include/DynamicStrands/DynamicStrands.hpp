@@ -37,7 +37,7 @@ class DsPreStep;
 class IDsPhysicsOperator;
 class IDsConstraint;
 class DsPrediction;
-class DsBreaking;
+class DsStructuralDamage;
 class DsVelocityUpdate;
 struct DtsStrandGroupData {};
 
@@ -134,12 +134,19 @@ class DynamicStrands {
 
     int position_constraint_iteration = 1;
     int velocity_constraint_iteration = 1;
-    bool enable_segment_disconnection = true;
+
+    bool enable_structural_damage = true;
+
     bool enable_segment_breaking = true;
+    bool enable_segment_disconnection = true;
     bool enable_foliage_detachment = true;
-    int segment_breaking_detection_frame = 1;
-    int segment_disconnection_detection_frame = 1;
-    int foliage_detachment_detection_frame = 1;
+
+    bool enable_segment_tensile_disconnection = true;
+    bool enable_segment_compression_disconnection = true;
+    float compression_strength_factor = 5.f;
+
+    bool enable_positional_breaking = true;
+    bool enable_rotational_breaking = true;
 
     float segment_velocity_damping = 1.f;
     float segment_angular_velocity_damping = 1.f;
@@ -275,7 +282,7 @@ class DynamicStrands {
 
   std::shared_ptr<DsPreStep> pre_step;
   std::shared_ptr<DsPrediction> prediction;
-  std::shared_ptr<DsBreaking> breaking;
+  std::shared_ptr<DsStructuralDamage> structural_damage;
   std::shared_ptr<DsVelocityUpdate> velocity_update;
   std::shared_ptr<DsDynamicHashedGrid> dynamic_hashed_grid;
   std::shared_ptr<DsSegmentCollision> segment_collision;
@@ -402,6 +409,11 @@ class DynamicStrands {
     float max_connectivity_strain = 0.f;
     glm::vec3 bending_twist_bundle_strain_limit;
     float connectivity_strain_limit = 0.0f;
+
+    int tensile_lock = 0;
+    int compression_lock = 0;
+    int positional_lock = 0;
+    int rotational_lock = 0;
   };
 
   struct GpuSegmentData {
@@ -508,7 +520,7 @@ class DynamicStrands {
 
     int selected = 0;
     int highlighted = 0;
-    int padding0 = 0;
+    int detachment_lock = 0;
     int padding1 = 0;
   };
 
