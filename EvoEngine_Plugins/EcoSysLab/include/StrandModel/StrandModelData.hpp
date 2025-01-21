@@ -20,6 +20,9 @@ struct StrandModelStrandSegmentData {
   bool is_boundary = false;
   glm::vec2 profile_position;
   float initial_distance_to_boundary;
+
+
+  glm::vec3 center_offset = glm::vec3(0.f);
 };
 
 typedef StrandGroup<StrandModelStrandGroupData, StrandModelStrandData, StrandModelStrandSegmentData>

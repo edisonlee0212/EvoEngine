@@ -2,8 +2,8 @@
 
 #include "Application.hpp"
 #include "EditorLayer.hpp"
-#include "Platform.hpp"
 #include "Jobs.hpp"
+#include "Platform.hpp"
 #include "StrandModel.hpp"
 #include "TreeModel.hpp"
 using namespace evo_engine;
@@ -87,7 +87,7 @@ class TreeVisualizer {
   bool OnInspect(TreeModel& treeModel);
 
   void Visualize(const TreeModel& treeModel, const GlobalTransform& globalTransform);
-  void Visualize(StrandModel& strandModel);
+  void Visualize(StrandModel& strand_model, const GlobalTransform& global_transform);
   void Reset(TreeModel& treeModel);
 
   void Clear();

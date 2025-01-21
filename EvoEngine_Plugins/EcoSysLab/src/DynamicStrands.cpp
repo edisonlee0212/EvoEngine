@@ -225,8 +225,6 @@ void DynamicStrands::BuildRenderComputePipelines() {
   branches_triangle_filtering_pipeline->Initialize();
 }
 
-
-
 void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_render_parameters,
                                    const SmallSegmentsRenderParameters& small_segments_render_parameters,
                                    const FoliageRenderParameters& foliage_render_parameters) const {
@@ -494,8 +492,6 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
 
   return changed;
 }
-
-
 
 void DynamicStrands::UpdateBindings() const {
   if (segments.empty())
@@ -793,8 +789,6 @@ void DynamicStrands::Clear() {
   hashed_grid_elements.clear();
   hashed_grid_cell_starts.clear();
 }
-
-
 
 glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height,
                                                   const float depth) {

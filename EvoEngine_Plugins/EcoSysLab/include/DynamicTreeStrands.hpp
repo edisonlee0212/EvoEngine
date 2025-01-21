@@ -54,6 +54,8 @@ class DynamicTreeStrands : public IPrivateComponent {
   std::shared_ptr<DsLeafDrop> leaf_drop;
   std::shared_ptr<DsSnow> snow;
   std::shared_ptr<DsWind> wind;
+  std::shared_ptr<DsStopAll> stop_all;
+
   void UpdateDynamicStrands();
   void CreateStaticRoot();
   void Serialize(YAML::Emitter& out) const override;
@@ -93,7 +95,9 @@ class DynamicTreeStrands : public IPrivateComponent {
     glm::vec3 initial_angular_velocity = glm::vec3(0.f);
     bool lock_upper = false;
     bool t_cut = false;
-    float t_cut_width = 0.7f;
+    bool i_cut = false;
+    float cut_width = 0.7f;
+    float sweep_angle = 0.f;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
   void BoardExperimentSetup(const BoardExperimentSetupSettings& settings);

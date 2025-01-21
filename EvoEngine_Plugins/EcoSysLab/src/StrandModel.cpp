@@ -483,7 +483,7 @@ void StrandModel::CopyFrontToBackTask(const SkeletonNodeHandle node_handle) {
 }
 
 void StrandModel::ApplyProfile(const StrandModelParameters& strand_model_parameters,
-                               const SkeletonNodeHandle node_handle) {
+                               const GlobalTransform& global_transform, const SkeletonNodeHandle node_handle) {
   auto& node = strand_model_skeleton.RefNode(node_handle);
   const auto current_front = node.info.regulated_global_rotation * glm::vec3(0, 0, -1);
   const auto current_up = node.info.regulated_global_rotation * glm::vec3(0, 1, 0);
@@ -491,7 +491,7 @@ void StrandModel::ApplyProfile(const StrandModelParameters& strand_model_paramet
   const auto& parameters = strand_model_parameters;
   const bool wound = node.IsEndNode();
   for (const auto& [strand_handle, particle_handle] : node.data.particle_map) {
-    const auto& particle = node.data.profile.PeekParticle(particle_handle);
+    auto& particle = node.data.profile.RefParticle(particle_handle);
     auto& strand_segment = strand_model_skeleton.data.strand_group.RefStrandSegment(particle.strand_segment_handle);
     auto& strand_segment_data =
         strand_model_skeleton.data.strand_group.RefStrandSegmentData(particle.strand_segment_handle);
@@ -513,7 +513,14 @@ void StrandModel::ApplyProfile(const StrandModelParameters& strand_model_paramet
     strand_segment.end_position =
         node.info.GetGlobalEndPosition() + (node.data.strand_radius * particle.GetInitialPosition().x * current_left +
                                             node.data.strand_radius * particle.GetInitialPosition().y * current_up);
+    auto inverse_global_transform = GlobalTransform();
+    inverse_global_transform.value = global_transform.value;
 
+    particle.center_offset = inverse_global_transform.TransformVector(strand_segment.end_position - node.info.GetGlobalEndPosition());
+
+
+
+    
     const auto direction = glm::normalize(strand_segment.end_position - start_position);
     strand_segment.rotation = glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x));
 
@@ -532,17 +539,22 @@ void StrandModel::ApplyProfile(const StrandModelParameters& strand_model_paramet
 
     strand_segment_data.initial_distance_to_boundary = particle.GetInitialDistanceToBoundary();
     strand_segment_data.profile_position = particle.GetInitialPosition();
-
+    strand_segment_data.center_offset = particle.center_offset;
     strand_segment.end_color = particle.IsBoundary() ? parameters.boundary_point_color : parameters.content_point_color;
+
+    particle.SetColor(glm::vec3(glm::max(particle.center_offset.y, 0.f), 1, glm::max(-particle.center_offset.y, 0.f)));
+
+
     strand_model_skeleton.data.strand_group.RefStrandSegmentData(particle.strand_segment_handle).is_boundary =
         particle.IsBoundary();
   }
 }
 
-void StrandModel::ApplyProfiles(const StrandModelParameters& strand_model_parameters) {
+void StrandModel::ApplyProfiles(const StrandModelParameters& strand_model_parameters,
+                                const GlobalTransform& global_transform) {
   const auto& sorted_internode_list = strand_model_skeleton.PeekSortedNodeList();
   for (const auto& node_handle : sorted_internode_list) {
-    ApplyProfile(strand_model_parameters, node_handle);
+    ApplyProfile(strand_model_parameters, global_transform, node_handle);
   }
   strand_model_skeleton.data.strand_group.RegulateRotations();
 }

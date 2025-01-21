@@ -91,6 +91,9 @@ void TreeModel::ApplyTropism(const glm::vec3& target_dir, float tropism, glm::qu
 bool TreeModel::Grow(float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
                      const ShootGrowthController& shoot_growth_controller, const bool pruning) {
   current_delta_time_ = delta_time;
+  current_gravity_direction =
+      glm::vec3(glm::inverse(global_transform) * glm::vec4(glm::vec3(0, -1, 0), 0.f));
+
   age_ += current_delta_time_;
   bool tree_structure_changed = false;
   if (!initialized_) {

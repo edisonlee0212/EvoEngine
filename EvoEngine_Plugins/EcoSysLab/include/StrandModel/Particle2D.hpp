@@ -40,6 +40,7 @@ class Particle2D {
   StrandSegmentHandle strand_segment_handle = -1;
   bool main_child = false;
   bool base = false;
+  glm::vec3 center_offset = glm::vec3(0.f);
 
   void SetInitialPosition(const glm::vec2& initial_position);
   [[nodiscard]] glm::vec2 GetInitialPosition() const;

@@ -44,6 +44,10 @@ class ShootDescriptor : public IAsset {
    */
   float gravitropism = 0.0;
   /**
+   * \brief The gravitropism for order 0 branches.
+   */
+  float trunk_gravitropism = 0.0;
+  /**
    * \brief The phototropism
    */
   float phototropism = 0.045f;

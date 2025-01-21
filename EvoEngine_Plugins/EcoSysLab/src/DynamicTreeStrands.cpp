@@ -288,6 +288,7 @@ void DynamicTreeStrands::OnCreate() {
   drag_operator = std::make_shared<DsDrag>();
   line_cut_operator = std::make_shared<DsLineCut>();
   saw_operator = std::make_shared<DsSaw>();
+  stop_all = std::make_shared<DsStopAll>();
   enable_physics = true;
   if (!bark_material_ref.Get<Material>()) {
     const auto material = ProjectManager::CreateTemporaryAsset<Material>();
@@ -373,6 +374,7 @@ bool DynamicTreeStrands::LogExperimentSetupSettings::OnInspect(const std::shared
   ImGui::DragFloat("Rod radius", &radius, 0.001f, 0.001f, 1.0f);
   ImGui::DragInt("Rod size", &rod_size, 1, 1, 1000);
   ImGui::DragInt("Rod segment size", &rod_segment_count, 1, 1, 1000);
+  ImGui::DragFloat("Sweep angle", &sweep_angle, 0.001f, 0.001f, 1.0f);
 
   ImGui::DragFloat("Center damage", &center_damage, 0.01f, 0.01f, 1.0f);
   ImGui::DragFloat("Center damage offset", &center_distance_offset, 0.01f, 0.01f, 1.0f);
@@ -659,13 +661,21 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   auto& strand_group = strand_model_skeleton.data.strand_group;
   const float log_length = static_cast<float>(settings.rod_segment_count) * settings.segment_length;
   auto& root_node = strand_model_skeleton.RefNode(0);
-  root_node.info.global_position = glm::vec3(0.0f);
-  root_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
-  for (int z = 1; z < settings.rod_segment_count; z++) {
-    const auto new_node_handle = strand_model_skeleton.Extend(z - 1, false);
+  float current_sweep_angle = glm::radians(settings.sweep_angle) * .5f;
+  const float sweep_angle_step = glm::radians(settings.sweep_angle) / (settings.rod_segment_count + 1);
+  auto current_start_position = glm::vec3(0.0f);
+  root_node.info.global_position = current_start_position;
+  root_node.info.global_rotation = glm::quatLookAt(glm::rotateZ(glm::vec3(1, 0, 0), current_sweep_angle),
+                                                   glm::rotateZ(glm::vec3(0, 1, 0), current_sweep_angle));
+  for (int z = 0; z < settings.rod_segment_count; z++) {
+    current_sweep_angle -= sweep_angle_step;
+    const auto front = glm::rotateZ(glm::vec3(1, 0, 0), current_sweep_angle);
+    const auto up = glm::rotateZ(glm::vec3(0, 1, 0), current_sweep_angle);
+    current_start_position += front * settings.segment_length;
+    const auto new_node_handle = strand_model_skeleton.Extend(z, false);
     auto& new_node = strand_model_skeleton.RefNode(new_node_handle);
-    new_node.info.global_position = glm::vec3(settings.segment_length * (static_cast<float>(z) + 1.f), 0.0f, 0.0f);
-    new_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
+    new_node.info.global_position = current_start_position;
+    new_node.info.global_rotation = glm::quatLookAt(front, up);
   }
   strand_model_skeleton.SortLists();
   strand_model_skeleton.CalculateRegulatedGlobalRotation();
@@ -705,16 +715,25 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     const auto strand_handle = strand_group.AllocateStrand();
     auto& strand = strand_group.RefStrand(strand_handle);
     const auto& particle = profile.PeekParticle(i);
+
     const auto profile_position = particle.GetPosition();
-    strand.start_position = glm::vec3(0.0f, settings.radius * profile_position.x, settings.radius * profile_position.y);
+    const auto root_node_up = root_node.info.global_rotation * glm::vec3(0, 1, 0);
+    const auto root_node_right = root_node.info.global_rotation * glm::vec3(1, 0, 0);
+    strand.start_position = root_node.info.global_position + settings.radius * profile_position.y * root_node_up +
+                            root_node_right * settings.radius * profile_position.x;
+
     strand.start_color = glm::vec4(1, 1, 1, 1);
     strand.start_thickness = settings.radius * 2.f;
     const float distance_to_boundary = particle.GetDistanceToBoundary();
     for (int z = 0; z < settings.rod_segment_count; z++) {
+      auto& node = strand_model_skeleton.RefNode(z + 1);
+      const auto node_up = node.info.global_rotation * glm::vec3(0, 1, 0);
+      const auto node_right = node.info.global_rotation * glm::vec3(1, 0, 0);
+
       const auto segment_handle = strand_group.Extend(strand_handle);
       auto& segment = strand_group.RefStrandSegment(segment_handle);
-      segment.end_position = glm::vec3(settings.segment_length * (static_cast<float>(z) + 1.f),
-                                       settings.radius * profile_position.x, settings.radius * profile_position.y);
+      segment.end_position = node.info.GetGlobalEndPosition() + node_up * settings.radius * profile_position.y +
+                             node_right * settings.radius * profile_position.x;
       segment.end_color = glm::vec4(1, 1, 1, 1);
       segment.end_thickness = settings.radius * 2.f;
       auto& segment_data = strand_group.RefStrandSegmentData(segment_handle);
@@ -752,12 +771,11 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   if (settings.lock_upper) {
     Jobs::RunParallelFor(dynamic_strands->segment_pairs.size(), [&](const auto i) {
       auto& segment_pair = dynamic_strands->segment_pairs[i];
-      const auto& segment0 = dynamic_strands->segments[segment_pair.segment0_handle];
-      const auto& segment1 = dynamic_strands->segments[segment_pair.segment1_handle];
-      const auto segment0_x0 = (segment0.particle0.x0 + segment0.particle1.x0) * .5f;
-      const auto segment1_x0 = (segment1.particle0.x0 + segment1.particle1.x0) * .5f;
-      const auto segment_pair_x0 = inv_root_transform.TransformPoint((segment0_x0 + segment1_x0) * .5f);
-      if (segment_pair_x0.y > 0.f) {
+      const auto& segment0_data = target_strand_segment_data_list[segment_pair.segment0_handle];
+      const auto& segment1_data = target_strand_segment_data_list[segment_pair.segment1_handle];
+
+      const auto profile_position = (segment0_data.profile_position + segment1_data.profile_position) * .5f;
+      if (profile_position.y > 0.f) {
         segment_pair.compression_lock = 1;
         segment_pair.positional_lock = 1;
         segment_pair.positional_lock = 1;
@@ -765,25 +783,32 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       }
     });
   }
-  if (settings.t_cut) {
+  if (settings.t_cut || settings.i_cut) {
     Jobs::RunParallelFor(dynamic_strands->segment_pairs.size(), [&](const auto i) {
       auto& segment_pair = dynamic_strands->segment_pairs[i];
       auto& segment0 = dynamic_strands->segments[segment_pair.segment0_handle];
       auto& segment1 = dynamic_strands->segments[segment_pair.segment1_handle];
-      const auto segment0_x0 = inv_root_transform.TransformPoint((segment0.particle0.x0 + segment0.particle1.x0) * .5f);
-      const auto segment1_x0 = inv_root_transform.TransformPoint((segment1.particle0.x0 + segment1.particle1.x0) * .5f);
-      const auto segment_pair_x0 = (segment0_x0 + segment1_x0) * .5f;
+
+      const auto& segment0_data = target_strand_segment_data_list[segment_pair.segment0_handle];
+      const auto& segment1_data = target_strand_segment_data_list[segment_pair.segment1_handle];
+      const float root_distance = (segment0_data.start_root_distance + segment1_data.start_root_distance +
+                                   segment0_data.end_root_distance + segment1_data.end_root_distance) *
+                                  .25f;
+      const auto& profile_position0 = segment0_data.profile_position;
+      const auto& profile_position1 = segment1_data.profile_position;
       const auto half_log_length = log_length * .5f;
-      if (glm::abs(segment0_x0.x - half_log_length) / half_log_length < settings.t_cut_width ||
-          glm::abs(segment1_x0.x - half_log_length) / half_log_length < settings.t_cut_width) {
-        if ((segment0_x0.y >= 0.f && segment1_x0.y <= 0.f) || (segment0_x0.y <= 0.f && segment1_x0.y >= 0.f)) {
+      if ((settings.t_cut || settings.i_cut) &&
+          (glm::abs(root_distance - half_log_length) / half_log_length < settings.cut_width ||
+           glm::abs(root_distance - half_log_length) / half_log_length < settings.cut_width)) {
+        if ((profile_position0.y >= 0.f && profile_position1.y <= 0.f) ||
+            (profile_position0.y <= 0.f && profile_position1.y >= 0.f)) {
           segment_pair.bend_twist_bundle_integrity = 0.f;
           segment_pair.connectivity_integrity = 0.f;
         }
       }
-      if (glm::abs(segment0_x0.x - half_log_length) / half_log_length < 0.05f ||
-          glm::abs(segment1_x0.x - half_log_length) / half_log_length < 0.05f) {
-        if (glm::linearRand(0.f, 1.f) > 0.5f && segment0_x0.y <= 0.f && segment1_x0.y <= 0.f) {
+      if (settings.t_cut && (glm::abs(root_distance - half_log_length) / half_log_length < 0.05f ||
+                             glm::abs(root_distance - half_log_length) / half_log_length < 0.05f)) {
+        if (glm::linearRand(0.f, 1.f) > 0.5f && profile_position0.y <= 0.f && profile_position1.y <= 0.f) {
           segment0.strength = 0.01f;
           segment1.strength = 0.01f;
         }
@@ -1080,13 +1105,16 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
       if (drag_operator->enabled) {
         drag_operator->Execute(physics_parameters, dynamic_strands);
       }
-
       if (snow->enabled) {
         snow->Execute(physics_parameters, dynamic_strands);
       }
       if (wind->enabled) {
         wind->Execute(physics_parameters, dynamic_strands);
       }
+      if (stop_all->enabled) {
+        stop_all->Execute(physics_parameters, dynamic_strands);
+      }
+
       if (line_cut_operator->enabled) {
         line_cut_operator->Execute(dynamic_strands);
       }

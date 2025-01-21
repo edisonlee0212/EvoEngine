@@ -231,4 +231,21 @@ class DsWind : public IDsPhysicsOperator {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
+class DsStopAll : public IDsPhysicsOperator {
+  struct SegmentPushConstant {
+    uint32_t segment_size;
+  };
+  struct LeafPushConstant {
+    uint32_t leaf_size;
+  };
+
+  inline static std::shared_ptr<ComputePipeline> segment_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> leaf_pipeline{};
+
+ public:
+  DsStopAll();
+  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
+};
+
 }  // namespace eco_sys_lab_plugin

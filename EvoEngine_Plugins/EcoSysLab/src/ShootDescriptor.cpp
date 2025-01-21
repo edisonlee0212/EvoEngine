@@ -90,7 +90,7 @@ void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_cont
   };
   shoot_growth_controller.gravitropism = [&](std::mt19937& random_engine,
                                              const SkeletonNode<InternodeGrowthData>& internode) {
-    return gravitropism;
+    return internode.data.order == 0 ? glm::max(gravitropism, trunk_gravitropism) :gravitropism;
   };
   shoot_growth_controller.phototropism = [&](std::mt19937& random_engine,
                                              const SkeletonNode<InternodeGrowthData>& internode) {
@@ -175,6 +175,7 @@ void ShootDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "roll_angle_mean_variance" << YAML::Value << roll_angle_mean_variance;
   out << YAML::Key << "apical_angle_mean_variance" << YAML::Value << apical_angle_mean_variance;
   out << YAML::Key << "gravitropism" << YAML::Value << gravitropism;
+  out << YAML::Key << "trunk_gravitropism" << YAML::Value << trunk_gravitropism;
   out << YAML::Key << "phototropism" << YAML::Value << phototropism;
   out << YAML::Key << "horizontal_tropism" << YAML::Value << horizontal_tropism;
   out << YAML::Key << "gravity_bending_strength" << YAML::Value << gravity_bending_strength;
@@ -242,6 +243,10 @@ void ShootDescriptor::Deserialize(const YAML::Node& in) {
     apical_angle_mean_variance = in["apical_angle_mean_variance"].as<glm::vec2>();
   if (in["gravitropism"])
     gravitropism = in["gravitropism"].as<float>();
+
+  if (in["trunk_gravitropism"])
+    trunk_gravitropism = in["trunk_gravitropism"].as<float>();
+
   if (in["phototropism"])
     phototropism = in["phototropism"].as<float>();
   if (in["horizontal_tropism"])
@@ -371,8 +376,10 @@ bool ShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer
   }
   if (ImGui::TreeNodeEx("Bud fate", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed = ImGui::DragFloat("Gravitropism", &gravitropism, 0.01f) || changed;
+    changed = ImGui::DragFloat("Trunk gravitropism", &trunk_gravitropism, 0.01f) || changed;
+    
     changed = ImGui::DragFloat("Phototropism", &phototropism, 0.01f) || changed;
-    changed = ImGui::DragFloat("Horizontal Tropism", &horizontal_tropism, 0.01f) || changed;
+    changed = ImGui::DragFloat("Horizontal tropism", &horizontal_tropism, 0.01f) || changed;
 
     changed = ImGui::DragFloat("Apical bud extinction rate", &apical_bud_extinction_rate, 0.01f, 0.0f, 1.0f, "%.5f") ||
               changed;

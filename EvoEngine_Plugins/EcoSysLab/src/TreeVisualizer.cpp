@@ -484,20 +484,20 @@ void TreeVisualizer::Visualize(const TreeModel& treeModel, const GlobalTransform
   }
 }
 
-void TreeVisualizer::Visualize(StrandModel& strandModel) {
+void TreeVisualizer::Visualize(StrandModel& strand_model, const GlobalTransform& global_transform) {
   if (m_visualization) {
-    auto& skeleton = strandModel.strand_model_skeleton;
-    static bool showGrid = false;
+    auto& skeleton = strand_model.strand_model_skeleton;
+    static bool show_grid = false;
     if (m_profileGui) {
       const std::string tag = "Profile";
       if (ImGui::Begin(tag.c_str())) {
         if (m_selectedInternodeHandle != -1 && m_selectedInternodeHandle < skeleton.RefRawNodes().size()) {
           auto& node = skeleton.RefNode(m_selectedInternodeHandle);
-          glm::vec2 mousePosition{};
-          static bool lastFrameClicked = false;
-          bool mouseDown = false;
-          static bool addAttractor = false;
-          ImGui::Checkbox("Attractor", &addAttractor);
+          glm::vec2 mouse_position{};
+          static bool last_frame_clicked = false;
+          bool mouse_down = false;
+          static bool add_attractor = false;
+          ImGui::Checkbox("Attractor", &add_attractor);
           if (ImGui::Button("Clear boundaries")) {
             node.data.profile_constraints.boundaries.clear();
             node.data.boundaries_updated = true;
@@ -508,90 +508,91 @@ void TreeVisualizer::Visualize(StrandModel& strandModel) {
             node.data.boundaries_updated = true;
           }
           ImGui::SameLine();
-          ImGui::Checkbox("Show Grid", &showGrid);
+          ImGui::Checkbox("Show Grid", &show_grid);
           if (node.GetParentHandle() != -1) {
             if (ImGui::Button("Copy from root")) {
-              std::vector<SkeletonNodeHandle> parentNodeToRootChain;
-              parentNodeToRootChain.emplace_back(m_selectedInternodeHandle);
+              std::vector<SkeletonNodeHandle> parent_node_to_root_chain;
+              parent_node_to_root_chain.emplace_back(m_selectedInternodeHandle);
               SkeletonNodeHandle walker = node.GetParentHandle();
               while (walker != -1) {
-                parentNodeToRootChain.emplace_back(walker);
+                parent_node_to_root_chain.emplace_back(walker);
                 walker = skeleton.PeekNode(walker).GetParentHandle();
               }
-              for (auto it = parentNodeToRootChain.rbegin() + 1; it != parentNodeToRootChain.rend(); ++it) {
-                const auto& fromNode = skeleton.PeekNode(*(it - 1));
-                auto& toNode = skeleton.RefNode(*it);
-                toNode.data.profile_constraints = fromNode.data.profile_constraints;
-                toNode.data.boundaries_updated = true;
+              for (auto it = parent_node_to_root_chain.rbegin() + 1; it != parent_node_to_root_chain.rend(); ++it) {
+                const auto& from_node = skeleton.PeekNode(*(it - 1));
+                auto& to_node = skeleton.RefNode(*it);
+                to_node.data.profile_constraints = from_node.data.profile_constraints;
+                to_node.data.boundaries_updated = true;
               }
             }
-            const auto& parentNode = skeleton.RefNode(node.GetParentHandle());
-            if (!parentNode.data.profile_constraints.boundaries.empty() ||
-                !parentNode.data.profile_constraints.attractors.empty()) {
+            if (const auto& parent_node = skeleton.RefNode(node.GetParentHandle());
+                !parent_node.data.profile_constraints.boundaries.empty() ||
+                !parent_node.data.profile_constraints.attractors.empty()) {
               ImGui::SameLine();
               if (ImGui::Button("Copy parent settings")) {
-                node.data.profile_constraints = parentNode.data.profile_constraints;
+                node.data.profile_constraints = parent_node.data.profile_constraints;
                 node.data.boundaries_updated = true;
               }
             }
           }
           node.data.profile.OnInspect(
               [&](const glm::vec2 position) {
-                mouseDown = true;
-                mousePosition = position;
+                mouse_down = true;
+                mouse_position = position;
               },
-              [&](const ImVec2 origin, const float zoomFactor, ImDrawList* drawList) {
-                node.data.profile.RenderEdges(origin, zoomFactor, drawList, IM_COL32(0.0f, 0.0f, 128.0f, 128.0f), 1.0f);
-                node.data.profile.RenderBoundary(origin, zoomFactor, drawList, IM_COL32(255.f, 255.f, 255.0f, 255.0f),
+              [&](const ImVec2 origin, const float zoom_factor, ImDrawList* draw_list) {
+                node.data.profile.RenderEdges(origin, zoom_factor, draw_list, IM_COL32(255, 255, 255, 128.0f),
+                                              1.0f);
+                node.data.profile.RenderBoundary(origin, zoom_factor, draw_list, IM_COL32(64.f, 64.f, 64.f, 255.0f),
                                                  4.0f);
 
                 if (node.GetParentHandle() != -1) {
-                  const auto& parentNode = skeleton.RefNode(node.GetParentHandle());
-                  if (!parentNode.data.profile_constraints.boundaries.empty()) {
-                    for (const auto& parentBoundary : parentNode.data.profile_constraints.boundaries) {
-                      parentBoundary.RenderBoundary(origin, zoomFactor, drawList, IM_COL32(128.0f, 0.0f, 0, 128.0f),
-                                                    4.0f);
+                  if (const auto& parent_node = skeleton.RefNode(node.GetParentHandle());
+                      !parent_node.data.profile_constraints.boundaries.empty()) {
+                    for (const auto& parent_boundary : parent_node.data.profile_constraints.boundaries) {
+                      parent_boundary.RenderBoundary(origin, zoom_factor, draw_list, IM_COL32(128.0f, 0.0f, 0, 128.0f),
+                                                     4.0f);
                     }
-                    for (const auto& parentAttractor : parentNode.data.profile_constraints.attractors) {
-                      parentAttractor.RenderAttractor(origin, zoomFactor, drawList, IM_COL32(0.0f, 128.0f, 0, 128.0f),
-                                                      4.0f);
+                    for (const auto& parent_attractor : parent_node.data.profile_constraints.attractors) {
+                      parent_attractor.RenderAttractor(origin, zoom_factor, draw_list,
+                                                       IM_COL32(0.0f, 128.0f, 0, 128.0f), 4.0f);
                     }
                   }
                 }
                 for (const auto& boundary : node.data.profile_constraints.boundaries) {
-                  boundary.RenderBoundary(origin, zoomFactor, drawList, IM_COL32(255.0f, 0.0f, 0, 255.0f), 2.0f);
+                  boundary.RenderBoundary(origin, zoom_factor, draw_list, IM_COL32(255.0f, 0.0f, 0, 255.0f), 2.0f);
                 }
 
                 for (const auto& attractor : node.data.profile_constraints.attractors) {
-                  attractor.RenderAttractor(origin, zoomFactor, drawList, IM_COL32(0.0f, 255.0f, 0, 255.0f), 2.0f);
+                  attractor.RenderAttractor(origin, zoom_factor, draw_list, IM_COL32(0.0f, 255.0f, 0, 255.0f), 2.0f);
                 }
               },
-              showGrid);
-          auto& profileBoundaries = node.data.profile_constraints;
-          static glm::vec2 attractorStartMousePosition;
-          if (lastFrameClicked) {
-            if (mouseDown) {
-              if (!addAttractor) {
+              show_grid);
+          auto& profile_boundaries = node.data.profile_constraints;
+          static glm::vec2 attractor_start_mouse_position;
+          if (last_frame_clicked) {
+            if (mouse_down) {
+              if (!add_attractor) {
                 // Continue recording.
-                if (glm::distance(mousePosition, profileBoundaries.boundaries.back().points.back()) > 1.0f)
-                  profileBoundaries.boundaries.back().points.emplace_back(mousePosition);
+                if (glm::distance(mouse_position, profile_boundaries.boundaries.back().points.back()) > 1.0f)
+                  profile_boundaries.boundaries.back().points.emplace_back(mouse_position);
               } else {
-                auto& attractorPoints = profileBoundaries.attractors.back().attractor_points;
-                if (attractorPoints.empty()) {
-                  if (glm::distance(attractorStartMousePosition, mousePosition) > 1.0f) {
-                    attractorPoints.emplace_back(attractorStartMousePosition, mousePosition);
+                if (auto& attractor_points = profile_boundaries.attractors.back().attractor_points;
+                    attractor_points.empty()) {
+                  if (glm::distance(attractor_start_mouse_position, mouse_position) > 1.0f) {
+                    attractor_points.emplace_back(attractor_start_mouse_position, mouse_position);
                   }
-                } else if (glm::distance(mousePosition, attractorPoints.back().second) > 1.0f) {
-                  attractorPoints.emplace_back(attractorPoints.back().second, mousePosition);
+                } else if (glm::distance(mouse_position, attractor_points.back().second) > 1.0f) {
+                  attractor_points.emplace_back(attractor_points.back().second, mouse_position);
                 }
               }
-            } else if (!profileBoundaries.boundaries.empty()) {
-              if (!addAttractor) {
+            } else if (!profile_boundaries.boundaries.empty()) {
+              if (!add_attractor) {
                 // Stop and check boundary.
-                if (!profileBoundaries.Valid(profileBoundaries.boundaries.size() - 1)) {
-                  profileBoundaries.boundaries.pop_back();
+                if (!profile_boundaries.Valid(profile_boundaries.boundaries.size() - 1)) {
+                  profile_boundaries.boundaries.pop_back();
                 } else {
-                  profileBoundaries.boundaries.back().CalculateCenter();
+                  profile_boundaries.boundaries.back().CalculateCenter();
                   node.data.boundaries_updated = true;
                 }
               } else {
@@ -599,17 +600,17 @@ void TreeVisualizer::Visualize(StrandModel& strandModel) {
                 node.data.boundaries_updated = true;
               }
             }
-          } else if (mouseDown) {
+          } else if (mouse_down) {
             // Start recording.
-            if (!addAttractor) {
+            if (!add_attractor) {
               node.data.profile_constraints.boundaries.emplace_back();
-              node.data.profile_constraints.boundaries.back().points.push_back(mousePosition);
+              node.data.profile_constraints.boundaries.back().points.push_back(mouse_position);
             } else {
               node.data.profile_constraints.attractors.emplace_back();
-              attractorStartMousePosition = mousePosition;
+              attractor_start_mouse_position = mouse_position;
             }
           }
-          lastFrameClicked = mouseDown;
+          last_frame_clicked = mouse_down;
         } else {
           ImGui::Text("Select an internode to show its profile!");
         }

@@ -25,6 +25,7 @@ class DynamicStrandsDemo : public IPrivateComponent {
  public:
   enum class DemoType {
     Empty,
+    TensionCompression,
     LogBreak,
     BoardBreak,
     TwistingBreak,
@@ -37,6 +38,7 @@ class DynamicStrandsDemo : public IPrivateComponent {
     Wind,
     TreeCollision,
     TreeBreak,
+    WoodType
   };
   enum class DemoStatus { Idle, TreeGrowth, Simulation };
 

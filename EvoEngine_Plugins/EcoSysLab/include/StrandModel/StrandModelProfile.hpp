@@ -537,8 +537,30 @@ void StrandModelProfile<T>::OnInspect(
     scrolling = glm::vec2(0.0f);
   }
   ImGui::SameLine();
-  ImGui::DragFloat("Zoom", &zoom_factor, zoom_factor / 100.0f, 0.1f, 1000.0f);
-  zoom_factor = glm::clamp(zoom_factor, 0.01f, 1000.0f);
+  if (ImGui::DragFloat("Zoom", &zoom_factor, zoom_factor / 100.0f, 0.1f, 1000.0f)) {
+    zoom_factor = glm::clamp(zoom_factor, 0.01f, 1000.0f);
+  }
+  static glm::vec3 color_factor = glm::vec3(30.f, 0.1f, 30.f);
+
+  static float particle_size = 1.3f;
+  static bool simulate_wood_strength = true;
+
+  static float sap_wood_thickness = 5.5f;
+  static float sap_heart_transition = 1.f;
+  static float height_factor = 15.f;
+  static float heart_wood_extra_strength = 0.7f;
+  ImGui::Checkbox("Simulate wood strength", &simulate_wood_strength);
+  if (simulate_wood_strength) {
+    ImGui::DragFloat("Sap wood thickness", &sap_wood_thickness, 0.1f, 0.0f, 100.f);
+    ImGui::DragFloat("Sap/Heart Transition", &sap_heart_transition, 0.001f, 0.0f, 1.f);
+    ImGui::DragFloat("Heart wood strength", &heart_wood_extra_strength, 0.01f, 0.0f, 1.f);
+    ImGui::DragFloat("Height factor", &height_factor, 0.1f, 0.0f, 100.f);
+  } else {
+    ImGui::DragFloat3("Color factor", &color_factor.x, 1.f, 0.01f, 100.0f);
+  }
+
+  ImGui::DragFloat("Particle size", &particle_size, 0.01f, 0.01f, 10.f);
+  static float non_boundary_transparency = 1.f;
   const ImGuiIO& io = ImGui::GetIO();
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -554,7 +576,7 @@ void StrandModelProfile<T>::OnInspect(
   const ImVec2 mouse_pos_in_canvas((io.MousePos.x - origin.x) / zoom_factor, (io.MousePos.y - origin.y) / zoom_factor);
 
   // Draw border and background color
-  draw_list->AddRectFilled(canvas_p0, canvas_p1, IM_COL32(50, 50, 50, 255));
+  draw_list->AddRectFilled(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
   draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
 
   // This will catch our interactions
@@ -589,13 +611,24 @@ void StrandModelProfile<T>::OnInspect(
     if (mod > 1 && index % mod != 0)
       continue;
     const auto& point_position = particle.position_;
-    const auto& point_color = particle.color_;
     const auto canvas_position =
         ImVec2(origin.x + point_position.x * zoom_factor, origin.y + point_position.y * zoom_factor);
 
-    draw_list->AddCircleFilled(canvas_position, glm::clamp(zoom_factor, 1.0f, 100.0f),
+    glm::vec4 point_color = glm::vec4(0, 0, 0, 0);
+    if (simulate_wood_strength) {
+      const float basic_strength = 0.5f + particle.center_offset.y * height_factor;
+      const float heart_wood_strength = ActivationFunction::Sigmoid(0, heart_wood_extra_strength, sap_wood_thickness, 1.f / sap_heart_transition,
+                                                                    particle.initial_distance_to_boundary_);
+
+      point_color =
+          glm::vec4(glm::mix(glm::vec3(1, 0, 0), glm::vec3(0, 0, 1), glm::clamp(basic_strength, 0.f, 1.f)), 1.f);
+      point_color.y = heart_wood_strength;
+    } else {
+      point_color = glm::vec4(particle.color_ * color_factor, 1.f);
+    }
+    draw_list->AddCircleFilled(canvas_position, glm::clamp(zoom_factor * particle_size, 1.0f, 100.0f),
                                IM_COL32(255.0f * point_color.x, 255.0f * point_color.y, 255.0f * point_color.z,
-                                        particle.IsBoundary() ? 255.0f : 128.0f));
+                                        particle.IsBoundary() ? 255.0f : non_boundary_transparency * 255.f));
   }
   draw_list->AddCircle(origin, glm::clamp(zoom_factor, 1.0f, 100.0f), IM_COL32(255, 0, 0, 255));
   if (show_grid) {

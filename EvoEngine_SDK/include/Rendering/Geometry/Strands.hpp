@@ -71,7 +71,9 @@ class Strands final : public IAsset, public IGeometry {
    * \return End parameter t.
    */
   template <class T>
-  static float FindTAdaptive(const T& v0, const T& v1, const T& v2, const T& v3, float t_start, float target_length, float tolerance = 0.001f);
+  static float FindTAdaptive(const T& v0, const T& v1, const T& v2, const T& v3, float t_start, float target_length,
+                             float tolerance = 0.001f);
+
  protected:
   bool LoadInternal(const std::filesystem::path& path) override;
 
@@ -127,10 +129,12 @@ T Strands::CubicInterpolation(const T& v0, const T& v1, const T& v2, const T& v3
 template <class T>
 float Strands::CalculateLengthAdaptive(const T& v0, const T& v1, const T& v2, const T& v3, float t_start, float t_end,
                                        const float tolerance) {
+  if (t_start == t_end) {
+    return 0.f;
+  }
   const glm::vec3 mid_point = CubicInterpolation(v0, v1, v2, v3, (t_start + t_end) * 0.5f);
   const glm::vec3 start_point = CubicInterpolation(v0, v1, v2, v3, t_start);
   const glm::vec3 end_point = CubicInterpolation(v0, v1, v2, v3, t_end);
-
   const float linear_distance = glm::distance(start_point, end_point);
   const float curve_distance = glm::distance(start_point, mid_point) + glm::distance(mid_point, end_point);
   if (fabs(linear_distance - curve_distance) < tolerance) {
@@ -148,7 +152,8 @@ float Strands::FindTAdaptive(const T& v0, const T& v1, const T& v2, const T& v3,
     return 1.f;
   float t_low = t_start, t_high = 1.0f;
   while (t_high - t_low > tolerance) {
-    if (float t_mid = (t_low + t_high) * 0.5f; CalculateLengthAdaptive(v0, v1, v2, v3, t_start, t_mid) < target_length) {
+    if (float t_mid = (t_low + t_high) * 0.5f;
+        CalculateLengthAdaptive(v0, v1, v2, v3, t_start, t_mid) < target_length) {
       t_low = t_mid;
     } else {
       t_high = t_mid;

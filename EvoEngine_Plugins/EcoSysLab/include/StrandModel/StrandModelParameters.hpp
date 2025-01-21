@@ -17,7 +17,7 @@ struct StrandModelParameters {
   int end_node_strands = 1;
   int strands_along_branch = 0;
   bool pre_merge = false;
-
+  bool reverse_offset = false;
   int node_max_count = -1;
 
   int boundary_point_distance = 6;

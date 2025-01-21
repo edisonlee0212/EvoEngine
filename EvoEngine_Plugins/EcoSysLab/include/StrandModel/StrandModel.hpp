@@ -4,7 +4,8 @@
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {
 class StrandModel {
-  void ApplyProfile(const StrandModelParameters& strand_model_parameters, SkeletonNodeHandle node_handle);
+  void ApplyProfile(const StrandModelParameters& strand_model_parameters, const GlobalTransform& global_transform,
+                    SkeletonNodeHandle node_handle);
   void CalculateProfile(float max_root_distance, SkeletonNodeHandle node_handle,
                         const StrandModelParameters& strand_model_parameters);
 
@@ -21,7 +22,7 @@ class StrandModel {
   void InitializeProfiles(const StrandModelParameters& strand_model_parameters);
   JobHandle CalculateProfiles(const StrandModelParameters& strand_model_parameters);
   void CalculateStrandProfileAdjustedTransforms(const StrandModelParameters& strand_model_parameters);
-  void ApplyProfiles(const StrandModelParameters& strand_model_parameters);
+  void ApplyProfiles(const StrandModelParameters& strand_model_parameters, const GlobalTransform& global_transform);
 
   [[nodiscard]] glm::vec3 InterpolateStrandSegmentPosition(StrandSegmentHandle strand_segment_handle, float a) const;
   [[nodiscard]] glm::vec3 InterpolateStrandSegmentAxis(StrandSegmentHandle strand_segment_handle, float a) const;

@@ -17,9 +17,9 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
 
   target_simulation_time = 10.f;
   simulated_time = 0.f;
-  // target_factor0 = 1.f;
-  target_factor1 = 1.f;
-  physics_parameters = {};
+  //target_factor0 = 1.f;
+  //target_factor1 = 1.f;
+  //physics_parameters = {};
   physics_parameters.time_step = 0.01f;
 
   board_experiment_setup_settings.center_damage = 0.f;
@@ -29,7 +29,8 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
   log_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
   log_experiment_setup_settings.lock_upper = false;
   log_experiment_setup_settings.t_cut = false;
-  log_experiment_setup_settings.t_cut_width = 0.7f;
+  log_experiment_setup_settings.cut_width = 0.7f;
+  log_experiment_setup_settings.sweep_angle = 0.f;
   board_experiment_setup_settings.rod_dimension = {20, 40, 20};
   dts->initialize_parameters.shear_stretch_strength = {500.f, 250.f};
   dts->initialize_parameters.bending_strength = {500.f, 250.f};
@@ -47,7 +48,10 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
   camera_pose = {};
   camera_pose.SetPosition(glm::vec3(0, 1, 4.5));
   camera_pose.SetEulerRotation(glm::radians(glm::vec3(0, 0, 0)));
-  editor_layer->GetSceneCamera()->camera_settings.fov = 120;
+  const auto scene_camera = editor_layer->GetSceneCamera();
+  scene_camera->camera_settings.fov = 90.f;
+  scene_camera->camera_settings.far_distance = 150.f;
+  scene_camera->camera_settings.fade_ratio = 0.01f;
   for (const auto& child : children) {
     scene->DeleteEntity(child);
   }
@@ -103,7 +107,30 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     board_experiment_setup_settings.OnInspect(editor_layer);
     ImGui::TreePop();
   }
+  if (ImGui::Button("Tension/Compression")) {
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(0.5, 0.7, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(10, 0, 0)));
+    demo_type = DemoType::TensionCompression;
+    demo_status = DemoStatus::Simulation;
+    log_experiment_setup_settings.center_damage = 0.95f;
+    log_experiment_setup_settings.center_distance_offset = 0.01f;
+    log_experiment_setup_settings.center_damage_transition = 0.02f;
+    log_experiment_setup_settings.sweep_angle = -60.f;
+    dts->initialize_parameters.bundle_strength = {500.f, 50.f};
+    dts->initialize_parameters.connectivity_strength = {100.f, 100.f};
+    log_experiment_setup_settings.i_cut = true;
+    log_experiment_setup_settings.cut_width = 0.7f;
 
+    physics_parameters.enable_segment_disconnection = false;
+
+    // target_factor0 = 2.f; // distance
+    // target_factor1 = 1.f; // angle
+
+    dts->LogExperimentSetup(log_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+  }
   if (ImGui::Button("Log break [Diffuse]")) {
     ResetEnvironment(editor_layer);
     camera_pose.SetPosition(glm::vec3(0.5, 0.7, 1));
@@ -116,7 +143,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.bundle_strength = {500.f, 50.f};
     dts->initialize_parameters.connectivity_strength = {100.f, 100.f};
     log_experiment_setup_settings.t_cut = true;
-    log_experiment_setup_settings.t_cut_width = 0.f;
+    log_experiment_setup_settings.cut_width = 0.f;
     target_factor0 = 2.f;
     target_factor1 = 1.f;
 
@@ -293,9 +320,9 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
   if (ImGui::Button("Sap/Heart Increase")) {
     ResetEnvironment(editor_layer);
-    camera_pose.SetPosition(glm::vec3(-1, 2.2, 1));
-    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
-    target_factor0 = 1.5f;
+    camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
+    target_factor0 = 5.f;
     demo_type = DemoType::SapHeart;
     demo_status = DemoStatus::Simulation;
     log_experiment_setup_settings.rod_segment_count = 10;
@@ -314,9 +341,9 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   }
   if (ImGui::Button("Sap/Heart Equal")) {
     ResetEnvironment(editor_layer);
-    camera_pose.SetPosition(glm::vec3(-1, 2.2, 1));
-    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
-    target_factor0 = 1.5f;
+    camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
+    target_factor0 = 5.f;
     demo_type = DemoType::SapHeart;
     demo_status = DemoStatus::Simulation;
     log_experiment_setup_settings.rod_segment_count = 10;
@@ -335,9 +362,9 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   }
   if (ImGui::Button("Sap/Heart Decrease")) {
     ResetEnvironment(editor_layer);
-    camera_pose.SetPosition(glm::vec3(-1, 2.2, 1));
-    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
-    target_factor0 = 1.5f;
+    camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
+    target_factor0 = 5.f;
     demo_type = DemoType::SapHeart;
     demo_status = DemoStatus::Simulation;
     log_experiment_setup_settings.rod_segment_count = 10;
@@ -633,8 +660,91 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     curve_values.emplace_back(0.1, 0);
 
     curve_values.emplace_back(-0.1, 0);
-    curve_values.emplace_back(1,  0.5);
+    curve_values.emplace_back(1, 0.5);
     curve_values.emplace_back(0.1, 0);
+  }
+
+
+  if (ImGui::Button("Hardwood")) {
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(0, 1, 5));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(0, 0, 0)));
+    const auto scene_camera = editor_layer->GetSceneCamera();
+
+    scene_camera->camera_settings.fov = 90;
+
+    demo_type = DemoType::WoodType;
+    demo_status = DemoStatus::TreeGrowth;
+    const auto tree_entity = scene->CreateEntity("Tree");
+    tree_entity_ref = tree_entity;
+    const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+    // tree.
+    tree_initial_pose.SetEulerRotation(glm::radians(glm::vec3(0, 0, 45)));
+    scene->SetDataComponent(tree_entity, tree_initial_pose);
+    target_growth_time = 8.f;
+    tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Demo.tree");
+    tree->pruning_settings.low_branch_pruning = 0.3f;
+    const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+    tree_dts->enable_physics = false;
+    tree->tree_model.seed = 0;
+
+    tree->strand_model_parameters.strand_radius_distribution.mean.min_value = 0.f;
+    tree->strand_model_parameters.strand_radius_distribution.mean.max_value = 0.0015f;
+    auto& curve_values = tree->strand_model_parameters.strand_radius_distribution.mean.curve.UnsafeGetValues();
+    curve_values.clear();
+    curve_values.emplace_back(-0.1, 0);
+    curve_values.emplace_back(0, 0.75);
+    curve_values.emplace_back(0.1, 0);
+
+    curve_values.emplace_back(-0.4, 0);
+    curve_values.emplace_back(0.5, 0.75);
+    curve_values.emplace_back(0.1, 0);
+
+    curve_values.emplace_back(-0.1, 0);
+    curve_values.emplace_back(1, 0.5);
+    curve_values.emplace_back(0.1, 0);
+
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+  }
+  if (ImGui::Button("Softwood")) {
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(0, 1.5, 7.5));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(0, 0, 0)));
+    editor_layer->GetSceneCamera()->camera_settings.fov = 90;
+    demo_type = DemoType::WoodType;
+    demo_status = DemoStatus::TreeGrowth;
+    const auto tree_entity = scene->CreateEntity("Tree");
+    tree_entity_ref = tree_entity;
+    const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+    // tree.
+    tree_initial_pose.SetEulerRotation(glm::radians(glm::vec3(0, 0, 45)));
+    scene->SetDataComponent(tree_entity, tree_initial_pose);
+    target_growth_time = 8.f;
+    tree->pruning_settings.low_branch_pruning = 0.3f;
+    tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Demo.tree");
+    const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+    tree_dts->enable_physics = false;
+    tree->tree_model.seed = 0;
+
+    tree->strand_model_parameters.strand_radius_distribution.mean.min_value = 0.f;
+    tree->strand_model_parameters.strand_radius_distribution.mean.max_value = 0.002f;
+    auto& curve_values = tree->strand_model_parameters.strand_radius_distribution.mean.curve.UnsafeGetValues();
+    curve_values.clear();
+    curve_values.emplace_back(-0.1, 0);
+    curve_values.emplace_back(0, 1);
+    curve_values.emplace_back(0.1, 0);
+
+    curve_values.emplace_back(-0.4, 0);
+    curve_values.emplace_back(0.5, 0.75);
+    curve_values.emplace_back(0.1, 0);
+
+    curve_values.emplace_back(-0.1, 0);
+    curve_values.emplace_back(1, 0.5);
+    curve_values.emplace_back(0.1, 0);
+
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
 
   return changed;
@@ -684,6 +794,25 @@ void DynamicStrandsDemo::Update() {
   const float progress = simulated_time / target_simulation_time;
 
   switch (demo_type) {
+    case DemoType::TensionCompression: {
+      const float board_distance = static_cast<float>(log_experiment_setup_settings.rod_segment_count) *
+                                   log_experiment_setup_settings.segment_length;
+      const float left_distance = board_distance * -0.5f * progress * target_factor0;
+      const float right_distance = board_distance * (1.f + 0.5f * progress * target_factor0);
+
+      auto left_operator_root_transform = GlobalTransform();
+      left_operator_root_transform.SetPosition(
+          dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(left_distance, 0, 0)));
+      auto right_operator_root_transform = GlobalTransform();
+      right_operator_root_transform.SetPosition(
+          dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(right_distance, 0, 0)));
+      const float angle = glm::acos(1.f - progress * target_factor1);
+      left_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, angle)));
+      right_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, -angle)));
+      scene->SetDataComponent(left_pivot, left_operator_root_transform);
+      scene->SetDataComponent(right_pivot, right_operator_root_transform);
+      dts->PhysicsStep(physics_parameters);
+    } break;
     case DemoType::LogBreak: {
       const float board_distance = static_cast<float>(log_experiment_setup_settings.rod_segment_count) *
                                    log_experiment_setup_settings.segment_length;

@@ -195,7 +195,11 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
       if (window_focused && (editor_layer->GetKey(GLFW_KEY_SPACE) == Input::KeyActionType::Press)) {
         dynamic_strands_settings_.enable_physics = !dynamic_strands_settings_.enable_physics;
       }
-
+      if (window_focused && (editor_layer->GetKey(GLFW_KEY_TAB) == Input::KeyActionType::Press)) {
+        for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+          dts->stop_all->enabled = true;
+        });
+      }
       static bool is_box_selection_previously = false;
       static bool is_operating_previously = false;
       bool mouse_drag = false;
@@ -469,6 +473,7 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
     }
     ImGui::TreePop();
   }
+
   ImGui::Checkbox("Physics", &enable_physics);
   if (!enable_physics && ImGui::Button("Physics step")) {
     remaining_step++;

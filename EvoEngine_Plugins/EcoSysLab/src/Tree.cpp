@@ -627,7 +627,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ClearStrandModelMeshRenderer();
   }
 
-  tree_visualizer.Visualize(strand_model);
+  tree_visualizer.Visualize(strand_model, scene->GetDataComponent<GlobalTransform>(GetOwner()));
   if (ImGui::TreeNode("Skeletal graph settings")) {
     skeletal_graph_settings.OnInspect();
   }
@@ -767,7 +767,9 @@ void Tree::BuildStrandModel() {
         tree_model.PeekShootSkeleton().PeekNode(node_handle).info;
   }
   strand_model.CalculateStrandProfileAdjustedTransforms(strand_model_parameters);
-  strand_model.ApplyProfiles(strand_model_parameters);
+  const auto scene = GetScene();
+  const auto owner = GetOwner();
+  strand_model.ApplyProfiles(strand_model_parameters, scene->GetDataComponent<GlobalTransform>(owner));
   const float strand_modeling_time = Times::Now() - time;
   output += "\nBuild Strand Model Used time: " + std::to_string(strand_modeling_time) + "\n";
   EVOENGINE_LOG(output);
