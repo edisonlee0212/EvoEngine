@@ -53,7 +53,7 @@ void main(){
 	
 	vec3 start_position = prev_uniform_particle.position_t.xyz;
 	vec3 end_position = uniform_particle.position_t.xyz;
-
+	
 	bool start_is_tip = false;
 	bool end_is_tip = false;
 
@@ -69,6 +69,10 @@ void main(){
 	}
 	
 	vec4 color = vec4(0, 0, 0, 0);
+
+	if(uniform_particle.is_single_strand_particle == 0){
+		color.a = 0.8f;
+	}
 
 	bool highlight1 = false;
 	bool highlight2 = false;
@@ -101,6 +105,8 @@ void main(){
 		color = vec4(0, 0, 1, 1);
 	}
 
+	start_position *= position_scale.xyz;
+	end_position *= position_scale.xyz;
 
 	vec3 center_position = (start_position + end_position) * 0.5f;
 	

@@ -92,6 +92,9 @@ class EcoSysLabLayer : public ILayer {
     DynamicStrands::SmallSegmentsRenderParameters small_segments_render_parameters{};
     DynamicStrands::SmallSegmentsVisualizationRenderParameters small_segments_visualization_render_parameters{};
     DynamicStrands::FoliageRenderParameters foliage_render_parameters{};
+    DynamicStrands::SegmentPairsRenderParameters segment_pairs_render_parameters{};
+
+
     DynamicStrands::PhysicsParameters physics_parameters{};
     DynamicStrands::VisualizationParameters visualization_parameters{};
     bool visualization_rendering = false;
@@ -197,7 +200,7 @@ class EcoSysLabLayer : public ILayer {
   void LateUpdate() override;
   void OnCreate() override;
   void TreeVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
-  void DynamicStrandsVisualization(const std::shared_ptr<EditorLayer>& editor_layer) const;
+  void DynamicStrandsVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void UpdateFlows(const std::vector<Entity>* tree_entities, const std::shared_ptr<Strands>& branch_strands);
   void ClearGroundFruitAndLeaf();

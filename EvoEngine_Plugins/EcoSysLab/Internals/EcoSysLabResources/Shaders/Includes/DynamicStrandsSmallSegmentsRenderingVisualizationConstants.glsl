@@ -7,6 +7,9 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
 
   vec4 color0;
   vec4 color1;
+
+  vec4 position_scale;
+
   uint color_mode;
   float factor;
   float boundary_layer_radius;

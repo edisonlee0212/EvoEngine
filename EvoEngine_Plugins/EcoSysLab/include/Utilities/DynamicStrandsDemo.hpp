@@ -35,7 +35,8 @@ class DynamicStrandsDemo : public IPrivateComponent {
     BoardCollision,
     TrunkStrength,
     Wind,
-    TreeCollision
+    TreeCollision,
+    TreeBreak,
   };
   enum class DemoStatus { Idle, TreeGrowth, Simulation };
 

@@ -1,7 +1,19 @@
 #extension GL_ARB_shader_draw_parameters : enable
 #extension GL_ARB_shading_language_include : enable
 
-#include "DynamicStrandsSmallSegmentsRenderingConstants.glsl"
+layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
+	vec4 color0;
+	vec4 color1;
+
+	vec4 position_scale;
+
+	int EE_CAMERA_INDEX;
+	uint segment_pairs_size;
+	uint color_mode;
+	int material_index;
+	float multiplier;
+	float factor;
+};
 
 #include "PerFrame.glsl"
 #define EE_PER_GROUP_SET 2
@@ -15,12 +27,12 @@ layout (location = 0) in VS_OUT {
 	vec4 Color;
 } fs_in;
 
-layout (location = 0) out vec4 outNormal;
-layout (location = 1) out vec4 outMaterial;
+layout (location = 0) out vec4 out_color;
+
+
 
 void main(){
-	Instance instance = EE_INSTANCES[EE_INSTANCE_INDEX];
-	MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[instance.material_index];
+	MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[material_index];
 	vec2 tex_coord = fs_in.TexCoord;
 	vec4 albedo = materialProperties.albedo;
 	if (materialProperties.albedo_map_index != -1) 
@@ -37,16 +49,8 @@ void main(){
 	}
 
 	// also store the per-fragment normals into the gbuffer
-	outNormal.rgb = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
-	outNormal.a = EE_INSTANCE_INDEX;
+	normal = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
+	
 
-	int material_index = instance.material_index;
-	if(fs_in.Color.a > 0.7f){
-		material_index = splinter_material_index;
-	}
-	if(fs_in.Color.a > 0.9f){
-		outMaterial = vec4(fs_in.Color.xyz, instance.info_index + 2);
-	}else{
-		outMaterial = vec4(tex_coord.x, tex_coord.y, material_index, instance.info_index);
-	}
+	out_color = vec4(1, 0, 0, 0.5);
 }

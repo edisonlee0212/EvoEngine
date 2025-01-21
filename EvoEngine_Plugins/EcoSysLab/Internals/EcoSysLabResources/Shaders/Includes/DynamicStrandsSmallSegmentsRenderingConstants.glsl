@@ -4,6 +4,8 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
   int EE_CAMERA_INDEX;
   uint uniform_particles_size;
   float thickness_multiplier;
+  vec4 position_scale;
+  int splinter_material_index;
 };
 
 #define SMALL_SEGMENT_SHADOW_MAP_VERTICES_SIZE 8

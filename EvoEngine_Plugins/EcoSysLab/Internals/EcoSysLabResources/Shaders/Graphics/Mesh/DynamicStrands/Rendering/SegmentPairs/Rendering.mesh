@@ -1,0 +1,182 @@
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shader_draw_parameters : enable
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+
+#include "PerFrame.glsl"
+
+#define DYNAMIC_STRANDS_SET 1
+#include "DynamicStrands.glsl"
+#include "Math.glsl"
+
+const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+layout(triangles) out;
+
+#define segment_pair_VERTICES_SIZE 8
+#define segment_pair_TRIANGLE_SIZE 12
+
+layout(max_vertices = segment_pair_VERTICES_SIZE, max_primitives = segment_pair_TRIANGLE_SIZE) out;
+
+const uint segment_pair_VERTEX_ITERATIONS    = ((segment_pair_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint segment_pair_PRIMITIVE_ITERATIONS = ((segment_pair_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+layout(location = 0) out MS_V_OUT {
+	vec3 frag_pos;
+	vec3 normal;
+	vec3 tangent;
+	vec4 color;
+} ms_v_out[];
+
+struct Task{
+	uint	baseID;
+	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
+};
+
+vec3 positions[] = {
+    vec3(-0.5, -0.5, -0.5),
+    vec3(0.5, 0.5, -0.5),
+	vec3(0.5, -0.5, -0.5),
+	vec3(-0.5, 0.5, -0.5),
+
+	vec3(-0.5, -0.5, 0.5),
+	vec3(0.5, -0.5, 0.5),
+	vec3(0.5, 0.5, 0.5),
+	vec3(-0.5, 0.5, 0.5)
+};
+
+uvec3 triangles[] = {
+	uvec3(0, 1, 2),
+	uvec3(1, 0, 3),
+	uvec3(4, 5, 6),
+
+	uvec3(6, 7, 4),
+	uvec3(7, 3, 0),
+	uvec3(0, 4, 7),
+
+	uvec3(6, 2, 1),
+	uvec3(2, 6, 5),
+	uvec3(0, 2, 5),
+
+	uvec3(5, 4, 0),
+	uvec3(3, 6, 1),
+	uvec3(6, 3, 7)
+};
+
+layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
+	vec4 color0;
+	vec4 color1;
+
+	vec4 position_scale;
+
+	int EE_CAMERA_INDEX;
+	uint segment_pairs_size;
+	uint color_mode;
+	int material_index;
+	float multiplier;
+	float factor;
+};
+
+taskPayloadSharedEXT Task ts_in;
+
+// gl_WorkGroupID.x runs from [0 .. parentTask.groupCountX - 1]
+uint segment_pair_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
+uint laneID = gl_LocalInvocationID.x;
+
+
+void main(){
+	if(segment_pair_id >= segment_pairs_size) return;
+
+	SetMeshOutputsEXT(segment_pair_VERTICES_SIZE, segment_pair_TRIANGLE_SIZE);
+	
+	SegmentPair segment_pair = segment_pairs[segment_pair_id];
+	Segment segment0 = segments[segment_pair.segment0_handle];
+	Segment segment1 = segments[segment_pair.segment1_handle];
+
+	vec3 start_position =
+        (segment0.particle0.x + segment0.particle1.x) * 0.5f;
+
+    vec3 end_position =
+        (segment1.particle0.x + segment1.particle1.x) * 0.5f;
+	start_position *= position_scale.xyz;
+	end_position *= position_scale.xyz;
+
+	vec3 center_position = (start_position + end_position) * 0.5f;
+	float center_thickness = (segment0.radius + segment1.radius) * 0.1f * multiplier;
+	
+	vec3 front = normalize(end_position - start_position);
+	vec4 rotation = quatLookAt(front, vec3(front.y, front.z, front.x));
+	mat4 instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, distance(start_position, end_position)));
+	mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * instance_matrix;
+
+	vec4 color = color0;
+	if(color_mode == 0){
+		color = color0;
+	}else if(color_mode == 1){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain.x) / segment_pair.bending_twist_bundle_strain_limit.x, 0.0, 1.0));
+	}else if(color_mode == 2){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain.y) / segment_pair.bending_twist_bundle_strain_limit.y, 0.0, 1.0));
+	}else if(color_mode == 3){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain.z) / segment_pair.bending_twist_bundle_strain_limit.z, 0.0, 1.0));
+	}else if(color_mode == 4){
+		float bending = clamp(
+					abs(segment_pair.bending_twist_bundle_strain.x) / segment_pair.bending_twist_bundle_strain_limit.x, 0.0, 1.0);
+		float twisting = clamp(
+					abs(segment_pair.bending_twist_bundle_strain.y) / segment_pair.bending_twist_bundle_strain_limit.y, 0.0, 1.0);
+		float bundle = clamp(
+					abs(segment_pair.bending_twist_bundle_strain.z) / segment_pair.bending_twist_bundle_strain_limit.z, 0.0, 1.0);
+		color = mix(color0, color1, max(max(bending, twisting), bundle));
+	}else if(color_mode == 5){
+		float connectivity = segment_pair.connectivity_strain / segment_pair.connectivity_strain_limit;
+		color = mix(color0, color1, clamp(connectivity, 0.0, 1.0));
+	}else if(color_mode == 6){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain_limit.x) / factor, 0.0, 1.0));
+	}else if(color_mode == 7){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain_limit.y) / factor, 0.0, 1.0));
+	}else if(color_mode == 8){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.bending_twist_bundle_strain_limit.z) / factor, 0.0, 1.0));
+	}else if(color_mode == 9){
+		color = mix(color0, color1, clamp(
+					abs(segment_pair.connectivity_strain_limit) / factor, 0.0, 1.0));
+	}
+
+
+	if(segment0.particle0.highlighted == 1 || segment0.particle1.highlighted == 1 || segment1.particle0.highlighted == 1 || segment1.particle1.highlighted == 1){
+		color = mix(color, vec4(0, 1, 0, 1), 0.8f);
+	}else if(segment0.particle0.highlighted == 2 || segment0.particle1.highlighted == 2 || segment1.particle0.highlighted == 2 || segment1.particle1.highlighted == 2){
+		color = mix(color, vec4(1, 0, 0, 1), 0.8f);
+	}else if(segment0.particle0.selected == 1 || segment0.particle1.selected == 1 || segment1.particle0.selected == 1 || segment1.particle1.selected == 1){
+		color = mix(color, vec4(1, 1, 1, 1), 0.8f);
+	}
+
+	[[unroll]]
+	for (uint i = 0; i < uint(segment_pair_VERTEX_ITERATIONS); ++i)
+	{
+		uint vertex_index = laneID + i * WORKGROUP_SIZE;
+		if (vertex_index > segment_pair_VERTICES_SIZE) break;
+		vec3 vertex_position = positions[vertex_index];
+
+		ms_v_out[vertex_index].frag_pos = vec4(instance_matrix * vec4(vertex_position, 1.0)).xyz;
+		ms_v_out[vertex_index].normal = vec3(0, 1, 0);
+		ms_v_out[vertex_index].tangent = vec3(0, 0, 1);
+		ms_v_out[vertex_index].color = color;
+		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
+	}
+
+	[[unroll]]
+	for (uint i = 0; i < uint(segment_pair_PRIMITIVE_ITERATIONS); ++i)
+	{
+		uint triangle_index = laneID + i * WORKGROUP_SIZE;
+		if(triangle_index <= segment_pair_TRIANGLE_SIZE){
+			gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
+		}
+	}
+}

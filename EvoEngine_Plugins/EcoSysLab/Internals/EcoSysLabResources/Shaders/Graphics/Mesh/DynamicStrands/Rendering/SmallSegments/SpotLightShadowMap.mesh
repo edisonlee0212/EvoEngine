@@ -49,7 +49,8 @@ void main(){
 	if(segment.group_index != prev_segment.group_index){
 		start_position = end_position - rotate_vec3(segment.q, vec3(0, 0, -1)) * segment.rest_length * 0.2f;
 	}
-	
+	start_position *= position_scale.xyz;
+	end_position *= position_scale.xyz;
 	vec3 center_position = (start_position + end_position) * 0.5f;
 	
 	vec3 front = normalize(end_position - start_position);

@@ -165,12 +165,14 @@ class DynamicStrands {
   struct VisualizationParameters {
     enum class SegmentRenderMode {
       Default,
-      SegmentColor,
+      NodeColor,
       GroupIndex,
       BoundaryDistance,
       Strength,
       ShearStretchStrain,
-      StretchShearLimit
+      StretchShearLimit,
+      SegmentColor,
+      StrandColor,
     };
 
     enum class UniformParticleRenderMode { Default, SegmentColor, SingleParticles };
@@ -185,7 +187,8 @@ class DynamicStrands {
       BendingLimit,
       TwistLimit,
       BundleLimit,
-      ConnectivityLimit
+      ConnectivityLimit,
+      SegmentColor
     };
     bool render_segments = true;
     bool render_segment_pairs = true;
@@ -242,8 +245,8 @@ class DynamicStrands {
     };
     VertexColors vertex_colors = Default;
 
-    float u_multiplier = 2;
-    float v_multiplier = 0.25;
+    float u_multiplier = 1;
+    float v_multiplier = 0.025;
     float degen_triangle_threshold_logairthmic = 5.0f;
     float global_extrusion_distance = 0.002f;
     float break_threshold = 0.01f;
@@ -257,7 +260,7 @@ class DynamicStrands {
     bool cast_shadow = true;
     bool wireframe = false;
     float thickness_multiplier = 0.5f;
-
+    glm::vec3 position_scale = glm::vec3(1.f);
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -270,6 +273,20 @@ class DynamicStrands {
     glm::vec4 segment_color_main = glm::vec4(0.3, 0.15, 0.0, 0.5);
     uint32_t segment_render_mode = 6;
     float segment_boundary_distance_modular = 0.03f;
+    glm::vec3 position_scale = glm::vec3(1.f);
+    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  };
+
+  struct SegmentPairsRenderParameters {
+    bool enabled = false;
+    float thickness_multiplier = 0.5f;
+    uint32_t segment_pair_render_mode = 5;
+    glm::vec3 position_scale = glm::vec3(1.f);
+
+    glm::vec4 segment_pair_color_min = glm::vec4(0, 0, 1, 1);
+    glm::vec4 segment_pair_color_max = glm::vec4(1, 0, 0, 1);
+    glm::vec4 segment_pair_color_main = glm::vec4(0, 1, 1, 0.2);
+    float segment_pair_radius_multiplier = 0.9f;
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -600,6 +617,13 @@ class DynamicStrands {
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;
 
+  uint32_t RenderSegmentPairsToCameraForward(int material_index, const InitializeParameters& initialize_parameters,
+                                             const SegmentPairsRenderParameters& render_parameters,
+
+                                             VkCommandBuffer vk_command_buffer,
+                                             const std::shared_ptr<Camera>& target_camera,
+                                             const RenderLayer::ForwardRenderingView& view) const;
+
   uint32_t RenderSmallSegmentsToPointLightShadowMap(const SmallSegmentsRenderParameters& render_parameters,
                                                     const VkCommandBuffer vk_command_buffer,
                                                     const RenderLayer::PointLightShadowMapView& view) const;
@@ -610,8 +634,8 @@ class DynamicStrands {
                                                           VkCommandBuffer vk_command_buffer,
                                                           const RenderLayer::DirectionalLightShadowMapView& view) const;
   uint32_t RenderSmallSegmentsToCameraDeferred(
-      const Handle& renderer_handle, const SmallSegmentsRenderParameters& render_parameters,
-      VkCommandBuffer vk_command_buffer,
+      const Handle& renderer_handle, int splinter_material_index,
+      const SmallSegmentsRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;
 
@@ -631,6 +655,7 @@ class DynamicStrands {
   static void BuildBranchesRenderingPipelines();
   static void BuildFoliageRenderingPipelines();
   static void BuildSmallSegmentsRenderingPipelines();
+  static void BuildSegmentPairsRenderingPipeline();
   inline static std::shared_ptr<ComputePipeline> branches_uniform_particle_update_pipeline;
   inline static std::shared_ptr<ComputePipeline> branches_tetrahedron_filtering_pipeline{};
   inline static std::shared_ptr<ComputePipeline> branches_triangle_filtering_pipeline{};
@@ -649,6 +674,8 @@ class DynamicStrands {
   inline static std::shared_ptr<GraphicsPipeline> small_segments_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> small_segments_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> small_segments_visualization_render_pipeline{};
+
+  inline static std::shared_ptr<GraphicsPipeline> segment_pairs_visualization_render_pipeline{};
 
  private:
   uint32_t frame_index = 0;

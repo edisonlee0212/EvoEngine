@@ -45,7 +45,8 @@ void main(){
 
 	vec3 start_position = prev_uniform_particle.position_t.xyz;
 	vec3 end_position = uniform_particle.position_t.xyz;
-	
+	start_position *= position_scale.xyz;
+	end_position *= position_scale.xyz;
 	if(segment.group_index != prev_segment.group_index){
 		start_position = end_position - rotate_vec3(segment.q, vec3(0, 0, -1)) * segment.rest_length * 0.2f;
 	}
