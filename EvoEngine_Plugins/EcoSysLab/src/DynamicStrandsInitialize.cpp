@@ -852,7 +852,7 @@ void DynamicStrands::InitializeData(const InitializeParameters& initialize_param
 
   for (size_t i = 0; i < skeleton_nodes.size(); i++) {
     nodes[i].prev_handle = skeleton_nodes[i].GetParentHandle();
-    nodes[i].width_estimator = sqrt(float(max(skeleton_nodes[i].data.strand_count, 1))) * std::max(0.001f, skeleton_nodes[i].data.strand_radius);
+    nodes[i].width_estimator = std::sqrt(float(std::max(skeleton_nodes[i].data.strand_count, 1))) * std::max(0.001f, skeleton_nodes[i].data.strand_radius);
     if (skeleton_nodes[i].data.strand_count == 0) {
       EVOENGINE_LOG("Node " + std::to_string(i) + " has no strands."); 
     }
