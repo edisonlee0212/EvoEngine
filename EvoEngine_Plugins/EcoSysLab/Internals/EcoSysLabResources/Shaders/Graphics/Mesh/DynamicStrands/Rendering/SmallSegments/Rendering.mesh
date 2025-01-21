@@ -70,7 +70,7 @@ void main(){
 	
 	vec4 color = vec4(0, 0, 0, 0);
 
-	if(uniform_particle.is_single_strand_particle == 0){
+	if(uniform_particle.is_bark == 0){
 		color.a = 0.8f;
 	}
 

@@ -331,6 +331,7 @@ void DynamicStrands::InitializeData(const InitializeParameters& initialize_param
     first_uniform_particle.is_single_strand_particle = 1;
     first_uniform_particle.local_extrusion_distance = 0.0f;
     first_uniform_particle.is_on_surface = 0;
+    first_uniform_particle.is_bark = 1;
     first_uniform_particle.override_color = glm::vec4(0.f);
     // First 2 particles within same strand will always have same profile position/polar coordinate.
     first_uniform_particle.profile_position = first_uniform_segment_data.profile_position;
@@ -355,6 +356,7 @@ void DynamicStrands::InitializeData(const InitializeParameters& initialize_param
       uniform_particle.is_single_strand_particle = 1;
       uniform_particle.local_extrusion_distance = 0.0f;
       uniform_particle.is_on_surface = 0;
+      uniform_particle.is_bark = 1;
       uniform_particle.override_color = glm::vec4(0.f);
       uniform_particle.profile_position = uniform_segment_data.profile_position;
       uniform_particle.profile_polar_coordinate = uniform_segment_data.profile_polar_coordinate;

@@ -54,6 +54,12 @@ void main(){
 		// Assign bark flags here
 		if(delaunay_tetrahedron.inside == 1){
 
+			[[unroll]]
+			for (uint j = 0; j < 4; ++j)
+			{
+				uniform_particles[delaunay_tetrahedron.indices[j]].is_bark = 0;
+			}
+
 			// determine which triangles need to be rendered, these must be the initial bark
 			[[unroll]]
 			for (int triangle_index = 0; triangle_index < 4; ++triangle_index)
