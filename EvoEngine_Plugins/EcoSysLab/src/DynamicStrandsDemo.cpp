@@ -293,8 +293,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
   if (ImGui::Button("Sap/Heart Increase")) {
     ResetEnvironment(editor_layer);
-    camera_pose.SetPosition(glm::vec3(-1, 2.2, 1));
-    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
+    camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
     target_factor0 = 1.5f;
     demo_type = DemoType::SapHeart;
     demo_status = DemoStatus::Simulation;
@@ -314,8 +314,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   }
   if (ImGui::Button("Sap/Heart Equal")) {
     ResetEnvironment(editor_layer);
-    camera_pose.SetPosition(glm::vec3(-1, 2.2, 1));
-    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
+    camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
     target_factor0 = 1.5f;
     demo_type = DemoType::SapHeart;
     demo_status = DemoStatus::Simulation;
@@ -335,8 +335,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   }
   if (ImGui::Button("Sap/Heart Decrease")) {
     ResetEnvironment(editor_layer);
-    camera_pose.SetPosition(glm::vec3(-1, 2.2, 1));
-    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
+    camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
     target_factor0 = 1.5f;
     demo_type = DemoType::SapHeart;
     demo_status = DemoStatus::Simulation;

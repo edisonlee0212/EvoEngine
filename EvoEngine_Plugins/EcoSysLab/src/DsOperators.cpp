@@ -642,3 +642,74 @@ bool DsWind::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
   return changed;
 }
+
+DsStopAll::DsStopAll() {
+  enabled = false;
+  if (!segment_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/SegmentStopAll.comp");
+    segment_pipeline = std::make_shared<ComputePipeline>();
+    segment_pipeline->compute_shader = shader;
+    segment_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = segment_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    segment_pipeline->Initialize();
+  }
+
+  if (!leaf_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LeafStopAll.comp");
+    leaf_pipeline = std::make_shared<ComputePipeline>();
+    leaf_pipeline->compute_shader = shader;
+    leaf_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_pipeline->Initialize();
+  }
+}
+
+void DsStopAll::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+                        const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
+  enabled = false;
+  SegmentPushConstant segment_push_constant;
+  segment_push_constant.segment_size = target_dynamic_strands->segments.size();
+  LeafPushConstant leaf_push_constant;
+  leaf_push_constant.leaf_size = target_dynamic_strands->foliage.size();
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    segment_pipeline->Bind(vk_command_buffer);
+    segment_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    segment_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
+
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    leaf_pipeline->Bind(vk_command_buffer);
+    leaf_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    leaf_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+}
