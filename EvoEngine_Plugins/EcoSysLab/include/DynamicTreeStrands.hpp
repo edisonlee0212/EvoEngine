@@ -45,6 +45,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   AssetRef splinter_material_ref;
   AssetRef leaf_material_ref;
   AssetRef snow_material_ref;
+  AssetRef segment_pair_material_ref;
   std::shared_ptr<DsBoxSelection> box_selection_operator;
   std::shared_ptr<DsLineCut> line_cut_operator;
   std::shared_ptr<DsPointCut> point_cut_operator;
@@ -112,5 +113,7 @@ class DynamicTreeStrands : public IPrivateComponent {
       const DynamicStrands::SmallSegmentsRenderParameters& render_parameters,
       const DynamicStrands::SmallSegmentsVisualizationRenderParameters& visualization_render_parameters);
   void RegisterFoliageRenderInstance(const DynamicStrands::FoliageRenderParameters& render_parameters);
+
+  void RegisterSegmentPairRenderInstance(const DynamicStrands::SegmentPairsRenderParameters& render_parameters);
 };
 }  // namespace eco_sys_lab_plugin

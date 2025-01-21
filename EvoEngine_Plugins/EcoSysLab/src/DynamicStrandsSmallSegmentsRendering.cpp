@@ -12,6 +12,9 @@ bool DynamicStrands::SmallSegmentsRenderParameters::OnInspect(const std::shared_
   if (ImGui::Checkbox("Cast Shadow", &cast_shadow)) {
     changed = true;
   }
+  if (ImGui::DragFloat3("Position scale", &position_scale.x, 0.1f, 0.1f, 100.f)) {
+    changed = true;
+  }
   if (ImGui::Checkbox("Wireframe", &wireframe)) {
     changed = true;
   }
@@ -27,9 +30,14 @@ bool DynamicStrands::SmallSegmentsVisualizationRenderParameters::OnInspect(
   if (ImGui::DragFloat("Thickness multiplier", &thickness_multiplier, 0.1f, 0.1f, 10.f)) {
     changed = true;
   }
+
+  if (ImGui::DragFloat3("Position scale", &position_scale.x, 0.1f, 0.1f, 100.f)) {
+    changed = true;
+  }
+
   if (ImGui::Combo("Segment mode",
-                   {"Default", "Segment color", "Group index", "Boundary distance", "Strength", "Shear/Strain strain",
-                    "Shear/Stretch limit"},
+                   {"Default", "Node color", "Group index", "Boundary distance", "Strength", "Shear/Strain strain",
+                    "Shear/Stretch limit", "Segment color", "Strand color"},
                    segment_render_mode))
     changed = true;
   switch (segment_render_mode) {
@@ -74,6 +82,9 @@ struct SmallSegmentsRenderPushConstant {
   } index2;
   uint32_t uniform_particle_size;
   float thickness_multiplier;
+  glm::vec3 position_scale;
+  float padding;
+  int splinter_material_index;
 };
 
 uint32_t DynamicStrands::RenderSmallSegmentsToPointLightShadowMap(
@@ -89,6 +100,7 @@ uint32_t DynamicStrands::RenderSmallSegmentsToPointLightShadowMap(
   push_constant.index2.light_index = view.light_index;
   push_constant.uniform_particle_size = uniform_particles.size();
   push_constant.thickness_multiplier = render_parameters.thickness_multiplier;
+  push_constant.position_scale = render_parameters.position_scale;
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   small_segments_point_light_render_pipeline->Bind(vk_command_buffer);
@@ -119,6 +131,7 @@ uint32_t DynamicStrands::RenderSmallSegmentsToSpotLightShadowMap(
   push_constant.index2.light_index = view.light_index;
   push_constant.uniform_particle_size = uniform_particles.size();
   push_constant.thickness_multiplier = render_parameters.thickness_multiplier;
+  push_constant.position_scale = render_parameters.position_scale;
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   small_segments_spot_light_render_pipeline->Bind(vk_command_buffer);
@@ -149,6 +162,7 @@ uint32_t DynamicStrands::RenderSmallSegmentsToDirectionalLightShadowMap(
   push_constant.index2.light_index = view.light_index;
   push_constant.uniform_particle_size = uniform_particles.size();
   push_constant.thickness_multiplier = render_parameters.thickness_multiplier;
+  push_constant.position_scale = render_parameters.position_scale;
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   small_segments_directional_light_render_pipeline->Bind(vk_command_buffer);
@@ -167,8 +181,8 @@ uint32_t DynamicStrands::RenderSmallSegmentsToDirectionalLightShadowMap(
 }
 
 uint32_t DynamicStrands::RenderSmallSegmentsToCameraDeferred(
-    const Handle& renderer_handle, const SmallSegmentsRenderParameters& render_parameters,
-    const VkCommandBuffer vk_command_buffer,
+    const Handle& renderer_handle, const int splinter_material_index,
+    const SmallSegmentsRenderParameters& render_parameters, const VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view) const {
   if (!render_parameters.enabled) {
@@ -183,6 +197,8 @@ uint32_t DynamicStrands::RenderSmallSegmentsToCameraDeferred(
   push_constant.index2.camera_index = view.camera_index;
   push_constant.uniform_particle_size = uniform_particles.size();
   push_constant.thickness_multiplier = render_parameters.thickness_multiplier;
+  push_constant.splinter_material_index = splinter_material_index;
+  push_constant.position_scale = render_parameters.position_scale;
 
   small_segments_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   small_segments_render_pipeline->states.SetViewportScissor(view.viewport);
@@ -228,6 +244,10 @@ struct SmallSegmentsVisualizationRenderPushConstant {
 
   glm::vec4 min_color;
   glm::vec4 max_color;
+
+  glm::vec3 position_scale;
+  float padding;
+
   uint32_t color_mode;
   float factor;
   float boundary_layer_radius;
@@ -254,6 +274,8 @@ uint32_t DynamicStrands::RenderSmallSegmentsVisualizationToCameraDeferred(
   segment_push_constant.min_color = render_parameters.segment_render_mode == 0 ? render_parameters.segment_color_main
                                                                                : render_parameters.segment_color_min;
   segment_push_constant.max_color = render_parameters.segment_color_max;
+  segment_push_constant.position_scale = render_parameters.position_scale;
+
   switch (static_cast<VisualizationParameters::SegmentRenderMode>(render_parameters.segment_render_mode)) {
     case VisualizationParameters::SegmentRenderMode::BoundaryDistance: {
       segment_push_constant.factor = render_parameters.segment_boundary_distance_modular;
@@ -425,3 +447,4 @@ void DynamicStrands::BuildSmallSegmentsRenderingPipelines() {
   visualization_render.stageFlags = VK_SHADER_STAGE_ALL;
   small_segments_visualization_render_pipeline->Initialize();
 }
+

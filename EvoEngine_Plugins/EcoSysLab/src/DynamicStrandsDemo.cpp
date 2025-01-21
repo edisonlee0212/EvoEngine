@@ -605,6 +605,38 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
+
+  if (ImGui::Button("Tree Break")) {
+    ResetEnvironment(editor_layer);
+    demo_type = DemoType::TreeBreak;
+    demo_status = DemoStatus::TreeGrowth;
+    const auto tree_entity = scene->CreateEntity("Tree");
+    tree_entity_ref = tree_entity;
+    const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+    // tree.
+    scene->SetDataComponent(tree_entity, tree_initial_pose);
+    target_growth_time = 12.f;
+    tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Demo.tree");
+    const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+    tree_dts->enable_physics = false;
+    tree->tree_model.seed = 3;
+    tree->strand_model_parameters.strand_radius_distribution.mean.min_value = 0.f;
+    tree->strand_model_parameters.strand_radius_distribution.mean.max_value = 0.002f;
+    auto& curve_values = tree->strand_model_parameters.strand_radius_distribution.mean.curve.UnsafeGetValues();
+    curve_values.clear();
+    curve_values.emplace_back(-0.1, 0);
+    curve_values.emplace_back(0, 1);
+    curve_values.emplace_back(0.1, 0);
+
+    curve_values.emplace_back(-0.4, 0);
+    curve_values.emplace_back(0.5, 0.5);
+    curve_values.emplace_back(0.1, 0);
+
+    curve_values.emplace_back(-0.1, 0);
+    curve_values.emplace_back(1,  0.5);
+    curve_values.emplace_back(0.1, 0);
+  }
+
   return changed;
 }
 

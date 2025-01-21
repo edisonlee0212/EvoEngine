@@ -181,6 +181,8 @@ void EcoSysLabLayer::RegisterStrandRenderingProcedure() const {
             dts->RegisterSmallSegmentsRenderInstance(dynamic_strands_settings_.small_segments_render_parameters);
           }
           dts->RegisterFoliageRenderInstance(dynamic_strands_settings_.foliage_render_parameters);
+
+          dts->RegisterSegmentPairRenderInstance(dynamic_strands_settings_.segment_pairs_render_parameters);
         }
       });
     }

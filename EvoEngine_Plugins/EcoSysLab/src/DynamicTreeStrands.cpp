@@ -123,16 +123,6 @@ void DynamicTreeStrands::UpdateDynamicStrands() {
 void DynamicTreeStrands::CreateStaticRoot() {
   transform_pivots.emplace_back();
   const auto owner = GetOwner();
-  /*
-  Jobs::RunParallelFor(subdivided_strand_group.PeekStrands().size(), [&](const size_t strand_index) {
-    const auto& strand = subdivided_strand_group.PeekStrands()[strand_index];
-    for (int sub_segment_index = 0; sub_segment_index < strand.PeekStrandSegmentHandles().size(); sub_segment_index++) {
-      auto& segment_data =
-          subdivided_strand_group.RefStrandSegmentData(strand.PeekStrandSegmentHandles()[sub_segment_index]);
-      segment_data.segment_index = sub_segment_index;
-    }
-  });
-  */
   auto& transform_operator = transform_pivots.back();
   std::vector<std::pair<uint32_t, std::pair<bool, bool>>> segment_list(dynamic_strands->strands.size());
   Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
@@ -333,6 +323,15 @@ void DynamicTreeStrands::OnCreate() {
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
     material->material_properties.albedo_color = glm::vec3(1.0f);
+  }
+
+  if (!segment_pair_material_ref.Get<Material>()) {
+    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    segment_pair_material_ref = material;
+    material->material_properties.roughness = 0.5f;
+    material->material_properties.metallic = 0.0f;
+    material->material_properties.albedo_color = glm::vec3(1.0f);
+    material->material_properties.transmission = 0.5f;
   }
   foliage_rendering_instance_handle = Handle();
   small_segments_rendering_instance_handle = Handle();
@@ -1168,7 +1167,8 @@ void DynamicTreeStrands::RegisterSmallSegmentsRenderInstance(
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
   }
-  if (const auto material = splinter_material_ref.Get<Material>()) {
+  const auto bark_material = bark_material_ref.Get<Material>();
+  if (const auto splinter_material = splinter_material_ref.Get<Material>(); bark_material && splinter_material) {
     if (!dynamic_strands->segments.empty()) {
       if (DynamicStrands::small_segments_point_light_render_pipeline &&
           DynamicStrands::small_segments_point_light_render_pipeline->Initialized()) {
@@ -1200,13 +1200,15 @@ void DynamicTreeStrands::RegisterSmallSegmentsRenderInstance(
         const auto dynamic_strands_copy = dynamic_strands;
         const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = small_segments_rendering_instance_handle;
-        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
+        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, bark_material);
+        const auto splinter_material_index = current_render_storage->RegisterMaterial(splinter_material);
         render_layer->DeferredRenderingAllCameras(
             [=](const VkCommandBuffer vk_command_buffer,
                 const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
                 const RenderLayer::DeferredRenderingView& view) {
               return dynamic_strands_copy->RenderSmallSegmentsToCameraDeferred(
-                  renderer_handle, render_parameters, vk_command_buffer, geometry_pass_color_attachment_infos, view);
+                  renderer_handle, splinter_material_index, render_parameters, vk_command_buffer,
+                  geometry_pass_color_attachment_infos, view);
             });
       }
     }
@@ -1309,6 +1311,31 @@ void DynamicTreeStrands::RegisterFoliageRenderInstance(
               return dynamic_strands_copy->RenderFoliageToCameraDeferred(
                   renderer_handle, render_parameters, vk_command_buffer, geometry_pass_color_attachment_infos, view);
             });
+      }
+    }
+  }
+}
+
+void DynamicTreeStrands::RegisterSegmentPairRenderInstance(
+    const DynamicStrands::SegmentPairsRenderParameters& render_parameters) {
+  const auto render_layer = Application::GetLayer<RenderLayer>();
+  if (!render_layer) {
+    EVOENGINE_LOG("Failed to render! RenderLayer not present!")
+    return;
+  }
+  if (const auto material = segment_pair_material_ref.Get<Material>()) {
+    if (!dynamic_strands->segment_pairs.empty()) {
+      if (DynamicStrands::segment_pairs_visualization_render_pipeline &&
+          DynamicStrands::segment_pairs_visualization_render_pipeline->Initialized()) {
+        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto dynamic_strands_copy = dynamic_strands;
+        const auto material_index = current_render_storage->RegisterMaterial(material);
+        render_layer->ForwardRenderingAllCameras([=](const VkCommandBuffer vk_command_buffer,
+                                                     const std::shared_ptr<Camera>& target_camera,
+                                                     const RenderLayer::ForwardRenderingView& view) {
+          return dynamic_strands_copy->RenderSegmentPairsToCameraForward(
+              material_index, initialize_parameters, render_parameters, vk_command_buffer, target_camera, view);
+        });
       }
     }
   }

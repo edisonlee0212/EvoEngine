@@ -140,7 +140,7 @@ void EcoSysLabLayer::GenerateDynamicSkeletonForAllTrees() const {
   }
 }
 
-void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLayer>& editor_layer) const {
+void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = GetScene();
   const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
   const auto for_each_dts_entity =
@@ -192,6 +192,10 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
     if (!tree_visualization_settings_.enable ||
         tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Disabled) ||
         tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Select)) {
+      if (window_focused && (editor_layer->GetKey(GLFW_KEY_SPACE) == Input::KeyActionType::Press)) {
+        dynamic_strands_settings_.enable_physics = !dynamic_strands_settings_.enable_physics;
+      }
+
       static bool is_box_selection_previously = false;
       static bool is_operating_previously = false;
       bool mouse_drag = false;
@@ -514,6 +518,18 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
         ImGui::TreePop();
       }
     }
+
+    ImGui::Checkbox("Render segment pairs", &segment_pairs_render_parameters.enabled);
+    if (segment_pairs_render_parameters.enabled) {
+      if (ImGui::TreeNodeEx("Segment pairs render settings")) {
+        if (ImGui::Button("Rebuild segment pairs pipelines")) {
+          DynamicStrands::BuildSegmentPairsRenderingPipeline();
+        }
+        segment_pairs_render_parameters.OnInspect(editor_layer);
+        ImGui::TreePop();
+      }
+    }
+
     ImGui::TreePop();
   }
 

@@ -57,7 +57,8 @@ void main(){
 	if(group_index != prev_group_index){
 		start_position = end_position - rotate_vec3(segments[uniform_particle.segment_handle].q, vec3(0, 0, -1)) * segments[uniform_particle.segment_handle].rest_length * 0.2f;
 	}
-
+	start_position *= position_scale.xyz;
+	end_position *= position_scale.xyz;
 	vec3 center_position = (start_position + end_position) * 0.5f;
 	vec3 front = normalize(end_position - start_position);
 	vec4 uniform_particle_rotation = quatLookAt(front, vec3(front.y, front.z, front.x));
@@ -85,6 +86,10 @@ void main(){
 				segments[uniform_particle.segment_handle].shear_stretch_strain) / segments[uniform_particle.segment_handle].shear_stretch_strain_limit, 0.0, 1.0));
 	}else if(color_mode == 6){
 		color = mix(color0, color1, clamp(segments[uniform_particle.segment_handle].shear_stretch_strain_limit / factor, 0.0, 1.0));
+	}else if(color_mode == 7){
+		color = segments[uniform_particle.segment_handle].color;
+	}else if(color_mode == 8){
+		color = segments[segments[uniform_particle.segment_handle].strand_handle].color;
 	}
 
 	bool highlight1 = false;

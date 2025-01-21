@@ -123,6 +123,10 @@ void main(){
 		color = mix(color0, color1, clamp(abs(segment.shear_stretch_strain) / segment.shear_stretch_strain_limit, 0.0, 1.0));
 	}else if(color_mode == 6){
 		color = mix(color0, color1, clamp(segment.shear_stretch_strain_limit / factor, 0.0, 1.0));
+	}else if(color_mode == 7){
+		color = segments[segment_id].color;
+	}else if(color_mode == 8){
+		color = segments[segment.strand_handle].color;
 	}
 	
 	float highlight1_ratio = 0.0f;
