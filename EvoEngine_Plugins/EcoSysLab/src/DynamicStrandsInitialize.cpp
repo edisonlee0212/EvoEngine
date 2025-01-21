@@ -4,6 +4,7 @@
 #include "UVMapUtils.hpp"
 #include "glm/gtc/matrix_access.hpp"
 #include "glm/gtx/quaternion.hpp"
+#include "DynamicStrandUtils.hpp"
 
 #include "Shader.hpp"
 
@@ -867,6 +868,32 @@ void DynamicStrands::InitializeData(const InitializeParameters& initialize_param
   } else {
     ComputeDelaunayPerBundle(delaunay_tetrahedrons, initialize_parameters.use_cgal);
   }
+
+  // pre-compute the alpha shape
+  DynamicStrandUtils::AlphaComplex(delaunay_tetrahedrons, [&](GpuDelaunayTetrahedron& tet) {
+    for (size_t i = 0; i < 4; i++) {
+      int index0 = tet.indices[i];
+      GpuUniformParticle& p0 = uniform_particles[index0];
+      for (size_t j = i + 1; j < 4; j++) {
+        int index1 = tet.indices[j];
+        GpuUniformParticle& p1 = uniform_particles[index1];
+
+        int node_handle0 = p0.node_index;
+        int node_handle1 = p1.node_index;
+        float width_estimator = min(nodes[node_handle0].width_estimator, nodes[node_handle1].width_estimator);
+
+        if (glm::distance2(p0.initial_position, p1.initial_position) >= initialize_parameters.alpha * width_estimator) {
+          return false;
+        }
+      }
+    }
+    return true; 
+  });
+
+  if (initialize_parameters.fill_alpha_shape) {
+    DynamicStrandUtils::FillAlphaComplex(delaunay_tetrahedrons);
+  }
+
   for (const auto& i : constraints)
     i->InitializeData(initialize_parameters, strand_model_skeleton, strand_group, *this);
 

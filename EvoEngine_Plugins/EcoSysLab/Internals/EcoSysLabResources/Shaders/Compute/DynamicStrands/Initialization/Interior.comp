@@ -80,8 +80,8 @@ void main(){
 			}			
 		}
 
-		delaunay_tetrahedron.inside = int(InsideAlpha(delaunay_tetrahedron, use_skeleton_nodes != 0));
-		delaunay_tetrahedron.inside_at_init = delaunay_tetrahedrons[delaunay_tetrahedron_index].inside;
+		delaunay_tetrahedron.inside = delaunay_tetrahedron.inside_at_init;//int(InsideAlpha(delaunay_tetrahedron, use_skeleton_nodes != 0));
+		//delaunay_tetrahedron.inside_at_init = delaunay_tetrahedrons[delaunay_tetrahedron_index].inside;
 
 		delaunay_tetrahedrons[delaunay_tetrahedron_index] = delaunay_tetrahedron;
 	}

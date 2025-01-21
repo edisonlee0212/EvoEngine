@@ -89,3 +89,68 @@ bool DynamicStrandUtils::IsValid(const int target_indices[4], int size) {
 
   return true;
 };
+
+void DynamicStrandUtils::AlphaComplex(std::vector<DynamicStrands::GpuDelaunayTetrahedron>& delaunay_triangulation, std::function<bool (DynamicStrands::GpuDelaunayTetrahedron&)> is_inside) {
+  Jobs::RunParallelFor(delaunay_triangulation.size(), [&](const size_t tet_index) {
+    auto& tet = delaunay_triangulation[tet_index];
+    tet.inside_at_init = int(is_inside(tet));
+  });
+}
+
+void DynamicStrandUtils::FillAlphaComplex(
+    std::vector<DynamicStrands::GpuDelaunayTetrahedron>& alpha_complex) {
+  std::vector<bool> visited(alpha_complex.size(), false);
+  for (size_t i = 0; i < alpha_complex.size(); i++) {
+    if (alpha_complex[i].inside_at_init || visited[i])
+      continue;
+
+    // Do a breadth first search until no more outside neighbors are found.
+    // If we hit the convex hull boundary, i.e. an invalid neighbor, we don't do anything.
+    // Else, we mark all found tetrahedrons as inside.
+    bool fill = true;
+    std::vector<int> component;
+    std::queue<size_t> queue;
+    visited[i] = true;
+    component.emplace_back(i);
+    queue.push(i);
+
+    while (!queue.empty()) {
+      const auto current = queue.front();
+      queue.pop();
+      for (size_t j = 0; j < 4; j++) {
+        const auto neighbor = alpha_complex[current].neighbor_tet_ids[j];
+        if (neighbor == -1) {
+          fill = false;
+          continue;
+        }
+        if (alpha_complex[neighbor].inside_at_init && !visited[neighbor]) {
+          visited[neighbor] = true;
+          component.emplace_back(neighbor);
+          queue.push(neighbor);
+        }
+      }
+    }
+
+    if (fill) {
+      Jobs::RunParallelFor(component.size(), [&](const size_t j) {
+        alpha_complex[component[j]].inside_at_init = 1;
+      });
+    }
+  }
+}
+
+void DynamicStrandUtils::FlagBark(
+    std::vector<DynamicStrands::GpuDelaunayTetrahedron>& alpha_complex) {
+  Jobs::RunParallelFor(alpha_complex.size(), [&](const size_t tet_index) {
+    auto& tet = alpha_complex[tet_index];
+    if (!tet.inside_at_init) {
+      return;
+    }
+
+    for (size_t i = 0; i < 4; i++) {
+      if (tet.neighbor_tet_ids[i] == -1 || !alpha_complex[tet.neighbor_tet_ids[i]].inside_at_init) {
+        tet.is_bark[i] = 1;
+      }
+    }
+  });
+}

@@ -101,6 +101,9 @@ struct TetrahedronFilteringPushConstant {
   float degen_triangle_threshold = 0.0f;
   float break_threshold = 0.02f;
   int persistent_damage;
+  int use_group_index;
+  int use_break_threshold;
+  int use_segment_pairs;
 };
 
 struct UniformParticlePredictionPushConstant {
@@ -257,6 +260,9 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
         pow(10.0f, -branches_render_parameters.degen_triangle_threshold_logairthmic);
     filtering_push_constant.break_threshold = branches_render_parameters.break_threshold;
     filtering_push_constant.persistent_damage = branches_render_parameters.persistent_damage ? 1 : 0;
+    filtering_push_constant.use_group_index = branches_render_parameters.use_group_index ? 1 : 0;
+    filtering_push_constant.use_break_threshold = branches_render_parameters.use_break_threshold ? 1 : 0;
+    filtering_push_constant.use_segment_pairs = branches_render_parameters.use_segment_pairs ? 1 : 0;
 
     branches_tetrahedron_filtering_pipeline->Bind(vk_command_buffer);
     branches_tetrahedron_filtering_pipeline->BindDescriptorSet(
@@ -399,6 +405,8 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     if (ImGui::Checkbox("Triangulate per bundle", &triangulate_per_bundle))
       changed = true;
     if (ImGui::DragFloat("Alpha", &alpha, 0.001f, 0.0f, 2.0f, "%.3f"))
+      changed = true;
+    if (ImGui::Checkbox("Fill alpha shape", &fill_alpha_shape))
       changed = true;
 
     ImGui::TreePop();
@@ -968,6 +976,27 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
   Delaunay_CGAL dt;
   dt.insert(points.begin(), points.end());
 
+  // Map cell handles to indices
+  std::unordered_map<Delaunay_CGAL::Cell_handle, int> cell_indices;
+  int index = 0;
+  for (auto cell_it = dt.all_cells_begin(); cell_it != dt.all_cells_end(); ++cell_it) {
+    auto& cell = *cell_it;
+    auto& tetrahedron = dt.tetrahedron(cell_it);
+    int indices[4];
+    for (size_t i = 0; i < 4; i++) {
+      indices[i] = cell.vertex(i)->info();
+    }
+    if (!DynamicStrandUtils::IsValid(indices, uniform_particles.size())) {
+      EVOENGINE_LOG("Tetrahedron is invalid");
+      cell_indices[cell_it] = -1;
+      continue;  // discard this tetrahedron
+    }
+
+    cell_indices[cell_it] = index++;
+  }
+
+  cell_indices[dt.all_cells_end()] = -1;  // invalid index
+
   // TODO: parallel for
   for (auto cell_it = dt.all_cells_begin(); cell_it != dt.all_cells_end(); cell_it++) {
     auto& cell = *cell_it;
@@ -978,11 +1007,6 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
     }
     if (!DynamicStrandUtils::IsValid(indices, uniform_particles.size())) {
       continue;  // discard this tetrahedron
-    }
-
-    // only take tetrahedra that sit between two neighboring planes
-    if (!DynamicStrandUtils::IsBetweenPlanes(indices, uniform_particles)) {
-      continue;
     }
 
     GpuDelaunayTetrahedron gpu_tet;
@@ -1014,29 +1038,24 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
     // fill in neighbor indices
     // TODO: need to figure out how to check if a neighbor is valid
     for (size_t i = 0; i < 4; i++) {
-      auto& neighbor = *cell.neighbor(i);
+      auto& neighbor_it = cell.neighbor(i);
+      int neighbor_index = cell_indices[neighbor_it];
+
+      if (neighbor_index == -1) {
+        continue;
+      }
+
+      // filter invalid neighbors
       int neighbor_indices[4];
 
       for (size_t j = 0; j < 4; j++) {
-        neighbor_indices[j] = neighbor.vertex(j)->info();
-      }
-
-      if (!DynamicStrandUtils::IsValid(neighbor_indices, uniform_particles.size())) {
-        continue;
-      }
-
-      if (!DynamicStrandUtils::IsBetweenPlanes(neighbor_indices, uniform_particles)) {
-        continue;
+        neighbor_indices[j] = neighbor_it->vertex(j)->info();
       }
 
       const auto mismatch_indices = DynamicStrandUtils::CompareIndices(gpu_tet.indices, neighbor_indices);
-      // TODO: according to CGAL documentation, this is guaranteed anyway, so we do not need to match both sides
-      // store it such that the neighboring tetrahedron always consists of different indices
-      // e. g. for the triangle 1 2 4 we store the corresponding neighboring index at position 3
-      // gpu_tet.neighbor_tet_ids[mismatch_indices.first] = neighbor.index();
-      EVOENGINE_ERROR("CGAL does not provide neighbor indices");
+      gpu_tet.neighbor_tet_ids[mismatch_indices.first] = neighbor_index;
+      
     }
-
     tetrahedrons.emplace_back(gpu_tet);
   }
 }

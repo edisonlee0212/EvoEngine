@@ -32,6 +32,11 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	float max_dist_squared;
 	int render_complex;
 	float degen_triangle_threshold;
+	float break_threshold;
+	int persistent_damage;
+	int use_group_index;
+	int use_break_threshold;
+	int use_segment_pairs;
 };
 
 #include "AlphaShape.glsl"

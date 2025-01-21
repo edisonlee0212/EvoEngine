@@ -117,6 +117,7 @@ class DynamicStrands {
     float bifurcation_alpha = 0.09f;
     float max_dist_squared = 0.09f;
     bool use_skeleton_nodes = false;
+    bool fill_alpha_shape = true;
 
     AssetRef foliage_descriptor;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
@@ -224,9 +225,13 @@ class DynamicStrands {
     bool render_complex = false;
     bool use_cgal = false;
     bool wireframe = false;
-    float alpha = 0.00005f;
-    float bifurcation_alpha = 0.00005f;
-    float max_dist_squared = 0.0005f;
+    float alpha = 0.09f;
+    float bifurcation_alpha = 0.09f;
+    float max_dist_squared = 0.09f;
+    // breaking criteria
+    bool use_group_index = true;
+    bool use_break_threshold = true;
+    bool use_segment_pairs = true;
     enum VertexColors {
       Default,
       Normals,

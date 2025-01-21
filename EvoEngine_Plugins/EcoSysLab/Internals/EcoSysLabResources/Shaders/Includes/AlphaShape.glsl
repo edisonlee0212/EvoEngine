@@ -13,6 +13,15 @@ uvec3 tet_edge_indices[] = {
     uvec3(2, 4, 5),
 };
 
+uint lookup[] = {2, 1, 3, 0, 2, 3, 1, 0, 3, 0, 1, 2};
+
+uvec3 triangles[] = {
+    uvec3(0, 1, 2),
+    uvec3(3, 4, 5),
+    uvec3(6, 7, 8),
+    uvec3(9, 10, 11),
+};
+
 void SortFourElements(inout uint a[4]) {
   uint min1, min2, max1, max2;
 
@@ -255,15 +264,6 @@ bool SkeletonStructure(in DelaunayTetrahedron tet, bool skeleton_nodes) {
 bool InsideAlpha(in DelaunayTetrahedron tet, bool skeleton_nodes) {
   return SkeletonStructure(tet, skeleton_nodes);
 }
-
-uint lookup[] = {2, 1, 3, 0, 2, 3, 1, 0, 3, 0, 1, 2};
-
-uvec3 triangles[] = {
-    uvec3(0, 1, 2),
-    uvec3(3, 4, 5),
-    uvec3(6, 7, 8),
-    uvec3(9, 10, 11),
-};
 
 vec3 ComputeTriangleNormal(in vec3 v0, in vec3 v1, in vec3 v2) {
   // Compute the two edges of the triangle

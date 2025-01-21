@@ -19,36 +19,46 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
   if (ImGui::DragFloat("Degenerate triangle threshold 1e-x", &degen_triangle_threshold_logairthmic, 0.01f, 0.0f, 40.0f,
                        "%.6f"))
     changed = true;
+
+  if (ImGui::Checkbox("Use group index", &use_group_index))
+    changed = true;
+  if (ImGui::Checkbox("Use segment pairs", &use_segment_pairs))
+    changed = true; 
+  if (ImGui::Checkbox("Use break threshold", &use_break_threshold))
+    changed = true;
   if (ImGui::DragFloat("Break threshold", &break_threshold, 0.0001f, 0.0f, 1.0f, "%.4f")) {
     changed = true;
   }
 
-  ImGui::Text("Use normal attribute for debugging");
+  if (ImGui::TreeNodeEx("Use normal attribute for debugging")) {
+    if (ImGui::RadioButton("Disabled", (int*)&vertex_colors, Default))
+      changed = true;
+    if (ImGui::RadioButton("Absolute Normals", (int*)&vertex_colors, Normals))
+      changed = true;
+    if (ImGui::RadioButton("Tangents", (int*)&vertex_colors, Tangents))
+      changed = true;
+    if (ImGui::RadioButton("Groups", (int*)&vertex_colors, Groups))
+      changed = true;
+    if (ImGui::RadioButton("Degree", (int*)&vertex_colors, Degree))
+      changed = true;
+    if (ImGui::RadioButton("Bark", (int*)&vertex_colors, Bark))
+      changed = true;
+    if (ImGui::RadioButton("Normal Quaternion", (int*)&vertex_colors, NormalQuaternion))
+      changed = true;
+    if (ImGui::RadioButton("Up", (int*)&vertex_colors, Up))
+      changed = true;
+    if (ImGui::RadioButton("Initial Up", (int*)&vertex_colors, InitUp))
+      changed = true;
+    if (ImGui::RadioButton("Axis", (int*)&vertex_colors, Axis))
+      changed = true;
+    if (ImGui::RadioButton("Initial Axis", (int*)&vertex_colors, InitAxis))
+      changed = true;
+    if (ImGui::RadioButton("Inital Angle", (int*)&vertex_colors, InitAngle))
+      changed = true;
 
-  if (ImGui::RadioButton("Disabled", (int*)&vertex_colors, Default))
-    changed = true;
-  if (ImGui::RadioButton("Absolute Normals", (int*)&vertex_colors, Normals))
-    changed = true;
-  if (ImGui::RadioButton("Tangents", (int*)&vertex_colors, Tangents)) 
-    changed = true;
-  if (ImGui::RadioButton("Groups", (int*)&vertex_colors, Groups))
-    changed = true;
-  if (ImGui::RadioButton("Degree", (int*)&vertex_colors, Degree))
-    changed = true;
-  if (ImGui::RadioButton("Bark", (int*)&vertex_colors, Bark))
-    changed = true;
-  if (ImGui::RadioButton("Normal Quaternion", (int*)&vertex_colors, NormalQuaternion))
-    changed = true;
-  if (ImGui::RadioButton("Up", (int*)&vertex_colors, Up))
-    changed = true;
-  if (ImGui::RadioButton("Initial Up", (int*)&vertex_colors, InitUp))
-    changed = true;
-  if (ImGui::RadioButton("Axis", (int*)&vertex_colors, Axis))
-    changed = true;
-  if (ImGui::RadioButton("Initial Axis", (int*)&vertex_colors, InitAxis))
-    changed = true;
-  if (ImGui::RadioButton("Inital Angle", (int*)&vertex_colors, InitAngle)) 
-    changed = true;
+    ImGui::TreePop();
+  }
+
   if (ImGui::DragFloat("U-coordinate multiplier", &u_multiplier, 1.f, 1.f, 20)) 
     changed = true;
 
