@@ -44,6 +44,12 @@ void main(){
 		if(delaunay_tetrahedron_index >= tetrahedrons_size) break;
 
 		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[delaunay_tetrahedron_index];
+
+		// reset normals
+		[[unroll]]
+		for(uint j = 0; j < 4; j++){
+			uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg = vec4(0.0, 0.0, 0.0, 0.0);
+		}
 		
 		// Find all segment pairs
 		// This is probably very slow, but it is only at initialization, so whatever

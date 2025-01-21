@@ -144,11 +144,6 @@ bool AreNeighbors(uint index0, uint index1)
   UniformParticle p0 = uniform_particles[index0];
   UniformParticle p1 = uniform_particles[index1];
 
-  // first check groups
-  if (segments[p0.segment_handle].group_index != segments[p1.segment_handle].group_index) {
-    return false;
-  }
-
   // generally filter for stuff too far apart
   if (DistSquared(p0.initial_position.xyz, p1.initial_position.xyz) > max_dist_squared) {
     return false;
