@@ -469,7 +469,7 @@ class DynamicStrands {
     int is_single_strand_particle;
     float local_extrusion_distance;
     int is_on_surface;
-    int padding3;
+    int is_bark;
     glm::vec3 initial_position;
     int padding4;
     glm::vec4 normal_q;

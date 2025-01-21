@@ -64,7 +64,7 @@ void main(){
 		// filter rogue tetrahedrons
 		if(render_complex == 0 && delaunay_tetrahedron.render_neighbor[0] == 1 && delaunay_tetrahedron.render_neighbor[1] == 1
 			&& delaunay_tetrahedron.render_neighbor[2] == 1 && delaunay_tetrahedron.render_neighbor[3] == 1){
-			delaunay_tetrahedron.inside = 0;
+			//delaunay_tetrahedron.inside = 0;
 		} else {
 
 			// count how many tetrahedrons are adjacent to each uniform particle
