@@ -50,6 +50,7 @@ void process_velocity(in vec3 p, inout vec3 v, inout vec3 angular_v){
 	vec3 projected_v = rotate_vec3(conjugate(obb_rotation), v);
 
 	if(abs_x > obb_scale.x || abs_y > obb_scale.y || abs_z > obb_scale.z) return;
+	/*
 	float factor_x = obb_scale.x - abs_x;
 	float factor_y = obb_scale.y - abs_y;
 	float factor_z = obb_scale.z - abs_z;
@@ -63,7 +64,8 @@ void process_velocity(in vec3 p, inout vec3 v, inout vec3 angular_v){
 		projected_v.x *= 1.f - velocity_friction;
 		projected_v.y *= 1.f - velocity_friction;
 	}
-	v = rotate_vec3(obb_rotation, projected_v);
+	v = rotate_vec3(obb_rotation, projected_v);*/
+	v *= 1.f - velocity_friction;
 	angular_v *= 1.f - angular_velocity_friction;
 }
 

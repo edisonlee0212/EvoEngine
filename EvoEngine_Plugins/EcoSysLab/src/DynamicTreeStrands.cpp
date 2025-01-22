@@ -288,6 +288,7 @@ void DynamicTreeStrands::OnCreate() {
   drag_operator = std::make_shared<DsDrag>();
   line_cut_operator = std::make_shared<DsLineCut>();
   saw_operator = std::make_shared<DsSaw>();
+  stop_all = std::make_shared<DsStopAll>();
   enable_physics = true;
   if (!bark_material_ref.Get<Material>()) {
     const auto material = ProjectManager::CreateTemporaryAsset<Material>();
@@ -1080,13 +1081,16 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
       if (drag_operator->enabled) {
         drag_operator->Execute(physics_parameters, dynamic_strands);
       }
-
       if (snow->enabled) {
         snow->Execute(physics_parameters, dynamic_strands);
       }
       if (wind->enabled) {
         wind->Execute(physics_parameters, dynamic_strands);
       }
+      if (stop_all->enabled) {
+        stop_all->Execute(physics_parameters, dynamic_strands);
+      }
+
       if (line_cut_operator->enabled) {
         line_cut_operator->Execute(dynamic_strands);
       }
