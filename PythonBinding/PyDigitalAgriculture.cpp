@@ -138,7 +138,7 @@ void sorghum_descriptor_to_mesh(const std::string& sorghum_descriptor_path,
                                 const std::filesystem::path& mesh_output_path) {
   std::shared_ptr<SorghumDescriptor> sorghum_descriptor;
   if (const auto path = std::filesystem::path(sorghum_descriptor_path); path.is_absolute()) {
-    sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+    sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
     sorghum_descriptor->Import(sorghum_descriptor_path);
   } else {
     sorghum_descriptor = std::dynamic_pointer_cast<SorghumDescriptor>(ProjectManager::GetOrCreateAsset(path));
@@ -155,7 +155,7 @@ void sorghum_state_to_mesh(const std::string& sorghum_state_path,
                            const std::filesystem::path& mesh_output_path) {
   std::shared_ptr<SorghumState> sorghum_state;
   if (const auto path = std::filesystem::path(sorghum_state_path); path.is_absolute()) {
-    sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
+    sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
     sorghum_state->Import(sorghum_state_path);
   } else {
     sorghum_state = std::dynamic_pointer_cast<SorghumState>(ProjectManager::GetOrCreateAsset(path));
@@ -174,7 +174,7 @@ void sorghum_descriptor_to_point_cloud(bool use_gpu, const std::string& sorghum_
                                        const std::filesystem::path& point_cloud_output_path) {
   std::shared_ptr<SorghumDescriptor> sorghum_descriptor;
   if (const auto path = std::filesystem::path(sorghum_descriptor_path); path.is_absolute()) {
-    sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+    sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
     sorghum_descriptor->Import(sorghum_descriptor_path);
   } else {
     sorghum_descriptor = std::dynamic_pointer_cast<SorghumDescriptor>(ProjectManager::GetOrCreateAsset(path));
@@ -200,7 +200,7 @@ void sorghum_state_to_point_cloud(bool use_gpu, const std::string& sorghum_state
                                   const std::filesystem::path& point_cloud_output_path) {
   std::shared_ptr<SorghumState> sorghum_state;
   if (const auto path = std::filesystem::path(sorghum_state_path); path.is_absolute()) {
-    sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
+    sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
     sorghum_state->Import(sorghum_state_path);
   } else {
     sorghum_state = std::dynamic_pointer_cast<SorghumState>(ProjectManager::GetOrCreateAsset(path));
@@ -227,7 +227,7 @@ void sorghum_descriptor_to_mesh_and_point_cloud(bool use_gpu, const std::string&
                                                 const std::filesystem::path& point_cloud_output_path) {
   std::shared_ptr<SorghumDescriptor> sorghum_descriptor;
   if (const auto path = std::filesystem::path(sorghum_descriptor_path); path.is_absolute()) {
-    sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+    sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
     sorghum_descriptor->Import(sorghum_descriptor_path);
   } else {
     sorghum_descriptor = std::dynamic_pointer_cast<SorghumDescriptor>(ProjectManager::GetOrCreateAsset(path));
@@ -254,7 +254,7 @@ void sorghum_state_to_mesh_and_point_cloud(bool use_gpu, const std::string& sorg
                                            const std::filesystem::path& point_cloud_output_path) {
   std::shared_ptr<SorghumState> sorghum_state;
   if (const auto path = std::filesystem::path(sorghum_state_path); path.is_absolute()) {
-    sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
+    sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
     sorghum_state->Import(sorghum_state_path);
   } else {
     sorghum_state = std::dynamic_pointer_cast<SorghumState>(ProjectManager::GetOrCreateAsset(path));

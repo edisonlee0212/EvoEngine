@@ -105,15 +105,14 @@ struct RayCastingResult {
 };
 
 std::vector<RayCastingResult> RayCastingSolver(const TextureBaker::Parameters& parameters,
-                                               const CompressedMapUv& compressed_map_uv,
-                                               const CpuRayTracer& ray_tracer, const float thin_scale,
-                                               const float max_ray_casting_distance) {
+                                               const CompressedMapUv& compressed_map_uv, const CpuRayTracer& ray_tracer,
+                                               const float thin_scale, const float max_ray_casting_distance) {
   auto ray_casting_results = std::vector(compressed_map_uv.indices.size(), RayCastingResult());
   Jobs::RunParallelFor(compressed_map_uv.positions.size(), [&](const size_t i) {
     CpuRayTracer::RayDescriptor ray_descriptor{};
     auto& result = ray_casting_results[i];
-    ray_descriptor.flags = parameters.cull_back_face ? CpuRayTracer::TraceFlags::CullBackFace
-                                                     : CpuRayTracer::TraceFlags::Default;
+    ray_descriptor.flags =
+        parameters.cull_back_face ? CpuRayTracer::TraceFlags::CullBackFace : CpuRayTracer::TraceFlags::Default;
     //  Compare and get closest triangle.
     //  Diagram:
     //
@@ -143,8 +142,8 @@ std::vector<RayCastingResult> RayCastingSolver(const TextureBaker::Parameters& p
     if (!hit) {
       ray_descriptor.direction = sample_direction;
       ray_descriptor.t_max = max_ray_casting_distance - thin_scale;
-      ray_descriptor.flags = parameters.cull_back_face ? CpuRayTracer::TraceFlags::CullFrontFace
-                                                       : CpuRayTracer::TraceFlags::Default;
+      ray_descriptor.flags =
+          parameters.cull_back_face ? CpuRayTracer::TraceFlags::CullFrontFace : CpuRayTracer::TraceFlags::Default;
       ray_tracer.Trace(
           ray_descriptor,
           [&](const CpuRayTracer::HitInfo& hit_info) {
@@ -491,7 +490,7 @@ void TextureBaker::Execute(const Parameters& parameters, const std::shared_ptr<M
                               parameters.empty_space_color);
     BakeColor(parameters, compressed_map_uv, ray_casting_result, reference_mesh_vertices, reference_mesh_triangles,
               ref_diffuse_texture, diffuse_color, loading_time, processing_time);
-    const auto target_diffuse_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    const auto target_diffuse_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
     target_diffuse_texture->SetRgbaChannelData(diffuse_color, parameters.texture_resolution);
     target_material->SetAlbedoTexture(target_diffuse_texture);
   }
@@ -500,7 +499,7 @@ void TextureBaker::Execute(const Parameters& parameters, const std::shared_ptr<M
     std::vector normal_color(parameters.texture_resolution.x * parameters.texture_resolution.y, glm::vec3(0.f));
     BakeNormal(parameters, compressed_map_uv, ray_casting_result, reference_mesh_vertices, reference_mesh_triangles,
                ref_normal_texture, normal_color, loading_time, processing_time);
-    const auto target_normal_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    const auto target_normal_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
     target_normal_texture->SetRgbChannelData(normal_color, parameters.texture_resolution);
     target_material->SetNormalTexture(target_normal_texture);
   }
@@ -509,7 +508,7 @@ void TextureBaker::Execute(const Parameters& parameters, const std::shared_ptr<M
     std::vector roughness_color(parameters.texture_resolution.x * parameters.texture_resolution.y, glm::vec3(0.f));
     BakeColor(parameters, compressed_map_uv, ray_casting_result, reference_mesh_vertices, reference_mesh_triangles,
               ref_roughness_texture, roughness_color, loading_time, processing_time);
-    const auto target_roughness_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    const auto target_roughness_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
     target_roughness_texture->SetRgbChannelData(roughness_color, parameters.texture_resolution);
     target_material->SetRoughnessTexture(target_roughness_texture);
   }
@@ -518,7 +517,7 @@ void TextureBaker::Execute(const Parameters& parameters, const std::shared_ptr<M
     std::vector metallic_color(parameters.texture_resolution.x * parameters.texture_resolution.y, glm::vec3(0.f));
     BakeColor(parameters, compressed_map_uv, ray_casting_result, reference_mesh_vertices, reference_mesh_triangles,
               ref_metallic_texture, metallic_color, loading_time, processing_time);
-    const auto target_metallic_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    const auto target_metallic_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
     target_metallic_texture->SetRgbChannelData(metallic_color, parameters.texture_resolution);
     target_material->SetMetallicTexture(target_metallic_texture);
   }
@@ -526,7 +525,7 @@ void TextureBaker::Execute(const Parameters& parameters, const std::shared_ptr<M
     std::vector ao_color(parameters.texture_resolution.x * parameters.texture_resolution.y, glm::vec3(0.f));
     BakeColor(parameters, compressed_map_uv, ray_casting_result, reference_mesh_vertices, reference_mesh_triangles,
               ref_ao_texture, ao_color, loading_time, processing_time);
-    const auto target_ao_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    const auto target_ao_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
     target_ao_texture->SetRgbChannelData(ao_color, parameters.texture_resolution);
     target_material->SetAoTexture(target_ao_texture);
   }

@@ -1,5 +1,6 @@
 #include "Prefab.hpp"
 #include "Application.hpp"
+#include "AssetManager.hpp"
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
 #include "ProjectManager.hpp"
@@ -9,6 +10,7 @@
 #include "TransformGraph.hpp"
 #include "UnknownPrivateComponent.hpp"
 #include "Utilities.hpp"
+
 using namespace evo_engine;
 void Prefab::OnCreate() {
   instance_name = "New Prefab";
@@ -278,11 +280,11 @@ std::shared_ptr<Texture2D> CollectTexture(
     return search->second;
   }
   std::shared_ptr<Texture2D> texture_2d;
-  if (ProjectManager::IsInProjectFolder(full_path)) {
+  if (ProjectManager::IsInAssetsFolder(full_path)) {
     texture_2d = std::dynamic_pointer_cast<Texture2D>(
-        ProjectManager::GetOrCreateAsset(ProjectManager::GetPathRelativeToProject(full_path)));
+        ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(full_path)));
   } else {
-    texture_2d = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    texture_2d = AssetManager::CreateTemporaryAsset<Texture2D>();
     texture_2d->Import(full_path);
   }
   loaded_textures[full_path] = texture_2d;
@@ -292,7 +294,7 @@ auto ReadMaterial(const std::string& directory,
                   std::unordered_map<std::string, std::shared_ptr<Texture2D>>& loaded_textures,
                   std::vector<std::pair<std::shared_ptr<Texture2D>, std::shared_ptr<Texture2D>>>& opacity_maps,
                   const aiMaterial* importer_material) -> std::shared_ptr<Material> {
-  auto target_material = ProjectManager::CreateTemporaryAsset<Material>();
+  auto target_material = AssetManager::CreateTemporaryAsset<Material>();
   if (importer_material) {
     // PBR
     if (importer_material->GetTextureCount(aiTextureType_BASE_COLOR) > 0) {
@@ -464,7 +466,7 @@ std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh) {
     for (int j = 0; j < 3; j++)
       indices.push_back(importer_mesh->mFaces[i].mIndices[j]);
   }
-  auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+  auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   mesh->SetVertices(attributes, vertices, indices);
   return mesh;
 }
@@ -528,7 +530,7 @@ std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
     for (int j = 0; j < 3; j++)
       indices.push_back(importer_mesh->mFaces[i].mIndices[j]);
   }
-  auto skinned_mesh = ProjectManager::CreateTemporaryAsset<SkinnedMesh>();
+  auto skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
 #pragma region Read bones
   std::vector<std::vector<std::pair<int, float>>> vertices_bone_id_weights;
   vertices_bone_id_weights.resize(vertices.size());
@@ -615,7 +617,7 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
     aiMesh* importer_mesh = importer_scene->mMeshes[importer_node->mMeshes[i]];
     if (!importer_mesh)
       continue;
-    auto child_node = ProjectManager::CreateTemporaryAsset<Prefab>();
+    auto child_node = AssetManager::CreateTemporaryAsset<Prefab>();
     child_node->instance_name = std::string(importer_mesh->mName.C_Str());
     const auto search = loaded_materials.find(importer_mesh->mMaterialIndex);
     const bool is_skinned_mesh = importer_mesh->mNumBones != 0xffffffff && importer_mesh->mBones;
@@ -667,7 +669,7 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
   }
 
   for (unsigned i = 0; i < importer_node->mNumChildren; i++) {
-    auto child_node = ProjectManager::CreateTemporaryAsset<Prefab>();
+    auto child_node = AssetManager::CreateTemporaryAsset<Prefab>();
     child_node->instance_name = std::string(importer_node->mChildren[i]->mName.C_Str());
     auto child_assimp_node = std::make_shared<AssimpImportNode>(importer_node->mChildren[i]);
     child_assimp_node->parent_node = assimp_node;
@@ -789,7 +791,7 @@ void Prefab::FromEntity(const Entity& entity) {
 
   const auto children = scene->GetChildren(entity);
   for (auto& i : children) {
-    auto temp = ProjectManager::CreateTemporaryAsset<Prefab>();
+    auto temp = AssetManager::CreateTemporaryAsset<Prefab>();
     temp->instance_name = scene->GetEntityName(i);
     child_prefabs.push_back(temp);
     child_prefabs.back()->FromEntity(i);
@@ -806,7 +808,7 @@ bool Prefab::LoadInternal(const std::filesystem::path& path) {
       std::vector<std::shared_ptr<IAsset>> local_assets;
       for (const auto& i : in_local_assets) {
         Handle handle = i["Handle"].as<uint64_t>();
-        local_assets.push_back(ProjectManager::CreateTemporaryAsset(i["TypeName"].as<std::string>(), handle));
+        local_assets.push_back(AssetManager::CreateTemporaryAssetImpl(i["TypeName"].as<std::string>(), handle));
       }
       int index = 0;
       for (const auto& i : in_local_assets) {
@@ -843,7 +845,7 @@ bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize,
   std::unordered_map<std::string, std::shared_ptr<Bone>> bones_map;
   std::shared_ptr<Animation> animation;
   if (!bones_map.empty() || scene->HasAnimations()) {
-    animation = ProjectManager::CreateTemporaryAsset<Animation>();
+    animation = AssetManager::CreateTemporaryAsset<Animation>();
   }
   std::shared_ptr<AssimpImportNode> root_assimp_node = std::make_shared<AssimpImportNode>(scene->mRootNode);
 
@@ -868,7 +870,7 @@ bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize,
     Jobs::RunParallelFor(color_data.size(), [&](unsigned i) {
       color_data[i].a = alpha_data[i].r;
     });
-    std::shared_ptr<Texture2D> replacement_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    std::shared_ptr<Texture2D> replacement_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
     replacement_texture->SetRgbaChannelData(color_data, albedo_texture->GetResolution(), true);
     pair.second = replacement_texture;
   }
@@ -1362,7 +1364,7 @@ void Prefab::Deserialize(const YAML::Node& in) {
     for (const auto& i : in_local_assets) {
       // First, find the asset in asset registry
       if (const auto type_name = i["TypeName"].as<std::string>(); Serialization::HasSerializableType(type_name)) {
-        auto asset = ProjectManager::CreateTemporaryAsset(type_name, i["Handle"].as<uint64_t>());
+        auto asset = AssetManager::CreateTemporaryAssetImpl(type_name, i["Handle"].as<uint64_t>());
         local_assets.emplace_back(index, asset);
       }
       index++;
@@ -1385,7 +1387,7 @@ void Prefab::Deserialize(const YAML::Node& in) {
 
   if (in["c"]) {
     for (const auto& i : in["c"]) {
-      auto child = ProjectManager::CreateTemporaryAsset<Prefab>();
+      auto child = AssetManager::CreateTemporaryAsset<Prefab>();
       child->handle_ = i["h"].as<uint64_t>();
       child->Deserialize(i);
       child_prefabs.push_back(child);

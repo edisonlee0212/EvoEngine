@@ -259,11 +259,11 @@ template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
 void Tree::FromSkeleton(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& src_skeleton) {
   if (auto td = tree_descriptor_ref.Get<TreeDescriptor>(); !td) {
     EVOENGINE_WARNING("Growing tree without tree descriptor!");
-    td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
+    td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
     tree_descriptor_ref = td;
-    const auto shoot_descriptor = ProjectManager::CreateTemporaryAsset<ShootDescriptor>();
+    const auto shoot_descriptor = AssetManager::CreateTemporaryAsset<ShootDescriptor>();
     td->shoot_descriptor = shoot_descriptor;
-    const auto foliage_descriptor = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+    const auto foliage_descriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
     td->foliage_descriptor = foliage_descriptor;
   }
   tree_model.Initialize(src_skeleton);

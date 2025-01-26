@@ -1,4 +1,5 @@
 #include "SkinnedMeshRenderer.hpp"
+#include "AssetManager.hpp"
 #include "EditorLayer.hpp"
 #include "Resources.hpp"
 using namespace evo_engine;
@@ -94,7 +95,7 @@ bool SkinnedMeshRenderer::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 
       static std::shared_ptr<ParticleInfoList> particle_info_list;
       if (!particle_info_list)
-        particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+        particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
       if (!rag_doll_) {
         debug_rendering_matrices.resize(amt->transform_chain_.size());
         Jobs::RunParallelFor(amt->transform_chain_.size(), [&](unsigned i) {
@@ -116,8 +117,8 @@ bool SkinnedMeshRenderer::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
                                                                 glm::inverse(glm::scale(self_scale));
       }
       particle_info_list->SetParticleInfos(debug_rendering_matrices);
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE"), particle_info_list,
-                                                  ltw.value, debug_render_bones_size);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE"),
+                                                  particle_info_list, ltw.value, debug_render_bones_size);
     }
 
     if (ImGui::Checkbox("RagDoll", &rag_doll_)) {

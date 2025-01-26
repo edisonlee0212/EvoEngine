@@ -81,7 +81,7 @@ void RadialBoundingVolume::GenerateMesh() {
   if (m_layers.empty())
     return;
   for (int tierIndex = 0; tierIndex < m_layerAmount; tierIndex++) {
-    auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+    auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
     std::vector<Vertex> vertices;
     std::vector<unsigned> indices;
 
@@ -229,7 +229,7 @@ void RadialBoundingVolume::FormEntity() {
   for (auto i = 0; i < m_boundMeshes.size(); i++) {
     auto slice = scene->CreateEntity("RBV_" + std::to_string(i));
     auto mmc = scene->GetOrSetPrivateComponent<MeshRenderer>(slice).lock();
-    auto mat = ProjectManager::CreateTemporaryAsset<Material>();
+    auto mat = AssetManager::CreateTemporaryAsset<Material>();
     mmc->material = mat;
     mmc->mesh = m_boundMeshes[i];
     scene->SetParent(slice, rBVEntity, false);

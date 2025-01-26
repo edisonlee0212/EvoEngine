@@ -549,7 +549,7 @@ void BillboardCloud::Join(const JoinSettings& join_settings) {
     billboard_cloud_triangles[2 * cluster_index + 1] = cluster.billboard_triangles[1] + glm::uvec3(cluster_index * 4);
   });
 
-  billboard_cloud_mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+  billboard_cloud_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   billboard_cloud_mesh->SetVertices({false, false, true, false}, billboard_cloud_vertices, billboard_cloud_triangles);
   xatlas::Destroy(atlas);
 }
@@ -896,9 +896,9 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
            glm::uvec2(ao_frame_buffer.width, ao_frame_buffer.height), true);
   }
 
-  billboard_cloud_material = ProjectManager::CreateTemporaryAsset<Material>();
+  billboard_cloud_material = AssetManager::CreateTemporaryAsset<Material>();
 
-  std::shared_ptr<Texture2D> albedo_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  std::shared_ptr<Texture2D> albedo_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   if (rasterize_settings.base_resolution == rasterize_settings.output_albedo_resolution) {
     albedo_texture->SetRgbaChannelData(albedo_frame_buffer.color_buffer,
                                        glm::uvec2(albedo_frame_buffer.width, albedo_frame_buffer.height));
@@ -911,7 +911,7 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
   albedo_texture->UnsafeUploadDataImmediately();
   billboard_cloud_material->SetAlbedoTexture(albedo_texture);
 
-  std::shared_ptr<Texture2D> normal_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  std::shared_ptr<Texture2D> normal_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   if (rasterize_settings.base_resolution == rasterize_settings.output_material_props_resolution) {
     normal_texture->SetRgbChannelData(normal_frame_buffer.color_buffer,
                                       glm::uvec2(normal_frame_buffer.width, normal_frame_buffer.height));
@@ -924,7 +924,7 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
   normal_texture->UnsafeUploadDataImmediately();
   billboard_cloud_material->SetNormalTexture(normal_texture);
 
-  std::shared_ptr<Texture2D> roughness_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  std::shared_ptr<Texture2D> roughness_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   if (rasterize_settings.base_resolution == rasterize_settings.output_material_props_resolution) {
     roughness_texture->SetRedChannelData(roughness_frame_buffer.color_buffer,
                                       glm::uvec2(roughness_frame_buffer.width, roughness_frame_buffer.height));
@@ -937,7 +937,7 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
   roughness_texture->UnsafeUploadDataImmediately();
   billboard_cloud_material->SetRoughnessTexture(roughness_texture);
 
-  std::shared_ptr<Texture2D> metallic_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  std::shared_ptr<Texture2D> metallic_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   if (rasterize_settings.base_resolution == rasterize_settings.output_material_props_resolution) {
     metallic_texture->SetRedChannelData(metallic_frame_buffer.color_buffer,
                                       glm::uvec2(metallic_frame_buffer.width, metallic_frame_buffer.height));
@@ -950,7 +950,7 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
   metallic_texture->UnsafeUploadDataImmediately();
   billboard_cloud_material->SetMetallicTexture(metallic_texture);
 
-  std::shared_ptr<Texture2D> ao_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  std::shared_ptr<Texture2D> ao_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   if (rasterize_settings.base_resolution == rasterize_settings.output_material_props_resolution) {
     ao_texture->SetRedChannelData(ao_frame_buffer.color_buffer,
                                       glm::uvec2(ao_frame_buffer.width, ao_frame_buffer.height));

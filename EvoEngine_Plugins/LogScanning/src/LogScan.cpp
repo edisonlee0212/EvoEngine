@@ -66,11 +66,11 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   static std::shared_ptr<ParticleInfoList> profile_list;
   static std::shared_ptr<ParticleInfoList> profile_points_list;
   if (!joe_scan_list)
-    joe_scan_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    joe_scan_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   if (!profile_list)
-    profile_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    profile_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   if (!profile_points_list)
-    profile_points_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    profile_points_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   if (ImGui::Button("Regularize")) {
     Regularize();
   }
@@ -300,8 +300,8 @@ std::vector<glm::vec2> LogScanProfile::BuildBoundary(const JoeScanConfig& joe_sc
   auto points_max = glm::vec2(-FLT_MAX, -FLT_MAX);
 
   auto centered_points = points;
-  //constexpr auto x_bound = 0.0943f;
-  //constexpr auto y_bound = 0.0689f;
+  // constexpr auto x_bound = 0.0943f;
+  // constexpr auto y_bound = 0.0689f;
   for (const auto& i : points) {
     points_min = glm::min(points_min, i);
     points_max = glm::max(points_max, i);

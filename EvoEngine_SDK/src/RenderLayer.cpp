@@ -1,5 +1,6 @@
 #include "RenderLayer.hpp"
 #include "Application.hpp"
+#include "AssetManager.hpp"
 #include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "GraphicsPipeline.hpp"
@@ -1468,7 +1469,7 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
 
 void RenderLayer::PrepareEnvironmentalBrdfLut() {
   environmental_brdf_lut_.reset();
-  environmental_brdf_lut_ = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  environmental_brdf_lut_ = AssetManager::CreateTemporaryAsset<Texture2D>();
   auto& environmental_brdf_lut_texture_storage = environmental_brdf_lut_->RefTexture2DStorage();
   constexpr auto brdf_lut_resolution = 512;
   {

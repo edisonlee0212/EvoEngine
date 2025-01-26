@@ -102,7 +102,7 @@ bool TriangleIlluminationEstimator::OnInspect(const std::shared_ptr<EditorLayer>
     static Entity previous_referenced_entity;
     static std::shared_ptr<ParticleInfoList> probe_debug_info_list;
     if (!probe_debug_info_list)
-      probe_debug_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+      probe_debug_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
     if (ImGui::Button("Refresh debug info") || previous_referenced_entity != owner) {
       previous_referenced_entity = owner;
       std::vector<ParticleInfo> particle_infos;

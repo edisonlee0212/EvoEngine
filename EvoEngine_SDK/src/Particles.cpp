@@ -1,10 +1,11 @@
 #include "Particles.hpp"
+#include "AssetManager.hpp"
 #include "EditorLayer.hpp"
 
 using namespace evo_engine;
 
 void Particles::OnCreate() {
-  particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   bounding_box = Bound();
   SetEnabled(true);
 }

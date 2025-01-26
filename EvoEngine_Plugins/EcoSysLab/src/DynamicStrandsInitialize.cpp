@@ -869,7 +869,7 @@ void DynamicStrands::InitializeData(const InitializeParameters& initialize_param
   auto initialize_parameters_copy = initialize_parameters;
   auto fd = initialize_parameters_copy.foliage_descriptor.Get<FoliageDescriptor>();
   if (!fd) {
-    fd = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+    fd = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
   }
   const auto& node_list = strand_model_skeleton.PeekSortedNodeList();
   const auto tree_dim = strand_model_skeleton.max - strand_model_skeleton.min;

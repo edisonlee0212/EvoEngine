@@ -60,7 +60,7 @@ std::shared_ptr<Mesh> GenerateMesh(std::vector<glm::uvec3>& triangles, const std
       }
     }
   }
-  const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+  const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   VertexAttributes attributes{};
   mesh->SetVertices(attributes, vertices, triangles);
   return mesh;

@@ -362,7 +362,7 @@ Entity SorghumDescriptor::CreateEntity(const std::string& name) const {
 std::shared_ptr<Texture2D> SorghumDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
-    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources") /
                                                 "Icons/SorghumDescriptor.png"));
   }

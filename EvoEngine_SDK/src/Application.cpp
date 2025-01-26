@@ -109,45 +109,45 @@ void Application::PreUpdateInternal() {
   if (const auto editor_layer = GetLayer<EditorLayer>()) {
     EditorLayer::InitializeImGui();
   }
-  if (application.application_status_ == ApplicationStatus::NoProject)
-    return;
-  TransformGraph::CalculateTransformGraphs(application.active_scene_);
-  for (const auto& i : application.external_pre_update_functions_)
-    i();
-  if (application.application_status_ == ApplicationStatus::Playing ||
-      application.application_status_ == ApplicationStatus::Step) {
-    application.active_scene_->Start();
-  }
-  for (const auto& i : application.layers_) {
-    i->PreUpdate();
-  }
-  if (Times::steps_ == 0) {
-    Times::last_fixed_update_time_ = std::chrono::system_clock::now();
-    Times::steps_ = 1;
-  }
-  const auto last_fixed_update_time = Times::last_fixed_update_time_;
-  std::chrono::duration<double> duration = std::chrono::system_clock::now() - last_fixed_update_time;
-  size_t step = 1;
-  while (duration.count() >= step * Times::time_step_) {
-    for (const auto& i : application.external_fixed_update_functions_)
+  if (application.active_scene_) {
+    TransformGraph::CalculateTransformGraphs(application.active_scene_);
+    for (const auto& i : application.external_pre_update_functions_)
       i();
-    for (const auto& i : application.layers_) {
-      i->FixedUpdate();
-    }
     if (application.application_status_ == ApplicationStatus::Playing ||
         application.application_status_ == ApplicationStatus::Step) {
-      application.active_scene_->FixedUpdate();
+      application.active_scene_->Start();
     }
-    duration = std::chrono::system_clock::now() - last_fixed_update_time;
-    step++;
-    const auto current_time = std::chrono::system_clock::now();
-    const std::chrono::duration<double> fixed_delta_time = current_time - Times::last_fixed_update_time_;
-    Times::fixed_delta_time_ = fixed_delta_time.count();
-    Times::last_fixed_update_time_ = std::chrono::system_clock::now();
-    if (step > 10) {
-      EVOENGINE_WARNING("Fixed update timeout!")
+    for (const auto& i : application.layers_) {
+      i->PreUpdate();
     }
-    break;
+    if (Times::steps_ == 0) {
+      Times::last_fixed_update_time_ = std::chrono::system_clock::now();
+      Times::steps_ = 1;
+    }
+    const auto last_fixed_update_time = Times::last_fixed_update_time_;
+    std::chrono::duration<double> duration = std::chrono::system_clock::now() - last_fixed_update_time;
+    size_t step = 1;
+    while (duration.count() >= step * Times::time_step_) {
+      for (const auto& i : application.external_fixed_update_functions_)
+        i();
+      for (const auto& i : application.layers_) {
+        i->FixedUpdate();
+      }
+      if (application.application_status_ == ApplicationStatus::Playing ||
+          application.application_status_ == ApplicationStatus::Step) {
+        application.active_scene_->FixedUpdate();
+      }
+      duration = std::chrono::system_clock::now() - last_fixed_update_time;
+      step++;
+      const auto current_time = std::chrono::system_clock::now();
+      const std::chrono::duration<double> fixed_delta_time = current_time - Times::last_fixed_update_time_;
+      Times::fixed_delta_time_ = fixed_delta_time.count();
+      Times::last_fixed_update_time_ = std::chrono::system_clock::now();
+      if (step > 10) {
+        EVOENGINE_WARNING("Fixed update timeout!")
+      }
+      break;
+    }
   }
 }
 
@@ -159,17 +159,6 @@ void Application::UpdateInternal() {
   }
   if (application.application_status_ == ApplicationStatus::OnDestroy)
     return;
-  if (application.application_status_ == ApplicationStatus::NoProject) {
-    if (const auto window_layer = GetLayer<WindowLayer>()) {
-      if (ProjectManager::StartupGui()) {
-        window_layer->ResizeWindow(application.application_info_.default_window_size.x,
-                                   application.application_info_.default_window_size.y);
-        application.application_status_ = ApplicationStatus::NotPlaying;
-      }
-    }
-    return;
-  }
-  
   const auto render_layer = GetLayer<RenderLayer>();
   if (const auto editor_layer = GetLayer<EditorLayer>()) {
     if (ImGui::BeginMainMenuBar()) {
@@ -185,31 +174,34 @@ void Application::UpdateInternal() {
       ImGui::EndMainMenuBar();
     }
     EditorLayer::OnGui(editor_layer);
-    for (const auto& layer : application.layers_) {
-      if (layer->enable_inspection) {
-        ImGui::Begin(layer->layer_name_.c_str());
-        layer->OnInspect(editor_layer);
-        ImGui::End();
+    if (application.active_scene_) {
+      for (const auto& layer : application.layers_) {
+        if (layer->enable_inspection) {
+          ImGui::Begin(layer->layer_name_.c_str());
+          layer->OnInspect(editor_layer);
+          ImGui::End();
+        }
       }
     }
   }
   application.application_execution_status_ = ApplicationExecutionStatus::Update;
+  if (application.active_scene_) {
+    for (const auto& i : application.layers_) {
+      i->Update();
+    }
 
-  for (auto& i : application.layers_) {
-    i->Update();
-  }
+    if (application.application_status_ == ApplicationStatus::Playing ||
+        application.application_status_ == ApplicationStatus::Step) {
+      application.active_scene_->Update();
+    }
 
-  if (application.application_status_ == ApplicationStatus::Playing ||
-      application.application_status_ == ApplicationStatus::Step) {
-    application.active_scene_->Update();
-  }
-
-  for (const auto& i : application.external_update_functions_)
-    i();
-  if (render_layer) {
-    render_layer->PrepareForRendering();
-    render_layer->ClearAllEditorCameras();
-    render_layer->ClearAllCameras();
+    for (const auto& i : application.external_update_functions_)
+      i();
+    if (render_layer) {
+      render_layer->PrepareForRendering();
+      render_layer->ClearAllEditorCameras();
+      render_layer->ClearAllCameras();
+    }
   }
 }
 
@@ -224,7 +216,7 @@ void Application::LateUpdateInternal() {
   const auto render_layer = GetLayer<RenderLayer>();
   const auto editor_layer = GetLayer<EditorLayer>();
   const auto window_layer = GetLayer<WindowLayer>();
-  if (application.application_status_ != ApplicationStatus::NoProject) {
+  if (application.active_scene_) {
     application.application_execution_status_ = ApplicationExecutionStatus::LateUpdate;
 
     for (auto i = application.layers_.rbegin(); i != application.layers_.rend(); ++i) {
@@ -246,11 +238,12 @@ void Application::LateUpdateInternal() {
     window_layer->Render();
   }
   if (render_layer) {
-    
     Platform::LateUpdate();
   }
   if (application.application_status_ == ApplicationStatus::Step)
     application.application_status_ = ApplicationStatus::Pause;
+
+  ProjectManager::LateUpdate();
 }
 
 const ApplicationInfo& Application::GetApplicationInfo() {
@@ -298,6 +291,8 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   Jobs::Initialize(default_thread_size - 2);
   Entities::Initialize();
   TransformGraph::Initialize();
+  AssetManager::Initialize();
+  FileManager::Initialize();
   ProjectManager::Initialize();
   if (render_layer) {
     Platform::Initialize();
@@ -306,25 +301,17 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   for (const auto& layer : application.layers_) {
     layer->OnCreate();
   }
-
   if (!application.application_info_.project_path.empty()) {
     ProjectManager::GetOrCreateProject(application.application_info_.project_path);
-    if (ProjectManager::GetInstance().project_folder_) {
-      if (window_layer) {
-        window_layer->ResizeWindow(application.application_info_.default_window_size.x,
-                                   application.application_info_.default_window_size.y);
-      }
-      application.application_status_ = ApplicationStatus::NotPlaying;
-    }
-  } else {
-    application.application_status_ = ApplicationStatus::NoProject;
-    if (window_layer) {
-      window_layer->ResizeWindow(800, 600);
-    }
   }
+  if (window_layer) {
+    window_layer->ResizeWindow(application.application_info_.default_window_size.x,
+                               application.application_info_.default_window_size.y);
+  }
+  application.application_status_ = ApplicationStatus::NotPlaying;
 }
 
-void Application::Start(bool autoplay) {
+void Application::Start(const bool autoplay) {
   Times::start_time_ = std::chrono::system_clock::now();
   Times::steps_ = Times::frames_ = 0;
   if (const auto editor_layer = GetLayer<EditorLayer>(); !editor_layer && autoplay)
@@ -360,6 +347,7 @@ void Application::Terminate() {
   application.layers_.clear();
   Jobs::OnDestroy();
   ProjectManager::OnDestroy();
+  FileManager::OnDestroy();
   Resources::OnDestroy();
   application.active_scene_.reset();
   TextureStorage::OnDestroy();
@@ -391,14 +379,13 @@ void Application::Attach(const std::shared_ptr<Scene>& scene) {
 
 void Application::Play() {
   auto& application = GetInstance();
-  if (application.application_status_ == ApplicationStatus::NoProject ||
-      application.application_status_ == ApplicationStatus::OnDestroy)
+  if (!application.active_scene_ || application.application_status_ == ApplicationStatus::OnDestroy)
     return;
   if (application.application_status_ != ApplicationStatus::Pause &&
       application.application_status_ != ApplicationStatus::NotPlaying)
     return;
   if (application.application_status_ == ApplicationStatus::NotPlaying) {
-    const auto copied_scene = ProjectManager::CreateTemporaryAsset<Scene>();
+    const auto copied_scene = AssetManager::CreateTemporaryAsset<Scene>();
     Scene::Clone(ProjectManager::GetStartScene().lock(), copied_scene);
     Attach(copied_scene);
   }
@@ -406,8 +393,7 @@ void Application::Play() {
 }
 void Application::Stop() {
   auto& application = GetInstance();
-  if (application.application_status_ == ApplicationStatus::NoProject ||
-      application.application_status_ == ApplicationStatus::OnDestroy)
+  if (!application.active_scene_ || application.application_status_ == ApplicationStatus::OnDestroy)
     return;
   if (application.application_status_ == ApplicationStatus::NotPlaying)
     return;
@@ -416,8 +402,7 @@ void Application::Stop() {
 }
 void Application::Pause() {
   auto& application = GetInstance();
-  if (application.application_status_ == ApplicationStatus::NoProject ||
-      application.application_status_ == ApplicationStatus::OnDestroy)
+  if (!application.active_scene_ || application.application_status_ == ApplicationStatus::OnDestroy)
     return;
   if (application.application_status_ != ApplicationStatus::Playing)
     return;
@@ -430,7 +415,7 @@ void Application::Step() {
       application.application_status_ != ApplicationStatus::NotPlaying)
     return;
   if (application.application_status_ == ApplicationStatus::NotPlaying) {
-    const auto copied_scene = ProjectManager::CreateTemporaryAsset<Scene>();
+    const auto copied_scene = AssetManager::CreateTemporaryAsset<Scene>();
     Scene::Clone(ProjectManager::GetStartScene().lock(), copied_scene);
     Attach(copied_scene);
   }

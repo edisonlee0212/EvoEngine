@@ -3,6 +3,8 @@
 //
 
 #include "AssetRef.hpp"
+
+#include "AssetManager.hpp"
 #include "ProjectManager.hpp"
 
 using namespace evo_engine;
@@ -13,7 +15,7 @@ bool AssetRef::Update() {
   }
 
   if (!value_) {
-    if (const auto ptr = ProjectManager::GetAsset(asset_handle_)) {
+    if (const auto ptr = AssetManager::GetAssetImpl(asset_handle_)) {
       value_ = ptr;
       asset_type_name_ = ptr->GetTypeName();
       return true;

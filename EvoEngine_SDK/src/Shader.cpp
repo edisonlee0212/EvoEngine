@@ -1,5 +1,5 @@
 #include "Shader.hpp"
-
+#include "AssetManager.hpp"
 #include "Console.hpp"
 #include "Platform.hpp"
 #include "ProjectManager.hpp"
@@ -354,21 +354,21 @@ ShaderType Shader::GetShaderType() const {
 
 std::shared_ptr<Shader> Shader::CreateTemporary(const ShaderType target_shader_type,
                                                 const std::string& target_shader_code) {
-  const auto ret_val = ProjectManager::CreateTemporaryAsset<Shader>();
+  const auto ret_val = AssetManager::CreateTemporaryAsset<Shader>();
   ret_val->TryCompile(target_shader_type, target_shader_code);
   return ret_val;
 }
 
 std::shared_ptr<Shader> Shader::CreateTemporary(const ShaderType target_shader_type, const std::string& header,
                                                 const std::filesystem::path& path) {
-  const auto ret_val = ProjectManager::CreateTemporaryAsset<Shader>();
+  const auto ret_val = AssetManager::CreateTemporaryAsset<Shader>();
   ret_val->TryCompile(target_shader_type, header, path);
   return ret_val;
 }
 
 std::shared_ptr<Shader> Shader::CreateTemporary(const ShaderType target_shader_type,
                                                 const std::filesystem::path& path) {
-  const auto ret_val = ProjectManager::CreateTemporaryAsset<Shader>();
+  const auto ret_val = AssetManager::CreateTemporaryAsset<Shader>();
   ret_val->TryCompile(target_shader_type, path);
   return ret_val;
 }

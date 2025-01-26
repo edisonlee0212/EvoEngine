@@ -315,7 +315,7 @@ class EditorLayer : public ILayer {
   std::map<size_t, std::function<bool(Entity entity, IDataComponent* data, bool is_root)>>
       component_data_inspector_map_;
 
-  std::vector<std::weak_ptr<FileRecord>> asset_record_bus_;
+  std::vector<std::weak_ptr<File>> asset_record_bus_;
   std::map<std::string, std::vector<AssetRef>> asset_ref_bus_;
   std::map<std::string, std::vector<PrivateComponentRef>> private_component_ref_bus_;
   std::map<std::string, std::vector<EntityRef>> entity_ref_bus_;

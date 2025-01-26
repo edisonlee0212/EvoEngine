@@ -649,25 +649,25 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
   static std::vector<float> predictedBranchWidths;
 
   if (!allocated_point_info_list)
-    allocated_point_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    allocated_point_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   if (!scattered_point_info_list)
-    scattered_point_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    scattered_point_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   if (!scattered_point_connection_info_list)
-    scattered_point_connection_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    scattered_point_connection_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
 
   if (!candidate_branch_connection_info_list)
-    candidate_branch_connection_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    candidate_branch_connection_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   if (!reversed_candidate_branch_connection_info_list)
-    reversed_candidate_branch_connection_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    reversed_candidate_branch_connection_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   if (!filtered_branch_connection_info_list)
-    filtered_branch_connection_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    filtered_branch_connection_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   if (!selected_branch_connection_info_list)
-    selected_branch_connection_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    selected_branch_connection_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
 
   if (!scatter_point_to_branch_connection_info_list)
-    scatter_point_to_branch_connection_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    scatter_point_to_branch_connection_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   if (!selected_branch_info_list)
-    selected_branch_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    selected_branch_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
 
   static std::vector<ParticleInfo> allocatedPointMatrices;
   static std::vector<ParticleInfo> scatterPointMatrices;
@@ -1065,7 +1065,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(allocatedPointInfoEntity).lock();
     particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
     particles->particle_info_list = allocated_point_info_list;
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
     material->material_properties.albedo_color = allocated_point_color;
   }
@@ -1075,7 +1075,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(scatterPointInfoEntity).lock();
     particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
     particles->particle_info_list = scattered_point_info_list;
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
     material->material_properties.albedo_color = scatter_point_color;
   }
@@ -1086,7 +1086,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(scatteredPointConnectionInfoEntity).lock();
     particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
     particles->particle_info_list = scattered_point_connection_info_list;
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
     material->material_properties.albedo_color = scattered_point_connection_color;
   }
@@ -1097,7 +1097,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(candidateBranchConnectionInfoEntity).lock();
     particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
     particles->particle_info_list = candidate_branch_connection_info_list;
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
     material->material_properties.albedo_color = candidate_branch_connection_color;
   }
@@ -1110,7 +1110,7 @@ void TreeStructor::FormInfoEntities() const {
         scene->GetOrSetPrivateComponent<Particles>(reversedCandidateBranchConnectionInfoEntity).lock();
     particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
     particles->particle_info_list = reversed_candidate_branch_connection_info_list;
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
     material->material_properties.albedo_color = reversed_candidate_branch_connection_color;
   }
@@ -1121,7 +1121,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(filteredBranchConnectionInfoEntity).lock();
     particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
     particles->particle_info_list = filtered_branch_connection_info_list;
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
     material->material_properties.albedo_color = filtered_branch_connection_color;
   }
@@ -1131,7 +1131,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(branchConnectionInfoEntity).lock();
     particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
     particles->particle_info_list = selected_branch_connection_info_list;
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
     material->material_properties.albedo_color = selected_branch_connection_color;
   }
@@ -1142,7 +1142,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(scatterPointToBranchConnection).lock();
     particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
     particles->particle_info_list = scatter_point_to_branch_connection_info_list;
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
     material->material_properties.albedo_color = scatter_point_to_branch_connection_color;
   }
@@ -1152,7 +1152,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(predictedBranchConnectionInfoEntity).lock();
     particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
     particles->particle_info_list = selected_branch_info_list;
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
     material->material_properties.albedo_color = selected_branch_color;
   }
@@ -2105,7 +2105,7 @@ std::vector<std::shared_ptr<Mesh>> TreeStructor::GenerateForestBranchMeshes(
     Jobs::RunParallelFor(vertices.size(), [&](unsigned j) {
       vertices[j].position += skeleton.data.root_position;
     });
-    auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+    auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
     VertexAttributes attributes{};
     attributes.tex_coord = true;
     mesh->SetVertices(attributes, vertices, indices);
@@ -2127,7 +2127,7 @@ std::vector<std::shared_ptr<Mesh>> TreeStructor::GenerateFoliageMeshes() {
       size_t offset = 0;
       auto foliageDescriptor = treeDescriptor->foliage_descriptor.Get<FoliageDescriptor>();
       if (!foliageDescriptor)
-        foliageDescriptor = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+        foliageDescriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
       const auto& nodeList = skeleton.PeekSortedNodeList();
       for (const auto& internodeHandle : nodeList) {
         const auto& internode = skeleton.PeekNode(internodeHandle);
@@ -2175,7 +2175,7 @@ std::vector<std::shared_ptr<Mesh>> TreeStructor::GenerateFoliageMeshes() {
     Jobs::RunParallelFor(vertices.size(), [&](unsigned j) {
       vertices[j].position += skeleton.data.root_position;
     });
-    auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+    auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
     VertexAttributes attributes{};
     attributes.tex_coord = true;
     mesh->SetVertices(attributes, vertices, indices);

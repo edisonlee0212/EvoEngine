@@ -269,7 +269,7 @@ void Camera::OnCreate() {
 
   g_buffer_descriptor_set_ = std::make_shared<DescriptorSet>(g_buffer_layout);
 
-  post_processing_stack_ref = ProjectManager::CreateTemporaryAsset<PostProcessingStack>();
+  post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
   UpdateGBuffer();
 }
 

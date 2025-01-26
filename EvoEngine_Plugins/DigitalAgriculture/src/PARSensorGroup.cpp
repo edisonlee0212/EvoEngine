@@ -68,8 +68,8 @@ bool PARSensorGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     static std::shared_ptr<ParticleInfoList> ray_particle_info_list;
     static std::shared_ptr<ParticleInfoList> point_particle_info_list;
     if (!ray_particle_info_list) {
-      ray_particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-      point_particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+      ray_particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+      point_particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
     }
 
     static glm::vec4 color = {0.0f, 1.0f, 0.0f, 0.5f};

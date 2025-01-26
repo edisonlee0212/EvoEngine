@@ -42,7 +42,7 @@ float BarkDescriptor::GetValue(const float x_factor, const float distance_to_roo
 std::shared_ptr<Texture2D> BarkDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
-    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(
         std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/BarkDescriptor.png"));
   }

@@ -76,7 +76,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::Button("Initialize Log")) {
     auto branch_shape = m_branch_shape.Get<BarkDescriptor>();
     if (!branch_shape) {
-      branch_shape = ProjectManager::CreateTemporaryAsset<BarkDescriptor>();
+      branch_shape = AssetManager::CreateTemporaryAsset<BarkDescriptor>();
       m_branch_shape = branch_shape;
       branch_shape->bark_depth = branch_shape->base_depth = 0.1f;
     }
@@ -171,8 +171,10 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           }
           ImGui::Text(face_grading.c_str());
           ImGui::Text(("Clear Cuttings Count: " + std::to_string(face.m_clear_cuttings.size())).c_str());
-          ImGui::Text(("Clear Cuttings Min Length: " + std::to_string(face.m_clear_cutting_min_length_in_meters)).c_str());
-          ImGui::Text(("Clear Cuttings Min Proportion: " + std::to_string(face.m_clear_cutting_min_proportion)).c_str());
+          ImGui::Text(
+              ("Clear Cuttings Min Length: " + std::to_string(face.m_clear_cutting_min_length_in_meters)).c_str());
+          ImGui::Text(
+              ("Clear Cuttings Min Proportion: " + std::to_string(face.m_clear_cutting_min_proportion)).c_str());
           ImGui::TreePop();
         }
       }
@@ -213,7 +215,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           const auto scene = GetScene();
           GlobalTransform camera_ltw;
           camera_ltw.value = glm::translate(editor_layer->GetSceneCameraPosition()) *
-                            glm::mat4_cast(editor_layer->GetSceneCameraRotation());
+                             glm::mat4_cast(editor_layer->GetSceneCameraRotation());
           for (const auto& position : mouse_positions) {
             const Ray camera_ray = editor_layer->GetSceneCamera()->ScreenPointToRay(camera_ltw, position);
             float height, angle;
@@ -252,14 +254,14 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     // gizmoSettings);
     if (m_surface1)
       editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), m_surface1,
-                                                 transform.value, 1, gizmo_settings);
+                                                  transform.value, 1, gizmo_settings);
     x_left_offset -= circle_length / 4.0f + 0.2f;
     transform.SetPosition({x_left_offset, 0, 0});
     // if (m_tempFlatMesh2) editorLayer->DrawGizmoMesh(m_tempFlatMesh2, glm::vec4(1.0f), transform.value, 1.f,
     // gizmoSettings);
     if (m_surface2)
       editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), m_surface2,
-                                                 transform.value, 1.f, gizmo_settings);
+                                                  transform.value, 1.f, gizmo_settings);
 
     float x_right_offset = avg_distance * 3.f;
     transform.SetPosition({x_right_offset, 0, 0});
@@ -267,7 +269,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     // gizmoSettings);
     if (m_surface3)
       editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), m_surface3,
-                                                 transform.value, 1.f, gizmo_settings);
+                                                  transform.value, 1.f, gizmo_settings);
 
     x_right_offset += circle_length / 4.0f + 0.2f;
     transform.SetPosition({x_right_offset, 0, 0});
@@ -275,7 +277,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     // gizmoSettings);
     if (m_surface4)
       editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), m_surface4,
-                                                 transform.value, 1.f, gizmo_settings);
+                                                  transform.value, 1.f, gizmo_settings);
   }
 
   return changed;
@@ -304,8 +306,8 @@ void LogGrader::InitializeLogRandomly(const ProceduralLogParameters& procedural_
   float theta = 0.0f;
   float r = 0.0f;
   if (procedural_log_parameters.m_mode == 0) {
-    theta =
-        2.f * glm::atan(LogWood::InchesToMeters(procedural_log_parameters.m_span_in_inches) / (m_log_wood.m_length / 2.0f));
+    theta = 2.f * glm::atan(LogWood::InchesToMeters(procedural_log_parameters.m_span_in_inches) /
+                            (m_log_wood.m_length / 2.0f));
     r = m_log_wood.m_length / 2.0f / glm::sin(theta);
   }
   for (int intersection_index = 0; intersection_index < m_log_wood.m_intersections.size(); intersection_index++) {
@@ -317,19 +319,20 @@ void LogGrader::InitializeLogRandomly(const ProceduralLogParameters& procedural_
     if (procedural_log_parameters.m_span_in_inches != 0.f) {
       if (procedural_log_parameters.m_mode == 0) {
         const glm::vec2 sweep_direction = glm::vec2(glm::cos(glm::radians(procedural_log_parameters.m_angle)),
-                                                   glm::sin(glm::radians(procedural_log_parameters.m_angle)));
+                                                    glm::sin(glm::radians(procedural_log_parameters.m_angle)));
         const float height = glm::abs(0.5f - a) * m_log_wood.m_length;
         const float actual_span = glm::sqrt(r * r - height * height) - glm::cos(theta) * r;
         const auto center = sweep_direction * actual_span;
         intersection.m_center = {center.x, center.y};
       } else if (a > procedural_log_parameters.m_crook_ratio) {
         const glm::vec2 crook_direction = glm::vec2(glm::cos(glm::radians(procedural_log_parameters.m_angle)),
-                                                   glm::sin(glm::radians(procedural_log_parameters.m_angle)));
-        const float actual_a = (a - procedural_log_parameters.m_crook_ratio) / (1.f - procedural_log_parameters.m_crook_ratio);
+                                                    glm::sin(glm::radians(procedural_log_parameters.m_angle)));
+        const float actual_a =
+            (a - procedural_log_parameters.m_crook_ratio) / (1.f - procedural_log_parameters.m_crook_ratio);
         const auto center =
             crook_direction * actual_a * LogWood::InchesToMeters(procedural_log_parameters.m_span_in_inches);
         intersection.m_center = {center.x, center.y};
-            ;
+        ;
       }
     }
     intersection.m_boundary.resize(360);
@@ -367,7 +370,7 @@ void LogGrader::GenerateCylinderMesh(const std::shared_ptr<Mesh>& mesh,
       const auto boundary_point = m_log_wood.GetSurfacePoint(y, x);
       archetype.position = glm::vec3(boundary_point.v0, y, boundary_point.v1);
       const auto color = m_log_wood.GetColor(y, x);
-      archetype.color = {color.v0, color.v1, color.v2, color.v3}; 
+      archetype.color = {color.v0, color.v1, color.v2, color.v3};
       archetype.tex_coord = {x, y};
       vertices[y_index * 360 + x_index] = archetype;
     }
@@ -496,19 +499,19 @@ void LogGrader::GenerateSurface(const std::shared_ptr<ParticleInfoList>& surface
 }
 
 void LogGrader::OnCreate() {
-  m_tempCylinderMesh = ProjectManager::CreateTemporaryAsset<Mesh>();
-  m_tempFlatMesh1 = ProjectManager::CreateTemporaryAsset<Mesh>();
-  m_tempFlatMesh2 = ProjectManager::CreateTemporaryAsset<Mesh>();
-  m_tempFlatMesh3 = ProjectManager::CreateTemporaryAsset<Mesh>();
-  m_tempFlatMesh4 = ProjectManager::CreateTemporaryAsset<Mesh>();
-  m_surface1 = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  m_surface2 = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  m_surface3 = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  m_surface4 = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  m_tempCylinderMesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  m_tempFlatMesh1 = AssetManager::CreateTemporaryAsset<Mesh>();
+  m_tempFlatMesh2 = AssetManager::CreateTemporaryAsset<Mesh>();
+  m_tempFlatMesh3 = AssetManager::CreateTemporaryAsset<Mesh>();
+  m_tempFlatMesh4 = AssetManager::CreateTemporaryAsset<Mesh>();
+  m_surface1 = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  m_surface2 = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  m_surface3 = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  m_surface4 = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
 
   auto branch_shape = m_branch_shape.Get<BarkDescriptor>();
   if (!branch_shape) {
-    branch_shape = ProjectManager::CreateTemporaryAsset<BarkDescriptor>();
+    branch_shape = AssetManager::CreateTemporaryAsset<BarkDescriptor>();
     m_branch_shape = branch_shape;
     branch_shape->bark_depth = branch_shape->base_depth = 0.1f;
   }
@@ -523,11 +526,12 @@ void LogGrader::InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh
   ClearMeshRenderer();
   const auto scene = GetScene();
   const auto self = GetOwner();
-  if (const auto cylinder_entity = scene->CreateEntity("Log Wood Cylinder Mesh"); scene->IsEntityValid(cylinder_entity)) {
+  if (const auto cylinder_entity = scene->CreateEntity("Log Wood Cylinder Mesh");
+      scene->IsEntityValid(cylinder_entity)) {
     scene->SetParent(cylinder_entity, self);
-    const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+    const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
     GenerateCylinderMesh(mesh, mesh_generator_settings);
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(cylinder_entity).lock();
     material->material_properties.roughness = 1.0f;
     material->material_properties.metallic = 0.0f;
@@ -545,9 +549,9 @@ void LogGrader::InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh
     transform.SetPosition({x_offset, 0, 0});
     transform.SetEulerRotation(glm::radians(glm::vec3(0, 180, 0)));
     scene->SetDataComponent(flat_entity1, transform);
-    const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+    const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
     GenerateFlatMesh(mesh, mesh_generator_settings, 90, 180);
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(flat_entity1).lock();
     material->material_properties.roughness = 1.0f;
     material->material_properties.metallic = 0.0f;
@@ -562,9 +566,9 @@ void LogGrader::InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh
     transform.SetPosition({x_offset, 0, 0});
     transform.SetEulerRotation(glm::radians(glm::vec3(0, 180, 0)));
     scene->SetDataComponent(flat_entity2, transform);
-    const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+    const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
     GenerateFlatMesh(mesh, mesh_generator_settings, 0, 90);
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(flat_entity2).lock();
     material->material_properties.roughness = 1.0f;
     material->material_properties.metallic = 0.0f;
@@ -579,9 +583,9 @@ void LogGrader::InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh
     transform.SetPosition({x_offset, 0, 0});
     transform.SetEulerRotation(glm::radians(glm::vec3(0, 180, 0)));
     scene->SetDataComponent(flat_entity3, transform);
-    const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+    const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
     GenerateFlatMesh(mesh, mesh_generator_settings, 270, 360);
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(flat_entity3).lock();
     material->material_properties.roughness = 1.0f;
     material->material_properties.metallic = 0.0f;
@@ -596,9 +600,9 @@ void LogGrader::InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh
     transform.SetPosition({x_offset, 0, 0});
     transform.SetEulerRotation(glm::radians(glm::vec3(0, 180, 0)));
     scene->SetDataComponent(flat_entity4, transform);
-    const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+    const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
     GenerateFlatMesh(mesh, mesh_generator_settings, 180, 270);
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(flat_entity4).lock();
     material->material_properties.roughness = 1.0f;
     material->material_properties.metallic = 0.0f;

@@ -530,7 +530,7 @@ void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
   shoot_stem_segments_.clear();
   shoot_stem_points_.clear();
 
-  shoot_stem_strands_ = ProjectManager::CreateTemporaryAsset<Strands>();
+  shoot_stem_strands_ = AssetManager::CreateTemporaryAsset<Strands>();
 
   bounding_box_matrices_->SetParticleInfos({});
   foliage_matrices_->SetParticleInfos({});

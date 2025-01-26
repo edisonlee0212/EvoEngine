@@ -14,13 +14,13 @@ class AssetRef final : public ISerializable {
  public:
   void Serialize(YAML::Emitter &out) const override {
     out << YAML::Key << "asset_handle_" << YAML::Value << asset_handle_;
-    out << YAML::Key << "asset_type_name_" << YAML::Value << asset_type_name_;
+    out << YAML::Key << "type_name_" << YAML::Value << asset_type_name_;
   }
   void Deserialize(const YAML::Node &in) override {
     if (in["asset_handle_"])
       asset_handle_ = Handle(in["asset_handle_"].as<uint64_t>());
-    if (in["asset_type_name_"])
-      asset_type_name_ = in["asset_type_name_"].as<std::string>();
+    if (in["type_name_"])
+      asset_type_name_ = in["type_name_"].as<std::string>();
     Update();
   }
   AssetRef() {

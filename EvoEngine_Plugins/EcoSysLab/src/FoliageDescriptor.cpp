@@ -75,7 +75,7 @@ void FoliageDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
 std::shared_ptr<Texture2D> FoliageDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
-    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(
         std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/FoliageDescriptor.png"));
   }

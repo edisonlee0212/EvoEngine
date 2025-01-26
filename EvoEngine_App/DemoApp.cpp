@@ -151,7 +151,7 @@ Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_en
           scene->SetDataComponent(sphere, transform);
           const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(sphere).lock();
           mesh_renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
-          const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+          const auto material = AssetManager::CreateTemporaryAsset<Material>();
           mesh_renderer->material = material;
           material->material_properties.roughness = static_cast<float>(i) / (amount - 1);
           material->material_properties.metallic = static_cast<float>(j) / (amount - 1);
@@ -171,7 +171,7 @@ Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_en
   auto ground = scene->CreateEntity("Ground");
   std::shared_ptr<MeshRenderer> ground_mesh_renderer;
   ground_mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(ground).lock();
-  auto ground_mat = ProjectManager::CreateTemporaryAsset<Material>();
+  auto ground_mat = AssetManager::CreateTemporaryAsset<Material>();
 
   ground_mesh_renderer->material = ground_mat;
   ground_mesh_renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
@@ -266,7 +266,8 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
   }
 #pragma region Demo scene setup
   if (demo_setup != DemoSetup::Empty && std::filesystem::exists(resource_folder_path)) {
-    for (const auto i : std::filesystem::recursive_directory_iterator(resource_folder_path / "EvoEngine-DemoProjects")) {
+    for (const auto i :
+         std::filesystem::recursive_directory_iterator(resource_folder_path / "EvoEngine-DemoProjects")) {
       if (i.is_directory())
         continue;
       if (i.path().extension().string() == ".evescene" || i.path().extension().string() == ".evefilemeta" ||
@@ -292,7 +293,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
 #pragma region Set main camera to correct position and rotation
         const auto main_camera = scene->main_camera.Get<Camera>();
         main_camera->Resize({640, 480});
-        main_camera->post_processing_stack_ref = ProjectManager::CreateTemporaryAsset<PostProcessingStack>();
+        main_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
         const auto main_camera_entity = main_camera->GetOwner();
         auto main_camera_transform = scene->GetDataComponent<Transform>(main_camera_entity);
         main_camera_transform.SetPosition(glm::vec3(0, 0, 3));
@@ -324,7 +325,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         const auto left_point_light_right_entity = scene->CreateEntity("Left Point Light");
         const auto point_light_right_renderer =
             scene->GetOrSetPrivateComponent<MeshRenderer>(left_point_light_right_entity).lock();
-        const auto point_light_right_material = ProjectManager::CreateTemporaryAsset<Material>();
+        const auto point_light_right_material = AssetManager::CreateTemporaryAsset<Material>();
         point_light_right_renderer->material.Set<Material>(point_light_right_material);
         point_light_right_material->material_properties.albedo_color = glm::vec3(1.0, 0.8, 0.0);
         point_light_right_material->material_properties.emission = 10.0f;
@@ -380,7 +381,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         main_camera_transform.SetPosition(glm::vec3(0, -4, 25));
         scene->SetDataComponent(main_camera_entity, main_camera_transform);
         scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
-        const auto surface_material = ProjectManager::CreateTemporaryAsset<Material>();
+        const auto surface_material = AssetManager::CreateTemporaryAsset<Material>();
         const auto border_texture =
             std::dynamic_pointer_cast<Texture2D>(ProjectManager::GetOrCreateAsset("Textures/border.png"));
         surface_material->SetAlbedoTexture(border_texture);
@@ -429,7 +430,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
 #  pragma endregion
 
 #  pragma region Lights
-        const auto shared_mat = ProjectManager::CreateTemporaryAsset<Material>();
+        const auto shared_mat = AssetManager::CreateTemporaryAsset<Material>();
         Transform ltw;
 
         Entity dle = scene->CreateEntity("Directional Light");
@@ -511,7 +512,7 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
         scene->SetDataComponent(sphere, transform);
         const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(sphere).lock();
         mesh_renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
-        const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+        const auto material = AssetManager::CreateTemporaryAsset<Material>();
         mesh_renderer->material = material;
         material->material_properties.roughness = static_cast<float>(i) / (amount - 1);
         material->material_properties.metallic = static_cast<float>(j) / (amount - 1);
@@ -519,7 +520,7 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
         const auto rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(sphere).lock();
         rigid_body->SetEnabled(true);
         rigid_body->SetDensityAndMassCenter(0.1f);
-        auto sphere_collider = ProjectManager::CreateTemporaryAsset<Collider>();
+        auto sphere_collider = AssetManager::CreateTemporaryAsset<Collider>();
         sphere_collider->SetShapeType(ShapeType::Sphere);
         sphere_collider->SetShapeParam(glm::vec3(2.0f * scale_factor));
         rigid_body->AttachCollider(sphere_collider);
@@ -604,7 +605,7 @@ Entity CreateSolidCube(const float& mass, const glm::vec3& color, const glm::vec
   // The rigidbody can only apply mesh bound after it's attached to an entity with mesh renderer.
   rigid_body->SetEnabled(true);
 
-  auto collider = ProjectManager::CreateTemporaryAsset<Collider>();
+  auto collider = AssetManager::CreateTemporaryAsset<Collider>();
   collider->SetShapeType(ShapeType::Box);
   collider->SetShapeParam(scale);
   rigid_body->AttachCollider(collider);
@@ -622,7 +623,7 @@ Entity CreateDynamicCube(const float& mass, const glm::vec3& color, const glm::v
   rigid_body->SetEnabled(true);
   rigid_body->SetDensityAndMassCenter(mass / scale.x / scale.y / scale.z);
 
-  auto collider = ProjectManager::CreateTemporaryAsset<Collider>();
+  auto collider = AssetManager::CreateTemporaryAsset<Collider>();
   collider->SetShapeType(ShapeType::Box);
   collider->SetShapeParam(scale);
   rigid_body->AttachCollider(collider);
@@ -634,7 +635,7 @@ Entity CreateCube(const glm::vec3& color, const glm::vec3& position, const glm::
   auto scene = Application::GetActiveScene();
   auto cube = scene->CreateEntity(name);
   const auto ground_mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(cube).lock();
-  auto material = ProjectManager::CreateTemporaryAsset<Material>();
+  auto material = AssetManager::CreateTemporaryAsset<Material>();
   ground_mesh_renderer->material = material;
   material->material_properties.albedo_color = color;
   ground_mesh_renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
@@ -660,7 +661,7 @@ Entity CreateDynamicSphere(const float& mass, const glm::vec3& color, const glm:
   rigid_body->SetEnabled(true);
   rigid_body->SetDensityAndMassCenter(mass / scale / scale / scale);
 
-  auto collider = ProjectManager::CreateTemporaryAsset<Collider>();
+  auto collider = AssetManager::CreateTemporaryAsset<Collider>();
   collider->SetShapeType(ShapeType::Sphere);
   collider->SetShapeParam(glm::vec3(scale));
   rigid_body->AttachCollider(collider);
@@ -676,7 +677,7 @@ Entity CreateSolidSphere(const float& mass, const glm::vec3& color, const glm::v
   // The rigidbody can only apply mesh bound after it's attached to an entity with mesh renderer.
   rigid_body->SetEnabled(true);
 
-  auto collider = ProjectManager::CreateTemporaryAsset<Collider>();
+  auto collider = AssetManager::CreateTemporaryAsset<Collider>();
   collider->SetShapeType(ShapeType::Sphere);
   collider->SetShapeParam(glm::vec3(scale));
   rigid_body->AttachCollider(collider);
@@ -688,7 +689,7 @@ Entity CreateSphere(const glm::vec3& color, const glm::vec3& position, const glm
   auto scene = Application::GetActiveScene();
   auto sphere = scene->CreateEntity(name);
   const auto ground_mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(sphere).lock();
-  auto material = ProjectManager::CreateTemporaryAsset<Material>();
+  auto material = AssetManager::CreateTemporaryAsset<Material>();
   ground_mesh_renderer->material = material;
   material->material_properties.albedo_color = color;
   ground_mesh_renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");

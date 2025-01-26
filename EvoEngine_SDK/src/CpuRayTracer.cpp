@@ -943,7 +943,7 @@ void CpuRayTracer::AggregatedScene::TraceGpu(const std::vector<RayDescriptor>& r
   }
 
   if (!trace_shader) {
-    trace_shader = ProjectManager::CreateTemporaryAsset<Shader>();
+    trace_shader = AssetManager::CreateTemporaryAsset<Shader>();
     trace_shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
                              std::filesystem::path("./DefaultResources") / "Shaders/Compute/Trace.comp");
   }

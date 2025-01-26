@@ -31,7 +31,7 @@ void DynamicTreeSkeleton::LateUpdate() {
 }
 
 void DynamicTreeSkeleton::OnCreate() {
-  debug_matrices = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  debug_matrices = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
 }
 
 void DynamicTreeSkeleton::PhysicsStep(const DynamicSkeleton::PhysicsParameters& physics_parameters) {
