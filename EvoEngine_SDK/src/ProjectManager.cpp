@@ -4,7 +4,7 @@
 #include "Prefab.hpp"
 #include "Scene.hpp"
 #include "TransformGraph.hpp"
-
+#include "WindowLayer.hpp"
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
 #  include "shellapi.h"
 #endif
@@ -42,40 +42,11 @@ std::shared_ptr<IAsset> ProjectManager::GetOrCreateAsset(const std::filesystem::
   return folder->GetOrCreateAsset(stem, extension);
 }
 
-void ProjectManager::GetOrCreateProjectImpl() {
+void ProjectManager::SetupDefaultScene() {
   auto& project_manager = GetInstance();
   auto project_absolute_path = std::filesystem::absolute(project_manager.new_project_path_);
-  project_manager.new_project_path_ = "";
-  if (std::filesystem::is_directory(project_absolute_path)) {
-    EVOENGINE_ERROR("Path is directory!")
-    return;
-  }
-  if (!project_absolute_path.is_absolute()) {
-    EVOENGINE_ERROR("Path not absolute!")
-    return;
-  }
-  if (project_absolute_path.extension() != ".eveproj") {
-    EVOENGINE_ERROR("Wrong extension!")
-    return;
-  }
-  project_manager.project_path_ = project_absolute_path;
-  project_manager.assets_folder_path = project_absolute_path.parent_path() / "Assets";
-  AssetManager::Clear();
-  FileManager::Clear();
-  Application::Reset();
-
-  std::shared_ptr<Scene> scene;
-  auto& file_manager = FileManager::GetInstance();
-  project_manager.current_focused_folder_ = project_manager.assets_folder_ = std::make_shared<Folder>();
-  project_manager.assets_folder_->name_ = "Assets";
-  file_manager.file_registry_mutex.lock();
-  file_manager.folder_registry_[0] = project_manager.assets_folder_;
-  file_manager.file_registry_mutex.unlock();
-  project_manager.assets_folder_->self_ = project_manager.assets_folder_;
-
-  ScanAssetsImpl();
-
   bool found_scene = false;
+  std::shared_ptr<Scene> scene;
   if (std::filesystem::exists(project_absolute_path)) {
     std::ifstream stream(project_absolute_path.string());
     std::stringstream string_stream;
@@ -112,18 +83,42 @@ void ProjectManager::GetOrCreateProjectImpl() {
       TransformGraph::CalculateTransformGraphs(scene);
     }
   }
+
+  project_manager.new_project_path_ = "";
 }
 
-void ProjectManager::LateUpdate() {
-  const auto& project_manager = GetInstance();
-
-  if (!project_manager.new_project_path_.empty()) {
-    GetOrCreateProjectImpl();
-  }
+void ProjectManager::PreUpdate() {
+  const auto window_layer = Application::GetLayer<WindowLayer>();
+  if (window_layer && Platform::GetFrameCount() < 3)
+    return;
+  auto& project_manager = GetInstance();
 
   if (project_manager.scan_assets_pending) {
-    ScanAssetsImpl();
+    ScanAssets();
+  } else if (!project_manager.pending_assets.empty()) {
+    const auto handle = *project_manager.pending_assets.begin();
+    project_manager.pending_assets.erase(handle);
+    AssetManager::GetAssetImpl(handle);
+  } else if (!project_manager.new_project_path_.empty()) {
+    SetupDefaultScene();
   }
+
+  if (project_manager.pending_assets.empty()) {
+    project_manager.pending_asset_size = 0;
+  } else {
+  }
+}
+
+void ProjectManager::LoadAllPendingAssets() {
+  auto& project_manager = GetInstance();
+  if (project_manager.pending_assets.empty()) {
+    return;
+  }
+  for (const auto& i : project_manager.pending_assets) {
+    AssetManager::GetAssetImpl(i);
+  }
+  project_manager.pending_assets.clear();
+  project_manager.pending_asset_size = 0;
 }
 
 void ProjectManager::SaveProject() {
@@ -143,6 +138,12 @@ std::filesystem::path ProjectManager::GetProjectPath() {
   auto& project_manager = GetInstance();
   return project_manager.project_path_;
 }
+
+std::filesystem::path ProjectManager::GetAssetsFolderPath() {
+  auto& project_manager = GetInstance();
+  return project_manager.assets_folder_path;
+}
+
 std::string ProjectManager::GetProjectName() {
   const auto& project_manager = GetInstance();
   return project_manager.project_path_.stem().string();
@@ -183,9 +184,43 @@ bool ProjectManager::IsValidAssetFileName(const std::filesystem::path& path) {
 void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
   auto& project_manager = GetInstance();
   project_manager.new_project_path_ = path;
+  auto project_absolute_path = std::filesystem::absolute(project_manager.new_project_path_);
+  if (std::filesystem::is_directory(project_absolute_path)) {
+    EVOENGINE_ERROR("Path is directory!")
+    return;
+  }
+  if (!project_absolute_path.is_absolute()) {
+    EVOENGINE_ERROR("Path not absolute!")
+    return;
+  }
+  if (project_absolute_path.extension() != ".eveproj") {
+    EVOENGINE_ERROR("Wrong extension!")
+    return;
+  }
+  project_manager.project_path_ = project_absolute_path;
+  project_manager.assets_folder_path = project_absolute_path.parent_path() / "Assets";
+  AssetManager::Clear();
+  FileManager::Clear();
+  Application::Reset();
+
+  auto& file_manager = FileManager::GetInstance();
+  project_manager.current_focused_folder_ = project_manager.assets_folder_ = std::make_shared<Folder>();
+  project_manager.assets_folder_->name_ = "Assets";
+  file_manager.file_registry_mutex.lock();
+  file_manager.folder_registry_[0] = project_manager.assets_folder_;
+  file_manager.file_registry_mutex.unlock();
+  project_manager.assets_folder_->self_ = project_manager.assets_folder_;
+
+  if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
+    DispatchScanAssetsTask();
+  } else {
+    ScanAssets();
+    LoadAllPendingAssets();
+    SetupDefaultScene();
+  }
 }
 
-void ProjectManager::ScanAssets() {
+void ProjectManager::DispatchScanAssetsTask() {
   auto& project_manager = GetInstance();
   project_manager.scan_assets_pending = true;
 }
@@ -229,7 +264,7 @@ void ProjectManager::SetActionAfterNewScene(const std::function<void(const std::
   project_manager.new_scene_customizer_ = actions;
 }
 
-void ProjectManager::ScanAssetsImpl() {
+void ProjectManager::ScanAssets() {
   auto& project_manager = GetInstance();
   project_manager.scan_assets_pending = false;
   if (!project_manager.assets_folder_)
@@ -240,8 +275,14 @@ void ProjectManager::ScanAssetsImpl() {
   auto& file_manager = FileManager::GetInstance();
   file_manager.file_registry_mutex.lock();
   project_manager.assets_folder_->handle_ = 0;
-  project_manager.assets_folder_->Refresh();
+  std::vector<Handle> missing_asset_handles;
+  project_manager.assets_folder_->Refresh(missing_asset_handles);
   file_manager.file_registry_mutex.unlock();
+  project_manager.pending_assets.clear();
+  project_manager.pending_asset_size = missing_asset_handles.size();
+  for (const auto& i : missing_asset_handles) {
+    project_manager.pending_assets.emplace(i);
+  }
 }
 
 void ProjectManager::Initialize() {
@@ -254,13 +295,9 @@ void ProjectManager::OnDestroy() {
 
   project_manager.assets_folder_.reset();
   project_manager.new_scene_customizer_.reset();
-
   project_manager.current_focused_folder_.reset();
-
   project_manager.start_scene_.reset();
-
   project_manager.inspecting_asset.reset();
-
   project_manager.initialized = false;
 }
 
@@ -366,7 +403,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
         ImGui::BeginChild("2", ImVec2(size2 - 5.0f, h), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
         if (ImGui::ImageButton(editor_layer->editor_icons_["RefreshButton"]->GetImTextureId(), {16, 16}, {0, 1},
                                {1, 0})) {
-          ScanAssets();
+          DispatchScanAssetsTask();
         }
         ImGui::SameLine();
         if (current_focused_folder != project_manager.assets_folder_) {
@@ -565,7 +602,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
         }
         if (!updated) {
           for (auto& i : current_focused_folder->files) {
-            auto file_name = i.second->GetProjectRelativePath().filename();
+            auto file_name = i.second->GetAssetsFolderRelativePath().filename();
             if (file_name.string() == ".eveproj" || file_name.extension().string() == ".eveproj")
               continue;
             static Handle focused_asset_handle;
@@ -604,7 +641,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
                 ImGui::InputText(("New name" + tag).c_str(), new_name, 256);
                 if (ImGui::Button(("Confirm" + tag).c_str())) {
                   auto ptr = AssetManager::GetAssetImpl(i.second->asset_handle_);
-                  ptr->SetPathAndSave(ptr->GetProjectRelativePath().replace_filename(
+                  ptr->SetPathAndSave(ptr->GetAssetsFolderRelativePath().replace_filename(
                       std::string(new_name) + ptr->GetFileRecord().lock()->GetAssetExtension()));
                   memset(new_name, 0, 256);
                 }
@@ -653,14 +690,13 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     ImGui::End();
   }
 
-  if (!project_manager.new_project_path_.empty()) {
+  if (project_manager.scan_assets_pending) {
+    ImGui::OpenPopup("Scanning files...");
+  } else if (project_manager.pending_asset_size != 0) {
+    ImGui::OpenPopup("Loading assets...");
+  } else if (!project_manager.new_project_path_.empty()) {
     ImGui::OpenPopup("Loading Project...");
   }
-
-  if (project_manager.scan_assets_pending) {
-    ImGui::OpenPopup("Scanning assets...");
-  }
-
   if (ImGui::BeginPopupModal("Loading Project...", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::Text("Busy...");
     if (project_manager.new_project_path_.empty()) {
@@ -671,6 +707,21 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   if (ImGui::BeginPopupModal("Scanning assets...", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::Text("Busy...");
     if (!project_manager.scan_assets_pending) {
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+  if (ImGui::BeginPopupModal("Loading assets...", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::Text("Progress: ");
+    const float fraction =
+        1.0f - static_cast<float>(project_manager.pending_assets.size()) / project_manager.pending_asset_size;
+    const std::string text =
+        std::to_string(static_cast<int>(fraction * 100.0f)) + "% - " +
+        std::to_string(project_manager.pending_asset_size - project_manager.pending_assets.size()) + "/" +
+        std::to_string(project_manager.pending_asset_size);
+    ImGui::ProgressBar(fraction, ImVec2(240, 0), text.c_str());
+    ImGui::SetItemDefaultFocus();
+    if (project_manager.pending_asset_size == 0) {
       ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();

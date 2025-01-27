@@ -17,7 +17,13 @@ class AssetManager {
   [[nodiscard]] static std::shared_ptr<T> CreateTemporaryAsset();
 
  private:
-  std::unordered_map<Handle, std::weak_ptr<IAsset>> asset_registry_;
+  class AssetRegistry {
+    std::mutex asset_registry_mutex;
+    std::unordered_map<Handle, std::weak_ptr<IAsset>> assets_;
+    friend class AssetManager;
+  };
+
+  AssetRegistry asset_registry_;
   bool initialized = false;
   static void Initialize();
   static void OnDestroy();
@@ -37,8 +43,8 @@ class AssetManager {
   [[nodiscard]] static std::shared_ptr<IAsset> CreateTemporaryAssetImpl(const std::string& type_name,
                                                                         const Handle& asset_handle);
   static void RemoveAssetImpl(const Handle& asset_handle);
-  [[nodiscard]] static std::shared_ptr<IAsset> GetAssetImpl(const Handle& asset_handle);
-  [[nodiscard]] static std::shared_future<std::shared_ptr<IAsset>> GetAssetFutureImpl(const Handle& asset_handle);
+  static std::shared_ptr<IAsset> GetAssetImpl(const Handle& asset_handle);
+  static std::future<std::shared_ptr<IAsset>> GetAssetFutureImpl(const Handle& asset_handle);
 };
 
 template <typename T>

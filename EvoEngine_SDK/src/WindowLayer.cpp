@@ -36,7 +36,7 @@ void WindowLayer::WindowFocusCallback(GLFWwindow* window, const int focused) {
   const auto window_layer = Application::GetLayer<WindowLayer>();
 
   if (focused) {
-    ProjectManager::ScanAssets();
+    ProjectManager::DispatchScanAssetsTask();
   }
 }
 

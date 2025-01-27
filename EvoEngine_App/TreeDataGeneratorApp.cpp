@@ -94,7 +94,7 @@ void generate_tree_data() {
   // Trunk length (branches will br pruned)
   data_generation_parameters.pruning_settings.low_branch_pruning = 0.2f;
 
-  data_generation_parameters.output_folder = std::filesystem::current_path() / "TreeData";
+  data_generation_parameters.output_folder = std::filesystem::current_path() / "Tree Data";
 
   data_generation_parameters.export_point_cloud = false;
   data_generation_parameters.export_mesh = true;
@@ -151,6 +151,12 @@ void generate_tree_data() {
         data_generation_parameters.tree_descriptor_path.stem().string() + "_" + std::to_string(index);
     DatasetGenerator::GenerateDataForTree(data_generation_parameters, tree_point_cloud_circular_capture_settings);
   }
+
+  EVOENGINE_LOG("Generation Finished!")
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+  const auto folder_path = data_generation_parameters.output_folder.string();
+  ShellExecuteA(nullptr, "open", folder_path.c_str(), nullptr, nullptr, SW_SHOWDEFAULT);
+#endif
 }
 
 int main() {
@@ -180,8 +186,6 @@ int main() {
   run_windowless(project_path);
 
   generate_tree_data();
-
-  EVOENGINE_LOG("Generation Finished!")
 
   Application::Terminate();
 }

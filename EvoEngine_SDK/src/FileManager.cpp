@@ -14,7 +14,7 @@ std::string File::GetAssetFileName() const {
 std::string File::GetAssetExtension() const {
   return asset_extension_;
 }
-std::filesystem::path File::GetProjectRelativePath() const {
+std::filesystem::path File::GetAssetsFolderRelativePath() const {
   if (folder_.expired()) {
     EVOENGINE_ERROR("Folder expired!")
     return {};
@@ -133,20 +133,14 @@ std::shared_ptr<Texture2D> File::GetThumbnail() {
       thumbnail_ = asset->GenerateThumbnailTexture();
     }
   }
-  if (thumbnail_)
-    return thumbnail_;
-
-  if (asset_type_name_ == "Scene") {
-    return EditorLayer::FindIcon("Scene");
+  if (!thumbnail_) {
+    if (const auto icon = EditorLayer::FindIcon(asset_type_name_)) {
+      thumbnail_ = icon;
+    } else {
+      thumbnail_ = EditorLayer::FindIcon("Binary");
+    }
   }
-  if (asset_type_name_ == "Prefab") {
-    return EditorLayer::FindIcon("Prefab");
-  }
-  if (asset_type_name_ == "Mesh") {
-    return EditorLayer::FindIcon("Mesh");
-  }
-
-  return EditorLayer::FindIcon("Binary");
+  return thumbnail_;
 }
 
 std::weak_ptr<Folder> File::GetFolder() const {
@@ -154,13 +148,13 @@ std::weak_ptr<Folder> File::GetFolder() const {
 }
 std::filesystem::path Folder::GetAssetsRelativePath() const {
   if (parent_.expired()) {
-    return name_;
+    return "";
   }
   return parent_.lock()->GetAssetsRelativePath() / name_;
 }
 std::filesystem::path Folder::GetAbsolutePath() const {
   const auto& project_manager = ProjectManager::GetInstance();
-  const auto asset_folder_path = project_manager.assets_folder_path.parent_path();
+  const auto asset_folder_path = project_manager.assets_folder_path;
   const auto relative_path = GetAssetsRelativePath();
   return asset_folder_path / relative_path;
 }
@@ -309,12 +303,12 @@ std::shared_ptr<IAsset> Folder::GetAsset(const Handle& asset_handle) {
 std::optional<std::shared_ptr<IAsset>> Folder::Duplicate(const Handle& handle) {
   const auto file_record = files[handle];
   const auto folder = file_record->GetFolder().lock();
-  const auto path = file_record->GetProjectRelativePath();
+  const auto path = file_record->GetAssetsFolderRelativePath();
   const auto prefix = (folder->GetAssetsRelativePath() / path.stem()).string();
   const auto postfix = path.extension().string();
   const auto new_path = ProjectManager::GenerateNewAssetsRelativePath(prefix, postfix);
   try {
-    std::filesystem::copy(file_record->GetAbsolutePath(), ProjectManager::GetProjectPath().parent_path() / new_path,
+    std::filesystem::copy(file_record->GetAbsolutePath(), ProjectManager::GetAssetsFolderPath() / new_path,
                           std::filesystem::copy_options::overwrite_existing);
   } catch (const std::exception& e) {
     EVOENGINE_ERROR(e.what());
@@ -334,17 +328,15 @@ std::optional<std::shared_ptr<IAsset>> Folder::Duplicate(const Handle& handle) {
   return std::nullopt;
 }
 
-void Folder::MoveAsset(const Handle& asset_handle, const std::shared_ptr<Folder>& dest) {
+std::shared_ptr<File> Folder::MoveAsset(const Handle& asset_handle, const std::shared_ptr<Folder>& dest) {
   const auto search = files.find(asset_handle);
   if (search == files.end()) {
-    EVOENGINE_ERROR("File not exist!")
-    return;
+    throw std::invalid_argument("File not exist!");
   }
   auto asset_record = search->second;
   const auto new_path = dest->GetAbsolutePath() / (asset_record->asset_file_name_ + asset_record->asset_extension_);
   if (std::filesystem::exists(new_path)) {
-    EVOENGINE_ERROR("Destination file already exists!")
-    return;
+    throw std::invalid_argument("Destination file already exists!");
   }
   const auto old_path = asset_record->GetAbsolutePath();
   asset_record->DeleteMetadata();
@@ -355,6 +347,7 @@ void Folder::MoveAsset(const Handle& asset_handle, const std::shared_ptr<Folder>
   dest->files.insert({asset_handle, asset_record});
   asset_record->folder_ = dest;
   asset_record->Save();
+  return asset_record;
 }
 void Folder::RemoveFile(const Handle& asset_handle) {
   auto& file_manager = FileManager::GetInstance();
@@ -365,7 +358,7 @@ void Folder::RemoveFile(const Handle& asset_handle) {
   asset_record->DeleteMetadata();
   files.erase(asset_handle);
 }
-void Folder::Refresh() {
+void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
   auto& file_manager = FileManager::GetInstance();
   auto path = GetAbsolutePath();
   /**
@@ -426,7 +419,7 @@ void Folder::Refresh() {
   }
   for (const auto& child_folder_path : child_folder_list) {
     auto child_folder = GetOrCreateChild(child_folder_path.filename().string()).lock();
-    child_folder->Refresh();
+    child_folder->Refresh(assets_pending_loading);
   }
   for (const auto& asset_metadata_path : asset_metadata_list) {
     auto asset_name = asset_metadata_path.filename();
@@ -480,6 +473,11 @@ void Folder::Refresh() {
   }
   for (const auto& i : asset_to_remove) {
     RemoveFile(i);
+  }
+  for (const auto& i : files) {
+    if (i.second->asset_type_name_ != "Binary" && !i.second->asset_) {
+      assets_pending_loading.emplace_back(i.second->asset_handle_);
+    }
   }
   std::vector<Handle> folder_to_remove;
   for (const auto& i : children_) {

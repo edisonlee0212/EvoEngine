@@ -72,7 +72,7 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   if (data_generation_parameters.tree_descriptor_path.is_relative()) {
     std::shared_ptr<TreeDescriptor> tree_descriptor;
     const auto absolute_path =
-        ProjectManager::GetProjectPath().parent_path() / data_generation_parameters.tree_descriptor_path;
+        ProjectManager::GetAssetsFolderPath() / data_generation_parameters.tree_descriptor_path;
     if (std::filesystem::exists(absolute_path)) {
       tree_descriptor = std::dynamic_pointer_cast<TreeDescriptor>(
           ProjectManager::GetOrCreateAsset(data_generation_parameters.tree_descriptor_path));
@@ -104,7 +104,7 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   if (!data_generation_parameters.foliage_descriptor_path.empty()) {
     if (data_generation_parameters.foliage_descriptor_path.is_relative()) {
       const auto absolute_path =
-          ProjectManager::GetProjectPath().parent_path() / data_generation_parameters.foliage_descriptor_path;
+          ProjectManager::GetAssetsFolderPath() / data_generation_parameters.foliage_descriptor_path;
       if (std::filesystem::exists(absolute_path)) {
         actual_tree_descriptor->foliage_descriptor = std::dynamic_pointer_cast<FoliageDescriptor>(
             ProjectManager::GetOrCreateAsset(data_generation_parameters.foliage_descriptor_path));
@@ -126,7 +126,7 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   if (!data_generation_parameters.bark_descriptor_path.empty()) {
     if (data_generation_parameters.bark_descriptor_path.is_relative()) {
       const auto absolute_path =
-          ProjectManager::GetProjectPath().parent_path() / data_generation_parameters.bark_descriptor_path;
+          ProjectManager::GetAssetsFolderPath() / data_generation_parameters.bark_descriptor_path;
       if (std::filesystem::exists(absolute_path)) {
         actual_tree_descriptor->bark_descriptor = std::dynamic_pointer_cast<BarkDescriptor>(
             ProjectManager::GetOrCreateAsset(data_generation_parameters.bark_descriptor_path));

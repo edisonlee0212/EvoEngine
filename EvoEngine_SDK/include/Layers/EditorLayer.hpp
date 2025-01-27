@@ -491,7 +491,7 @@ bool EditorLayer::RenameAsset(const std::shared_ptr<T>& target) {
         static char new_name[256];
         ImGui::InputText(("New name" + tag).c_str(), new_name, 256);
         if (ImGui::Button(("Confirm" + tag).c_str())) {
-          if (bool succeed = ptr->SetPathAndSave(ptr->GetProjectRelativePath().replace_filename(
+          if (bool succeed = ptr->SetPathAndSave(ptr->GetAssetsFolderRelativePath().replace_filename(
                   std::string(new_name) + ptr->GetFileRecord().lock()->GetAssetExtension())))
             memset(new_name, 0, 256);
         }

@@ -35,10 +35,14 @@ class ProjectManager {
   static void OnDestroy();
 
   bool scan_assets_pending = false;
-  static void ScanAssetsImpl();
+
+  size_t pending_asset_size = 0;
+  std::set<Handle> pending_assets;
+  static void ScanAssets();
   std::filesystem::path new_project_path_ = "";
-  static void GetOrCreateProjectImpl();
-  static void LateUpdate();
+  static void SetupDefaultScene();
+  static void PreUpdate();
+  static void LoadAllPendingAssets();
 
  public:
   std::shared_ptr<IAsset> inspecting_asset;
@@ -56,6 +60,7 @@ class ProjectManager {
   [[nodiscard]] static std::weak_ptr<Folder> GetCurrentFocusedFolder();
   [[nodiscard]] static std::shared_ptr<Folder> GetAssetsFolder();
   [[nodiscard]] static std::filesystem::path GetProjectPath();
+  [[nodiscard]] static std::filesystem::path GetAssetsFolderPath();
   [[nodiscard]] static std::string GetProjectName();
   [[maybe_unused]] static std::weak_ptr<Folder> GetOrCreateFolder(const std::filesystem::path& assets_relative_path);
   [[nodiscard]] static std::shared_ptr<IAsset> GetOrCreateAsset(const std::filesystem::path& assets_relative_path);
@@ -63,7 +68,7 @@ class ProjectManager {
   [[nodiscard]] static bool IsInAssetsFolder(const std::filesystem::path& absolute_path);
   [[nodiscard]] static bool IsValidAssetFileName(const std::filesystem::path& path);
   static void GetOrCreateProject(const std::filesystem::path& path);
-  static void ScanAssets();
+  static void DispatchScanAssetsTask();
 
   [[nodiscard]] static std::filesystem::path GetAssetsRelativePath(const std::filesystem::path& absolute_path);
 };

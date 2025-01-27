@@ -106,6 +106,7 @@ void Application::PreUpdateInternal() {
   if (const auto render_layer = GetLayer<RenderLayer>()) {
     Platform::PreUpdate();
   }
+  ProjectManager::PreUpdate();
   if (const auto editor_layer = GetLayer<EditorLayer>()) {
     EditorLayer::InitializeImGui();
   }
@@ -242,8 +243,6 @@ void Application::LateUpdateInternal() {
   }
   if (application.application_status_ == ApplicationStatus::Step)
     application.application_status_ = ApplicationStatus::Pause;
-
-  ProjectManager::LateUpdate();
 }
 
 const ApplicationInfo& Application::GetApplicationInfo() {
@@ -301,14 +300,15 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   for (const auto& layer : application.layers_) {
     layer->OnCreate();
   }
-  if (!application.application_info_.project_path.empty()) {
-    ProjectManager::GetOrCreateProject(application.application_info_.project_path);
-  }
   if (window_layer) {
     window_layer->ResizeWindow(application.application_info_.default_window_size.x,
                                application.application_info_.default_window_size.y);
   }
   application.application_status_ = ApplicationStatus::NotPlaying;
+  
+  if (!application.application_info_.project_path.empty()) {
+    ProjectManager::GetOrCreateProject(application.application_info_.project_path);
+  }
 }
 
 void Application::Start(const bool autoplay) {
@@ -352,6 +352,8 @@ void Application::Terminate() {
   application.active_scene_.reset();
   TextureStorage::OnDestroy();
   GeometryStorage::OnDestroy();
+
+  AssetManager::OnDestroy();
   if (has_render_layer) {
     Platform::OnDestroy();
   }

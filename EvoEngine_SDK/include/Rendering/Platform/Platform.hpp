@@ -164,7 +164,7 @@ class Platform final {
   static void OnDestroy();
   static void PreUpdate();
   static void LateUpdate();
-
+  uint32_t frame_count = 0;
   bool recreate_swap_chain_ = false;
   unsigned swapchain_version_ = 0;
 
@@ -178,6 +178,7 @@ class Platform final {
 
  public:
   static bool Initialized();
+  static uint32_t GetFrameCount();
   static void AddTemporaryBufferSyncAction(std::function<void()>&& action);
   static void AddBufferSyncAction(const std::string& action_name, std::function<void()>&& action);
   static void RemoveBufferSyncAction(const std::string& action_name);
