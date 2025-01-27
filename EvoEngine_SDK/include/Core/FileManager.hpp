@@ -13,15 +13,14 @@ class File {
   [[nodiscard]] std::string GetAssetExtension() const;
   void DeleteMetadata() const;
 
-  [[nodiscard]] std::filesystem::path GetProjectRelativePath() const;
+  [[nodiscard]] std::filesystem::path GetAssetsFolderRelativePath() const;
   [[nodiscard]] std::filesystem::path GetAbsolutePath() const;
   void SetAssetFileName(const std::string& new_name);
   void SetAssetExtension(const std::string& new_extension);
 
   void Save() const;
   void Load(const std::filesystem::path& path);
-
-  [[nodiscard]] std::shared_ptr<Texture2D> GetThumbnail();
+  std::shared_ptr<Texture2D> GetThumbnail();
 
  private:
   friend class Folder;
@@ -34,6 +33,8 @@ class File {
   Handle asset_handle_ = 0;
   std::weak_ptr<Folder> folder_;
   std::weak_ptr<File> self_;
+
+  std::shared_ptr<IAsset> asset_;
   std::shared_ptr<Texture2D> thumbnail_;
 };
 
@@ -48,8 +49,9 @@ class Folder {
   std::weak_ptr<Folder> parent_;
   Handle handle_ = 0;
   std::weak_ptr<Folder> self_;
-  void Refresh();
-  std::weak_ptr<File> RegisterAsset(const Handle& asset_handle, const std::string& type_name, const std::string& file_name, const std::string& extension);
+  void Refresh(std::vector<Handle>& assets_pending_loading);
+  std::weak_ptr<File> RegisterAsset(const Handle& asset_handle, const std::string& type_name,
+                                    const std::string& file_name, const std::string& extension);
 
  public:
   bool IsSelfOrAncestor(const Handle& handle) const;
@@ -66,7 +68,7 @@ class Folder {
   [[nodiscard]] std::weak_ptr<Folder> GetChild(const Handle& child_handle);
   [[nodiscard]] std::weak_ptr<Folder> GetOrCreateChild(const std::string& folder_name);
 
-  void MoveAsset(const Handle& asset_handle, const std::shared_ptr<Folder>& dest);
+  std::shared_ptr<File> MoveAsset(const Handle& asset_handle, const std::shared_ptr<Folder>& dest);
   void RemoveFile(const Handle& asset_handle);
   [[nodiscard]] bool FileRecorded(const std::string& file_name, const std::string& extension) const;
   [[maybe_unused]] std::shared_ptr<IAsset> GetOrCreateAsset(const std::string& file_name, const std::string& extension);

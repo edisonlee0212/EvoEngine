@@ -25,7 +25,8 @@ void AssetManager::OnDestroy() {
 
 void AssetManager::Clear() {
   auto& asset_manager = GetInstance();
-  asset_manager.asset_registry_.clear();
+  std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+  asset_manager.asset_registry_.assets_.clear();
 }
 
 std::shared_ptr<IAsset> AssetManager::GetAsset(const std::string& type_name, const Handle& asset_handle) {
@@ -43,25 +44,29 @@ std::shared_ptr<IAsset> AssetManager::GetAsset(const std::string& type_name, con
 }
 
 void AssetManager::RemoveAssetImpl(const Handle& asset_handle) {
-  if (auto& asset_manager = GetInstance();
-      asset_manager.initialized &&
-      asset_manager.asset_registry_.find(asset_handle) != asset_manager.asset_registry_.end())
-    asset_manager.asset_registry_.erase(asset_handle);
+  auto& asset_manager = GetInstance();
+  std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+  if (asset_manager.initialized &&
+      asset_manager.asset_registry_.assets_.find(asset_handle) != asset_manager.asset_registry_.assets_.end())
+    asset_manager.asset_registry_.assets_.erase(asset_handle);
 }
 
 std::shared_ptr<IAsset> AssetManager::GetAssetImpl(const Handle& asset_handle) {
   return GetAssetFutureImpl(asset_handle).get();
 }
 
-std::shared_future<std::shared_ptr<IAsset>> AssetManager::GetAssetFutureImpl(const Handle& asset_handle) {
+std::future<std::shared_ptr<IAsset>> AssetManager::GetAssetFutureImpl(const Handle& asset_handle) {
   std::packaged_task asset_loading_task([asset_handle] {
     if (asset_handle == 0) {
       throw std::invalid_argument("Asset handle is 0!");
     }
     auto& asset_manager = GetInstance();
-    if (const auto search = asset_manager.asset_registry_.find(asset_handle);
-        search != asset_manager.asset_registry_.end() && !search->second.expired()) {
-      return search->second.lock();
+    {
+      std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+      if (const auto search = asset_manager.asset_registry_.assets_.find(asset_handle);
+          search != asset_manager.asset_registry_.assets_.end() && !search->second.expired()) {
+        return search->second.lock();
+      }
     }
     if (const std::shared_ptr<File> file = FileManager::GetFile(asset_handle)) {
       size_t hash_code;
@@ -75,13 +80,18 @@ std::shared_future<std::shared_ptr<IAsset>> AssetManager::GetAssetFutureImpl(con
       } else {
         ret_val->Save();
       }
-      asset_manager.asset_registry_[asset_handle] = ret_val;
+      file->asset_ = ret_val;
+      //file->GetThumbnail();
+      {
+        std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+        asset_manager.asset_registry_.assets_[asset_handle] = ret_val;
+      }
       return ret_val;
     }
     return Resources::TryGetResource<IAsset>(asset_handle);
   });
   asset_loading_task();
-  return asset_loading_task.get_future().share();
+  return asset_loading_task.get_future();
 }
 
 std::shared_ptr<IAsset> AssetManager::CreateTemporaryAsset(const std::string& type_name) {
@@ -96,8 +106,11 @@ std::shared_ptr<IAsset> AssetManager::CreateTemporaryAssetImpl(const std::string
   if (!ret_val) {
     return nullptr;
   }
-  auto& asset_manager = GetInstance();
-  asset_manager.asset_registry_[ret_val->GetHandle()] = ret_val;
+  {
+    auto& asset_manager = GetInstance();
+    std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+    asset_manager.asset_registry_.assets_[ret_val->GetHandle()] = ret_val;
+  }
   ret_val->self_ = ret_val;
   ret_val->OnCreate();
   return ret_val;

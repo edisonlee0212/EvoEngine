@@ -1487,7 +1487,7 @@ void Prefab::RelinkChildren(const std::shared_ptr<Scene>& scene, const Entity& p
 }
 
 void Prefab::LoadModel(const std::filesystem::path& path, const bool optimize, const unsigned flags) {
-  LoadModelInternal(ProjectManager::GetProjectPath().parent_path() / path, optimize, flags);
+  LoadModelInternal(ProjectManager::GetAssetsFolderPath() / path, optimize, flags);
 }
 
 void Prefab::GatherAssets() {

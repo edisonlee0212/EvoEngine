@@ -40,8 +40,8 @@ class IAsset : public ISerializable {
  public:
   [[nodiscard]] virtual std::shared_ptr<Texture2D> GenerateThumbnailTexture();
   [[nodiscard]] uint32_t GetVersion() const;
-  [[maybe_unused]] bool SetPathAndSave(const std::filesystem::path& project_relative_path);
-  [[nodiscard]] std::filesystem::path GetProjectRelativePath() const;
+  [[maybe_unused]] bool SetPathAndSave(const std::filesystem::path& asset_folder_relative_path);
+  [[nodiscard]] std::filesystem::path GetAssetsFolderRelativePath() const;
   [[nodiscard]] std::filesystem::path GetAbsolutePath() const;
   [[nodiscard]] std::string GetTitle() const;
   [[nodiscard]] bool IsTemporary() const;

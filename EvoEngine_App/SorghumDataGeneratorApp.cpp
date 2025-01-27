@@ -278,11 +278,15 @@ int main() {
   // capture_settings->spline_subdivision_count = 32;
 
   const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Random.sg";
+  const auto output_folder_path = std::filesystem::current_path() / "Sorghum Data";
   // sorghum_field_point_cloud(1, 0.75f, 0, 0, 128, capture_settings, sdg_relative_path, "D:\\SorghumPointCloudData\\");
 
-  sorghum_mesh_point_cloud(1, true, false, capture_settings, sg_relative_path, "D:\\SorghumPointCloudData\\");
+  sorghum_mesh_point_cloud(1, true, false, capture_settings, sg_relative_path, output_folder_path);
 
   EVOENGINE_LOG("Generation Finished!")
-
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+  const auto folder_path = output_folder_path.string();
+  ShellExecuteA(nullptr, "open", folder_path.c_str(), nullptr, nullptr, SW_SHOWDEFAULT);
+#endif
   Application::Terminate();
 }

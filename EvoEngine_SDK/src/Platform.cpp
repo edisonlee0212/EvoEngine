@@ -341,7 +341,7 @@ VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_seve
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_FLAG_BITS_MAX_ENUM_EXT:
       break;
   }
-  
+
   return VK_FALSE;
 }
 
@@ -1658,7 +1658,7 @@ void Platform::PreUpdate() {
     });
   }
   graphics.ResetCommandBuffers();
-
+  graphics.frame_count++;
   if (!Application::GetLayer<EditorLayer>()) {
     if (const auto scene = Application::GetActiveScene()) {
       if (const auto main_camera = scene->main_camera.Get<Camera>(); main_camera && main_camera->IsEnabled()) {
@@ -1698,6 +1698,11 @@ void Platform::LateUpdate() {
 bool Platform::Initialized() {
   const auto& graphics = GetInstance();
   return graphics.initialized;
+}
+
+uint32_t Platform::GetFrameCount() {
+  const auto& graphics = GetInstance();
+  return graphics.frame_count;
 }
 
 bool Platform::CheckExtensionSupport(const std::string& extension_name) {

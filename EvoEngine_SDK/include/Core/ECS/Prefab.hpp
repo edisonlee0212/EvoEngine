@@ -44,9 +44,9 @@ class Prefab : public IAsset {
  protected:
   [[nodiscard]] bool LoadInternal(const std::filesystem::path& path) override;
   [[nodiscard]] bool SaveInternal(const std::filesystem::path& path) const override;
-  [[nodiscard]] bool LoadModelInternal(const std::filesystem::path& path, bool optimize = false,
-                                       unsigned flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace |
-                                                        aiProcess_GenSmoothNormals);
+  bool LoadModelInternal(const std::filesystem::path& path, bool optimize = false,
+                         unsigned flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace |
+                                          aiProcess_GenSmoothNormals);
   [[nodiscard]] bool SaveModelInternal(const std::filesystem::path& path) const;
 
  public:
