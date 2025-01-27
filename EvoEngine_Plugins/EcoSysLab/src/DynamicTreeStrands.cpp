@@ -291,35 +291,35 @@ void DynamicTreeStrands::OnCreate() {
   stop_all = std::make_shared<DsStopAll>();
   enable_physics = true;
   if (!bark_material_ref.Get<Material>()) {
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     bark_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.1f;
     material->material_properties.albedo_color = glm::vec3(0.4f, 0.3f, 0.2f);
   }
   if (!inner_wood_material_ref.Get<Material>()) {
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     inner_wood_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
     material->material_properties.albedo_color = glm::vec3(1.f, 0.6f, 0.3f);
   }
   if (!splinter_material_ref.Get<Material>()) {
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     splinter_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
     material->material_properties.albedo_color = glm::vec3(1.f, 0.6f, 0.3f);
   }
   if (!leaf_material_ref.Get<Material>()) {
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     leaf_material_ref = material;
     material->material_properties.roughness = 1.f;
     material->material_properties.metallic = 0.3f;
     material->material_properties.albedo_color = glm::vec3(0.2f, 0.5f, 0.05f);
   }
   if (!snow_material_ref.Get<Material>()) {
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     snow_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
@@ -327,7 +327,7 @@ void DynamicTreeStrands::OnCreate() {
   }
 
   if (!segment_pair_material_ref.Get<Material>()) {
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     segment_pair_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
@@ -1002,14 +1002,14 @@ void DynamicTreeStrands::InitializeStrandParticles(const DtsStrandGroup& target_
 
   const auto renderer = scene->GetOrSetPrivateComponent<Particles>(strands_entity).lock();
 
-  const auto particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  const auto particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   std::vector<ParticleInfo> particle_infos;
   target_strand_group.BuildParticles(particle_infos);
   particle_info_list->SetParticleInfos(particle_infos);
 
   renderer->particle_info_list = particle_info_list;
   renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
-  const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;
   material->vertex_color_only = true;

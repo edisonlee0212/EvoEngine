@@ -1,8 +1,10 @@
 #include "Material.hpp"
 
+#include "AssetManager.hpp"
 #include "EditorLayer.hpp"
 #include "RenderLayer.hpp"
 #include "Texture2D.hpp"
+
 using namespace evo_engine;
 
 const char* polygon_mode_string[]{"Point", "Line", "Fill"};
@@ -314,19 +316,19 @@ bool Material::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       Jobs::RunParallelFor(temp_data.size(), [&](const size_t pixel_index) {
         temp_data[pixel_index] = glm::vec3(rma_data[pixel_index].x);
       });
-      const auto roughness_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+      const auto roughness_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
       roughness_texture->SetRgbChannelData(temp_data, rma_resolution);
 
       Jobs::RunParallelFor(temp_data.size(), [&](const size_t pixel_index) {
         temp_data[pixel_index] = glm::vec3(rma_data[pixel_index].y);
       });
-      const auto metallic_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+      const auto metallic_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
       metallic_texture->SetRgbChannelData(temp_data, rma_resolution);
 
       Jobs::RunParallelFor(temp_data.size(), [&](const size_t pixel_index) {
         temp_data[pixel_index] = glm::vec3(rma_data[pixel_index].z);
       });
-      const auto ao_texture = ProjectManager::CreateTemporaryAsset<Texture2D>();
+      const auto ao_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
       ao_texture->SetRgbChannelData(temp_data, rma_resolution);
 
       roughness_texture_ = roughness_texture;

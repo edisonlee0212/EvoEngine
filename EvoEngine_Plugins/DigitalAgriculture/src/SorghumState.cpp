@@ -485,7 +485,7 @@ bool SorghumState::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     const auto scene = Application::GetActiveScene();
     const auto sorghum_entity = scene->CreateEntity(GetTitle());
     const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
-    const auto new_sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
+    const auto new_sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
     SorghumMeshGeneratorSettings settings{};
     settings.enable_leaf_sheath = false;
     settings.bottom_face = false;
@@ -574,7 +574,7 @@ Entity SorghumState::CreateEntity(const std::string& name) const {
 std::shared_ptr<Texture2D> SorghumState::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
-    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources") /
                                                 "Icons/SorghumDescriptor.png"));
   }

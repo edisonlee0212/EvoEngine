@@ -180,7 +180,7 @@ void sorghum_point_cloud(const uint32_t size, const bool avoid_occlusion, const 
         resource_folder_path / "DigitalAgricultureProject" / "SorghumGenerator";
     const auto sorghum_descriptor_generator = std::dynamic_pointer_cast<SorghumGenerator>(
         ProjectManager::GetOrCreateAsset(sorghum_descriptor_generator_relative_path));
-    const auto sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+    const auto sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
     sorghum_descriptor_generator->Apply(sorghum_descriptor, i + 1);
     std::string name = "Sorghum_" + std::to_string(i);
     std::filesystem::path target_tree_point_cloud_path = output_folder / (name + ".ply");
@@ -235,7 +235,7 @@ void sorghum_mesh_point_cloud(const uint32_t size, const bool avoid_occlusion, c
         resource_folder_path / "DigitalAgricultureProject" / "SorghumGenerator";
     const auto sorghum_descriptor_generator = std::dynamic_pointer_cast<SorghumGenerator>(
         ProjectManager::GetOrCreateAsset(sorghum_descriptor_generator_relative_path));
-    const auto sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+    const auto sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
     sorghum_descriptor_generator->Apply(sorghum_descriptor, i + 1);
     std::string name = "Sorghum_" + std::to_string(i);
     std::filesystem::path target_tree_point_cloud_path = output_folder / (name + ".ply");

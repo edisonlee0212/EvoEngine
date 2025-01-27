@@ -1,4 +1,5 @@
 #include "ReflectionProbe.hpp"
+#include "AssetManager.hpp"
 #include "EditorLayer.hpp"
 #include "Mesh.hpp"
 #include "RenderLayer.hpp"
@@ -12,7 +13,7 @@ struct EquirectangularToCubemapConstant {
 };
 
 void ReflectionProbe::Initialize(uint32_t resolution) {
-  cubemap_ = ProjectManager::CreateTemporaryAsset<Cubemap>();
+  cubemap_ = AssetManager::CreateTemporaryAsset<Cubemap>();
   const uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(resolution, resolution)))) + 1;
 
   cubemap_->Initialize(resolution, mip_levels);
@@ -114,9 +115,9 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
   static std::shared_ptr<GraphicsPipeline> prefilter_construct;
   if (!prefilter_construct) {
     prefilter_construct = std::make_shared<GraphicsPipeline>();
-    prefilter_construct->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
+    prefilter_construct->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
     prefilter_construct->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
                                   "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.frag");

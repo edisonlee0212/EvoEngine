@@ -595,7 +595,7 @@ const std::vector<glm::vec4>& Texture2D::GetLocalData() {
 }
 
 std::shared_ptr<Texture2D> Texture2D::GenerateThumbnailTexture() {
-  std::shared_ptr<Texture2D> ret_val = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  std::shared_ptr<Texture2D> ret_val = AssetManager::CreateTemporaryAsset<Texture2D>();
   const glm::vec2 resolution = GetResolution();
   const float max_dim = glm::max(resolution.x, resolution.y);
   const glm::vec2 new_resolution = resolution * glm::min(1.f, 128.f / max_dim);

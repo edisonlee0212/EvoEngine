@@ -60,7 +60,7 @@ void FileUtils::OpenFolder(const std::string& dialog_title,
         pos = ret_val.find(search, pos + 1);
       }
       std::filesystem::path path = ret_val;
-      if (!project_dir_check || ProjectManager::IsInProjectFolder(path))
+      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
         func(path);
     }
   }
@@ -75,7 +75,7 @@ void FileUtils::OpenFolder(const std::string& dialog_title,
     if (ImGuiFileDialog::Instance()->IsOk()) {
       // action
       std::filesystem::path path = ImGuiFileDialog::Instance()->GetCurrentPath();
-      if (!project_dir_check || ProjectManager::IsInProjectFolder(path))
+      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
         func(path);
     }
     // close
@@ -144,7 +144,7 @@ void FileUtils::OpenFile(const std::string& dialog_title, const std::string& fil
         pos = ret_val.find(search, pos + 1);
       }
       std::filesystem::path path = ret_val;
-      if (!project_dir_check || ProjectManager::IsInProjectFolder(path))
+      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
         func(path);
     }
   }
@@ -165,7 +165,7 @@ void FileUtils::OpenFile(const std::string& dialog_title, const std::string& fil
     if (ImGuiFileDialog::Instance()->IsOk()) {
       // action
       std::filesystem::path path = ImGuiFileDialog::Instance()->GetFilePathName();
-      if (!project_dir_check || ProjectManager::IsInProjectFolder(path))
+      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
         func(path);
     }
 
@@ -238,7 +238,7 @@ void FileUtils::SaveFile(const std::string& dialog_title, const std::string& fil
         pos = ret_val.find(search, pos + 1);
       }
       std::filesystem::path path = ret_val;
-      if (!project_dir_check || ProjectManager::IsInProjectFolder(path))
+      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
         func(path);
     }
   }
@@ -259,7 +259,7 @@ void FileUtils::SaveFile(const std::string& dialog_title, const std::string& fil
     if (ImGuiFileDialog::Instance()->IsOk()) {
       // action
       std::filesystem::path path = ImGuiFileDialog::Instance()->GetFilePathName();
-      if (!project_dir_check || ProjectManager::IsInProjectFolder(path))
+      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
         func(path);
     }
 

@@ -63,14 +63,14 @@ void IAsset::OnCreate() {
 }
 
 bool IAsset::Export(const std::filesystem::path &path) const {
-  if (ProjectManager::IsInProjectFolder(path)) {
+  if (ProjectManager::IsInAssetsFolder(path)) {
     EVOENGINE_ERROR("Path is in project folder!")
     return false;
   }
   return SaveInternal(path);
 }
 bool IAsset::Import(const std::filesystem::path &path) {
-  if (!ProjectManager::GetProjectPath().empty() && ProjectManager::IsInProjectFolder(path)) {
+  if (!ProjectManager::GetProjectPath().empty() && ProjectManager::IsInAssetsFolder(path)) {
     EVOENGINE_ERROR("Path is in project folder!")
     return false;
   }
@@ -87,7 +87,7 @@ bool IAsset::Saved() const {
 bool IAsset::IsTemporary() const {
   return file_record_.expired();
 }
-std::weak_ptr<FileRecord> IAsset::GetFileRecord() const {
+std::weak_ptr<File> IAsset::GetFileRecord() const {
   return file_record_;
 }
 std::filesystem::path IAsset::GetProjectRelativePath() const {
@@ -138,7 +138,7 @@ bool IAsset::SetPathAndSave(const std::filesystem::path &project_relative_path) 
       stem = "";
       extension = file_name;
     }
-    new_folder->RegisterAsset(self_.lock(), stem, extension);
+    file_record_ = new_folder->RegisterAsset(handle_, type_name_, stem, extension);
   }
 
   Save();
@@ -148,7 +148,5 @@ std::string IAsset::GetTitle() const {
   return IsTemporary() ? "Temporary " + type_name_ : GetProjectRelativePath().stem().string() + (saved_ ? "" : " *");
 }
 IAsset::~IAsset() {
-  auto &project_manager = ProjectManager::GetInstance();
-  if (project_manager.initialized)
-    project_manager.asset_registry_.erase(handle_);
+  AssetManager::RemoveAssetImpl(handle_);
 }

@@ -38,7 +38,7 @@ AssetRegistration<SorghumCoordinates> sc_registry("SorghumCoordinates", {".sorgh
 
 void SorghumLayer::OnCreate() {
   if (!leaf_material.Get<Material>()) {
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     leaf_material = material;
     material->SetAlbedoTexture(leaf_albedo_texture.Get<Texture2D>());
     material->material_properties.albedo_color = glm::vec3(113.0f / 255, 169.0f / 255, 44.0f / 255);
@@ -47,7 +47,7 @@ void SorghumLayer::OnCreate() {
   }
 
   if (!leaf_bottom_face_material.Get<Material>()) {
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     leaf_bottom_face_material = material;
     material->SetAlbedoTexture(leaf_albedo_texture.Get<Texture2D>());
     material->material_properties.albedo_color = glm::vec3(113.0f / 255, 169.0f / 255, 44.0f / 255);
@@ -56,7 +56,7 @@ void SorghumLayer::OnCreate() {
   }
 
   if (!panicle_material.Get<Material>()) {
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     panicle_material = material;
     material->material_properties.albedo_color = glm::vec3(255.0 / 255, 210.0 / 255, 0.0 / 255);
     material->material_properties.roughness = 0.5f;
@@ -65,7 +65,7 @@ void SorghumLayer::OnCreate() {
 
   for (auto& i : segmented_leaf_materials) {
     if (!i.Get<Material>()) {
-      const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+      const auto material = AssetManager::CreateTemporaryAsset<Material>();
       i = material;
       material->material_properties.albedo_color = glm::linearRand(glm::vec3(0.0f), glm::vec3(1.0f));
       material->material_properties.roughness = 1.0f;
@@ -111,7 +111,7 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       static float node_render_size = .01f;
       static float energy_scale_factor = 1.f;
       if (!probe_debug_info_list)
-        probe_debug_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+        probe_debug_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
       if (ImGui::TreeNode("Debug settings")) {
         ImGui::DragFloat("Probe size", &node_render_size, 0.001f, 0.0f, 1.f);
         ImGui::DragFloat("Energy scale factor", &energy_scale_factor, 0.01f, 0.0f, 100.f);

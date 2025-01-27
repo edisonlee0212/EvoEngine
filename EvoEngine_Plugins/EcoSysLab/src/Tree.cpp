@@ -205,15 +205,15 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
     strand_ready = true;
   }
 
-  const auto line_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  const auto line_material = ProjectManager::CreateTemporaryAsset<Material>();
+  const auto line_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  const auto line_material = AssetManager::CreateTemporaryAsset<Material>();
   const std::shared_ptr<Particles> line_particles = scene->GetOrSetPrivateComponent<Particles>(line_entity).lock();
   line_particles->mesh = line_mesh_sample;
   line_particles->material = line_material;
   line_particles->particle_info_list = line_list;
   line_material->vertex_color_only = true;
-  const auto point_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  const auto point_material = ProjectManager::CreateTemporaryAsset<Material>();
+  const auto point_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  const auto point_material = AssetManager::CreateTemporaryAsset<Material>();
   const std::shared_ptr<Particles> point_particles = scene->GetOrSetPrivateComponent<Particles>(point_entity).lock();
   point_particles->mesh = point_mesh_sample;
   point_particles->material = point_material;
@@ -356,7 +356,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
   static std::shared_ptr<ParticleInfoList> space_colonization_grid_particle_info_list;
   if (!space_colonization_grid_particle_info_list) {
-    space_colonization_grid_particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    space_colonization_grid_particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   }
 
   if (const auto td = tree_descriptor_ref.Get<TreeDescriptor>()) {
@@ -426,7 +426,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
           if (editor_layer->DragAndDropButton<MeshRenderer>(private_component_ref, "Add Obstacle")) {
             if (const auto mmr = private_component_ref.Get<MeshRenderer>()) {
-              const auto cube_volume = ProjectManager::CreateTemporaryAsset<CubeVolume>();
+              const auto cube_volume = AssetManager::CreateTemporaryAsset<CubeVolume>();
               cube_volume->ApplyMeshBounds(mmr->mesh.Get<Mesh>());
               const auto global_transform = scene->GetDataComponent<GlobalTransform>(mmr->GetOwner());
               tree_model.tree_occupancy_grid.InsertObstacle(global_transform, cube_volume);
@@ -774,7 +774,7 @@ void Tree::BuildStrandModel() {
 }
 
 std::shared_ptr<Strands> Tree::GenerateStrands() const {
-  const auto strands_asset = ProjectManager::CreateTemporaryAsset<Strands>();
+  const auto strands_asset = AssetManager::CreateTemporaryAsset<Strands>();
   const auto& parameters = strand_model_parameters;
   std::vector<glm::uint> strands_list;
   std::vector<StrandPoint> points;
@@ -788,7 +788,7 @@ std::shared_ptr<Strands> Tree::GenerateStrands() const {
 }
 
 std::shared_ptr<ParticleInfoList> Tree::GenerateStrandParticles() const {
-  const auto particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  const auto particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   std::vector<ParticleInfo> particle_infos;
   strand_model.strand_model_skeleton.data.strand_group.BuildParticles(particle_infos);
   particle_info_list->SetParticleInfos(particle_infos);
@@ -836,8 +836,8 @@ std::shared_ptr<Mesh> Tree::GenerateBranchMesh(const TreeMeshGeneratorSettings& 
     auto td = tree_descriptor_ref.Get<TreeDescriptor>();
     if (!td) {
       EVOENGINE_WARNING("TreeDescriptor missing!");
-      td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
-      td->foliage_descriptor = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+      td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+      td->foliage_descriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
     }
     std::shared_ptr<BarkDescriptor> bd{};
     bd = td->bark_descriptor.Get<BarkDescriptor>();
@@ -868,13 +868,13 @@ std::shared_ptr<Mesh> Tree::GenerateBranchMesh(const TreeMeshGeneratorSettings& 
     auto td = tree_descriptor_ref.Get<TreeDescriptor>();
     if (!td) {
       EVOENGINE_WARNING("TreeDescriptor missing!");
-      td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
-      td->foliage_descriptor = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+      td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+      td->foliage_descriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
     }
     VoxelMeshGenerator<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>::Generate(
         tree_model.PeekShootSkeleton(), vertices, indices, mesh_generator_settings);
   }
-  auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+  auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   VertexAttributes attributes{};
   attributes.tex_coord = true;
   mesh->SetVertices(attributes, vertices, indices);
@@ -893,12 +893,12 @@ std::shared_ptr<Mesh> Tree::GenerateFoliageMesh(const TreeMeshGeneratorSettings&
   auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (!td) {
     EVOENGINE_WARNING("TreeDescriptor missing!");
-    td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
-    td->foliage_descriptor = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+    td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+    td->foliage_descriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
   }
   auto fd = td->foliage_descriptor.Get<FoliageDescriptor>();
   if (!fd)
-    fd = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+    fd = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
   const auto tree_dim = tree_model.PeekShootSkeleton().max - tree_model.PeekShootSkeleton().min;
 
   const auto& node_list = tree_model.PeekShootSkeleton().PeekSortedNodeList();
@@ -950,7 +950,7 @@ std::shared_ptr<Mesh> Tree::GenerateFoliageMesh(const TreeMeshGeneratorSettings&
     }
   }
 
-  auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+  auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   VertexAttributes attributes{};
   attributes.tex_coord = true;
   mesh->SetVertices(attributes, vertices, indices);
@@ -962,13 +962,13 @@ std::shared_ptr<ParticleInfoList> Tree::GenerateFoliageParticleInfoList(
   auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (!td) {
     EVOENGINE_WARNING("TreeDescriptor missing!");
-    td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
-    td->foliage_descriptor = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+    td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+    td->foliage_descriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
   }
-  const auto ret_val = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  const auto ret_val = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   auto fd = td->foliage_descriptor.Get<FoliageDescriptor>();
   if (!fd)
-    fd = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+    fd = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
   std::vector<ParticleInfo> particle_infos;
   const auto& node_list = tree_model.PeekShootSkeleton().PeekSortedNodeList();
   const bool sm =
@@ -1008,7 +1008,7 @@ std::shared_ptr<Mesh> Tree::GenerateStrandModelFoliageMesh(
     return nullptr;
   auto fd = td->foliage_descriptor.Get<FoliageDescriptor>();
   if (!fd)
-    fd = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+    fd = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
   const auto& node_list = strand_model.strand_model_skeleton.PeekSortedNodeList();
   const auto tree_dim = strand_model.strand_model_skeleton.max - strand_model.strand_model_skeleton.min;
   for (const auto& internode_handle : node_list) {
@@ -1059,7 +1059,7 @@ std::shared_ptr<Mesh> Tree::GenerateStrandModelFoliageMesh(
     }
   }
 
-  auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+  auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   VertexAttributes attributes{};
   attributes.tex_coord = true;
   mesh->SetVertices(attributes, vertices, indices);
@@ -1072,7 +1072,7 @@ std::shared_ptr<Mesh> Tree::GenerateStrandModelBranchMesh(
   std::vector<unsigned int> indices;
   StrandModelMeshGenerator::Generate(strand_model, vertices, indices, strand_model_mesh_generator_settings);
 
-  auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+  auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   VertexAttributes attributes{};
   attributes.tex_coord = true;
   mesh->SetVertices(attributes, vertices, indices);
@@ -1307,7 +1307,7 @@ void Tree::ExportTrunkObj(const std::filesystem::path& path, const TreeMeshGener
       of.flush();
       unsigned start_index = 1;
       if (mesh_generator_settings.enable_branch) {
-        std::shared_ptr<Mesh> trunk_mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+        std::shared_ptr<Mesh> trunk_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
         GenerateTrunkMeshes(trunk_mesh, mesh_generator_settings);
         if (trunk_mesh) {
           auto& vertices = trunk_mesh->UnsafeGetVertices();
@@ -1360,11 +1360,11 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, bool pruning) 
   auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (!td) {
     EVOENGINE_WARNING("Growing tree without tree descriptor!");
-    td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
+    td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
     tree_descriptor_ref = td;
-    const auto sd = ProjectManager::CreateTemporaryAsset<ShootDescriptor>();
+    const auto sd = AssetManager::CreateTemporaryAsset<ShootDescriptor>();
     td->shoot_descriptor = sd;
-    const auto fd = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+    const auto fd = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
     td->foliage_descriptor = fd;
   }
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
@@ -1390,7 +1390,7 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, bool pruning) 
 
   auto sd = td->shoot_descriptor.Get<ShootDescriptor>();
   if (!sd) {
-    sd = ProjectManager::CreateTemporaryAsset<ShootDescriptor>();
+    sd = AssetManager::CreateTemporaryAsset<ShootDescriptor>();
     td->shoot_descriptor = sd;
     EVOENGINE_WARNING("Shoot Descriptor Missing!");
   }
@@ -1446,7 +1446,7 @@ bool Tree::TryGrowSubTree(const SimulationSettings& simulation_settings, const S
 
   auto shoot_descriptor = td->shoot_descriptor.Get<ShootDescriptor>();
   if (!shoot_descriptor) {
-    shoot_descriptor = ProjectManager::CreateTemporaryAsset<ShootDescriptor>();
+    shoot_descriptor = AssetManager::CreateTemporaryAsset<ShootDescriptor>();
     td->shoot_descriptor = shoot_descriptor;
     EVOENGINE_WARNING("Shoot Descriptor Missing!");
   }
@@ -2104,8 +2104,8 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     branch_entity = scene->CreateEntity("Animated Branch Mesh");
     scene->SetParent(branch_entity, self);
     auto animator = scene->GetOrSetPrivateComponent<Animator>(branch_entity).lock();
-    auto skinned_mesh = ProjectManager::CreateTemporaryAsset<SkinnedMesh>();
-    auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    auto skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
+    auto material = AssetManager::CreateTemporaryAsset<Material>();
     auto skinned_mesh_renderer = scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(branch_entity).lock();
     bool copied_material = false;
     if (td) {
@@ -2131,8 +2131,8 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
 
     if (!td) {
       EVOENGINE_WARNING("TreeDescriptor missing!");
-      td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
-      td->foliage_descriptor = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+      td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+      td->foliage_descriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
     }
     std::shared_ptr<BarkDescriptor> bark_descriptor{};
     bark_descriptor = td->bark_descriptor.Get<BarkDescriptor>();
@@ -2178,9 +2178,9 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     scene->SetParent(foliage_entity, self);
     auto animator = scene->GetOrSetPrivateComponent<Animator>(foliage_entity).lock();
 
-    auto skinned_mesh = ProjectManager::CreateTemporaryAsset<SkinnedMesh>();
+    auto skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
     auto skinned_mesh_renderer = scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(foliage_entity).lock();
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     bool copied_material = false;
     if (td) {
       if (const auto foliage_descriptor = td->foliage_descriptor.Get<FoliageDescriptor>()) {
@@ -2208,12 +2208,12 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
       size_t offset = 0;
       if (!td) {
         EVOENGINE_WARNING("TreeDescriptor missing!");
-        td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
-        td->foliage_descriptor = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+        td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+        td->foliage_descriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
       }
       auto fd = td->foliage_descriptor.Get<FoliageDescriptor>();
       if (!fd)
-        fd = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+        fd = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
       const auto tree_dim = skeleton.max - skeleton.min;
 
       const auto& node_list = skeleton.PeekSortedNodeList();
@@ -2365,7 +2365,7 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
     scene->SetParent(branch_entity, self);
 
     const auto mesh = GenerateBranchMesh(mesh_generator_settings);
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(branch_entity).lock();
     bool copied_material = false;
     if (tree_descriptor) {
@@ -2395,7 +2395,7 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
     if (mesh_generator_settings.foliage_instancing) {
       const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD");
       const auto particle_info_list = GenerateFoliageParticleInfoList(mesh_generator_settings);
-      const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+      const auto material = AssetManager::CreateTemporaryAsset<Material>();
       bool copied_material = false;
       if (tree_descriptor) {
         if (const auto foliage_descriptor = tree_descriptor->foliage_descriptor.Get<FoliageDescriptor>()) {
@@ -2421,7 +2421,7 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
     } else {
       auto mesh = GenerateFoliageMesh(mesh_generator_settings);
       auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(foliage_entity).lock();
-      const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+      const auto material = AssetManager::CreateTemporaryAsset<Material>();
       bool copied_material = false;
       if (tree_descriptor) {
         if (const auto foliage_descriptor = tree_descriptor->foliage_descriptor.Get<FoliageDescriptor>()) {
@@ -2473,12 +2473,12 @@ void Tree::GenerateTreeParts(const TreeMeshGeneratorSettings& mesh_generator_set
   auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (!td) {
     EVOENGINE_WARNING("TreeDescriptor missing!");
-    td = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
-    td->foliage_descriptor = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+    td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+    td->foliage_descriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
   }
   auto fd = td->foliage_descriptor.Get<FoliageDescriptor>();
   if (!fd)
-    fd = ProjectManager::CreateTemporaryAsset<FoliageDescriptor>();
+    fd = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
 
   const auto& skeleton = tree_model.RefShootSkeleton();
   const auto& sorted_internode_list = skeleton.PeekSortedNodeList();
@@ -3005,7 +3005,7 @@ void Tree::InitializeStrandParticles() {
   const auto renderer = scene->GetOrSetPrivateComponent<Particles>(strands_entity).lock();
   renderer->particle_info_list = GenerateStrandParticles();
   renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
-  const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;
   material->vertex_color_only = true;
@@ -3024,7 +3024,7 @@ void Tree::InitializeStrandParticles(const std::shared_ptr<ParticleInfoList>& pa
   const auto renderer = scene->GetOrSetPrivateComponent<Particles>(strands_entity).lock();
   renderer->particle_info_list = particle_info_list;
   renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
-  const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;
   material->vertex_color_only = true;
@@ -3057,7 +3057,7 @@ void Tree::InitializeStrandRenderer() {
   const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(strands_entity).lock();
   renderer->strands = GenerateStrands();
 
-  const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;
   material->vertex_color_only = true;
@@ -3077,7 +3077,7 @@ void Tree::InitializeStrandRenderer(const std::shared_ptr<Strands>& strands) con
 
   renderer->strands = strands;
 
-  const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;
   material->vertex_color_only = true;
@@ -3099,7 +3099,7 @@ void Tree::InitializeStrandModelMeshRenderer(
     scene->SetParent(foliage_entity, self);
 
     const auto mesh = GenerateStrandModelBranchMesh(strand_model_mesh_generator_settings);
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(foliage_entity).lock();
     bool copied_material = false;
     if (td) {
@@ -3128,7 +3128,7 @@ void Tree::InitializeStrandModelMeshRenderer(
     scene->SetParent(foliage_entity, self);
 
     const auto mesh = GenerateStrandModelFoliageMesh(strand_model_mesh_generator_settings);
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     bool copied_material = false;
     if (td) {
       if (const auto fd = td->foliage_descriptor.Get<FoliageDescriptor>()) {

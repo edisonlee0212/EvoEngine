@@ -1,14 +1,16 @@
 #include "LightProbe.hpp"
+#include "AssetManager.hpp"
 #include "EditorLayer.hpp"
 #include "Mesh.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
 #include "TextureStorage.hpp"
+
 using namespace evo_engine;
 
 void LightProbe::Initialize(const uint32_t resolution) {
-  cubemap_ = ProjectManager::CreateTemporaryAsset<Cubemap>();
+  cubemap_ = AssetManager::CreateTemporaryAsset<Cubemap>();
   cubemap_->Initialize(resolution);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -85,9 +87,9 @@ void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cub
 
   if (!irradiance_construct) {
     irradiance_construct = std::make_shared<GraphicsPipeline>();
-    irradiance_construct->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
+    irradiance_construct->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
     irradiance_construct->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
                                   "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapIrradianceConvolution.frag");

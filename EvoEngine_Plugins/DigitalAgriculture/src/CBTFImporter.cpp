@@ -66,7 +66,7 @@ void digital_agriculture_plugin::CBTFImporter::Update() {
   auto path = m_importFolders.back();
   m_importFolders.pop_back();
 #ifdef CUDA_MODULE_PLUGIN
-  auto asset = ProjectManager::CreateTemporaryAsset<CompressedBTF>();
+  auto asset = AssetManager::CreateTemporaryAsset<CompressedBTF>();
   asset->ImportFromFolder(path);
   asset->Export(m_currentExportFolder.string() + "\\" + path.filename().string() + ".cbtf");
 #endif

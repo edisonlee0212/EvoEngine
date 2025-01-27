@@ -51,18 +51,18 @@ void EcoSysLabLayer::OnCreate() {
     }
   }
 
-  shoot_stem_strands_ = ProjectManager::CreateTemporaryAsset<Strands>();
+  shoot_stem_strands_ = AssetManager::CreateTemporaryAsset<Strands>();
 
-  bounding_box_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  foliage_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  fruit_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  bounding_box_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  foliage_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  fruit_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
 
-  ground_fruit_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  ground_leaf_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  vector_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  scalar_matrices_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  shadow_grid_particle_info_list_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  lighting_grid_particle_info_list_ = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  ground_fruit_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  ground_leaf_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  vector_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  scalar_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  shadow_grid_particle_info_list_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  lighting_grid_particle_info_list_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
 #pragma region Internode camera
   visualization_camera_ = Serialization::ProduceSerializable<Camera>();
 

@@ -202,7 +202,7 @@ void SoilLayerDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
 std::shared_ptr<Texture2D> SoilDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
-    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(
         std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/SoilDescriptor.png"));
   }
@@ -232,7 +232,7 @@ bool SoilDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     auto scene = Application::GetActiveScene();
     auto soil_entity = scene->CreateEntity(GetTitle());
     auto soil = scene->GetOrSetPrivateComponent<Soil>(soil_entity).lock();
-    soil->soil_descriptor_ref = ProjectManager::GetAsset(GetHandle());
+    soil->soil_descriptor_ref = GetSelf();
     soil->InitializeSoilModel();
   }
 
@@ -556,11 +556,11 @@ Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2
                                   float water_factor, float nutrient_factor) {
   auto scene = Application::GetActiveScene();
   auto quad_entity = scene->CreateEntity("Slice");
-  auto material = ProjectManager::CreateTemporaryAsset<Material>();
-  auto albedo_tex = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  auto normal_tex = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  auto metallic_tex = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  auto roughness_tex = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  auto material = AssetManager::CreateTemporaryAsset<Material>();
+  auto albedo_tex = AssetManager::CreateTemporaryAsset<Texture2D>();
+  auto normal_tex = AssetManager::CreateTemporaryAsset<Texture2D>();
+  auto metallic_tex = AssetManager::CreateTemporaryAsset<Texture2D>();
+  auto roughness_tex = AssetManager::CreateTemporaryAsset<Texture2D>();
   std::vector<glm::vec4> albedo_data;
   std::vector<glm::vec3> normal_data;
   std::vector<float> metallic_data;
@@ -605,11 +605,11 @@ Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2
   auto quad_entity = scene->CreateEntity("Slice");
 
   const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(quad_entity).lock();
-  auto material = ProjectManager::CreateTemporaryAsset<Material>();
-  auto albedo_tex = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  auto normal_tex = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  auto metallic_tex = ProjectManager::CreateTemporaryAsset<Texture2D>();
-  auto roughness_tex = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  auto material = AssetManager::CreateTemporaryAsset<Material>();
+  auto albedo_tex = AssetManager::CreateTemporaryAsset<Texture2D>();
+  auto normal_tex = AssetManager::CreateTemporaryAsset<Texture2D>();
+  auto metallic_tex = AssetManager::CreateTemporaryAsset<Texture2D>();
+  auto roughness_tex = AssetManager::CreateTemporaryAsset<Texture2D>();
   std::vector<glm::vec4> albedo_data;
   std::vector<glm::vec3> normal_data;
   std::vector<float> metallic_data;
@@ -772,8 +772,8 @@ Entity Soil::GenerateMesh(float x_depth, float z_depth) {
   scene->SetParent(ground_surface_entity, self);
 
   const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(ground_surface_entity).lock();
-  const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
-  const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+  const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
   VertexAttributes vertex_attributes{};
   vertex_attributes.tex_coord = true;
   mesh->SetVertices(vertex_attributes, vertices, triangles);

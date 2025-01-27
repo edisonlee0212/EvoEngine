@@ -58,8 +58,8 @@ void UniverseLayer::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) 
 }
 
 void UniverseLayer::OnCreate() {
-  particle_info_list_ref = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
-  const auto star_material = ProjectManager::CreateTemporaryAsset<Material>();
+  particle_info_list_ref = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  const auto star_material = AssetManager::CreateTemporaryAsset<Material>();
   star_material->material_properties.emission = 3.f;
   star_material_ref = star_material;
   star_cluster_patterns_.resize(2);
@@ -83,7 +83,7 @@ void UniverseLayer::PreUpdate() {
 }
 
 void CheckLod(std::mutex &mutex, const std::shared_ptr<TerrainChunk> &chunk, const PlanetInfo &info,
-                             const GlobalTransform &planet_transform, const GlobalTransform &camera_transform) {
+              const GlobalTransform &planet_transform, const GlobalTransform &camera_transform) {
   if (glm::distance(glm::dvec3(chunk->ChunkCenterPosition(planet_transform.GetPosition(), info.radius,
                                                           planet_transform.GetRotation())),
                     glm::dvec3(camera_transform.GetPosition())) <
@@ -109,7 +109,7 @@ void CheckLod(std::mutex &mutex, const std::shared_ptr<TerrainChunk> &chunk, con
 }
 
 void RenderChunk(const std::shared_ptr<TerrainChunk> &chunk, const std::shared_ptr<Material> &material,
-                                const GlobalTransform &matrix, const bool receive_shadow) {
+                 const GlobalTransform &matrix, const bool receive_shadow) {
   if (chunk->active) {
     const auto render_layer = Application::GetLayer<RenderLayer>();
     render_layer->DrawMesh(chunk->mesh, material, matrix, true);
@@ -147,7 +147,7 @@ void UniverseLayer::Update() {
           glm::translate(glm::mat4_cast(planet_transform.GetRotation()), glm::vec3(planet_transform.GetPosition())),
           glm::vec3(1.0f));
       if (auto material = planet_terrain->surface_material.Get<Material>()) {
-        for (const auto& planet_chunk : planet_chunks) {
+        for (const auto &planet_chunk : planet_chunks) {
           RenderChunk(planet_chunk, material, global_transform, true);
         }
       }
@@ -166,10 +166,6 @@ void UniverseLayer::Update() {
     }
   }
 }
-
-
-
-
 
 void UniverseLayer::PushStars(StarClusterPattern &pattern, const size_t &amount) {
   const auto scene = GetScene();

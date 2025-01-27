@@ -16,7 +16,6 @@ struct ApplicationInfo {
 
 enum class ApplicationStatus {
   Uninitialized,
-  NoProject,
 
   NotPlaying,
   Pause,

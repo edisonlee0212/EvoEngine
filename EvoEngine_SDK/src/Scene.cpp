@@ -1,6 +1,6 @@
 #include "Scene.hpp"
 #include "Application.hpp"
-
+#include "AssetManager.hpp"
 #include "ClassRegistry.hpp"
 #include "EditorLayer.hpp"
 #include "Entities.hpp"
@@ -375,7 +375,7 @@ void Scene::Deserialize(const YAML::Node& in) {
     for (const auto& i : in_local_assets) {
       // First, find the asset in asset registry
       if (const auto type_name = i["type_name"].as<std::string>(); Serialization::HasSerializableType(type_name)) {
-        auto asset = ProjectManager::CreateTemporaryAsset(type_name, i["handle"].as<uint64_t>());
+        auto asset = AssetManager::CreateTemporaryAssetImpl(type_name, i["handle"].as<uint64_t>());
         local_assets.emplace_back(index, asset);
       }
       index++;
@@ -614,7 +614,7 @@ void Scene::OnCreate() {
   ltw.SetEulerRotation(glm::radians(glm::vec3(0, 0, 0)));
   SetDataComponent(ground_entity, ltw);
   const auto ground_mesh_renderer_component = GetOrSetPrivateComponent<MeshRenderer>(ground_entity).lock();
-  ground_mesh_renderer_component->material = ProjectManager::CreateTemporaryAsset<Material>();
+  ground_mesh_renderer_component->material = AssetManager::CreateTemporaryAsset<Material>();
   ground_mesh_renderer_component->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD");
 #pragma endregion
   */

@@ -15,8 +15,6 @@ bool Gpr::SaveInternal(const std::filesystem::path& path) const {
 }
 uint32_t spaces = 0;
 
-
-
 bool Gpr::LoadInternal(const std::filesystem::path& path) {
   if (path.extension().string() == ".GPR" || path.extension().string() == ".gpr") {
     if (input_buffer_.buffer) {
@@ -61,7 +59,7 @@ Gpr::~Gpr() {
 }
 
 Gpr::Gpr() {
-  preview_image_ = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  preview_image_ = AssetManager::CreateTemporaryAsset<Texture2D>();
   input_buffer_ = {nullptr, 0};
   rgb_buffer_ = {nullptr, 0, 0, 0};
   allocator_.Alloc = malloc;

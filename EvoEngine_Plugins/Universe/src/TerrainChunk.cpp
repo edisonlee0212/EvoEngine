@@ -1,8 +1,8 @@
-#include "ProjectManager.hpp"
 #include "TerrainChunk.hpp"
 #include "PlanetTerrain.hpp"
+#include "ProjectManager.hpp"
 glm::dvec3 universe_plugin::TerrainChunk::ChunkCenterPosition(const glm::dvec3 &planet_position, const double radius,
-                                                     const glm::quat rotation) const {
+                                                              const glm::quat rotation) const {
   const int actual_detail_level = (int)glm::pow(2, detail_level);
   glm::dvec2 percent = glm::dvec2(0.5, 0.5) / (double)actual_detail_level;
   glm::dvec3 point = local_up +
@@ -31,8 +31,9 @@ glm::dvec3 universe_plugin::TerrainChunk::ChunkCenterPosition(const glm::dvec3 &
 }
 
 universe_plugin::TerrainChunk::TerrainChunk(const std::shared_ptr<PlanetTerrain> &planet_terrain,
-                                   const std::shared_ptr<TerrainChunk> &parent, unsigned detail_level,
-                                   glm::ivec2 chunk_coordinate, ChunkDirection direction, glm::dvec3 local_up) {
+                                            const std::shared_ptr<TerrainChunk> &parent, unsigned detail_level,
+                                            glm::ivec2 chunk_coordinate, ChunkDirection direction,
+                                            glm::dvec3 local_up) {
   this->planet_terrain_ = planet_terrain;
   this->chunk_coordinate = chunk_coordinate;
   this->detail_level = detail_level;
@@ -86,7 +87,8 @@ void universe_plugin::TerrainChunk::Expand(std::mutex &mutex) {
   children_active = true;
 }
 
-void universe_plugin::TerrainChunk::GenerateTerrain(std::mutex &mutex, std::shared_ptr<TerrainChunk> &target_chunk) const {
+void universe_plugin::TerrainChunk::GenerateTerrain(std::mutex &mutex,
+                                                    std::shared_ptr<TerrainChunk> &target_chunk) const {
   if (target_chunk->mesh) {
     Console::Error("Mesh Exist!");
   }
@@ -117,7 +119,7 @@ void universe_plugin::TerrainChunk::GenerateTerrain(std::mutex &mutex, std::shar
     vertices.at(index).position = glm::vec3(point_on_unit_cube * planet_terrain->info_.radius * elevation);
   }
   std::lock_guard<std::mutex> lock(mutex);
-  auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+  auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   VertexAttributes attributes{};
   attributes.tex_coord = true;
 

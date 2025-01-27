@@ -32,13 +32,13 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
   auto target_sorghum_descriptor = sorghum_descriptor.Get<SorghumDescriptor>();
   if (!target_sorghum_descriptor) {
     if (const auto target_sorghum_generator = sorghum_generator.Get<SorghumGenerator>()) {
-      sorghum_descriptor = target_sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+      sorghum_descriptor = target_sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
       target_sorghum_generator->Apply(target_sorghum_descriptor);
     } else if (const auto target_sorghum_growth_stages = sorghum_growth_stages.Get<SorghumGrowthStages>()) {
-      sorghum_descriptor = target_sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+      sorghum_descriptor = target_sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
       target_sorghum_growth_stages->Apply(target_sorghum_descriptor, 1.f);
     } else if (const auto target_sorghum_state = sorghum_state.Get<SorghumState>()) {
-      sorghum_descriptor = target_sorghum_descriptor = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+      sorghum_descriptor = target_sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
       target_sorghum_state->Apply(target_sorghum_descriptor);
     }
   }
@@ -60,9 +60,9 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
   if (sorghum_mesh_generator_settings.enable_panicle && target_sorghum_descriptor->panicle.seed_amount > 0) {
     const auto panicle_entity = scene->CreateEntity("Panicle Mesh");
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(panicle_entity).lock();
-    const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
-    const auto particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
+    const auto particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
     particles->mesh = mesh;
     particles->material = material;
     const auto panicle_material = sorghum_layer->panicle_material.Get<Material>();
@@ -86,8 +86,8 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
   if (sorghum_mesh_generator_settings.enable_stem) {
     const auto stem_entity = scene->CreateEntity("Stem Mesh");
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(stem_entity).lock();
-    const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     mesh_renderer->mesh = mesh;
     mesh_renderer->material = material;
     const auto stem_material = sorghum_layer->leaf_material.Get<Material>();
@@ -113,7 +113,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
         if (sorghum_mesh_generator_settings.single_leaf_index < target_sorghum_descriptor->leaves.size()) {
           const auto& leaf_state = target_sorghum_descriptor->leaves[sorghum_mesh_generator_settings.single_leaf_index];
           const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
-          const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+          const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
           if (sorghum_layer->enable_compressed_btf) {
 #ifdef CUDA_MODULE_PLUGIN
             if (btf_group) {
@@ -124,7 +124,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
 #endif
           } else {
             const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
-            const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+            const auto material = AssetManager::CreateTemporaryAsset<Material>();
             mesh_renderer->mesh = mesh;
             mesh_renderer->material = material;
             const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
@@ -148,7 +148,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
       } else {
         for (const auto& leaf_state : target_sorghum_descriptor->leaves) {
           const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
-          const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+          const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
           if (sorghum_layer->enable_compressed_btf) {
 #ifdef CUDA_MODULE_PLUGIN
             if (btf_group) {
@@ -159,7 +159,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
 #endif
           } else {
             const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
-            const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+            const auto material = AssetManager::CreateTemporaryAsset<Material>();
             mesh_renderer->mesh = mesh;
             mesh_renderer->material = material;
             const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
@@ -183,7 +183,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
       }
     } else {
       const auto leaf_entity = scene->CreateEntity("Leaf Mesh");
-      const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+      const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
       if (sorghum_layer->enable_compressed_btf) {
 #ifdef CUDA_MODULE_PLUGIN
         if (const auto btf_group = sorghum_layer->leaf_cbtf_group.Get<CBTFGroup>()) {
@@ -194,7 +194,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
 #endif
       } else {
         const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(leaf_entity).lock();
-        const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+        const auto material = AssetManager::CreateTemporaryAsset<Material>();
         mesh_renderer->mesh = mesh;
         mesh_renderer->material = material;
         const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
@@ -265,7 +265,7 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       if (ImGui::DragInt("Seed", &seed)) {
         auto sd = sorghum_descriptor.Get<SorghumDescriptor>();
         if (!sd) {
-          sd = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+          sd = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
           sorghum_descriptor = sd;
         }
         ssg->Apply(sd, seed);
@@ -281,7 +281,7 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         time = glm::clamp(time, 0.0f, sgs->GetCurrentEndTime());
         auto sd = sorghum_descriptor.Get<SorghumDescriptor>();
         if (!sd) {
-          sd = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+          sd = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
           sorghum_descriptor = sd;
         }
         sgs->Apply(sd, time);
@@ -301,7 +301,7 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     static Entity previous_referenced_entity;
     static std::shared_ptr<ParticleInfoList> node_debug_info_list;
     if (!node_debug_info_list)
-      node_debug_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+      node_debug_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
     constexpr bool show_all_node = false;
     if (show_all_node) {
       if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>()) {

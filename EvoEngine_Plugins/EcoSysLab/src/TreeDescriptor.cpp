@@ -15,6 +15,8 @@
 #include "Strands.hpp"
 #include "StrandsRenderer.hpp"
 #include "TreeDescriptor.hpp"
+
+#include "AssetManager.hpp"
 #include "TreeMeshGenerator.hpp"
 
 #include "BarkDescriptor.hpp"
@@ -91,7 +93,7 @@ Entity TreeDescriptor::Instantiate() const {
     GlobalTransform global_transform;
     global_transform.SetPosition(glm::vec3(0, height, 0));
     scene->SetDataComponent(tree_entity, global_transform);
-    tree->tree_descriptor_ref = ProjectManager::GetAsset(GetHandle());
+    tree->tree_descriptor_ref = GetSelf();
     return tree_entity;
   }
 
@@ -110,7 +112,7 @@ void TreeDescriptor::Serialize(YAML::Emitter& out) const {
 std::shared_ptr<Texture2D> TreeDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
-    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(
         std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/TreeDescriptor.png"));
   }

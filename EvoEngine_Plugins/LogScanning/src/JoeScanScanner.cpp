@@ -1,7 +1,7 @@
 #include "JoeScanScanner.hpp"
 #include "Json.hpp"
-#include "Scene.hpp"
 #include "Prefab.hpp"
+#include "Scene.hpp"
 using namespace log_scanning_plugin;
 
 void logger(const jsError err, const std::string msg) {
@@ -14,7 +14,6 @@ void logger(const jsError err, const std::string msg) {
     EVOENGINE_ERROR("JoeScan Error (" + std::to_string(err) + "): " + err_str)
   }
 }
-
 
 void JoeScanScanner::StopScanningProcess() {
   if (scan_enabled_) {
@@ -48,7 +47,8 @@ void JoeScanScanner::StartScanProcess(const JoeScanScannerSettings& settings) {
   }
 
   if (const int start_scanning_result =
-      jsScanSystemStartFrameScanning(scan_system, min_period, JS_DATA_FORMAT_XY_BRIGHTNESS_FULL); 0 > start_scanning_result) {
+          jsScanSystemStartFrameScanning(scan_system, min_period, JS_DATA_FORMAT_XY_BRIGHTNESS_FULL);
+      0 > start_scanning_result) {
     EVOENGINE_ERROR("Failed to start scanning.");
     return;
   }
@@ -195,7 +195,7 @@ bool JoeScanScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   }
   static std::shared_ptr<ParticleInfoList> latest_point_list;
   if (!latest_point_list)
-    latest_point_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+    latest_point_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   if (scan_enabled_) {
     static bool enable_latest_point_rendering = true;
     ImGui::Checkbox("Render Latest Points", &enable_latest_point_rendering);

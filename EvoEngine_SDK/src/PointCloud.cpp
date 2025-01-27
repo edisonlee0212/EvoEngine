@@ -2,6 +2,7 @@
 // Created by lllll on 8/22/2021.
 //
 #include "PointCloud.hpp"
+#include "AssetManager.hpp"
 #include "EditorLayer.hpp"
 #include "Entity.hpp"
 #include "Material.hpp"
@@ -10,6 +11,7 @@
 #include "Resources.hpp"
 #include "Scene.hpp"
 #include "Tinyply.hpp"
+
 using namespace evo_engine;
 using namespace tinyply;
 
@@ -248,9 +250,9 @@ void PointCloud::ApplyCompressed() {
   const auto scene = Application::GetActiveScene();
   const auto owner = scene->CreateEntity("Compressed Point Cloud");
   const auto particles = scene->GetOrSetPrivateComponent<Particles>(owner).lock();
-  particles->material = ProjectManager::CreateTemporaryAsset<Material>();
+  particles->material = AssetManager::CreateTemporaryAsset<Material>();
   particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
-  particles->particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  particles->particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   auto compressed = std::vector<glm::dvec3>();
   Compress(compressed);
   const auto particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
@@ -406,9 +408,9 @@ void PointCloud::ApplyOriginal() const {
   const auto scene = Application::GetActiveScene();
   const auto owner = scene->CreateEntity("Original Point Cloud");
   const auto particles = scene->GetOrSetPrivateComponent<Particles>(owner).lock();
-  particles->material = ProjectManager::CreateTemporaryAsset<Material>();
+  particles->material = AssetManager::CreateTemporaryAsset<Material>();
   particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
-  particles->particle_info_list = ProjectManager::CreateTemporaryAsset<ParticleInfoList>();
+  particles->particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   const auto particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
   std::vector<ParticleInfo> particle_infos;
   particle_infos.resize(positions.size());

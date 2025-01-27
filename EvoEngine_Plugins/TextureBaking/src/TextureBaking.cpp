@@ -2,7 +2,6 @@
 
 #include "TextureBaker.hpp"
 
-
 using namespace evo_engine;
 using namespace texture_baking_plugin;
 
@@ -63,7 +62,7 @@ bool TextureBaking::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) 
       }
 
       if (ImGui::Button("Bake")) {
-        const auto target_material = ProjectManager::CreateTemporaryAsset<Material>();
+        const auto target_material = AssetManager::CreateTemporaryAsset<Material>();
         TextureBaker::Execute(texture_baker_params, ref_mesh, ref_material, target_mesh, target_material);
         target_mmr->material = target_material;
       }

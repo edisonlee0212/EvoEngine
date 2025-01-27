@@ -158,7 +158,7 @@ Entity ForestPatch::InstantiatePatch(
 std::shared_ptr<Texture2D> ForestPatch::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
-    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(
         std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ForestPatch.png"));
   }
@@ -264,7 +264,7 @@ bool ForestPatch::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
     for (const auto& i : std::filesystem::recursive_directory_iterator(folderPath)) {
       if (i.is_regular_file() && i.path().extension().string() == ".tree") {
         const auto treeDescriptor = std::dynamic_pointer_cast<TreeDescriptor>(
-            ProjectManager::GetOrCreateAsset(ProjectManager::GetPathRelativeToProject(i.path())));
+            ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(i.path())));
         if (treeDescriptor) {
           treeDescriptors.emplace_back(std::make_pair(tree_growth_settings, treeDescriptor));
         }
@@ -296,7 +296,7 @@ void TreeInfo::CollectAssetRef(std::vector<AssetRef>& list) const {
 std::shared_ptr<Texture2D> ForestDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
-    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(
         std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ForestDescriptor.png"));
   }
@@ -324,7 +324,7 @@ void ForestDescriptor::ApplyTreeDescriptors(const std::filesystem::path& folderP
   for (const auto& i : std::filesystem::recursive_directory_iterator(folderPath)) {
     if (i.is_regular_file() && i.path().extension().string() == ".tree") {
       const auto treeDescriptor = std::dynamic_pointer_cast<TreeDescriptor>(
-          ProjectManager::GetOrCreateAsset(ProjectManager::GetPathRelativeToProject(i.path())));
+          ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(i.path())));
       collectedTreeDescriptors.emplace_back(treeDescriptor);
     }
   }
@@ -363,7 +363,7 @@ void ForestDescriptor::ApplyTreeDescriptors(const std::filesystem::path& folderP
   for (const auto& i : std::filesystem::recursive_directory_iterator(folderPath)) {
     if (i.is_regular_file() && i.path().extension().string() == ".tree") {
       const auto treeDescriptor = std::dynamic_pointer_cast<TreeDescriptor>(
-          ProjectManager::GetOrCreateAsset(ProjectManager::GetPathRelativeToProject(i.path())));
+          ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(i.path())));
       collectedTreeDescriptors.emplace_back(treeDescriptor);
     }
   }
@@ -411,7 +411,7 @@ bool ForestDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer
         for (const auto& i : std::filesystem::recursive_directory_iterator(path)) {
           if (i.is_regular_file() && i.path().extension().string() == ".tree") {
             const auto treeDescriptor = std::dynamic_pointer_cast<TreeDescriptor>(
-                ProjectManager::GetOrCreateAsset(ProjectManager::GetPathRelativeToProject(i.path())));
+                ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(i.path())));
             tree_infos.emplace_back();
             glm::vec3 position = glm::vec3(5.f * index, 0.0f, 0.0f);
             if (heightField)

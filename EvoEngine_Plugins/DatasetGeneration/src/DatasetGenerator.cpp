@@ -14,7 +14,7 @@ using namespace digital_agriculture_plugin;
 
 bool CheckApplication() {
   const auto application_status = Application::GetApplicationStatus();
-  if (application_status == ApplicationStatus::NoProject) {
+  if (!Application::GetActiveScene()) {
     EVOENGINE_ERROR("No project!");
     return false;
   }
@@ -67,7 +67,7 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   if (soil_descriptor) {
     height_field = soil_descriptor->height_field.Get<HeightField>();
   }
-  std::shared_ptr<TreeDescriptor> actual_tree_descriptor = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
+  std::shared_ptr<TreeDescriptor> actual_tree_descriptor = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
 
   if (data_generation_parameters.tree_descriptor_path.is_relative()) {
     std::shared_ptr<TreeDescriptor> tree_descriptor;
@@ -87,9 +87,9 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
     actual_tree_descriptor->flower_descriptor = tree_descriptor->flower_descriptor;
   } else {
     std::shared_ptr<TreeDescriptor> tree_descriptor;
-    if (ProjectManager::IsInProjectFolder(data_generation_parameters.tree_descriptor_path)) {
+    if (ProjectManager::IsInAssetsFolder(data_generation_parameters.tree_descriptor_path)) {
       tree_descriptor = std::dynamic_pointer_cast<TreeDescriptor>(ProjectManager::GetOrCreateAsset(
-          ProjectManager::GetPathRelativeToProject(data_generation_parameters.tree_descriptor_path)));
+          ProjectManager::GetAssetsRelativePath(data_generation_parameters.tree_descriptor_path)));
     } else {
       EVOENGINE_ERROR("Tree Descriptor doesn't exist!");
       return;
@@ -112,10 +112,10 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
         EVOENGINE_ERROR("Foliage Descriptor doesn't exist!");
       }
     } else {
-      if (ProjectManager::IsInProjectFolder(data_generation_parameters.foliage_descriptor_path)) {
+      if (ProjectManager::IsInAssetsFolder(data_generation_parameters.foliage_descriptor_path)) {
         actual_tree_descriptor->foliage_descriptor =
             std::dynamic_pointer_cast<FoliageDescriptor>(ProjectManager::GetOrCreateAsset(
-                ProjectManager::GetPathRelativeToProject(data_generation_parameters.foliage_descriptor_path)));
+                ProjectManager::GetAssetsRelativePath(data_generation_parameters.foliage_descriptor_path)));
       } else {
         EVOENGINE_ERROR("Foliage Descriptor doesn't exist!");
         return;
@@ -134,10 +134,10 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
         EVOENGINE_ERROR("Bark Descriptor doesn't exist!");
       }
     } else {
-      if (ProjectManager::IsInProjectFolder(data_generation_parameters.bark_descriptor_path)) {
+      if (ProjectManager::IsInAssetsFolder(data_generation_parameters.bark_descriptor_path)) {
         actual_tree_descriptor->bark_descriptor =
             std::dynamic_pointer_cast<BarkDescriptor>(ProjectManager::GetOrCreateAsset(
-                ProjectManager::GetPathRelativeToProject(data_generation_parameters.bark_descriptor_path)));
+                ProjectManager::GetAssetsRelativePath(data_generation_parameters.bark_descriptor_path)));
       } else {
         EVOENGINE_ERROR("Bark Descriptor doesn't exist!");
         return;
@@ -275,7 +275,7 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, float grid_distance,
     EVOENGINE_ERROR("Application doesn't contain EcoSysLab layer!");
     return;
   }
-  const std::shared_ptr<ForestDescriptor> forest_descriptor = ProjectManager::CreateTemporaryAsset<ForestDescriptor>();
+  const std::shared_ptr<ForestDescriptor> forest_descriptor = AssetManager::CreateTemporaryAsset<ForestDescriptor>();
   if (std::shared_ptr<Soil> soil; !CheckSoil(soil, data_generation_parameters.generate_ground_mesh))
     return;
   if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
@@ -424,7 +424,7 @@ void DatasetGenerator::GeneratePointCloudForForestPatchJoinedSpecies(
   for (const auto& i : std::filesystem::recursive_directory_iterator(species_folder_path)) {
     if (i.is_regular_file() && i.path().extension().string() == ".tree") {
       if (const auto tree_descriptor = std::dynamic_pointer_cast<TreeDescriptor>(
-              ProjectManager::GetOrCreateAsset(ProjectManager::GetPathRelativeToProject(i.path())))) {
+              ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(i.path())))) {
         tree_descriptors.emplace_back(forest_patch->tree_growth_settings, tree_descriptor);
       }
     }
@@ -810,7 +810,7 @@ void DatasetGenerator::GeneratePointCloudForSorghumPatch(
   if (!CheckSoil(soil, true))
     return;
 
-  const auto sorghum_field = ProjectManager::CreateTemporaryAsset<SorghumField>();
+  const auto sorghum_field = AssetManager::CreateTemporaryAsset<SorghumField>();
   std::vector<glm::mat4> matrices_list;
   pattern.GenerateField(matrices_list);
   sorghum_field->matrices.resize(matrices_list.size());

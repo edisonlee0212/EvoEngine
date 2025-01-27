@@ -7,7 +7,6 @@
 #include "VisibilityTest.hpp"
 using namespace mesh_repair_plugin;
 
-
 bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = GetScene();
   auto find_mesh = [&](const std::shared_ptr<Prefab>& target_prefab) {
@@ -20,7 +19,7 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     return std::shared_ptr<Mesh>();
   };
   const auto owner = GetOwner();
-  
+
   static AssetRef visibility_test_prefab_ref;
   static AssetRef visibility_test_mesh_ref;
 
@@ -46,12 +45,12 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         vertices.at(triangles.at(i).z).color = color;
       }
 
-      const auto new_mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+      const auto new_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
       new_mesh->SetVertices(vertex_attributes, vertices, triangles);
       const auto new_entity = scene->CreateEntity("Visibility tested mesh");
       const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(new_entity).lock();
       mmr->mesh = new_mesh;
-      const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+      const auto material = AssetManager::CreateTemporaryAsset<Material>();
       material->vertex_color_only = true;
       mmr->material = material;
     }
@@ -73,12 +72,12 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       vertices.at(triangles.at(i).z).color = color;
     }
 
-    const auto new_mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+    const auto new_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
     new_mesh->SetVertices(vertex_attributes, vertices, triangles);
     const auto new_entity = scene->CreateEntity("Visibility tested mesh");
     const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(new_entity).lock();
     mmr->mesh = new_mesh;
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     material->vertex_color_only = true;
     mmr->material = material;
     visibility_test_mesh_ref.Clear();
@@ -125,7 +124,7 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           }
           VertexAttributes vertex_attributes{};
           vertex_attributes.color = true;
-          const auto new_mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+          const auto new_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
           new_mesh->SetVertices(vertex_attributes, new_vertices, new_triangles);
           const auto children = scene->GetChildren(owner);
           for (const auto& child : children) {
@@ -136,10 +135,10 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           const auto new_entity = scene->CreateEntity("Triangle error");
           const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(new_entity).lock();
           mmr->mesh = new_mesh;
-          const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+          const auto material = AssetManager::CreateTemporaryAsset<Material>();
           material->vertex_color_only = true;
           mmr->material = material;
-          
+
           scene->SetDataComponent(new_entity, error_prefab->CalculateAdjustedTransform(true, true));
           scene->SetParent(new_entity, owner);
         }
@@ -176,13 +175,13 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       vertices.at(triangles.at(i).z).color = color;
     }
 
-    const auto new_mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+    const auto new_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
     new_mesh->SetVertices(vertex_attributes, vertices, triangles);
     const auto new_entity = scene->CreateEntity("Visibility tested mesh");
     scene->SetDataComponent(new_entity, scene->GetDataComponent<GlobalTransform>(mesh_entity));
     const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(new_entity).lock();
     mmr->mesh = new_mesh;
-    const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
     material->vertex_color_only = true;
     mmr->material = material;
     mesh_entity_ref.Clear();

@@ -254,7 +254,7 @@ void SorghumGenerator::Deserialize(const YAML::Node& in) {
 std::shared_ptr<Texture2D> SorghumGenerator::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
-    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources") /
                                                 "Icons/SorghumGenerator.png"));
   }
@@ -265,7 +265,7 @@ Entity SorghumGenerator::CreateEntity(const unsigned int seed) const {
   const auto scene = Application::GetActiveScene();
   const auto entity = scene->CreateEntity(GetTitle());
   const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(entity).lock();
-  const auto sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
+  const auto sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
   Apply(sorghum_state, seed);
   sorghum->sorghum_state = sorghum_state;
   sorghum->sorghum_generator = GetSelf();
@@ -275,7 +275,7 @@ Entity SorghumGenerator::CreateEntity(const unsigned int seed) const {
 
 void SorghumGenerator::Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor,
                              const unsigned int seed) const {
-  const auto sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumState>();
+  const auto sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
   Apply(sorghum_state, seed);
   sorghum_state->Apply(target_sorghum_descriptor);
 }

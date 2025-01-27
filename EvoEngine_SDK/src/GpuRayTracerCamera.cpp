@@ -1,9 +1,9 @@
 #include "GpuRayTracerCamera.hpp"
 
+#include "AssetManager.hpp"
 #include "ClassRegistry.hpp"
 #include "CpuRayTracer.hpp"
 #include "EditorLayer.hpp"
-#include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Shader.hpp"
 #include "Times.hpp"
@@ -14,7 +14,7 @@ void GpuRayTracerCamera::OnCreate() {
    * When this PrivateComponent is created, we also create a new texture2d asset to accept the rendered results from GPU
    * Ray Tracer.
    */
-  texture_ref = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  texture_ref = AssetManager::CreateTemporaryAsset<Texture2D>();
   texture_ref.Get<Texture2D>()->SetResolution(resolution, false);
 }
 
@@ -174,7 +174,7 @@ void GpuRayTracerCamera::Capture() {
     /**
      * Here we load shader.
      */
-    ray_tracer_camera_shader = ProjectManager::CreateTemporaryAsset<Shader>();
+    ray_tracer_camera_shader = AssetManager::CreateTemporaryAsset<Shader>();
     /**
      * Load shader from path. Note the the CMake will copy the everything under .../EvoEngine_SDK/Internals/ to the
      * executable folder after compilation. If you are going to write your own shader, put it under

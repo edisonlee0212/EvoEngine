@@ -109,7 +109,7 @@ void SorghumField::Deserialize(const YAML::Node& in) {
 std::shared_ptr<Texture2D> SorghumField::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
-    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(
         std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources") / "Icons/SorghumField.png"));
   }
@@ -164,7 +164,7 @@ Entity SorghumField::InstantiateField() const {
 
       const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
       sorghum->sorghum_generator = sorghum_descriptor;
-      const auto sorghum_state = ProjectManager::CreateTemporaryAsset<SorghumDescriptor>();
+      const auto sorghum_state = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
       sorghum_descriptor->Apply(sorghum_state, 0);
       sorghum->sorghum_descriptor = sorghum_state;
       size++;

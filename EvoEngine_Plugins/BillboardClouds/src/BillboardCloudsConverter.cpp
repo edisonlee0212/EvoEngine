@@ -16,7 +16,7 @@ bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& edi
     if (EditorLayer::DragAndDropButton<Mesh>(mesh_ref, "Drop mesh here...")) {
       if (const auto mesh = mesh_ref.Get<Mesh>()) {
         BillboardCloud billboard_cloud{};
-        billboard_cloud.Process(mesh, ProjectManager::CreateTemporaryAsset<Material>());
+        billboard_cloud.Process(mesh, AssetManager::CreateTemporaryAsset<Material>());
         billboard_cloud.Generate(billboard_cloud_generate_settings);
         if (const auto entity = billboard_cloud.BuildEntity(scene); scene->IsEntityValid(entity))
           scene->SetEntityName(entity, "Billboard cloud (" + mesh->GetTitle() + ")");
@@ -84,7 +84,7 @@ bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& edi
     FileUtils::SaveFile(
         "Save point cloud...", "Point Cloud", {".ply"},
         [&](const std::filesystem::path& path) {
-          const auto point_cloud = ProjectManager::CreateTemporaryAsset<PointCloud>();
+          const auto point_cloud = AssetManager::CreateTemporaryAsset<PointCloud>();
           point_cloud->positions.resize(points.size());
           Jobs::RunParallelFor(points.size(), [&](const unsigned point_index) {
             point_cloud->positions[point_index] = glm::dvec3(points[point_index]);
@@ -112,7 +112,7 @@ bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& edi
           const auto level_set = element.CalculateLevelSets();
           Entity clone = scene->CreateEntity("Cloned");
           const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(clone).lock();
-          const auto mesh = ProjectManager::CreateTemporaryAsset<Mesh>();
+          const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
           VertexAttributes attributes{};
           attributes.color = true;
           attributes.normal = true;
@@ -120,7 +120,7 @@ bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& edi
           mesh->SetVertices(attributes, element.vertices, element.triangles);
           mesh_renderer->mesh = mesh;
 
-          const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+          const auto material = AssetManager::CreateTemporaryAsset<Material>();
           material->vertex_color_only = true;
           mesh_renderer->material = material;
         }

@@ -2,8 +2,8 @@
 
 #  include "AnimationPlayer.hpp"
 #  include "Application.hpp"
+#  include "AssetManager.hpp"
 #  include "ClassRegistry.hpp"
-
 #  include "EditorLayer.hpp"
 #  include "MeshRenderer.hpp"
 #  include "PlayerController.hpp"
@@ -237,7 +237,7 @@ void voxel_space_colonization_tree_data(
     bool export_radial_bounding_volume, const std::string& radial_bounding_volume_output_path,
     bool export_radial_bounding_volume_mesh, const std::string& radial_bounding_volume_mesh_output_path) {
   const auto application_status = Application::GetApplicationStatus();
-  if (application_status == ApplicationStatus::NoProject) {
+  if (!Application::GetActiveScene()) {
     EVOENGINE_ERROR("No project!");
     return;
   }
@@ -280,11 +280,11 @@ void voxel_space_colonization_tree_data(
   tree->soil = soil;
   tree->climate = climate;
   std::shared_ptr<TreeDescriptor> tree_descriptor;
-  if (ProjectManager::IsInProjectFolder(tree_parameters_path)) {
+  if (ProjectManager::IsInAssetsFolder(tree_parameters_path)) {
     tree_descriptor = std::dynamic_pointer_cast<TreeDescriptor>(
-        ProjectManager::GetOrCreateAsset(ProjectManager::GetPathRelativeToProject(tree_parameters_path)));
+        ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(tree_parameters_path)));
   } else {
-    tree_descriptor = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
+    tree_descriptor = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
   }
   tree->tree_descriptor_ref = tree_descriptor;
   auto& occupancy_grid = tree->tree_model.tree_occupancy_grid;
@@ -313,7 +313,7 @@ void voxel_space_colonization_tree_data(
     bool succeed = tree->ExportIoTree(tree_io_output_path);
   }
   if (export_radial_bounding_volume || export_radial_bounding_volume_mesh) {
-    const auto rbv = ProjectManager::CreateTemporaryAsset<RadialBoundingVolume>();
+    const auto rbv = AssetManager::CreateTemporaryAsset<RadialBoundingVolume>();
     tree->ExportRadialBoundingVolume(rbv);
     if (export_radial_bounding_volume) {
       if (!rbv->Export(radial_bounding_volume_output_path)) {
@@ -328,7 +328,7 @@ void voxel_space_colonization_tree_data(
 }
 
 void rbv_to_obj(const std::string& rbv_path, const std::string& radial_bounding_volume_mesh_output_path) {
-  const auto rbv = ProjectManager::CreateTemporaryAsset<RadialBoundingVolume>();
+  const auto rbv = AssetManager::CreateTemporaryAsset<RadialBoundingVolume>();
   rbv->Import(rbv_path);
   rbv->ExportAsObj(radial_bounding_volume_mesh_output_path);
 }
@@ -340,7 +340,7 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
                                       const std::string& tree_io_output_path, bool export_radial_bounding_volume_mesh,
                                       const std::string& radial_bounding_volume_mesh_output_path) {
   const auto application_status = Application::GetApplicationStatus();
-  if (application_status == ApplicationStatus::NoProject) {
+  if (!Application::GetActiveScene()) {
     EVOENGINE_ERROR("No project!");
     return;
   }
@@ -383,15 +383,15 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
   tree->soil = soil;
   tree->climate = climate;
   std::shared_ptr<TreeDescriptor> treeDescriptor;
-  if (ProjectManager::IsInProjectFolder(tree_parameters_path)) {
+  if (ProjectManager::IsInAssetsFolder(tree_parameters_path)) {
     treeDescriptor = std::dynamic_pointer_cast<TreeDescriptor>(
-        ProjectManager::GetOrCreateAsset(ProjectManager::GetPathRelativeToProject(tree_parameters_path)));
+        ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(tree_parameters_path)));
   } else {
-    treeDescriptor = ProjectManager::CreateTemporaryAsset<TreeDescriptor>();
+    treeDescriptor = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
   }
   tree->tree_descriptor_ref = treeDescriptor;
   auto& occupancyGrid = tree->tree_model.tree_occupancy_grid;
-  const auto rbv = ProjectManager::CreateTemporaryAsset<RadialBoundingVolume>();
+  const auto rbv = AssetManager::CreateTemporaryAsset<RadialBoundingVolume>();
   rbv->Import(rbv_path);
 
   occupancyGrid.Initialize(rbv, glm::vec3(-rbv->m_maxRadius, 0, -rbv->m_maxRadius),

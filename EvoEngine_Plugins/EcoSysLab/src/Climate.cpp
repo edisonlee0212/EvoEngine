@@ -1,5 +1,6 @@
 #include "Climate.hpp"
 
+#include "AssetManager.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EditorLayer.hpp"
 #include "Tree.hpp"
@@ -10,9 +11,9 @@ bool ClimateDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   bool changed = false;
   if (ImGui::Button("Instantiate")) {
     const auto scene = Application::GetActiveScene();
-    const auto climateEntity = scene->CreateEntity(GetTitle());
-    const auto climate = scene->GetOrSetPrivateComponent<Climate>(climateEntity).lock();
-    climate->climate_descriptor_ref = ProjectManager::GetAsset(GetHandle());
+    const auto climate_entity = scene->CreateEntity(GetTitle());
+    const auto climate = scene->GetOrSetPrivateComponent<Climate>(climate_entity).lock();
+    climate->climate_descriptor_ref = GetSelf();
   }
   return changed;
 }
@@ -20,7 +21,7 @@ bool ClimateDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
 std::shared_ptr<Texture2D> ClimateDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
-    thumbnail = ProjectManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(
         std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ClimateDescriptor.png"));
   }

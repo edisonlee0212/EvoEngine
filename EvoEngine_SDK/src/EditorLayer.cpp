@@ -1,5 +1,6 @@
 #include "EditorLayer.hpp"
 #include "Application.hpp"
+#include "AssetManager.hpp"
 #include "Cubemap.hpp"
 #include "EnvironmentalMap.hpp"
 #include "ILayer.hpp"
@@ -173,7 +174,7 @@ void EditorLayer::OnCreate() {
   scene_camera->camera_settings.clear_color = glm::vec3(59.0f / 255.0f, 85 / 255.0f, 143 / 255.f);
   scene_camera->camera_settings.use_clear_color = false;
   scene_camera->OnCreate();
-  scene_camera->post_processing_stack_ref = ProjectManager::CreateTemporaryAsset<PostProcessingStack>();
+  scene_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
   RegisterEditorCamera(scene_camera);
   scene_camera_handle_ = scene_camera->GetHandle();
   auto& editor_camera = editor_cameras_[scene_camera_handle_];
@@ -218,10 +219,10 @@ void EditorLayer::PreUpdate() {
   scene_camera_focus_override = false;
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
   if (ImGui::BeginMainMenuBar()) {
-    if (ImGui::BeginMenu("Project")) {
+    if (ImGui::BeginMenu("View")) {
       ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("View")) {
+    if (ImGui::BeginMenu("Project")) {
       ImGui::EndMenu();
     }
     ImGui::Separator();
@@ -257,8 +258,6 @@ void EditorLayer::PreUpdate() {
         break;
       }
       case ApplicationStatus::Uninitialized:
-        break;
-      case ApplicationStatus::NoProject:
         break;
       case ApplicationStatus::Step:
         break;
@@ -515,175 +514,175 @@ void EditorLayer::SceneCameraWindow() {
   const auto& graphics = Platform::GetInstance();
   auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
 #pragma region Scene Window
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
-  if (ImGui::Begin("Scene")) {
-    ImVec2 view_port_size;
-    // Using a Child allow to fill all the space of the window.
-    // It also allows customization
-    static int corner = 1;
-    if (ImGui::BeginChild("SceneCameraRenderer", ImVec2(0, 0), false)) {
-      view_port_size = ImGui::GetWindowSize();
-      scene_camera_resolution_x_ = view_port_size.x * scene_camera_resolution_multiplier;
-      scene_camera_resolution_y_ = view_port_size.y * scene_camera_resolution_multiplier;
-      const ImVec2 overlay_pos = ImGui::GetWindowPos();
-      if (sceneCamera && sceneCamera->rendered_) {
-        // Because I use the texture from OpenGL, I need to invert the V from the UV.
-        ImGui::Image(sceneCamera->GetRenderTexture()->GetColorImTextureId(), ImVec2(view_port_size.x, view_port_size.y),
-                     ImVec2(0, 1), ImVec2(1, 0));
-        CameraWindowDragAndDrop();
-      } else {
-        ImGui::Text("No active scene camera!");
-      }
-      const auto window_pos = ImVec2((corner & 1) ? (overlay_pos.x + view_port_size.x) : (overlay_pos.x),
-                                     (corner & 2) ? (overlay_pos.y + view_port_size.y) : (overlay_pos.y));
 
-      if (show_scene_info) {
-        const auto window_pos_pivot = ImVec2((corner & 1) ? 1.0f : 0.0f, (corner & 2) ? 1.0f : 0.0f);
-        ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
-        ImGui::SetNextWindowBgAlpha(0.35f);
-        constexpr ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking |
-                                                  ImGuiWindowFlags_NoSavedSettings |
-                                                  ImGuiWindowFlags_NoFocusOnAppearing;
-        if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_None;
-            ImGui::BeginChild("Info", ImVec2(120, 110), child_flags, window_flags)) {
-          ImGui::Text("Info:");
-          ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
-          std::string draw_call_info = {};
-          const auto current_frame_index = Platform::GetCurrentFrameIndex();
-          if (graphics.prim_count[current_frame_index] < 999)
-            draw_call_info += std::to_string(graphics.prim_count[current_frame_index]);
-          else if (graphics.prim_count[current_frame_index] < 999999)
-            draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
-          else
-            draw_call_info +=
-                std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
-          draw_call_info += " tris";
-          ImGui::Text(draw_call_info.c_str());
-          ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);
-          ImGui::Text("Idle: %.3f", graphics.cpu_wait_time);
-          ImGui::Separator();
-          if (ImGui::IsMousePosValid()) {
-            const auto pos = Input::GetMousePosition();
-            ImGui::Text("Mouse: [%.0f,%.0f]", pos.x, pos.y);
-          } else {
-            ImGui::Text("Mouse: <invalid>");
+  scene_camera_window_focused_ = false;
+  if (ImGui::Begin("Scene")) {
+    if (scene) {
+      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
+      ImVec2 view_port_size;
+      // Using a Child allow to fill all the space of the window.
+      // It also allows customization
+      static int corner = 1;
+      if (ImGui::BeginChild("SceneCameraRenderer", ImVec2(0, 0), false)) {
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
+          scene_camera_window_focused_ = true;
+        }
+        view_port_size = ImGui::GetWindowSize();
+        scene_camera_resolution_x_ = view_port_size.x * scene_camera_resolution_multiplier;
+        scene_camera_resolution_y_ = view_port_size.y * scene_camera_resolution_multiplier;
+        const ImVec2 overlay_pos = ImGui::GetWindowPos();
+        if (sceneCamera && sceneCamera->rendered_) {
+          // Because I use the texture from OpenGL, I need to invert the V from the UV.
+          ImGui::Image(sceneCamera->GetRenderTexture()->GetColorImTextureId(),
+                       ImVec2(view_port_size.x, view_port_size.y), ImVec2(0, 1), ImVec2(1, 0));
+          CameraWindowDragAndDrop();
+        } else {
+          ImGui::Text("No active scene camera!");
+        }
+        const auto window_pos = ImVec2((corner & 1) ? (overlay_pos.x + view_port_size.x) : (overlay_pos.x),
+                                       (corner & 2) ? (overlay_pos.y + view_port_size.y) : (overlay_pos.y));
+
+        if (show_scene_info) {
+          const auto window_pos_pivot = ImVec2((corner & 1) ? 1.0f : 0.0f, (corner & 2) ? 1.0f : 0.0f);
+          ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+          ImGui::SetNextWindowBgAlpha(0.35f);
+          constexpr ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking |
+                                                    ImGuiWindowFlags_NoSavedSettings |
+                                                    ImGuiWindowFlags_NoFocusOnAppearing;
+          if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_None;
+              ImGui::BeginChild("Info", ImVec2(120, 110), child_flags, window_flags)) {
+            ImGui::Text("Info:");
+            ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
+            std::string draw_call_info = {};
+            const auto current_frame_index = Platform::GetCurrentFrameIndex();
+            if (graphics.prim_count[current_frame_index] < 999)
+              draw_call_info += std::to_string(graphics.prim_count[current_frame_index]);
+            else if (graphics.prim_count[current_frame_index] < 999999)
+              draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
+            else
+              draw_call_info +=
+                  std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
+            draw_call_info += " tris";
+            ImGui::Text(draw_call_info.c_str());
+            ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);
+            ImGui::Text("Idle: %.3f", graphics.cpu_wait_time);
+            ImGui::Separator();
+            if (ImGui::IsMousePosValid()) {
+              const auto pos = Input::GetMousePosition();
+              ImGui::Text("Mouse: [%.0f,%.0f]", pos.x, pos.y);
+            } else {
+              ImGui::Text("Mouse: <invalid>");
+            }
           }
+          ImGui::EndChild();
         }
-        ImGui::EndChild();
-      }
-      if (scene_camera_window_focused_) {
+        if (scene_camera_window_focused_) {
 #pragma region Scene Camera Controller
-        static bool is_dragging_previously = false;
-        bool mouse_drag = true;
-        if (mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
-            mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y ||
-            Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
-          mouse_drag = false;
-        }
-        static float prev_x = 0;
-        static float prev_y = 0;
-        if (mouse_drag && !is_dragging_previously) {
+          static bool is_dragging_previously = false;
+          bool mouse_drag = true;
+          if (mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
+              mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y ||
+              Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
+            mouse_drag = false;
+          }
+          static float prev_x = 0;
+          static float prev_y = 0;
+          if (mouse_drag && !is_dragging_previously) {
+            prev_x = mouse_scene_window_position_.x;
+            prev_y = mouse_scene_window_position_.y;
+          }
+          const float x_offset = mouse_scene_window_position_.x - prev_x;
+          const float y_offset = mouse_scene_window_position_.y - prev_y;
           prev_x = mouse_scene_window_position_.x;
           prev_y = mouse_scene_window_position_.y;
-        }
-        const float x_offset = mouse_scene_window_position_.x - prev_x;
-        const float y_offset = mouse_scene_window_position_.y - prev_y;
-        prev_x = mouse_scene_window_position_.x;
-        prev_y = mouse_scene_window_position_.y;
-        is_dragging_previously = mouse_drag;
+          is_dragging_previously = mouse_drag;
 
-        if (mouse_drag && !lock_camera) {
-          glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
-          const glm::vec3 right = sceneCameraRotation * glm::vec3(1, 0, 0);
-          if (Input::GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
-            sceneCameraPosition += front * static_cast<float>(Times::DeltaTime()) * velocity;
-          }
-          if (Input::GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
-            sceneCameraPosition -= front * static_cast<float>(Times::DeltaTime()) * velocity;
-          }
-          if (Input::GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
-            sceneCameraPosition -= right * static_cast<float>(Times::DeltaTime()) * velocity;
-          }
-          if (Input::GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
-            sceneCameraPosition += right * static_cast<float>(Times::DeltaTime()) * velocity;
-          }
-          if (Input::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
-            sceneCameraPosition.y += velocity * static_cast<float>(Times::DeltaTime());
-          }
-          if (Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
-            sceneCameraPosition.y -= velocity * static_cast<float>(Times::DeltaTime());
-          }
-          if (x_offset != 0.0f || y_offset != 0.0f) {
-            front = glm::rotate(front, glm::radians(-x_offset * sensitivity), glm::vec3(0, 1, 0));
-            const glm::vec3 right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
-            if ((front.y < 0.99f && y_offset < 0.0f) || (front.y > -0.99f && y_offset > 0.0f)) {
-              front = glm::rotate(front, glm::radians(-y_offset * sensitivity), right);
+          if (mouse_drag && !lock_camera) {
+            glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
+            const glm::vec3 right = sceneCameraRotation * glm::vec3(1, 0, 0);
+            if (Input::GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
+              sceneCameraPosition += front * static_cast<float>(Times::DeltaTime()) * velocity;
             }
-            const glm::vec3 up = glm::normalize(glm::cross(right, front));
-            sceneCameraRotation = glm::quatLookAt(front, up);
+            if (Input::GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
+              sceneCameraPosition -= front * static_cast<float>(Times::DeltaTime()) * velocity;
+            }
+            if (Input::GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
+              sceneCameraPosition -= right * static_cast<float>(Times::DeltaTime()) * velocity;
+            }
+            if (Input::GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
+              sceneCameraPosition += right * static_cast<float>(Times::DeltaTime()) * velocity;
+            }
+            if (Input::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
+              sceneCameraPosition.y += velocity * static_cast<float>(Times::DeltaTime());
+            }
+            if (Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
+              sceneCameraPosition.y -= velocity * static_cast<float>(Times::DeltaTime());
+            }
+            if (x_offset != 0.0f || y_offset != 0.0f) {
+              front = glm::rotate(front, glm::radians(-x_offset * sensitivity), glm::vec3(0, 1, 0));
+              const glm::vec3 right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
+              if ((front.y < 0.99f && y_offset < 0.0f) || (front.y > -0.99f && y_offset > 0.0f)) {
+                front = glm::rotate(front, glm::radians(-y_offset * sensitivity), right);
+              }
+              const glm::vec3 up = glm::normalize(glm::cross(right, front));
+              sceneCameraRotation = glm::quatLookAt(front, up);
+            }
+#pragma endregion
           }
-#pragma endregion
         }
       }
-    }
 #pragma region Gizmos and Entity Selection
-    gizmo_using_ = false;
-    gizmo_displaying_ = false;
-    if (enable_gizmos) {
-      ImGuizmo::SetOrthographic(false);
-      ImGuizmo::SetDrawlist();
-      float view_manipulate_left = ImGui::GetWindowPos().x;
-      float view_manipulate_top = ImGui::GetWindowPos().y;
-      ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, view_port_size.x, view_port_size.y);
-      glm::mat4 camera_view = glm::inverse(glm::translate(sceneCameraPosition) * glm::mat4_cast(sceneCameraRotation));
-      glm::mat4 camera_projection = sceneCamera->GetProjection();
-      const auto op = local_position_selected_   ? ImGuizmo::OPERATION::TRANSLATE
-                      : local_rotation_selected_ ? ImGuizmo::OPERATION::ROTATE
-                                                 : ImGuizmo::OPERATION::SCALE;
-      if (scene->IsEntityValid(selected_entity_)) {
-        auto transform = scene->GetDataComponent<Transform>(selected_entity_);
-        GlobalTransform parent_global_transform;
-        if (Entity parent_entity = scene->GetParent(selected_entity_); parent_entity.GetIndex() != 0) {
-          parent_global_transform = scene->GetDataComponent<GlobalTransform>(scene->GetParent(selected_entity_));
-        }
-        auto global_transform = scene->GetDataComponent<GlobalTransform>(selected_entity_);
+      gizmo_using_ = false;
+      gizmo_displaying_ = false;
+      if (enable_gizmos) {
+        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::SetDrawlist();
+        float view_manipulate_left = ImGui::GetWindowPos().x;
+        float view_manipulate_top = ImGui::GetWindowPos().y;
+        ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, view_port_size.x, view_port_size.y);
+        glm::mat4 camera_view = glm::inverse(glm::translate(sceneCameraPosition) * glm::mat4_cast(sceneCameraRotation));
+        glm::mat4 camera_projection = sceneCamera->GetProjection();
+        const auto op = local_position_selected_   ? ImGuizmo::OPERATION::TRANSLATE
+                        : local_rotation_selected_ ? ImGuizmo::OPERATION::ROTATE
+                                                   : ImGuizmo::OPERATION::SCALE;
+        if (scene->IsEntityValid(selected_entity_)) {
+          auto transform = scene->GetDataComponent<Transform>(selected_entity_);
+          GlobalTransform parent_global_transform;
+          if (Entity parent_entity = scene->GetParent(selected_entity_); parent_entity.GetIndex() != 0) {
+            parent_global_transform = scene->GetDataComponent<GlobalTransform>(scene->GetParent(selected_entity_));
+          }
+          auto global_transform = scene->GetDataComponent<GlobalTransform>(selected_entity_);
 
-        ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op, ImGuizmo::LOCAL,
-                             glm::value_ptr(global_transform.value));
-        gizmo_displaying_ = true;
-        if (ImGuizmo::IsUsing()) {
-          transform.value = glm::inverse(parent_global_transform.value) * global_transform.value;
-          scene->SetDataComponent(selected_entity_, transform);
-          transform.Decompose(previously_stored_position_, previously_stored_rotation_, previously_stored_scale_);
-          previously_stored_rotation_ = glm::degrees(previously_stored_rotation_);
-          gizmo_using_ = true;
+          ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op, ImGuizmo::LOCAL,
+                               glm::value_ptr(global_transform.value));
+          gizmo_displaying_ = true;
+          if (ImGuizmo::IsUsing()) {
+            transform.value = glm::inverse(parent_global_transform.value) * global_transform.value;
+            scene->SetDataComponent(selected_entity_, transform);
+            transform.Decompose(previously_stored_position_, previously_stored_rotation_, previously_stored_scale_);
+            previously_stored_rotation_ = glm::degrees(previously_stored_rotation_);
+            gizmo_using_ = true;
+          }
+        }
+        if (enable_view_gizmos) {
+          ImGuizmo::ViewManipulate(glm::value_ptr(camera_view), 1.0f, ImVec2(view_manipulate_left, view_manipulate_top),
+                                   ImVec2(96, 96), 0);
+          GlobalTransform gl;
+          gl.value = glm::inverse(camera_view);
+          sceneCameraRotation = gl.GetRotation();
         }
       }
-      if (enable_view_gizmos) {
-        ImGuizmo::ViewManipulate(glm::value_ptr(camera_view), 1.0f, ImVec2(view_manipulate_left, view_manipulate_top),
-                                 ImVec2(96, 96), 0);
-        GlobalTransform gl;
-        gl.value = glm::inverse(camera_view);
-        sceneCameraRotation = gl.GetRotation();
-      }
-    }
-
 #pragma endregion
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
-      scene_camera_window_focused_ = true;
+
+      ImGui::EndChild();
+      sceneCamera->SetRequireRendering(
+          !(ImGui::GetCurrentWindowRead()->Hidden && !ImGui::GetCurrentWindowRead()->Collapsed));
+      ImGui::PopStyleVar();
     } else {
-      scene_camera_window_focused_ = false;
+      ImGui::Text("No Scene!");
     }
-    ImGui::EndChild();
-  } else {
-    scene_camera_window_focused_ = false;
   }
-  sceneCamera->SetRequireRendering(
-      !(ImGui::GetCurrentWindowRead()->Hidden && !ImGui::GetCurrentWindowRead()->Collapsed));
-
   ImGui::End();
-
-  ImGui::PopStyleVar();
 
 #pragma endregion
 }
@@ -700,121 +699,122 @@ void EditorLayer::MainCameraWindow() {
   const auto& graphics = Platform::GetInstance();
   const auto scene = GetScene();
 #pragma region Window
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
+  main_camera_window_focused_ = false;
   if (ImGui::Begin("Camera")) {
-    static int corner = 1;
-    // Using a Child allow to fill all the space of the window.
-    // It also allows customization
-    if (ImGui::BeginChild("MainCameraRenderer", ImVec2(0, 0), false)) {
-      const ImVec2 view_port_size = ImGui::GetWindowSize();
-      main_camera_resolution_x = view_port_size.x * main_camera_resolution_multiplier_;
-      main_camera_resolution_y = view_port_size.y * main_camera_resolution_multiplier_;
-      //  Get the size of the child (i.e. the whole draw size of the windows).
-      const ImVec2 overlay_pos = ImGui::GetWindowPos();
-      // Because I use the texture from OpenGL, I need to invert the V from the UV.
-      const auto main_camera = scene->main_camera.Get<Camera>();
-      if (main_camera && main_camera->rendered_) {
-        ImGui::Image(main_camera->GetRenderTexture()->GetColorImTextureId(), ImVec2(view_port_size.x, view_port_size.y),
-                     ImVec2(0, 1), ImVec2(1, 0));
-        CameraWindowDragAndDrop();
-      } else {
-        ImGui::Text("No active main camera!");
-      }
-
-      const auto window_pos = ImVec2((corner & 1) ? (overlay_pos.x + view_port_size.x) : (overlay_pos.x),
-                                     (corner & 2) ? (overlay_pos.y + view_port_size.y) : (overlay_pos.y));
-      if (show_camera_info) {
-        const auto window_pos_pivot = ImVec2((corner & 1) ? 1.0f : 0.0f, (corner & 2) ? 1.0f : 0.0f);
-        ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
-        ImGui::SetNextWindowBgAlpha(0.35f);
-        constexpr ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking |
-                                                  ImGuiWindowFlags_NoSavedSettings |
-                                                  ImGuiWindowFlags_NoFocusOnAppearing;
-        if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_None;
-            ImGui::BeginChild("Render Info", ImVec2(300, 150), child_flags, window_flags)) {
-          ImGui::Text("Info & Settings");
-          ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
-          ImGui::PushItemWidth(100);
-          ImGui::Checkbox("Auto resize", &main_camera_allow_auto_resize);
-          if (main_camera_allow_auto_resize) {
-            ImGui::DragFloat("Resolution multiplier", &main_camera_resolution_multiplier_, 0.1f, 0.1f, 4.0f);
-          }
-          ImGui::PopItemWidth();
-          std::string draw_call_info = {};
-          const auto current_frame_index = Platform::GetCurrentFrameIndex();
-          if (graphics.prim_count[current_frame_index] < 999)
-            draw_call_info += std::to_string(graphics.prim_count[current_frame_index]);
-          else if (graphics.prim_count[current_frame_index] < 999999)
-            draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
-          else
-            draw_call_info +=
-                std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
-          draw_call_info += " tris";
-          ImGui::Text(draw_call_info.c_str());
-          ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);
-          ImGui::Separator();
-          if (ImGui::IsMousePosValid()) {
-            const auto pos = Input::GetMousePosition();
-            ImGui::Text("Mouse Pos: (%.1f,%.1f)", pos.x, pos.y);
-          } else {
-            ImGui::Text("Mouse Pos: <invalid>");
-          }
+    if (scene) {
+      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
+      static int corner = 1;
+      // Using a Child allow to fill all the space of the window.
+      // It also allows customization
+      if (ImGui::BeginChild("MainCameraRenderer", ImVec2(0, 0), false)) {
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
+          main_camera_window_focused_ = true;
         }
-        ImGui::EndChild();
-      }
-
-      if (main_camera_window_focused_ && !lock_entity_selection_ &&
-          Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
-        SetSelectedEntity(Entity());
-      }
-      if (!Application::IsPlaying() && main_camera_window_focused_ && !lock_entity_selection_ &&
-          Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press &&
-          !(mouse_camera_window_position_.x < 0 || mouse_camera_window_position_.y < 0 ||
-            mouse_camera_window_position_.x > view_port_size.x || mouse_camera_window_position_.y > view_port_size.y)) {
-        if (const auto focused_entity = MouseEntitySelection(main_camera, mouse_camera_window_position_);
-            focused_entity == Entity()) {
-          SetSelectedEntity(Entity());
+        const ImVec2 view_port_size = ImGui::GetWindowSize();
+        main_camera_resolution_x = view_port_size.x * main_camera_resolution_multiplier_;
+        main_camera_resolution_y = view_port_size.y * main_camera_resolution_multiplier_;
+        //  Get the size of the child (i.e. the whole draw size of the windows).
+        const ImVec2 overlay_pos = ImGui::GetWindowPos();
+        // Because I use the texture from OpenGL, I need to invert the V from the UV.
+        const auto main_camera = scene->main_camera.Get<Camera>();
+        if (main_camera && main_camera->rendered_) {
+          ImGui::Image(main_camera->GetRenderTexture()->GetColorImTextureId(),
+                       ImVec2(view_port_size.x, view_port_size.y), ImVec2(0, 1), ImVec2(1, 0));
+          CameraWindowDragAndDrop();
         } else {
-          Entity walker = focused_entity;
-          bool found = false;
-          while (walker.GetIndex() != 0) {
-            if (walker == selected_entity_) {
-              found = true;
-              break;
+          ImGui::Text("No active main camera!");
+        }
+
+        const auto window_pos = ImVec2((corner & 1) ? (overlay_pos.x + view_port_size.x) : (overlay_pos.x),
+                                       (corner & 2) ? (overlay_pos.y + view_port_size.y) : (overlay_pos.y));
+        if (show_camera_info) {
+          const auto window_pos_pivot = ImVec2((corner & 1) ? 1.0f : 0.0f, (corner & 2) ? 1.0f : 0.0f);
+          ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+          ImGui::SetNextWindowBgAlpha(0.35f);
+          constexpr ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking |
+                                                    ImGuiWindowFlags_NoSavedSettings |
+                                                    ImGuiWindowFlags_NoFocusOnAppearing;
+          if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_None;
+              ImGui::BeginChild("Render Info", ImVec2(300, 150), child_flags, window_flags)) {
+            ImGui::Text("Info & Settings");
+            ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
+            ImGui::PushItemWidth(100);
+            ImGui::Checkbox("Auto resize", &main_camera_allow_auto_resize);
+            if (main_camera_allow_auto_resize) {
+              ImGui::DragFloat("Resolution multiplier", &main_camera_resolution_multiplier_, 0.1f, 0.1f, 4.0f);
             }
-            walker = scene->GetParent(walker);
-          }
-          if (found) {
-            walker = scene->GetParent(walker);
-            if (walker.GetIndex() == 0) {
-              SetSelectedEntity(focused_entity);
+            ImGui::PopItemWidth();
+            std::string draw_call_info = {};
+            const auto current_frame_index = Platform::GetCurrentFrameIndex();
+            if (graphics.prim_count[current_frame_index] < 999)
+              draw_call_info += std::to_string(graphics.prim_count[current_frame_index]);
+            else if (graphics.prim_count[current_frame_index] < 999999)
+              draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
+            else
+              draw_call_info +=
+                  std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
+            draw_call_info += " tris";
+            ImGui::Text(draw_call_info.c_str());
+            ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);
+            ImGui::Separator();
+            if (ImGui::IsMousePosValid()) {
+              const auto pos = Input::GetMousePosition();
+              ImGui::Text("Mouse Pos: (%.1f,%.1f)", pos.x, pos.y);
             } else {
-              SetSelectedEntity(walker);
+              ImGui::Text("Mouse Pos: <invalid>");
             }
+          }
+          ImGui::EndChild();
+        }
+
+        if (main_camera_window_focused_ && !lock_entity_selection_ &&
+            Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
+          SetSelectedEntity(Entity());
+        }
+        if (!Application::IsPlaying() && main_camera_window_focused_ && !lock_entity_selection_ &&
+            Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press &&
+            !(mouse_camera_window_position_.x < 0 || mouse_camera_window_position_.y < 0 ||
+              mouse_camera_window_position_.x > view_port_size.x ||
+              mouse_camera_window_position_.y > view_port_size.y)) {
+          if (const auto focused_entity = MouseEntitySelection(main_camera, mouse_camera_window_position_);
+              focused_entity == Entity()) {
+            SetSelectedEntity(Entity());
           } else {
-            SetSelectedEntity(focused_entity);
+            Entity walker = focused_entity;
+            bool found = false;
+            while (walker.GetIndex() != 0) {
+              if (walker == selected_entity_) {
+                found = true;
+                break;
+              }
+              walker = scene->GetParent(walker);
+            }
+            if (found) {
+              walker = scene->GetParent(walker);
+              if (walker.GetIndex() == 0) {
+                SetSelectedEntity(focused_entity);
+              } else {
+                SetSelectedEntity(walker);
+              }
+            } else {
+              SetSelectedEntity(focused_entity);
+            }
           }
         }
       }
-    }
 
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
-      main_camera_window_focused_ = true;
+      ImGui::EndChild();
+      if (const auto main_camera = scene->main_camera.Get<Camera>()) {
+        main_camera->SetRequireRendering(!ImGui::GetCurrentWindowRead()->Hidden &&
+                                         !ImGui::GetCurrentWindowRead()->Collapsed);
+      }
+      ImGui::PopStyleVar();
     } else {
-      main_camera_window_focused_ = false;
+      ImGui::Text("No Scene!");
     }
-
-    ImGui::EndChild();
-  } else {
-    main_camera_window_focused_ = false;
   }
-  if (const auto main_camera = scene->main_camera.Get<Camera>()) {
-    main_camera->SetRequireRendering(!ImGui::GetCurrentWindowRead()->Hidden &&
-                                     !ImGui::GetCurrentWindowRead()->Collapsed);
-  }
-
   ImGui::End();
-  ImGui::PopStyleVar();
+
 #pragma endregion
 }
 
@@ -858,212 +858,222 @@ void EditorLayer::ResizeCameras() {
 
 void EditorLayer::OnGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = editor_layer->GetScene();
-  if (scene && editor_layer->show_entity_explorer_window) {
+  if (editor_layer->show_entity_explorer_window) {
     ImGui::Begin("Entity Explorer");
-    if (ImGui::BeginPopupContextWindow("NewEntityPopup")) {
-      if (ImGui::Button("Create new entity")) {
-        scene->CreateEntity(editor_layer->basic_entity_archetype_);
-      }
-      ImGui::EndPopup();
-    }
-    ImGui::Combo("Display mode", &editor_layer->selected_hierarchy_display_mode, hierarchy_display_mode,
-                 IM_ARRAYSIZE(hierarchy_display_mode));
-    std::string title = scene->GetTitle();
-    if (ImGui::CollapsingHeader(title.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow)) {
-      DraggableAsset(scene);
-      RenameAsset(scene);
-      if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        ProjectManager::GetInstance().inspecting_asset = scene;
-      }
-      if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
-          IM_ASSERT(payload->DataSize == sizeof(Handle));
-          const auto payload_n = *static_cast<Handle*>(payload->Data);
-          const auto new_entity = scene->GetEntity(payload_n);
-          if (const auto parent = scene->GetParent(new_entity); parent.GetIndex() != 0)
-            scene->RemoveChild(new_entity, parent);
+    if (scene) {
+      if (ImGui::BeginPopupContextWindow("NewEntityPopup")) {
+        if (ImGui::Button("Create new entity")) {
+          scene->CreateEntity(editor_layer->basic_entity_archetype_);
         }
-        ImGui::EndDragDropTarget();
+        ImGui::EndPopup();
       }
-      if (editor_layer->selected_hierarchy_display_mode == 0) {
-        scene->UnsafeForEachEntityStorage([&](int i, const std::string& name, const DataComponentStorage& storage) {
-          if (i == 0)
-            return;
-          ImGui::Separator();
-          const std::string title1 = std::to_string(i) + ". " + name;
-          if (ImGui::TreeNode(title1.c_str())) {
-            ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2, 0.3, 0.2, 1.0));
-            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2, 0.2, 0.2, 1.0));
-            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2, 0.2, 0.3, 1.0));
-            for (int j = 0; j < storage.entity_alive_count; j++) {
-              Entity entity = storage.chunk_array.entity_array.at(j);
-              std::string title2 = std::to_string(entity.GetIndex()) + ": ";
-              title2 += scene->GetEntityName(entity);
-              const bool enabled = scene->IsEntityEnabled(entity);
-              if (enabled) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4({1, 1, 1, 1}));
-              }
-              ImGui::TreeNodeEx(title2.c_str(),
-                                ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Leaf |
-                                    ImGuiTreeNodeFlags_NoAutoOpenOnLog |
-                                    (editor_layer->selected_entity_ == entity ? ImGuiTreeNodeFlags_Framed
-                                                                              : ImGuiTreeNodeFlags_FramePadding));
-              if (enabled) {
-                ImGui::PopStyleColor();
-              }
-              editor_layer->DrawEntityMenu(enabled, entity);
-              if (!editor_layer->lock_entity_selection_ && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                editor_layer->SetSelectedEntity(entity, false);
-              }
-            }
-            ImGui::PopStyleColor();
-            ImGui::PopStyleColor();
-            ImGui::PopStyleColor();
-            ImGui::TreePop();
+      ImGui::Combo("Display mode", &editor_layer->selected_hierarchy_display_mode, hierarchy_display_mode,
+                   IM_ARRAYSIZE(hierarchy_display_mode));
+      std::string title = scene->GetTitle();
+      if (ImGui::CollapsingHeader(title.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow)) {
+        DraggableAsset(scene);
+        RenameAsset(scene);
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+          ProjectManager::GetInstance().inspecting_asset = scene;
+        }
+        if (ImGui::BeginDragDropTarget()) {
+          if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
+            IM_ASSERT(payload->DataSize == sizeof(Handle));
+            const auto payload_n = *static_cast<Handle*>(payload->Data);
+            const auto new_entity = scene->GetEntity(payload_n);
+            if (const auto parent = scene->GetParent(new_entity); parent.GetIndex() != 0)
+              scene->RemoveChild(new_entity, parent);
           }
-        });
-      } else if (editor_layer->selected_hierarchy_display_mode == 1) {
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2, 0.3, 0.2, 1.0));
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2, 0.2, 0.2, 1.0));
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2, 0.2, 0.3, 1.0));
-        scene->ForAllEntities([&](int, const Entity entity) {
-          if (scene->GetParent(entity).GetIndex() == 0)
-            editor_layer->DrawEntityNode(entity, 0);
-        });
-        editor_layer->selected_entity_hierarchy_list_.clear();
-        ImGui::PopStyleColor();
-        ImGui::PopStyleColor();
-        ImGui::PopStyleColor();
-      }
-    }
-    ImGui::End();
-  }
-  if (scene && editor_layer->show_entity_inspector_window) {
-    ImGui::Begin("Entity Inspector");
-    ImGui::Text("Selection:");
-    ImGui::SameLine();
-    ImGui::Checkbox("Lock", &editor_layer->lock_entity_selection_);
-    ImGui::SameLine();
-    ImGui::Checkbox("Focus", &editor_layer->highlight_selection_);
-    ImGui::SameLine();
-    ImGui::Checkbox("Gizmos", &editor_layer->enable_gizmos);
-    ImGui::SameLine();
-    if (ImGui::Button("Clear")) {
-      editor_layer->SetSelectedEntity({});
-    }
-    ImGui::Separator();
-    if (scene->IsEntityValid(editor_layer->selected_entity_)) {
-      std::string title = std::to_string(editor_layer->selected_entity_.GetIndex()) + ": ";
-      title += scene->GetEntityName(editor_layer->selected_entity_);
-      bool enabled = scene->IsEntityEnabled(editor_layer->selected_entity_);
-      if (ImGui::Checkbox((title + "##EnabledCheckbox").c_str(), &enabled)) {
-        if (scene->IsEntityEnabled(editor_layer->selected_entity_) != enabled) {
-          scene->SetEnable(editor_layer->selected_entity_, enabled);
+          ImGui::EndDragDropTarget();
         }
-      }
-      ImGui::SameLine();
-      bool is_static = scene->IsEntityStatic(editor_layer->selected_entity_);
-      if (ImGui::Checkbox("Static##StaticCheckbox", &is_static)) {
-        if (scene->IsEntityStatic(editor_layer->selected_entity_) != is_static) {
-          scene->SetEntityStatic(editor_layer->selected_entity_, enabled);
-        }
-      }
-
-      if (const bool deleted = editor_layer->DrawEntityMenu(scene->IsEntityEnabled(editor_layer->selected_entity_),
-                                                            editor_layer->selected_entity_);
-          !deleted) {
-        if (ImGui::CollapsingHeader("Data components", ImGuiTreeNodeFlags_DefaultOpen)) {
-          if (ImGui::BeginPopupContextItem("DataComponentInspectorPopup")) {
-            ImGui::Text("Add data component: ");
-            ImGui::Separator();
-
-            for (const auto& i : Serialization::GetInstance().data_component_ids_) {
-              const auto id = i.second;
-              const auto name = i.first;
-              if (id == typeid(Transform).hash_code() || id == typeid(GlobalTransform).hash_code() ||
-                  id == typeid(TransformUpdateFlag).hash_code())
-                continue;
-
-              if (!scene->HasDataComponent(editor_layer->selected_entity_, id) && ImGui::Button(name.c_str())) {
-                scene->AddDataComponent(editor_layer->selected_entity_, id);
-              }
-            }
-            ImGui::Separator();
-            ImGui::EndPopup();
-          }
-          bool skip = false;
-          int i = 0;
-          scene->UnsafeForEachDataComponent(editor_layer->selected_entity_, [&](const DataComponentType& type,
-                                                                                void* data) {
-            if (skip)
+        if (editor_layer->selected_hierarchy_display_mode == 0) {
+          scene->UnsafeForEachEntityStorage([&](int i, const std::string& name, const DataComponentStorage& storage) {
+            if (i == 0)
               return;
-            std::string info = type.type_name;
-            if (info == "TransformUpdateFlag" || info == "GlobalTransform")
-              return;
-            info += " Size: " + std::to_string(type.type_size);
-            ImGui::Text(info.c_str());
-            ImGui::PushID(i);
-            if (ImGui::BeginPopupContextItem(("DataComponentDeletePopup" + std::to_string(i)).c_str())) {
-              if (ImGui::Button("Remove")) {
-                skip = true;
-                scene->RemoveDataComponent(editor_layer->selected_entity_, type.type_index);
-              }
-              ImGui::EndPopup();
-            }
-            ImGui::PopID();
-            editor_layer->InspectComponentData(editor_layer->selected_entity_, static_cast<IDataComponent*>(data), type,
-                                               scene->GetParent(editor_layer->selected_entity_).GetIndex() != 0);
             ImGui::Separator();
-            i++;
+            const std::string title1 = std::to_string(i) + ". " + name;
+            if (ImGui::TreeNode(title1.c_str())) {
+              ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2, 0.3, 0.2, 1.0));
+              ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2, 0.2, 0.2, 1.0));
+              ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2, 0.2, 0.3, 1.0));
+              for (int j = 0; j < storage.entity_alive_count; j++) {
+                Entity entity = storage.chunk_array.entity_array.at(j);
+                std::string title2 = std::to_string(entity.GetIndex()) + ": ";
+                title2 += scene->GetEntityName(entity);
+                const bool enabled = scene->IsEntityEnabled(entity);
+                if (enabled) {
+                  ImGui::PushStyleColor(ImGuiCol_Text, ImVec4({1, 1, 1, 1}));
+                }
+                ImGui::TreeNodeEx(title2.c_str(),
+                                  ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Leaf |
+                                      ImGuiTreeNodeFlags_NoAutoOpenOnLog |
+                                      (editor_layer->selected_entity_ == entity ? ImGuiTreeNodeFlags_Framed
+                                                                                : ImGuiTreeNodeFlags_FramePadding));
+                if (enabled) {
+                  ImGui::PopStyleColor();
+                }
+                editor_layer->DrawEntityMenu(enabled, entity);
+                if (!editor_layer->lock_entity_selection_ && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                  editor_layer->SetSelectedEntity(entity, false);
+                }
+              }
+              ImGui::PopStyleColor();
+              ImGui::PopStyleColor();
+              ImGui::PopStyleColor();
+              ImGui::TreePop();
+            }
           });
-        }
-
-        if (ImGui::CollapsingHeader("Private components", ImGuiTreeNodeFlags_DefaultOpen)) {
-          if (ImGui::BeginPopupContextItem("PrivateComponentInspectorPopup")) {
-            ImGui::Text("Add private component: ");
-            ImGui::Separator();
-            for (const auto& i : Serialization::GetInstance().private_component_ids_) {
-              const auto id = i.second;
-              const auto name = i.first;
-              if (!scene->HasPrivateComponent(editor_layer->selected_entity_, id) && ImGui::Button(name.c_str())) {
-                scene->AddPrivateComponent(editor_layer->selected_entity_, id);
-              }
-            }
-            ImGui::Separator();
-            ImGui::EndPopup();
-          }
-
-          int i = 0;
-          bool skip = false;
-          scene->ForEachPrivateComponent(editor_layer->selected_entity_, [&](const PrivateComponentElement& data) {
-            if (skip)
-              return;
-            ImGui::Checkbox(data.private_component_data->GetTypeName().c_str(), &data.private_component_data->enabled_);
-            DraggablePrivateComponent(data.private_component_data);
-            const std::string tag = "##" + data.private_component_data->GetTypeName() +
-                                    std::to_string(data.private_component_data->GetHandle());
-            if (ImGui::BeginPopupContextItem(tag.c_str())) {
-              if (ImGui::Button(("Remove" + tag).c_str())) {
-                skip = true;
-                scene->RemovePrivateComponent(editor_layer->selected_entity_, data.type_index);
-              }
-              ImGui::EndPopup();
-            }
-            if (!skip) {
-              if (ImGui::TreeNodeEx(("Component Settings##" + std::to_string(i)).c_str(),
-                                    ImGuiTreeNodeFlags_DefaultOpen)) {
-                if (data.private_component_data->OnInspect(editor_layer))
-                  scene->SetUnsaved();
-                ImGui::TreePop();
-              }
-            }
-            ImGui::Separator();
-            i++;
+        } else if (editor_layer->selected_hierarchy_display_mode == 1) {
+          ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2, 0.3, 0.2, 1.0));
+          ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2, 0.2, 0.2, 1.0));
+          ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2, 0.2, 0.3, 1.0));
+          scene->ForAllEntities([&](int, const Entity entity) {
+            if (scene->GetParent(entity).GetIndex() == 0)
+              editor_layer->DrawEntityNode(entity, 0);
           });
+          editor_layer->selected_entity_hierarchy_list_.clear();
+          ImGui::PopStyleColor();
+          ImGui::PopStyleColor();
+          ImGui::PopStyleColor();
         }
       }
     } else {
-      editor_layer->SetSelectedEntity(Entity());
+      ImGui::Text("No Scene!");
+    }
+    ImGui::End();
+  }
+  if (editor_layer->show_entity_inspector_window) {
+    ImGui::Begin("Entity Inspector");
+    if (scene) {
+      ImGui::Text("Selection:");
+      ImGui::SameLine();
+      ImGui::Checkbox("Lock", &editor_layer->lock_entity_selection_);
+      ImGui::SameLine();
+      ImGui::Checkbox("Focus", &editor_layer->highlight_selection_);
+      ImGui::SameLine();
+      ImGui::Checkbox("Gizmos", &editor_layer->enable_gizmos);
+      ImGui::SameLine();
+      if (ImGui::Button("Clear")) {
+        editor_layer->SetSelectedEntity({});
+      }
+      ImGui::Separator();
+      if (scene->IsEntityValid(editor_layer->selected_entity_)) {
+        std::string title = std::to_string(editor_layer->selected_entity_.GetIndex()) + ": ";
+        title += scene->GetEntityName(editor_layer->selected_entity_);
+        bool enabled = scene->IsEntityEnabled(editor_layer->selected_entity_);
+        if (ImGui::Checkbox((title + "##EnabledCheckbox").c_str(), &enabled)) {
+          if (scene->IsEntityEnabled(editor_layer->selected_entity_) != enabled) {
+            scene->SetEnable(editor_layer->selected_entity_, enabled);
+          }
+        }
+        ImGui::SameLine();
+        bool is_static = scene->IsEntityStatic(editor_layer->selected_entity_);
+        if (ImGui::Checkbox("Static##StaticCheckbox", &is_static)) {
+          if (scene->IsEntityStatic(editor_layer->selected_entity_) != is_static) {
+            scene->SetEntityStatic(editor_layer->selected_entity_, enabled);
+          }
+        }
+
+        if (const bool deleted = editor_layer->DrawEntityMenu(scene->IsEntityEnabled(editor_layer->selected_entity_),
+                                                              editor_layer->selected_entity_);
+            !deleted) {
+          if (ImGui::CollapsingHeader("Data components", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::BeginPopupContextItem("DataComponentInspectorPopup")) {
+              ImGui::Text("Add data component: ");
+              ImGui::Separator();
+
+              for (const auto& i : Serialization::GetInstance().data_component_ids_) {
+                const auto id = i.second;
+                const auto name = i.first;
+                if (id == typeid(Transform).hash_code() || id == typeid(GlobalTransform).hash_code() ||
+                    id == typeid(TransformUpdateFlag).hash_code())
+                  continue;
+
+                if (!scene->HasDataComponent(editor_layer->selected_entity_, id) && ImGui::Button(name.c_str())) {
+                  scene->AddDataComponent(editor_layer->selected_entity_, id);
+                }
+              }
+              ImGui::Separator();
+              ImGui::EndPopup();
+            }
+            bool skip = false;
+            int i = 0;
+            scene->UnsafeForEachDataComponent(
+                editor_layer->selected_entity_, [&](const DataComponentType& type, void* data) {
+                  if (skip)
+                    return;
+                  std::string info = type.type_name;
+                  if (info == "TransformUpdateFlag" || info == "GlobalTransform")
+                    return;
+                  info += " Size: " + std::to_string(type.type_size);
+                  ImGui::Text(info.c_str());
+                  ImGui::PushID(i);
+                  if (ImGui::BeginPopupContextItem(("DataComponentDeletePopup" + std::to_string(i)).c_str())) {
+                    if (ImGui::Button("Remove")) {
+                      skip = true;
+                      scene->RemoveDataComponent(editor_layer->selected_entity_, type.type_index);
+                    }
+                    ImGui::EndPopup();
+                  }
+                  ImGui::PopID();
+                  editor_layer->InspectComponentData(editor_layer->selected_entity_, static_cast<IDataComponent*>(data),
+                                                     type,
+                                                     scene->GetParent(editor_layer->selected_entity_).GetIndex() != 0);
+                  ImGui::Separator();
+                  i++;
+                });
+          }
+
+          if (ImGui::CollapsingHeader("Private components", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::BeginPopupContextItem("PrivateComponentInspectorPopup")) {
+              ImGui::Text("Add private component: ");
+              ImGui::Separator();
+              for (const auto& i : Serialization::GetInstance().private_component_ids_) {
+                const auto id = i.second;
+                const auto name = i.first;
+                if (!scene->HasPrivateComponent(editor_layer->selected_entity_, id) && ImGui::Button(name.c_str())) {
+                  scene->AddPrivateComponent(editor_layer->selected_entity_, id);
+                }
+              }
+              ImGui::Separator();
+              ImGui::EndPopup();
+            }
+
+            int i = 0;
+            bool skip = false;
+            scene->ForEachPrivateComponent(editor_layer->selected_entity_, [&](const PrivateComponentElement& data) {
+              if (skip)
+                return;
+              ImGui::Checkbox(data.private_component_data->GetTypeName().c_str(),
+                              &data.private_component_data->enabled_);
+              DraggablePrivateComponent(data.private_component_data);
+              const std::string tag = "##" + data.private_component_data->GetTypeName() +
+                                      std::to_string(data.private_component_data->GetHandle());
+              if (ImGui::BeginPopupContextItem(tag.c_str())) {
+                if (ImGui::Button(("Remove" + tag).c_str())) {
+                  skip = true;
+                  scene->RemovePrivateComponent(editor_layer->selected_entity_, data.type_index);
+                }
+                ImGui::EndPopup();
+              }
+              if (!skip) {
+                if (ImGui::TreeNodeEx(("Component Settings##" + std::to_string(i)).c_str(),
+                                      ImGuiTreeNodeFlags_DefaultOpen)) {
+                  if (data.private_component_data->OnInspect(editor_layer))
+                    scene->SetUnsaved();
+                  ImGui::TreePop();
+                }
+              }
+              ImGui::Separator();
+              i++;
+            });
+          }
+        }
+      } else {
+        editor_layer->SetSelectedEntity(Entity());
+      }
+    } else {
+      ImGui::Text("No Scene!");
     }
     ImGui::End();
   }
@@ -1123,7 +1133,7 @@ void EditorLayer::OnGui(const std::shared_ptr<EditorLayer>& editor_layer) {
     editor_layer->SceneCameraWindow();
   if (editor_layer->show_camera_window)
     editor_layer->MainCameraWindow();
-  if (editor_layer->show_scene_camera_debug) {
+  if (scene && editor_layer->show_scene_camera_debug) {
     if (ImGui::Begin("Scene Camera Debug")) {
       static float debug_scale = 0.25f;
       ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
@@ -1134,8 +1144,8 @@ void EditorLayer::OnGui(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
     ImGui::End();
   }
-  ProjectManager::OnInspect(editor_layer);
   Resources::OnInspect(editor_layer);
+  ProjectManager::OnInspect(editor_layer);
 }
 
 std::shared_ptr<Texture2D> EditorLayer::FindIcon(const std::string& name) {
@@ -1269,9 +1279,9 @@ bool EditorLayer::UnsafeDroppableAsset(AssetRef& target, const std::vector<std::
     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Asset")) {
       const std::shared_ptr<IAsset> ptr = target.Get<IAsset>();
       IM_ASSERT(payload->DataSize == sizeof(Handle));
-      Handle payload_n = *static_cast<Handle*>(payload->Data);
+      const Handle payload_n = *static_cast<Handle*>(payload->Data);
       if (!ptr || payload_n.GetValue() != target.GetAssetHandle().GetValue()) {
-        auto asset = ProjectManager::GetAsset(payload_n);
+        const auto asset = AssetManager::GetAssetImpl(payload_n);
         for (const auto& type_name : type_names) {
           if (asset && asset->GetTypeName() == type_name) {
             target.Clear();
@@ -1349,7 +1359,7 @@ bool EditorLayer::Droppable(EntityRef& entity_ref) {
     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
       const auto scene = Application::GetActiveScene();
       IM_ASSERT(payload->DataSize == sizeof(Handle));
-      auto payload_n = *static_cast<Handle*>(payload->Data);
+      const auto payload_n = *static_cast<Handle*>(payload->Data);
       if (const auto new_entity = scene->GetEntity(payload_n); scene->IsEntityValid(new_entity)) {
         entity_ref = new_entity;
         status_changed = true;
@@ -1360,15 +1370,15 @@ bool EditorLayer::Droppable(EntityRef& entity_ref) {
   return status_changed;
 }
 void EditorLayer::Draggable(EntityRef& entity_ref) {
-  auto entity = entity_ref.Get();
+  const auto entity = entity_ref.Get();
   if (entity.GetIndex() != 0) {
     DraggableEntity(entity);
   }
 }
 void EditorLayer::DraggableEntity(const Entity& entity) {
   if (ImGui::BeginDragDropSource()) {
-    auto scene = Application::GetActiveScene();
-    auto handle = scene->GetEntityHandle(entity);
+    const auto scene = Application::GetActiveScene();
+    const auto handle = scene->GetEntityHandle(entity);
     ImGui::SetDragDropPayload("Entity", &handle, sizeof(Handle));
     ImGui::TextColored(ImVec4(0, 0, 1, 1), scene->GetEntityName(entity).c_str());
     ImGui::EndDragDropSource();
@@ -1567,65 +1577,65 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
 }
 
 void EditorLayer::LoadIcons() {
-  editor_icons_["Scene"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Scene"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["Scene"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Scene.png");
 
-  editor_icons_["Binary"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Binary"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["Binary"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Binary.png");
 
-  editor_icons_["Folder"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Folder"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["Folder"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Folder.png");
 
-  editor_icons_["Material"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Material"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["Material"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Material.png");
 
-  editor_icons_["Mesh"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Mesh"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["Mesh"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Mesh.png");
 
-  editor_icons_["Prefab"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Prefab"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["Prefab"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Prefab.png");
 
-  editor_icons_["Texture2D"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["Texture2D"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["Texture2D"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Texture2D.png");
-  editor_icons_["PlayButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["PlayButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["PlayButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                             "Editor/Navigation/PlayButton.png");
 
-  editor_icons_["PauseButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["PauseButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["PauseButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                              "Editor/Navigation/PauseButton.png");
 
-  editor_icons_["StopButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["StopButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["StopButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                             "Editor/Navigation/StopButton.png");
 
-  editor_icons_["StepButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["StepButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["StepButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                             "Editor/Navigation/StepButton.png");
 
-  editor_icons_["BackButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["BackButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["BackButton"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Navigation/back.png");
 
-  editor_icons_["LeftButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["LeftButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["LeftButton"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Navigation/left.png");
 
-  editor_icons_["RightButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["RightButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["RightButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                              "Editor/Navigation/right.png");
 
-  editor_icons_["RefreshButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["RefreshButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["RefreshButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                                "Editor/Navigation/refresh.png");
 
-  editor_icons_["InfoButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["InfoButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["InfoButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                             "Editor/Console/InfoButton.png");
 
-  editor_icons_["ErrorButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["ErrorButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["ErrorButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                              "Editor/Console/ErrorButton.png");
 
-  editor_icons_["WarningButton"] = ProjectManager::CreateTemporaryAsset<Texture2D>();
+  editor_icons_["WarningButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
   editor_icons_["WarningButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
                                                "Editor/Console/WarningButton.png");
 }
@@ -1646,13 +1656,13 @@ void EditorLayer::CameraWindowDragAndDrop() const {
       const auto entity = scene->CreateEntity(asset->GetTitle());
       const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
       mesh_renderer->mesh.Set<Mesh>(std::dynamic_pointer_cast<Mesh>(asset));
-      const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+      const auto material = AssetManager::CreateTemporaryAsset<Material>();
       mesh_renderer->material.Set<Material>(material);
     } else if (asset->GetTypeName() == "Strands") {
       const auto entity = scene->CreateEntity(asset->GetTitle());
       const auto strands_renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(entity).lock();
       strands_renderer->strands.Set<Strands>(std::dynamic_pointer_cast<Strands>(asset));
-      const auto material = ProjectManager::CreateTemporaryAsset<Material>();
+      const auto material = AssetManager::CreateTemporaryAsset<Material>();
       strands_renderer->material.Set<Material>(material);
     } else if (asset->GetTypeName() == "EnvironmentalMap") {
       scene->environment.environmental_map = std::dynamic_pointer_cast<EnvironmentalMap>(asset);

@@ -479,8 +479,8 @@ class Serialization final {
   static void CloneSystem(const std::shared_ptr<ISystem>& target, const std::shared_ptr<ISystem>& source);
   static std::shared_ptr<ISerializable> ProduceSerializable(const std::string& type_name, size_t& hash_code);
   static std::shared_ptr<ISerializable> ProduceSerializable(const std::string& type_name);
-  static auto ProduceSerializable(const std::string& type_name, size_t& hash_code, const Handle& handle)
-      -> std::shared_ptr<ISerializable>;
+  static auto ProduceSerializable(const std::string& type_name, size_t& hash_code,
+                                  const Handle& handle) -> std::shared_ptr<ISerializable>;
   template <typename T = ISerializable>
   static std::shared_ptr<T> ProduceSerializable();
   template <typename T = IDataComponent>
@@ -513,12 +513,20 @@ class Serialization final {
 template <typename T>
 std::string Serialization::GetDataComponentTypeName() {
   const auto& serialization = GetInstance();
-  return serialization.data_component_names_.find(typeid(T).hash_code())->second;
+  if (const auto search = serialization.data_component_names_.find(typeid(T).hash_code());
+      search != serialization.data_component_names_.end()) {
+    return search->second;
+  }
+  throw std::invalid_argument("Type is unregistered!");
 }
 template <typename T>
 std::string Serialization::GetSerializableTypeName() {
   const auto& serialization = GetInstance();
-  return serialization.serializable_names_.find(typeid(T).hash_code())->second;
+  if (const auto search = serialization.serializable_names_.find(typeid(T).hash_code());
+      search != serialization.serializable_names_.end()) {
+    return search->second;
+  }
+  throw std::invalid_argument("Type is unregistered!");
 }
 
 template <typename T>
@@ -626,7 +634,6 @@ std::shared_ptr<T> Serialization::ProduceSerializable() {
     ret_val->type_name_ = type_name;
     return std::move(std::static_pointer_cast<T>(ret_val));
   }
-  EVOENGINE_ERROR("Serializable " + type_name + "is not registered!")
-  throw 1;
+  throw std::invalid_argument("Type is unregistered!");
 }
 }  // namespace evo_engine
