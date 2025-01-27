@@ -650,7 +650,7 @@ static float right_height_offset = 0.0f;
 
   return results;
 }
-// todo: fix problem of un-smooth transition
+
 void ExtendLeafToStem(SorghumLeafDescriptor& leaf) {
 
   auto firstSegment = leaf.spline.segments[0];
@@ -676,11 +676,11 @@ void ExtendLeafToStem(SorghumLeafDescriptor& leaf) {
 
   segment.position = projection;
 
-  // the segment for interpolation
+  // the segment for smooth interpolation
   SorghumSplineSegment segment2(segment);
-  float coefficient = 2.1f;
+  float coefficient = 1.5f;
   segment2.position.y = firstSegment.position.y / coefficient;
-  //segment2.radius = firstSegment.radius / coefficient;
+  segment2.theta = theta /2 ;
 
   leaf.spline.segments.insert(leaf.spline.segments.begin(), segment);
   leaf.spline.segments.insert(leaf.spline.segments.begin()+1, segment2);
