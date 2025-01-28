@@ -8,6 +8,7 @@ namespace evo_engine {
 struct ApplicationInfo {
   std::filesystem::path project_path;
   std::string application_name = "Evo Engine";
+  std::vector<std::filesystem::path> icon_paths;
   glm::ivec2 default_window_size = {1280, 720};
   bool enable_docking = true;
   bool enable_viewport = true;

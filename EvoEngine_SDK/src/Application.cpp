@@ -303,6 +303,39 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   if (window_layer) {
     window_layer->ResizeWindow(application.application_info_.default_window_size.x,
                                application.application_info_.default_window_size.y);
+    if (application.application_info_.icon_paths.empty()) {
+      GLFWimage images[4];
+      images[0].pixels =
+          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine16.png").string().c_str(),
+                    &images[0].width, &images[0].height, nullptr, 4);  // rgba channels
+      images[1].pixels =
+          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine24.png").string().c_str(),
+                    &images[1].width, &images[1].height, nullptr, 4);  // rgba channels
+      images[2].pixels =
+          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine32.png").string().c_str(),
+                    &images[2].width, &images[2].height, nullptr, 4);  // rgba channels
+      images[3].pixels =
+          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine64.png").string().c_str(),
+                    &images[3].width, &images[3].height, nullptr, 4);  // rgba channels
+      glfwSetWindowIcon(window_layer->window_, 4, images);
+      stbi_image_free(images[0].pixels);
+      stbi_image_free(images[1].pixels);
+      stbi_image_free(images[2].pixels);
+      stbi_image_free(images[3].pixels);
+    } else {
+      std::vector<GLFWimage> images;
+      for (const auto& i : application.application_info_.icon_paths) {
+        if (std::filesystem::exists(i)) {
+          auto& image = images.emplace_back();
+          image.pixels = stbi_load(std::filesystem::absolute(i).string().c_str(), &image.width, &image.height, nullptr,
+                                   4);  // rgba channels
+        }
+      }
+      glfwSetWindowIcon(window_layer->window_, images.size(), images.data());
+      for (const auto& i : images) {
+        stbi_image_free(i.pixels);
+      }
+    }
   }
   application.application_status_ = ApplicationStatus::NotPlaying;
 
