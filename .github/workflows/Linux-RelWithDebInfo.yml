@@ -1,4 +1,4 @@
-name: RelWithDebInfo build on Linux
+name: Release build on Linux
 
 on:
   push:

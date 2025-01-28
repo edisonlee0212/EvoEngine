@@ -1,86 +1,106 @@
 # EvoEngine
 EvoEngine is an early-stage, cross-platform interactive application and rendering engine for Windows and Linux. 
+## Build Status
+![WindowsRelBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Windows-RelWithDebInfo.yml/badge.svg) ![WindowsDebugBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Windows-Debug.yml/badge.svg)
+![LinuxRelBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Linux-RelWithDebInfo.yml/badge.svg) ![LinuxDebugBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Linux-Debug.yml/badge.svg)
 ## Main features
 Here are the features that already exist in the EvoEngine.
- - Modularized Design
-    - Removable WindowLayer, RenderLayer, EditorLayer, etc.
-    - E.g. Offscreen rendering by unloading WindowLayer and EditorLayer.
- - Complete Entity Component System (ECS) 
-    - Cache-friendly data component, similar to the ComponentData in Unity Engine.
-    - Customizable private component, similar to Component in Unity Engine. 
-    - The ECS is heavily used in my other private research projects.
+ - Modularized design
+    - EvoEngine is designed with layers. WindowLayer, RenderLayer, EditorLayer, etc.
+       - E.g. Offscreen rendering by disabling WindowLayer and EditorLayer.
+    - Plugin support.
+ - Data-oriented entity component system 
+    - Cache-friendly data component, for systematic behavior of large quantity of entites. E.g. boids.
+    - Customizable private component, for individual behavior. 
  - Multi-threading
-    - The Job System is designed and closely combined with ECS to provide the ability to operate concurrently on multiple data components.
-    - Visit Scene::ForEach(...) for more details about parallel processing on Entities.
-    - Visit Jobs::ParallelFor(...) for more details about general parallel processing tasks.
+    - Job system
  - Editor
-    - Gizmo (Provided by ImGuizmo)
-    - Scene hierarchy viewing and editing.
-    - Resource/Asset drag-and-drop
-    - GUI registry for Entity Inspector for view/editing for both data component and private component defined by the user
+    - Entity managements
+    - Inputs
     - Profiler
-    - ProjectManager
-       - Asset
-          - Texture
-          - 3D Model (Animation supported)
-          - Registry
-       - Scene I/O
-          - Default/Local/Global asset serialization
-          - Entity/DataComponent/PrivateComponent/System serialization
-       - Prefabs
- - Rendering: PBR + IBL + PCSS
+    - File I/O
+    - Asset managements
+       - Registry
+       - Serialization
+    - Project managements
+    - Msg console
+ - Rendering:
     - Vulkan
-    - Support for both deferred (RenderSystem) and forward rendering (RenderSystem/native rendering API).
-    - Lighting and Shadows
-       - PCF + Cascaded Shadow Map
-       - Spot/Point/Directional light support
+    - GPU-driven rendering
+       - Unified renderInstance/geometry/texture storage
+    - Built-in deferred + forward rendering pipeline.
+       - Support external rendering commands
+    - Lighting & shadows
+       - PCSS
+       - Cascaded shadow map (CSM)
+    - Environmental map
+       - Light probe/reflection probe
+    - Skybox
+       - Support procedural generation from sky illumination model
+    - Particle system
+    - High-level rendering API
     - Post-processing
-       - Bloom
-       - SSAO
-       - SSR
-    - PBR with IBL support
-       - Environmental map
-       - Basic light probe/reflection probe support
-    - Instanced rendering
-    - High-level rendering API - You can issue a complete render command without any vk... command involved.
-       - Similiar to https://docs.unity3d.com/ScriptReference/Graphics.DrawMeshInternal.html
- - Animation
- - Cross-platform support for Linux, Windows
- - Native high-level rendering API support (Please visit Graphics for further details)
- - Exportable as a static library (For my research purposes, I'm using the EvoEngine as the underlying rendering framework for my other research projects)
- - Input/Event System
- - Documentation
-       - https://codedocs.xyz/edisonlee0212/EvoEngine/
-## Upcoming features
-Here are the features that will be introduced to EvoEngine in the future, though I don't have a concrete plan of when these will come.
-- Procedural terrain and world generation
-- Artificial Intelligence
-- Audio system
+    - Ray-tracing
+       - Custom BVH construction
+       - CPU/compute shader/hardware ray-tracing support
+    - Skeletal animation
+ - Input/Event system
+ - Python binding
 ## Getting Started
-The project is a CMake project. For project editing and code inspections, Visual Studio 2019 or 2022 is recommended. Simply clone/download the project files and open the folder as a project in Visual Studio and you are ready.
-To directly build the project, scripts under the root folder build.cmd (for Windows) and build.sh (for Linux) is provided for building with a single command line.
-E.g. For Linux, the command may be :
- - bash build.sh (build in default settings)
- - bash build.sh --clean release (clean and build in release mode)
- - Video demo: 
- - [![EvoEngineOnLinux](https://img.youtube.com/vi/fw8UUDWaMaU/0.jpg)](https://www.youtube.com/watch?v=fw8UUDWaMaU)
-Please visit the script for further details.
+ - Note: Visual Studio 2019 or 2022 is recommended. EvoEngine is tested on Windows and Linux platform, other platform is not supported. We primarily focus on Windows platform.
+ - Build requirements
+    - For Linux platform, the following libaries are required:
+       - clang (Minimum version = 14, gcc & g++ unsupported)
+       - cmake
+       - ninja-build
+       - libwayland-dev
+       - libxkbcommon-dev
+       - xorg-dev
+       - Vulkan-SDK
+    - For Windows platform, make sure the following components are installed on Visual Studio:
+       - Desktop development with C++
+ - Step 1: Clone the repository with the following command:
+    - `git clone --recursive https://github.com/edisonlee0212/EvoEngine`
+ - Step 2: If the repository was cloned non-recursively previously, clone all submodules with the following command:
+    - `git submodule update --init --recursive`
+ - Step 3: Build:
+    - For Windows:
+       - Under construction...
+    - For Linux:
+       - Under construction...
+ - To directly build the project, scripts under the root folder build.cmd (for Windows) and build.sh (for Linux) is provided for building with a single command line.
 ## Examples
-- Rendering
-  - This project is mainly for testing and debugging rendering systems. It consists of:
-     - Spheres with different material properties.
+- Rendering demo
+  - The rendering demo shows the capability of built-in rendering systems.
+     - PBR + IBL.
      - Multiple animated models.
      - Classic Sponza Test Scene
-     - Directional light, point light, and spot light.
-     - Post-processing
-     - Sphere colliders with PhysX
-  - Screenshot: ![RenderingProjectScreenshot](/Resources/GitHub/RenderingProjectScreenshot.png?raw=true "RenderingProjectScreenshot")
-- Planet
-  - The Planet example shows the ability to use ECS for complex behavior. The application contains a simple sphere generation program with dynamic LOD calculation based on the position of the scene camera.
-  - Screenshot: ![PlanetProjectScreenshot](/Resources/GitHub/PlanetProjectScreenshot.png?raw=true "PlanetProjectScreenshot")
-- Star Cluster
-  - The Star Cluster example shows the potential of Job System with ECS by rendering hundreds of thousands of stars at the same time with instanced rendering. The position of each star is calculated in real-time in parallel with a single lambda-expression-based API similar to the m_entities.ForEach() in Unity. 
-  - Screenshot: ![StarClusterProjectScreenshot](/Resources/GitHub/StarClusterProjectScreenshot.png?raw=true "StarClusterProjectScreenshot")
-
-## Plans
-- Python binding with pybind11
+     - Multiple lighting
+     - SSAO + Bloom + SSR + Tone mapping
+  - Screenshot: ![RenderingDemoScreenshot](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/RenderingDemoScreenshot.png)
+- Planet demo
+  - The Planet demo shows the ability to use ECS for complex behavior. The application contains a simple sphere generation program with dynamic LOD calculation based on the position of the scene camera.
+  - Screenshot: ![PlanetsDemoScreenshot](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/PlanetsDemoScreenshot.png)
+- Star cluster demo
+  - The Star Cluster demo shows the potential of Job System with ECS by rendering hundreds of thousands of stars at the same time with instanced rendering. The position of each star is calculated in real-time in parallel with a single lambda-expression-based API similar to the m_entities.ForEach() in Unity. 
+  - Screenshot: ![StarClusterDemoScreenshot](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/StarClusterDemoScreenshot.png)
+- Digital forestry demo
+  - The digital forestry demo shows our latest procedural tree growth model for generating large scale synthetic tree datasets for ML training and simulating natrual phenomena.
+  - Publications: 
+     - [[SIGGRAPH Asia 2021] Learning to Reconstruct Botanical Treesfrom Single Images](https://storage.googleapis.com/pirk.io/projects/single_tree_reconstruction/index.html)
+     - [[SIGGRAPH 2023] Rhizomorph: The Coordinated Function of Shoots and Roots](https://storage.googleapis.com/pirk.io/projects/rhizomorph/index.html)
+     - [[TVCG 2023] DeepTree: Modeling Trees with Situated Latents](https://storage.googleapis.com/pirk.io/projects/deep_tree/index.html)
+     - [[SIGGRAPH 2024] Latent L-systems: Transformer-based Tree Generator](https://dl.acm.org/doi/pdf/10.1145/3627101)
+     - [[ECCV 2024] Tree-D Fusion: Simulation-Ready Tree Dataset from Single Images with Diffusion Priors](https://link.springer.com/chapter/10.1007/978-3-031-72940-9_25)
+     - [[SIGGRAPH 2024] Interactive Invigoration: Volumetric Modeling of Trees with Strands](https://storage.googleapis.com/pirk.io/projects/invigoration/index.html)
+  - Screenshot: ![DigitalForestryDemoScreenshot](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/DigitalForestryDemoScreenshot.png)
+- Digital agriculture demo
+  - The digital agriculture demo shows our latest procedural sorghum model for generating large scale synthetic sorghum datasets for ML training.
+  - Publications: 
+     - [[PeerJ] 3D reconstruction identifies loci linked to variation in angle of individual sorghum leaves](https://peerj.com/articles/12628/)
+     - [[TPPJ] Sorghum segmentation and leaf counting using in silico trained deep neural model](https://acsess.onlinelibrary.wiley.com/doi/pdf/10.1002/ppj2.70002)
+     - [[COMPAG] PlantSegNet: 3D point cloud instance segmentation of nearby plant organs with identical semantics](https://www.sciencedirect.com/science/article/abs/pii/S0168169924003132)
+  - Screenshot: ![DigitalAgricultureDemoScreenshot](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/DigitalAgricultureDemoScreenshot.png)
+## What's next...
+- Documentation
+- Node editor
