@@ -1,4 +1,4 @@
-name: RelWithDebInfo build on MacOS 
+name: Release build on MacOS 
 
 on:
   push:
