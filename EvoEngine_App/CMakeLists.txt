@@ -16,9 +16,16 @@ function(register_evoengine_app app_name default_enable)
 		set(option_name EvoEngine_App-${app_name})
 		option(option_name "Build ${app_name} application" default_enable)
 		if(option_name)
-			add_executable(${app_name}
-				${app_name}.cpp
-				)
+			if (WIN32)
+				add_executable(${app_name}
+					${app_name}.cpp
+					${app_name}.rc
+					)
+			else()
+				add_executable(${app_name}
+					${app_name}.cpp
+					)
+			endif()
 			target_compile_definitions(${app_name}
 				PRIVATE
 				${DEFAULT_PROJECT_DEF}
