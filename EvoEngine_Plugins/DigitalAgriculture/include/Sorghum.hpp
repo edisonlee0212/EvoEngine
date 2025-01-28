@@ -17,4 +17,4 @@ class Sorghum final : public IPrivateComponent {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
-}  // namespace eco_sys_lab_plugin
+}  // namespace digital_agriculture_plugin

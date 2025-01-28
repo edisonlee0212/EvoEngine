@@ -1,6 +1,6 @@
 #pragma once
-#include "ISingleton.hpp"
 #include <iostream>
+#include "ISingleton.hpp"
 namespace evo_engine {
 class Console final {
   EVOENGINE_SINGLETON_INSTANCE(Console)
@@ -61,4 +61,3 @@ class Console final {
     std::cout << "[evo_engine]Warning: " << msg << " (" << __FILE__ << ": line " << __LINE__ \
               << ")\n==========" << std::endl;                                               \
   }
-

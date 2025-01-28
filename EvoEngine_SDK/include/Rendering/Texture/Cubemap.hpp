@@ -2,8 +2,8 @@
 #include "GraphicsResources.hpp"
 #include "IAsset.hpp"
 #include "Platform.hpp"
-#include "Texture2D.hpp"
 #include "SkyIllumination.hpp"
+#include "Texture2D.hpp"
 
 namespace evo_engine {
 class CubemapStorage;

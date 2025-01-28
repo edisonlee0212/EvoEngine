@@ -26,7 +26,7 @@ class TextureBaker {
     bool ao_enabled = true;
 
     glm::uvec2 texture_resolution = {512, 512};
-    
+
     bool force_rewrite_uv = false;
 
     float ray_casting_range = 0.3f;
@@ -50,4 +50,4 @@ class TextureBaker {
                       const std::shared_ptr<Material>& reference_material, const std::shared_ptr<Mesh>& target_mesh,
                       const std::shared_ptr<Material>& target_material);
 };
-}  // namespace evo_engine
+}  // namespace texture_baking_plugin

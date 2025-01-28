@@ -121,7 +121,7 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Serialize(
   for (size_t node_index = 0; node_index < node_size; node_index++) {
     const auto& node = skeleton.nodes_[node_index];
     out << YAML::BeginMap;
-    { node_func(out, node.data); }
+    node_func(out, node.data);
     out << YAML::EndMap;
   }
   out << YAML::EndSeq;
@@ -157,7 +157,7 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Serialize(
                             flow.nodes_.size() * sizeof(SkeletonNodeHandle));
       }
       out << YAML::Key << "data" << YAML::Value << YAML::BeginMap;
-      { flow_func(out, flow.data); }
+      flow_func(out, flow.data);
       out << YAML::EndMap;
     }
     out << YAML::EndMap;

@@ -1,7 +1,7 @@
 #pragma once
-#include "IPrivateComponent.hpp"
 #include "AssetRef.hpp"
 #include "Camera.hpp"
+#include "IPrivateComponent.hpp"
 #include "Texture2D.hpp"
 namespace evo_engine {
 class CpuRayTracerCamera : public IPrivateComponent {
@@ -10,7 +10,7 @@ class CpuRayTracerCamera : public IPrivateComponent {
     size_t sample = 1;
     size_t bounce = 5;
   };
-  CaptureParameters capture_parameters {};
+  CaptureParameters capture_parameters{};
   [[nodiscard]] float GetSizeRatio() const;
   void UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const GlobalTransform& global_transform) const;
   float near_distance = 0.1f;

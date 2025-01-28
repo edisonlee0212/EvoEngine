@@ -267,9 +267,10 @@ void VoxelSoilModel::Convolution3(const Field& input, Field& output, const vecto
 }
 
 void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_Axis(const Field& input, Field& output,
-                                                     const std::vector<int>& indices_1D,
-                                                     const std::vector<float>& weights, int lim_a, int lim_b, int lim_f,
-                                                     std::function<int(int, int, int)> WrapIndex) const {
+                                                            const std::vector<int>& indices_1D,
+                                                            const std::vector<float>& weights, int lim_a, int lim_b,
+                                                            int lim_f,
+                                                            std::function<int(int, int, int)> WrapIndex) const {
   for (int a = 0; a < lim_a; ++a) {
     for (int b = 0; b < lim_b; ++b) {
       output[WrapIndex(a, b, 0)] = 0;
@@ -293,8 +294,9 @@ void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_Axis(const Field& input, 
   }
 }
 
-void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_X(const Field& input, Field& output, const std::vector<int>& indices_1D,
-                                                  const std::vector<float>& weights) const {
+void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_X(const Field& input, Field& output,
+                                                         const std::vector<int>& indices_1D,
+                                                         const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
     return Index(f, a, b);
   };
@@ -302,8 +304,9 @@ void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_X(const Field& input, Fie
   Boundary_Wrap_Axis(input, output, indices_1D, weights, m_resolution.y, m_resolution.z, m_resolution.x, WrapIndex);
 }
 
-void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_Y(const Field& input, Field& output, const std::vector<int>& indices_1D,
-                                                  const std::vector<float>& weights) const {
+void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_Y(const Field& input, Field& output,
+                                                         const std::vector<int>& indices_1D,
+                                                         const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
     return Index(a, f, b);
   };
@@ -311,8 +314,9 @@ void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_Y(const Field& input, Fie
   Boundary_Wrap_Axis(input, output, indices_1D, weights, m_resolution.x, m_resolution.z, m_resolution.y, WrapIndex);
 }
 
-void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_Z(const Field& input, Field& output, const std::vector<int>& indices_1D,
-                                                  const std::vector<float>& weights) const {
+void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_Z(const Field& input, Field& output,
+                                                         const std::vector<int>& indices_1D,
+                                                         const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
     return Index(a, b, f);
   };
@@ -321,9 +325,10 @@ void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Wrap_Z(const Field& input, Fie
 }
 
 void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Barrier_Axis(const Field& input, Field& output,
-                                                        const std::vector<int>& indices_1D,
-                                                        const std::vector<float>& weights, int lim_a, int lim_b,
-                                                        int lim_f, std::function<int(int, int, int)> WrapIndex) const {
+                                                               const std::vector<int>& indices_1D,
+                                                               const std::vector<float>& weights, int lim_a, int lim_b,
+                                                               int lim_f,
+                                                               std::function<int(int, int, int)> WrapIndex) const {
   /*
   Out of bonds indices (v[-1] etc.) are undefined. However, using the mirror method, we can substitute them:
 
@@ -359,8 +364,8 @@ void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Barrier_Axis(const Field& inpu
 }
 
 void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Barrier_X(const Field& input, Field& output,
-                                                     const std::vector<int>& indices_1D,
-                                                     const std::vector<float>& weights) const {
+                                                            const std::vector<int>& indices_1D,
+                                                            const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
     return Index(f, a, b);
   };
@@ -369,8 +374,8 @@ void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Barrier_X(const Field& input, 
 }
 
 void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Barrier_Y(const Field& input, Field& output,
-                                                     const std::vector<int>& indices_1D,
-                                                     const std::vector<float>& weights) const {
+                                                            const std::vector<int>& indices_1D,
+                                                            const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
     return Index(a, f, b);
   };
@@ -379,8 +384,8 @@ void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Barrier_Y(const Field& input, 
 }
 
 void eco_sys_lab_plugin::VoxelSoilModel::Boundary_Barrier_Z(const Field& input, Field& output,
-                                                     const std::vector<int>& indices_1D,
-                                                     const std::vector<float>& weights) const {
+                                                            const std::vector<int>& indices_1D,
+                                                            const std::vector<float>& weights) const {
   auto WrapIndex = [&](int a, int b, int f) {
     return Index(a, b, f);
   };
@@ -756,7 +761,8 @@ void eco_sys_lab_plugin::VoxelSoilModel::SetVoxel(const glm::ivec3& coordinate, 
   m_w[idx] = material.m_w(position);
 }
 
-float eco_sys_lab_plugin::VoxelSoilModel::GetField(const Field& field, const glm::vec3& position, float default_value) const {
+float eco_sys_lab_plugin::VoxelSoilModel::GetField(const Field& field, const glm::vec3& position,
+                                                   float default_value) const {
   if (!PositionInsideVolume(position))
     return default_value;
   return field[Index(GetCoordinateFromPosition(position))];
@@ -946,7 +952,7 @@ vec3 VoxelSoilModel::GetPositionFromCoordinate(const ivec3& coordinate) const {
 }
 
 vec3 eco_sys_lab_plugin::VoxelSoilModel::GetPositionFromCoordinate(const glm::ivec3& coordinate, float dx, float dy,
-                                                            float dz) const {
+                                                                   float dz) const {
   return {m_boundingBoxMin.x + (dx / 2.0) + coordinate.x * dx, m_boundingBoxMin.y + (dy / 2.0) + coordinate.y * dy,
           m_boundingBoxMin.z + (dz / 2.0) + coordinate.z * dz};
 }
@@ -1091,9 +1097,10 @@ void VoxelSoilModel::GetSoilTextureSlideX(bool backFacing, float x, const glm::v
 }
 
 void eco_sys_lab_plugin::VoxelSoilModel::GetSoilTextureColorForPosition(const glm::vec3& position, int texture_idx,
-                                                                 float blur_width, glm::vec4& albedo, glm::vec3& normal,
-                                                                 float& roughness, float& metallic, float waterFactor,
-                                                                 float nutrientFactor) {
+                                                                        float blur_width, glm::vec4& albedo,
+                                                                        glm::vec3& normal, float& roughness,
+                                                                        float& metallic, float waterFactor,
+                                                                        float nutrientFactor) {
   const float blur_kernel_width = m_dx * m_dx * blur_width * blur_width;
   auto soil_voxel_base = GetCoordinateFromPosition(position);
   std::map<int, float> contributing_materials;  // we need to store the total some for each material:
@@ -1464,7 +1471,7 @@ void eco_sys_lab_plugin::VoxelSoilModel::Test_PermeabilitySpeed() {
 }
 
 void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport(float p, float c,
-                                                         const std::shared_ptr<SoilMaterialTexture>& texture) {
+                                                                const std::shared_ptr<SoilMaterialTexture>& texture) {
   auto setup = [this, texture](float permeability, float capacity) {
     SoilParameters p;  // standard values as defined when this function was first added are fine.
     p.m_voxelResolution = {32, 48, 32};
@@ -1543,14 +1550,17 @@ void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport(float p, float c
   // m_nutrient_sources.push_back(*m_water_sources.begin());
 }
 
-void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport_Sand(const std::shared_ptr<SoilMaterialTexture>& texture) {
+void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport_Sand(
+    const std::shared_ptr<SoilMaterialTexture>& texture) {
   Test_NutrientTransport(0.5, 100, texture);
 }
 
-void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport_Loam(const std::shared_ptr<SoilMaterialTexture>& texture) {
+void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport_Loam(
+    const std::shared_ptr<SoilMaterialTexture>& texture) {
   Test_NutrientTransport(0.1, 75, texture);
 }
 
-void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport_Silt(const std::shared_ptr<SoilMaterialTexture>& texture) {
+void eco_sys_lab_plugin::VoxelSoilModel::Test_NutrientTransport_Silt(
+    const std::shared_ptr<SoilMaterialTexture>& texture) {
   Test_NutrientTransport(0.033, 50, texture);
 }

@@ -17,4 +17,4 @@ class PointCloudCaptureSettings {
     return true;
   }
 };
-}  // namespace evo_engine
+}  // namespace dataset_generation_plugin

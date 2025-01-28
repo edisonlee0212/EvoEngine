@@ -20,7 +20,6 @@ void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
   const auto render_layer = Application::GetLayer<RenderLayer>();
   const auto resolution = target_camera->GetSize();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     pipeline->Bind(vk_command_buffer);
 

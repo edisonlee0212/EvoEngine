@@ -81,7 +81,7 @@ std::future<std::shared_ptr<IAsset>> AssetManager::GetAssetFutureImpl(const Hand
         ret_val->Save();
       }
       file->asset_ = ret_val;
-      //file->GetThumbnail();
+      // file->GetThumbnail();
       {
         std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
         asset_manager.asset_registry_.assets_[asset_handle] = ret_val;

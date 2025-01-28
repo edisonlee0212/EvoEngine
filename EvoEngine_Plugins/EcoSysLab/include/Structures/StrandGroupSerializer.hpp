@@ -45,7 +45,7 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Seri
       out << YAML::Key << "start_color" << YAML::Value << strand.start_color;
 
       out << YAML::Key << "data" << YAML::Value << YAML::BeginMap;
-      { strand_func(out, strand_group.strands_data_list[strand_index]); }
+      strand_func(out, strand_group.strands_data_list[strand_index]);
       out << YAML::EndMap;
     }
     out << YAML::EndMap;
@@ -53,7 +53,7 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Seri
   out << YAML::EndSeq;
 
   const auto strand_segment_size = strand_group.strand_segments_.size();
-  
+
   auto strand_segment_prev_list = std::vector<StrandSegmentHandle>(strand_segment_size);
   auto strand_segment_next_list = std::vector<StrandSegmentHandle>(strand_segment_size);
   auto strand_segment_strand_handle_list = std::vector<StrandHandle>(strand_segment_size);
@@ -66,7 +66,7 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Seri
 
   for (int strand_segment_index = 0; strand_segment_index < strand_segment_size; strand_segment_index++) {
     const auto& strand_segment = strand_group.strand_segments_[strand_segment_index];
-    
+
     strand_segment_prev_list[strand_segment_index] = strand_segment.prev_handle_;
     strand_segment_next_list[strand_segment_index] = strand_segment.next_handle_;
     strand_segment_strand_handle_list[strand_segment_index] = strand_segment.strand_handle_;
@@ -108,13 +108,13 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Seri
                         strand_segment_color_list.size() * sizeof(glm::vec4));
   }
   out << YAML::Key << "strand_segments_.data" << YAML::Value << YAML::BeginSeq;
-  for (uint32_t strand_segment_index = 0; strand_segment_index < strand_group.strand_segments_data_list.size(); strand_segment_index++) {
-   
+  for (uint32_t strand_segment_index = 0; strand_segment_index < strand_group.strand_segments_data_list.size();
+       strand_segment_index++) {
   }
 
   for (const auto& strand_segment_data : strand_group.strand_segments_data_list) {
     out << YAML::BeginMap;
-    { strand_segment_func(out, strand_segment_data); }
+    strand_segment_func(out, strand_segment_data);
     out << YAML::EndMap;
   }
   out << YAML::EndSeq;
@@ -159,7 +159,6 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Dese
       strand_handle++;
     }
   }
-
 
   if (in["strand_segments_.prev_handle_"]) {
     auto list = std::vector<StrandSegmentHandle>();
@@ -212,7 +211,7 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Dese
       strand_group.strand_segments_[i].end_position = list[i];
     }
   }
-  
+
   if (in["strand_segments_.rotation"]) {
     auto list = std::vector<glm::quat>();
     const auto data = in["strand_segments_.rotation"].as<YAML::Binary>();
@@ -252,7 +251,6 @@ void StrandGroupSerializer<StrandGroupData, StrandData, StrandSegmentData>::Dese
       strand_segment_handle++;
     }
   }
-  
 
   if (in["data"])
     group_func(in["data"], strand_group.data);

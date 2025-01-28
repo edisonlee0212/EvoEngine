@@ -2,8 +2,8 @@
 
 using namespace eco_sys_lab_plugin;
 
- float DynamicStrandUtils::PointPlaneDistance(const glm::vec3& target_point, const glm::vec3& target_a,
-                                      const glm::vec3& target_b, const glm::vec3& target_c) {
+float DynamicStrandUtils::PointPlaneDistance(const glm::vec3& target_point, const glm::vec3& target_a,
+                                             const glm::vec3& target_b, const glm::vec3& target_c) {
   // Compute the normal of the triangle
   const glm::vec3 ab = target_b - target_a;
   const glm::vec3 ac = target_c - target_a;
@@ -56,18 +56,18 @@ std::pair<int, int> DynamicStrandUtils::CompareIndices(const int a[4], const int
 
 bool DynamicStrandUtils::IsBetweenPlanes(const int target_indices[4],
                                          std::vector<DynamicStrands::GpuUniformParticle>& particles) {
-  int max_difference = -1; 
+  int max_difference = -1;
 
   for (size_t i = 0; i < 4; i++) {
     for (size_t j = i + 1; j < 4; j++) {
       int diff = glm::abs(particles[target_indices[i]].segment_index - particles[target_indices[j]].segment_index);
       if (diff > max_difference) {
-        max_difference = diff; 
+        max_difference = diff;
       }
     }
   }
-  //return max_difference == 1;
-  return max_difference <= 1; // for now also permit same distance
+  // return max_difference == 1;
+  return max_difference <= 1;  // for now also permit same distance
 }
 
 bool DynamicStrandUtils::IsValid(const int target_indices[4], int size) {

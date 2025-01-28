@@ -43,7 +43,7 @@ struct Plane {
 
   [[nodiscard]] glm::vec3 Project(const glm::vec3& point) const;
 
-  static glm::vec2 ProjectPointToPlane(const glm::vec3& point, const glm::vec3& plane_origin, const glm::vec3& plane_dir_x,
-                                       const glm::vec3& plane_dir_y);
+  static glm::vec2 ProjectPointToPlane(const glm::vec3& point, const glm::vec3& plane_origin,
+                                       const glm::vec3& plane_dir_x, const glm::vec3& plane_dir_y);
 };
 }  // namespace evo_engine

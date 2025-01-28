@@ -388,8 +388,6 @@ void Bloom::BuildPipelines() {
   mix_pipeline->Initialize();
 }
 
-
-
 void PostProcessingStack::Resize(const glm::uvec2& size) {
   if (size.x == 0 || size.y == 0)
     return;
@@ -429,7 +427,6 @@ void PostProcessingStack::OnCreate() {
   screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
   tone_mapping = std::make_shared<ToneMapping>();
 
-
   screen_space_ambient_occlusion->BuildPipelines();
   bloom->BuildPipelines();
   screen_space_reflection->BuildPipelines();
@@ -439,7 +436,6 @@ void PostProcessingStack::OnCreate() {
   enable_bloom = true;
   enable_screen_space_reflection = true;
   enable_tone_mapping = true;
-
 }
 
 bool PostProcessingStack::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {

@@ -109,7 +109,7 @@ void LodGroup::Serialize(YAML::Emitter& out) const {
           out << YAML::Key << "renderers" << YAML::BeginSeq;
           for (const auto& renderer : lod.renderers) {
             out << YAML::BeginMap;
-            { renderer.Serialize(out); }
+            renderer.Serialize(out);
             out << YAML::EndMap;
           }
           out << YAML::EndSeq;

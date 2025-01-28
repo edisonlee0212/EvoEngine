@@ -12,5 +12,5 @@ class PARSensorGroup : public IAsset {
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };
-}  // namespace digital_agriculture
+}  // namespace digital_agriculture_plugin
 #endif

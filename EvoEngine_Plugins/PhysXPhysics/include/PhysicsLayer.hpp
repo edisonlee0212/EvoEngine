@@ -121,8 +121,8 @@ class PhysicsLayer : public ILayer {
   friend class Collider;
   void UploadRigidBodyShapes(const std::shared_ptr<Scene> &scene, const std::shared_ptr<PhysicsScene> &physics_scene,
                              const std::vector<Entity> *rigid_body_entities);
-  void UploadJointLinks(const std::shared_ptr<Scene>& scene, const std::shared_ptr<PhysicsScene>& physics_scene,
-                        const std::vector<Entity>* joint_entities);
+  void UploadJointLinks(const std::shared_ptr<Scene> &scene, const std::shared_ptr<PhysicsScene> &physics_scene,
+                        const std::vector<Entity> *joint_entities);
 
  public:
   std::shared_ptr<PhysicsMaterial> default_physics_material;

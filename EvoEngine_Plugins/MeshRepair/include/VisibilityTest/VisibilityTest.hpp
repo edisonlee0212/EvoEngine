@@ -23,15 +23,13 @@ class VisibilityTest {
   static void GenerateSamples(const std::shared_ptr<Mesh>& mesh, const VisibilityTestParams& visibility_test_params,
                               std::vector<VisibilityTestSample>& output_samples);
   static void Execute(const std::shared_ptr<Mesh>& mesh, const std::vector<VisibilityTestSample>& input_samples,
-                             const VisibilityTestParams& visibility_test_params,
-                             std::vector<Visibility>& visibility_results);
+                      const VisibilityTestParams& visibility_test_params, std::vector<Visibility>& visibility_results);
 
   static void Execute(const std::shared_ptr<Mesh>& mesh, const VisibilityTestParams& visibility_test_params,
-                             std::vector<Visibility>& visibility_results);
+                      std::vector<Visibility>& visibility_results);
 
   static void Execute(const std::shared_ptr<Scene>& scene, const Entity& entity,
-                             const VisibilityTestParams& visibility_test_params,
-                             std::vector<Visibility>& visibility_results);
+                      const VisibilityTestParams& visibility_test_params, std::vector<Visibility>& visibility_results);
 };
 
-}  // namespace evo_engine
+}  // namespace mesh_repair_plugin

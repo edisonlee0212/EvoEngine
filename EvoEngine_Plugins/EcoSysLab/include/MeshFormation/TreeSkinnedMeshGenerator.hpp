@@ -36,8 +36,8 @@ void CylindricalSkinnedMeshGenerator<SkeletonData, FlowData, NodeData>::Generate
   offset_matrices.resize(current_bone_index + 1);
   for (const auto& [flowHandle, matrixIndex] : flow_bone_id_map) {
     const auto& flow = skeleton.PeekFlow(flowHandle);
-    offset_matrices[matrixIndex] = glm::inverse(glm::translate(flow.info.global_start_position) *
-                                               glm::mat4_cast(flow.info.global_start_rotation));
+    offset_matrices[matrixIndex] =
+        glm::inverse(glm::translate(flow.info.global_start_position) * glm::mat4_cast(flow.info.global_start_rotation));
   }
 }
 
@@ -78,8 +78,8 @@ void CylindricalSkinnedMeshGenerator<SkeletonData, FlowData, NodeData>::Generate
     glm::vec3 position_start = internode_info.global_position;
     glm::vec3 position_end;
     position_end = position_start + internode_info.length *
-                  (settings.smoothness ? 1.0f - settings.base_control_point_ratio : 1.0f) *
-                  internode_info.GetGlobalDirection();
+                                        (settings.smoothness ? 1.0f - settings.base_control_point_ratio : 1.0f) *
+                                        internode_info.GetGlobalDirection();
     float thickness_start = internode_info.thickness;
     float thickness_end = internode_info.thickness;
 
@@ -117,7 +117,7 @@ void CylindricalSkinnedMeshGenerator<SkeletonData, FlowData, NodeData>::Generate
     int amount = glm::max(
         1, static_cast<int>(glm::distance(position_start, position_end) /
                             (internode_info.thickness >= settings.trunk_thickness ? settings.trunk_y_subdivision
-                                                                                    : settings.branch_y_subdivision)));
+                                                                                  : settings.branch_y_subdivision)));
     if (amount % 2 != 0)
       ++amount;
     amount = glm::max(1, amount);
@@ -133,11 +133,11 @@ void CylindricalSkinnedMeshGenerator<SkeletonData, FlowData, NodeData>::Generate
       const float a = static_cast<float>(ring_index - 1) / amount;
       const float b = static_cast<float>(ring_index) / amount;
       if (settings.smoothness) {
-        rings.emplace_back(a, b, curve.GetPoint(a), curve.GetPoint(b), glm::mix(direction_start, direction_end, a),
-                           glm::mix(direction_start, direction_end, b), glm::mix(thickness_start, thickness_end, a) * .5f,
-                           glm::mix(thickness_start, thickness_end, b) * .5f,
-                           glm::mix(root_distance_start, root_distance_end, a),
-                           glm::mix(root_distance_start, root_distance_end, b));
+        rings.emplace_back(
+            a, b, curve.GetPoint(a), curve.GetPoint(b), glm::mix(direction_start, direction_end, a),
+            glm::mix(direction_start, direction_end, b), glm::mix(thickness_start, thickness_end, a) * .5f,
+            glm::mix(thickness_start, thickness_end, b) * .5f, glm::mix(root_distance_start, root_distance_end, a),
+            glm::mix(root_distance_start, root_distance_end, b));
       } else {
         rings.emplace_back(
             a, b, curve.GetPoint(a), curve.GetPoint(b), direction_end, direction_end,
@@ -208,10 +208,11 @@ void CylindricalSkinnedMeshGenerator<SkeletonData, FlowData, NodeData>::Generate
       if (tree_part_type == 0) {
         // IShape
         // If root or parent is Y Shape or length exceeds limit, create a new IShape from this node.
-        bool restart_i_shape = parent_internode_handle == -1 || tree_part_infos[parent_internode_handle].tree_part_type != 0;
+        bool restart_i_shape =
+            parent_internode_handle == -1 || tree_part_infos[parent_internode_handle].tree_part_type != 0;
         if (!restart_i_shape) {
           if (const auto& parent_tree_part_info = tree_part_infos[parent_internode_handle];
-            parent_tree_part_info.distance_to_start / internode_info.thickness > settings.tree_part_break_ratio)
+              parent_tree_part_info.distance_to_start / internode_info.thickness > settings.tree_part_break_ratio)
             restart_i_shape = true;
         }
         if (restart_i_shape) {
@@ -346,7 +347,8 @@ void CylindricalSkinnedMeshGenerator<SkeletonData, FlowData, NodeData>::Generate
             static_cast<unsigned>(TreeMeshGeneratorSettings::VertexColorMode::InternodeColor))
           archetype.color = internode_info.color;
         if (parent_flow_handle != -1)
-          archetype.bond_id = glm::ivec4(flow_bone_id_map[parent_flow_handle], flow_bone_id_map[parent_flow_handle], -1, -1);
+          archetype.bond_id =
+              glm::ivec4(flow_bone_id_map[parent_flow_handle], flow_bone_id_map[parent_flow_handle], -1, -1);
         else {
           archetype.bond_id = glm::ivec4(-1, flow_bone_id_map[0], -1, -1);
         }
@@ -415,11 +417,11 @@ void CylindricalSkinnedMeshGenerator<SkeletonData, FlowData, NodeData>::Generate
           archetype.color = internode_info.color;
 
         archetype.weight.x = glm::clamp((distance_to_chain_start + ring.end_a * internode.info.length) /
-                                              (distance_to_chain_start + distance_to_chain_end),
-                                          0.f, 1.f);
+                                            (distance_to_chain_start + distance_to_chain_end),
+                                        0.f, 1.f);
         archetype.weight.y = glm::clamp((distance_to_chain_end - ring.end_a * internode.info.length) /
-                                              (distance_to_chain_start + distance_to_chain_end),
-                                          0.f, 1.f);
+                                            (distance_to_chain_start + distance_to_chain_end),
+                                        0.f, 1.f);
         skinned_vertices.push_back(archetype);
       }
       if (ring_index == 0) {

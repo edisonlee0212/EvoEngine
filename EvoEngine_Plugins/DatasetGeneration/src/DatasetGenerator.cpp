@@ -71,8 +71,7 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
 
   if (data_generation_parameters.tree_descriptor_path.is_relative()) {
     std::shared_ptr<TreeDescriptor> tree_descriptor;
-    const auto absolute_path =
-        ProjectManager::GetAssetsFolderPath() / data_generation_parameters.tree_descriptor_path;
+    const auto absolute_path = ProjectManager::GetAssetsFolderPath() / data_generation_parameters.tree_descriptor_path;
     if (std::filesystem::exists(absolute_path)) {
       tree_descriptor = std::dynamic_pointer_cast<TreeDescriptor>(
           ProjectManager::GetOrCreateAsset(data_generation_parameters.tree_descriptor_path));

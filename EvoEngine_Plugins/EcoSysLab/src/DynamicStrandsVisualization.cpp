@@ -47,10 +47,11 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (ImGui::Checkbox("Segment Pair", &render_segment_pairs))
     changed = true;
   if (render_segment_pairs) {
-    if (ImGui::Combo("Segment Pair mode",
-                     {"Default", "Bending strain", "Twisting strain", "Bundle strain", "Combined strain",
-                      "Connectivity strain", "Bending Limit", "Twisting limit", "Bundle limit", "Connectivity limit", "Segment color"},
-                     segment_pair_render_mode))
+    if (ImGui::Combo(
+            "Segment Pair mode",
+            {"Default", "Bending strain", "Twisting strain", "Bundle strain", "Combined strain", "Connectivity strain",
+             "Bending Limit", "Twisting limit", "Bundle limit", "Connectivity limit", "Segment color"},
+            segment_pair_render_mode))
       changed = true;
     switch (segment_pair_render_mode) {
       case 0: {

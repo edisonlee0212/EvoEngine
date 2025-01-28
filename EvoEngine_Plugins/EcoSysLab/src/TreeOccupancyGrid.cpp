@@ -70,17 +70,17 @@ void TreeOccupancyGrid::Resize(const glm::vec3& min, const glm::vec3& max) {
       auto& voxel_data = occupancy_grid_.Ref(static_cast<int>(i));
       for (int v = 0; v < markers_per_voxel_; v++) {
         auto& new_marker = voxel_data.markers.emplace_back();
-        new_marker.position =
-            occupancy_grid_.GetPosition(i) + glm::linearRand(-glm::vec3(voxel_size * 0.5f), glm::vec3(voxel_size * 0.5f));
+        new_marker.position = occupancy_grid_.GetPosition(i) +
+                              glm::linearRand(-glm::vec3(voxel_size * 0.5f), glm::vec3(voxel_size * 0.5f));
       }
     }
   });
 }
 
 void TreeOccupancyGrid::Initialize(const VoxelGrid<TreeOccupancyGridBasicData>& src_grid, const glm::vec3& min,
-                                   const glm::vec3& max, const float internode_length, const float removal_distance_factor,
-                                   const float theta, const float detection_distance_factor,
-                                   const size_t markers_per_voxel) {
+                                   const glm::vec3& max, const float internode_length,
+                                   const float removal_distance_factor, const float theta,
+                                   const float detection_distance_factor, const size_t markers_per_voxel) {
   removal_distance_factor_ = removal_distance_factor;
   detection_distance_factor_ = detection_distance_factor;
   theta_ = theta;
@@ -95,13 +95,15 @@ void TreeOccupancyGrid::Initialize(const VoxelGrid<TreeOccupancyGridBasicData>& 
         glm::vec3(0.5f, 0.0f, 0.5f);
     const auto src_grid_size = src_grid.GetMaxBound() - src_grid.GetMinBound();
 
-    if (const auto src_grid_position = normalized_position * src_grid_size; (src_grid.IsValid(src_grid_position) && src_grid.Peek(src_grid.GetIndex(src_grid_position)).occupied) ||
-                                                                          (normalized_position.y < 0.8f && glm::length(glm::vec2(normalized_position.x, normalized_position.z)) < 0.02f)) {
+    if (const auto src_grid_position = normalized_position * src_grid_size;
+        (src_grid.IsValid(src_grid_position) && src_grid.Peek(src_grid.GetIndex(src_grid_position)).occupied) ||
+        (normalized_position.y < 0.8f &&
+         glm::length(glm::vec2(normalized_position.x, normalized_position.z)) < 0.02f)) {
       auto& voxel_data = occupancy_grid_.Ref(static_cast<int>(i));
       for (int v = 0; v < markers_per_voxel_; v++) {
         auto& new_marker = voxel_data.markers.emplace_back();
-        new_marker.position =
-            occupancy_grid_.GetPosition(i) + glm::linearRand(-glm::vec3(voxel_size * 0.5f), glm::vec3(voxel_size * 0.5f));
+        new_marker.position = occupancy_grid_.GetPosition(i) +
+                              glm::linearRand(-glm::vec3(voxel_size * 0.5f), glm::vec3(voxel_size * 0.5f));
       }
     }
   });
@@ -109,8 +111,8 @@ void TreeOccupancyGrid::Initialize(const VoxelGrid<TreeOccupancyGridBasicData>& 
 
 void TreeOccupancyGrid::Initialize(const std::shared_ptr<RadialBoundingVolume>& src_radial_bounding_volume,
                                    const glm::vec3& min, const glm::vec3& max, const float internode_length,
-                                   const float removal_distance_factor, const float theta, const float detection_distance_factor,
-                                   const size_t markers_per_voxel) {
+                                   const float removal_distance_factor, const float theta,
+                                   const float detection_distance_factor, const size_t markers_per_voxel) {
   removal_distance_factor_ = removal_distance_factor;
   detection_distance_factor_ = detection_distance_factor;
   theta_ = theta;
@@ -124,8 +126,8 @@ void TreeOccupancyGrid::Initialize(const std::shared_ptr<RadialBoundingVolume>& 
       auto& voxel_data = occupancy_grid_.Ref(static_cast<int>(i));
       for (int v = 0; v < markers_per_voxel_; v++) {
         auto& new_marker = voxel_data.markers.emplace_back();
-        new_marker.position =
-            occupancy_grid_.GetPosition(i) + glm::linearRand(-glm::vec3(voxel_size * 0.5f), glm::vec3(voxel_size * 0.5f));
+        new_marker.position = occupancy_grid_.GetPosition(i) +
+                              glm::linearRand(-glm::vec3(voxel_size * 0.5f), glm::vec3(voxel_size * 0.5f));
       }
     }
   });

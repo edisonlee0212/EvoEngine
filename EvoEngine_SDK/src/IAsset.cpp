@@ -147,7 +147,8 @@ bool IAsset::SetPathAndSave(const std::filesystem::path &asset_folder_relative_p
   return true;
 }
 std::string IAsset::GetTitle() const {
-  return IsTemporary() ? "Temporary " + type_name_ : GetAssetsFolderRelativePath().stem().string() + (saved_ ? "" : " *");
+  return IsTemporary() ? "Temporary " + type_name_
+                       : GetAssetsFolderRelativePath().stem().string() + (saved_ ? "" : " *");
 }
 IAsset::~IAsset() {
   AssetManager::RemoveAssetImpl(handle_);

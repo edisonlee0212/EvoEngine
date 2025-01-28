@@ -37,15 +37,16 @@ class TreeOccupancyGrid {
   [[nodiscard]] float GetInternodeLength() const;
   [[nodiscard]] size_t GetMarkersPerVoxel() const;
 
-  void Initialize(const glm::vec3& min, const glm::vec3& max, float internode_length, float removal_distance_factor = 2.0f,
-                  float theta = 90.0f, float detection_distance_factor = 4.0f, size_t markers_per_voxel = 1);
+  void Initialize(const glm::vec3& min, const glm::vec3& max, float internode_length,
+                  float removal_distance_factor = 2.0f, float theta = 90.0f, float detection_distance_factor = 4.0f,
+                  size_t markers_per_voxel = 1);
   void Resize(const glm::vec3& min, const glm::vec3& max);
   void Initialize(const VoxelGrid<TreeOccupancyGridBasicData>& src_grid, const glm::vec3& min, const glm::vec3& max,
                   float internode_length, float removal_distance_factor = 2.0f, float theta = 90.0f,
                   float detection_distance_factor = 4.0f, size_t markers_per_voxel = 1);
   void Initialize(const std::shared_ptr<RadialBoundingVolume>& src_radial_bounding_volume, const glm::vec3& min,
-                  const glm::vec3& max, float internode_length, float removal_distance_factor = 2.0f, float theta = 90.0f,
-                  float detection_distance_factor = 4.0f, size_t markers_per_voxel = 1);
+                  const glm::vec3& max, float internode_length, float removal_distance_factor = 2.0f,
+                  float theta = 90.0f, float detection_distance_factor = 4.0f, size_t markers_per_voxel = 1);
   [[nodiscard]] VoxelGrid<TreeOccupancyGridVoxelData>& RefGrid();
   [[nodiscard]] glm::vec3 GetMin() const;
   [[nodiscard]] glm::vec3 GetMax() const;

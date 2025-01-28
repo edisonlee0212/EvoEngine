@@ -14,4 +14,4 @@ class TextureBaking : public IPrivateComponent {
   void Deserialize(const YAML::Node& in) override;
   void Relink(const std::unordered_map<Handle, Handle>& map, const std::shared_ptr<Scene>& scene) override;
 };
-}  // namespace evo_engine
+}  // namespace texture_baking_plugin

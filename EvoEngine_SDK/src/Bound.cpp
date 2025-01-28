@@ -265,8 +265,8 @@ glm::vec3 Plane::Project(const glm::vec3& point) const {
   return point - distance * glm::normalize(normal);
 }
 
-glm::vec2 Plane::ProjectPointToPlane(const glm::vec3& point, const glm::vec3& plane_origin, const glm::vec3& plane_dir_x,
-    const glm::vec3& plane_dir_y) {
+glm::vec2 Plane::ProjectPointToPlane(const glm::vec3& point, const glm::vec3& plane_origin,
+                                     const glm::vec3& plane_dir_x, const glm::vec3& plane_dir_y) {
   // Calculate the relative position of the point to the plane origin
   const glm::vec3 p_rel = point - plane_origin;
 

@@ -633,7 +633,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     curve_values.emplace_back(0.1, 0);
 
     curve_values.emplace_back(-0.1, 0);
-    curve_values.emplace_back(1,  0.5);
+    curve_values.emplace_back(1, 0.5);
     curve_values.emplace_back(0.1, 0);
   }
 

@@ -96,7 +96,7 @@ void TreeGraph::Deserialize(const YAML::Node& in) {
       auto new_node = std::make_shared<TreeGraphNode>();
       new_node->id = node["id"].as<int>();
       new_node->start = parent_node->start +
-                         parent_node->length * (glm::normalize(parent_node->global_rotation) * glm::vec3(0, 0, -1));
+                        parent_node->length * (glm::normalize(parent_node->global_rotation) * glm::vec3(0, 0, -1));
       new_node->thickness = node["thickness"].as<float>();
       new_node->length = node["length"].as<float>();
       new_node->parent_id = parent_node_id;

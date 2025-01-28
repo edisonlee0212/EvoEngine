@@ -30,7 +30,6 @@ bool Bone::OnInspect() {
   return changed;
 }
 
-
 int BoneKeyFrames::GetPositionIndex(const float& animation_time) const {
   const int size = positions.size();
   for (int index = 0; index < size - 1; ++index) {
@@ -104,8 +103,6 @@ glm::mat4 BoneKeyFrames::InterpolateScaling(const float& animation_time) const {
   const glm::vec3 final_scale = glm::mix(scales[p0_index].m_value, scales[p1_index].m_value, scale_factor);
   return glm::scale(final_scale);
 }
-
-
 
 std::shared_ptr<Bone>& Animation::UnsafeGetRootBone() {
   return root_bone;

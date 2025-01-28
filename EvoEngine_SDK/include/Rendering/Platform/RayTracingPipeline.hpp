@@ -14,6 +14,7 @@ class RayTracingPipeline final : public IGraphicsResource {
   std::shared_ptr<Buffer> miss_shader_binding_table_;
   std::shared_ptr<Buffer> closest_hit_shader_binding_table_;
   uint32_t handle_size_aligned_ = 0;
+
  public:
   ~RayTracingPipeline() override;
   std::vector<VkPushConstantRange> push_constant_ranges;
@@ -40,7 +41,8 @@ class RayTracingPipeline final : public IGraphicsResource {
 };
 
 template <typename T>
-void RayTracingPipeline::PushConstant(const VkCommandBuffer vk_command_buffer, const size_t range_index, const T& data) {
+void RayTracingPipeline::PushConstant(const VkCommandBuffer vk_command_buffer, const size_t range_index,
+                                      const T& data) {
   vkCmdPushConstants(vk_command_buffer, pipeline_layout_->GetVkPipelineLayout(),
                      push_constant_ranges[range_index].stageFlags, push_constant_ranges[range_index].offset,
                      push_constant_ranges[range_index].size, &data);

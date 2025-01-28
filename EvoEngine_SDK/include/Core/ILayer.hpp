@@ -26,7 +26,7 @@ class ILayer {
   virtual void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
   virtual void OnInputEvent(const Input::InputEvent& input_event);
-  
+
  public:
   [[nodiscard]] std::string GetLayerName() const;
   bool enable_inspection = false;

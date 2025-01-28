@@ -6,7 +6,8 @@ using namespace evo_engine;
 bool WayPoints::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = GetScene();
   bool changed = false;
-  if (EntityRef temp_entity_holder; editor_layer->DragAndDropButton(temp_entity_holder, "Drop new SoilLayerDescriptor here...")) {
+  if (EntityRef temp_entity_holder;
+      editor_layer->DragAndDropButton(temp_entity_holder, "Drop new SoilLayerDescriptor here...")) {
     if (auto entity = temp_entity_holder.Get(); scene->IsEntityValid(entity)) {
       entities.emplace_back(entity);
       changed = true;

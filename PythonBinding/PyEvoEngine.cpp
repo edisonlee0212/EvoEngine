@@ -96,7 +96,6 @@ void capture_current_scene(const int resolution_x, const int resolution_y, const
   EVOENGINE_LOG("Exported image to " + output_path);
 }
 
-
 PYBIND11_MODULE(PyEvoEngine, m) {
   m.doc() = "PyEvoEngine";  // optional module docstring
   m.def("engine_run_windowless", &engine_run_windowless, "Start Project (Windowless)");

@@ -788,7 +788,7 @@ std::vector<SlicingData> Slicing(const StrandModel& strand_model, std::vector<Sl
       tex_coord.y = t * settings.v_multiplier;
       tex_coord.x =
           (UVMapUtils::GetPipePolar(strand_model, el.first, t) / (2 * glm::pi<float>()) + accumulated_angle / 360.0f) *
-                    settings.u_multiplier;
+          settings.u_multiplier;
 
       // add twisting to uv-Coordinates
       auto node_handle = GetNodeHandle(pipe_group, el.first, glm::floor(t + 1));
