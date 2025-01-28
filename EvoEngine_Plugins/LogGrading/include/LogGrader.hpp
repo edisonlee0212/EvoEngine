@@ -61,4 +61,4 @@ class LogGrader : public IPrivateComponent {
   void InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh_generator_settings) const;
   void ClearMeshRenderer() const;
 };
-}  // namespace eco_sys_lab_plugin
+}  // namespace log_grading_plugin

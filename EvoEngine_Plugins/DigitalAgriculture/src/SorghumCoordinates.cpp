@@ -1,6 +1,6 @@
 #include "SorghumCoordinates.hpp"
-#include "SorghumLayer.hpp"
 #include "SorghumGenerator.hpp"
+#include "SorghumLayer.hpp"
 #include "TransformGraph.hpp"
 
 using namespace digital_agriculture_plugin;
@@ -35,7 +35,7 @@ void SorghumCoordinates::Apply(const std::shared_ptr<SorghumField>& sorghum_fiel
 
 bool SorghumCoordinates::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if(editor_layer->DragAndDropButton<SorghumGenerator>(sorghum_generator, "SorghumGenerator")) {
+  if (editor_layer->DragAndDropButton<SorghumGenerator>(sorghum_generator, "SorghumGenerator")) {
     changed = true;
   }
   ImGui::Text("Available count: %d", positions.size());

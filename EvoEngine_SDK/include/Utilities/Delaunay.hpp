@@ -12,9 +12,9 @@ class Delaunay3D {
   };
 
   static float CalculateTetrahedronCircumradius(const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2,
-                                     const glm::vec3& p3);
+                                                const glm::vec3& p3);
   static float CalculateTetrahedronVolume(const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2,
-                                     const glm::vec3& p3);
+                                          const glm::vec3& p3);
 
   static std::vector<Tetrahedron> GenerateTetrahedrons(const std::vector<glm::vec3>& points);
 
@@ -23,13 +23,12 @@ class Delaunay3D {
 
   static std::vector<glm::uvec3> GenerateConvexHullTriangles(const std::vector<glm::vec3>& points);
   static std::vector<glm::uvec3> GenerateAlphaShapeTriangles(const std::vector<glm::vec3>& points,
-                                                              float max_circumradius);
+                                                             float max_circumradius);
   static std::vector<glm::uvec3> GenerateConcaveHullTriangles(const std::vector<glm::vec3>& points,
-                                                             float max_edge_length);
+                                                              float max_edge_length);
 
   static std::shared_ptr<Mesh> GenerateConvexHullMesh(const std::vector<glm::vec3>& points);
   static std::shared_ptr<Mesh> GenerateAlphaShapeMesh(const std::vector<glm::vec3>& points, float max_circumradius);
   static std::shared_ptr<Mesh> GenerateConcaveHullMesh(const std::vector<glm::vec3>& points, float max_edge_length);
-
 };
 }  // namespace evo_engine

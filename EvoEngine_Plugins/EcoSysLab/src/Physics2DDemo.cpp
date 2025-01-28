@@ -34,8 +34,7 @@ bool Physics2DDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) 
           },
           [&](const ImVec2 origin, const float zoom_factor, ImDrawList* draw_list) {
             const auto wc = world_center * zoom_factor;
-            draw_list->AddCircle(origin + ImVec2(wc.x, wc.y), world_radius * zoom_factor,
-                                 IM_COL32(255, 0, 0, 255));
+            draw_list->AddCircle(origin + ImVec2(wc.x, wc.y), world_radius * zoom_factor, IM_COL32(255, 0, 0, 255));
           });
     }
     ImGui::End();
@@ -52,7 +51,7 @@ void Physics2DDemo::FixedUpdate() {
     if (!glm::any(glm::isnan(friction))) {
       acceleration += friction;
     }
-    { particle.SetAcceleration(acceleration); }
+    particle.SetAcceleration(acceleration);
     // Apply constraints
     {
       const auto to_center = particle.GetPosition() - world_center;

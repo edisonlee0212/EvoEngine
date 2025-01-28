@@ -1,6 +1,6 @@
 #pragma once
 #ifdef CUDA_MODULE_PLUGIN
-#include "CompressedBTF.hpp"
+#  include "CompressedBTF.hpp"
 #endif
 
 using namespace evo_engine;

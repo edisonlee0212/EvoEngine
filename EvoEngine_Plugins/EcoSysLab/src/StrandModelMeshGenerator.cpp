@@ -2,14 +2,14 @@
 #include <glm/gtx/intersect.hpp>
 #include <glm/gtx/io.hpp>
 #include <queue>
+#include "AlphaShapeMeshGenerator.hpp"
+#include "EcoSysLabLayer.hpp"
+#include "IterativeSlicingMeshGenerator.hpp"
 #include "Jobs.hpp"
+#include "MarchingCubeMeshGenerator.hpp"
 #include "MeshGenUtils.hpp"
 #include "Octree.hpp"
 #include "TreeMeshGenerator.hpp"
-#include "AlphaShapeMeshGenerator.hpp"
-#include "IterativeSlicingMeshGenerator.hpp"
-#include "MarchingCubeMeshGenerator.hpp"
-#include "EcoSysLabLayer.hpp"
 
 using namespace eco_sys_lab_plugin;
 
@@ -62,7 +62,7 @@ void StrandModelMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLay
   ImGui::Checkbox("Foliage", &enable_foliage);
 }
 
- void StrandModelMeshGenerator::Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,
+void StrandModelMeshGenerator::Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,
                                         std::vector<unsigned>& indices,
                                         const StrandModelMeshGeneratorSettings& settings) {
   switch (settings.generator_type) {
@@ -94,10 +94,9 @@ void StrandModelMeshGenerator::Generate(const StrandModel& strand_model, std::ve
                                         std::vector<glm::vec2>& tex_coords,
                                         std::vector<std::pair<unsigned, unsigned>>& index_pairs,
                                         const StrandModelMeshGeneratorSettings& settings) {
-  
-   switch (settings.generator_type) {
+  switch (settings.generator_type) {
     case static_cast<unsigned>(StrandModelMeshGeneratorType::RecursiveSlicing): {
-       IterativeSlicingMeshGenerator::Generate(strand_model, vertices, tex_coords, index_pairs, settings);
+      IterativeSlicingMeshGenerator::Generate(strand_model, vertices, tex_coords, index_pairs, settings);
     } break;
     case static_cast<unsigned>(StrandModelMeshGeneratorType::MarchingCube): {
       MarchingCubeMeshGenerator::Generate(strand_model, vertices, tex_coords, index_pairs, settings);
@@ -431,8 +430,8 @@ void StrandModelMeshGenerator::CalculateUv(const StrandModel& strand_model, std:
     const auto& strand_group = strand_model.strand_model_skeleton.data.strand_group;
     auto min = glm::vec3(FLT_MAX);
     auto max = glm::vec3(FLT_MIN);
-    for (StrandSegmentHandle strand_segment_handle = 0; strand_segment_handle < strand_group.PeekStrandSegments().size();
-         strand_segment_handle++) {
+    for (StrandSegmentHandle strand_segment_handle = 0;
+         strand_segment_handle < strand_group.PeekStrandSegments().size(); strand_segment_handle++) {
       const auto& strand_segment = strand_group.PeekStrandSegment(strand_segment_handle);
       const auto& strand_segment_data = strand_group.PeekStrandSegmentData(strand_segment_handle);
 
@@ -452,8 +451,8 @@ void StrandModelMeshGenerator::CalculateUv(const StrandModel& strand_model, std:
     VoxelGrid<std::vector<StrandSegmentHandle>> boundary_segments;
     boundary_segments.Initialize(0.01f, min, max, {});
 
-    for (StrandSegmentHandle strand_segment_handle = 0; strand_segment_handle < strand_group.PeekStrandSegments().size();
-         strand_segment_handle++) {
+    for (StrandSegmentHandle strand_segment_handle = 0;
+         strand_segment_handle < strand_group.PeekStrandSegments().size(); strand_segment_handle++) {
       const auto& strand_segment = strand_group.PeekStrandSegment(strand_segment_handle);
       const auto& strand_segment_data = strand_group.PeekStrandSegmentData(strand_segment_handle);
       const auto& node = strand_model.strand_model_skeleton.PeekNode(strand_segment_data.node_handle);

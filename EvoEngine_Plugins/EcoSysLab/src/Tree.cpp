@@ -744,7 +744,7 @@ bool Tree::PruningSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor
 
 void Tree::PruningSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
-  { out << YAML::Key << "low_branch_pruning" << YAML::Value << low_branch_pruning; }
+  out << YAML::Key << "low_branch_pruning" << YAML::Value << low_branch_pruning;
   out << YAML::EndMap;
 }
 

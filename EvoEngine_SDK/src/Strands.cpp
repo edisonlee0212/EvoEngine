@@ -47,9 +47,9 @@ void Strands::PrepareStrands(const StrandPointAttributes& strand_point_attribute
   glm::vec3 max_bound = strand_points_.at(0).position;
   for (auto& vertex : strand_points_) {
     min_bound = glm::vec3((glm::min)(min_bound.x, vertex.position.x), (glm::min)(min_bound.y, vertex.position.y),
-                         (glm::min)(min_bound.z, vertex.position.z));
+                          (glm::min)(min_bound.z, vertex.position.z));
     max_bound = glm::vec3((glm::max)(max_bound.x, vertex.position.x), (glm::max)(max_bound.y, vertex.position.y),
-                         (glm::max)(max_bound.z, vertex.position.z));
+                          (glm::max)(max_bound.z, vertex.position.z));
   }
   bound_.max = max_bound;
   bound_.min = min_bound;

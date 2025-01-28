@@ -305,7 +305,7 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
           leaf_indices.emplace_back(0);
         }
 #endif
-      }else {
+      } else {
         if (const auto search = leaf_mesh_renderer_handles.find(sample.handle);
             search != leaf_mesh_renderer_handles.end()) {
           leaf_indices.emplace_back(search->second.second);

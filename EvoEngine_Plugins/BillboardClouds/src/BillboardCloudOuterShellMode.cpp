@@ -277,8 +277,7 @@ class Discretization {
         {
           glm::vec2 ro_min_max;
           if (!ComputeRoMinMax(ro_min_max, element, cluster_triangle, theta_min + j * theta_gap,
-                               theta_min + (j + 1) * theta_gap, phi_min + i * phi_gap,
-                               phi_min + (i + 1) * phi_gap)) {
+                               theta_min + (j + 1) * theta_gap, phi_min + i * phi_gap, phi_min + (i + 1) * phi_gap)) {
             continue;
           }
           // if (roMaxMin.x < 0.f && roMaxMin.y < 0.f)
@@ -287,8 +286,10 @@ class Discretization {
           const float current_ro_max = ro_min_max.y;
 
           // add coverage, m_bins between (roMin, roMax)
-          const int ro_coord_min = glm::clamp(static_cast<int>((current_ro_min - current_ro_min) / ro_gap), 0, discretize_ro_num - 1);
-          const int ro_coord_max = glm::clamp(static_cast<int>((current_ro_max - current_ro_min) / ro_gap), 0, discretize_ro_num - 1);
+          const int ro_coord_min =
+              glm::clamp(static_cast<int>((current_ro_min - current_ro_min) / ro_gap), 0, discretize_ro_num - 1);
+          const int ro_coord_max =
+              glm::clamp(static_cast<int>((current_ro_max - current_ro_min) / ro_gap), 0, discretize_ro_num - 1);
 
           if (ro_coord_max - ro_coord_min > 2) {
             if (add) {
@@ -407,9 +408,9 @@ class Discretization {
     }
     return bin_valid_set;
   }
-  [[nodiscard]] std::vector<int> ComputePlaneValidSetIndex(const std::vector<BillboardCloud::Element>& elements,
-                                             const std::vector<BillboardCloud::ClusterTriangle>& cluster_triangles,
-                                             const Plane& plane) const {
+  [[nodiscard]] std::vector<int> ComputePlaneValidSetIndex(
+      const std::vector<BillboardCloud::Element>& elements,
+      const std::vector<BillboardCloud::ClusterTriangle>& cluster_triangles, const Plane& plane) const {
     std::vector<int> plane_valid_set_index;
     const auto plane_normal = plane.GetNormal();
     const auto plane_distance = plane.GetDistance();
@@ -451,11 +452,11 @@ class Discretization {
       const float cur_ro_max = ro_min_max.y;
       const float cur_ro_gap = bin.ro_max - bin.ro_min;
       if (cur_ro_min < bin.ro_min && cur_ro_max > bin.ro_min && cur_ro_max < bin.ro_max) {
-        bin.density +=
-            triangle_area * glm::abs(glm::dot(triangle_normal, bin.center_normal)) * (cur_ro_max - bin.ro_min) / cur_ro_gap;
+        bin.density += triangle_area * glm::abs(glm::dot(triangle_normal, bin.center_normal)) *
+                       (cur_ro_max - bin.ro_min) / cur_ro_gap;
       } else if (cur_ro_min > bin.ro_min && cur_ro_min < bin.ro_max && cur_ro_max > bin.ro_max) {
-        bin.density +=
-            triangle_area * glm::abs(glm::dot(triangle_normal, bin.center_normal)) * (bin.ro_max - cur_ro_min) / cur_ro_gap;
+        bin.density += triangle_area * glm::abs(glm::dot(triangle_normal, bin.center_normal)) *
+                       (bin.ro_max - cur_ro_min) / cur_ro_gap;
       } else if (cur_ro_min >= bin.ro_min && cur_ro_max <= bin.ro_max) {
         bin.density += triangle_area * glm::abs(glm::dot(triangle_normal, bin.center_normal));
       }
@@ -498,7 +499,8 @@ class Discretization {
           if (neighbor_ro_min < ro_min || neighbor_ro_max > ro_max)
             continue;
 
-          Bin bin_tmp(neighbor_theta_min, neighbor_theta_max, neighbor_phi_min, neighbor_phi_max, neighbor_ro_min, neighbor_ro_max);
+          Bin bin_tmp(neighbor_theta_min, neighbor_theta_max, neighbor_phi_min, neighbor_phi_max, neighbor_ro_min,
+                      neighbor_ro_max);
           bins_tmp.emplace_back(bin_tmp);
         }
       }
@@ -639,7 +641,8 @@ std::vector<BillboardCloud::Cluster> BillboardCloud::DefaultClusterize(
     [[maybe_unused]] float max_density = discretization.ComputeMaxDensity(max_density_bin_coordinate);
     const auto& max_density_bin =
         discretization.m_bins[max_density_bin_coordinate.x][max_density_bin_coordinate.y][max_density_bin_coordinate.z];
-    if (const auto bin_valid_set = discretization.ComputeBinValidSet(elements, operating_triangles, max_density_bin); !bin_valid_set.empty()) {
+    if (const auto bin_valid_set = discretization.ComputeBinValidSet(elements, operating_triangles, max_density_bin);
+        !bin_valid_set.empty()) {
       std::vector<int> selected_triangle_indices;
       Cluster new_cluster;
       std::vector<ClusterTriangle> plane_valid_set;

@@ -10,8 +10,6 @@ struct JoeScanScannerSettings {
   int step = 1;
 };
 
-
-
 class JoeScanScanner : public IPrivateComponent {
   std::shared_ptr<std::mutex> scanner_mutex_;
   bool scan_enabled_ = false;

@@ -52,8 +52,7 @@ float UVMapUtils::GetPipePolar(const StrandModel& strand_model, const StrandHand
   const auto& p0_ptr = GetStartParticle(strand_model, pipe_handle, std::floor(t));
   const auto& p1_ptr = GetEndParticle(strand_model, pipe_handle, std::floor(t));
 
-  if (!p0_ptr || !p1_ptr)
-  {
+  if (!p0_ptr || !p1_ptr) {
     return 0.0f;
   }
 
@@ -86,7 +85,7 @@ const Particle2D<CellParticlePhysicsData>* UVMapUtils::GetEndParticle(const Stra
 
   StrandSegmentHandle seg_handle = pipe.PeekStrandSegmentHandles()[index];
   auto& pipe_segment_data = skeleton.data.strand_group.PeekStrandSegmentData(seg_handle);
-  if (pipe_segment_data.profile_particle_handle == -1){
+  if (pipe_segment_data.profile_particle_handle == -1) {
     return nullptr;
   }
 

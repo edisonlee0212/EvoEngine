@@ -479,8 +479,8 @@ class Serialization final {
   static void CloneSystem(const std::shared_ptr<ISystem>& target, const std::shared_ptr<ISystem>& source);
   static std::shared_ptr<ISerializable> ProduceSerializable(const std::string& type_name, size_t& hash_code);
   static std::shared_ptr<ISerializable> ProduceSerializable(const std::string& type_name);
-  static auto ProduceSerializable(const std::string& type_name, size_t& hash_code,
-                                  const Handle& handle) -> std::shared_ptr<ISerializable>;
+  static auto ProduceSerializable(const std::string& type_name, size_t& hash_code, const Handle& handle)
+      -> std::shared_ptr<ISerializable>;
   template <typename T = ISerializable>
   static std::shared_ptr<T> ProduceSerializable();
   template <typename T = IDataComponent>

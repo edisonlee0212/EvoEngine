@@ -28,7 +28,6 @@ class DsBoxCollider : public IDsCollider {
     uint32_t segment_size;
     float friction = 1.0f;
     float rotational_friction;
-
   };
   struct LeafPositionPushConstant {
     glm::quat obb_rotation;

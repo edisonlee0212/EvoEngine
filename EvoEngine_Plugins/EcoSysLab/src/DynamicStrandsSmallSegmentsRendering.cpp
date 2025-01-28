@@ -447,4 +447,3 @@ void DynamicStrands::BuildSmallSegmentsRenderingPipelines() {
   visualization_render.stageFlags = VK_SHADER_STAGE_ALL;
   small_segments_visualization_render_pipeline->Initialize();
 }
-

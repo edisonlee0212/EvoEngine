@@ -1,11 +1,11 @@
 #include "AlphaShapeMeshGenerator.hpp"
 
 #ifdef USE_CGAL
-#include <CGAL/Alpha_shape_3.h>
-#include <CGAL/Alpha_shape_cell_base_3.h>
-#include <CGAL/Alpha_shape_vertex_base_3.h>
-#include <CGAL/Delaunay_triangulation_3.h>
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#  include <CGAL/Alpha_shape_3.h>
+#  include <CGAL/Alpha_shape_cell_base_3.h>
+#  include <CGAL/Alpha_shape_vertex_base_3.h>
+#  include <CGAL/Delaunay_triangulation_3.h>
+#  include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #endif
 
 #include <cassert>
@@ -138,8 +138,8 @@ void AlphaShapeMeshGenerator::ComputeAlphaShape(std::vector<glm::vec3> points, s
     indices.emplace_back(3 * i + 2);
   }
 
-  #else
+#else
   EVOENGINE_ERROR("CGAL is required for alpha-shape computation!");
-  #endif
+#endif
 }
 }  // namespace eco_sys_lab_plugin

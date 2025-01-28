@@ -55,8 +55,7 @@ class SorghumPointCloudScanner : public IPrivateComponent {
   SorghumPointCloudPointSettings sorghum_point_cloud_point_settings{};
 
   void Scan(const std::shared_ptr<PointCloudCaptureSettings>& capture_settings, std::vector<glm::vec3>& points,
-               std::vector<int>& leaf_indices, std::vector<int>& instance_indices,
-               std::vector<int>& type_indices) const;
+            std::vector<int>& leaf_indices, std::vector<int>& instance_indices, std::vector<int>& type_indices) const;
 
   void SavePointCloud(const std::filesystem::path& save_path, const std::vector<glm::vec3>& points,
                       const std::vector<int>& leaf_indices, const std::vector<int>& instance_indices,

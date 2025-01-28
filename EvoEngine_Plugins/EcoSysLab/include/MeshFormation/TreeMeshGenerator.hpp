@@ -144,8 +144,8 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
     glm::vec3 position_start = internode_info.global_position;
     glm::vec3 position_end =
         position_start + internode_info.length *
-                            (settings.smoothness ? 1.0f - settings.base_control_point_ratio : 1.0f) *
-                            internode_info.GetGlobalDirection();
+                             (settings.smoothness ? 1.0f - settings.base_control_point_ratio : 1.0f) *
+                             internode_info.GetGlobalDirection();
     float thickness_start = internode_info.thickness;
     float thickness_end = internode_info.thickness;
 
@@ -186,7 +186,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
     int amount = glm::max(
         1, static_cast<int>(glm::distance(position_start, position_end) /
                             (internode_info.thickness >= settings.trunk_thickness ? settings.trunk_y_subdivision
-                                                                                    : settings.branch_y_subdivision)));
+                                                                                  : settings.branch_y_subdivision)));
     if (amount % 2 != 0)
       ++amount;
     amount = glm::max(1, amount);
@@ -202,11 +202,11 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
       const float a = static_cast<float>(ring_index - 1) / amount;
       const float b = static_cast<float>(ring_index) / amount;
       if (settings.smoothness) {
-        rings.emplace_back(a, b, curve.GetPoint(a), curve.GetPoint(b), glm::mix(direction_start, direction_end, a),
-                           glm::mix(direction_start, direction_end, b), glm::mix(thickness_start, thickness_end, a) * .5f,
-                           glm::mix(thickness_start, thickness_end, b) * .5f,
-                           glm::mix(root_distance_start, root_distance_end, a),
-                           glm::mix(root_distance_start, root_distance_end, b));
+        rings.emplace_back(
+            a, b, curve.GetPoint(a), curve.GetPoint(b), glm::mix(direction_start, direction_end, a),
+            glm::mix(direction_start, direction_end, b), glm::mix(thickness_start, thickness_end, a) * .5f,
+            glm::mix(thickness_start, thickness_end, b) * .5f, glm::mix(root_distance_start, root_distance_end, a),
+            glm::mix(root_distance_start, root_distance_end, b));
       } else {
         rings.emplace_back(
             a, b, curve.GetPoint(a), curve.GetPoint(b), direction_end, direction_end,
@@ -270,9 +270,11 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
       if (tree_part_type == 0) {
         // IShape
         // If root or parent is Y Shape or length exceeds limit, create a new IShape from this node.
-        bool restart_i_shape = parent_internode_handle == -1 || tree_part_infos[parent_internode_handle].tree_part_type != 0;
+        bool restart_i_shape =
+            parent_internode_handle == -1 || tree_part_infos[parent_internode_handle].tree_part_type != 0;
         if (!restart_i_shape) {
-          if (const auto& parent_tree_part_info = tree_part_infos[parent_internode_handle]; parent_tree_part_info.distance_to_start / internode_info.thickness > settings.tree_part_break_ratio)
+          if (const auto& parent_tree_part_info = tree_part_infos[parent_internode_handle];
+              parent_tree_part_info.distance_to_start / internode_info.thickness > settings.tree_part_break_ratio)
             restart_i_shape = true;
         }
         if (restart_i_shape) {
@@ -484,8 +486,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
               auto a = parent_last_ring_start_vertex_index + p;
               auto b = parent_last_ring_start_vertex_index + (p == p_step - 1 ? 0 : p + 1);
               auto c = vertex_index + p_target[p];
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position && !glm::any(glm::isnan(vertices[a].position)) &&
                   !glm::any(glm::isnan(vertices[b].position)) && !glm::any(glm::isnan(vertices[c].position))) {
                 indices.push_back(a);
@@ -496,8 +497,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
               auto a = parent_last_ring_start_vertex_index + p;
               auto b = parent_last_ring_start_vertex_index + (p == p_step - 1 ? 0 : p + 1);
               auto c = vertex_index + p_target[p];
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position && !glm::any(glm::isnan(vertices[a].position)) &&
                   !glm::any(glm::isnan(vertices[b].position)) && !glm::any(glm::isnan(vertices[c].position))) {
                 indices.push_back(a);
@@ -507,8 +507,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
               a = vertex_index + p_target[p == p_step - 1 ? 0 : p + 1];
               b = vertex_index + p_target[p];
               c = parent_last_ring_start_vertex_index + (p == p_step - 1 ? 0 : p + 1);
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position && !glm::any(glm::isnan(vertices[a].position)) &&
                   !glm::any(glm::isnan(vertices[b].position)) && !glm::any(glm::isnan(vertices[c].position))) {
                 indices.push_back(a);
@@ -523,8 +522,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
               auto a = vertex_index + p;
               auto b = vertex_index + (p == p_step - 1 ? 0 : p + 1);
               auto c = vertex_index + p_step + p_target[p];
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position && !glm::any(glm::isnan(vertices[a].position)) &&
                   !glm::any(glm::isnan(vertices[b].position)) && !glm::any(glm::isnan(vertices[c].position))) {
                 indices.push_back(a);
@@ -535,8 +533,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
               auto a = vertex_index + p;
               auto b = vertex_index + (p == p_step - 1 ? 0 : p + 1);
               auto c = vertex_index + p_step + p_target[p];
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position && !glm::any(glm::isnan(vertices[a].position)) &&
                   !glm::any(glm::isnan(vertices[b].position)) && !glm::any(glm::isnan(vertices[c].position))) {
                 indices.push_back(a);
@@ -547,8 +544,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
               b = vertex_index + p_step + p_target[p];
               c = vertex_index + (p == p_step - 1 ? 0 : p + 1);
 
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position && !glm::any(glm::isnan(vertices[a].position)) &&
                   !glm::any(glm::isnan(vertices[b].position)) && !glm::any(glm::isnan(vertices[c].position))) {
                 indices.push_back(a);
@@ -647,8 +643,8 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
     glm::vec3 position_start = internode_info.global_position;
     glm::vec3 position_end =
         position_start + internode_info.length *
-                            (settings.smoothness ? 1.0f - settings.base_control_point_ratio : 1.0f) *
-                            internode_info.GetGlobalDirection();
+                             (settings.smoothness ? 1.0f - settings.base_control_point_ratio : 1.0f) *
+                             internode_info.GetGlobalDirection();
     float thickness_start = internode_info.thickness;
     float thickness_end = internode_info.thickness;
 
@@ -686,7 +682,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
     int amount = glm::max(
         1, static_cast<int>(glm::distance(position_start, position_end) /
                             (internode_info.thickness >= settings.trunk_thickness ? settings.trunk_y_subdivision
-                                                                                    : settings.branch_y_subdivision)));
+                                                                                  : settings.branch_y_subdivision)));
     if (amount % 2 != 0)
       ++amount;
     amount = glm::max(1, amount);
@@ -702,11 +698,11 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
       const float a = static_cast<float>(ring_index - 1) / amount;
       const float b = static_cast<float>(ring_index) / amount;
       if (settings.smoothness) {
-        rings.emplace_back(a, b, curve.GetPoint(a), curve.GetPoint(b), glm::mix(direction_start, direction_end, a),
-                           glm::mix(direction_start, direction_end, b), glm::mix(thickness_start, thickness_end, a) * .5f,
-                           glm::mix(thickness_start, thickness_end, b) * .5f,
-                           glm::mix(root_distance_start, root_distance_end, a),
-                           glm::mix(root_distance_start, root_distance_end, b));
+        rings.emplace_back(
+            a, b, curve.GetPoint(a), curve.GetPoint(b), glm::mix(direction_start, direction_end, a),
+            glm::mix(direction_start, direction_end, b), glm::mix(thickness_start, thickness_end, a) * .5f,
+            glm::mix(thickness_start, thickness_end, b) * .5f, glm::mix(root_distance_start, root_distance_end, a),
+            glm::mix(root_distance_start, root_distance_end, b));
       } else {
         rings.emplace_back(
             a, b, curve.GetPoint(a), curve.GetPoint(b), direction_end, direction_end,
@@ -785,7 +781,8 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
     archetype.vertex_info1 = internode_handle + 1;
     archetype.vertex_info2 = flow_handle + 1;
     if (!need_stitching) {
-      int parent_last_ring_start_vertex_index = has_parent ? vertex_last_ring_start_vertex_index[parent_internode_handle] : -1;
+      int parent_last_ring_start_vertex_index =
+          has_parent ? vertex_last_ring_start_vertex_index[parent_internode_handle] : -1;
       for (int p = 0; p < p_step; p++) {
         if (has_parent) {
           vertices.push_back(vertices.at(parent_last_ring_start_vertex_index + p));
@@ -870,8 +867,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
               auto a = parent_last_ring_start_vertex_index + p;
               auto b = parent_last_ring_start_vertex_index + (p == p_step - 1 ? 0 : p + 1);
               auto c = vertex_index + p_target[p];
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position) {
                 indices.push_back(a);
                 indices.push_back(b);
@@ -881,8 +877,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
               auto a = parent_last_ring_start_vertex_index + p;
               auto b = parent_last_ring_start_vertex_index + (p == p_step - 1 ? 0 : p + 1);
               auto c = vertex_index + p_target[p];
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position) {
                 indices.push_back(a);
                 indices.push_back(b);
@@ -891,8 +886,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
               a = vertex_index + p_target[p == p_step - 1 ? 0 : p + 1];
               b = vertex_index + p_target[p];
               c = parent_last_ring_start_vertex_index + (p == p_step - 1 ? 0 : p + 1);
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position) {
                 indices.push_back(a);
                 indices.push_back(b);
@@ -906,8 +900,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
               auto a = vertex_index + p;
               auto b = vertex_index + (p == p_step - 1 ? 0 : p + 1);
               auto c = vertex_index + p_step + p_target[p];
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position) {
                 indices.push_back(a);
                 indices.push_back(b);
@@ -917,8 +910,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
               auto a = vertex_index + p;
               auto b = vertex_index + (p == p_step - 1 ? 0 : p + 1);
               auto c = vertex_index + p_step + p_target[p];
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position) {
                 indices.push_back(a);
                 indices.push_back(b);
@@ -928,8 +920,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
               b = vertex_index + p_step + p_target[p];
               c = vertex_index + (p == p_step - 1 ? 0 : p + 1);
 
-              if (vertices[a].position != vertices[b].position &&
-                  vertices[b].position != vertices[c].position &&
+              if (vertices[a].position != vertices[b].position && vertices[b].position != vertices[c].position &&
                   vertices[a].position != vertices[c].position) {
                 indices.push_back(a);
                 indices.push_back(b);

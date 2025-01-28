@@ -1,8 +1,8 @@
 #include "Collider.hpp"
 #include "Application.hpp"
 #include "ClassRegistry.hpp"
-#include "PhysicsLayer.hpp"
 #include "EditorLayer.hpp"
+#include "PhysicsLayer.hpp"
 using namespace evo_engine;
 
 const char* rigid_body_shape[]{"Sphere", "Box", "Capsule"};

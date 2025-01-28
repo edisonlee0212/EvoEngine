@@ -16,7 +16,8 @@ struct PlanetInfo {
 struct MeshInfo {
   unsigned index;
   bool enabled;
-  MeshInfo(const unsigned index, const bool enabled = true) : index(index), enabled(enabled){};
+  MeshInfo(const unsigned index, const bool enabled = true) : index(index), enabled(enabled) {
+  }
 };
 
 class PlanetTerrain : public IPrivateComponent {

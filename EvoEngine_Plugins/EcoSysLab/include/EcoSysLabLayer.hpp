@@ -94,7 +94,6 @@ class EcoSysLabLayer : public ILayer {
     DynamicStrands::FoliageRenderParameters foliage_render_parameters{};
     DynamicStrands::SegmentPairsRenderParameters segment_pairs_render_parameters{};
 
-
     DynamicStrands::PhysicsParameters physics_parameters{};
     DynamicStrands::VisualizationParameters visualization_parameters{};
     bool visualization_rendering = false;

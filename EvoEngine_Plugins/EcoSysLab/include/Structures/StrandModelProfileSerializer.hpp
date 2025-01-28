@@ -98,7 +98,7 @@ void StrandModelProfileSerializer<ParticleData>::Serialize(
   out << YAML::Key << "particles_2d_.data" << YAML::Value << YAML::BeginSeq;
   for (const auto& particles_2d : strand_model_profile.particles_2d_) {
     out << YAML::BeginMap;
-    { particle_func(out, particles_2d.data); }
+    particle_func(out, particles_2d.data);
     out << YAML::EndMap;
   }
   out << YAML::EndSeq;

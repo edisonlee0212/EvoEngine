@@ -8,11 +8,11 @@ class BillboardCloud {
  public:
   template <typename T>
   static void DilateChannels(const std::vector<size_t>& channels, std::vector<T>& data, std::vector<bool>& valid_pixels,
-                     size_t max_dist, const glm::uvec2& resolution, bool diagonals);
+                             size_t max_dist, const glm::uvec2& resolution, bool diagonals);
 
   template <typename T>
-  static void Dilate(std::vector<T>& data, std::vector<bool>& valid_pixels,
-                     size_t max_dist, const glm::uvec2& resolution, bool diagonals);
+  static void Dilate(std::vector<T>& data, std::vector<bool>& valid_pixels, size_t max_dist,
+                     const glm::uvec2& resolution, bool diagonals);
 
   struct ClusterTriangle {
     int element_index = -1;
@@ -201,8 +201,9 @@ class BillboardCloud {
 };
 
 template <typename T>
-void BillboardCloud::DilateChannels(const std::vector<size_t>& channels, std::vector<T>& data, std::vector<bool>& valid_pixels,
-                            const size_t max_dist, const glm::uvec2& resolution, const bool diagonals) {
+void BillboardCloud::DilateChannels(const std::vector<size_t>& channels, std::vector<T>& data,
+                                    std::vector<bool>& valid_pixels, const size_t max_dist,
+                                    const glm::uvec2& resolution, const bool diagonals) {
   const int w = static_cast<int>(resolution.x);
   const int h = static_cast<int>(resolution.y);
   int iteration = 0;
@@ -270,7 +271,7 @@ void BillboardCloud::DilateChannels(const std::vector<size_t>& channels, std::ve
 
 template <typename T>
 void BillboardCloud::Dilate(std::vector<T>& data, std::vector<bool>& valid_pixels, const size_t max_dist,
-    const glm::uvec2& resolution, const bool diagonals) {
+                            const glm::uvec2& resolution, const bool diagonals) {
   const int w = static_cast<int>(resolution.x);
   const int h = static_cast<int>(resolution.y);
   int iteration = 0;
@@ -333,4 +334,4 @@ void BillboardCloud::Dilate(std::vector<T>& data, std::vector<bool>& valid_pixel
     }
   }
 }
-}  // namespace evo_engine
+}  // namespace billboard_clouds_plugin

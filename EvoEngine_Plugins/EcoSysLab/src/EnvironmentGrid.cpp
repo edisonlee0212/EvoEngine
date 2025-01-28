@@ -54,13 +54,16 @@ void EnvironmentGrid::LightPropagation(const SimulationSettings& simulation_sett
           if (y + 1 > resolution.y - 1)
             continue;
           const auto other_voxel_center = glm::ivec3(x + x_offset, y + 1, z + z_offset);
-          const auto position_diff = voxel_grid.GetPosition(other_voxel_center) - voxel_grid.GetPosition(glm::ivec3(x, y, z));
+          const auto position_diff =
+              voxel_grid.GetPosition(other_voxel_center) - voxel_grid.GetPosition(glm::ivec3(x, y, z));
           const float distance = glm::length(position_diff);
           if (distance > simulation_settings.detection_radius)
             continue;
           const float base_loss_factor = voxel_size / distance;
-          const float distance_loss = glm::pow(glm::max(0.0f, base_loss_factor), simulation_settings.shadow_distance_loss);
-          if (x + x_offset < 0 || x + x_offset > resolution.x - 1 || z + z_offset < 0 || z + z_offset > resolution.z - 1) {
+          const float distance_loss =
+              glm::pow(glm::max(0.0f, base_loss_factor), simulation_settings.shadow_distance_loss);
+          if (x + x_offset < 0 || x + x_offset > resolution.x - 1 || z + z_offset < 0 ||
+              z + z_offset > resolution.z - 1) {
             sum += distance_loss;
             max += distance_loss;
           } else {
@@ -72,7 +75,7 @@ void EnvironmentGrid::LightPropagation(const SimulationSettings& simulation_sett
       }
       auto& voxel = voxel_grid.Ref(glm::ivec3(x, y, z));
       voxel.light_intensity = glm::clamp(sum / max, 0.0f, 1.0f - simulation_settings.environment_light_intensity) +
-                               simulation_settings.environment_light_intensity;
+                              simulation_settings.environment_light_intensity;
     });
   }
   for (int iteration = 0; iteration < simulation_settings.blur_iteration; iteration++) {
@@ -125,7 +128,8 @@ void EnvironmentGrid::LightPropagation(const SimulationSettings& simulation_sett
             if (y + y_offset < 0 || y + y_offset > resolution.y - 1)
               continue;
             const auto other_voxel_center = glm::ivec3(x + x_offset, y + y_offset, z + z_offset);
-            const auto position_diff = voxel_grid.GetPosition(other_voxel_center) - voxel_grid.GetPosition(glm::ivec3(x, y, z));
+            const auto position_diff =
+                voxel_grid.GetPosition(other_voxel_center) - voxel_grid.GetPosition(glm::ivec3(x, y, z));
             const float distance = glm::length(position_diff);
             if (distance > simulation_settings.detection_radius)
               continue;

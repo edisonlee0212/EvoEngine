@@ -71,7 +71,9 @@ class Strands final : public IAsset, public IGeometry {
    * \return End parameter t.
    */
   template <class T>
-  static float FindTAdaptive(const T& v0, const T& v1, const T& v2, const T& v3, float t_start, float target_length, float tolerance = 0.001f);
+  static float FindTAdaptive(const T& v0, const T& v1, const T& v2, const T& v3, float t_start, float target_length,
+                             float tolerance = 0.001f);
+
  protected:
   bool LoadInternal(const std::filesystem::path& path) override;
 
@@ -148,7 +150,8 @@ float Strands::FindTAdaptive(const T& v0, const T& v1, const T& v2, const T& v3,
     return 1.f;
   float t_low = t_start, t_high = 1.0f;
   while (t_high - t_low > tolerance) {
-    if (float t_mid = (t_low + t_high) * 0.5f; CalculateLengthAdaptive(v0, v1, v2, v3, t_start, t_mid) < target_length) {
+    if (float t_mid = (t_low + t_high) * 0.5f;
+        CalculateLengthAdaptive(v0, v1, v2, v3, t_start, t_mid) < target_length) {
       t_low = t_mid;
     } else {
       t_high = t_mid;

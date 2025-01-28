@@ -260,7 +260,7 @@ bool Serialization::HasAssetType(const std::string &type_name) {
   return serialization.asset_extensions_.find(type_name) != serialization.asset_extensions_.end();
 }
 
-const std::vector<std::string>& Serialization::PeekAssetExtensions(const std::string &type_name) {
+const std::vector<std::string> &Serialization::PeekAssetExtensions(const std::string &type_name) {
   const auto &serialization = GetInstance();
   if (const auto search = serialization.asset_extensions_.find(type_name);
       search != serialization.asset_extensions_.end()) {

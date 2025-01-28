@@ -1,219 +1,208 @@
 #pragma once
 
-#include <stddef.h>
 #include <imgui.h>
+#include <stddef.h>
 
 #ifdef IMNODES_USER_CONFIG
-#include IMNODES_USER_CONFIG
+#  include IMNODES_USER_CONFIG
 #endif
 
 #ifndef IMNODES_NAMESPACE
-#define IMNODES_NAMESPACE ImNodes
+#  define IMNODES_NAMESPACE ImNodes
 #endif
 
-typedef int ImNodesCol;             // -> enum ImNodesCol_
-typedef int ImNodesStyleVar;        // -> enum ImNodesStyleVar_
-typedef int ImNodesStyleFlags;      // -> enum ImNodesStyleFlags_
-typedef int ImNodesPinShape;        // -> enum ImNodesPinShape_
-typedef int ImNodesAttributeFlags;  // -> enum ImNodesAttributeFlags_
-typedef int ImNodesMiniMapLocation; // -> enum ImNodesMiniMapLocation_
+typedef int ImNodesCol;              // -> enum ImNodesCol_
+typedef int ImNodesStyleVar;         // -> enum ImNodesStyleVar_
+typedef int ImNodesStyleFlags;       // -> enum ImNodesStyleFlags_
+typedef int ImNodesPinShape;         // -> enum ImNodesPinShape_
+typedef int ImNodesAttributeFlags;   // -> enum ImNodesAttributeFlags_
+typedef int ImNodesMiniMapLocation;  // -> enum ImNodesMiniMapLocation_
 
-enum ImNodesCol_
-{
-    ImNodesCol_NodeBackground = 0,
-    ImNodesCol_NodeBackgroundHovered,
-    ImNodesCol_NodeBackgroundSelected,
-    ImNodesCol_NodeOutline,
-    ImNodesCol_TitleBar,
-    ImNodesCol_TitleBarHovered,
-    ImNodesCol_TitleBarSelected,
-    ImNodesCol_Link,
-    ImNodesCol_LinkHovered,
-    ImNodesCol_LinkSelected,
-    ImNodesCol_Pin,
-    ImNodesCol_PinHovered,
-    ImNodesCol_BoxSelector,
-    ImNodesCol_BoxSelectorOutline,
-    ImNodesCol_GridBackground,
-    ImNodesCol_GridLine,
-    ImNodesCol_GridLinePrimary,
-    ImNodesCol_MiniMapBackground,
-    ImNodesCol_MiniMapBackgroundHovered,
-    ImNodesCol_MiniMapOutline,
-    ImNodesCol_MiniMapOutlineHovered,
-    ImNodesCol_MiniMapNodeBackground,
-    ImNodesCol_MiniMapNodeBackgroundHovered,
-    ImNodesCol_MiniMapNodeBackgroundSelected,
-    ImNodesCol_MiniMapNodeOutline,
-    ImNodesCol_MiniMapLink,
-    ImNodesCol_MiniMapLinkSelected,
-    ImNodesCol_MiniMapCanvas,
-    ImNodesCol_MiniMapCanvasOutline,
-    ImNodesCol_COUNT
+enum ImNodesCol_ {
+  ImNodesCol_NodeBackground = 0,
+  ImNodesCol_NodeBackgroundHovered,
+  ImNodesCol_NodeBackgroundSelected,
+  ImNodesCol_NodeOutline,
+  ImNodesCol_TitleBar,
+  ImNodesCol_TitleBarHovered,
+  ImNodesCol_TitleBarSelected,
+  ImNodesCol_Link,
+  ImNodesCol_LinkHovered,
+  ImNodesCol_LinkSelected,
+  ImNodesCol_Pin,
+  ImNodesCol_PinHovered,
+  ImNodesCol_BoxSelector,
+  ImNodesCol_BoxSelectorOutline,
+  ImNodesCol_GridBackground,
+  ImNodesCol_GridLine,
+  ImNodesCol_GridLinePrimary,
+  ImNodesCol_MiniMapBackground,
+  ImNodesCol_MiniMapBackgroundHovered,
+  ImNodesCol_MiniMapOutline,
+  ImNodesCol_MiniMapOutlineHovered,
+  ImNodesCol_MiniMapNodeBackground,
+  ImNodesCol_MiniMapNodeBackgroundHovered,
+  ImNodesCol_MiniMapNodeBackgroundSelected,
+  ImNodesCol_MiniMapNodeOutline,
+  ImNodesCol_MiniMapLink,
+  ImNodesCol_MiniMapLinkSelected,
+  ImNodesCol_MiniMapCanvas,
+  ImNodesCol_MiniMapCanvasOutline,
+  ImNodesCol_COUNT
 };
 
-enum ImNodesStyleVar_
-{
-    ImNodesStyleVar_GridSpacing = 0,
-    ImNodesStyleVar_NodeCornerRounding,
-    ImNodesStyleVar_NodePadding,
-    ImNodesStyleVar_NodeBorderThickness,
-    ImNodesStyleVar_LinkThickness,
-    ImNodesStyleVar_LinkLineSegmentsPerLength,
-    ImNodesStyleVar_LinkHoverDistance,
-    ImNodesStyleVar_PinCircleRadius,
-    ImNodesStyleVar_PinQuadSideLength,
-    ImNodesStyleVar_PinTriangleSideLength,
-    ImNodesStyleVar_PinLineThickness,
-    ImNodesStyleVar_PinHoverRadius,
-    ImNodesStyleVar_PinOffset,
-    ImNodesStyleVar_MiniMapPadding,
-    ImNodesStyleVar_MiniMapOffset,
-    ImNodesStyleVar_COUNT
+enum ImNodesStyleVar_ {
+  ImNodesStyleVar_GridSpacing = 0,
+  ImNodesStyleVar_NodeCornerRounding,
+  ImNodesStyleVar_NodePadding,
+  ImNodesStyleVar_NodeBorderThickness,
+  ImNodesStyleVar_LinkThickness,
+  ImNodesStyleVar_LinkLineSegmentsPerLength,
+  ImNodesStyleVar_LinkHoverDistance,
+  ImNodesStyleVar_PinCircleRadius,
+  ImNodesStyleVar_PinQuadSideLength,
+  ImNodesStyleVar_PinTriangleSideLength,
+  ImNodesStyleVar_PinLineThickness,
+  ImNodesStyleVar_PinHoverRadius,
+  ImNodesStyleVar_PinOffset,
+  ImNodesStyleVar_MiniMapPadding,
+  ImNodesStyleVar_MiniMapOffset,
+  ImNodesStyleVar_COUNT
 };
 
-enum ImNodesStyleFlags_
-{
-    ImNodesStyleFlags_None = 0,
-    ImNodesStyleFlags_NodeOutline = 1 << 0,
-    ImNodesStyleFlags_GridLines = 1 << 2,
-    ImNodesStyleFlags_GridLinesPrimary = 1 << 3,
-    ImNodesStyleFlags_GridSnapping = 1 << 4
+enum ImNodesStyleFlags_ {
+  ImNodesStyleFlags_None = 0,
+  ImNodesStyleFlags_NodeOutline = 1 << 0,
+  ImNodesStyleFlags_GridLines = 1 << 2,
+  ImNodesStyleFlags_GridLinesPrimary = 1 << 3,
+  ImNodesStyleFlags_GridSnapping = 1 << 4
 };
 
-enum ImNodesPinShape_
-{
-    ImNodesPinShape_Circle,
-    ImNodesPinShape_CircleFilled,
-    ImNodesPinShape_Triangle,
-    ImNodesPinShape_TriangleFilled,
-    ImNodesPinShape_Quad,
-    ImNodesPinShape_QuadFilled
+enum ImNodesPinShape_ {
+  ImNodesPinShape_Circle,
+  ImNodesPinShape_CircleFilled,
+  ImNodesPinShape_Triangle,
+  ImNodesPinShape_TriangleFilled,
+  ImNodesPinShape_Quad,
+  ImNodesPinShape_QuadFilled
 };
 
 // This enum controls the way the attribute pins behave.
-enum ImNodesAttributeFlags_
-{
-    ImNodesAttributeFlags_None = 0,
-    // Allow detaching a link by left-clicking and dragging the link at a pin it is connected to.
-    // NOTE: the user has to actually delete the link for this to work. A deleted link can be
-    // detected by calling IsLinkDestroyed() after EndNodeEditor().
-    ImNodesAttributeFlags_EnableLinkDetachWithDragClick = 1 << 0,
-    // Visual snapping of an in progress link will trigger IsLink Created/Destroyed events. Allows
-    // for previewing the creation of a link while dragging it across attributes. See here for demo:
-    // https://github.com/Nelarius/imnodes/issues/41#issuecomment-647132113 NOTE: the user has to
-    // actually delete the link for this to work. A deleted link can be detected by calling
+enum ImNodesAttributeFlags_ {
+  ImNodesAttributeFlags_None = 0,
+  // Allow detaching a link by left-clicking and dragging the link at a pin it is connected to.
+  // NOTE: the user has to actually delete the link for this to work. A deleted link can be
+  // detected by calling IsLinkDestroyed() after EndNodeEditor().
+  ImNodesAttributeFlags_EnableLinkDetachWithDragClick = 1 << 0,
+  // Visual snapping of an in progress link will trigger IsLink Created/Destroyed events. Allows
+  // for previewing the creation of a link while dragging it across attributes. See here for demo:
+  // https://github.com/Nelarius/imnodes/issues/41#issuecomment-647132113 NOTE: the user has to
+  // actually delete the link for this to work. A deleted link can be detected by calling
+  // IsLinkDestroyed() after EndNodeEditor().
+  ImNodesAttributeFlags_EnableLinkCreationOnSnap = 1 << 1
+};
+
+struct ImNodesIO {
+  struct EmulateThreeButtonMouse {
+    EmulateThreeButtonMouse();
+
+    // The keyboard modifier to use in combination with mouse left click to pan the editor view.
+    // Set to NULL by default. To enable this feature, set the modifier to point to a boolean
+    // indicating the state of a modifier. For example,
+    //
+    // ImNodes::GetIO().EmulateThreeButtonMouse.Modifier = &ImGui::GetIO().KeyAlt;
+    const bool* Modifier;
+  } EmulateThreeButtonMouse;
+
+  struct LinkDetachWithModifierClick {
+    LinkDetachWithModifierClick();
+
+    // Pointer to a boolean value indicating when the desired modifier is pressed. Set to NULL
+    // by default. To enable the feature, set the modifier to point to a boolean indicating the
+    // state of a modifier. For example,
+    //
+    // ImNodes::GetIO().LinkDetachWithModifierClick.Modifier = &ImGui::GetIO().KeyCtrl;
+    //
+    // Left-clicking a link with this modifier pressed will detach that link. NOTE: the user has
+    // to actually delete the link for this to work. A deleted link can be detected by calling
     // IsLinkDestroyed() after EndNodeEditor().
-    ImNodesAttributeFlags_EnableLinkCreationOnSnap = 1 << 1
+    const bool* Modifier;
+  } LinkDetachWithModifierClick;
+
+  struct MultipleSelectModifier {
+    MultipleSelectModifier();
+
+    // Pointer to a boolean value indicating when the desired modifier is pressed. Set to NULL
+    // by default. To enable the feature, set the modifier to point to a boolean indicating the
+    // state of a modifier. For example,
+    //
+    // ImNodes::GetIO().MultipleSelectModifier.Modifier = &ImGui::GetIO().KeyCtrl;
+    //
+    // Left-clicking a node with this modifier pressed will add the node to the list of
+    // currently selected nodes. If this value is NULL, the Ctrl key will be used.
+    const bool* Modifier;
+  } MultipleSelectModifier;
+
+  // Holding alt mouse button pans the node area, by default middle mouse button will be used
+  // Set based on ImGuiMouseButton values
+  int AltMouseButton;
+
+  // Panning speed when dragging an element and mouse is outside the main editor view.
+  float AutoPanningSpeed;
+
+  ImNodesIO();
 };
 
-struct ImNodesIO
-{
-    struct EmulateThreeButtonMouse
-    {
-        EmulateThreeButtonMouse();
+struct ImNodesStyle {
+  float GridSpacing;
 
-        // The keyboard modifier to use in combination with mouse left click to pan the editor view.
-        // Set to NULL by default. To enable this feature, set the modifier to point to a boolean
-        // indicating the state of a modifier. For example,
-        //
-        // ImNodes::GetIO().EmulateThreeButtonMouse.Modifier = &ImGui::GetIO().KeyAlt;
-        const bool* Modifier;
-    } EmulateThreeButtonMouse;
+  float NodeCornerRounding;
+  ImVec2 NodePadding;
+  float NodeBorderThickness;
 
-    struct LinkDetachWithModifierClick
-    {
-        LinkDetachWithModifierClick();
+  float LinkThickness;
+  float LinkLineSegmentsPerLength;
+  float LinkHoverDistance;
 
-        // Pointer to a boolean value indicating when the desired modifier is pressed. Set to NULL
-        // by default. To enable the feature, set the modifier to point to a boolean indicating the
-        // state of a modifier. For example,
-        //
-        // ImNodes::GetIO().LinkDetachWithModifierClick.Modifier = &ImGui::GetIO().KeyCtrl;
-        //
-        // Left-clicking a link with this modifier pressed will detach that link. NOTE: the user has
-        // to actually delete the link for this to work. A deleted link can be detected by calling
-        // IsLinkDestroyed() after EndNodeEditor().
-        const bool* Modifier;
-    } LinkDetachWithModifierClick;
+  // The following variables control the look and behavior of the pins. The default size of each
+  // pin shape is balanced to occupy approximately the same surface area on the screen.
 
-    struct MultipleSelectModifier
-    {
-        MultipleSelectModifier();
+  // The circle radius used when the pin shape is either ImNodesPinShape_Circle or
+  // ImNodesPinShape_CircleFilled.
+  float PinCircleRadius;
+  // The quad side length used when the shape is either ImNodesPinShape_Quad or
+  // ImNodesPinShape_QuadFilled.
+  float PinQuadSideLength;
+  // The equilateral triangle side length used when the pin shape is either
+  // ImNodesPinShape_Triangle or ImNodesPinShape_TriangleFilled.
+  float PinTriangleSideLength;
+  // The thickness of the line used when the pin shape is not filled.
+  float PinLineThickness;
+  // The radius from the pin's center position inside of which it is detected as being hovered
+  // over.
+  float PinHoverRadius;
+  // Offsets the pins' positions from the edge of the node to the outside of the node.
+  float PinOffset;
 
-        // Pointer to a boolean value indicating when the desired modifier is pressed. Set to NULL
-        // by default. To enable the feature, set the modifier to point to a boolean indicating the
-        // state of a modifier. For example,
-        //
-        // ImNodes::GetIO().MultipleSelectModifier.Modifier = &ImGui::GetIO().KeyCtrl;
-        //
-        // Left-clicking a node with this modifier pressed will add the node to the list of
-        // currently selected nodes. If this value is NULL, the Ctrl key will be used.
-        const bool* Modifier;
-    } MultipleSelectModifier;
+  // Mini-map padding size between mini-map edge and mini-map content.
+  ImVec2 MiniMapPadding;
+  // Mini-map offset from the screen side.
+  ImVec2 MiniMapOffset;
 
-    // Holding alt mouse button pans the node area, by default middle mouse button will be used
-    // Set based on ImGuiMouseButton values
-    int AltMouseButton;
+  // By default, ImNodesStyleFlags_NodeOutline and ImNodesStyleFlags_Gridlines are enabled.
+  ImNodesStyleFlags Flags;
+  // Set these mid-frame using Push/PopColorStyle. You can index this color array with with a
+  // ImNodesCol value.
+  unsigned int Colors[ImNodesCol_COUNT];
 
-    // Panning speed when dragging an element and mouse is outside the main editor view.
-    float AutoPanningSpeed;
-
-    ImNodesIO();
+  ImNodesStyle();
 };
 
-struct ImNodesStyle
-{
-    float GridSpacing;
-
-    float  NodeCornerRounding;
-    ImVec2 NodePadding;
-    float  NodeBorderThickness;
-
-    float LinkThickness;
-    float LinkLineSegmentsPerLength;
-    float LinkHoverDistance;
-
-    // The following variables control the look and behavior of the pins. The default size of each
-    // pin shape is balanced to occupy approximately the same surface area on the screen.
-
-    // The circle radius used when the pin shape is either ImNodesPinShape_Circle or
-    // ImNodesPinShape_CircleFilled.
-    float PinCircleRadius;
-    // The quad side length used when the shape is either ImNodesPinShape_Quad or
-    // ImNodesPinShape_QuadFilled.
-    float PinQuadSideLength;
-    // The equilateral triangle side length used when the pin shape is either
-    // ImNodesPinShape_Triangle or ImNodesPinShape_TriangleFilled.
-    float PinTriangleSideLength;
-    // The thickness of the line used when the pin shape is not filled.
-    float PinLineThickness;
-    // The radius from the pin's center position inside of which it is detected as being hovered
-    // over.
-    float PinHoverRadius;
-    // Offsets the pins' positions from the edge of the node to the outside of the node.
-    float PinOffset;
-
-    // Mini-map padding size between mini-map edge and mini-map content.
-    ImVec2 MiniMapPadding;
-    // Mini-map offset from the screen side.
-    ImVec2 MiniMapOffset;
-
-    // By default, ImNodesStyleFlags_NodeOutline and ImNodesStyleFlags_Gridlines are enabled.
-    ImNodesStyleFlags Flags;
-    // Set these mid-frame using Push/PopColorStyle. You can index this color array with with a
-    // ImNodesCol value.
-    unsigned int Colors[ImNodesCol_COUNT];
-
-    ImNodesStyle();
-};
-
-enum ImNodesMiniMapLocation_
-{
-    ImNodesMiniMapLocation_BottomLeft,
-    ImNodesMiniMapLocation_BottomRight,
-    ImNodesMiniMapLocation_TopLeft,
-    ImNodesMiniMapLocation_TopRight,
+enum ImNodesMiniMapLocation_ {
+  ImNodesMiniMapLocation_BottomLeft,
+  ImNodesMiniMapLocation_BottomRight,
+  ImNodesMiniMapLocation_TopLeft,
+  ImNodesMiniMapLocation_TopRight,
 };
 
 struct ImGuiContext;
@@ -237,23 +226,22 @@ typedef void (*ImNodesMiniMapNodeHoveringCallback)(int, void*);
 typedef void* ImNodesMiniMapNodeHoveringCallbackUserData;
 #endif
 
-namespace IMNODES_NAMESPACE
-{
+namespace IMNODES_NAMESPACE {
 // Call this function if you are compiling imnodes in to a dll, separate from ImGui. Calling this
 // function sets the GImGui global variable, which is not shared across dll boundaries.
 void SetImGuiContext(ImGuiContext* ctx);
 
 ImNodesContext* CreateContext();
-void            DestroyContext(ImNodesContext* ctx = NULL); // NULL = destroy current context
+void DestroyContext(ImNodesContext* ctx = NULL);  // NULL = destroy current context
 ImNodesContext* GetCurrentContext();
-void            SetCurrentContext(ImNodesContext* ctx);
+void SetCurrentContext(ImNodesContext* ctx);
 
 ImNodesEditorContext* EditorContextCreate();
-void                  EditorContextFree(ImNodesEditorContext*);
-void                  EditorContextSet(ImNodesEditorContext*);
-ImVec2                EditorContextGetPanning();
-void                  EditorContextResetPanning(const ImVec2& pos);
-void                  EditorContextMoveToNode(const int node_id);
+void EditorContextFree(ImNodesEditorContext*);
+void EditorContextSet(ImNodesEditorContext*);
+ImVec2 EditorContextGetPanning();
+void EditorContextResetPanning(const ImVec2& pos);
+void EditorContextMoveToNode(const int node_id);
 
 ImNodesIO& GetIO();
 
@@ -261,7 +249,7 @@ ImNodesIO& GetIO();
 ImNodesStyle& GetStyle();
 // Style presets matching the dear imgui styles of the same name. If dest is NULL, the active
 // context's ImNodesStyle instance will be used as the destination.
-void StyleColorsDark(ImNodesStyle* dest = NULL); // on by default
+void StyleColorsDark(ImNodesStyle* dest = NULL);  // on by default
 void StyleColorsClassic(ImNodesStyle* dest = NULL);
 void StyleColorsLight(ImNodesStyle* dest = NULL);
 
@@ -272,11 +260,10 @@ void EndNodeEditor();
 
 // Add a navigable minimap to the editor; call before EndNodeEditor after all
 // nodes and links have been specified
-void MiniMap(
-    const float                                      minimap_size_fraction = 0.2f,
-    const ImNodesMiniMapLocation                     location = ImNodesMiniMapLocation_TopLeft,
-    const ImNodesMiniMapNodeHoveringCallback         node_hovering_callback = NULL,
-    const ImNodesMiniMapNodeHoveringCallbackUserData node_hovering_callback_data = NULL);
+void MiniMap(const float minimap_size_fraction = 0.2f,
+             const ImNodesMiniMapLocation location = ImNodesMiniMapLocation_TopLeft,
+             const ImNodesMiniMapNodeHoveringCallback node_hovering_callback = NULL,
+             const ImNodesMiniMapNodeHoveringCallbackUserData node_hovering_callback_data = NULL);
 
 // Use PushColorStyle and PopColorStyle to modify ImNodesStyle::Colors mid-frame.
 void PushColorStyle(ImNodesCol item, unsigned int color);
@@ -404,16 +391,9 @@ bool IsLinkStarted(int* started_at_attribute_id);
 // detaches a link and drops it.
 bool IsLinkDropped(int* started_at_attribute_id = NULL, bool including_detached_links = true);
 // Did the user finish creating a new link?
-bool IsLinkCreated(
-    int*  started_at_attribute_id,
-    int*  ended_at_attribute_id,
-    bool* created_from_snap = NULL);
-bool IsLinkCreated(
-    int*  started_at_node_id,
-    int*  started_at_attribute_id,
-    int*  ended_at_node_id,
-    int*  ended_at_attribute_id,
-    bool* created_from_snap = NULL);
+bool IsLinkCreated(int* started_at_attribute_id, int* ended_at_attribute_id, bool* created_from_snap = NULL);
+bool IsLinkCreated(int* started_at_node_id, int* started_at_attribute_id, int* ended_at_node_id,
+                   int* ended_at_attribute_id, bool* created_from_snap = NULL);
 
 // Was an existing link detached from a pin by the user? The detached link's id is assigned to the
 // output argument link_id.
@@ -423,9 +403,7 @@ bool IsLinkDestroyed(int* link_id);
 // file. The editor context is serialized in the INI file format.
 
 const char* SaveCurrentEditorStateToIniString(size_t* data_size = NULL);
-const char* SaveEditorStateToIniString(
-    const ImNodesEditorContext* editor,
-    size_t*                     data_size = NULL);
+const char* SaveEditorStateToIniString(const ImNodesEditorContext* editor, size_t* data_size = NULL);
 
 void LoadCurrentEditorStateFromIniString(const char* data, size_t data_size);
 void LoadEditorStateFromIniString(ImNodesEditorContext* editor, const char* data, size_t data_size);
@@ -435,4 +413,4 @@ void SaveEditorStateToIniFile(const ImNodesEditorContext* editor, const char* fi
 
 void LoadCurrentEditorStateFromIniFile(const char* file_name);
 void LoadEditorStateFromIniFile(ImNodesEditorContext* editor, const char* file_name);
-} // namespace IMNODES_NAMESPACE
+}  // namespace IMNODES_NAMESPACE

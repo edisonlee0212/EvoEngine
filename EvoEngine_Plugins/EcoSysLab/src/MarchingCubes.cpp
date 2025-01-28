@@ -367,8 +367,7 @@ void MarchingCubes::TriangulateField(const glm::vec3& center,
         outIndices.emplace_back(index);
         std::vector<glm::vec2> texList{};
         texList.emplace_back(vertex.tex_coord);
-        verticesList[glm::ivec3(glm::round((vertex.position - center) / cellRadius))] =
-            std::make_pair(index, texList);
+        verticesList[glm::ivec3(glm::round((vertex.position - center) / cellRadius))] = std::make_pair(index, texList);
         vertices.push_back(vertex);
       } else {
         search->second.second.emplace_back(vertex.tex_coord);

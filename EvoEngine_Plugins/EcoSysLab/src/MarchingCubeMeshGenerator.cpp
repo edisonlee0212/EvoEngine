@@ -29,7 +29,7 @@ void MarchingCubeMeshGenerator::Generate(const StrandModel& strand_model, std::v
 }
 
 std::vector<glm::ivec3> MarchingCubeMeshGenerator::VoxelizeLineSeg(glm::vec3 start, glm::vec3 end,
-                                                                 float voxel_side_length) {
+                                                                   float voxel_side_length) {
   // Based on Amanatides, J., & Woo, A. (1987, August). A fast voxel traversal algorithm for ray tracing. In
   // Eurographics (Vol. 87, No. 3, pp. 3-10).
   std::vector<glm::ivec3> ret_val;
@@ -91,8 +91,8 @@ std::vector<glm::ivec3> MarchingCubeMeshGenerator::VoxelizeLineSeg(glm::vec3 sta
 }
 
 void MarchingCubeMeshGenerator::MarchingCube(const StrandModel& strand_model, std::vector<Vertex>& vertices,
-                                            std::vector<unsigned>& indices,
-                                            const StrandModelMeshGeneratorSettings& settings) {
+                                             std::vector<unsigned>& indices,
+                                             const StrandModelMeshGeneratorSettings& settings) {
   const auto& skeleton = strand_model.strand_model_skeleton;
   const auto& strand_group = skeleton.data.strand_group;
   // first compute extreme points

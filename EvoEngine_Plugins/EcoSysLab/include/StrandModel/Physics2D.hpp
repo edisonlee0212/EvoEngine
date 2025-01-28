@@ -134,12 +134,14 @@ void Physics2D<T>::OnInspect(const std::function<void(glm::vec2 position)>& func
 
   // Pan (we use a zero mouse threshold when there's no context menu)
   // You may decide to make that threshold dynamic based on whether the mouse is hovering something etc.
-  if (constexpr float mouse_threshold_for_pan = -1.0f; is_mouse_active && ImGui::IsMouseDragging(ImGuiMouseButton_Right, mouse_threshold_for_pan)) {
+  if (constexpr float mouse_threshold_for_pan = -1.0f;
+      is_mouse_active && ImGui::IsMouseDragging(ImGuiMouseButton_Right, mouse_threshold_for_pan)) {
     scrolling.x += io.MouseDelta.x;
     scrolling.y += io.MouseDelta.y;
   }
   // Context menu (under default mouse threshold)
-  if (const ImVec2 drag_delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right); drag_delta.x == 0.0f && drag_delta.y == 0.0f)
+  if (const ImVec2 drag_delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
+      drag_delta.x == 0.0f && drag_delta.y == 0.0f)
     ImGui::OpenPopupOnItemClick("context", ImGuiPopupFlags_MouseButtonRight);
   if (ImGui::BeginPopup("context")) {
     ImGui::EndPopup();

@@ -305,7 +305,7 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
                                application.application_info_.default_window_size.y);
   }
   application.application_status_ = ApplicationStatus::NotPlaying;
-  
+
   if (!application.application_info_.project_path.empty()) {
     ProjectManager::GetOrCreateProject(application.application_info_.project_path);
   }

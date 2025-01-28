@@ -79,9 +79,8 @@ class IPrivateComponent : public ISerializable {
   }
 
   /**
-   * \brief Must set this up to map EntityRef members to new scene during serialization/deserialization/prefab initialization.
-   * \param map Map of original saved owner to actual owner.
-   * \param scene Target scene.
+   * \brief Must set this up to map EntityRef members to new scene during serialization/deserialization/prefab
+   * initialization. \param map Map of original saved owner to actual owner. \param scene Target scene.
    */
   virtual void Relink(const std::unordered_map<Handle, Handle>& map, const std::shared_ptr<Scene>& scene) {
   }

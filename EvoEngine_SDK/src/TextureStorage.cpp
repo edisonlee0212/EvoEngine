@@ -212,10 +212,10 @@ void Texture2DStorage::UploadData(const std::vector<glm::vec4>& data, const glm:
   if (!Platform::Initialized())
     return;
   Initialize(resolution);
-  
+
   VkBufferCreateInfo staging_buffer_create_info{};
   staging_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  
+
   staging_buffer_create_info.usage =
       VK_IMAGE_USAGE_STORAGE_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   staging_buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
