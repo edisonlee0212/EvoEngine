@@ -111,6 +111,7 @@ class GeometryStorage final {
 
   std::vector<ParticleInfoListData> particle_info_list_data_list_;
   uint32_t version_ = 0;
+  bool initialized_ = false;
 
  public:
   [[nodiscard]] static uint32_t GetVersion();

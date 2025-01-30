@@ -64,3 +64,6 @@
 [submodule "Resources/EvoEngine-DemoProjects"]
 	path = Resources/EvoEngine-DemoProjects
 	url = https://github.com/edisonlee0212/EvoEngine-DemoProjects.git
+[submodule "Resources/LogGradingProject"]
+	path = Resources/LogGradingProject
+	url = https://github.com/edisonlee0212/LogGradingProject.git

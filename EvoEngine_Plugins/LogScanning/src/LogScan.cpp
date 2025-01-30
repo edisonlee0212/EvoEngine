@@ -119,7 +119,7 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (ImGui::DragInt("Profile Index", &profile_index, 1, 0, profiles.size()) || changed) {
       profile_index = glm::clamp(profile_index, 0, static_cast<int>(profiles.size()));
       std::vector<ParticleInfo> profile_data;
-      const auto& profile = profiles[profile_index];
+      auto& profile = profiles[profile_index];
       JoeScanConfig joe_scan_config;
       joe_scan_config.Import(config_asset);
       const auto boundary_points = profile.BuildBoundary(joe_scan_config);
@@ -132,7 +132,7 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       });
       profile_list->SetParticleInfos(profile_data);
 
-      std::vector<ParticleInfo> points_data;
+      /*
       points_data.resize(profile.points.size());
       Jobs::RunParallelFor(points_data.size(), [&](unsigned i) {
         points_data[i].instance_matrix.SetPosition(
@@ -140,8 +140,20 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         points_data[i].instance_matrix.SetScale(glm::vec3(0.001f, 0.001f, 0.001f));
         points_data[i].instance_color = profile_points_color;
       });
-
-      profile_points_list->SetParticleInfos(points_data);
+      */
+      /*
+      if (scan_head_index >= 0 && scan_head_index <= profile.grid_points.size()) {
+        std::vector<ParticleInfo> points_data;
+        points_data.resize(profile.grid_points[scan_head_index].size());
+        Jobs::RunParallelFor(points_data.size(), [&](unsigned i) {
+          points_data[i].instance_matrix.SetPosition(glm::vec3(profile.grid_points[scan_head_index][i].x,
+                                                               profile.grid_points[scan_head_index][i].y,
+                                                               profile.encoder_value));
+          points_data[i].instance_matrix.SetScale(glm::vec3(0.001f, 0.001f, 0.001f));
+          points_data[i].instance_color = profile_points_color;
+        });
+        profile_points_list->SetParticleInfos(points_data);
+      }*/
     }
   }
   GizmoSettings settings{};
@@ -259,7 +271,9 @@ void JoeScanConfig::PlacePrefabs(const std::shared_ptr<Prefab>& prefab) const {
   }
 }
 
-std::vector<glm::vec2> LogScanProfile::BuildBoundary(const JoeScanConfig& joe_scan_config) const {
+std::vector<glm::vec2> LogScanProfile::BuildBoundary(const JoeScanConfig& joe_scan_config) {
+  std::vector<glm::vec2> ret_val;
+  /*
   const auto get_radians = [](const glm::vec2& a, const glm::vec2& b) {
     const auto radians = glm::acos(glm::clamp(glm::dot(a, b) / (glm::length(a) * glm::length(b)), -1.0f, 1.0f));
     if (const auto det = a.x * b.y - a.y * b.x; det < 0)
@@ -313,7 +327,6 @@ std::vector<glm::vec2> LogScanProfile::BuildBoundary(const JoeScanConfig& joe_sc
     i -= center;
   points_max -= center;
   points_min -= center;
-  std::vector<ProfileGrid> grids(1);
   grids.resize(joe_scan_config.scan_heads.size());
   constexpr auto x_limit = 0.0635f;
   constexpr auto y_limit = 0.0381f;
@@ -421,11 +434,25 @@ std::vector<glm::vec2> LogScanProfile::BuildBoundary(const JoeScanConfig& joe_sc
       }
     });
   }
+  grid_points.resize(grids.size());
+
+  for (int grid_index = 0; grid_index < grids.size(); grid_index++) {
+    grid_points[grid_index].clear();
+    const auto& grid = grids[grid_index];
+    for (uint32_t cell_i = 0; cell_i < grid.PeekCells().size(); cell_i++) {
+      const auto cell_position = grid.GetPosition(cell_i);
+      if (glm::abs(cell_position.x) < x_limit && glm::abs(cell_position.y) < y_limit)
+        continue;
+      if (grid.PeekCells()[cell_i].occluded) {
+        grid_points[grid_index].emplace_back(grid.GetPosition(cell_i) + center);
+      }
+    }
+  }
 
   ProfileGrid final_grid;
   final_grid.Reset(0.001f, points_min - glm::vec2(0.005f), points_max + glm::vec2(0.005f));
   final_grid.Clear();
-  std::vector<glm::vec2> ret_val;
+
   for (uint32_t cell_i = 0; cell_i < final_grid.RefCells().size(); cell_i++) {
     const auto cell_position = final_grid.GetPosition(cell_i);
     if (glm::abs(cell_position.x) < x_limit && glm::abs(cell_position.y) < y_limit)
@@ -443,5 +470,6 @@ std::vector<glm::vec2> LogScanProfile::BuildBoundary(const JoeScanConfig& joe_sc
       ret_val.emplace_back(final_grid.GetPosition(cell_i) + center);
     }
   }
+  */
   return ret_val;
 }
