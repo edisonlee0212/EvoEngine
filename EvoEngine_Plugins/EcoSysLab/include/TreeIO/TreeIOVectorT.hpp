@@ -633,11 +633,11 @@ Vector2DT<T> Vector2DT<T>::operator*(const VectorT &other) const {
 
 template <typename T>
 Vector2DT<T> Vector2DT<T>::elementMin(const VectorT &first, const VectorT &second) {
-  return {std::min(first.x, second.x), std::min(first.y, second.y), std::min(first.z, second.z)};
+  return {std::min(first.x, second.x), std::min(first.y, second.y)};
 }
 template <typename T>
 Vector2DT<T> Vector2DT<T>::elementMax(const VectorT &first, const VectorT &second) {
-  return {std::max(first.x, second.x), std::max(first.y, second.y), std::max(first.z, second.z)};
+  return {std::max(first.x, second.x), std::max(first.y, second.y)};
 }
 
 template <typename T>

@@ -128,6 +128,7 @@ void GeometryStorage::Initialize() {
   storage.segment_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage.require_strand_mesh_data_device_update_ = false;
+  storage.initialized_ = true;
 }
 
 uint32_t GeometryStorage::GetVersion() {
@@ -482,6 +483,9 @@ void GeometryStorage::AllocateStrands(const Handle& handle, const std::vector<St
 
 void GeometryStorage::FreeMesh(const Handle& handle) {
   auto& storage = GetInstance();
+  if (!storage.initialized_) {
+    return;
+  }
   uint32_t meshlet_range_descriptor_index = UINT_MAX;
   for (int i = 0; i < storage.meshlet_range_descriptor_.size(); i++) {
     if (storage.meshlet_range_descriptor_[i]->handle_ == handle) {
@@ -539,6 +543,9 @@ void GeometryStorage::FreeMesh(const Handle& handle) {
 
 void GeometryStorage::FreeSkinnedMesh(const Handle& handle) {
   auto& storage = GetInstance();
+  if (!storage.initialized_) {
+    return;
+  }
   uint32_t skinned_meshlet_range_descriptor_index = UINT_MAX;
   for (int i = 0; i < storage.skinned_meshlet_range_descriptor_.size(); i++) {
     if (storage.skinned_meshlet_range_descriptor_[i]->handle_ == handle) {
@@ -603,6 +610,9 @@ void GeometryStorage::FreeSkinnedMesh(const Handle& handle) {
 
 void GeometryStorage::FreeStrands(const Handle& handle) {
   auto& storage = GetInstance();
+  if (!storage.initialized_) {
+    return;
+  }
   uint32_t strand_meshlet_range_descriptor_index = UINT_MAX;
   for (int i = 0; i < storage.strand_meshlet_range_descriptor_.size(); i++) {
     if (storage.strand_meshlet_range_descriptor_[i]->handle_ == handle) {
@@ -695,6 +705,9 @@ void GeometryStorage::UpdateParticleInfo(const std::shared_ptr<RangeDescriptor>&
 
 void GeometryStorage::FreeParticleInfo(const std::shared_ptr<RangeDescriptor>& range_descriptor) {
   auto& storage = GetInstance();
+  if (!storage.initialized_) {
+    return;
+  }
   assert(range_descriptor->offset < storage.particle_info_list_data_list_.size());
   auto& info_data = storage.particle_info_list_data_list_.at(range_descriptor->offset);
   assert(info_data.m_status != ParticleInfoListDataStatus::Removed);
@@ -761,4 +774,5 @@ void GeometryStorage::OnDestroy() {
   storage.segment_buffer_.reset();
 
   storage.particle_info_list_data_list_.clear();
+  storage.initialized_ = false;
 }

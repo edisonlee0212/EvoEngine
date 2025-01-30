@@ -86,7 +86,7 @@ int main() {
   ApplicationInfo application_configs;
   application_configs.application_name = "Log Grader";
   application_configs.project_path =
-      std::filesystem::absolute(resource_folder_path / "LogGraderProject" / "Default.eveproj");
+      std::filesystem::absolute(resource_folder_path / "LogGradingProject" / "Default.eveproj");
   Application::Initialize(application_configs);
 
   // adjust default camera speed
