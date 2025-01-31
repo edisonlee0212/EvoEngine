@@ -1,0 +1,29 @@
+name: evoengine
+channels:
+- conda-forge
+- defaults
+dependencies:
+- libstdcxx
+- clang-14
+- cmake
+- ninja
+- wayland
+- libxkbcommon
+- libvulkan-headers
+- libvulkan-loader
+- xkeyboard-config
+- xorg-libx11
+- xorg-libxau
+- xorg-libxcursor
+- xorg-libxdmcp
+- xorg-libxext
+- xorg-libxfixes
+- xorg-libxi
+- xorg-libxinerama
+- xorg-libxrandr
+- xorg-libxrender
+- xorg-xorgproto
+- python
+- shaderc
+- spirv-tools
+- vulkan-tools

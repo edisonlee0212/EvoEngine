@@ -1,12 +1,20 @@
 #You should change following lines to make sure they points to the correct directory.
-evoengine_directory = "C:\\Users\\lllll\\Documents\\GitHub\\EvoEngine\\"
-output_root = "D:\\SorghumPointCloudData"
-
+import platform
 import os
+
+def is_windows():
+    return platform.system() == "Windows"
+
+evoengine_directory = "~/EvoEngine/"
+if is_windows():
+	evoengine_directory = "C:/Users/lllll/Documents/GitHub/EvoEngine/"
+output_root = os.path.expanduser("~/SorghumPointCloudData")
+
+
 current_directory = os.getcwd()
 
 #Redirect working directory to the binaries directory of the framework. This has to be done because we also have resource files copied to that folder after compilation of the framework
-library_directory = evoengine_directory + "out\\build\\x64-Release\\PythonBinding"
+library_directory = os.path.expanduser(evoengine_directory + "out/build/x64-Release/PythonBinding")
 os.chdir(library_directory)
 
 #Add directory that contains the python library to system path so we can import the library
@@ -16,7 +24,7 @@ sys.path.append(library_directory)
 import PyDigitalAgriculture as sorghum_framework
 
 #Point the framework to load the default project folder that contains 2 sample sorghum descriptors.
-project_path = evoengine_directory + "Resources\\DigitalAgricultureProject\\test.eveproj"
+project_path = os.path.expanduser(evoengine_directory + "Resources/DigitalAgricultureProject/test.eveproj")
 
 #Create new folder for output path if necessary
 if not os.path.isdir(output_root):
@@ -68,7 +76,7 @@ point_cloud_settings.bounding_box_limit = 2.0
 sorghum_framework.sorghum_descriptor_to_mesh_and_point_cloud(
 	use_gpu,
 	#Path to sorghum descriptor [[!!!IF THE SORGHUM DESCRIPTOR IS IN PROJECT FOLDER, YOU SHOULD USE RELATIVE PATH, IF IT'S SAVED OUTSIDE THE FOLDER, USE ABSOLUTE PATH!!!]]
-	".\\SorghumGenerator\\Sample0.sorghum",
+	"./SorghumGenerator/Sample0.sorghum",
 	#Sorghum Point Cloud Point Settings
 	point_cloud_settings,
 	#Sorghum Mesh Generator Settings
@@ -78,29 +86,29 @@ sorghum_framework.sorghum_descriptor_to_mesh_and_point_cloud(
 	#Whether generate ground surface mesh
 	False,
 	#Where to store the 3d model
-	output_root + "\\SD_Sample0.obj",
+	output_root + "/SD_Sample0.obj",
 	#Where to save the point cloud
-	output_root + "\\SD_Sample0.ply"
+	output_root + "/SD_Sample0.ply"
 )
 #Note that you don't need to restart the framework to generate another sorghum data.
 sorghum_framework.sorghum_descriptor_to_mesh_and_point_cloud(
 	use_gpu,
-	".\\SorghumGenerator\\Sample1.sorghum",
+	"./SorghumGenerator/Sample1.sorghum",
 	point_cloud_settings,
 	mesh_settings,
 	#Whether generate 2 point clouds (with/without occclusion) for the sorghum
 	False,
 	#Whether generate ground surface mesh
 	False,
-	output_root + "\\SD_Sample1.obj",
-	output_root + "\\SD_Sample1.ply"
+	output_root + "/SD_Sample1.obj",
+	output_root + "/SD_Sample1.ply"
 )
 
 #Now we generate and save mesh and point cloud for 2 sorghums with sorghum state.
 sorghum_framework.sorghum_state_to_mesh_and_point_cloud(
 	use_gpu,
 	#Path to sorghum descriptor [[!!!IF THE SORGHUM DESCRIPTOR IS IN PROJECT FOLDER, YOU SHOULD USE RELATIVE PATH, IF IT'S SAVED OUTSIDE THE FOLDER, USE ABSOLUTE PATH!!!]]
-	".\\SorghumGenerator\\Sample0.ss",
+	"./SorghumGenerator/Sample0.ss",
 	#Sorghum Point Cloud Point Settings
 	point_cloud_settings,
 	#Sorghum Mesh Generator Settings
@@ -110,22 +118,22 @@ sorghum_framework.sorghum_state_to_mesh_and_point_cloud(
 	#Whether generate ground surface mesh
 	False,
 	#Where to store the 3d model
-	output_root + "\\SS_Sample0.obj",
+	output_root + "/SS_Sample0.obj",
 	#Where to save the point cloud
-	output_root + "\\SS_Sample0.ply"
+	output_root + "/SS_Sample0.ply"
 )
 #Note that you don't need to restart the framework to generate another sorghum data.
 sorghum_framework.sorghum_state_to_mesh_and_point_cloud(
 	use_gpu,
-	".\\SorghumGenerator\\Sample1.ss",
+	"./SorghumGenerator/Sample1.ss",
 	point_cloud_settings,
 	mesh_settings,
 	#Whether generate 2 point clouds (with/without occclusion) for the sorghum
 	False,
 	#Whether generate ground surface mesh
 	False,
-	output_root + "\\SS_Sample1.obj",
-	output_root + "\\SS_Sample1.ply"
+	output_root + "/SS_Sample1.obj",
+	output_root + "/SS_Sample1.ply"
 )
 
 #Close the framework after we finished data generation

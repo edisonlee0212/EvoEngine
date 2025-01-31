@@ -1061,12 +1061,18 @@ void RenderLayer::ForEachCollectedCamera(
 }
 
 std::shared_ptr<RenderInstanceStorage> RenderLayer::GetCurrentRenderInstanceStorage() const {
-  return render_instances_list_[Platform::GetCurrentFrameIndex()];
+  const auto index = Platform::GetCurrentFrameIndex();
+  if (index >= render_instances_list_.size())
+    return {};
+  return render_instances_list_[index];
 }
 
 std::shared_ptr<RenderInstanceStorage> RenderLayer::GetPreviousRenderInstanceStorage() const {
-  return render_instances_list_[(Platform::GetMaxFramesInFlight() + Platform::GetCurrentFrameIndex() - 1) %
-                                Platform::GetMaxFramesInFlight()];
+  const auto index =
+      (Platform::GetMaxFramesInFlight() + Platform::GetCurrentFrameIndex() - 1) % Platform::GetMaxFramesInFlight();
+  if (index >= render_instances_list_.size())
+    return {};
+  return render_instances_list_[index];
 }
 
 void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
