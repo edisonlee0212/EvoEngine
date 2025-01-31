@@ -94,7 +94,7 @@ void generate_tree_data() {
   // Trunk length (branches will br pruned)
   data_generation_parameters.pruning_settings.low_branch_pruning = 0.2f;
 
-  data_generation_parameters.output_folder = std::filesystem::current_path() / "Tree Data";
+  data_generation_parameters.output_folder = std::filesystem::current_path() / "TreeData";
 
   data_generation_parameters.export_point_cloud = false;
   data_generation_parameters.export_mesh = true;

@@ -9,7 +9,7 @@ quit() {
 pushd `dirname $0` > /dev/null
 ROOT_PATH="${PWD}"
 
-CLEAN=1
+CLEAN=0
 NO_TEST=1
 VERBOSE=0
 BUILD_TYPE="Release"
@@ -20,7 +20,9 @@ while [[ "$1" != "" ]] ; do
     --no-test) NO_TEST=1 ;;
     --verbose) VERBOSE=1 ;;
     debug)     BUILD_TYPE="Debug" ;;
+    Debug)     BUILD_TYPE="Debug" ;;
     release)   BUILD_TYPE="Release" ;;
+    Release)   BUILD_TYPE="Release" ;;
     *) quit "Usage: $0 [--clean] [--no-test] [--verbose] [build_type]" 1 ;;
   esac
 
@@ -44,7 +46,7 @@ cd "${BUILD_PATH}"
 CMAKE_ARGS="
   -G Ninja
   -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
-  -DCMAKE_CXX_COMPILER:FILEPATH=clang++
+  -DCMAKE_CXX_COMPILER:FILEPATH=clang-14
   -DCMAKE_INSTALL_PREFIX:PATH=${OUTPUT_PATH}/install/${BUILD_CONFIG}
   -DCMAKE_PREFIX_PATH=$CONDA_PREFIX
   -S ${ROOT_PATH}
