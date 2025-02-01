@@ -38,10 +38,10 @@ class SorghumGantryCaptureSettings : public PointCloudCaptureSettings {
 
   glm::ivec2 grid_size = {5, 5};
   glm::vec2 grid_distance = {0.75f, 0.75f};
-  glm::vec2 step = {0.0075f, 0.0075f};
+  float step = 0.0075f;
   float sample_height = 2.5f;
 
-  std::vector<float> scanner_angles = {30.f};
+  std::vector<float> scanner_angles = {30.f, 60.f};
 
   bool OnInspect() override;
   void GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) override;

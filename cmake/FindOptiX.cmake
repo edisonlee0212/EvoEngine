@@ -35,12 +35,14 @@ if(NOT WIN32)
 		NAME include/optix.h
 		PATHS
 		~/NVIDIA-OptiX-SDK-8.0.0-linux64-x86_64
+		~/NVIDIA-OptiX-SDK-8.1.0-linux64-x86_64
 		)
 else()
 	find_path(searched_OptiX_INSTALL_DIR
 		NAME include/optix.h
 		PATHS
 		"C:/ProgramData/NVIDIA Corporation/OptiX SDK 8.0.0"
+		"C:/ProgramData/NVIDIA Corporation/OptiX SDK 8.1.0"
 		)
 endif()
 mark_as_advanced(searched_OptiX_INSTALL_DIR)

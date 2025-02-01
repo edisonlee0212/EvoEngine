@@ -1,21 +1,6 @@
-#include "AnimationPlayer.hpp"
-#include "Application.hpp"
-#include "ClassRegistry.hpp"
-#include "EditorLayer.hpp"
-#include "MeshRenderer.hpp"
-#include "PlayerController.hpp"
-#include "PostProcessingStack.hpp"
-#include "Prefab.hpp"
-#include "ProjectManager.hpp"
-#include "RenderLayer.hpp"
-#include "Scene.hpp"
-#include "Times.hpp"
-#include "WindowLayer.hpp"
-#include "pybind11/pybind11.h"
-#include "pybind11/stl/filesystem.h"
+#include "PyEvoEngine.hpp"
 
-using namespace evo_engine;
-
+using namespace py_evo_engine;
 namespace py = pybind11;
 
 void push_layers(const bool enable_window_layer, const bool enable_editor_layer) {
@@ -105,4 +90,6 @@ PYBIND11_MODULE(PyEvoEngine, m) {
   m.def("engine_terminate", &engine_terminate, "Terminate Application");
 
   m.def("capture_current_scene", &capture_current_scene, "Capture current scene");
+}
+void py_evo_engine::PyEvoEngine::Initialize() {
 }

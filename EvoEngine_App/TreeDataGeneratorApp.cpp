@@ -74,7 +74,7 @@ void run_windowless(const std::filesystem::path& project_path) {
   Application::Start();
 }
 
-void generate_tree_data() {
+void generate_tree_data(const std::filesystem::path& output_folder) {
   constexpr bool export_junction = false;
   DatasetGenerator::TreeDataGenerationParameters data_generation_parameters{};
   data_generation_parameters.tree_point_cloud_point_settings.ball_rand_radius = 0.0f;
@@ -94,7 +94,7 @@ void generate_tree_data() {
   // Trunk length (branches will br pruned)
   data_generation_parameters.pruning_settings.low_branch_pruning = 0.2f;
 
-  data_generation_parameters.output_folder = std::filesystem::current_path() / "TreeData";
+  data_generation_parameters.output_folder = output_folder;
 
   data_generation_parameters.export_point_cloud = false;
   data_generation_parameters.export_mesh = true;
@@ -128,7 +128,6 @@ void generate_tree_data() {
       glm::radians(glm::vec3(-90, glm::linearRand(0.f, 360.f), 0)));
   data_generation_parameters.camera_capture_settings[1].global_transform.SetEulerRotation(
       glm::radians(glm::vec3(-90, glm::linearRand(0.f, 360.f), 0)));
-
   data_generation_parameters.tree_descriptor_path = std::filesystem::path("./TreeStructor/TreeStructor.tree");
   data_generation_parameters.foliage_descriptor_path = std::filesystem::path("./TreeStructor/TreeStructor.foliage");
   // data_generation_parameters.bark_descriptor_path = std::filesystem::path("./TreeStructor/TreeStructor.bark");
@@ -145,18 +144,13 @@ void generate_tree_data() {
   tree_point_cloud_grid_capture_settings->drone_sample_size = 256;
 
   // data_generation_parameters.growth_capture = {4096};
+  data_generation_parameters.point_cloud_capture_settings = tree_point_cloud_circular_capture_settings;
 
   for (int index = 0; index < 2; index++) {
     data_generation_parameters.output_file_prefix =
         data_generation_parameters.tree_descriptor_path.stem().string() + "_" + std::to_string(index);
-    DatasetGenerator::GenerateDataForTree(data_generation_parameters, tree_point_cloud_circular_capture_settings);
+    DatasetGenerator::GenerateDataForTree(data_generation_parameters);
   }
-
-  EVOENGINE_LOG("Generation Finished!")
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-  const auto folder_path = data_generation_parameters.output_folder.string();
-  ShellExecuteA(nullptr, "open", folder_path.c_str(), nullptr, nullptr, SW_SHOWDEFAULT);
-#endif
 }
 
 int main() {
@@ -185,7 +179,16 @@ int main() {
   const std::filesystem::path project_path = resource_folder_path / "EcoSysLabProject" / "test.eveproj";
   run_windowless(project_path);
 
-  generate_tree_data();
+  const auto output_folder_path = std::filesystem::current_path() / "TreeData";
 
+  generate_tree_data(output_folder_path);
+
+  EVOENGINE_LOG("Generation Finished!")
+
+  // Open File Explorer for generated files.
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+  const auto folder_path = output_folder_path.string();
+  ShellExecuteA(nullptr, "open", folder_path.c_str(), nullptr, nullptr, SW_SHOWDEFAULT);
+#endif
   Application::Terminate();
 }
