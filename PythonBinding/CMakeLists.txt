@@ -21,7 +21,7 @@ function(register_python_binding target_name default_enable)
 		set(option_name PythonBinding-${target_name})
 		option(option_name "Add Python binding for ${target_name}" default_enable)
 		if(option_name)
-			pybind11_add_module(${target_name} ${target_name}.cpp)
+			pybind11_add_module(${target_name} ${CMAKE_CURRENT_SOURCE_DIR}/src/${target_name}.cpp)
 			target_compile_definitions(${target_name}
 				PRIVATE
 				${DEFAULT_PROJECT_DEF}
@@ -30,6 +30,7 @@ function(register_python_binding target_name default_enable)
 			target_include_directories(${target_name}
 				PRIVATE
 				${EVOENGINE_INCLUDES}
+				${CMAKE_CURRENT_SOURCE_DIR}/include
 				)
 			target_precompile_headers(${target_name}
 				PRIVATE

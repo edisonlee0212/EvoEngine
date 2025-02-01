@@ -81,7 +81,7 @@ bool SorghumGantryCaptureSettings::OnInspect() {
     changed = true;
   if (ImGui::DragFloat2("Grid distance", &grid_distance.x, 0.1f, 0.0f, 100.0f))
     changed = true;
-  if (ImGui::DragFloat2("Step", &step.x, 0.00001f, 0.0f, 0.5f))
+  if (ImGui::DragFloat("Step", &step, 0.00001f, 0.0f, 0.5f))
     changed = true;
 
   return changed;
@@ -89,8 +89,8 @@ bool SorghumGantryCaptureSettings::OnInspect() {
 
 void SorghumGantryCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
   const glm::vec2 start_point = glm::vec2((grid_size.x) * grid_distance.x, (grid_size.y) * grid_distance.y) * 0.5f;
-  const int x_step_size = static_cast<int>(grid_size.x * grid_distance.x / step.x);
-  const int y_step_size = static_cast<int>(grid_size.y * grid_distance.y / step.y);
+  const int x_step_size = static_cast<int>(grid_size.x * grid_distance.x / step);
+  const int y_step_size = static_cast<int>(grid_size.y * grid_distance.y / step);
 
   point_cloud_samples.resize(y_step_size * x_step_size * 2 * scanner_angles.size());
   constexpr auto front = glm::vec3(0, -1, 0);
@@ -99,7 +99,7 @@ void SorghumGantryCaptureSettings::GenerateSamples(std::vector<PointCloudSample>
   Jobs::RunParallelFor(y_step_size * x_step_size, [&](unsigned i) {
     const auto x = i / y_step_size;
     const auto y = i % y_step_size;
-    const glm::vec3 center = glm::vec3{step.x * x, 0.f, step.y * y} - glm::vec3(start_point.x, 0, start_point.y);
+    const glm::vec3 center = glm::vec3{step * x, 0.f, step * y} - glm::vec3(start_point.x, 0, start_point.y);
     for (int angle_index = 0; angle_index < scanner_angles.size(); angle_index++) {
       auto& sample1 = point_cloud_samples[i * scanner_angles.size() + angle_index];
       const auto& scanner_angle = scanner_angles[angle_index];
@@ -123,8 +123,7 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
                                     std::vector<glm::vec3>& points, std::vector<int>& leaf_indices,
                                     std::vector<int>& instance_indices, std::vector<int>& type_indices) const {
   const auto render_layer = Application::GetLayer<RenderLayer>();
-  if (!render_layer && capture_settings->use_gpu)
-    return;
+
   const auto digital_agriculture_layer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
   if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
@@ -192,87 +191,84 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
   }
   std::vector<PointCloudSample> pc_samples;
   capture_settings->GenerateSamples(pc_samples);
+
+  switch (capture_settings->capture_mode) {
+    case PointCloudCaptureSettings::CaptureMode::OptiX: {
 #ifdef CUDA_MODULE_PLUGIN
-  if (capture_settings->use_gpu) {
-    CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
-  } else {
-    /**
-     * You may take a look at render instances, to see what it contains. RenderLayer will prepare a RenderInstance every
-     * frame that contains all needed information for rendering everything for current scene. It's used in rasterization
-     * rendering, and here we also use it for ray tracing. It also detects updates of the scene, like transformation,
-     * mesh, material changes.
-     */
-    std::shared_ptr<RenderInstanceStorage> render_instances{};
-    if (render_layer) {
-      render_instances = render_layer->GetCurrentRenderInstanceStorage();
-    }
-    if (!render_instances) {
-      render_instances = std::make_shared<RenderInstanceStorage>();
-      Bound world_bound;
-      render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
-    }
-    CpuRayTracer cpu_ray_tracer;
-    /**
-     * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS based
-     * on them.
-     */
-    cpu_ray_tracer.Initialize(
-        render_instances,
-        [&](uint32_t, const std::shared_ptr<Mesh>&) {
-
-        },
-        [&](const uint32_t node_index, const Entity& entity) {
-
-        });
-    cpu_ray_tracer.SamplePointCloud(pc_samples);
-  }
+      CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
 #else
-  /**
-   * You may take a look at render instances, to see what it contains. RenderLayer will prepare a RenderInstance every
-   * frame that contains all needed information for rendering everything for current scene. It's used in rasterization
-   * rendering, and here we also use it for ray tracing. It also detects updates of the scene, like transformation,
-   * mesh, material changes.
-   */
-  std::shared_ptr<RenderInstanceStorage> render_instances{};
-  if (render_layer) {
-    render_instances = render_layer->GetCurrentRenderInstanceStorage();
-  }
-  if (!render_instances) {
-    render_instances = std::make_shared<RenderInstanceStorage>();
-    Bound world_bound;
-    render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
-  }
-  CpuRayTracer cpu_ray_tracer;
-  /**
-   * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS based
-   * on them.
-   */
-  cpu_ray_tracer.Initialize(
-      render_instances,
-      [&](uint32_t, const std::shared_ptr<Mesh>&) {
-
-      },
-      [&](const uint32_t node_index, const Entity& entity) {
-
-      });
-
-  if (capture_settings->use_gpu) {
-    /**
-     * The cpu_ray_tracer will aggregate and flatten TLAS and BLAS so from its hierarcal structure to vectors so we can
-     * use it on GPU.
-     */
-    auto aggregate_scene = cpu_ray_tracer.Aggregate();
-    /**
-     * Upload prepared data to GPU, these data will be linked to the compute pipeline via Descriptors (collectively
-     * DescriptorSet) so we can read them in shader. You may take a look at its implementation to see how easy to send
-     * data to GPU.
-     */
-    aggregate_scene.InitializeBuffers();
-    aggregate_scene.SamplePointCloudGpu(cpu_ray_tracer, pc_samples);
-  } else {
-    cpu_ray_tracer.SamplePointCloud(pc_samples);
-  }
+      EVOENGINE_ERROR("Missing CudaModule plugin!")
 #endif
+    } break;
+    case PointCloudCaptureSettings::CaptureMode::Cpu: {
+      /**
+       * You may take a look at render instances, to see what it contains. RenderLayer will prepare a RenderInstance
+       * every frame that contains all needed information for rendering everything for current scene. It's used in
+       * rasterization rendering, and here we also use it for ray tracing. It also detects updates of the scene, like
+       * transformation, mesh, material changes.
+       */
+      std::shared_ptr<RenderInstanceStorage> render_instances{};
+      if (render_layer) {
+        render_instances = render_layer->GetCurrentRenderInstanceStorage();
+      }
+      if (!render_instances) {
+        render_instances = std::make_shared<RenderInstanceStorage>();
+        Bound world_bound;
+        render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
+      }
+      CpuRayTracer cpu_ray_tracer;
+      /**
+       * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS
+       * based on them.
+       */
+      cpu_ray_tracer.Initialize(
+          render_instances,
+          [&](uint32_t, const std::shared_ptr<Mesh>&) {
+
+          },
+          [&](const uint32_t node_index, const Entity& entity) {
+
+          });
+      cpu_ray_tracer.SamplePointCloud(pc_samples);
+    } break;
+    case PointCloudCaptureSettings::CaptureMode::GpuCompute: {
+      std::shared_ptr<RenderInstanceStorage> render_instances{};
+      if (render_layer) {
+        render_instances = render_layer->GetCurrentRenderInstanceStorage();
+      }
+      if (!render_instances) {
+        render_instances = std::make_shared<RenderInstanceStorage>();
+        Bound world_bound;
+        render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
+      }
+      CpuRayTracer cpu_ray_tracer;
+      /**
+       * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS
+       * based on them.
+       */
+      cpu_ray_tracer.Initialize(
+          render_instances,
+          [&](uint32_t, const std::shared_ptr<Mesh>&) {
+
+          },
+          [&](const uint32_t node_index, const Entity& entity) {
+
+          });
+      /**
+       * The cpu_ray_tracer will aggregate and flatten TLAS and BLAS so from its hierarcal structure to vectors so we
+       * can use it on GPU.
+       */
+      auto aggregate_scene = cpu_ray_tracer.Aggregate();
+      /**
+       * Upload prepared data to GPU, these data will be linked to the compute pipeline via Descriptors (collectively
+       * DescriptorSet) so we can read them in shader. You may take a look at its implementation to see how easy to send
+       * data to GPU.
+       */
+      aggregate_scene.InitializeBuffers();
+      aggregate_scene.SamplePointCloudGpu(cpu_ray_tracer, pc_samples);
+    } break;
+  }
+
   glm::vec3 left_offset = glm::linearRand(-left_random_offset, left_random_offset);
   glm::vec3 right_offset = glm::linearRand(-right_random_offset, right_random_offset);
   for (int sample_index = 0; sample_index < pc_samples.size(); sample_index++) {
@@ -302,24 +298,26 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
                         ball_rand + (sample_index >= pc_samples.size() / 2 ? left_offset : right_offset));
 
     if (sorghum_point_cloud_point_settings.leaf_index) {
-      if (capture_settings->use_gpu) {
-#ifdef CUDA_MODULE_PLUGIN
-        leaf_indices.emplace_back(glm::floatBitsToUint(sample.hit_info.data.x));
-#else
-        if (const auto search = leaf_mesh_renderer_handles.find(sample.handle);
-            search != leaf_mesh_renderer_handles.end()) {
-          leaf_indices.emplace_back(search->second.second);
-        } else {
-          leaf_indices.emplace_back(0);
-        }
-#endif
-      } else {
-        if (const auto search = leaf_mesh_renderer_handles.find(sample.handle);
-            search != leaf_mesh_renderer_handles.end()) {
-          leaf_indices.emplace_back(search->second.second);
-        } else {
-          leaf_indices.emplace_back(0);
-        }
+      switch (capture_settings->capture_mode) {
+        case PointCloudCaptureSettings::CaptureMode::OptiX: {
+          leaf_indices.emplace_back(glm::floatBitsToUint(sample.hit_info.data.x));
+        } break;
+        case PointCloudCaptureSettings::CaptureMode::Cpu: {
+          if (const auto search = leaf_mesh_renderer_handles.find(sample.handle);
+              search != leaf_mesh_renderer_handles.end()) {
+            leaf_indices.emplace_back(search->second.second);
+          } else {
+            leaf_indices.emplace_back(0);
+          }
+        } break;
+        case PointCloudCaptureSettings::CaptureMode::GpuCompute: {
+          if (const auto search = leaf_mesh_renderer_handles.find(sample.handle);
+              search != leaf_mesh_renderer_handles.end()) {
+            leaf_indices.emplace_back(search->second.second);
+          } else {
+            leaf_indices.emplace_back(0);
+          }
+        } break;
       }
     }
 

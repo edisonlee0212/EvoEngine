@@ -29,6 +29,9 @@
 #include "Platform.hpp"
 
 #include "VulkanInterlop.hpp"
+
+#include "Application.hpp"
+#include "RenderLayer.hpp"
 using namespace evo_engine;
 
 std::unique_ptr<OptiXRayTracer>& CudaModule::GetRayTracer() {
@@ -87,6 +90,9 @@ void CudaModule::SamplePointCloud(const EnvironmentProperties& environmentProper
 }
 
 std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo_engine::Texture2D>& texture2D) {
+  if (!Application::GetLayer<RenderLayer>())
+    return nullptr;
+
   auto image = texture2D->GetImage();
 
   auto cudaImage = std::make_shared<CudaImage>();
@@ -195,6 +201,9 @@ std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo
 }
 
 std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_engine::Cubemap>& cubemap) {
+  if (!Application::GetLayer<RenderLayer>())
+    return nullptr;
+
   auto image = cubemap->GetImage();
 
   auto cudaImage = std::make_shared<CudaImage>();
@@ -301,8 +310,10 @@ std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_e
   return cudaImage;
 }
 
-std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(
-    const std::shared_ptr<evo_engine::RenderTexture>& renderTexture) {
+std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(const std::shared_ptr<RenderTexture>& renderTexture) {
+  if (!Application::GetLayer<RenderLayer>())
+    return nullptr;
+
   auto image = renderTexture->GetColorImage();
 
   auto cudaImage = std::make_shared<CudaImage>();
@@ -411,6 +422,8 @@ std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(
 }
 
 std::shared_ptr<CudaSemaphore> CudaModule::ImportSemaphore(const std::shared_ptr<evo_engine::Semaphore>& semaphore) {
+  if (!Application::GetLayer<RenderLayer>())
+    return nullptr;
   auto cudaSemaphore = std::make_shared<CudaSemaphore>();
 
   cudaExternalSemaphoreHandleDesc externalSemaphoreHandleDesc;

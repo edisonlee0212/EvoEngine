@@ -22,9 +22,9 @@ class DatasetGenerator {
 
   struct TreeDataGenerationParameters {
     // Parameters
-    std::filesystem::path tree_descriptor_path;
-    std::filesystem::path foliage_descriptor_path;
-    std::filesystem::path bark_descriptor_path;
+    std::filesystem::path tree_descriptor_path{};
+    std::filesystem::path foliage_descriptor_path{};
+    std::filesystem::path bark_descriptor_path{};
     // Growth control
     SimulationSettings simulation_settings{};
     TreeGrowthSettings tree_growth_settings{};
@@ -35,6 +35,7 @@ class DatasetGenerator {
     bool use_node_growth_capture = false;
     std::vector<int> growth_capture{};
 
+    // Export types
     bool export_point_cloud = false;
     bool export_mesh = false;
     bool export_skeleton = false;
@@ -46,74 +47,54 @@ class DatasetGenerator {
     TreePointCloudPointSettings tree_point_cloud_point_settings{};
     TreeMeshGeneratorSettings tree_mesh_generator_settings{};
     std::vector<CameraCaptureSettings> camera_capture_settings{};
+    std::shared_ptr<PointCloudCaptureSettings> point_cloud_capture_settings{};
+
     float max_depth = 20.f;
     // Export path
-    std::filesystem::path output_folder;
-    std::string output_file_prefix;
+    std::filesystem::path output_folder{};
+    std::string output_file_prefix{};
   };
 
-  static void GenerateDataForTree(const TreeDataGenerationParameters& data_generation_parameters,
-                                  const std::shared_ptr<PointCloudCaptureSettings>& capture_settings);
+  static void GenerateDataForTree(const TreeDataGenerationParameters& data_generation_parameters);
 
   static void GenerateDataForForest(int grid_size, float grid_distance, float random_shift,
                                     const TreeDataGenerationParameters& data_generation_parameters,
-                                    const std::filesystem::path& species_folder_path,
-                                    const std::shared_ptr<PointCloudCaptureSettings>& capture_settings);
+                                    const std::filesystem::path& species_folder_path);
 
   static void GeneratePointCloudForForestPatch(const glm::ivec2& grid_size,
                                                const std::shared_ptr<ForestPatch>& forest_patch,
-                                               const TreeDataGenerationParameters& data_generation_parameters,
-                                               const std::shared_ptr<PointCloudCaptureSettings>& capture_settings);
+                                               const TreeDataGenerationParameters& data_generation_parameters);
 
   static void GeneratePointCloudForForestPatchJoinedSpecies(
       const glm::ivec2& grid_size, const std::shared_ptr<ForestPatch>& forest_patch,
-      const std::filesystem::path& species_folder_path, const TreeDataGenerationParameters& data_generation_parameters,
-      const std::shared_ptr<PointCloudCaptureSettings>& capture_settings);
+      const std::filesystem::path& species_folder_path, const TreeDataGenerationParameters& data_generation_parameters);
 
-  static void GeneratePointCloudForSorghum(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
-                                           const SorghumPointCloudPointSettings& point_settings,
-                                           const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-                                           const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                           bool avoid_occlusion, bool generate_ground,
-                                           const std::filesystem::path& point_cloud_output_path);
+  struct SorghumDataGenerationParameters {
+    // Parameters
+    std::filesystem::path sorghum_path{};
 
-  static void GeneratePointCloudForSorghum(const std::shared_ptr<SorghumState>& sorghum_state,
-                                           const SorghumPointCloudPointSettings& point_settings,
-                                           const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-                                           const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                           bool avoid_occlusion, bool generate_ground,
-                                           const std::filesystem::path& point_cloud_output_path);
+    // Export types
+    bool export_point_cloud = false;
+    bool export_mesh = false;
 
-  static void GenerateMeshAndPointCloudForSorghum(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
-                                                  const SorghumPointCloudPointSettings& point_settings,
-                                                  const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-                                                  const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                                  bool avoid_occlusion, bool generate_ground,
-                                                  const std::filesystem::path& mesh_output_path,
-                                                  const std::filesystem::path& point_cloud_output_path);
+    // Data generation
+    bool generate_ground_mesh = false;
+    bool avoid_occlusion = false;
+    SorghumPointCloudPointSettings sorghum_point_cloud_point_settings{};
+    SorghumMeshGeneratorSettings sorghum_mesh_generator_settings{};
+    std::shared_ptr<PointCloudCaptureSettings> point_cloud_capture_settings{};
+    int seed = 0;
+    // Export path
+    std::filesystem::path output_folder{};
+    std::string output_file_name{};
+  };
 
-  static void GenerateMeshAndPointCloudForSorghum(const std::shared_ptr<SorghumState>& sorghum_state,
-                                                  const SorghumPointCloudPointSettings& point_settings,
-                                                  const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-                                                  const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                                  bool avoid_occlusion, bool generate_ground,
-                                                  const std::filesystem::path& mesh_output_path,
-                                                  const std::filesystem::path& point_cloud_output_path);
+  static void GenerateDataForSorghum(const SorghumDataGenerationParameters& data_generation_parameters);
 
-  static void GenerateMeshForSorghum(const std::shared_ptr<SorghumState>& sorghum_state,
-                                     const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                     const std::filesystem::path& mesh_output_path);
-
-  static void GenerateMeshForSorghum(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
-                                     const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                     const std::filesystem::path& mesh_output_path);
-
-  static void GeneratePointCloudForSorghumPatch(const SorghumFieldPatch& pattern,
-                                                const std::shared_ptr<SorghumGenerator>& sorghum_descriptor,
-                                                const SorghumPointCloudPointSettings& point_settings,
-                                                const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
-                                                const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings,
-                                                const std::filesystem::path& point_cloud_output_path);
+  static void GenerateDataForSorghumGrid(const SorghumGrid& sorghum_grid,
+                                         const SorghumDataGenerationParameters& data_generation_parameters);
+  static void GenerateDataForSorghumField(const std::shared_ptr<SorghumField>& sorghum_field,
+                                          const SorghumDataGenerationParameters& data_generation_parameters);
 };
 
 }  // namespace dataset_generation_plugin

@@ -15,7 +15,7 @@
 #include "TransformGraph.hpp"
 using namespace digital_agriculture_plugin;
 using namespace eco_sys_lab_plugin;
-void SorghumFieldPatch::GenerateField(std::vector<glm::mat4>& matrices_list) const {
+void SorghumGrid::GenerateField(std::vector<glm::mat4>& matrices_list) const {
   std::shared_ptr<Soil> soil;
   if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
     soil = soil_candidate.lock();
@@ -27,26 +27,24 @@ void SorghumFieldPatch::GenerateField(std::vector<glm::mat4>& matrices_list) con
   if (soil_descriptor) {
     height_field = soil_descriptor->height_field.Get<HeightField>();
   }
-  matrices_list.resize(grid_size.x * grid_size.y);
+  matrices_list.resize(grid_size_x * grid_size_y);
   const glm::vec2 start_point =
-      glm::vec2((grid_size.x - 1) * grid_distance.x, (grid_size.y - 1) * grid_distance.y) * 0.5f;
-  for (int i = 0; i < grid_size.x; i++) {
-    for (int j = 0; j < grid_size.y; j++) {
-      glm::vec3 position = glm::vec3(-start_point.x + i * grid_distance.x, 0.0f, -start_point.y + j * grid_distance.y);
-      position.x +=
-          glm::linearRand(-grid_distance.x * position_offset_mean.x, grid_distance.x * position_offset_mean.x);
-      position.z +=
-          glm::linearRand(-grid_distance.y * position_offset_mean.y, grid_distance.y * position_offset_mean.y);
-      position +=
-          glm::gaussRand(glm::vec3(0.0f), glm::vec3(position_offset_variance.x, 0.0f, position_offset_variance.y));
+      glm::vec2((grid_size_x - 1) * grid_distance_x, (grid_size_y - 1) * grid_distance_y) * 0.5f;
+  for (int i = 0; i < grid_size_x; i++) {
+    for (int j = 0; j < grid_size_y; j++) {
+      glm::vec3 position = glm::vec3(-start_point.x + i * grid_distance_x, 0.0f, -start_point.y + j * grid_distance_y);
+      position.x += glm::linearRand(-grid_distance_x * position_offset_mean, grid_distance_x * position_offset_mean);
+      position.z += glm::linearRand(-grid_distance_y * position_offset_mean, grid_distance_y * position_offset_mean);
+      position += glm::gaussRand(glm::vec3(0.0f), glm::vec3(position_offset_variance, 0.0f, position_offset_variance));
       if (height_field)
         position.y = height_field->GetValue({position.x, position.z}) - 0.01f;
       Transform transform{};
       transform.SetPosition(position);
-      auto rotation = glm::quat(glm::radians(glm::vec3(glm::gaussRand(glm::vec3(0.0f), rotation_variance))));
+      auto rotation = glm::quat(glm::radians(glm::vec3(glm::gaussRand(
+          glm::vec3(0.0f), glm::vec3(rotation_variance_xz, rotation_variance_y, rotation_variance_xz)))));
       transform.SetRotation(rotation);
       transform.SetScale(glm::vec3(1.f));
-      matrices_list[i * grid_size.y + j] = transform.value;
+      matrices_list[i * grid_size_y + j] = transform.value;
     }
   }
 }
@@ -80,7 +78,6 @@ bool SorghumField::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 void SorghumField::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "size_limit" << YAML::Value << size_limit;
   out << YAML::Key << "sorghum_size" << YAML::Value << sorghum_size;
-
   out << YAML::Key << "matrices" << YAML::Value << YAML::BeginSeq;
   for (auto& i : matrices) {
     out << YAML::BeginMap;
@@ -121,7 +118,7 @@ void SorghumField::CollectAssetRef(std::vector<AssetRef>& list) {
     list.push_back(i.first);
   }
 }
-Entity SorghumField::InstantiateField() const {
+Entity SorghumField::InstantiateField(uint32_t base_seed) const {
   if (matrices.empty()) {
     EVOENGINE_ERROR("No matrices generated!");
     return {};
@@ -146,11 +143,12 @@ Entity SorghumField::InstantiateField() const {
     const auto field = scene->CreateEntity("Field");
     // Create sorghums here.
     int size = 0;
-    for (auto& new_sorghum : field_asset->matrices) {
-      const auto sorghum_descriptor = new_sorghum.first.Get<SorghumGenerator>();
-      if (!sorghum_descriptor)
+    for (int matrix_index = 0; matrix_index < field_asset->matrices.size(); matrix_index++) {
+      auto& new_sorghum = field_asset->matrices[matrix_index];
+      const auto sorghum_generator = new_sorghum.first.Get<SorghumGenerator>();
+      if (!sorghum_generator)
         continue;
-      Entity sorghum_entity = sorghum_descriptor->CreateEntity(size);
+      Entity sorghum_entity = sorghum_generator->CreateEntity(size);
       auto sorghum_transform = scene->GetDataComponent<Transform>(sorghum_entity);
       sorghum_transform.value = new_sorghum.second;
 
@@ -163,10 +161,10 @@ Entity SorghumField::InstantiateField() const {
       scene->SetParent(sorghum_entity, field);
 
       const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
-      sorghum->sorghum_generator = sorghum_descriptor;
-      const auto sorghum_state = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
-      sorghum_descriptor->Apply(sorghum_state, 0);
-      sorghum->sorghum_descriptor = sorghum_state;
+      sorghum->sorghum_generator = sorghum_generator;
+      const auto sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
+      sorghum_generator->Apply(sorghum_descriptor, base_seed + matrix_index);
+      sorghum->sorghum_descriptor = sorghum_generator;
       size++;
       if (size >= size_limit)
         break;
@@ -174,8 +172,7 @@ Entity SorghumField::InstantiateField() const {
 
     TransformGraph::CalculateTransformGraphForDescendants(scene, field);
     return field;
-  } else {
-    EVOENGINE_ERROR("No sorghum layer!");
-    return {};
   }
+  EVOENGINE_ERROR("No sorghum layer!");
+  return {};
 }

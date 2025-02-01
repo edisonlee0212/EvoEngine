@@ -4,10 +4,10 @@
 #  include <OptiXRayTracer.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
-#include "Tinyply.hpp"
-
+#include "CpuRayTracer.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "Soil.hpp"
+#include "Tinyply.hpp"
 using namespace eco_sys_lab_plugin;
 using namespace dataset_generation_plugin;
 #pragma region Settings
@@ -133,39 +133,39 @@ void TreePointCloudCircularCaptureSettings::Load(const std::string& name, const 
 GlobalTransform TreePointCloudCircularCaptureSettings::GetTransform(const glm::vec2& focus_point,
                                                                     const float turn_angle,
                                                                     const float pitch_angle) const {
-  GlobalTransform cameraGlobalTransform;
-  const glm::vec3 cameraPosition = glm::vec3(glm::sin(glm::radians(turn_angle)) * distance_from_trees, capture_height,
-                                             glm::cos(glm::radians(turn_angle)) * distance_from_trees);
-  const glm::vec3 cameraDirection = glm::vec3(glm::sin(glm::radians(turn_angle)) * distance_from_trees,
-                                              distance_from_trees * glm::sin(glm::radians(pitch_angle)),
+  GlobalTransform camera_global_transform;
+  const glm::vec3 camera_position = glm::vec3(glm::sin(glm::radians(turn_angle)) * distance_from_trees, capture_height,
                                               glm::cos(glm::radians(turn_angle)) * distance_from_trees);
-  cameraGlobalTransform.SetPosition(cameraPosition + glm::vec3(focus_point.x, 0, focus_point.y));
-  cameraGlobalTransform.SetRotation(glm::quatLookAt(glm::normalize(-cameraDirection), glm::vec3(0, 1, 0)));
-  return cameraGlobalTransform;
+  const glm::vec3 camera_direction = glm::vec3(glm::sin(glm::radians(turn_angle)) * distance_from_trees,
+                                               distance_from_trees * glm::sin(glm::radians(pitch_angle)),
+                                               glm::cos(glm::radians(turn_angle)) * distance_from_trees);
+  camera_global_transform.SetPosition(camera_position + glm::vec3(focus_point.x, 0, focus_point.y));
+  camera_global_transform.SetRotation(glm::quatLookAt(glm::normalize(-camera_direction), glm::vec3(0, 1, 0)));
+  return camera_global_transform;
 }
 
 void TreePointCloudCircularCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
   int counter = 0;
-  for (int turnAngle = turn_angle_start; turnAngle < turn_angle_end; turnAngle += turn_angle_step) {
-    for (int pitchAngle = pitch_angle_start; pitchAngle < pitch_angle_end; pitchAngle += pitch_angle_step) {
+  for (int turn_angle = turn_angle_start; turn_angle < turn_angle_end; turn_angle += turn_angle_step) {
+    for (int pitch_angle = pitch_angle_start; pitch_angle < pitch_angle_end; pitch_angle += pitch_angle_step) {
       point_cloud_samples.resize((counter + 1) * scan_resolution * scan_resolution);
-      auto scannerGlobalTransform =
-          GetTransform(glm::vec2(camera_focus_point.x, camera_focus_point.y), turnAngle, pitchAngle);
-      auto front = scannerGlobalTransform.GetRotation() * glm::vec3(0, 0, -1);
-      auto up = scannerGlobalTransform.GetRotation() * glm::vec3(0, 1, 0);
-      auto left = scannerGlobalTransform.GetRotation() * glm::vec3(1, 0, 0);
-      auto position = scannerGlobalTransform.GetPosition();
+      auto scanner_global_transform =
+          GetTransform(glm::vec2(camera_focus_point.x, camera_focus_point.y), turn_angle, pitch_angle);
+      auto front = scanner_global_transform.GetRotation() * glm::vec3(0, 0, -1);
+      auto up = scanner_global_transform.GetRotation() * glm::vec3(0, 1, 0);
+      auto left = scanner_global_transform.GetRotation() * glm::vec3(1, 0, 0);
+      auto position = scanner_global_transform.GetPosition();
       std::vector<std::shared_future<void>> results;
       Jobs::RunParallelFor(scan_resolution * scan_resolution, [&](const unsigned i) {
         const float x = i % scan_resolution;
         const float y = i / scan_resolution;
-        const float xAngle = (x - scan_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) /
-                             static_cast<float>(scan_resolution) * camera_fov / 2.0f;
-        const float yAngle = (y - scan_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) /
-                             static_cast<float>(scan_resolution) * camera_fov / 2.0f;
+        const float x_angle = (x - scan_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) /
+                              static_cast<float>(scan_resolution) * camera_fov / 2.0f;
+        const float y_angle = (y - scan_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) /
+                              static_cast<float>(scan_resolution) * camera_fov / 2.0f;
         auto& sample = point_cloud_samples[counter * scan_resolution * scan_resolution + i];
         sample.direction =
-            glm::normalize(glm::rotate(glm::rotate(front, glm::radians(xAngle), left), glm::radians(yAngle), up));
+            glm::normalize(glm::rotate(glm::rotate(front, glm::radians(x_angle), left), glm::radians(y_angle), up));
         sample.start = position;
       });
       counter++;
@@ -189,22 +189,22 @@ bool TreePointCloudGridCaptureSettings::OnInspect() {
 }
 
 void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
-  const glm::vec2 startPoint = glm::vec2((static_cast<float>(grid_size.x) * 0.5f - 0.5f) * grid_distance.x,
-                                         (static_cast<float>(grid_size.y) * 0.5f - 0.5f) * grid_distance.y);
+  const auto start_point = glm::vec2((static_cast<float>(grid_size.x) * 0.5f - 0.5f) * grid_distance.x,
+                                     (static_cast<float>(grid_size.y) * 0.5f - 0.5f) * grid_distance.y);
 
-  const int yStepSize = grid_size.y * grid_distance.y / step;
-  const int xStepSize = grid_size.x * grid_distance.x / step;
+  const int y_step_size = grid_size.y * grid_distance.y / step;
+  const int x_step_size = grid_size.x * grid_distance.x / step;
 
-  point_cloud_samples.resize((grid_size.x * yStepSize + grid_size.y * xStepSize) *
+  point_cloud_samples.resize((grid_size.x * y_step_size + grid_size.y * x_step_size) *
                              (ground_sample_size + drone_sample_size));
-  unsigned startIndex = 0;
+  unsigned start_index = 0;
   for (int i = 0; i < grid_size.x; i++) {
-    float x = i * grid_distance.x;
-    for (int step = 0; step < yStepSize; step++) {
-      float z = step * step;
-      const glm::vec3 center = glm::vec3{x, ground_sample_height, z} - glm::vec3(startPoint.x, 0, startPoint.y);
-      Jobs::RunParallelFor(ground_sample_size, [&](unsigned sampleIndex) {
-        auto& sample = point_cloud_samples[ground_sample_size * (i * yStepSize + step) + sampleIndex];
+    const float x = i * grid_distance.x;
+    for (int step = 0; step < y_step_size; step++) {
+      const float z = step * step;
+      const glm::vec3 center = glm::vec3{x, ground_sample_height, z} - glm::vec3(start_point.x, 0, start_point.y);
+      Jobs::RunParallelFor(ground_sample_size, [&](const unsigned sample_index) {
+        auto& sample = point_cloud_samples[ground_sample_size * (i * y_step_size + step) + sample_index];
         sample.direction = glm::sphericalRand(1.0f);
         if (glm::linearRand(0.0f, 1.0f) > 0.3f) {
           sample.direction.y = glm::abs(sample.direction.y);
@@ -216,14 +216,14 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
     }
   }
 
-  startIndex += grid_size.x * yStepSize * ground_sample_size;
+  start_index += grid_size.x * y_step_size * ground_sample_size;
   for (int i = 0; i < grid_size.y; i++) {
-    float z = i * grid_distance.y;
-    for (int step = 0; step < xStepSize; step++) {
-      float x = step * step;
-      const glm::vec3 center = glm::vec3{x, ground_sample_height, z} - glm::vec3(startPoint.x, 0, startPoint.y);
-      Jobs::RunParallelFor(ground_sample_size, [&](unsigned sampleIndex) {
-        auto& sample = point_cloud_samples[startIndex + ground_sample_size * (i * xStepSize + step) + sampleIndex];
+    const float z = i * grid_distance.y;
+    for (int step = 0; step < x_step_size; step++) {
+      const float x = step * step;
+      const glm::vec3 center = glm::vec3{x, ground_sample_height, z} - glm::vec3(start_point.x, 0, start_point.y);
+      Jobs::RunParallelFor(ground_sample_size, [&](const unsigned sample_index) {
+        auto& sample = point_cloud_samples[start_index + ground_sample_size * (i * x_step_size + step) + sample_index];
         sample.direction = glm::sphericalRand(1.0f);
         if (glm::linearRand(0.0f, 1.0f) > 0.3f) {
           sample.direction.y = glm::abs(sample.direction.y);
@@ -235,14 +235,14 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
     }
   }
 
-  startIndex += grid_size.y * xStepSize * ground_sample_size;
+  start_index += grid_size.y * x_step_size * ground_sample_size;
   for (int i = 0; i < grid_size.x; i++) {
-    float x = i * grid_distance.x;
-    for (int step = 0; step < yStepSize; step++) {
-      float z = step * step;
-      const glm::vec3 center = glm::vec3{x, drone_sample_height, z} - glm::vec3(startPoint.x, 0, startPoint.y);
-      Jobs::RunParallelFor(drone_sample_size, [&](unsigned sampleIndex) {
-        auto& sample = point_cloud_samples[drone_sample_size * (i * yStepSize + step) + sampleIndex];
+    const float x = i * grid_distance.x;
+    for (int step = 0; step < y_step_size; step++) {
+      const float z = step * step;
+      const glm::vec3 center = glm::vec3{x, drone_sample_height, z} - glm::vec3(start_point.x, 0, start_point.y);
+      Jobs::RunParallelFor(drone_sample_size, [&](const unsigned sample_index) {
+        auto& sample = point_cloud_samples[drone_sample_size * (i * y_step_size + step) + sample_index];
         sample.direction = glm::sphericalRand(1.0f);
         sample.direction.y = -glm::abs(sample.direction.y);
         sample.start = center;
@@ -250,14 +250,14 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
     }
   }
 
-  startIndex += grid_size.x * yStepSize * drone_sample_size;
+  start_index += grid_size.x * y_step_size * drone_sample_size;
   for (int i = 0; i < grid_size.y; i++) {
-    float z = i * grid_distance.y;
-    for (int step = 0; step < xStepSize; step++) {
-      float x = step * step;
-      const glm::vec3 center = glm::vec3{x, drone_sample_height, z} - glm::vec3(startPoint.x, 0, startPoint.y);
-      Jobs::RunParallelFor(drone_sample_size, [&](unsigned sampleIndex) {
-        auto& sample = point_cloud_samples[startIndex + drone_sample_size * (i * xStepSize + step) + sampleIndex];
+    const float z = i * grid_distance.y;
+    for (int step = 0; step < x_step_size; step++) {
+      const float x = step * step;
+      const glm::vec3 center = glm::vec3{x, drone_sample_height, z} - glm::vec3(start_point.x, 0, start_point.y);
+      Jobs::RunParallelFor(drone_sample_size, [&](const unsigned sample_index) {
+        auto& sample = point_cloud_samples[start_index + drone_sample_size * (i * x_step_size + step) + sample_index];
         sample.direction = glm::sphericalRand(1.0f);
         sample.direction.y = -glm::abs(sample.direction.y);
         sample.start = center;
@@ -277,8 +277,7 @@ bool TreePointCloudGridCaptureSettings::SampleFilter(const PointCloudSample& sam
 void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_generator_settings,
                                     const std::filesystem::path& save_path,
                                     const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const {
-#ifdef CUDA_MODULE_PLUGIN
-
+  const auto render_layer = Application::GetLayer<RenderLayer>();
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
   const auto soil_candidate = EcoSysLabLayer::FindSoil();
@@ -349,8 +348,82 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
 
   std::vector<PointCloudSample> pc_samples;
   capture_settings->GenerateSamples(pc_samples);
-  CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
+  switch (capture_settings->capture_mode) {
+    case PointCloudCaptureSettings::CaptureMode::OptiX: {
+#ifdef CUDA_MODULE_PLUGIN
+      CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
+#else
+      EVOENGINE_ERROR("Missing CudaModule plugin!")
+#endif
+    } break;
+    case PointCloudCaptureSettings::CaptureMode::Cpu: {
+      /**
+       * You may take a look at render instances, to see what it contains. RenderLayer will prepare a RenderInstance
+       * every frame that contains all needed information for rendering everything for current scene. It's used in
+       * rasterization rendering, and here we also use it for ray tracing. It also detects updates of the scene, like
+       * transformation, mesh, material changes.
+       */
+      std::shared_ptr<RenderInstanceStorage> render_instances{};
+      if (render_layer) {
+        render_instances = render_layer->GetCurrentRenderInstanceStorage();
+      }
+      if (!render_instances) {
+        render_instances = std::make_shared<RenderInstanceStorage>();
+        Bound world_bound;
+        render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
+      }
+      CpuRayTracer cpu_ray_tracer;
+      /**
+       * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS
+       * based on them.
+       */
+      cpu_ray_tracer.Initialize(
+          render_instances,
+          [&](uint32_t, const std::shared_ptr<Mesh>&) {
 
+          },
+          [&](const uint32_t node_index, const Entity& entity) {
+
+          });
+      cpu_ray_tracer.SamplePointCloud(pc_samples);
+    } break;
+    case PointCloudCaptureSettings::CaptureMode::GpuCompute: {
+      std::shared_ptr<RenderInstanceStorage> render_instances{};
+      if (render_layer) {
+        render_instances = render_layer->GetCurrentRenderInstanceStorage();
+      }
+      if (!render_instances) {
+        render_instances = std::make_shared<RenderInstanceStorage>();
+        Bound world_bound;
+        render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
+      }
+      CpuRayTracer cpu_ray_tracer;
+      /**
+       * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS
+       * based on them.
+       */
+      cpu_ray_tracer.Initialize(
+          render_instances,
+          [&](uint32_t, const std::shared_ptr<Mesh>&) {
+
+          },
+          [&](const uint32_t node_index, const Entity& entity) {
+
+          });
+      /**
+       * The cpu_ray_tracer will aggregate and flatten TLAS and BLAS so from its hierarcal structure to vectors so we
+       * can use it on GPU.
+       */
+      auto aggregate_scene = cpu_ray_tracer.Aggregate();
+      /**
+       * Upload prepared data to GPU, these data will be linked to the compute pipeline via Descriptors (collectively
+       * DescriptorSet) so we can read them in shader. You may take a look at its implementation to see how easy to send
+       * data to GPU.
+       */
+      aggregate_scene.InitializeBuffers();
+      aggregate_scene.SamplePointCloudGpu(cpu_ray_tracer, pc_samples);
+    } break;
+  }
   std::vector<glm::vec3> points;
 
   std::vector<int> internode_index;
@@ -426,16 +499,10 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
   }
   std::filebuf fb_binary;
   fb_binary.open(save_path.string(), std::ios::out | std::ios::binary);
-  std::ostream outstream_binary(&fb_binary);
-  if (outstream_binary.fail())
+  std::ostream out_stream_binary(&fb_binary);
+  if (out_stream_binary.fail())
     throw std::runtime_error("failed to open " + save_path.string());
-  /*
-  std::filebuf fb_ascii;
-  fb_ascii.open(filename + "-ascii.ply", std::ios::out);
-  std::ostream outstream_ascii(&fb_ascii);
-  if (outstream_ascii.fail()) throw std::runtime_error("failed to open " +
-  filename);
-  */
+
   tinyply::PlyFile cube_file;
   cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, tinyply::Type::FLOAT32, points.size(),
                                       reinterpret_cast<uint8_t*>(points.data()), tinyply::Type::INVALID, 0);
@@ -473,7 +540,7 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
                                         tinyply::Type::INVALID, 0);
   }
   // Write a binary file
-  cube_file.write(outstream_binary, true);
+  cube_file.write(out_stream_binary, true);
 
   if (point_settings.tree_part_index) {
     try {
@@ -501,35 +568,32 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
       output_file << out.c_str();
       output_file.flush();
     } catch (const std::exception& e) {
-      EVOENGINE_ERROR("Failed to save!");
+      EVOENGINE_ERROR("Failed to save: " + std::string(e.what()));
     }
   }
-#endif
 }
 
 bool TreePointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  const auto ecoSysLabLayer = Application::GetLayer<EcoSysLabLayer>();
+  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
   if (ImGui::TreeNodeEx("Circular Capture")) {
-    static std::shared_ptr<TreePointCloudCircularCaptureSettings> captureSettings =
-        std::make_shared<TreePointCloudCircularCaptureSettings>();
-    captureSettings->OnInspect();
+    static auto capture_settings = std::make_shared<TreePointCloudCircularCaptureSettings>();
+    capture_settings->OnInspect();
     FileUtils::SaveFile(
         "Capture", "Point Cloud", {".ply"},
         [&](const std::filesystem::path& path) {
-          Capture(ecoSysLabLayer->mesh_generator_settings, path, captureSettings);
+          Capture(eco_sys_lab_layer->mesh_generator_settings, path, capture_settings);
         },
         false);
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Grid Capture")) {
-    static std::shared_ptr<TreePointCloudGridCaptureSettings> captureSettings =
-        std::make_shared<TreePointCloudGridCaptureSettings>();
-    captureSettings->OnInspect();
+    static auto capture_settings = std::make_shared<TreePointCloudGridCaptureSettings>();
+    capture_settings->OnInspect();
     FileUtils::SaveFile(
         "Capture", "Point Cloud", {".ply"},
         [&](const std::filesystem::path& path) {
-          Capture(ecoSysLabLayer->mesh_generator_settings, path, captureSettings);
+          Capture(eco_sys_lab_layer->mesh_generator_settings, path, capture_settings);
         },
         false);
     ImGui::TreePop();
