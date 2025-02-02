@@ -31,7 +31,7 @@ DsBoxCollider::DsBoxCollider() {
   if (!segment_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
                            "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentBox.comp");
 
@@ -49,7 +49,7 @@ DsBoxCollider::DsBoxCollider() {
   if (!leaf_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
                            "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafBox.comp");
 
@@ -68,7 +68,7 @@ DsBoxCollider::DsBoxCollider() {
   if (!segment_velocity_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
                            "Shaders/Compute/DynamicStrands/Constraints/Velocity/Colliders/SegmentBox.comp");
 
@@ -86,7 +86,7 @@ DsBoxCollider::DsBoxCollider() {
   if (!leaf_velocity_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
                            "Shaders/Compute/DynamicStrands/Constraints/Velocity/Colliders/LeafBox.comp");
 
@@ -288,7 +288,7 @@ DsCylinderCollider::DsCylinderCollider() {
   if (!segment_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
                            "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentCylinder.comp");
 
@@ -307,7 +307,7 @@ DsCylinderCollider::DsCylinderCollider() {
   if (!leaf_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
                            "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafCylinder.comp");
 
@@ -435,7 +435,7 @@ DsSphereCollider::DsSphereCollider() {
   if (!segment_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
                            "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentSphere.comp");
 
@@ -454,7 +454,7 @@ DsSphereCollider::DsSphereCollider() {
   if (!leaf_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::Constants::shader_global_defines,
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
                            "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafSphere.comp");
 

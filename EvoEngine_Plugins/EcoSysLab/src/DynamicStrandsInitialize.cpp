@@ -28,7 +28,7 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
     std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Initialization/Interior.comp");
     interior_initialization_pipeline = std::make_shared<ComputePipeline>();
     interior_initialization_pipeline->compute_shader = shader;
@@ -45,7 +45,7 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
     std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Initialization/BarkFlag.comp");
     bark_flag_initialization_pipeline = std::make_shared<ComputePipeline>();
     bark_flag_initialization_pipeline->compute_shader = shader;
@@ -63,7 +63,7 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
     std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Initialization/Normal.comp");
     uniform_particle_initialization_pipeline = std::make_shared<ComputePipeline>();
     uniform_particle_initialization_pipeline->compute_shader = shader;

@@ -89,7 +89,7 @@ struct CameraProperties {
 
   void SetDenoiserStrength(float value);
 
-  void Resize(const glm::uvec2& newSize);
+  void Resize(const glm::uvec2& new_size);
 
   void Set(const glm::vec3& position, const glm::quat& rotation);
   void SetSkybox(const std::shared_ptr<CudaImage>& cubemap);
@@ -235,7 +235,8 @@ struct RayTracedMaterial {
 
   void UploadForSbt();
 
-  void BindTexture(unsigned int id, cudaGraphicsResource_t& graphics_resource, cudaTextureObject_t& texture_object);
+  static void BindTexture(unsigned int id, cudaGraphicsResource_t& graphics_resource,
+                          cudaTextureObject_t& texture_object);
 };
 
 enum class CurveMode { Linear, Quadratic, Cubic };
@@ -334,10 +335,11 @@ class OptiXRayTracer {
                                     CameraProperties& camera_properties, const RayProperties& ray_properties);
 
   void EstimateIllumination(const size_t& size, const EnvironmentProperties& environment_properties,
-                            const RayProperties& ray_properties, CudaBuffer& light_probes, unsigned seed,
+                            const RayProperties& ray_properties, const CudaBuffer& light_probes, unsigned seed,
                             float push_normal_distance);
 
-  void ScanPointCloud(const size_t& size, const EnvironmentProperties& environment_properties, CudaBuffer& samples);
+  void ScanPointCloud(const size_t& size, const EnvironmentProperties& environment_properties,
+                      const CudaBuffer& samples);
 
   OptiXRayTracer();
   ~OptiXRayTracer();
@@ -392,11 +394,11 @@ class OptiXRayTracer {
   /*! assembles the full pipeline of all programs */
   void AssemblePipelines();
 
-  void CreateRayGenProgram(RayTracerPipeline& targetPipeline, char entryFunctionName[]) const;
+  void CreateRayGenProgram(RayTracerPipeline& target_pipeline, char entry_function_name[]) const;
 
-  void CreateModule(RayTracerPipeline& targetPipeline, char ptxCode[], char launchParamsName[]) const;
+  void CreateModule(RayTracerPipeline& target_pipeline, char ptx_code[], char launch_params_name[]) const;
 
-  void AssemblePipeline(RayTracerPipeline& targetPipeline) const;
+  void AssemblePipeline(RayTracerPipeline& target_pipeline) const;
 
 #pragma endregion
 

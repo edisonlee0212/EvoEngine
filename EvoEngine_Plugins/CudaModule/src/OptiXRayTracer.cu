@@ -26,45 +26,45 @@
 using namespace evo_engine;
 
 void CameraProperties::Set(const glm::vec3 &position, const glm::quat &rotation) {
-  auto newFront = glm::normalize(rotation * glm::vec3(0, 0, -1));
-  auto newUp = glm::normalize(rotation * glm::vec3(0, 1, 0));
+  const auto new_front = glm::normalize(rotation * glm::vec3(0, 0, -1));
+  const auto new_up = glm::normalize(rotation * glm::vec3(0, 1, 0));
   const float aspect = static_cast<float>(target_frame.size.x) / static_cast<float>(target_frame.size.y);
   const auto projection = glm::perspective(glm::radians(fov * 0.5f), aspect, 0.1f, 100.f);
-  const auto view = glm::lookAt(position, position + newFront, newUp);
-  auto inv = glm::inverse(projection * view);
+  const auto view = glm::lookAt(position, position + new_front, new_up);
+  const auto inv_proj_view = glm::inverse(projection * view);
   camera_position = position;
-  if (inv != inverse_projection_view)
+  if (inv_proj_view != inverse_projection_view)
     modified = true;
-  inverse_projection_view = inv;
+  inverse_projection_view = inv_proj_view;
 
-  const float cosFovY = glm::radians(fov * 0.5f);
+  const float cos_fov_y = glm::radians(fov * 0.5f);
 
-  horizontal_direction = cosFovY * aspect * glm::normalize(glm::cross(newFront, newUp));
-  vertical_direction = cosFovY * glm::normalize(newUp);
+  horizontal_direction = cos_fov_y * aspect * glm::normalize(glm::cross(new_front, new_up));
+  vertical_direction = cos_fov_y * glm::normalize(new_up);
 }
 
-void CameraProperties::Resize(const glm::uvec2 &newSize) {
-  if (target_frame.size == newSize)
+void CameraProperties::Resize(const glm::uvec2 &new_size) {
+  if (target_frame.size == new_size)
     return;
-  target_frame.size = newSize;
+  target_frame.size = new_size;
   modified = true;
   if (denoiser) {
     OPTIX_CHECK(optixDenoiserDestroy(denoiser));
   };
   // ------------------------------------------------------------------
   // create the denoiser:
-  OptixDenoiserOptions denoiserOptions = {};
+  constexpr OptixDenoiserOptions denoiser_options = {};
   OPTIX_CHECK(optixDenoiserCreate(CudaModule::GetRayTracer()->optix_device_context_, OPTIX_DENOISER_MODEL_KIND_LDR,
-                                  &denoiserOptions, &denoiser));
+                                  &denoiser_options, &denoiser));
   // .. then compute and allocate memory resources for the denoiser
-  OptixDenoiserSizes denoiserReturnSizes;
+  OptixDenoiserSizes denoiser_return_sizes;
   OPTIX_CHECK(
-      optixDenoiserComputeMemoryResources(denoiser, target_frame.size.x, target_frame.size.y, &denoiserReturnSizes));
+      optixDenoiserComputeMemoryResources(denoiser, target_frame.size.x, target_frame.size.y, &denoiser_return_sizes));
 
-  denoiser_scratch.Resize(std::max(denoiserReturnSizes.withOverlapScratchSizeInBytes,
-                                   denoiserReturnSizes.withoutOverlapScratchSizeInBytes));
+  denoiser_scratch.Resize(std::max(denoiser_return_sizes.withOverlapScratchSizeInBytes,
+                                   denoiser_return_sizes.withoutOverlapScratchSizeInBytes));
 
-  denoiser_state.Resize(denoiserReturnSizes.stateSizeInBytes);
+  denoiser_state.Resize(denoiser_return_sizes.stateSizeInBytes);
   // ------------------------------------------------------------------
   // resize our cuda frame buffer
   denoised_buffer.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
@@ -74,22 +74,20 @@ void CameraProperties::Resize(const glm::uvec2 &newSize) {
 
   // update the launch parameters that we'll pass to the optix
   // launch:
-  target_frame.color_buffer = (glm::vec4 *)frame_buffer_color.DevicePointer();
-  target_frame.normal_buffer = (glm::vec4 *)frame_buffer_normal.DevicePointer();
-  target_frame.albedo_buffer = (glm::vec4 *)frame_buffer_albedo.DevicePointer();
+  target_frame.color_buffer = reinterpret_cast<glm::vec4 *>(frame_buffer_color.DevicePointer());
+  target_frame.normal_buffer = reinterpret_cast<glm::vec4 *>(frame_buffer_normal.DevicePointer());
+  target_frame.albedo_buffer = reinterpret_cast<glm::vec4 *>(frame_buffer_albedo.DevicePointer());
 
   // ------------------------------------------------------------------
-  OPTIX_CHECK(optixDenoiserSetup(denoiser, 0, target_frame.size.x, target_frame.size.y, denoiser_state.DevicePointer(),
-                                 denoiser_state.size_in_bytes, denoiser_scratch.DevicePointer(),
-                                 denoiser_scratch.size_in_bytes));
+  OPTIX_CHECK(optixDenoiserSetup(denoiser, nullptr, target_frame.size.x, target_frame.size.y,
+                                 denoiser_state.DevicePointer(), denoiser_state.size_in_bytes,
+                                 denoiser_scratch.DevicePointer(), denoiser_scratch.size_in_bytes));
 }
 
-void CameraProperties::SetFov(float value) {
+void CameraProperties::SetFov(const float value) {
   modified = true;
   fov = value;
 }
-
-const char *OutputTypes[]{"Color", "Normal", "Albedo", "Depth"};
 
 void CameraProperties::OnInspect() {
   if (ImGui::TreeNode("Camera Properties")) {
@@ -99,9 +97,10 @@ void CameraProperties::OnInspect() {
     if (ImGui::DragFloat("Gamma", &gamma, 0.01f, 0.1f, 5.0f)) {
       SetGamma(gamma);
     }
-    int outputType = (int)output_type;
-    if (ImGui::Combo("Output Type", &outputType, OutputTypes, IM_ARRAYSIZE(OutputTypes))) {
-      output_type = static_cast<OutputType>(outputType);
+    const char *output_types[]{"Color", "Normal", "Albedo", "Depth"};
+    int type = static_cast<int>(output_type);
+    if (ImGui::Combo("Output Type", &type, output_types, IM_ARRAYSIZE(output_types))) {
+      output_type = static_cast<OutputType>(type);
       modified = true;
     }
     if (ImGui::DragFloat("Max Distance", &max_distance, 0.1f, 0.1f, 10000.0f)) {
@@ -124,42 +123,41 @@ void CameraProperties::OnInspect() {
   }
 }
 
-void CameraProperties::SetDenoiserStrength(float value) {
+void CameraProperties::SetDenoiserStrength(const float value) {
   denoiser_strength = glm::clamp(value, 0.0f, 1.0f);
   modified = true;
 }
 
-void CameraProperties::SetGamma(float value) {
+void CameraProperties::SetGamma(const float value) {
   modified = true;
   gamma = value;
 }
 
-void CameraProperties::SetOutputType(OutputType value) {
+void CameraProperties::SetOutputType(const OutputType value) {
   modified = true;
   output_type = value;
 }
 
-void CameraProperties::SetAperture(float value) {
+void CameraProperties::SetAperture(const float value) {
   modified = true;
   aperture = value;
 }
 
-void CameraProperties::SetFocalLength(float value) {
+void CameraProperties::SetFocalLength(const float value) {
   modified = true;
   focal_length = value;
 }
 
-void CameraProperties::SetMaxDistance(float value) {
+void CameraProperties::SetMaxDistance(const float value) {
   max_distance = value;
   modified = true;
 }
 
-const char *EnvironmentalLightingTypes[]{"Scene", "Skydome", "SingleLightSource"};
-
 void EnvironmentProperties::OnInspect() {
   static int type = 0;
-  if (ImGui::Combo("Environment Lighting", &type, EnvironmentalLightingTypes,
-                   IM_ARRAYSIZE(EnvironmentalLightingTypes))) {
+  const char *environmental_lighting_types[]{"Scene", "Skydome", "SingleLightSource"};
+  if (ImGui::Combo("Environment Lighting", &type, environmental_lighting_types,
+                   IM_ARRAYSIZE(environmental_lighting_types))) {
     environmental_lighting_type = static_cast<EnvironmentalLightingType>(type);
   }
   if (environmental_lighting_type == EnvironmentalLightingType::Skydome) {
@@ -188,7 +186,7 @@ void EnvironmentProperties::OnInspect() {
       if (ImGui::DragInt("Samples light", &atmosphere.num_samples_light, 1, 128)) {
         atmosphere.num_samples_light = glm::clamp(atmosphere.num_samples_light, 1, 128);
       }
-      static glm::vec3 angles = glm::vec3(90, 0, 0);
+      static auto angles = glm::vec3(90, 0, 0);
       if (ImGui::DragFloat3("Sun angle", &angles.x, 1.0f)) {
         sun_direction = glm::quat(glm::radians(angles)) * glm::vec3(0, 0, -1);
       }
@@ -241,21 +239,21 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
   if (!has_acceleration_structure_)
     return false;
   BuildSbt();
-  bool statusChanged = false;
+  bool status_changed = false;
   if (scene_modified)
-    statusChanged = true;
+    status_changed = true;
   camera_rendering_launch_params_.camera_properties = camera_properties;
-  statusChanged = statusChanged || camera_properties.modified;
+  status_changed = status_changed || camera_properties.modified;
   camera_properties.modified = false;
   if (camera_rendering_launch_params_.ray_tracer_properties.environment.Changed(environment_properties)) {
     camera_rendering_launch_params_.ray_tracer_properties.environment = environment_properties;
-    statusChanged = true;
+    status_changed = true;
   }
   if (camera_rendering_launch_params_.ray_tracer_properties.ray_properties.Changed(ray_properties)) {
     camera_rendering_launch_params_.ray_tracer_properties.ray_properties = ray_properties;
-    statusChanged = true;
+    status_changed = true;
   }
-  if (!camera_rendering_launch_params_.camera_properties.accumulate || statusChanged) {
+  if (!camera_rendering_launch_params_.camera_properties.accumulate || status_changed) {
     camera_rendering_launch_params_.camera_properties.target_frame.frame_id = 0;
     camera_properties.target_frame.frame_id = 0;
   }
@@ -277,81 +275,81 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
 #pragma endregion
   CUDA_SYNC_CHECK();
 #pragma region Bind output texture
-  cudaArray_t outputArray;
+  cudaArray_t output_array;
   CUDA_CHECK(GetMipmappedArrayLevel(
-      &outputArray, camera_rendering_launch_params_.camera_properties.target_image->mipmapped_image_array, 0));
+      &output_array, camera_rendering_launch_params_.camera_properties.target_image->mipmapped_image_array, 0));
 #pragma endregion
 #pragma region Copy results to output texture
-  OptixImage2D inputLayer[3];
-  inputLayer[0].data = camera_rendering_launch_params_.camera_properties.frame_buffer_color.DevicePointer();
+  OptixImage2D input_layer[3];
+  input_layer[0].data = camera_rendering_launch_params_.camera_properties.frame_buffer_color.DevicePointer();
   /// Width of the image (in pixels)
-  inputLayer[0].width = camera_rendering_launch_params_.camera_properties.target_frame.size.x;
+  input_layer[0].width = camera_rendering_launch_params_.camera_properties.target_frame.size.x;
   /// Height of the image (in pixels)
-  inputLayer[0].height = camera_rendering_launch_params_.camera_properties.target_frame.size.y;
+  input_layer[0].height = camera_rendering_launch_params_.camera_properties.target_frame.size.y;
   /// Stride between subsequent rows of the image (in bytes).
-  inputLayer[0].rowStrideInBytes =
+  input_layer[0].rowStrideInBytes =
       camera_rendering_launch_params_.camera_properties.target_frame.size.x * sizeof(glm::vec4);
   /// Stride between subsequent pixels of the image (in bytes).
   /// For now, only 0 or the value that corresponds to a dense packing of pixels
   /// (no gaps) is supported.
-  inputLayer[0].pixelStrideInBytes = sizeof(glm::vec4);
+  input_layer[0].pixelStrideInBytes = sizeof(glm::vec4);
   /// Pixel format.
-  inputLayer[0].format = OPTIX_PIXEL_FORMAT_FLOAT4;
+  input_layer[0].format = OPTIX_PIXEL_FORMAT_FLOAT4;
 
   // ..................................................................
-  inputLayer[1].data = camera_rendering_launch_params_.camera_properties.frame_buffer_albedo.DevicePointer();
+  input_layer[1].data = camera_rendering_launch_params_.camera_properties.frame_buffer_albedo.DevicePointer();
   /// Width of the image (in pixels)
-  inputLayer[1].width = camera_rendering_launch_params_.camera_properties.target_frame.size.x;
+  input_layer[1].width = camera_rendering_launch_params_.camera_properties.target_frame.size.x;
   /// Height of the image (in pixels)
-  inputLayer[1].height = camera_rendering_launch_params_.camera_properties.target_frame.size.y;
+  input_layer[1].height = camera_rendering_launch_params_.camera_properties.target_frame.size.y;
   /// Stride between subsequent rows of the image (in bytes).
-  inputLayer[1].rowStrideInBytes =
+  input_layer[1].rowStrideInBytes =
       camera_rendering_launch_params_.camera_properties.target_frame.size.x * sizeof(glm::vec4);
   /// Stride between subsequent pixels of the image (in bytes).
   /// For now, only 0 or the value that corresponds to a dense packing of pixels
   /// (no gaps) is supported.
-  inputLayer[1].pixelStrideInBytes = sizeof(glm::vec4);
+  input_layer[1].pixelStrideInBytes = sizeof(glm::vec4);
   /// Pixel format.
-  inputLayer[1].format = OPTIX_PIXEL_FORMAT_FLOAT4;
+  input_layer[1].format = OPTIX_PIXEL_FORMAT_FLOAT4;
 
   // ..................................................................
-  inputLayer[2].data = camera_rendering_launch_params_.camera_properties.frame_buffer_normal.DevicePointer();
+  input_layer[2].data = camera_rendering_launch_params_.camera_properties.frame_buffer_normal.DevicePointer();
   /// Width of the image (in pixels)
-  inputLayer[2].width = camera_rendering_launch_params_.camera_properties.target_frame.size.x;
+  input_layer[2].width = camera_rendering_launch_params_.camera_properties.target_frame.size.x;
   /// Height of the image (in pixels)
-  inputLayer[2].height = camera_rendering_launch_params_.camera_properties.target_frame.size.y;
+  input_layer[2].height = camera_rendering_launch_params_.camera_properties.target_frame.size.y;
   /// Stride between subsequent rows of the image (in bytes).
-  inputLayer[2].rowStrideInBytes =
+  input_layer[2].rowStrideInBytes =
       camera_rendering_launch_params_.camera_properties.target_frame.size.x * sizeof(glm::vec4);
   /// Stride between subsequent pixels of the image (in bytes).
   /// For now, only 0 or the value that corresponds to a dense packing of pixels
   /// (no gaps) is supported.
-  inputLayer[2].pixelStrideInBytes = sizeof(glm::vec4);
+  input_layer[2].pixelStrideInBytes = sizeof(glm::vec4);
   /// Pixel format.
-  inputLayer[2].format = OPTIX_PIXEL_FORMAT_FLOAT4;
+  input_layer[2].format = OPTIX_PIXEL_FORMAT_FLOAT4;
 
   // -------------------------------------------------------
-  OptixImage2D outputLayer;
-  outputLayer.data = camera_rendering_launch_params_.camera_properties.denoised_buffer.DevicePointer();
+  OptixImage2D output_layer;
+  output_layer.data = camera_rendering_launch_params_.camera_properties.denoised_buffer.DevicePointer();
   /// Width of the image (in pixels)
-  outputLayer.width = camera_rendering_launch_params_.camera_properties.target_frame.size.x;
+  output_layer.width = camera_rendering_launch_params_.camera_properties.target_frame.size.x;
   /// Height of the image (in pixels)
-  outputLayer.height = camera_rendering_launch_params_.camera_properties.target_frame.size.y;
+  output_layer.height = camera_rendering_launch_params_.camera_properties.target_frame.size.y;
   /// Stride between subsequent rows of the image (in bytes).
-  outputLayer.rowStrideInBytes =
+  output_layer.rowStrideInBytes =
       camera_rendering_launch_params_.camera_properties.target_frame.size.x * sizeof(glm::vec4);
   /// Stride between subsequent pixels of the image (in bytes).
   /// For now, only 0 or the value that corresponds to a dense packing of pixels
   /// (no gaps) is supported.
-  outputLayer.pixelStrideInBytes = sizeof(glm::vec4);
+  output_layer.pixelStrideInBytes = sizeof(glm::vec4);
   /// Pixel format.
-  outputLayer.format = OPTIX_PIXEL_FORMAT_FLOAT4;
+  output_layer.format = OPTIX_PIXEL_FORMAT_FLOAT4;
 
   switch (camera_rendering_launch_params_.camera_properties.output_type) {
     case OutputType::Color: {
       if (camera_properties.denoiser_strength == 0.0f) {
         CUDA_CHECK(MemcpyToArray(
-            outputArray, 0, 0, (void *)camera_rendering_launch_params_.camera_properties.target_frame.color_buffer,
+            output_array, 0, 0, (void *)camera_rendering_launch_params_.camera_properties.target_frame.color_buffer,
             sizeof(glm::vec4) * camera_rendering_launch_params_.camera_properties.target_frame.size.x *
                 camera_rendering_launch_params_.camera_properties.target_frame.size.y,
             cudaMemcpyDeviceToDevice));
@@ -371,30 +369,30 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
 
         OPTIX_CHECK(optixDenoiserComputeIntensity(
             camera_rendering_launch_params_.camera_properties.denoiser,
-            /*stream*/ 0, &inputLayer[0],
-            (CUdeviceptr)camera_rendering_launch_params_.camera_properties.denoiser_intensity.DevicePointer(),
-            (CUdeviceptr)camera_rendering_launch_params_.camera_properties.denoiser_scratch.DevicePointer(),
+            /*stream*/ nullptr, &input_layer[0],
+            camera_rendering_launch_params_.camera_properties.denoiser_intensity.DevicePointer(),
+            camera_rendering_launch_params_.camera_properties.denoiser_scratch.DevicePointer(),
             camera_rendering_launch_params_.camera_properties.denoiser_scratch.size_in_bytes));
 
-        OptixDenoiserLayer denoiserLayer = {};
-        denoiserLayer.input = inputLayer[0];
-        denoiserLayer.output = outputLayer;
+        OptixDenoiserLayer denoiser_layer = {};
+        denoiser_layer.input = input_layer[0];
+        denoiser_layer.output = output_layer;
 
-        OptixDenoiserGuideLayer denoiserGuideLayer = {};
-        denoiserGuideLayer.albedo = inputLayer[1];
-        denoiserGuideLayer.normal = inputLayer[2];
+        OptixDenoiserGuideLayer denoiser_guide_layer = {};
+        denoiser_guide_layer.albedo = input_layer[1];
+        denoiser_guide_layer.normal = input_layer[2];
 
         OPTIX_CHECK(optixDenoiserInvoke(
             camera_rendering_launch_params_.camera_properties.denoiser,
             /*stream*/ 0, &denoiserParams,
             camera_rendering_launch_params_.camera_properties.denoiser_state.DevicePointer(),
-            camera_rendering_launch_params_.camera_properties.denoiser_state.size_in_bytes, &denoiserGuideLayer,
-            &denoiserLayer, 1,
+            camera_rendering_launch_params_.camera_properties.denoiser_state.size_in_bytes, &denoiser_guide_layer,
+            &denoiser_layer, 1,
             /*inputOffsetX*/ 0,
             /*inputOffsetY*/ 0, camera_rendering_launch_params_.camera_properties.denoiser_scratch.DevicePointer(),
             camera_rendering_launch_params_.camera_properties.denoiser_scratch.size_in_bytes));
         CUDA_CHECK(
-            MemcpyToArray(outputArray, 0, 0, (void *)outputLayer.data,
+            MemcpyToArray(output_array, 0, 0, (void *)output_layer.data,
                           sizeof(glm::vec4) * camera_rendering_launch_params_.camera_properties.target_frame.size.x *
                               camera_rendering_launch_params_.camera_properties.target_frame.size.y,
                           cudaMemcpyDeviceToDevice));
@@ -402,21 +400,21 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
     } break;
     case OutputType::Normal: {
       CUDA_CHECK(MemcpyToArray(
-          outputArray, 0, 0, (void *)camera_rendering_launch_params_.camera_properties.target_frame.normal_buffer,
+          output_array, 0, 0, (void *)camera_rendering_launch_params_.camera_properties.target_frame.normal_buffer,
           sizeof(glm::vec4) * camera_rendering_launch_params_.camera_properties.target_frame.size.x *
               camera_rendering_launch_params_.camera_properties.target_frame.size.y,
           cudaMemcpyDeviceToDevice));
     } break;
     case OutputType::Albedo: {
       CUDA_CHECK(MemcpyToArray(
-          outputArray, 0, 0, (void *)camera_rendering_launch_params_.camera_properties.target_frame.albedo_buffer,
+          output_array, 0, 0, (void *)camera_rendering_launch_params_.camera_properties.target_frame.albedo_buffer,
           sizeof(glm::vec4) * camera_rendering_launch_params_.camera_properties.target_frame.size.x *
               camera_rendering_launch_params_.camera_properties.target_frame.size.y,
           cudaMemcpyDeviceToDevice));
     } break;
     case OutputType::Depth: {
       CUDA_CHECK(MemcpyToArray(
-          outputArray, 0, 0, (void *)camera_rendering_launch_params_.camera_properties.target_frame.albedo_buffer,
+          output_array, 0, 0, (void *)camera_rendering_launch_params_.camera_properties.target_frame.albedo_buffer,
           sizeof(glm::vec4) * camera_rendering_launch_params_.camera_properties.target_frame.size.x *
               camera_rendering_launch_params_.camera_properties.target_frame.size.y,
           cudaMemcpyDeviceToDevice));
@@ -428,8 +426,8 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
 }
 
 void OptiXRayTracer::EstimateIllumination(const size_t &size, const EnvironmentProperties &environment_properties,
-                                          const RayProperties &ray_properties, CudaBuffer &light_probes, unsigned seed,
-                                          float push_normal_distance) {
+                                          const RayProperties &ray_properties, const CudaBuffer &light_probes,
+                                          const unsigned seed, const float push_normal_distance) {
   if (!has_acceleration_structure_)
     return;
   if (size == 0) {
@@ -464,7 +462,7 @@ void OptiXRayTracer::EstimateIllumination(const size_t &size, const EnvironmentP
 }
 
 void OptiXRayTracer::ScanPointCloud(const size_t &size, const EnvironmentProperties &environment_properties,
-                                    CudaBuffer &samples) {
+                                    const CudaBuffer &samples) {
   if (!has_acceleration_structure_)
     return;
   if (size == 0) {
@@ -518,37 +516,37 @@ static void context_log_cb(const unsigned int level, const char *tag, const char
   fprintf(stderr, "[%2d][%12s]: %s\n", static_cast<int>(level), tag, message);
 }
 
-void printLogMessage(unsigned int level, const char *tag, const char *message, void * /* cbdata */) {
+void PrintLogMessage(unsigned int level, const char *tag, const char *message, void * /* cbdata */) {
   std::cerr << "[" << std::setw(2) << level << "][" << std::setw(12) << tag << "]: " << message << std::endl;
 }
 
 void OptiXRayTracer::CreateContext() {
   // for this sample, do everything on one device
-  const int deviceID = 0;
+  constexpr int device_id = 0;
   CUDA_CHECK(StreamCreate(&stream_));
-  CUDA_CHECK(GetDeviceProperties(&device_props_, deviceID));
+  CUDA_CHECK(GetDeviceProperties(&device_props_, device_id));
   std::cout << "#Optix: running on device: " << device_props_.name << std::endl;
-  const CUresult cuRes = cuCtxGetCurrent(&cuda_context_);
-  if (cuRes != CUDA_SUCCESS)
-    fprintf(stderr, "Error querying current context: error code %d\n", cuRes);
+  if (const CUresult cu_res = cuCtxGetCurrent(&cuda_context_); cu_res != CUDA_SUCCESS)
+    fprintf(stderr, "Error querying current context: error code %d\n", cu_res);
 
   OptixDeviceContextOptions options = {};
-  options.logCallbackFunction = &printLogMessage;
+  options.logCallbackFunction = &PrintLogMessage;
   options.logCallbackLevel = 4;
-  // options.validationMode = OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL;
-
+#ifndef NDEBUG
+  options.validationMode = OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+#endif
   OPTIX_CHECK(optixDeviceContextCreate(cuda_context_, &options, &optix_device_context_));
   OPTIX_CHECK(optixDeviceContextSetLogCallback(optix_device_context_, context_log_cb, nullptr, 4));
 }
 
-extern "C" char CAMERA_RENDERING_PTX[];
-extern "C" char ILLUMINATION_ESTIMATION_PTX[];
-extern "C" char POINT_CLOUD_SCANNING_PTX[];
+extern "C" char camera_rendering_ptx[];
+extern "C" char illumination_estimation_ptx[];
+extern "C" char point_cloud_scanning_ptx[];
 
 void OptiXRayTracer::CreateModules() {
-  CreateModule(camera_rendering_pipeline_, CAMERA_RENDERING_PTX, "cameraRenderingLaunchParams");
-  CreateModule(illumination_estimation_pipeline_, ILLUMINATION_ESTIMATION_PTX, "illuminationEstimationLaunchParams");
-  CreateModule(point_cloud_scanning_pipeline_, POINT_CLOUD_SCANNING_PTX, "pointCloudScanningLaunchParams");
+  CreateModule(camera_rendering_pipeline_, camera_rendering_ptx, "cameraRenderingLaunchParams");
+  CreateModule(illumination_estimation_pipeline_, illumination_estimation_ptx, "illuminationEstimationLaunchParams");
+  CreateModule(point_cloud_scanning_pipeline_, point_cloud_scanning_ptx, "pointCloudScanningLaunchParams");
 }
 
 void OptiXRayTracer::CreateRayGenPrograms() {
@@ -560,84 +558,84 @@ void OptiXRayTracer::CreateRayGenPrograms() {
 void OptiXRayTracer::CreateMissPrograms() {
   {
     char log[2048];
-    size_t sizeofLog = sizeof(log);
+    size_t sizeof_log = sizeof(log);
 
-    OptixProgramGroupOptions pgOptions = {};
-    OptixProgramGroupDesc pgDesc = {};
-    pgDesc.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
-    pgDesc.miss.module = camera_rendering_pipeline_.module;
+    OptixProgramGroupOptions pg_options = {};
+    OptixProgramGroupDesc pg_desc = {};
+    pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
+    pg_desc.miss.module = camera_rendering_pipeline_.module;
 
     // ------------------------------------------------------------------
     // radiance rays
     // ------------------------------------------------------------------
-    pgDesc.miss.entryFunctionName = "__miss__CR_R";
+    pg_desc.miss.entryFunctionName = "__miss__CR_R";
 
-    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                         &camera_rendering_pipeline_.miss_program_groups[RayType::Radiance]));
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
     // ------------------------------------------------------------------
     // BSSRDF Spatial sampler rays
     // ------------------------------------------------------------------
-    pgDesc.miss.entryFunctionName = "__miss__CR_SS";
-    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+    pg_desc.miss.entryFunctionName = "__miss__CR_SS";
+    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                         &camera_rendering_pipeline_.miss_program_groups[RayType::SpacialSampling]));
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
   }
   {
     char log[2048];
-    size_t sizeofLog = sizeof(log);
+    size_t sizeof_log = sizeof(log);
 
-    OptixProgramGroupOptions pgOptions = {};
-    OptixProgramGroupDesc pgDesc = {};
-    pgDesc.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
-    pgDesc.miss.module = illumination_estimation_pipeline_.module;
+    OptixProgramGroupOptions pg_options = {};
+    OptixProgramGroupDesc pg_desc = {};
+    pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
+    pg_desc.miss.module = illumination_estimation_pipeline_.module;
 
     // ------------------------------------------------------------------
     // radiance rays
     // ------------------------------------------------------------------
-    pgDesc.miss.entryFunctionName = "__miss__IE_R";
+    pg_desc.miss.entryFunctionName = "__miss__IE_R";
 
-    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                         &illumination_estimation_pipeline_.miss_program_groups[RayType::Radiance]));
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
     // ------------------------------------------------------------------
     // BSSRDF Spatial sampler rays
     // ------------------------------------------------------------------
-    pgDesc.miss.entryFunctionName = "__miss__IE_SS";
+    pg_desc.miss.entryFunctionName = "__miss__IE_SS";
     OPTIX_CHECK(
-        optixProgramGroupCreate(optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                 &illumination_estimation_pipeline_.miss_program_groups[RayType::SpacialSampling]));
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
   }
   {
     char log[2048];
-    size_t sizeofLog = sizeof(log);
+    size_t sizeof_log = sizeof(log);
 
-    OptixProgramGroupOptions pgOptions = {};
-    OptixProgramGroupDesc pgDesc = {};
-    pgDesc.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
-    pgDesc.miss.module = point_cloud_scanning_pipeline_.module;
+    OptixProgramGroupOptions pg_options = {};
+    OptixProgramGroupDesc pg_desc = {};
+    pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
+    pg_desc.miss.module = point_cloud_scanning_pipeline_.module;
 
     // ------------------------------------------------------------------
     // radiance rays
     // ------------------------------------------------------------------
-    pgDesc.miss.entryFunctionName = "__miss__PCS_R";
+    pg_desc.miss.entryFunctionName = "__miss__PCS_R";
 
-    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                         &point_cloud_scanning_pipeline_.miss_program_groups[RayType::Radiance]));
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
     // ------------------------------------------------------------------
     // BSSRDF Spatial sampler rays
     // ------------------------------------------------------------------
-    pgDesc.miss.entryFunctionName = "__miss__PCS_SS";
-    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+    pg_desc.miss.entryFunctionName = "__miss__PCS_SS";
+    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                         &point_cloud_scanning_pipeline_.miss_program_groups[RayType::SpacialSampling]));
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
   }
 }
@@ -645,271 +643,267 @@ void OptiXRayTracer::CreateMissPrograms() {
 void OptiXRayTracer::CreateHitGroupPrograms() {
   {
     char log[2048];
-    size_t sizeofLog = sizeof(log);
+    size_t sizeof_log = sizeof(log);
 
-    OptixProgramGroupOptions pgOptions = {};
-    OptixProgramGroupDesc pgDesc = {};
-    pgDesc.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
-    pgDesc.hitgroup.moduleCH = camera_rendering_pipeline_.module;
-    pgDesc.hitgroup.moduleAH = camera_rendering_pipeline_.module;
+    OptixProgramGroupOptions pg_options = {};
+    OptixProgramGroupDesc pg_desc = {};
+    pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+    pg_desc.hitgroup.moduleCH = camera_rendering_pipeline_.module;
+    pg_desc.hitgroup.moduleAH = camera_rendering_pipeline_.module;
 
     // -------------------------------------------------------
     // radiance rays
     // -------------------------------------------------------
-    pgDesc.hitgroup.entryFunctionNameCH = "__closesthit__CR_R";
-    pgDesc.hitgroup.entryFunctionNameAH = "__anyhit__CR_R";
-    pgDesc.hitgroup.entryFunctionNameIS = 0;
+    pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__CR_R";
+    pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__CR_R";
+    pg_desc.hitgroup.entryFunctionNameIS = 0;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &camera_rendering_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::Triangle]));
 
-    pgDesc.hitgroup.moduleIS = camera_rendering_pipeline_.linear_curve_module;
+    pg_desc.hitgroup.moduleIS = camera_rendering_pipeline_.linear_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &camera_rendering_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::Linear]));
 
-    pgDesc.hitgroup.moduleIS = camera_rendering_pipeline_.quadratic_curve_module;
+    pg_desc.hitgroup.moduleIS = camera_rendering_pipeline_.quadratic_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &camera_rendering_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::QuadraticBSpline]));
 
-    pgDesc.hitgroup.moduleIS = camera_rendering_pipeline_.cubic_curve_module;
+    pg_desc.hitgroup.moduleIS = camera_rendering_pipeline_.cubic_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &camera_rendering_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::CubicBSpline]));
 
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
 
     // -------------------------------------------------------
     // BSSRDF Sampler ray
     // -------------------------------------------------------
-    pgDesc.hitgroup.entryFunctionNameCH = "__closesthit__CR_SS";
-    pgDesc.hitgroup.entryFunctionNameAH = "__anyhit__CR_SS";
+    pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__CR_SS";
+    pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__CR_SS";
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &camera_rendering_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::Triangle]));
 
-    pgDesc.hitgroup.moduleIS = camera_rendering_pipeline_.linear_curve_module;
+    pg_desc.hitgroup.moduleIS = camera_rendering_pipeline_.linear_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &camera_rendering_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::Linear]));
     ;
 
-    pgDesc.hitgroup.moduleIS = camera_rendering_pipeline_.quadratic_curve_module;
+    pg_desc.hitgroup.moduleIS = camera_rendering_pipeline_.quadratic_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &camera_rendering_pipeline_
              .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::QuadraticBSpline]));
 
-    pgDesc.hitgroup.moduleIS = camera_rendering_pipeline_.cubic_curve_module;
+    pg_desc.hitgroup.moduleIS = camera_rendering_pipeline_.cubic_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &camera_rendering_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::CubicBSpline]));
 
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
   }
   {
     char log[2048];
-    size_t sizeofLog = sizeof(log);
+    size_t sizeof_log = sizeof(log);
 
-    OptixProgramGroupOptions pgOptions = {};
-    OptixProgramGroupDesc pgDesc = {};
-    pgDesc.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
-    pgDesc.hitgroup.moduleCH = illumination_estimation_pipeline_.module;
-    pgDesc.hitgroup.moduleAH = illumination_estimation_pipeline_.module;
+    OptixProgramGroupOptions pg_options = {};
+    OptixProgramGroupDesc pg_desc = {};
+    pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+    pg_desc.hitgroup.moduleCH = illumination_estimation_pipeline_.module;
+    pg_desc.hitgroup.moduleAH = illumination_estimation_pipeline_.module;
     // -------------------------------------------------------
     // radiance rays
     // -------------------------------------------------------
-    pgDesc.hitgroup.entryFunctionNameCH = "__closesthit__IE_R";
-    pgDesc.hitgroup.entryFunctionNameAH = "__anyhit__IE_R";
+    pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__IE_R";
+    pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__IE_R";
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &illumination_estimation_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::Triangle]));
 
-    pgDesc.hitgroup.moduleIS = illumination_estimation_pipeline_.linear_curve_module;
+    pg_desc.hitgroup.moduleIS = illumination_estimation_pipeline_.linear_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &illumination_estimation_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::Linear]));
 
-    pgDesc.hitgroup.moduleIS = illumination_estimation_pipeline_.quadratic_curve_module;
+    pg_desc.hitgroup.moduleIS = illumination_estimation_pipeline_.quadratic_curve_module;
     OPTIX_CHECK(
-        optixProgramGroupCreate(optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                 &illumination_estimation_pipeline_
                                      .hit_group_program_groups[RayType::Radiance][PrimitiveType::QuadraticBSpline]));
 
-    pgDesc.hitgroup.moduleIS = illumination_estimation_pipeline_.cubic_curve_module;
+    pg_desc.hitgroup.moduleIS = illumination_estimation_pipeline_.cubic_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &illumination_estimation_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::CubicBSpline]));
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
     // -------------------------------------------------------
     // BSSRDF Sampler ray
     // -------------------------------------------------------
-    pgDesc.hitgroup.entryFunctionNameCH = "__closesthit__IE_SS";
-    pgDesc.hitgroup.entryFunctionNameAH = "__anyhit__IE_SS";
+    pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__IE_SS";
+    pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__IE_SS";
     OPTIX_CHECK(
-        optixProgramGroupCreate(optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                 &illumination_estimation_pipeline_
                                      .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::Triangle]));
 
-    pgDesc.hitgroup.moduleIS = illumination_estimation_pipeline_.linear_curve_module;
+    pg_desc.hitgroup.moduleIS = illumination_estimation_pipeline_.linear_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &illumination_estimation_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::Linear]));
 
-    pgDesc.hitgroup.moduleIS = illumination_estimation_pipeline_.quadratic_curve_module;
+    pg_desc.hitgroup.moduleIS = illumination_estimation_pipeline_.quadratic_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &illumination_estimation_pipeline_
              .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::QuadraticBSpline]));
 
-    pgDesc.hitgroup.moduleIS = illumination_estimation_pipeline_.cubic_curve_module;
+    pg_desc.hitgroup.moduleIS = illumination_estimation_pipeline_.cubic_curve_module;
     OPTIX_CHECK(
-        optixProgramGroupCreate(optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                 &illumination_estimation_pipeline_
                                      .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::CubicBSpline]));
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
   }
   {
     char log[2048];
-    size_t sizeofLog = sizeof(log);
+    size_t sizeof_log = sizeof(log);
 
-    OptixProgramGroupOptions pgOptions = {};
-    OptixProgramGroupDesc pgDesc = {};
-    pgDesc.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
-    pgDesc.hitgroup.moduleCH = point_cloud_scanning_pipeline_.module;
-    pgDesc.hitgroup.moduleAH = point_cloud_scanning_pipeline_.module;
+    OptixProgramGroupOptions pg_options = {};
+    OptixProgramGroupDesc pg_desc = {};
+    pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+    pg_desc.hitgroup.moduleCH = point_cloud_scanning_pipeline_.module;
+    pg_desc.hitgroup.moduleAH = point_cloud_scanning_pipeline_.module;
     // -------------------------------------------------------
     // radiance rays
     // -------------------------------------------------------
-    pgDesc.hitgroup.entryFunctionNameCH = "__closesthit__PCS_R";
-    pgDesc.hitgroup.entryFunctionNameAH = "__anyhit__PCS_R";
+    pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__PCS_R";
+    pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__PCS_R";
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &point_cloud_scanning_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::Triangle]));
 
-    pgDesc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.linear_curve_module;
+    pg_desc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.linear_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &point_cloud_scanning_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::Linear]));
 
-    pgDesc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.quadratic_curve_module;
+    pg_desc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.quadratic_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &point_cloud_scanning_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::QuadraticBSpline]));
 
-    pgDesc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.cubic_curve_module;
+    pg_desc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.cubic_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &point_cloud_scanning_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::CubicBSpline]));
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
     // -------------------------------------------------------
     // BSSRDF Sampler ray
     // -------------------------------------------------------
-    pgDesc.hitgroup.entryFunctionNameCH = "__closesthit__PCS_SS";
-    pgDesc.hitgroup.entryFunctionNameAH = "__anyhit__PCS_SS";
+    pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__PCS_SS";
+    pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__PCS_SS";
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &point_cloud_scanning_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::Triangle]));
 
-    pgDesc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.linear_curve_module;
+    pg_desc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.linear_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &point_cloud_scanning_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::Linear]));
 
-    pgDesc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.quadratic_curve_module;
+    pg_desc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.quadratic_curve_module;
     OPTIX_CHECK(optixProgramGroupCreate(
-        optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &point_cloud_scanning_pipeline_
              .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::QuadraticBSpline]));
 
-    pgDesc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.cubic_curve_module;
+    pg_desc.hitgroup.moduleIS = point_cloud_scanning_pipeline_.cubic_curve_module;
     OPTIX_CHECK(
-        optixProgramGroupCreate(optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
+        optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                 &point_cloud_scanning_pipeline_
                                      .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::CubicBSpline]));
-    if (sizeofLog > 1)
+    if (sizeof_log > 1)
       std::cout << log << std::endl;
   }
 }
 
-__global__ void CopyVerticesInstancedKernel(int matricesSize, int verticesSize, InstanceMatrix *matrices,
-                                            evo_engine::Vertex *vertices, glm::vec3 *targetPositions,
-                                            evo_engine::Vertex *targetVertices) {
-  const int idx = threadIdx.x + blockIdx.x * blockDim.x;
-  if (idx < verticesSize * matricesSize) {
+__global__ void CopyVerticesInstancedKernel(const int matrices_size, const int vertices_size,
+                                            const InstanceMatrix *matrices, const Vertex *vertices,
+                                            glm::vec3 *target_positions, Vertex *target_vertices) {
+  if (const int idx = threadIdx.x + blockIdx.x * blockDim.x; idx < vertices_size * matrices_size) {
     const glm::vec3 position =
-        matrices[idx / verticesSize].instance_matrix * glm::vec4(vertices[idx % verticesSize].position, 1.0f);
-    targetPositions[idx] = position;
-    glm::vec3 N = glm::normalize(matrices[idx / verticesSize].instance_matrix *
-                                 glm::vec4(vertices[idx % verticesSize].normal, 0.0f));
-    glm::vec3 T = glm::normalize(matrices[idx / verticesSize].instance_matrix *
-                                 glm::vec4(vertices[idx % verticesSize].tangent, 0.0f));
-    T = glm::normalize(T - dot(T, N) * N);
-    targetVertices[idx] = {};
-    targetVertices[idx].position = position;
-    targetVertices[idx].tangent = T;
-    targetVertices[idx].normal = N;
-    targetVertices[idx].tex_coord = vertices[idx % verticesSize].tex_coord;
-    targetVertices[idx].color = matrices[idx / verticesSize].instance_color;
+        matrices[idx / vertices_size].instance_matrix * glm::vec4(vertices[idx % vertices_size].position, 1.0f);
+    target_positions[idx] = position;
+    const glm::vec3 normal = glm::normalize(matrices[idx / vertices_size].instance_matrix *
+                                            glm::vec4(vertices[idx % vertices_size].normal, 0.0f));
+    glm::vec3 tangent = glm::normalize(matrices[idx / vertices_size].instance_matrix *
+                                       glm::vec4(vertices[idx % vertices_size].tangent, 0.0f));
+    tangent = glm::normalize(tangent - dot(tangent, normal) * normal);
+    target_vertices[idx] = {};
+    target_vertices[idx].position = position;
+    target_vertices[idx].tangent = tangent;
+    target_vertices[idx].normal = normal;
+    target_vertices[idx].tex_coord = vertices[idx % vertices_size].tex_coord;
+    target_vertices[idx].color = matrices[idx / vertices_size].instance_color;
   }
 }
 
-__global__ void CopyStrandPointsKernel(int size, evo_engine::StrandPoint *strandPoints, float *targetThicknesses) {
-  const int idx = threadIdx.x + blockIdx.x * blockDim.x;
-  if (idx < size) {
-    targetThicknesses[idx] = strandPoints[idx].thickness;
+__global__ void CopyStrandPointsKernel(const int size, const StrandPoint *strand_points, float *target_thicknesses) {
+  if (const int idx = threadIdx.x + blockIdx.x * blockDim.x; idx < size) {
+    target_thicknesses[idx] = strand_points[idx].thickness;
   }
 }
 
-__global__ void CopyVerticesKernel(int size, evo_engine::Vertex *vertices, glm::vec3 *targetPositions) {
-  const int idx = threadIdx.x + blockIdx.x * blockDim.x;
-  if (idx < size) {
-    targetPositions[idx] = vertices[idx].position;
+__global__ void CopyVerticesKernel(const int size, const Vertex *vertices, glm::vec3 *target_positions) {
+  if (const int idx = threadIdx.x + blockIdx.x * blockDim.x; idx < size) {
+    target_positions[idx] = vertices[idx].position;
   }
 }
 
-__global__ void CopySkinnedVerticesKernel(int size, evo_engine::SkinnedVertex *vertices, glm::mat4 *boneMatrices,
-                                          glm::vec3 *targetPositions, evo_engine::Vertex *targetVertices) {
-  const int idx = threadIdx.x + blockIdx.x * blockDim.x;
-  if (idx < size) {
-    glm::mat4 boneTransform = boneMatrices[vertices[idx].bond_id[0]] * vertices[idx].weight[0];
+__global__ void CopySkinnedVerticesKernel(const int size, SkinnedVertex *vertices, const glm::mat4 *bone_matrices,
+                                          glm::vec3 *target_positions, Vertex *target_vertices) {
+  if (const int idx = threadIdx.x + blockIdx.x * blockDim.x; idx < size) {
+    glm::mat4 bone_transform = bone_matrices[vertices[idx].bond_id[0]] * vertices[idx].weight[0];
     if (vertices[idx].bond_id[1] != -1) {
-      boneTransform += boneMatrices[vertices[idx].bond_id[1]] * vertices[idx].weight[1];
+      bone_transform += bone_matrices[vertices[idx].bond_id[1]] * vertices[idx].weight[1];
     }
     if (vertices[idx].bond_id[2] != -1) {
-      boneTransform += boneMatrices[vertices[idx].bond_id[2]] * vertices[idx].weight[2];
+      bone_transform += bone_matrices[vertices[idx].bond_id[2]] * vertices[idx].weight[2];
     }
     if (vertices[idx].bond_id[3] != -1) {
-      boneTransform += boneMatrices[vertices[idx].bond_id[3]] * vertices[idx].weight[3];
+      bone_transform += bone_matrices[vertices[idx].bond_id[3]] * vertices[idx].weight[3];
     }
     if (vertices[idx].bond_id2[0] != -1) {
-      boneTransform += boneMatrices[vertices[idx].bond_id2[0]] * vertices[idx].weight2[0];
+      bone_transform += bone_matrices[vertices[idx].bond_id2[0]] * vertices[idx].weight2[0];
     }
     if (vertices[idx].bond_id2[1] != -1) {
-      boneTransform += boneMatrices[vertices[idx].bond_id2[1]] * vertices[idx].weight2[1];
+      bone_transform += bone_matrices[vertices[idx].bond_id2[1]] * vertices[idx].weight2[1];
     }
     if (vertices[idx].bond_id2[2] != -1) {
-      boneTransform += boneMatrices[vertices[idx].bond_id2[2]] * vertices[idx].weight2[2];
+      bone_transform += bone_matrices[vertices[idx].bond_id2[2]] * vertices[idx].weight2[2];
     }
     if (vertices[idx].bond_id2[3] != -1) {
-      boneTransform += boneMatrices[vertices[idx].bond_id2[3]] * vertices[idx].weight2[3];
+      bone_transform += bone_matrices[vertices[idx].bond_id2[3]] * vertices[idx].weight2[3];
     }
-    const glm::vec3 position = boneTransform * glm::vec4(vertices[idx].position, 1.0f);
-    targetPositions[idx] = position;
-    glm::vec3 N = glm::normalize(boneTransform * glm::vec4(vertices[idx].normal, 0.0f));
-    glm::vec3 T = glm::normalize(boneTransform * glm::vec4(vertices[idx].tangent, 0.0f));
-    T = glm::normalize(T - dot(T, N) * N);
-    targetVertices[idx].position = position;
-    targetVertices[idx].normal = N;
-    targetVertices[idx].tangent = T;
-    targetVertices[idx].tex_coord = vertices[idx].tex_coord;
-    targetVertices[idx].color = vertices[idx].color;
+    const glm::vec3 position = bone_transform * glm::vec4(vertices[idx].position, 1.0f);
+    target_positions[idx] = position;
+    const glm::vec3 normal = glm::normalize(bone_transform * glm::vec4(vertices[idx].normal, 0.0f));
+    glm::vec3 tangent = glm::normalize(bone_transform * glm::vec4(vertices[idx].tangent, 0.0f));
+    tangent = glm::normalize(tangent - dot(tangent, normal) * normal);
+    target_vertices[idx].position = position;
+    target_vertices[idx].normal = normal;
+    target_vertices[idx].tangent = tangent;
+    target_vertices[idx].tex_coord = vertices[idx].tex_coord;
+    target_vertices[idx].color = vertices[idx].color;
   }
 }
 
@@ -925,181 +919,168 @@ void RayTracedGeometry::BuildGas(const OptixDeviceContext &context) {
   accelerated_structure_buffer.Free();
 #pragma endregion
 
-  CudaBuffer devicePositionBuffer;
-  CudaBuffer deviceWidthBuffer;
+  CudaBuffer device_position_buffer;
+  CudaBuffer device_width_buffer;
+
+  CUdeviceptr device_vertex_positions;
+  CUdeviceptr device_vertex_triangles;
+  CUdeviceptr device_points;
+  CUdeviceptr device_widths;
 
 #pragma region Geometry Inputs
   // ==================================================================
   // geometry inputs
   // ==================================================================
-  OptixBuildInput buildInput;
-  const uint32_t triangleInputFlags[1] = {OPTIX_GEOMETRY_FLAG_NONE};
+  OptixBuildInput build_input;
+  constexpr uint32_t triangle_input_flags[1] = {OPTIX_GEOMETRY_FLAG_NONE};
   switch (renderer_type) {
     case RendererType::Curve: {
-      CUdeviceptr devicePoints;
-      CUdeviceptr deviceWidths;
-      CUdeviceptr deviceStrands;
-
-      // curve_strand_u_buffer.Upload(*m_strandU);
-      // curve_strand_i_buffer.Upload(*m_strandIndices);
-      // curve_strand_info_buffer.Upload(*m_strandInfos);
-
-      deviceWidthBuffer.Resize(curve_points->size() * sizeof(float));
+      CUdeviceptr device_strands;
+      device_width_buffer.Resize(curve_points->size() * sizeof(float));
       vertex_data_buffer.Upload(*curve_points);
       triangle_buffer.Upload(*curve_segments);
 
-      int blockSize = 0;    // The launch configurator returned block size
-      int minGridSize = 0;  // The minimum grid size needed to achieve the
+      int block_size = 0;     // The launch configurator returned block size
+      int min_grid_size = 0;  // The minimum grid size needed to achieve the
       // maximum occupancy for a full device launch
-      int gridSize = 0;  // The actual grid size needed, based on input size
+      int grid_size = 0;  // The actual grid size needed, based on input size
       int size = curve_points->size();
-      cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, CopyStrandPointsKernel, 0, size);
-      gridSize = (size + blockSize - 1) / blockSize;
-      CopyStrandPointsKernel<<<gridSize, blockSize>>>(size,
-                                                      static_cast<evo_engine::StrandPoint *>(vertex_data_buffer.d_ptr),
-                                                      static_cast<float *>(deviceWidthBuffer.d_ptr));
+      cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, CopyStrandPointsKernel, 0, size);
+      grid_size = (size + block_size - 1) / block_size;
+      CopyStrandPointsKernel<<<grid_size, block_size>>>(
+          size, static_cast<evo_engine::StrandPoint *>(vertex_data_buffer.d_ptr),
+          static_cast<float *>(device_width_buffer.d_ptr));
       CUDA_SYNC_CHECK();
-
-      buildInput.type = OPTIX_BUILD_INPUT_TYPE_CURVES;
+      build_input.type = OPTIX_BUILD_INPUT_TYPE_CURVES;
       switch (geometry_type) {
         case PrimitiveType::Linear:
-          buildInput.curveArray.curveType = OPTIX_PRIMITIVE_TYPE_ROUND_LINEAR;
+          build_input.curveArray.curveType = OPTIX_PRIMITIVE_TYPE_ROUND_LINEAR;
           break;
         case PrimitiveType::QuadraticBSpline:
-          buildInput.curveArray.curveType = OPTIX_PRIMITIVE_TYPE_ROUND_QUADRATIC_BSPLINE;
+          build_input.curveArray.curveType = OPTIX_PRIMITIVE_TYPE_ROUND_QUADRATIC_BSPLINE;
           break;
         case PrimitiveType::CubicBSpline:
-          buildInput.curveArray.curveType = OPTIX_PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE;
+          build_input.curveArray.curveType = OPTIX_PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE;
           break;
       }
-      devicePoints = vertex_data_buffer.DevicePointer();
-      deviceWidths = deviceWidthBuffer.DevicePointer();
-      deviceStrands = triangle_buffer.DevicePointer();
-      buildInput.curveArray.numPrimitives = curve_segments->size();
-      buildInput.curveArray.vertexBuffers = &devicePoints;
-      buildInput.curveArray.numVertices = static_cast<unsigned int>(curve_points->size());
-      buildInput.curveArray.vertexStrideInBytes = sizeof(evo_engine::StrandPoint);
-      buildInput.curveArray.widthBuffers = &deviceWidths;
-      buildInput.curveArray.widthStrideInBytes = sizeof(float);
-      buildInput.curveArray.normalBuffers = 0;
-      buildInput.curveArray.normalStrideInBytes = 0;
-      buildInput.curveArray.indexBuffer = deviceStrands;
-      buildInput.curveArray.indexStrideInBytes = sizeof(int);
-      buildInput.curveArray.flag = OPTIX_GEOMETRY_FLAG_NONE;
-      buildInput.curveArray.endcapFlags = OPTIX_CURVE_ENDCAP_ON;
-      buildInput.curveArray.primitiveIndexOffset = 0;
+      device_points = vertex_data_buffer.DevicePointer();
+      device_widths = device_width_buffer.DevicePointer();
+      device_strands = triangle_buffer.DevicePointer();
+      build_input.curveArray.numPrimitives = curve_segments->size();
+      build_input.curveArray.vertexBuffers = &device_points;
+      build_input.curveArray.numVertices = static_cast<unsigned int>(curve_points->size());
+      build_input.curveArray.vertexStrideInBytes = sizeof(evo_engine::StrandPoint);
+      build_input.curveArray.widthBuffers = &device_widths;
+      build_input.curveArray.widthStrideInBytes = sizeof(float);
+      build_input.curveArray.normalBuffers = 0;
+      build_input.curveArray.normalStrideInBytes = 0;
+      build_input.curveArray.indexBuffer = device_strands;
+      build_input.curveArray.indexStrideInBytes = sizeof(int);
+      build_input.curveArray.flag = OPTIX_GEOMETRY_FLAG_NONE;
+      build_input.curveArray.endcapFlags = OPTIX_CURVE_ENDCAP_ON;
+      build_input.curveArray.primitiveIndexOffset = 0;
     } break;
     case RendererType::Default: {
-      CUdeviceptr deviceVertexPositions;
-      CUdeviceptr deviceVertexTriangles;
-
       vertex_data_buffer.Upload(*vertices);
-      int blockSize = 0;    // The launch configurator returned block size
-      int minGridSize = 0;  // The minimum grid size needed to achieve the
+      int block_size = 0;     // The launch configurator returned block size
+      int min_grid_size = 0;  // The minimum grid size needed to achieve the
       // maximum occupancy for a full device launch
-      int gridSize = 0;  // The actual grid size needed, based on input size
       int size = vertices->size();
-      cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, CopyVerticesKernel, 0, size);
-      gridSize = (size + blockSize - 1) / blockSize;
+      cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, CopyVerticesKernel, 0, size);
       CUDA_SYNC_CHECK();
       triangle_buffer.Upload(*triangles);
 
-      buildInput = {};
-      buildInput.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
+      build_input = {};
+      build_input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
 
       // create local variables, because we need a *pointer* to the
       // device pointers
-      deviceVertexPositions = vertex_data_buffer.DevicePointer();
-      deviceVertexTriangles = triangle_buffer.DevicePointer();
+      device_vertex_positions = vertex_data_buffer.DevicePointer();
+      device_vertex_triangles = triangle_buffer.DevicePointer();
 
-      buildInput.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
-      buildInput.triangleArray.vertexStrideInBytes = sizeof(evo_engine::Vertex);
-      buildInput.triangleArray.numVertices = static_cast<int>(vertices->size());
-      buildInput.triangleArray.vertexBuffers = &deviceVertexPositions;
+      build_input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
+      build_input.triangleArray.vertexStrideInBytes = sizeof(Vertex);
+      build_input.triangleArray.numVertices = static_cast<int>(vertices->size());
+      build_input.triangleArray.vertexBuffers = &device_vertex_positions;
 
-      buildInput.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
-      buildInput.triangleArray.indexStrideInBytes = sizeof(glm::uvec3);
-      buildInput.triangleArray.numIndexTriplets = static_cast<int>(triangle_buffer.size_in_bytes / sizeof(glm::uvec3));
-      buildInput.triangleArray.indexBuffer = deviceVertexTriangles;
+      build_input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
+      build_input.triangleArray.indexStrideInBytes = sizeof(glm::uvec3);
+      build_input.triangleArray.numIndexTriplets = static_cast<int>(triangle_buffer.size_in_bytes / sizeof(glm::uvec3));
+      build_input.triangleArray.indexBuffer = device_vertex_triangles;
 
       // in this example we have one SBT entry, and no per-primitive
       // materials:
-      buildInput.triangleArray.flags = triangleInputFlags;
-      buildInput.triangleArray.numSbtRecords = 1;
-      buildInput.triangleArray.sbtIndexOffsetBuffer = 0;
-      buildInput.triangleArray.sbtIndexOffsetSizeInBytes = 0;
-      buildInput.triangleArray.sbtIndexOffsetStrideInBytes = 0;
+      build_input.triangleArray.flags = triangle_input_flags;
+      build_input.triangleArray.numSbtRecords = 1;
+      build_input.triangleArray.sbtIndexOffsetBuffer = 0;
+      build_input.triangleArray.sbtIndexOffsetSizeInBytes = 0;
+      build_input.triangleArray.sbtIndexOffsetStrideInBytes = 0;
     } break;
     case RendererType::Skinned: {
-      CUdeviceptr deviceVertexPositions;
-      CUdeviceptr deviceVertexTriangles;
-
-      CudaBuffer skinnedVerticesBuffer;
-      CudaBuffer boneMatricesBuffer;
-      skinnedVerticesBuffer.Upload(*skinned_vertices);
-      boneMatricesBuffer.Upload(*bone_matrices);
+      CudaBuffer skinned_vertices_buffer;
+      CudaBuffer bone_matrices_buffer;
+      skinned_vertices_buffer.Upload(*skinned_vertices);
+      bone_matrices_buffer.Upload(*bone_matrices);
       vertex_data_buffer.Resize(skinned_vertices->size() * sizeof(evo_engine::Vertex));
-      devicePositionBuffer.Resize(skinned_vertices->size() * sizeof(glm::vec3));
-      int blockSize = 0;    // The launch configurator returned block size
-      int minGridSize = 0;  // The minimum grid size needed to achieve the
+      device_position_buffer.Resize(skinned_vertices->size() * sizeof(glm::vec3));
+      int block_size = 0;     // The launch configurator returned block size
+      int min_grid_size = 0;  // The minimum grid size needed to achieve the
       // maximum occupancy for a full device launch
-      int gridSize = 0;  // The actual grid size needed, based on input size
+      int grid_size = 0;  // The actual grid size needed, based on input size
       int size = skinned_vertices->size();
-      cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, CopySkinnedVerticesKernel, 0, size);
-      gridSize = (size + blockSize - 1) / blockSize;
-      CopySkinnedVerticesKernel<<<gridSize, blockSize>>>(
-          size, static_cast<evo_engine::SkinnedVertex *>(skinnedVerticesBuffer.d_ptr),
-          static_cast<glm::mat4 *>(boneMatricesBuffer.d_ptr), static_cast<glm::vec3 *>(devicePositionBuffer.d_ptr),
-          static_cast<evo_engine::Vertex *>(vertex_data_buffer.d_ptr));
+      cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, CopySkinnedVerticesKernel, 0, size);
+      grid_size = (size + block_size - 1) / block_size;
+      CopySkinnedVerticesKernel<<<grid_size, block_size>>>(
+          size, static_cast<SkinnedVertex *>(skinned_vertices_buffer.d_ptr),
+          static_cast<glm::mat4 *>(bone_matrices_buffer.d_ptr), static_cast<glm::vec3 *>(device_position_buffer.d_ptr),
+          static_cast<Vertex *>(vertex_data_buffer.d_ptr));
       CUDA_SYNC_CHECK();
       triangle_buffer.Upload(*triangles);
-      buildInput = {};
-      buildInput.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
+      build_input = {};
+      build_input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
       // create local variables, because we need a *pointer* to the
       // device pointers
-      deviceVertexPositions = devicePositionBuffer.DevicePointer();
-      deviceVertexTriangles = triangle_buffer.DevicePointer();
-      buildInput.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
-      buildInput.triangleArray.vertexStrideInBytes = sizeof(glm::vec3);
-      buildInput.triangleArray.numVertices = static_cast<int>(devicePositionBuffer.size_in_bytes / sizeof(glm::vec3));
-      buildInput.triangleArray.vertexBuffers = &deviceVertexPositions;
-      buildInput.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
-      buildInput.triangleArray.indexStrideInBytes = sizeof(glm::uvec3);
-      buildInput.triangleArray.numIndexTriplets = static_cast<int>(triangle_buffer.size_in_bytes / sizeof(glm::uvec3));
-      buildInput.triangleArray.indexBuffer = deviceVertexTriangles;
+      device_vertex_positions = device_position_buffer.DevicePointer();
+      device_vertex_triangles = triangle_buffer.DevicePointer();
+      build_input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
+      build_input.triangleArray.vertexStrideInBytes = sizeof(glm::vec3);
+      build_input.triangleArray.numVertices =
+          static_cast<int>(device_position_buffer.size_in_bytes / sizeof(glm::vec3));
+      build_input.triangleArray.vertexBuffers = &device_vertex_positions;
+      build_input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
+      build_input.triangleArray.indexStrideInBytes = sizeof(glm::uvec3);
+      build_input.triangleArray.numIndexTriplets = static_cast<int>(triangle_buffer.size_in_bytes / sizeof(glm::uvec3));
+      build_input.triangleArray.indexBuffer = device_vertex_triangles;
       // in this example we have one SBT entry, and no per-primitive
       // materials:
-      buildInput.triangleArray.flags = triangleInputFlags;
-      buildInput.triangleArray.numSbtRecords = 1;
-      buildInput.triangleArray.sbtIndexOffsetBuffer = 0;
-      buildInput.triangleArray.sbtIndexOffsetSizeInBytes = 0;
-      buildInput.triangleArray.sbtIndexOffsetStrideInBytes = 0;
-      skinnedVerticesBuffer.Free();
-      boneMatricesBuffer.Free();
+      build_input.triangleArray.flags = triangle_input_flags;
+      build_input.triangleArray.numSbtRecords = 1;
+      build_input.triangleArray.sbtIndexOffsetBuffer = 0;
+      build_input.triangleArray.sbtIndexOffsetSizeInBytes = 0;
+      build_input.triangleArray.sbtIndexOffsetStrideInBytes = 0;
+      skinned_vertices_buffer.Free();
+      bone_matrices_buffer.Free();
     } break;
     case RendererType::Instanced: {
-      CUdeviceptr deviceVertexPositions;
-      CUdeviceptr deviceVertexTriangles;
-
-      CudaBuffer verticesBuffer;
-      CudaBuffer instanceMatricesBuffer;
-      verticesBuffer.Upload(*vertices);
-      instanceMatricesBuffer.Upload(*instance_matrices);
+      CudaBuffer vertices_buffer;
+      CudaBuffer instance_matrices_buffer;
+      vertices_buffer.Upload(*vertices);
+      instance_matrices_buffer.Upload(*instance_matrices);
       vertex_data_buffer.Resize(instance_matrices->size() * vertices->size() * sizeof(evo_engine::Vertex));
 
-      devicePositionBuffer.Resize(instance_matrices->size() * vertices->size() * sizeof(glm::vec3));
-      int blockSize = 0;    // The launch configurator returned block verticesSize
-      int minGridSize = 0;  // The minimum grid verticesSize needed to achieve the
+      device_position_buffer.Resize(instance_matrices->size() * vertices->size() * sizeof(glm::vec3));
+      int block_size = 0;     // The launch configurator returned block verticesSize
+      int min_grid_size = 0;  // The minimum grid verticesSize needed to achieve the
       // maximum occupancy for a full device launch
-      int gridSize = 0;  // The actual grid verticesSize needed, based on input verticesSize
-      int verticesSize = vertices->size();
-      int matricesSize = instance_matrices->size();
-      int size = verticesSize * matricesSize;
-      cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, CopyVerticesInstancedKernel, 0, size);
-      gridSize = (size + blockSize - 1) / blockSize;
-      CopyVerticesInstancedKernel<<<gridSize, blockSize>>>(
-          matricesSize, verticesSize, static_cast<InstanceMatrix *>(instanceMatricesBuffer.d_ptr),
-          static_cast<Vertex *>(verticesBuffer.d_ptr), static_cast<glm::vec3 *>(devicePositionBuffer.d_ptr),
+      int grid_size = 0;  // The actual grid verticesSize needed, based on input verticesSize
+      int vertices_size = vertices->size();
+      int matrices_size = instance_matrices->size();
+      int size = vertices_size * matrices_size;
+      cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, CopyVerticesInstancedKernel, 0, size);
+      grid_size = (size + block_size - 1) / block_size;
+      CopyVerticesInstancedKernel<<<grid_size, block_size>>>(
+          matrices_size, vertices_size, static_cast<InstanceMatrix *>(instance_matrices_buffer.d_ptr),
+          static_cast<Vertex *>(vertices_buffer.d_ptr), static_cast<glm::vec3 *>(device_position_buffer.d_ptr),
           static_cast<Vertex *>(vertex_data_buffer.d_ptr));
       CUDA_SYNC_CHECK();
       auto triangles = std::vector<glm::uvec3>();
@@ -1113,30 +1094,31 @@ void RayTracedGeometry::BuildGas(const OptixDeviceContext &context) {
         offset += vertices->size();
       }
       triangle_buffer.Upload(triangles);
-      buildInput = {};
-      buildInput.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
+      build_input = {};
+      build_input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
       // create local variables, because we need a *pointer* to the
       // device pointers
-      deviceVertexPositions = devicePositionBuffer.DevicePointer();
-      deviceVertexTriangles = triangle_buffer.DevicePointer();
-      buildInput.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
-      buildInput.triangleArray.vertexStrideInBytes = sizeof(glm::vec3);
-      buildInput.triangleArray.numVertices = static_cast<int>(devicePositionBuffer.size_in_bytes / sizeof(glm::vec3));
-      buildInput.triangleArray.vertexBuffers = &deviceVertexPositions;
-      buildInput.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
-      buildInput.triangleArray.indexStrideInBytes = sizeof(glm::uvec3);
-      buildInput.triangleArray.numIndexTriplets = static_cast<int>(triangle_buffer.size_in_bytes / sizeof(glm::uvec3));
-      buildInput.triangleArray.indexBuffer = deviceVertexTriangles;
+      device_vertex_positions = device_position_buffer.DevicePointer();
+      device_vertex_triangles = triangle_buffer.DevicePointer();
+      build_input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
+      build_input.triangleArray.vertexStrideInBytes = sizeof(glm::vec3);
+      build_input.triangleArray.numVertices =
+          static_cast<int>(device_position_buffer.size_in_bytes / sizeof(glm::vec3));
+      build_input.triangleArray.vertexBuffers = &device_vertex_positions;
+      build_input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
+      build_input.triangleArray.indexStrideInBytes = sizeof(glm::uvec3);
+      build_input.triangleArray.numIndexTriplets = static_cast<int>(triangle_buffer.size_in_bytes / sizeof(glm::uvec3));
+      build_input.triangleArray.indexBuffer = device_vertex_triangles;
       // in this example we have one SBT entry, and no per-primitive
       // materials:
-      buildInput.triangleArray.flags = triangleInputFlags;
-      buildInput.triangleArray.numSbtRecords = 1;
-      buildInput.triangleArray.sbtIndexOffsetBuffer = 0;
-      buildInput.triangleArray.sbtIndexOffsetSizeInBytes = 0;
-      buildInput.triangleArray.sbtIndexOffsetStrideInBytes = 0;
-      verticesBuffer.Free();
-      instanceMatricesBuffer.Free();
-      instanceMatricesBuffer.Free();
+      build_input.triangleArray.flags = triangle_input_flags;
+      build_input.triangleArray.numSbtRecords = 1;
+      build_input.triangleArray.sbtIndexOffsetBuffer = 0;
+      build_input.triangleArray.sbtIndexOffsetSizeInBytes = 0;
+      build_input.triangleArray.sbtIndexOffsetStrideInBytes = 0;
+      vertices_buffer.Free();
+      instance_matrices_buffer.Free();
+      instance_matrices_buffer.Free();
     } break;
   }
 #pragma endregion
@@ -1145,52 +1127,52 @@ void RayTracedGeometry::BuildGas(const OptixDeviceContext &context) {
   // BLAS setup
   // ==================================================================
 
-  OptixAccelBuildOptions accelerateOptions = {};
-  accelerateOptions.buildFlags =
+  OptixAccelBuildOptions accelerate_options = {};
+  accelerate_options.buildFlags =
       OPTIX_BUILD_FLAG_NONE | OPTIX_BUILD_FLAG_ALLOW_COMPACTION | OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
-  accelerateOptions.motionOptions.numKeys = 1;
-  accelerateOptions.operation = OPTIX_BUILD_OPERATION_BUILD;
+  accelerate_options.motionOptions.numKeys = 1;
+  accelerate_options.operation = OPTIX_BUILD_OPERATION_BUILD;
 
-  OptixAccelBufferSizes blasBufferSizes;
-  OPTIX_CHECK(optixAccelComputeMemoryUsage(context, &accelerateOptions, &buildInput,
+  OptixAccelBufferSizes blas_buffer_sizes;
+  OPTIX_CHECK(optixAccelComputeMemoryUsage(context, &accelerate_options, &build_input,
                                            1,  // num_build_inputs
-                                           &blasBufferSizes));
+                                           &blas_buffer_sizes));
 #pragma endregion
 #pragma region Prapere compaction
   // ==================================================================
   // prepare compaction
   // ==================================================================
 
-  CudaBuffer compactedSizeBuffer;
-  compactedSizeBuffer.Resize(sizeof(uint64_t));
-  OptixAccelEmitDesc emitDesc;
-  emitDesc.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
-  emitDesc.result = compactedSizeBuffer.DevicePointer();
+  CudaBuffer compacted_size_buffer;
+  compacted_size_buffer.Resize(sizeof(uint64_t));
+  OptixAccelEmitDesc emit_desc;
+  emit_desc.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
+  emit_desc.result = compacted_size_buffer.DevicePointer();
 #pragma endregion
 #pragma region Build AS
   // ==================================================================
   // execute build (main stage)
   // ==================================================================
 
-  CudaBuffer tempBuffer;
-  tempBuffer.Resize(blasBufferSizes.tempSizeInBytes);
+  CudaBuffer temp_buffer;
+  temp_buffer.Resize(blas_buffer_sizes.tempSizeInBytes);
 
-  CudaBuffer outputBuffer;
-  outputBuffer.Resize(blasBufferSizes.outputSizeInBytes);
+  CudaBuffer output_buffer;
+  output_buffer.Resize(blas_buffer_sizes.outputSizeInBytes);
 
   OPTIX_CHECK(optixAccelBuild(context,
-                              /* stream */ nullptr, &accelerateOptions, &buildInput, 1, tempBuffer.DevicePointer(),
-                              tempBuffer.size_in_bytes, outputBuffer.DevicePointer(), outputBuffer.size_in_bytes,
-                              &traversable_handle, &emitDesc, 1));
+                              /* stream */ nullptr, &accelerate_options, &build_input, 1, temp_buffer.DevicePointer(),
+                              temp_buffer.size_in_bytes, output_buffer.DevicePointer(), output_buffer.size_in_bytes,
+                              &traversable_handle, &emit_desc, 1));
   CUDA_SYNC_CHECK();
 #pragma endregion
 #pragma region Perform compaction
   // ==================================================================
   // perform compaction
   // ==================================================================
-  uint64_t compactedSize;
-  compactedSizeBuffer.Download(&compactedSize, 1);
-  accelerated_structure_buffer.Resize(compactedSize);
+  uint64_t compacted_size;
+  compacted_size_buffer.Download(&compacted_size, 1);
+  accelerated_structure_buffer.Resize(compacted_size);
   OPTIX_CHECK(optixAccelCompact(context,
                                 /*stream:*/ nullptr, traversable_handle, accelerated_structure_buffer.DevicePointer(),
                                 accelerated_structure_buffer.size_in_bytes, &traversable_handle));
@@ -1198,15 +1180,15 @@ void RayTracedGeometry::BuildGas(const OptixDeviceContext &context) {
 #pragma endregion
 #pragma region Compaction clean up
   // ==================================================================
-  // aaaaaand .... clean up
+  // and .... clean up
   // ==================================================================
-  outputBuffer.Free();  // << the Uncompacted, temporary output buffer
-  tempBuffer.Free();
-  compactedSizeBuffer.Free();
+  output_buffer.Free();  // << the Un-compacted, temporary output buffer
+  temp_buffer.Free();
+  compacted_size_buffer.Free();
 #pragma endregion
 
-  devicePositionBuffer.Free();
-  deviceWidthBuffer.Free();
+  device_position_buffer.Free();
+  device_width_buffer.Free();
   update_flag = false;
 }
 
@@ -1214,28 +1196,25 @@ void RayTracedGeometry::UploadForSbt() {
   geometry_buffer.Free();
   if (geometry_type != PrimitiveType::Triangle) {
     Curves curves;
-    curves.strand_points = reinterpret_cast<evo_engine::StrandPoint *>(vertex_data_buffer.DevicePointer());
-    // curves.m_strandU = reinterpret_cast<glm::vec2 *>(curve_strand_u_buffer.DevicePointer());
-    // curves.m_strandIndices = reinterpret_cast<int *>(curve_strand_i_buffer.DevicePointer());
-    // curves.m_strandInfos = reinterpret_cast<glm::uvec2 *>(curve_strand_info_buffer.DevicePointer());
+    curves.strand_points = reinterpret_cast<StrandPoint *>(vertex_data_buffer.DevicePointer());
     curves.segments = reinterpret_cast<int *>(triangle_buffer.DevicePointer());
     geometry_buffer.Upload(&curves, 1);
   } else {
     TriangularMesh mesh;
-    mesh.vertices = reinterpret_cast<evo_engine::Vertex *>(vertex_data_buffer.DevicePointer());
+    mesh.vertices = reinterpret_cast<Vertex *>(vertex_data_buffer.DevicePointer());
     mesh.triangles = reinterpret_cast<glm::uvec3 *>(triangle_buffer.DevicePointer());
     geometry_buffer.Upload(&mesh, 1);
   }
 }
 
 void OptiXRayTracer::BuildIas() {
-  std::vector<uint64_t> removeQueue;
+  std::vector<uint64_t> remove_queue;
   for (const auto &i : geometries) {
     if (i.second.remove_flag) {
-      removeQueue.emplace_back(i.first);
+      remove_queue.emplace_back(i.first);
     }
   }
-  for (auto &i : removeQueue) {
+  for (auto &i : remove_queue) {
     auto &geometry = geometries.at(i);
     geometry.geometry_buffer.Free();
     geometry.vertex_data_buffer.Free();
@@ -1254,72 +1233,72 @@ void OptiXRayTracer::BuildIas() {
       i.second.UploadForSbt();
     }
   }
-  removeQueue.clear();
+  remove_queue.clear();
   for (const auto &i : instances) {
     if (i.second.remove_flag) {
-      removeQueue.emplace_back(i.first);
+      remove_queue.emplace_back(i.first);
     }
   }
-  for (auto &i : removeQueue) {
+  for (auto &i : remove_queue) {
     instances.erase(i);
   }
 
-  std::vector<OptixInstance> optixInstances;
-  unsigned int sbtOffset = 0;
+  std::vector<OptixInstance> optix_instances;
+  unsigned int sbt_offset = 0;
 
-  OptixInstance optixInstance = {};
+  OptixInstance optix_instance = {};
   // Common optixInstance settings
-  optixInstance.instanceId = 0;
-  optixInstance.visibilityMask = 0xFF;
-  optixInstance.flags = OPTIX_INSTANCE_FLAG_NONE;
+  optix_instance.instanceId = 0;
+  optix_instance.visibilityMask = 0xFF;
+  optix_instance.flags = OPTIX_INSTANCE_FLAG_NONE;
 
   for (auto &instance : instances) {
     glm::mat3x4 transform = glm::transpose(instance.second.global_transform);
-    memcpy(optixInstance.transform, &transform, sizeof(glm::mat3x4));
-    optixInstance.sbtOffset = sbtOffset;
-    optixInstance.traversableHandle = geometries.at(instance.second.geometry_map_key).traversable_handle;
-    sbtOffset += (int)RayType::RayTypeCount;
-    optixInstances.push_back(optixInstance);
+    memcpy(optix_instance.transform, &transform, sizeof(glm::mat3x4));
+    optix_instance.sbtOffset = sbt_offset;
+    optix_instance.traversableHandle = geometries.at(instance.second.geometry_map_key).traversable_handle;
+    sbt_offset += static_cast<int>(RayType::RayTypeCount);
+    optix_instances.push_back(optix_instance);
   }
 
-  CudaBuffer deviceTempInstances;
-  deviceTempInstances.Upload(optixInstances);
+  CudaBuffer device_temp_instances;
+  device_temp_instances.Upload(optix_instances);
 
   // Instance build input.
-  OptixBuildInput buildInput = {};
+  OptixBuildInput build_input = {};
 
-  buildInput.type = OPTIX_BUILD_INPUT_TYPE_INSTANCES;
-  buildInput.instanceArray.instances = deviceTempInstances.DevicePointer();
-  buildInput.instanceArray.numInstances = static_cast<unsigned int>(optixInstances.size());
+  build_input.type = OPTIX_BUILD_INPUT_TYPE_INSTANCES;
+  build_input.instanceArray.instances = device_temp_instances.DevicePointer();
+  build_input.instanceArray.numInstances = static_cast<unsigned int>(optix_instances.size());
 
-  OptixAccelBuildOptions accelBuildOptions = {};
-  accelBuildOptions.buildFlags = OPTIX_BUILD_FLAG_NONE;
-  accelBuildOptions.operation = OPTIX_BUILD_OPERATION_BUILD;
+  OptixAccelBuildOptions accel_build_options = {};
+  accel_build_options.buildFlags = OPTIX_BUILD_FLAG_NONE;
+  accel_build_options.operation = OPTIX_BUILD_OPERATION_BUILD;
 
-  OptixAccelBufferSizes bufferSizesIAS;
-  OPTIX_CHECK(optixAccelComputeMemoryUsage(optix_device_context_, &accelBuildOptions, &buildInput,
+  OptixAccelBufferSizes buffer_sizes_ias;
+  OPTIX_CHECK(optixAccelComputeMemoryUsage(optix_device_context_, &accel_build_options, &build_input,
                                            1,  // Number of build inputs
-                                           &bufferSizesIAS));
+                                           &buffer_sizes_ias));
 
-  CudaBuffer deviceTempBufferIAS;
-  deviceTempBufferIAS.Resize(bufferSizesIAS.tempSizeInBytes);
-  ias_buffer_.Resize(bufferSizesIAS.outputSizeInBytes);
+  CudaBuffer device_temp_buffer_ias;
+  device_temp_buffer_ias.Resize(buffer_sizes_ias.tempSizeInBytes);
+  ias_buffer_.Resize(buffer_sizes_ias.outputSizeInBytes);
 
-  OptixTraversableHandle iASHandle = 0;
+  OptixTraversableHandle i_as_handle = 0;
   OPTIX_CHECK(optixAccelBuild(optix_device_context_,
-                              0,  // CUDA stream
-                              &accelBuildOptions, &buildInput,
+                              nullptr,  // CUDA stream
+                              &accel_build_options, &build_input,
                               1,  // num build inputs
-                              deviceTempBufferIAS.DevicePointer(), bufferSizesIAS.tempSizeInBytes,
-                              ias_buffer_.DevicePointer(), bufferSizesIAS.outputSizeInBytes, &iASHandle,
+                              device_temp_buffer_ias.DevicePointer(), buffer_sizes_ias.tempSizeInBytes,
+                              ias_buffer_.DevicePointer(), buffer_sizes_ias.outputSizeInBytes, &i_as_handle,
                               nullptr,  // emitted property list
                               0));      // num emitted properties
-  deviceTempInstances.Free();
-  deviceTempBufferIAS.Free();
+  device_temp_instances.Free();
+  device_temp_buffer_ias.Free();
 
-  camera_rendering_launch_params_.traversable = iASHandle;
-  illumination_estimation_launch_params_.traversable = iASHandle;
-  point_cloud_scanning_launch_params_.traversable = iASHandle;
+  camera_rendering_launch_params_.traversable = i_as_handle;
+  illumination_estimation_launch_params_.traversable = i_as_handle;
+  point_cloud_scanning_launch_params_.traversable = i_as_handle;
   has_acceleration_structure_ = true;
   scene_modified = true;
 }
@@ -1330,163 +1309,164 @@ void OptiXRayTracer::AssemblePipelines() {
   AssemblePipeline(point_cloud_scanning_pipeline_);
 }
 
-void OptiXRayTracer::CreateRayGenProgram(RayTracerPipeline &targetPipeline, char entryFunctionName[]) const {
-  OptixProgramGroupOptions pgOptions = {};
-  OptixProgramGroupDesc pgDesc = {};
-  pgDesc.kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
-  pgDesc.raygen.module = targetPipeline.module;
-  pgDesc.raygen.entryFunctionName = entryFunctionName;
+void OptiXRayTracer::CreateRayGenProgram(RayTracerPipeline &target_pipeline, char entry_function_name[]) const {
+  constexpr OptixProgramGroupOptions pg_options = {};
+  OptixProgramGroupDesc pg_desc = {};
+  pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
+  pg_desc.raygen.module = target_pipeline.module;
+  pg_desc.raygen.entryFunctionName = entry_function_name;
   char log[2048];
-  size_t sizeofLog = sizeof(log);
-  OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pgDesc, 1, &pgOptions, log, &sizeofLog,
-                                      &targetPipeline.ray_gen_program_groups));
-  if (sizeofLog > 1)
+  size_t sizeof_log = sizeof(log);
+  OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+                                      &target_pipeline.ray_gen_program_groups));
+  if (sizeof_log > 1)
     std::cout << log << std::endl;
 }
 
-void OptiXRayTracer::CreateModule(RayTracerPipeline &targetPipeline, char ptxCode[], char launchParamsName[]) const {
-  targetPipeline.launch_params_name = launchParamsName;
+void OptiXRayTracer::CreateModule(RayTracerPipeline &target_pipeline, char ptx_code[],
+                                  char launch_params_name[]) const {
+  target_pipeline.launch_params_name = launch_params_name;
 
-  targetPipeline.module_compile_options.maxRegisterCount = 50;
-  targetPipeline.module_compile_options.optLevel = OPTIX_COMPILE_OPTIMIZATION_DEFAULT;
-  targetPipeline.module_compile_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_NONE;
+  target_pipeline.module_compile_options.maxRegisterCount = 50;
+  target_pipeline.module_compile_options.optLevel = OPTIX_COMPILE_OPTIMIZATION_DEFAULT;
+  target_pipeline.module_compile_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_NONE;
 
-  targetPipeline.pipeline_compile_options = {};
-  targetPipeline.pipeline_compile_options.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_ANY;
-  targetPipeline.pipeline_compile_options.usesMotionBlur = false;
-  targetPipeline.pipeline_compile_options.numPayloadValues = 2;
-  targetPipeline.pipeline_compile_options.numAttributeValues = 2;
-  targetPipeline.pipeline_compile_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
-  targetPipeline.pipeline_compile_options.pipelineLaunchParamsVariableName = launchParamsName;
-  targetPipeline.pipeline_compile_options.usesPrimitiveTypeFlags =
+  target_pipeline.pipeline_compile_options = {};
+  target_pipeline.pipeline_compile_options.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_ANY;
+  target_pipeline.pipeline_compile_options.usesMotionBlur = false;
+  target_pipeline.pipeline_compile_options.numPayloadValues = 2;
+  target_pipeline.pipeline_compile_options.numAttributeValues = 2;
+  target_pipeline.pipeline_compile_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
+  target_pipeline.pipeline_compile_options.pipelineLaunchParamsVariableName = launch_params_name;
+  target_pipeline.pipeline_compile_options.usesPrimitiveTypeFlags =
       OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE | OPTIX_PRIMITIVE_TYPE_FLAGS_ROUND_LINEAR |
       OPTIX_PRIMITIVE_TYPE_FLAGS_ROUND_QUADRATIC_BSPLINE | OPTIX_PRIMITIVE_TYPE_FLAGS_ROUND_CUBIC_BSPLINE;
 
-  const std::string code = ptxCode;
+  const std::string code = ptx_code;
 
   char log[2048];
   size_t sizeof_log = sizeof(log);
-  OPTIX_CHECK(optixModuleCreate(optix_device_context_, &targetPipeline.module_compile_options,
-                                &targetPipeline.pipeline_compile_options, code.c_str(), code.size(), log, &sizeof_log,
-                                &targetPipeline.module));
+  OPTIX_CHECK(optixModuleCreate(optix_device_context_, &target_pipeline.module_compile_options,
+                                &target_pipeline.pipeline_compile_options, code.c_str(), code.size(), log, &sizeof_log,
+                                &target_pipeline.module));
 
-  OptixBuiltinISOptions builtinISOptions = {};
-  builtinISOptions.builtinISModuleType = OPTIX_PRIMITIVE_TYPE_ROUND_QUADRATIC_BSPLINE;
-  builtinISOptions.curveEndcapFlags = OPTIX_CURVE_ENDCAP_ON;
-  OPTIX_CHECK(optixBuiltinISModuleGet(optix_device_context_, &targetPipeline.module_compile_options,
-                                      &targetPipeline.pipeline_compile_options, &builtinISOptions,
-                                      &targetPipeline.quadratic_curve_module));
+  OptixBuiltinISOptions builtin_is_options = {};
+  builtin_is_options.builtinISModuleType = OPTIX_PRIMITIVE_TYPE_ROUND_QUADRATIC_BSPLINE;
+  builtin_is_options.curveEndcapFlags = OPTIX_CURVE_ENDCAP_ON;
+  OPTIX_CHECK(optixBuiltinISModuleGet(optix_device_context_, &target_pipeline.module_compile_options,
+                                      &target_pipeline.pipeline_compile_options, &builtin_is_options,
+                                      &target_pipeline.quadratic_curve_module));
 
-  builtinISOptions.builtinISModuleType = OPTIX_PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE;
-  OPTIX_CHECK(optixBuiltinISModuleGet(optix_device_context_, &targetPipeline.module_compile_options,
-                                      &targetPipeline.pipeline_compile_options, &builtinISOptions,
-                                      &targetPipeline.cubic_curve_module));
+  builtin_is_options.builtinISModuleType = OPTIX_PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE;
+  OPTIX_CHECK(optixBuiltinISModuleGet(optix_device_context_, &target_pipeline.module_compile_options,
+                                      &target_pipeline.pipeline_compile_options, &builtin_is_options,
+                                      &target_pipeline.cubic_curve_module));
 
-  builtinISOptions.builtinISModuleType = OPTIX_PRIMITIVE_TYPE_ROUND_LINEAR;
-  OPTIX_CHECK(optixBuiltinISModuleGet(optix_device_context_, &targetPipeline.module_compile_options,
-                                      &targetPipeline.pipeline_compile_options, &builtinISOptions,
-                                      &targetPipeline.linear_curve_module));
+  builtin_is_options.builtinISModuleType = OPTIX_PRIMITIVE_TYPE_ROUND_LINEAR;
+  OPTIX_CHECK(optixBuiltinISModuleGet(optix_device_context_, &target_pipeline.module_compile_options,
+                                      &target_pipeline.pipeline_compile_options, &builtin_is_options,
+                                      &target_pipeline.linear_curve_module));
 
   if (sizeof_log > 1)
     std::cout << log << std::endl;
 }
 
-void OptiXRayTracer::AssemblePipeline(RayTracerPipeline &targetPipeline) const {
-  std::vector<OptixProgramGroup> programGroups;
-  programGroups.push_back(targetPipeline.ray_gen_program_groups);
-  for (auto &i : targetPipeline.miss_program_groups)
-    programGroups.push_back(i.second);
-  for (auto &i : targetPipeline.hit_group_program_groups)
+void OptiXRayTracer::AssemblePipeline(RayTracerPipeline &target_pipeline) const {
+  std::vector<OptixProgramGroup> program_groups;
+  program_groups.push_back(target_pipeline.ray_gen_program_groups);
+  for (auto &i : target_pipeline.miss_program_groups)
+    program_groups.push_back(i.second);
+  for (auto &i : target_pipeline.hit_group_program_groups)
     for (auto &j : i.second)
-      programGroups.push_back(j.second);
+      program_groups.push_back(j.second);
 
-  const uint32_t maxTraceDepth = 31;
-  targetPipeline.pipeline_link_options.maxTraceDepth = maxTraceDepth;
+  constexpr uint32_t max_trace_depth = 31;
+  target_pipeline.pipeline_link_options.maxTraceDepth = max_trace_depth;
   char log[2048];
-  size_t sizeofLog = sizeof(log);
-  OPTIX_CHECK(optixPipelineCreate(optix_device_context_, &targetPipeline.pipeline_compile_options,
-                                  &targetPipeline.pipeline_link_options, programGroups.data(),
-                                  static_cast<int>(programGroups.size()), log, &sizeofLog, &targetPipeline.pipeline));
-  if (sizeofLog > 1)
+  size_t sizeof_log = sizeof(log);
+  OPTIX_CHECK(optixPipelineCreate(
+      optix_device_context_, &target_pipeline.pipeline_compile_options, &target_pipeline.pipeline_link_options,
+      program_groups.data(), static_cast<int>(program_groups.size()), log, &sizeof_log, &target_pipeline.pipeline));
+  if (sizeof_log > 1)
     std::cout << log << std::endl;
 
-  OptixStackSizes stackSizes = {};
-  for (auto &progGroup : programGroups) {
-    OPTIX_CHECK(optixUtilAccumulateStackSizes(progGroup, &stackSizes, targetPipeline.pipeline));
+  OptixStackSizes stack_sizes = {};
+  for (const auto &program_group : program_groups) {
+    OPTIX_CHECK(optixUtilAccumulateStackSizes(program_group, &stack_sizes, target_pipeline.pipeline));
   }
 
-  uint32_t directCallableStackSizeFromTraversal;
-  uint32_t directCallableStackSizeFromState;
-  uint32_t continuationStackSize;
-  OPTIX_CHECK(optixUtilComputeStackSizes(&stackSizes, maxTraceDepth,
+  uint32_t direct_callable_stack_size_from_traversal;
+  uint32_t direct_callable_stack_size_from_state;
+  uint32_t continuation_stack_size;
+  OPTIX_CHECK(optixUtilComputeStackSizes(&stack_sizes, max_trace_depth,
                                          0,  // maxCCDepth
                                          0,  // maxDCDEpth
-                                         &directCallableStackSizeFromTraversal, &directCallableStackSizeFromState,
-                                         &continuationStackSize));
-  OPTIX_CHECK(optixPipelineSetStackSize(targetPipeline.pipeline, directCallableStackSizeFromTraversal,
-                                        directCallableStackSizeFromState, continuationStackSize,
+                                         &direct_callable_stack_size_from_traversal,
+                                         &direct_callable_stack_size_from_state, &continuation_stack_size));
+  OPTIX_CHECK(optixPipelineSetStackSize(target_pipeline.pipeline, direct_callable_stack_size_from_traversal,
+                                        direct_callable_stack_size_from_state, continuation_stack_size,
                                         2  // maxTraversableDepth
                                         ));
-  if (sizeofLog > 1)
+  if (sizeof_log > 1)
     std::cout << log << std::endl;
 }
 
 void OptiXRayTracer::BuildSbt() {
-  std::vector<uint64_t> removeQueue;
+  std::vector<uint64_t> remove_queue;
   for (auto &i : materials) {
     auto &material = i.second;
     material.material_buffer.Free();
     if (material.remove_flag) {
-      removeQueue.emplace_back(i.first);
+      remove_queue.emplace_back(i.first);
     } else {
       material.UploadForSbt();
     }
   }
-  for (auto &i : removeQueue) {
-    auto &material = materials.at(i);
+  for (auto &i : remove_queue) {
     materials.erase(i);
   }
 #pragma region Prepare SBTs
-  std::map<uint64_t, SBT> sBTs;
-  for (auto &instancePair : instances) {
-    auto &instance = instancePair.second;
+  std::map<uint64_t, SBT> shader_binding_tables;
+  for (auto &instance_pair : instances) {
+    auto &instance = instance_pair.second;
     auto &material = materials.at(instance.material_map_key);
     auto &geometry = geometries.at(instance.geometry_map_key);
-    auto &sBT = sBTs[instancePair.first];
-    sBT.handle = instance.private_component_handle;
-    sBT.global_transform = instance.global_transform;
-    sBT.geometry_type = geometry.renderer_type;
-    sBT.geometry = reinterpret_cast<void *>(geometry.geometry_buffer.DevicePointer());
-    sBT.material_type = material.material_type;
-    sBT.material = reinterpret_cast<void *>(material.material_buffer.DevicePointer());
+    auto &sbt = shader_binding_tables[instance_pair.first];
+    sbt.handle = instance.private_component_handle;
+    sbt.global_transform = instance.global_transform;
+    sbt.geometry_type = geometry.renderer_type;
+    sbt.geometry = reinterpret_cast<void *>(geometry.geometry_buffer.DevicePointer());
+    sbt.material_type = material.material_type;
+    sbt.material = reinterpret_cast<void *>(material.material_buffer.DevicePointer());
   }
 #pragma endregion
   {
     // ------------------------------------------------------------------
     // build raygen records
     // ------------------------------------------------------------------
-    std::vector<CameraRenderingRayGenRecord> raygenRecords;
-    CameraRenderingRayGenRecord rec;
-    OPTIX_CHECK(optixSbtRecordPackHeader(camera_rendering_pipeline_.ray_gen_program_groups, &rec));
-    rec.data = nullptr; /* for now ... */
-    raygenRecords.push_back(rec);
-    camera_rendering_pipeline_.ray_gen_records_buffer.Upload(raygenRecords);
+    std::vector<CameraRenderingRayGenRecord> raygen_records;
+    CameraRenderingRayGenRecord camera_rendering_ray_gen_record;
+    OPTIX_CHECK(
+        optixSbtRecordPackHeader(camera_rendering_pipeline_.ray_gen_program_groups, &camera_rendering_ray_gen_record));
+    camera_rendering_ray_gen_record.data = nullptr; /* for now ... */
+    raygen_records.push_back(camera_rendering_ray_gen_record);
+    camera_rendering_pipeline_.ray_gen_records_buffer.Upload(raygen_records);
     camera_rendering_pipeline_.sbt.raygenRecord = camera_rendering_pipeline_.ray_gen_records_buffer.DevicePointer();
 
     // ------------------------------------------------------------------
     // build miss records
     // ------------------------------------------------------------------
-    std::vector<CameraRenderingRayMissRecord> missRecords;
+    std::vector<CameraRenderingRayMissRecord> miss_records;
     for (auto &i : camera_rendering_pipeline_.miss_program_groups) {
-      CameraRenderingRayMissRecord rec;
-      OPTIX_CHECK(optixSbtRecordPackHeader(i.second, &rec));
-      rec.data = nullptr; /* for now ... */
-      missRecords.push_back(rec);
+      CameraRenderingRayMissRecord camera_rendering_ray_miss_record;
+      OPTIX_CHECK(optixSbtRecordPackHeader(i.second, &camera_rendering_ray_miss_record));
+      camera_rendering_ray_miss_record.data = nullptr; /* for now ... */
+      miss_records.push_back(camera_rendering_ray_miss_record);
     }
-    camera_rendering_pipeline_.miss_records_buffer.Upload(missRecords);
+    camera_rendering_pipeline_.miss_records_buffer.Upload(miss_records);
     camera_rendering_pipeline_.sbt.missRecordBase = camera_rendering_pipeline_.miss_records_buffer.DevicePointer();
     camera_rendering_pipeline_.sbt.missRecordStrideInBytes = sizeof(CameraRenderingRayMissRecord);
-    camera_rendering_pipeline_.sbt.missRecordCount = static_cast<int>(missRecords.size());
+    camera_rendering_pipeline_.sbt.missRecordCount = static_cast<int>(miss_records.size());
 
     // ------------------------------------------------------------------
     // build hit records
@@ -1496,52 +1476,52 @@ void OptiXRayTracer::BuildSbt() {
     // create a dummy one so the SBT doesn't have any null pointers
     // (which the sanity checks in compilation would complain about)
 
-    std::vector<CameraRenderingRayHitRecord> hitGroupRecords;
-    for (auto &instancePair : instances) {
-      for (int rayID = 0; rayID < static_cast<int>(RayType::RayTypeCount); rayID++) {
-        auto &collection = camera_rendering_pipeline_.hit_group_program_groups[(RayType)rayID];
-        auto &geometry = geometries[instancePair.second.geometry_map_key];
+    std::vector<CameraRenderingRayHitRecord> hit_group_records;
+    for (auto &instance_pair : instances) {
+      for (int ray_id = 0; ray_id < static_cast<int>(RayType::RayTypeCount); ray_id++) {
+        auto &collection = camera_rendering_pipeline_.hit_group_program_groups[static_cast<RayType>(ray_id)];
+        auto &geometry = geometries[instance_pair.second.geometry_map_key];
         auto group = collection[geometry.geometry_type];
         CameraRenderingRayHitRecord rec;
-        rec.data = sBTs[instancePair.first];
+        rec.data = shader_binding_tables[instance_pair.first];
         OPTIX_CHECK(optixSbtRecordPackHeader(group, &rec));
-        hitGroupRecords.push_back(rec);
+        hit_group_records.push_back(rec);
       }
     }
-    camera_rendering_pipeline_.hit_group_records_buffer.Upload(hitGroupRecords);
+    camera_rendering_pipeline_.hit_group_records_buffer.Upload(hit_group_records);
     camera_rendering_pipeline_.sbt.hitgroupRecordBase =
         camera_rendering_pipeline_.hit_group_records_buffer.DevicePointer();
     camera_rendering_pipeline_.sbt.hitgroupRecordStrideInBytes = sizeof(CameraRenderingRayHitRecord);
-    camera_rendering_pipeline_.sbt.hitgroupRecordCount = static_cast<int>(hitGroupRecords.size());
+    camera_rendering_pipeline_.sbt.hitgroupRecordCount = static_cast<int>(hit_group_records.size());
   }
   {
     // ------------------------------------------------------------------
     // build raygen records
     // ------------------------------------------------------------------
-    std::vector<IlluminationEstimationRayGenRecord> raygenRecords;
+    std::vector<IlluminationEstimationRayGenRecord> raygen_records;
     IlluminationEstimationRayGenRecord rec;
     OPTIX_CHECK(optixSbtRecordPackHeader(illumination_estimation_pipeline_.ray_gen_program_groups, &rec));
     rec.data = nullptr; /* for now ... */
-    raygenRecords.push_back(rec);
-    illumination_estimation_pipeline_.ray_gen_records_buffer.Upload(raygenRecords);
+    raygen_records.push_back(rec);
+    illumination_estimation_pipeline_.ray_gen_records_buffer.Upload(raygen_records);
     illumination_estimation_pipeline_.sbt.raygenRecord =
         illumination_estimation_pipeline_.ray_gen_records_buffer.DevicePointer();
 
     // ------------------------------------------------------------------
     // build miss records
     // ------------------------------------------------------------------
-    std::vector<IlluminationEstimationRayMissRecord> missRecords;
+    std::vector<IlluminationEstimationRayMissRecord> miss_records;
     for (auto &i : illumination_estimation_pipeline_.miss_program_groups) {
-      IlluminationEstimationRayMissRecord rec;
-      OPTIX_CHECK(optixSbtRecordPackHeader(i.second, &rec));
-      rec.data = nullptr; /* for now ... */
-      missRecords.push_back(rec);
+      IlluminationEstimationRayMissRecord illumination_estimation_ray_miss_record;
+      OPTIX_CHECK(optixSbtRecordPackHeader(i.second, &illumination_estimation_ray_miss_record));
+      illumination_estimation_ray_miss_record.data = nullptr; /* for now ... */
+      miss_records.push_back(illumination_estimation_ray_miss_record);
     }
-    illumination_estimation_pipeline_.miss_records_buffer.Upload(missRecords);
+    illumination_estimation_pipeline_.miss_records_buffer.Upload(miss_records);
     illumination_estimation_pipeline_.sbt.missRecordBase =
         illumination_estimation_pipeline_.miss_records_buffer.DevicePointer();
     illumination_estimation_pipeline_.sbt.missRecordStrideInBytes = sizeof(IlluminationEstimationRayMissRecord);
-    illumination_estimation_pipeline_.sbt.missRecordCount = static_cast<int>(missRecords.size());
+    illumination_estimation_pipeline_.sbt.missRecordCount = static_cast<int>(miss_records.size());
 
     // ------------------------------------------------------------------
     // build hit records
@@ -1550,53 +1530,53 @@ void OptiXRayTracer::BuildSbt() {
     // we don't actually have any objects in this example, but let's
     // create a dummy one so the SBT doesn't have any null pointers
     // (which the sanity checks in compilation would complain about)
-    std::vector<IlluminationEstimationRayHitRecord> hitGroupRecords;
-    for (auto &instancePair : instances) {
-      for (int rayID = 0; rayID < static_cast<int>(RayType::RayTypeCount); rayID++) {
-        auto &collection = illumination_estimation_pipeline_.hit_group_program_groups[(RayType)rayID];
-        auto &geometry = geometries[instancePair.second.geometry_map_key];
+    std::vector<IlluminationEstimationRayHitRecord> hit_group_records;
+    for (auto &instance_pair : instances) {
+      for (int ray_id = 0; ray_id < static_cast<int>(RayType::RayTypeCount); ray_id++) {
+        auto &collection = illumination_estimation_pipeline_.hit_group_program_groups[static_cast<RayType>(ray_id)];
+        auto &geometry = geometries[instance_pair.second.geometry_map_key];
         auto group = collection[geometry.geometry_type];
-        IlluminationEstimationRayHitRecord rec;
-        rec.data = sBTs[instancePair.first];
-        OPTIX_CHECK(optixSbtRecordPackHeader(group, &rec));
-        hitGroupRecords.push_back(rec);
+        IlluminationEstimationRayHitRecord illumination_estimation_ray_hit_record;
+        illumination_estimation_ray_hit_record.data = shader_binding_tables[instance_pair.first];
+        OPTIX_CHECK(optixSbtRecordPackHeader(group, &illumination_estimation_ray_hit_record));
+        hit_group_records.push_back(illumination_estimation_ray_hit_record);
       }
     }
-    illumination_estimation_pipeline_.hit_group_records_buffer.Upload(hitGroupRecords);
+    illumination_estimation_pipeline_.hit_group_records_buffer.Upload(hit_group_records);
     illumination_estimation_pipeline_.sbt.hitgroupRecordBase =
         illumination_estimation_pipeline_.hit_group_records_buffer.DevicePointer();
     illumination_estimation_pipeline_.sbt.hitgroupRecordStrideInBytes = sizeof(IlluminationEstimationRayHitRecord);
-    illumination_estimation_pipeline_.sbt.hitgroupRecordCount = static_cast<int>(hitGroupRecords.size());
+    illumination_estimation_pipeline_.sbt.hitgroupRecordCount = static_cast<int>(hit_group_records.size());
   }
 
   {
     // ------------------------------------------------------------------
     // build raygen records
     // ------------------------------------------------------------------
-    std::vector<PointCloudScanningRayGenRecord> raygenRecords;
+    std::vector<PointCloudScanningRayGenRecord> raygen_records;
     PointCloudScanningRayGenRecord rec;
     OPTIX_CHECK(optixSbtRecordPackHeader(point_cloud_scanning_pipeline_.ray_gen_program_groups, &rec));
     rec.data = nullptr; /* for now ... */
-    raygenRecords.push_back(rec);
-    point_cloud_scanning_pipeline_.ray_gen_records_buffer.Upload(raygenRecords);
+    raygen_records.push_back(rec);
+    point_cloud_scanning_pipeline_.ray_gen_records_buffer.Upload(raygen_records);
     point_cloud_scanning_pipeline_.sbt.raygenRecord =
         point_cloud_scanning_pipeline_.ray_gen_records_buffer.DevicePointer();
 
     // ------------------------------------------------------------------
     // build miss records
     // ------------------------------------------------------------------
-    std::vector<PointCloudScanningRayMissRecord> missRecords;
+    std::vector<PointCloudScanningRayMissRecord> miss_records;
     for (auto &i : point_cloud_scanning_pipeline_.miss_program_groups) {
-      PointCloudScanningRayMissRecord rec;
-      OPTIX_CHECK(optixSbtRecordPackHeader(i.second, &rec));
-      rec.data = nullptr; /* for now ... */
-      missRecords.push_back(rec);
+      PointCloudScanningRayMissRecord point_cloud_scanning_ray_miss_record;
+      OPTIX_CHECK(optixSbtRecordPackHeader(i.second, &point_cloud_scanning_ray_miss_record));
+      point_cloud_scanning_ray_miss_record.data = nullptr; /* for now ... */
+      miss_records.push_back(point_cloud_scanning_ray_miss_record);
     }
-    point_cloud_scanning_pipeline_.miss_records_buffer.Upload(missRecords);
+    point_cloud_scanning_pipeline_.miss_records_buffer.Upload(miss_records);
     point_cloud_scanning_pipeline_.sbt.missRecordBase =
         point_cloud_scanning_pipeline_.miss_records_buffer.DevicePointer();
     point_cloud_scanning_pipeline_.sbt.missRecordStrideInBytes = sizeof(PointCloudScanningRayMissRecord);
-    point_cloud_scanning_pipeline_.sbt.missRecordCount = static_cast<int>(missRecords.size());
+    point_cloud_scanning_pipeline_.sbt.missRecordCount = static_cast<int>(miss_records.size());
 
     // ------------------------------------------------------------------
     // build hit records
@@ -1605,23 +1585,23 @@ void OptiXRayTracer::BuildSbt() {
     // we don't actually have any objects in this example, but let's
     // create a dummy one so the SBT doesn't have any null pointers
     // (which the sanity checks in compilation would complain about)
-    std::vector<PointCloudScanningRayHitRecord> hitGroupRecords;
-    for (auto &instancePair : instances) {
-      for (int rayID = 0; rayID < static_cast<int>(RayType::RayTypeCount); rayID++) {
-        auto &collection = point_cloud_scanning_pipeline_.hit_group_program_groups[(RayType)rayID];
-        auto &geometry = geometries[instancePair.second.geometry_map_key];
+    std::vector<PointCloudScanningRayHitRecord> hit_group_records;
+    for (auto &instance_pair : instances) {
+      for (int ray_id = 0; ray_id < static_cast<int>(RayType::RayTypeCount); ray_id++) {
+        auto &collection = point_cloud_scanning_pipeline_.hit_group_program_groups[(RayType)ray_id];
+        auto &geometry = geometries[instance_pair.second.geometry_map_key];
         auto group = collection[geometry.geometry_type];
-        PointCloudScanningRayHitRecord rec;
-        rec.data = sBTs[instancePair.first];
-        OPTIX_CHECK(optixSbtRecordPackHeader(group, &rec));
-        hitGroupRecords.push_back(rec);
+        PointCloudScanningRayHitRecord point_cloud_scanning_ray_hit_record;
+        point_cloud_scanning_ray_hit_record.data = shader_binding_tables[instance_pair.first];
+        OPTIX_CHECK(optixSbtRecordPackHeader(group, &point_cloud_scanning_ray_hit_record));
+        hit_group_records.push_back(point_cloud_scanning_ray_hit_record);
       }
     }
-    point_cloud_scanning_pipeline_.hit_group_records_buffer.Upload(hitGroupRecords);
+    point_cloud_scanning_pipeline_.hit_group_records_buffer.Upload(hit_group_records);
     point_cloud_scanning_pipeline_.sbt.hitgroupRecordBase =
         point_cloud_scanning_pipeline_.hit_group_records_buffer.DevicePointer();
     point_cloud_scanning_pipeline_.sbt.hitgroupRecordStrideInBytes = sizeof(PointCloudScanningRayHitRecord);
-    point_cloud_scanning_pipeline_.sbt.hitgroupRecordCount = static_cast<int>(hitGroupRecords.size());
+    point_cloud_scanning_pipeline_.sbt.hitgroupRecordCount = static_cast<int>(hit_group_records.size());
   }
 }
 
@@ -1684,20 +1664,18 @@ void RayTracedMaterial::UploadForSbt() {
 
 void RayTracedMaterial::BindTexture(unsigned int id, cudaGraphicsResource_t &graphics_resource,
                                     cudaTextureObject_t &texture_object) {
-  cudaArray_t textureArray;
+  cudaArray_t texture_array;
   CUDA_CHECK(GraphicsGLRegisterImage(&graphics_resource, id, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsReadOnly));
   CUDA_CHECK(GraphicsMapResources(1, &graphics_resource, nullptr));
-  CUDA_CHECK(GraphicsSubResourceGetMappedArray(&textureArray, graphics_resource, 0, 0));
-  struct cudaResourceDesc cudaResourceDesc;
-  memset(&cudaResourceDesc, 0, sizeof(cudaResourceDesc));
-  cudaResourceDesc.resType = cudaResourceTypeArray;
-  cudaResourceDesc.res.array.array = textureArray;
-  struct cudaTextureDesc cudaTextureDesc;
-  memset(&cudaTextureDesc, 0, sizeof(cudaTextureDesc));
-  cudaTextureDesc.addressMode[0] = cudaAddressModeWrap;
-  cudaTextureDesc.addressMode[1] = cudaAddressModeWrap;
-  cudaTextureDesc.filterMode = cudaFilterModeLinear;
-  cudaTextureDesc.readMode = cudaReadModeElementType;
-  cudaTextureDesc.normalizedCoords = 1;
-  CUDA_CHECK(CreateTextureObject(&texture_object, &cudaResourceDesc, &cudaTextureDesc, nullptr));
+  CUDA_CHECK(GraphicsSubResourceGetMappedArray(&texture_array, graphics_resource, 0, 0));
+  cudaResourceDesc cuda_resource_desc = {};
+  cuda_resource_desc.resType = cudaResourceTypeArray;
+  cuda_resource_desc.res.array.array = texture_array;
+  cudaTextureDesc cuda_texture_desc = {};
+  cuda_texture_desc.addressMode[0] = cudaAddressModeWrap;
+  cuda_texture_desc.addressMode[1] = cudaAddressModeWrap;
+  cuda_texture_desc.filterMode = cudaFilterModeLinear;
+  cuda_texture_desc.readMode = cudaReadModeElementType;
+  cuda_texture_desc.normalizedCoords = 1;
+  CUDA_CHECK(CreateTextureObject(&texture_object, &cuda_resource_desc, &cuda_texture_desc, nullptr));
 }

@@ -183,7 +183,7 @@ void GpuRayTracerCamera::Capture() {
      * std::filesystem::path("./EcoSysLabResources/Shaders/Compute/AlphaShape.comp"));
      */
     ray_tracer_camera_shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Compute/RayTracerCamera.comp");
   }
   /**

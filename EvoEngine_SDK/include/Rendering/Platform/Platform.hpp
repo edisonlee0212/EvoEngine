@@ -5,11 +5,8 @@
 #include "ISingleton.hpp"
 #include "RayTracingPipeline.hpp"
 
-#ifdef EVOENGINE_WINDOWS
-#  define ENABLE_EXTERNAL_MEMORY true
-#else
-#  define ENABLE_EXTERNAL_MEMORY false
-#endif
+#define ENABLE_EXTERNAL_MEMORY true
+
 #define ENABLE_NV_RAY_TRACING_VALIDATION false
 
 #ifndef USE_RENDERDOC
@@ -175,6 +172,10 @@ class Platform final {
   std::shared_ptr<CommandBuffer> immediate_submit_command_buffer;
   std::unordered_map<std::string, std::function<void()>> buffer_sync_actions;
   std::vector<std::function<void()>> temporary_buffer_sync_actions;
+  /**
+   * \brief Defined during Platform::Initialize();
+   */
+  std::string shader_global_defines = {};
 
  public:
   static bool Initialized();
@@ -240,10 +241,6 @@ class Platform final {
     inline static uint32_t max_compute_work_group_invocations = 1;
 
     inline static uint32_t max_shared_memory_size = 1;
-    /**
-     * \brief Defined during Platform::Initialize();
-     */
-    inline static std::string shader_global_defines{};
   };
   static uint32_t DivUp(uint32_t a, uint32_t b);
   static void EverythingBarrier(VkCommandBuffer vk_command_buffer);
@@ -251,7 +248,7 @@ class Platform final {
   static void TransitImageLayout(VkCommandBuffer vk_command_buffer, VkImage target_image, VkFormat image_format,
                                  uint32_t layer_count, VkImageLayout old_layout, VkImageLayout new_layout,
                                  uint32_t mip_levels = 1);
-
+  static const std::string& GetShaderGlobalDefines();
   static std::string StringifyResultVk(const VkResult& result);
   static void CheckVk(const VkResult& result);
 

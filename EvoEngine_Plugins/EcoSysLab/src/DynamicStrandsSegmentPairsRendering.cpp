@@ -25,15 +25,15 @@ void DynamicStrands::BuildSegmentPairsRenderingPipeline() {
   // Descriptor set layout
   segment_pairs_visualization_render_pipeline = std::make_shared<GraphicsPipeline>();
   segment_pairs_visualization_render_pipeline->task_shader =
-      Shader::CreateTemporary(ShaderType::Task, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Task/DynamicStrands/Rendering/SegmentPairs.task");
   segment_pairs_visualization_render_pipeline->mesh_shader =
-      Shader::CreateTemporary(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Mesh/DynamicStrands/Rendering/SegmentPairs/Rendering.mesh");
   segment_pairs_visualization_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Fragment/DynamicStrands/Rendering/SegmentPairs.frag");
   segment_pairs_visualization_render_pipeline->geometry_type = GeometryType::Mesh;

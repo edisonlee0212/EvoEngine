@@ -47,7 +47,7 @@ void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
 void ToneMapping::BuildPipelines() {
   pipeline = std::make_shared<ComputePipeline>();
   pipeline->compute_shader = Shader::CreateTemporary(
-      ShaderType::Compute, Platform::Constants::shader_global_defines,
+      ShaderType::Compute, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./DefaultResources") / "Shaders/Compute/PostProcessing/ToneMapping.comp");
 
   pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);

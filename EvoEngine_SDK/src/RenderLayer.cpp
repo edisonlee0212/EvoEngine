@@ -54,10 +54,10 @@ void RenderLayer::OnCreate() {
   if (!point_light_shadow_pipeline_normal) {
     point_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();
     point_light_shadow_pipeline_normal->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMap.vert");
     point_light_shadow_pipeline_normal->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     point_light_shadow_pipeline_normal->geometry_type = GeometryType::Mesh;
     point_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -72,13 +72,13 @@ void RenderLayer::OnCreate() {
   if (Platform::Constants::support_mesh_shader && !point_light_shadow_pipeline_mesh_shader) {
     point_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
     point_light_shadow_pipeline_mesh_shader->task_shader = Shader::CreateTemporary(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
+        ShaderType::Task, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Task/Lighting/PointLightShadowMap.task");
     point_light_shadow_pipeline_mesh_shader->mesh_shader = Shader::CreateTemporary(
-        ShaderType::Mesh, Platform::Constants::shader_global_defines,
+        ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Mesh/Lighting/PointLightShadowMap.mesh");
     point_light_shadow_pipeline_mesh_shader->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     point_light_shadow_pipeline_mesh_shader->geometry_type = GeometryType::Mesh;
     point_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -94,10 +94,10 @@ void RenderLayer::OnCreate() {
   if (!spot_light_shadow_pipeline_normal) {
     spot_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();
     spot_light_shadow_pipeline_normal->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMap.vert");
     spot_light_shadow_pipeline_normal->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     spot_light_shadow_pipeline_normal->geometry_type = GeometryType::Mesh;
     spot_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -112,13 +112,13 @@ void RenderLayer::OnCreate() {
   if (Platform::Constants::support_mesh_shader && !spot_light_shadow_pipeline_mesh_shader) {
     spot_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
     spot_light_shadow_pipeline_mesh_shader->task_shader = Shader::CreateTemporary(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
+        ShaderType::Task, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Task/Lighting/SpotLightShadowMap.task");
     spot_light_shadow_pipeline_mesh_shader->mesh_shader = Shader::CreateTemporary(
-        ShaderType::Mesh, Platform::Constants::shader_global_defines,
+        ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Mesh/Lighting/SpotLightShadowMap.mesh");
     spot_light_shadow_pipeline_mesh_shader->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     spot_light_shadow_pipeline_mesh_shader->geometry_type = GeometryType::Mesh;
     spot_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -134,11 +134,11 @@ void RenderLayer::OnCreate() {
   if (!directional_light_shadow_pipeline_normal) {
     directional_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();
     directional_light_shadow_pipeline_normal->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMap.vert");
     directional_light_shadow_pipeline_normal->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     directional_light_shadow_pipeline_normal->geometry_type = GeometryType::Mesh;
     directional_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -153,13 +153,13 @@ void RenderLayer::OnCreate() {
   if (Platform::Constants::support_mesh_shader && !directional_light_shadow_pipeline_mesh_shader) {
     directional_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
     directional_light_shadow_pipeline_mesh_shader->task_shader = Shader::CreateTemporary(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
+        ShaderType::Task, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Task/Lighting/DirectionalLightShadowMap.task");
     directional_light_shadow_pipeline_mesh_shader->mesh_shader = Shader::CreateTemporary(
-        ShaderType::Mesh, Platform::Constants::shader_global_defines,
+        ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Mesh/Lighting/DirectionalLightShadowMap.mesh");
     directional_light_shadow_pipeline_mesh_shader->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     directional_light_shadow_pipeline_mesh_shader->geometry_type = GeometryType::Mesh;
     directional_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -175,11 +175,11 @@ void RenderLayer::OnCreate() {
   if (!instanced_point_light_shadow_pipeline) {
     instanced_point_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     instanced_point_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapInstanced.vert");
     instanced_point_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     instanced_point_light_shadow_pipeline->geometry_type = GeometryType::Mesh;
     instanced_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -195,11 +195,11 @@ void RenderLayer::OnCreate() {
   if (!instanced_spot_light_shadow_pipeline) {
     instanced_spot_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     instanced_spot_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.vert");
     instanced_spot_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     instanced_spot_light_shadow_pipeline->geometry_type = GeometryType::Mesh;
     instanced_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -215,11 +215,11 @@ void RenderLayer::OnCreate() {
   if (!instanced_directional_light_shadow_pipeline) {
     instanced_directional_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     instanced_directional_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.vert");
     instanced_directional_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     instanced_directional_light_shadow_pipeline->geometry_type = GeometryType::Mesh;
     instanced_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -236,11 +236,11 @@ void RenderLayer::OnCreate() {
   if (!skinned_point_light_shadow_pipeline) {
     skinned_point_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     skinned_point_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapSkinned.vert");
     skinned_point_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     skinned_point_light_shadow_pipeline->geometry_type = GeometryType::SkinnedMesh;
     skinned_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -256,11 +256,11 @@ void RenderLayer::OnCreate() {
   if (!skinned_spot_light_shadow_pipeline) {
     skinned_spot_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     skinned_spot_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.vert");
     skinned_spot_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     skinned_spot_light_shadow_pipeline->geometry_type = GeometryType::SkinnedMesh;
     skinned_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -276,11 +276,11 @@ void RenderLayer::OnCreate() {
   if (!skinned_directional_light_shadow_pipeline) {
     skinned_directional_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     skinned_directional_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.vert");
     skinned_directional_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     skinned_directional_light_shadow_pipeline->geometry_type = GeometryType::SkinnedMesh;
     skinned_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -297,23 +297,23 @@ void RenderLayer::OnCreate() {
   if (!strands_point_light_shadow_pipeline) {
     strands_point_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     strands_point_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapStrands.vert");
     strands_point_light_shadow_pipeline->tessellation_control_shader =
-        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationControl/Lighting/ShadowMapStrands.tesc");
     strands_point_light_shadow_pipeline->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationEvaluation/Lighting/ShadowMapStrands.tese");
     strands_point_light_shadow_pipeline->geometry_shader =
-        Shader::CreateTemporary(ShaderType::Geometry, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Geometry/Lighting/PointLightShadowMapStrands.geom");
     strands_point_light_shadow_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     strands_point_light_shadow_pipeline->geometry_type = GeometryType::Strands;
     strands_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -330,23 +330,23 @@ void RenderLayer::OnCreate() {
   if (!strands_spot_light_shadow_pipeline) {
     strands_spot_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     strands_spot_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapStrands.vert");
     strands_spot_light_shadow_pipeline->tessellation_control_shader =
-        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationControl/Lighting/ShadowMapStrands.tesc");
     strands_spot_light_shadow_pipeline->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationEvaluation/Lighting/ShadowMapStrands.tese");
     strands_spot_light_shadow_pipeline->geometry_shader =
-        Shader::CreateTemporary(ShaderType::Geometry, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Geometry/Lighting/SpotLightShadowMapStrands.geom");
     strands_spot_light_shadow_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     strands_spot_light_shadow_pipeline->geometry_type = GeometryType::Strands;
     strands_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -363,23 +363,23 @@ void RenderLayer::OnCreate() {
   if (!strands_directional_light_shadow_pipeline) {
     strands_directional_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     strands_directional_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapStrands.vert");
     strands_directional_light_shadow_pipeline->tessellation_control_shader =
-        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationControl/Lighting/ShadowMapStrands.tesc");
     strands_directional_light_shadow_pipeline->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationEvaluation/Lighting/ShadowMapStrands.tese");
     strands_directional_light_shadow_pipeline->geometry_shader =
-        Shader::CreateTemporary(ShaderType::Geometry, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Geometry/Lighting/DirectionalLightShadowMapStrands.geom");
     strands_directional_light_shadow_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     strands_directional_light_shadow_pipeline->geometry_type = GeometryType::Strands;
     strands_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -398,10 +398,10 @@ void RenderLayer::OnCreate() {
   if (!deferred_prepass_pipeline_normal) {
     deferred_prepass_pipeline_normal = std::make_shared<GraphicsPipeline>();
     deferred_prepass_pipeline_normal->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/Standard.vert");
     deferred_prepass_pipeline_normal->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     deferred_prepass_pipeline_normal->geometry_type = GeometryType::Mesh;
     deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -417,13 +417,13 @@ void RenderLayer::OnCreate() {
   if (Platform::Constants::support_mesh_shader && !deferred_prepass_pipeline_mesh) {
     deferred_prepass_pipeline_mesh = std::make_shared<GraphicsPipeline>();
     deferred_prepass_pipeline_mesh->task_shader = Shader::CreateTemporary(
-        ShaderType::Task, Platform::Constants::shader_global_defines,
+        ShaderType::Task, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Task/Standard/Standard.task");
     deferred_prepass_pipeline_mesh->mesh_shader = Shader::CreateTemporary(
-        ShaderType::Mesh, Platform::Constants::shader_global_defines,
+        ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Mesh/Standard/Standard.mesh");
     deferred_prepass_pipeline_mesh->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     deferred_prepass_pipeline_mesh->geometry_type = GeometryType::Mesh;
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -440,10 +440,10 @@ void RenderLayer::OnCreate() {
   if (!instanced_deferred_prepass_pipeline) {
     instanced_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
     instanced_deferred_prepass_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/StandardInstanced.vert");
     instanced_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     instanced_deferred_prepass_pipeline->geometry_type = GeometryType::Mesh;
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -460,10 +460,10 @@ void RenderLayer::OnCreate() {
   if (!skinned_deferred_prepass_pipeline) {
     skinned_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
     skinned_deferred_prepass_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/StandardSkinned.vert");
     skinned_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     skinned_deferred_prepass_pipeline->geometry_type = GeometryType::SkinnedMesh;
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -481,21 +481,21 @@ void RenderLayer::OnCreate() {
   if (!strands_deferred_prepass_pipeline) {
     strands_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
     strands_deferred_prepass_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/StandardStrands.vert");
     strands_deferred_prepass_pipeline->tessellation_control_shader =
-        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationControl/Standard/StandardStrands.tesc");
     strands_deferred_prepass_pipeline->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationEvaluation/Standard/StandardStrands.tese");
     strands_deferred_prepass_pipeline->geometry_shader = Shader::CreateTemporary(
-        ShaderType::Geometry, Platform::Constants::shader_global_defines,
+        ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Geometry/Standard/StandardStrands.geom");
     strands_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     strands_deferred_prepass_pipeline->geometry_type = GeometryType::Strands;
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
@@ -517,7 +517,7 @@ void RenderLayer::OnCreate() {
         Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     deferred_lighting_pass_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.frag");
     deferred_lighting_pass_pipeline->geometry_type = GeometryType::Mesh;
@@ -539,7 +539,7 @@ void RenderLayer::OnCreate() {
         Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     deferred_lighting_pass_pipeline_scene_camera->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.frag");
     deferred_lighting_pass_pipeline_scene_camera->geometry_type = GeometryType::Mesh;
@@ -559,10 +559,10 @@ void RenderLayer::OnCreate() {
   if (!gizmos) {
     gizmos = std::make_shared<GraphicsPipeline>();
     gizmos->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/Gizmos.vert");
     gizmos->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Gizmos/Gizmos.frag");
     gizmos->geometry_type = GeometryType::Mesh;
     gizmos->depth_attachment_format = Platform::Constants::render_texture_depth;
@@ -579,10 +579,10 @@ void RenderLayer::OnCreate() {
   if (!gizmos_normal_colored) {
     gizmos_normal_colored = std::make_shared<GraphicsPipeline>();
     gizmos_normal_colored->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosNormalColored.vert");
     gizmos_normal_colored->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
     gizmos_normal_colored->geometry_type = GeometryType::Mesh;
     gizmos_normal_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
@@ -599,10 +599,10 @@ void RenderLayer::OnCreate() {
   if (!gizmos_vertex_colored) {
     gizmos_vertex_colored = std::make_shared<GraphicsPipeline>();
     gizmos_vertex_colored->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosVertexColored.vert");
     gizmos_vertex_colored->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
     gizmos_vertex_colored->geometry_type = GeometryType::Mesh;
     gizmos_vertex_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
@@ -618,10 +618,10 @@ void RenderLayer::OnCreate() {
   if (!gizmos_instanced_colored) {
     gizmos_instanced_colored = std::make_shared<GraphicsPipeline>();
     gizmos_instanced_colored->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosInstancedColored.vert");
     gizmos_instanced_colored->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
     gizmos_instanced_colored->geometry_type = GeometryType::Mesh;
     gizmos_instanced_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
@@ -640,20 +640,20 @@ void RenderLayer::OnCreate() {
   if (!gizmos_strands) {
     gizmos_strands = std::make_shared<GraphicsPipeline>();
     gizmos_strands->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosStrands.vert");
     gizmos_strands->tessellation_control_shader = Shader::CreateTemporary(
-        ShaderType::TessellationControl, Platform::Constants::shader_global_defines,
+        ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/TessellationControl/Gizmos/GizmosStrands.tesc");
     gizmos_strands->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationEvaluation/Gizmos/GizmosStrands.tese");
     gizmos_strands->geometry_shader = Shader::CreateTemporary(
-        ShaderType::Geometry, Platform::Constants::shader_global_defines,
+        ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Geometry/Gizmos/GizmosStrands.geom");
     gizmos_strands->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Gizmos/Gizmos.frag");
     gizmos_strands->geometry_type = GeometryType::Strands;
     gizmos_strands->depth_attachment_format = Platform::Constants::render_texture_depth;
@@ -671,21 +671,21 @@ void RenderLayer::OnCreate() {
   if (!gizmos_strands_normal_colored) {
     gizmos_strands_normal_colored = std::make_shared<GraphicsPipeline>();
     gizmos_strands_normal_colored->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosStrandsNormalColored.vert");
     gizmos_strands_normal_colored->tessellation_control_shader =
-        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationControl/Gizmos/GizmosStrandsColored.tesc");
     gizmos_strands_normal_colored->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationEvaluation/Gizmos/GizmosStrandsColored.tese");
     gizmos_strands_normal_colored->geometry_shader = Shader::CreateTemporary(
-        ShaderType::Geometry, Platform::Constants::shader_global_defines,
+        ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Geometry/Gizmos/GizmosStrandsColored.geom");
     gizmos_strands_normal_colored->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
     gizmos_strands_normal_colored->geometry_type = GeometryType::Strands;
     gizmos_strands_normal_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
@@ -703,21 +703,21 @@ void RenderLayer::OnCreate() {
   if (!gizmos_strands_vertex_colored) {
     gizmos_strands_vertex_colored = std::make_shared<GraphicsPipeline>();
     gizmos_strands_vertex_colored->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::Constants::shader_global_defines,
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Gizmos/GizmosStrandsVertexColored.vert");
     gizmos_strands_vertex_colored->tessellation_control_shader =
-        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationControl/Gizmos/GizmosStrandsColored.tesc");
     gizmos_strands_vertex_colored->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/TessellationEvaluation/Gizmos/GizmosStrandsColored.tese");
     gizmos_strands_vertex_colored->geometry_shader = Shader::CreateTemporary(
-        ShaderType::Geometry, Platform::Constants::shader_global_defines,
+        ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Geometry/Gizmos/GizmosStrandsColored.geom");
     gizmos_strands_vertex_colored->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::Constants::shader_global_defines,
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
     gizmos_strands_vertex_colored->geometry_type = GeometryType::Strands;
     gizmos_strands_vertex_colored->tessellation_patch_control_points = 4;
@@ -740,13 +740,13 @@ void RenderLayer::OnCreate() {
   if (Platform::Constants::support_ray_tracing && !ray_tracing_camera_pipeline) {
     ray_tracing_camera_pipeline = std::make_shared<RayTracingPipeline>();
     ray_tracing_camera_pipeline->raygen_shader =
-        Shader::CreateTemporary(ShaderType::RayGen, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/RayGen/Camera.rgen");
     ray_tracing_camera_pipeline->miss_shader =
-        Shader::CreateTemporary(ShaderType::Miss, Platform::Constants::shader_global_defines,
+        Shader::CreateTemporary(ShaderType::Miss, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/Miss/Camera.rmiss");
     ray_tracing_camera_pipeline->closest_hit_shader = Shader::CreateTemporary(
-        ShaderType::Miss, Platform::Constants::shader_global_defines,
+        ShaderType::Miss, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/ClosestHit/Camera.rchit");
     ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
     ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout);
