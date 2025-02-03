@@ -1,8 +1,10 @@
 # EvoEngine
 EvoEngine is an early-stage, cross-platform interactive application and rendering engine for Windows and Linux. 
 ## Build Status
-![WindowsRelBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Windows-RelWithDebInfo.yml/badge.svg) ![WindowsDebugBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Windows-Debug.yml/badge.svg)
-![LinuxRelBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Linux-RelWithDebInfo.yml/badge.svg) ![LinuxDebugBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Linux-Debug.yml/badge.svg)
+- Windows:
+  - ![WindowsRelBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Windows-RelWithDebInfo.yml/badge.svg) ![WindowsDebugBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Windows-Debug.yml/badge.svg)
+- Linux:
+  - ![LinuxRelBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Linux-RelWithDebInfo.yml/badge.svg) ![LinuxDebugBuildStatus](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Linux-Debug.yml/badge.svg)
 ## Main features
 Here are the features that already exist in the EvoEngine.
  - Modularized design
@@ -49,14 +51,15 @@ Here are the features that already exist in the EvoEngine.
 ## Getting Started
  - Note: Visual Studio 2019 or 2022 is recommended. EvoEngine is tested on Windows and Linux platform, other platform is not supported. We primarily focus on Windows platform.
  - Build requirements
-    - For Linux platform, the following libaries are required:
-       - clang (Minimum version = 14, gcc & g++ unsupported)
+    - For Linux platform, the following libaries are required (Ubuntu):
+       - clang-14
        - cmake
        - ninja-build
        - libwayland-dev
        - libxkbcommon-dev
        - xorg-dev
-       - Vulkan-SDK
+       - Vulkan-SDK (From LunarG)
+       - python3.12-dev
     - For Windows platform, make sure the following components are installed on Visual Studio:
        - Desktop development with C++
  - Step 1: Clone the repository with the following command:
@@ -65,9 +68,11 @@ Here are the features that already exist in the EvoEngine.
     - `git submodule update --init --recursive`
  - Step 3: Build:
     - For Windows:
-       - Under construction...
+       - run build.cmd
     - For Linux:
-       - Under construction...
+       - `bash build.sh`
+ - Additional resources:
+   - See `/EvoEngine/Resources/Building/` for additional ways to build/run/test EvoEngine.
  - To directly build the project, scripts under the root folder build.cmd (for Windows) and build.sh (for Linux) is provided for building with a single command line.
 ## Examples
 - Rendering demo
@@ -77,13 +82,14 @@ Here are the features that already exist in the EvoEngine.
      - Classic Sponza Test Scene
      - Multiple lighting
      - SSAO + Bloom + SSR + Tone mapping
-  - Screenshot: ![RenderingDemoScreenshot](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/RenderingDemoScreenshot.png)
+  - Rasterization: ![RenderingDemo](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/RenderingDemo.png)
+  - Ray Tracing ![RayTracingDemo](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/RayTracingDemo.png)
 - Planet demo
   - The Planet demo shows the ability to use ECS for complex behavior. The application contains a simple sphere generation program with dynamic LOD calculation based on the position of the scene camera.
-  - Screenshot: ![PlanetsDemoScreenshot](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/PlanetsDemoScreenshot.png)
+  - Planet Terrains: ![PlanetsDemo](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/PlanetsDemo.png)
 - Star cluster demo
   - The Star Cluster demo shows the potential of Job System with ECS by rendering hundreds of thousands of stars at the same time with instanced rendering. The position of each star is calculated in real-time in parallel with a single lambda-expression-based API similar to the m_entities.ForEach() in Unity. 
-  - Screenshot: ![StarClusterDemoScreenshot](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/StarClusterDemoScreenshot.png)
+  - 100k stars: ![StarClusterDemo](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/StarClusterDemo.png)
 - Digital forestry demo
   - The digital forestry demo shows our latest procedural tree growth model for generating large scale synthetic tree datasets for ML training and simulating natrual phenomena.
   - Publications: 
@@ -93,14 +99,20 @@ Here are the features that already exist in the EvoEngine.
      - [[SIGGRAPH 2024] Latent L-systems: Transformer-based Tree Generator](https://dl.acm.org/doi/pdf/10.1145/3627101)
      - [[ECCV 2024] Tree-D Fusion: Simulation-Ready Tree Dataset from Single Images with Diffusion Priors](https://link.springer.com/chapter/10.1007/978-3-031-72940-9_25)
      - [[SIGGRAPH 2024] Interactive Invigoration: Volumetric Modeling of Trees with Strands](https://storage.googleapis.com/pirk.io/projects/invigoration/index.html)
-  - Screenshot: ![DigitalForestryDemoScreenshot](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/DigitalForestryDemoScreenshot.png)
+  - Interactive framework: ![TreeFrameworkDemo](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/TreeFrameworkDemo.png)
+  - Tree Fracture: ![TreeFracture](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/TreeFracture.png)
+  - Visualization: ![StrandVisualization](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/StrandVisualization.png)
 - Digital agriculture demo
   - The digital agriculture demo shows our latest procedural sorghum model for generating large scale synthetic sorghum datasets for ML training.
   - Publications: 
      - [[PeerJ] 3D reconstruction identifies loci linked to variation in angle of individual sorghum leaves](https://peerj.com/articles/12628/)
      - [[TPPJ] Sorghum segmentation and leaf counting using in silico trained deep neural model](https://acsess.onlinelibrary.wiley.com/doi/pdf/10.1002/ppj2.70002)
      - [[COMPAG] PlantSegNet: 3D point cloud instance segmentation of nearby plant organs with identical semantics](https://www.sciencedirect.com/science/article/abs/pii/S0168169924003132)
-  - Screenshot: ![DigitalAgricultureDemoScreenshot](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/DigitalAgricultureDemoScreenshot.png)
+  - Sorghum Model: ![SorghumModel](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/SorghumModel.png)
+  - Point Cloud: ![SorghumPointCloud](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/SorghumPointCloud.png)
+  - Environmental Lighting: ![SorghumEnvLighting](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/SorghumEnvLighting.png)
+  - Illumination Estimation: ![IlluminationEstimationDemo](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/IlluminationEstimationDemo.png)
+  
 ## What's next...
 - Documentation
 - Node editor
