@@ -304,7 +304,7 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines() {
       Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
                                                       "Shaders/Graphics/Vertex/TexturePassThrough.vert");
   geometry_pipeline->fragment_shader = Shader::CreateTemporary(
-      ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSAOGeometry.frag");
   geometry_pipeline->geometry_type = GeometryType::Mesh;
   geometry_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
@@ -324,7 +324,7 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines() {
       Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
                                                       "Shaders/Graphics/Vertex/TexturePassThrough.vert");
   combine_pipeline->fragment_shader = Shader::CreateTemporary(
-      ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSAOCombine.frag");
   combine_pipeline->geometry_type = GeometryType::Mesh;
   combine_pipeline->descriptor_set_layouts.emplace_back(combine_layout);

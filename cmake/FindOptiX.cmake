@@ -30,19 +30,18 @@
 
 # Our initial guess will be within the SDK.
 #set(OptiX_INSTALL_DIR "C:/ProgramData/NVIDIA Corporation/OptiX SDK 7.6.0" CACHE PATH "Path to OptiX installed location.")
+
 if(NOT WIN32)
 	find_path(searched_OptiX_INSTALL_DIR
 		NAME include/optix.h
 		PATHS
-		~/NVIDIA-OptiX-SDK-8.0.0-linux64-x86_64
-		~/NVIDIA-OptiX-SDK-8.1.0-linux64-x86_64
+		${CMAKE_SOURCE_DIR}/Extern/3rdParty/OptiX/Linux
 		)
 else()
 	find_path(searched_OptiX_INSTALL_DIR
 		NAME include/optix.h
 		PATHS
-		"C:/ProgramData/NVIDIA Corporation/OptiX SDK 8.0.0"
-		"C:/ProgramData/NVIDIA Corporation/OptiX SDK 8.1.0"
+		${CMAKE_SOURCE_DIR}/Extern/3rdParty/OptiX/Windows
 		)
 endif()
 mark_as_advanced(searched_OptiX_INSTALL_DIR)

@@ -325,15 +325,15 @@ void DynamicStrands::BuildSmallSegmentsRenderingPipelines() {
   // Descriptor set layout
   small_segments_point_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   small_segments_point_light_render_pipeline->task_shader =
-      Shader::CreateTemporary(ShaderType::Task, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Task/DynamicStrands/Rendering/SmallSegments.task");
   small_segments_point_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
-      ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
           "Shaders/Graphics/Mesh/DynamicStrands/Rendering/SmallSegments/PointLightShadowMap.mesh");
   small_segments_point_light_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   small_segments_point_light_render_pipeline->geometry_type = GeometryType::Mesh;
   small_segments_point_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
@@ -349,15 +349,15 @@ void DynamicStrands::BuildSmallSegmentsRenderingPipelines() {
   // Descriptor set layout
   small_segments_spot_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   small_segments_spot_light_render_pipeline->task_shader =
-      Shader::CreateTemporary(ShaderType::Task, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Task/DynamicStrands/Rendering/SmallSegments.task");
   small_segments_spot_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
-      ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
           "Shaders/Graphics/Mesh/DynamicStrands/Rendering/SmallSegments/SpotLightShadowMap.mesh");
   small_segments_spot_light_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   small_segments_spot_light_render_pipeline->geometry_type = GeometryType::Mesh;
   small_segments_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
@@ -372,15 +372,15 @@ void DynamicStrands::BuildSmallSegmentsRenderingPipelines() {
   // Descriptor set layout
   small_segments_directional_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   small_segments_directional_light_render_pipeline->task_shader =
-      Shader::CreateTemporary(ShaderType::Task, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Task/DynamicStrands/Rendering/SmallSegments.task");
   small_segments_directional_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
-      ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
           "Shaders/Graphics/Mesh/DynamicStrands/Rendering/SmallSegments/DirectionalLightShadowMap.mesh");
   small_segments_directional_light_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   small_segments_directional_light_render_pipeline->geometry_type = GeometryType::Mesh;
   small_segments_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
@@ -396,15 +396,15 @@ void DynamicStrands::BuildSmallSegmentsRenderingPipelines() {
   // Descriptor set layout
   small_segments_render_pipeline = std::make_shared<GraphicsPipeline>();
   small_segments_render_pipeline->task_shader =
-      Shader::CreateTemporary(ShaderType::Task, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Task/DynamicStrands/Rendering/SmallSegments.task");
   small_segments_render_pipeline->mesh_shader =
-      Shader::CreateTemporary(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Mesh/DynamicStrands/Rendering/SmallSegments/Rendering.mesh");
   small_segments_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Fragment/DynamicStrands/Rendering/SmallSegments.frag");
   small_segments_render_pipeline->geometry_type = GeometryType::Mesh;
@@ -423,15 +423,15 @@ void DynamicStrands::BuildSmallSegmentsRenderingPipelines() {
   // Descriptor set layout
   small_segments_visualization_render_pipeline = std::make_shared<GraphicsPipeline>();
   small_segments_visualization_render_pipeline->task_shader =
-      Shader::CreateTemporary(ShaderType::Task, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Task/DynamicStrands/Rendering/SmallSegmentsVisualization.task");
   small_segments_visualization_render_pipeline->mesh_shader = Shader::CreateTemporary(
-      ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
           "Shaders/Graphics/Mesh/DynamicStrands/Rendering/SmallSegments/VisualizationRendering.mesh");
   small_segments_visualization_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Fragment/DynamicStrands/Rendering/SmallSegmentsVisualization.frag");
   small_segments_visualization_render_pipeline->geometry_type = GeometryType::Mesh;

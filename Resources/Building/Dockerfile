@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.2.0-devel-ubuntu22.04 as base
+FROM nvidia/cuda:12.8.0-devel-ubuntu24.04 as base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -6,52 +6,38 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV NVIDIA_DRIVER_CAPABILITIES=all
 ENV NVIDIA_VISIBLE_DEVICES=all
 
-ARG CUDA_ARCHITECTURES=90;89;86;80;75;70;61;52;37
+#NVidia RTX GPU Required.
+ARG CUDA_ARCHITECTURES=120;90;89;87;86;80;75
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    cmake \
-    git \
-    htop \
-    wget \ 
-    python3.10-dev \
-    python3-pip \
-    sudo \
-    nano \
-    ninja-build \
-    libassimp-dev \
-    libglm-dev \
-    libglfw3-dev \
-    libxi-dev \
-    pciutils \
-    vulkan-tools \
-    mesa-utils \
-    libxrandr-dev && \
-    rm -rf /var/lib/apt/lists/*
+#Install required libs
+RUN apt-get update
+RUN apt-get install -y --no-install-recommends clang-14
+RUN apt-get install -y --no-install-recommends git
+RUN apt-get install -y --no-install-recommends libwayland-dev
+RUN apt-get install -y --no-install-recommends libxkbcommon-dev
+RUN apt-get install -y --no-install-recommends xorg-dev
+RUN apt-get install -y --no-install-recommends wget
+RUN apt-get install -y --no-install-recommends python3.12-dev*
+RUN apt-get install -y --no-install-recommends sudo
+RUN apt-get install -y --no-install-recommends cmake
+RUN apt-get install -y --no-install-recommends ninja-build
 
+#Install Vulkan-SDK
 RUN wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
-RUN sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-1.3.261-jammy.list https://packages.lunarg.com/vulkan/1.3.261/lunarg-vulkan-1.3.261-jammy.list
+RUN sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list http://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
 RUN sudo apt update
 RUN apt install -y vulkan-sdk
-RUN apt install -y unzip
 
-RUN git clone --recursive https://github.com/edisonlee0212/EvoEngine.git /home/root/evoengine
-WORKDIR /home/root/evoengine/3rdParty/shaderc
-RUN cat ./shaderc.zip* > ./shaderc.zip
-RUN unzip ./shaderc.zip
-RUN rm ./shaderc.zip
-
-WORKDIR /home/root/evoengine/3rdParty/physx
-RUN cat ./physx.zip* > ./physx.zip
-RUN unzip ./physx.zip
-RUN rm ./physx.zip
-
-WORKDIR /home/root/evoengine
+#Get EvoEngine
+RUN git clone --recurse-submodules https://github.com/edisonlee0212/EvoEngine.git
+WORKDIR /EvoEngine
+ 
+#Build EvoEngine
+WORKDIR /EvoEngine
 RUN bash ./build.sh
 
-WORKDIR /home/root/
+#Set entry point
 ENTRYPOINT [  "/bin/bash" ]
 
-
+#Start terminal
 RUN bash

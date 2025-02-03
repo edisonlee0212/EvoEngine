@@ -193,7 +193,7 @@ void Platform::Initialize() {
   Constants::task_subgroup_count = glm::max(task_subgroup_count, 1u);
   Constants::mesh_subgroup_count = glm::max(mesh_subgroup_count, 1u);
   Constants::compute_subgroup_count = glm::max(compute_subgroup_count, 1u);
-  Constants::shader_global_defines =
+  graphics.shader_global_defines =
       "\n#define MAX_DIRECTIONAL_LIGHT_SIZE " + std::to_string(Settings::max_directional_light_size) +
       "\n#define MAX_KERNEL_AMOUNT " + std::to_string(Constants::max_kernel_amount) +
       "\n#define MESHLET_MAX_VERTICES_SIZE " + std::to_string(Constants::meshlet_max_vertices_size) +
@@ -459,6 +459,10 @@ void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkIma
   SelectStageFlagsAccessMask(new_layout, barrier.dstAccessMask, destination_stage);
 
   vkCmdPipelineBarrier(vk_command_buffer, source_stage, destination_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+}
+const std::string& Platform::GetShaderGlobalDefines() {
+  const auto& graphics = GetInstance();
+  return graphics.shader_global_defines;
 }
 
 size_t Platform::GetMaxBoneAmount() {

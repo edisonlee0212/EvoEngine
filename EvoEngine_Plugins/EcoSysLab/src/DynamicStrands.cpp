@@ -178,7 +178,7 @@ void DynamicStrands::BuildRenderComputePipelines() {
   static std::shared_ptr<Shader> shader{};
   shader = std::make_shared<Shader>();
   shader->TryCompile(
-      ShaderType::Compute, Platform::Constants::shader_global_defines,
+      ShaderType::Compute, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Prediction/UniformParticle.comp");
 
   branches_uniform_particle_update_pipeline = std::make_shared<ComputePipeline>();
@@ -195,7 +195,7 @@ void DynamicStrands::BuildRenderComputePipelines() {
   // Tetrahedrons
   branches_tetrahedron_filtering_pipeline = std::make_shared<ComputePipeline>();
   branches_tetrahedron_filtering_pipeline->compute_shader =
-      Shader::CreateTemporary(ShaderType::Compute, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Compute/DynamicStrands/Rendering/TetrahedronFiltering.comp");
   branches_tetrahedron_filtering_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
@@ -211,7 +211,7 @@ void DynamicStrands::BuildRenderComputePipelines() {
   // Triangles
   branches_triangle_filtering_pipeline = std::make_shared<ComputePipeline>();
   branches_triangle_filtering_pipeline->compute_shader =
-      Shader::CreateTemporary(ShaderType::Compute, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Compute/DynamicStrands/Rendering/TriangleFiltering.comp");
   branches_triangle_filtering_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
@@ -586,7 +586,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Reset.comp");
     reset_pipeline = std::make_shared<ComputePipeline>();
     reset_pipeline->compute_shader = shader;
@@ -618,7 +618,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Step.comp");
     step_pipeline = std::make_shared<ComputePipeline>();
     step_pipeline->compute_shader = shader;
@@ -635,7 +635,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/DynamicStep.comp");
     dynamic_step_pipeline = std::make_shared<ComputePipeline>();
     dynamic_step_pipeline->compute_shader = shader;
@@ -652,7 +652,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
     shader->TryCompile(
-        ShaderType::Compute, Platform::Constants::shader_global_defines,
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Apply.comp");
     apply_pipeline = std::make_shared<ComputePipeline>();
     apply_pipeline->compute_shader = shader;

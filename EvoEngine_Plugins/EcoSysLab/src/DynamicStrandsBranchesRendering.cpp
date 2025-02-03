@@ -91,14 +91,14 @@ struct BranchesRenderPushConstant {
 void DynamicStrands::BuildBranchesRenderingPipelines() {
   branches_point_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   branches_point_light_render_pipeline->task_shader = Shader::CreateTemporary(
-      ShaderType::Task, Platform::Constants::shader_global_defines,
+      ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Branches.task");
   branches_point_light_render_pipeline->mesh_shader =
-      Shader::CreateTemporary(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Branches/PointLightShadowMap.mesh");
   branches_point_light_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   branches_point_light_render_pipeline->geometry_type = GeometryType::Mesh;
   branches_point_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
@@ -113,14 +113,14 @@ void DynamicStrands::BuildBranchesRenderingPipelines() {
   // Descriptor set layout
   branches_spot_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   branches_spot_light_render_pipeline->task_shader = Shader::CreateTemporary(
-      ShaderType::Task, Platform::Constants::shader_global_defines,
+      ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Branches.task");
   branches_spot_light_render_pipeline->mesh_shader =
-      Shader::CreateTemporary(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Branches/SpotLightShadowMap.mesh");
   branches_spot_light_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   branches_spot_light_render_pipeline->geometry_type = GeometryType::Mesh;
   branches_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
@@ -135,14 +135,14 @@ void DynamicStrands::BuildBranchesRenderingPipelines() {
   // Descriptor set layout
   branches_directional_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   branches_directional_light_render_pipeline->task_shader = Shader::CreateTemporary(
-      ShaderType::Task, Platform::Constants::shader_global_defines,
+      ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Branches.task");
   branches_directional_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
-      ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
           "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Branches/DirectionalLightShadowMap.mesh");
   branches_directional_light_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   branches_directional_light_render_pipeline->geometry_type = GeometryType::Mesh;
   branches_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
@@ -158,14 +158,14 @@ void DynamicStrands::BuildBranchesRenderingPipelines() {
   // Descriptor set layout
   branches_render_pipeline = std::make_shared<GraphicsPipeline>();
   branches_render_pipeline->task_shader = Shader::CreateTemporary(
-      ShaderType::Task, Platform::Constants::shader_global_defines,
+      ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Branches.task");
   branches_render_pipeline->mesh_shader =
-      Shader::CreateTemporary(ShaderType::Mesh, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Branches/Rendering.mesh");
   branches_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::Constants::shader_global_defines,
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Fragment/DynamicStrands/Rendering/Branches.frag");
   branches_render_pipeline->geometry_type = GeometryType::Mesh;

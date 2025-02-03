@@ -13,6 +13,7 @@ endif()
 
 message("Found CUDA.")
 
+set(CMAKE_CUDA_ARCHITECTURES 75-real 75-virtual)
 mark_as_advanced(CUDA_SDK_ROOT_DIR)
 enable_language(CUDA)
 
@@ -53,16 +54,16 @@ set(CUDA_MODULE_INCLUDES
 include_directories(${EVOENGINE_SDK_INCLUDES})
 include_directories(${CUDA_MODULE_INCLUDES})
 
-cuda_compile_and_embed(CAMERA_RENDERING_PTX ${RAY_TRACER_DIRECTORY}/src/ptx/CameraRendering.cu)
-cuda_compile_and_embed(ILLUMINATION_ESTIMATION_PTX ${RAY_TRACER_DIRECTORY}/src/ptx/IlluminationEstimation.cu)
-cuda_compile_and_embed(POINT_CLOUD_SCANNING_PTX ${RAY_TRACER_DIRECTORY}/src/ptx/PointCloudScanning.cu)
+cuda_compile_and_embed(camera_rendering_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/CameraRendering.cu)
+cuda_compile_and_embed(illumination_estimation_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/IlluminationEstimation.cu)
+cuda_compile_and_embed(point_cloud_scanning_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/PointCloudScanning.cu)
 
 add_library(CudaModulePlugin
 	STATIC
 	#Default
-	${CAMERA_RENDERING_PTX}
-	${ILLUMINATION_ESTIMATION_PTX}
-	${POINT_CLOUD_SCANNING_PTX}
+	${camera_rendering_ptx}
+	${illumination_estimation_ptx}
+	${point_cloud_scanning_ptx}
 
 	#C++
 	${RAY_TRACER_HEADERS}
