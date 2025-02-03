@@ -14,7 +14,7 @@ set /p VCPKG_PATH=<%VCPKG_FILE%
 set CLEAN=0
 set NO_TEST=0
 set VERBOSE=0
-set BUILD_TYPE=Debug
+set BUILD_TYPE=Release
 set ERR_MSG=Usage: %0 [--clean] [--no-test] [--verbose] [build_type]
 
 :NextArg
