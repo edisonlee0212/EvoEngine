@@ -1,21 +1,64 @@
+
 #pragma once
 #include "Vertex.hpp"
 #include "shaderc/shaderc.h"
+
 namespace evo_engine {
+
+/**
+ * @class RenderInstanceStorage
+ * @brief Forward declaration for RenderInstanceStorage class.
+ */
 class RenderInstanceStorage;
+
+/**
+ * @class Scene
+ * @brief Forward declaration for Scene class.
+ */
 class Scene;
+
+/**
+ * @class CommandBuffer
+ * @brief Forward declaration for CommandBuffer class.
+ */
 class CommandBuffer;
 
+/**
+ * @class IGraphicsResource
+ * @brief Base class for graphics resources in the engine.
+ */
 class IGraphicsResource {
  protected:
+  /**
+   * @brief Default protected constructor for IGraphicsResource.
+   */
   IGraphicsResource() = default;
 
  public:
+  /**
+   * @brief Prevents assignment.
+   */
+  IGraphicsResource& operator=(IGraphicsResource&) = delete;
+
+  /**
+   * @brief Prevents constant assignment.
+   */
+  IGraphicsResource& operator=(const IGraphicsResource&) = delete;
+
+  /**
+   * @brief Virtual destructor for IGraphicsResource.
+   */
+  virtual ~IGraphicsResource() = default;
+
+  /**
+   * @brief A utility static method to apply data to a vector.
+   * @tparam T Type of vector elements.
+   * @param target The destination std::vector.
+   * @param size The size of the data.
+   * @param data Pointer to the data to be copied.
+   */
   template <typename T>
   static void ApplyVector(std::vector<T>& target, uint32_t size, const T* data);
-  IGraphicsResource& operator=(IGraphicsResource&) = delete;
-  IGraphicsResource& operator=(const IGraphicsResource&) = delete;
-  virtual ~IGraphicsResource() = default;
 };
 
 template <typename T>
@@ -26,215 +69,561 @@ void IGraphicsResource::ApplyVector(std::vector<T>& target, uint32_t size, const
   memcpy(target.data(), data, sizeof(T) * size);
 }
 
+/**
+ * @class Fence
+ * @brief Represents a Vulkan fence resource.
+ */
 class Fence final : public IGraphicsResource {
-  VkFence vk_fence_ = VK_NULL_HANDLE;
-  VkFenceCreateFlags flags_ = {};
+  VkFence vk_fence_ = VK_NULL_HANDLE; /**< Vulkan fence handle. */
+  VkFenceCreateFlags flags_ = {};     /**< Vulkan fence creation flags. */
 
  public:
+  /**
+   * @brief Constructs a Fence with the given Vulkan fence creation info.
+   * @param vk_fence_create_info Information for creating the Vulkan fence.
+   */
   explicit Fence(const VkFenceCreateInfo& vk_fence_create_info);
+
+  /**
+   * @brief Destructor for Fence.
+   */
   ~Fence() override;
 
+  /**
+   * @brief Retrieves the Vulkan fence handle.
+   * @return The Vulkan fence handle.
+   */
   [[nodiscard]] const VkFence& GetVkFence() const;
 };
 
+/**
+ * @class Semaphore
+ * @brief Represents a Vulkan semaphore resource.
+ */
 class Semaphore final : public IGraphicsResource {
-  VkSemaphore vk_semaphore_ = VK_NULL_HANDLE;
-  VkSemaphoreCreateFlags flags_ = {};
+  VkSemaphore vk_semaphore_ = VK_NULL_HANDLE; /**< Vulkan semaphore handle. */
+  VkSemaphoreCreateFlags flags_ = {};         /**< Vulkan semaphore creation flags. */
 
  public:
+  /**
+   * @brief Constructs a Semaphore with the specified semaphore creation info.
+   * @param semaphore_create_info Vulkan semaphore creation information.
+   */
   explicit Semaphore(const VkSemaphoreCreateInfo& semaphore_create_info);
+
+  /**
+   * @brief Destructor for Semaphore.
+   */
   ~Semaphore() override;
+
+  /**
+   * @brief Retrieves the Vulkan Semaphore handle.
+   * @return The Vulkan semaphore handle.
+   */
   [[nodiscard]] const VkSemaphore& GetVkSemaphore() const;
+
 #ifdef _WIN64
+  /**
+   * @brief Get a semaphore handle for Windows platform.
+   * @param external_semaphore_handle_type Vulkan external handle type.
+   * @return Handle to the Vulkan semaphore.
+   */
   void* GetVkSemaphoreHandle(VkExternalSemaphoreHandleTypeFlagBitsKHR external_semaphore_handle_type) const;
 #else
+  /**
+   * @brief Get a semaphore handle for non-Windows platform.
+   * @param external_semaphore_handle_type Vulkan external handle type.
+   * @return Handle to the Vulkan semaphore.
+   */
   int GetVkSemaphoreHandle(VkExternalSemaphoreHandleTypeFlagBitsKHR external_semaphore_handle_type) const;
 #endif
 };
 
+/**
+ * @class Image
+ * @brief Represents a Vulkan image resource.
+ */
 class Image final : public IGraphicsResource {
-  VkImage vk_image_ = VK_NULL_HANDLE;
-  VmaAllocation vma_allocation_ = VK_NULL_HANDLE;
-  VmaAllocationInfo vma_allocation_info_ = {};
+  VkImage vk_image_ = VK_NULL_HANDLE;             /**< Vulkan image handle. */
+  VmaAllocation vma_allocation_ = VK_NULL_HANDLE; /**< VMA allocation handle for the image. */
+  VmaAllocationInfo vma_allocation_info_ = {};    /**< VMA allocation information. */
 
-  VkImageCreateFlags flags_;
-  VkImageType image_type_;
-  VkFormat format_;
-  VkExtent3D extent_;
-  uint32_t mip_levels_;
-  uint32_t array_layers_;
-  VkSampleCountFlagBits samples_;
-  VkImageTiling tiling_;
-  VkImageUsageFlags usage_;
-  VkSharingMode sharing_mode_;
-  std::vector<uint32_t> queue_family_indices_;
-  VkImageLayout initial_layout_;
+  VkImageCreateFlags flags_;                   /**< Vulkan image creation flags. */
+  VkImageType image_type_;                     /**< Vulkan image type. */
+  VkFormat format_;                            /**< Image format. */
+  VkExtent3D extent_;                          /**< Image extent (width, height, depth). */
+  uint32_t mip_levels_;                        /**< Mipmap levels. */
+  uint32_t array_layers_;                      /**< Array layers count. */
+  VkSampleCountFlagBits samples_;              /**< Multisample count. */
+  VkImageTiling tiling_;                       /**< Image tiling. */
+  VkImageUsageFlags usage_;                    /**< Image usage flags. */
+  VkSharingMode sharing_mode_;                 /**< Sharing mode. */
+  std::vector<uint32_t> queue_family_indices_; /**< List of queue family indices. */
+  VkImageLayout initial_layout_;               /**< Initial image layout. */
 
-  VkImageLayout layout_;
+  VkImageLayout layout_; /**< The image's layout. */
 
  public:
+  // Method declarations with Doxygen comments not completed yet
   [[nodiscard]] uint32_t GetMipLevels() const;
   explicit Image(VkImageCreateInfo image_create_info);
+  /**
+   * @brief Constructs an Image with Vulkan image creation info and VMA allocation info.
+   * @param image_create_info Vulkan image creation information.
+   * @param vma_allocation_create_info VMA allocation creation information.
+   */
   Image(VkImageCreateInfo image_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info);
+
+  /**
+   * @brief Checks whether the format includes a stencil component.
+   * @return True if the format includes a stencil component, otherwise false.
+   */
   bool HasStencilComponent() const;
+
+  /**
+   * @brief Destructor for Image.
+   */
   ~Image() override;
+
+  /**
+   * @brief Transitions the image to a new layout.
+   * @param vk_command_buffer The Vulkan command buffer.
+   * @param new_layout The new image layout.
+   */
   void TransitImageLayout(VkCommandBuffer vk_command_buffer, VkImageLayout new_layout);
+
+  /**
+   * @brief Copies data from a buffer to the image.
+   * @param vk_command_buffer The Vulkan command buffer.
+   * @param src_buffer The source Vulkan buffer.
+   * @param src_offset Offset in the buffer from which to start copying. Defaults to 0.
+   */
   void CopyFromBuffer(VkCommandBuffer vk_command_buffer, const VkBuffer& src_buffer, VkDeviceSize src_offset = 0) const;
 
+  /**
+   * @brief Generates mipmaps for the image.
+   * @param vk_command_buffer The Vulkan command buffer.
+   */
   void GenerateMipmaps(VkCommandBuffer vk_command_buffer);
 
+  /**
+   * @brief Retrieves the Vulkan handle for the image.
+   * @return Vulkan image handle.
+   */
   [[nodiscard]] VkImage GetVkImage() const;
+
+  /**
+   * @brief Retrieves the format of the image.
+   * @return The Vulkan format of the image.
+   */
   [[nodiscard]] VkFormat GetFormat() const;
+
+  /**
+   * @brief Retrieves the VMA allocation handle for the image.
+   * @return VMA allocation handle.
+   */
   [[nodiscard]] VmaAllocation GetVmaAllocation() const;
+
+  /**
+   * @brief Retrieves the extent of the image (width, height, depth).
+   * @return Extent of the image.
+   */
   [[nodiscard]] VkExtent3D GetExtent() const;
+
+  /**
+   * @brief Retrieves the current layout of the image.
+   * @return Image layout.
+   */
   [[nodiscard]] VkImageLayout GetLayout() const;
+
+  /**
+   * @brief Retrieves the VMA allocation information.
+   * @return VMA allocation information.
+   */
   [[nodiscard]] const VmaAllocationInfo& GetVmaAllocationInfo() const;
 
 #ifdef _WIN64
+  /**
+   * @brief Gets the Vulkan image memory handle for Windows platform.
+   * @param external_memory_handle_type Vulkan external memory handle type.
+   * @return Handle to the Vulkan image memory.
+   */
   void* GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR external_memory_handle_type) const;
 #else
+  /**
+   * @brief Gets the Vulkan image memory handle for non-Windows platform.
+   * @param external_memory_handle_type Vulkan external memory handle type.
+   * @return Handle to the Vulkan image memory.
+   */
   int GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR external_memory_handle_type) const;
 #endif
 };
 
+/**
+ * @class ImageView
+ * @brief Represents a Vulkan image view resource.
+ */
 class ImageView final : public IGraphicsResource {
-  VkImageView vk_image_view_ = VK_NULL_HANDLE;
+  VkImageView vk_image_view_ = VK_NULL_HANDLE; /**< Vulkan image view handle. */
 
-  VkImageViewCreateFlags flags_;
-  std::shared_ptr<Image> image_;
-  VkImageViewType view_type_;
-  VkFormat format_;
-  VkComponentMapping components_;
-  VkImageSubresourceRange subresource_range_;
+  VkImageViewCreateFlags flags_;              /**< Vulkan image view creation flags. */
+  std::shared_ptr<Image> image_;              /**< Associated image object. */
+  VkImageViewType view_type_;                 /**< Image view type. */
+  VkFormat format_;                           /**< Image view format. */
+  VkComponentMapping components_;             /**< Component mapping for the image view. */
+  VkImageSubresourceRange subresource_range_; /**< Subresource range for the image view. */
   friend class Swapchain;
   friend class Platform;
 
  public:
+  /**
+   * @brief Constructs an ImageView with Vulkan image view creation info.
+   * @param image_view_create_info Vulkan image view creation information.
+   */
   explicit ImageView(const VkImageViewCreateInfo& image_view_create_info);
+
+  /**
+   * @brief Constructs an ImageView with Vulkan image view creation info and an associated image.
+   * @param image_view_create_info Vulkan image view creation information.
+   * @param image Associated image object.
+   */
   explicit ImageView(const VkImageViewCreateInfo& image_view_create_info, const std::shared_ptr<Image>& image);
+
+  /**
+   * @brief Destructor for ImageView.
+   */
   ~ImageView() override;
+
+  /**
+   * @brief Retrieves the Vulkan image view handle.
+   * @return Vulkan image view handle.
+   */
   [[nodiscard]] VkImageView GetVkImageView() const;
 
+  /**
+   * @brief Retrieves the associated image.
+   * @return Shared pointer to the associated image.
+   */
   [[nodiscard]] const std::shared_ptr<Image>& GetImage() const;
 };
 
+/**
+ * @class Swapchain
+ * @brief Represents a Vulkan swapchain resource.
+ */
 class Swapchain final : public IGraphicsResource {
-  VkSwapchainKHR vk_swapchain_ = VK_NULL_HANDLE;
-  std::vector<VkImage> vk_images_;
+  VkSwapchainKHR vk_swapchain_ = VK_NULL_HANDLE; /**< Vulkan swapchain handle. */
+  std::vector<VkImage> vk_images_;               /**< List of Vulkan images in the swapchain. */
 
-  VkSwapchainCreateFlagsKHR flags_;
-  VkSurfaceKHR surface_;
-  uint32_t min_image_count_;
-  VkFormat image_format_;
-  VkColorSpaceKHR image_color_space_;
-  VkExtent2D image_extent_;
-  uint32_t image_array_layers_;
-  VkImageUsageFlags image_usage_;
-  VkSharingMode image_sharing_mode_;
-  std::vector<uint32_t> queue_family_indices_;
-  VkSurfaceTransformFlagBitsKHR pre_transform_;
-  VkCompositeAlphaFlagBitsKHR composite_alpha_;
-  VkPresentModeKHR present_mode_;
-  VkBool32 clipped_;
+  VkSwapchainCreateFlagsKHR flags_;             /**< Vulkan swapchain creation flags. */
+  VkSurfaceKHR surface_;                        /**< Vulkan surface associated with the swapchain. */
+  uint32_t min_image_count_;                    /**< Minimum number of images in the swapchain. */
+  VkFormat image_format_;                       /**< Format of images in the swapchain. */
+  VkColorSpaceKHR image_color_space_;           /**< Color space of images in the swapchain. */
+  VkExtent2D image_extent_;                     /**< Extent (width and height) of the images. */
+  uint32_t image_array_layers_;                 /**< Number of array layers for the images. */
+  VkImageUsageFlags image_usage_;               /**< Usage flags for the images. */
+  VkSharingMode image_sharing_mode_;            /**< Sharing mode for the images. */
+  std::vector<uint32_t> queue_family_indices_;  /**< Queue family indices for sharing. */
+  VkSurfaceTransformFlagBitsKHR pre_transform_; /**< Pre-transform applied to the images. */
+  VkCompositeAlphaFlagBitsKHR composite_alpha_; /**< Composite alpha mode. */
+  VkPresentModeKHR present_mode_;               /**< Presentation mode for the swapchain. */
+  VkBool32 clipped_;                            /**< Clipping status. */
 
-  std::vector<std::shared_ptr<ImageView>> vk_image_views_;
+  std::vector<std::shared_ptr<ImageView>> vk_image_views_; /**< List of image views for the swapchain. */
 
  public:
+  /**
+   * @brief Constructs a Swapchain with Vulkan swapchain creation info.
+   * @param swapchain_create_info Vulkan swapchain creation information.
+   */
   explicit Swapchain(const VkSwapchainCreateInfoKHR& swapchain_create_info);
+
+  /**
+   * @brief Destructor for Swapchain.
+   */
   ~Swapchain() override;
 
+  /**
+   * @brief Retrieves the Vulkan swapchain handle.
+   * @return Vulkan swapchain handle.
+   */
   [[nodiscard]] VkSwapchainKHR GetVkSwapchain() const;
 
+  /**
+   * @brief Retrieves all Vulkan images in the swapchain.
+   * @return A vector containing Vulkan image handles.
+   */
   [[nodiscard]] const std::vector<VkImage>& GetAllVkImages() const;
+
+  /**
+   * @brief Retrieves a single Vulkan image in the swapchain.
+   * @return Vulkan image handle.
+   */
   [[nodiscard]] const VkImage& GetVkImage() const;
+
+  /**
+   * @brief Retrieves a Vulkan image view in the swapchain.
+   * @return Vulkan image view handle.
+   */
   [[nodiscard]] const VkImageView& GetVkImageView() const;
+
+  /**
+   * @brief Retrieves all image views in the swapchain.
+   * @return A vector containing shared pointers to image views.
+   */
   [[nodiscard]] const std::vector<std::shared_ptr<ImageView>>& GetAllImageViews() const;
 
+  /**
+   * @brief Retrieves the format of images in the swapchain.
+   * @return Vulkan image format.
+   */
   [[nodiscard]] VkFormat GetImageFormat() const;
 
+  /**
+   * @brief Retrieves the extent (width, height) of images in the swapchain.
+   * @return Vulkan image extent.
+   */
   [[nodiscard]] VkExtent2D GetImageExtent() const;
 };
 
+/**
+ * @class ShaderModule
+ * @brief Represents a Vulkan shader module resource.
+ */
 class ShaderModule final : public IGraphicsResource {
-  VkShaderModule vk_shader_module_ = VK_NULL_HANDLE;
+  VkShaderModule vk_shader_module_ = VK_NULL_HANDLE; /**< Vulkan shader module handle. */
 
  public:
-  ~ShaderModule() override;
-
+  /**
+   * @brief Constructs a ShaderModule from Vulkan shader module creation info.
+   * @param create_info Vulkan shader module creation information.
+   */
   ShaderModule(const VkShaderModuleCreateInfo& create_info);
 
+  /**
+   * @brief Destructor for ShaderModule.
+   */
+  ~ShaderModule() override;
+
+  /**
+   * @brief Retrieves the Vulkan shader module handle.
+   * @return Vulkan shader module handle.
+   */
   [[nodiscard]] VkShaderModule GetVkShaderModule() const;
 };
 
+/**
+ * @class PipelineLayout
+ * @brief Represents a Vulkan pipeline layout resource.
+ */
 class PipelineLayout final : public IGraphicsResource {
-  VkPipelineLayout vk_pipeline_layout_ = VK_NULL_HANDLE;
+  VkPipelineLayout vk_pipeline_layout_ = VK_NULL_HANDLE; /**< Vulkan pipeline layout handle. */
 
-  VkPipelineLayoutCreateFlags flags_;
-  std::vector<VkDescriptorSetLayout> set_layouts_;
-  std::vector<VkPushConstantRange> push_constant_ranges_;
+  VkPipelineLayoutCreateFlags flags_;                     /**< Vulkan pipeline layout creation flags. */
+  std::vector<VkDescriptorSetLayout> set_layouts_;        /**< Descriptor set layouts for the pipeline layout. */
+  std::vector<VkPushConstantRange> push_constant_ranges_; /**< Push constant ranges for the pipeline layout. */
 
  public:
+  /**
+   * @brief Constructs a PipelineLayout from Vulkan pipeline layout creation info.
+   * @param pipeline_layout_create_info Vulkan pipeline layout creation information.
+   */
   PipelineLayout(const VkPipelineLayoutCreateInfo& pipeline_layout_create_info);
+
+  /**
+   * @brief Destructor for PipelineLayout.
+   */
   ~PipelineLayout() override;
 
+  /**
+   * @brief Retrieves the Vulkan pipeline layout handle.
+   * @return Vulkan pipeline layout handle.
+   */
   [[nodiscard]] VkPipelineLayout GetVkPipelineLayout() const;
 };
 
+/**
+ * @class CommandPool
+ * @brief Represents a Vulkan command pool resource.
+ */
 class CommandPool final : public IGraphicsResource {
-  VkCommandPool vk_command_pool_ = VK_NULL_HANDLE;
+  VkCommandPool vk_command_pool_ = VK_NULL_HANDLE; /**< Vulkan command pool handle. */
 
  public:
+  /**
+   * @brief Constructs a CommandPool with Vulkan command pool creation info.
+   * @param command_pool_create_info Vulkan command pool creation information.
+   */
   explicit CommandPool(const VkCommandPoolCreateInfo& command_pool_create_info);
 
+  /**
+   * @brief Destructor for CommandPool.
+   */
   ~CommandPool() override;
 
+  /**
+   * @brief Retrieves the Vulkan command pool handle.
+   * @return Vulkan command pool handle.
+   */
   [[nodiscard]] VkCommandPool GetVkCommandPool() const;
 };
 
+/**
+ * @class Buffer
+ * @brief Represents a Vulkan buffer resource.
+ */
 class Buffer final : public IGraphicsResource {
-  VkBuffer vk_buffer_ = VK_NULL_HANDLE;
-  VmaAllocation vma_allocation_ = VK_NULL_HANDLE;
-  VmaAllocationInfo vma_allocation_info_ = {};
+  VkBuffer vk_buffer_ = VK_NULL_HANDLE;           /**< Vulkan buffer handle. */
+  VmaAllocation vma_allocation_ = VK_NULL_HANDLE; /**< VMA allocation handle for the buffer. */
+  VmaAllocationInfo vma_allocation_info_ = {};    /**< VMA allocation information. */
 
-  VkBufferCreateFlags flags_ = {};
-  VkDeviceSize size_ = {};
-  VkBufferUsageFlags usage_ = {};
-  VkSharingMode sharing_mode_ = {};
-  std::vector<uint32_t> queue_family_indices_ = {};
-  VmaAllocationCreateInfo vma_allocation_create_info_ = {};
+  VkBufferCreateFlags flags_ = {};                          /**< Vulkan buffer creation flags. */
+  VkDeviceSize size_ = {};                                  /**< Size of the buffer. */
+  VkBufferUsageFlags usage_ = {};                           /**< Usage flags for the buffer. */
+  VkSharingMode sharing_mode_ = {};                         /**< Sharing mode for the buffer. */
+  std::vector<uint32_t> queue_family_indices_ = {};         /**< List of queue family indices for sharing. */
+  VmaAllocationCreateInfo vma_allocation_create_info_ = {}; /**< VMA allocation creation info. */
 
+  /**
+   * @brief Allocates memory for the buffer with the specified creation info and allocation info.
+   * @param buffer_create_info Vulkan buffer creation information.
+   * @param vma_allocation_create_info VMA allocation creation information.
+   */
   void Allocate(VkBufferCreateInfo buffer_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info);
 
  public:
+  /**
+   * @brief Constructs a staging Buffer with the specified size and access mode.
+   * @param staging_buffer_size Size for the staging buffer.
+   * @param random_access Whether random access is required.
+   */
   explicit Buffer(size_t staging_buffer_size, bool random_access = false);
+
+  /**
+   * @brief Constructs a Buffer with Vulkan buffer creation info.
+   * @param buffer_create_info Vulkan buffer creation information.
+   */
   explicit Buffer(const VkBufferCreateInfo& buffer_create_info);
-  void UploadData(size_t size, const void* src);
-  void DownloadData(size_t size, void* dst);
+  /**
+   * @brief Destructor for Buffer.
+   */
   ~Buffer() override;
+  /**
+   * @brief Constructs a Buffer with Vulkan buffer creation info and VMA allocation info.
+   * @param buffer_create_info Vulkan buffer creation information.
+   * @param vma_allocation_create_info VMA allocation creation information.
+   */
   Buffer(const VkBufferCreateInfo& buffer_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info);
+
+  /**
+   * @brief Uploads data to the buffer.
+   * @param size Size of the data to upload.
+   * @param src Pointer to the data source.
+   */
+  void UploadData(size_t size, const void* src);
+
+  /**
+   * @brief Downloads data from the buffer.
+   * @param size Size of the data to download.
+   * @param dst Pointer to the destination buffer.
+   */
+  void DownloadData(size_t size, void* dst);
+
+  /**
+   * @brief Resizes the buffer to the specified size.
+   * @param new_size New size of the buffer.
+   */
   void Resize(VkDeviceSize new_size);
+
+  /**
+   * @brief Uploads a vector of data to the buffer.
+   * @tparam T Type of vector elements.
+   * @param data The data vector to upload.
+   */
   template <typename T>
   void UploadVector(const std::vector<T>& data);
+
+  /**
+   * @brief Uploads a single object of data to the buffer.
+   * @tparam T Type of object.
+   * @param data The data to upload.
+   */
   template <typename T>
   void Upload(const T& data);
+
+  /**
+   * @brief Downloads a vector of data from the buffer.
+   * @tparam T Type of vector elements.
+   * @param data The destination data vector.
+   * @param element_size Number of elements to download.
+   */
   template <typename T>
   void DownloadVector(std::vector<T>& data, size_t element_size);
+
+  /**
+   * @brief Downloads a single object of data from the buffer.
+   * @tparam T Type of object.
+   * @param data The destination data object.
+   */
   template <typename T>
   void Download(T& data);
+
+  /**
+   * @brief Copies data from another buffer.
+   * @param src_buffer Source buffer.
+   * @param size Size of the data to copy.
+   * @param src_offset Offset in the source buffer.
+   * @param dst_offset Offset in the destination buffer.
+   */
   void CopyFromBuffer(const Buffer& src_buffer, VkDeviceSize size, VkDeviceSize src_offset = 0,
                       VkDeviceSize dst_offset = 0);
+
+  /**
+   * @brief Copies data from an image to the buffer.
+   * @param src_image Source image.
+   * @param image_copy_info Vulkan buffer image copy information.
+   */
   void CopyFromImage(Image& src_image, const VkBufferImageCopy& image_copy_info) const;
+
+  /**
+   * @brief Copies data from an image to the buffer with a specified pixel size.
+   * @param src_image Source image.
+   * @param pixel_size Pixel size of the data.
+   */
   void CopyFromImage(Image& src_image, float pixel_size = 16);
+
+  /**
+   * @brief Copies depth data from an image to the buffer with a specified pixel size.
+   * @param src_image Source image.
+   * @param pixel_size Pixel size of the depth data.
+   */
   void CopyFromDepth(Image& src_image, float pixel_size = 4);
+
+  /**
+   * @brief Retrieves the Vulkan buffer handle.
+   * @return Vulkan buffer handle.
+   */
   [[nodiscard]] const VkBuffer& GetVkBuffer() const;
 
+  /**
+   * @brief Retrieves the VMA allocation handle for the buffer.
+   * @return VMA allocation handle.
+   */
   [[nodiscard]] VmaAllocation GetVmaAllocation() const;
 
+  /**
+   * @brief Retrieves the device address of the buffer.
+   * @return Device address of the buffer.
+   */
   [[nodiscard]] VkDeviceAddress GetDeviceAddress() const;
 
+  /**
+   * @brief Retrieves the VMA allocation information for the buffer.
+   * @return VMA allocation information.
+   */
   [[nodiscard]] const VmaAllocationInfo& GetVmaAllocationInfo() const;
 };
-
 template <typename T>
 void Buffer::UploadVector(const std::vector<T>& data) {
   if (data.empty())
@@ -260,175 +649,421 @@ void Buffer::Download(T& data) {
   DownloadData(sizeof(T), static_cast<void*>(&data));
 }
 
+/**
+ * @class Sampler
+ * @brief Represents a Vulkan sampler resource.
+ */
 class Sampler final : public IGraphicsResource {
-  VkSampler vk_sampler_;
+  VkSampler vk_sampler_; /**< Vulkan sampler handle. */
 
  public:
+  /**
+   * @brief Constructs a Sampler with Vulkan sampler creation info.
+   * @param sampler_create_info Vulkan sampler creation information.
+   */
   explicit Sampler(const VkSamplerCreateInfo& sampler_create_info);
+
+  /**
+   * @brief Destructor for Sampler.
+   */
   ~Sampler() override;
+
+  /**
+   * @brief Retrieves the Vulkan sampler handle.
+   * @return Vulkan sampler handle.
+   */
   [[nodiscard]] VkSampler GetVkSampler() const;
 };
 
+/**
+ * @struct DescriptorBinding
+ * @brief Represents a binding in a descriptor set layout.
+ */
 struct DescriptorBinding {
-  VkDescriptorSetLayoutBinding binding;
-  VkDescriptorBindingFlags binding_flags;
+  VkDescriptorSetLayoutBinding binding;   /**< Vulkan descriptor set layout binding. */
+  VkDescriptorBindingFlags binding_flags; /**< Vulkan descriptor binding flags. */
 };
+
+/**
+ * @class DescriptorSetLayout
+ * @brief Represents a Vulkan descriptor set layout resource.
+ */
 class DescriptorSetLayout final : public IGraphicsResource {
   friend class DescriptorSet;
-  std::unordered_map<uint32_t, DescriptorBinding> descriptor_set_layout_bindings_;
-  VkDescriptorSetLayout vk_descriptor_set_layout_ = VK_NULL_HANDLE;
+
+  std::unordered_map<uint32_t, DescriptorBinding> descriptor_set_layout_bindings_; /**< Descriptor bindings. */
+  VkDescriptorSetLayout vk_descriptor_set_layout_ = VK_NULL_HANDLE; /**< Vulkan descriptor set layout handle. */
 
  public:
+  /**
+   * @brief Destructor for DescriptorSetLayout.
+   */
   ~DescriptorSetLayout() override;
+
+  /**
+   * @brief Retrieves the Vulkan descriptor set layout handle.
+   * @return Vulkan descriptor set layout handle.
+   */
   [[nodiscard]] const VkDescriptorSetLayout& GetVkDescriptorSetLayout() const;
 
+  /**
+   * @brief Adds a descriptor binding to the layout.
+   * @param binding_index Index of the binding.
+   * @param type Vulkan descriptor type.
+   * @param stage_flags Shader stage flags for the binding.
+   * @param binding_flags Descriptor binding flags.
+   * @param descriptor_count Number of descriptors in the binding. Defaults to 1.
+   */
   void PushDescriptorBinding(uint32_t binding_index, VkDescriptorType type, VkShaderStageFlags stage_flags,
                              VkDescriptorBindingFlags binding_flags, uint32_t descriptor_count = 1);
+
+  /**
+   * @brief Initializes the descriptor set layout.
+   */
   void Initialize();
 };
 
+/**
+ * @class DescriptorPool
+ * @brief Represents a Vulkan descriptor pool resource.
+ */
 class DescriptorPool final : public IGraphicsResource {
-  VkDescriptorPool vk_descriptor_pool_ = VK_NULL_HANDLE;
+  VkDescriptorPool vk_descriptor_pool_ = VK_NULL_HANDLE; /**< Vulkan descriptor pool handle. */
 
  public:
+  /**
+   * @brief Constructs a DescriptorPool with Vulkan descriptor pool creation info.
+   * @param descriptor_pool_create_info Vulkan descriptor pool creation information.
+   */
   explicit DescriptorPool(const VkDescriptorPoolCreateInfo& descriptor_pool_create_info);
+
+  /**
+   * @brief Destructor for DescriptorPool.
+   */
   ~DescriptorPool() override;
+
+  /**
+   * @brief Retrieves the Vulkan descriptor pool handle.
+   * @return Vulkan descriptor pool handle.
+   */
   [[nodiscard]] VkDescriptorPool GetVkDescriptorPool() const;
 };
 
+/**
+ * @class ShaderExt
+ * @brief Represents an extended Vulkan shader resource.
+ */
 class ShaderExt final : public IGraphicsResource {
-  VkShaderEXT shader_ext_ = VK_NULL_HANDLE;
+  VkShaderEXT shader_ext_ = VK_NULL_HANDLE; /**< Vulkan extended shader handle. */
 
-  VkShaderCreateFlagsEXT flags_;
-  VkShaderStageFlagBits stage_;
-  VkShaderStageFlags next_stage_;
-  VkShaderCodeTypeEXT code_type_;
-  std::string name_;
-  std::vector<VkDescriptorSetLayout> set_layouts_;
-  std::vector<VkPushConstantRange> push_constant_ranges_;
-  std::optional<VkSpecializationInfo> specialization_info_;
+  VkShaderCreateFlagsEXT flags_;                            /**< Vulkan shader creation flags. */
+  VkShaderStageFlagBits stage_;                             /**< Shader stage (e.g., vertex, fragment). */
+  VkShaderStageFlags next_stage_;                           /**< Next shader stage for dependency. */
+  VkShaderCodeTypeEXT code_type_;                           /**< Shader code type. */
+  std::string name_;                                        /**< Shader name. */
+  std::vector<VkDescriptorSetLayout> set_layouts_;          /**< Descriptor set layouts used by the shader. */
+  std::vector<VkPushConstantRange> push_constant_ranges_;   /**< Push constant ranges used by the shader. */
+  std::optional<VkSpecializationInfo> specialization_info_; /**< Shader specialization information. */
 
  public:
+  /**
+   * @brief Constructs a ShaderExt with extended Vulkan shader creation info.
+   * @param shader_create_info_ext Vulkan extended shader creation information.
+   */
   explicit ShaderExt(const VkShaderCreateInfoEXT& shader_create_info_ext);
+
+  /**
+   * @brief Destructor for ShaderExt.
+   */
   ~ShaderExt() override;
+
+  /**
+   * @brief Retrieves the Vulkan extended shader handle.
+   * @return Vulkan extended shader handle.
+   */
   [[nodiscard]] const VkShaderEXT& GetVkShaderExt() const;
 };
 
+/**
+ * @enum CommandBufferStatus
+ * @brief Represents the status of a command buffer.
+ */
 enum class CommandBufferStatus { Ready, Recording, Recorded, Invalid };
+
+/**
+ * @class CommandBuffer
+ * @brief Represents a Vulkan command buffer resource.
+ */
 class CommandBuffer final : public IGraphicsResource {
   friend class Platform;
-  CommandBufferStatus status_ = CommandBufferStatus::Invalid;
-  VkCommandBuffer vk_command_buffer_ = VK_NULL_HANDLE;
+
+  CommandBufferStatus status_ = CommandBufferStatus::Invalid; /**< Current status of the command buffer. */
+  VkCommandBuffer vk_command_buffer_ = VK_NULL_HANDLE;        /**< Vulkan command buffer handle. */
 
  public:
-  CommandBufferStatus GetStatus() const;
-  CommandBuffer(const VkCommandBufferLevel& buffer_level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-  ~CommandBuffer() override;
-  [[nodiscard]] const VkCommandBuffer& GetVkCommandBuffer() const;
   /**
-   * Begins the recording state for this command buffer.
-   * @param usage How this command buffer will be used.
+   * @brief Retrieves the current status of the command buffer.
+   * @return Status of the command buffer.
+   */
+  CommandBufferStatus GetStatus() const;
+
+  /**
+   * @brief Constructs a CommandBuffer with the specified command buffer level.
+   * @param buffer_level Vulkan command buffer level. Defaults to primary level.
+   */
+  CommandBuffer(const VkCommandBufferLevel& buffer_level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+
+  /**
+   * @brief Destructor for CommandBuffer.
+   */
+  ~CommandBuffer() override;
+
+  /**
+   * @brief Retrieves the Vulkan command buffer handle.
+   * @return Vulkan command buffer handle.
+   */
+  [[nodiscard]] const VkCommandBuffer& GetVkCommandBuffer() const;
+
+  /**
+   * @brief Begins recording commands in the command buffer.
+   * @param usage Vulkan command buffer usage flags. Defaults to one-time submit mode.
    */
   void Begin(const VkCommandBufferUsageFlags& usage = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
   /**
-   * Ends the recording state for this command buffer.
+   * @brief Ends recording commands in the command buffer.
    */
   void End();
 
+  /**
+   * @brief Records commands using the specified callback function.
+   * @param commands Callback function to record Vulkan commands.
+   */
   void Record(const std::function<void(VkCommandBuffer vk_command_buffer)>& commands);
 
+  /**
+   * @brief Resets the command buffer to its initial state.
+   */
   void Reset();
 };
 
+/**
+ * @class CommandQueue
+ * @brief Represents a Vulkan command queue resource.
+ */
 class CommandQueue final : public IGraphicsResource {
   friend class Platform;
-  VkQueue vk_queue_ = VK_NULL_HANDLE;
+
+  VkQueue vk_queue_ = VK_NULL_HANDLE; /**< Vulkan command queue handle. */
 
  public:
+  /**
+   * @brief Submits command buffers to the queue with synchronization primitives.
+   * @param command_buffers List of shared command buffers to submit.
+   * @param offset Offset for starting the command buffer range.
+   * @param buffer_count Number of buffers to submit.
+   * @param wait_semaphores List of semaphores to wait for, along with pipeline stage flags.
+   * @param signal_semaphores List of semaphores to signal after submission.
+   * @param fence Fence to signal when submission is completed.
+   */
   void Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers, uint32_t offset,
               uint32_t buffer_count,
               const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
               const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores,
               const std::shared_ptr<Fence>& fence) const;
 
+  /**
+   * @brief Submits command buffers to the queue with synchronization primitives.
+   * @param command_buffers List of shared command buffers to submit.
+   * @param wait_semaphores List of semaphores to wait for, along with pipeline stage flags.
+   * @param signal_semaphores List of semaphores to signal after submission.
+   * @param fence Fence to signal when submission is completed.
+   */
   void Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers,
               const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
               const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores,
               const std::shared_ptr<Fence>& fence) const;
 
+  /**
+   * @brief Submits command buffers to the queue without a fence.
+   * @param command_buffers List of shared command buffers to submit.
+   * @param wait_semaphores List of semaphores to wait for, along with pipeline stage flags.
+   * @param signal_semaphores List of semaphores to signal after submission.
+   */
   void Submit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers,
               const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
               const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores) const;
 
+  /**
+   * @brief Submits command buffers immediately to the queue with synchronization primitives.
+   * @param command_buffers List of shared command buffers to submit.
+   * @param wait_semaphores List of semaphores to wait for, along with pipeline stage flags.
+   * @param signal_semaphores List of semaphores to signal after submission.
+   */
   void ImmediateSubmit(const std::vector<std::shared_ptr<CommandBuffer>>& command_buffers,
                        const std::vector<std::pair<std::shared_ptr<Semaphore>, VkPipelineStageFlags>>& wait_semaphores,
                        const std::vector<std::shared_ptr<Semaphore>>& signal_semaphores) const;
 
+  /**
+   * @brief Presents swapchain images to the queue.
+   * @param wait_semaphores List of semaphores to wait for before presenting.
+   * @param targets List of pairs of swapchain objects and image indices to present.
+   */
   void Present(const std::vector<std::shared_ptr<Semaphore>>& wait_semaphores,
                const std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>>& targets) const;
 
+  /**
+   * @brief Waits until all pending operations in the queue are completed.
+   */
   void WaitIdle() const;
 
+  /**
+   * @brief Retrieves the Vulkan command queue handle.
+   * @return Vulkan command queue handle.
+   */
   VkQueue GetVkQueue() const;
 };
 
+/**
+ * @class BottomLevelAccelerationStructure
+ * @brief Represents a Vulkan bottom-level acceleration structure resource.
+ */
 class BottomLevelAccelerationStructure final : public IGraphicsResource {
-  VkAccelerationStructureKHR vk_acceleration_structure_khr_ = VK_NULL_HANDLE;
-  std::shared_ptr<Buffer> acceleration_structure_buffer_{};
-  VkDeviceAddress device_address_{};
+  VkAccelerationStructureKHR vk_acceleration_structure_khr_ =
+      VK_NULL_HANDLE;                                       /**< Vulkan bottom-level acceleration structure handle. */
+  std::shared_ptr<Buffer> acceleration_structure_buffer_{}; /**< Buffer associated with the acceleration structure. */
+  VkDeviceAddress device_address_{};                        /**< Device address of the structure. */
 
-  std::shared_ptr<Buffer> vertex_buffer;
-  std::shared_ptr<Buffer> index_buffer;
-  std::shared_ptr<Buffer> transform_buffer;
+  std::shared_ptr<Buffer> vertex_buffer;    /**< Buffer for vertex data. */
+  std::shared_ptr<Buffer> index_buffer;     /**< Buffer for index data. */
+  std::shared_ptr<Buffer> transform_buffer; /**< Buffer for transform data. */
 
  public:
+  /**
+   * @brief Constructs a BottomLevelAccelerationStructure using vertex and triangle data.
+   * @param vertices List of vertices for the structure.
+   * @param triangles List of triangles for the structure.
+   */
   explicit BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices,
                                             const std::vector<glm::uvec3>& triangles);
+
+  /**
+   * @brief Destructor for BottomLevelAccelerationStructure.
+   */
   ~BottomLevelAccelerationStructure() override;
+
+  /**
+   * @brief Retrieves the device address of the bottom-level acceleration structure.
+   * @return Device address of the structure.
+   */
   [[nodiscard]] VkDeviceAddress GetDeviceAddress() const;
 };
 
+/**
+ * @class TopLevelAccelerationStructure
+ * @brief Represents a Vulkan top-level acceleration structure resource.
+ */
 class TopLevelAccelerationStructure final : public IGraphicsResource {
-  VkAccelerationStructureKHR vk_acceleration_structure_khr_ = VK_NULL_HANDLE;
-  std::shared_ptr<Buffer> acceleration_structure_buffer_{};
-  VkDeviceAddress device_address_{};
+  VkAccelerationStructureKHR vk_acceleration_structure_khr_ =
+      VK_NULL_HANDLE;                                       /**< Vulkan top-level acceleration structure handle. */
+  std::shared_ptr<Buffer> acceleration_structure_buffer_{}; /**< Buffer associated with the acceleration structure. */
+  VkDeviceAddress device_address_{};                        /**< Device address of the structure. */
 
-  std::shared_ptr<Buffer> instances_data_buffer;
+  std::shared_ptr<Buffer> instances_data_buffer; /**< Buffer for instance data. */
 
  public:
+  /**
+   * @brief Constructs a TopLevelAccelerationStructure using a scene and its render instance storage.
+   * @param scene Shared pointer to the scene object.
+   * @param render_instance_storage Reference to the render instance storage.
+   */
   explicit TopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene,
                                          const RenderInstanceStorage& render_instance_storage);
+
+  /**
+   * @brief Destructor for TopLevelAccelerationStructure.
+   */
   ~TopLevelAccelerationStructure() override;
 
+  /**
+   * @brief Retrieves the Vulkan handle for the top-level acceleration structure.
+   * @return Vulkan top-level acceleration structure handle.
+   */
   [[nodiscard]] VkAccelerationStructureKHR GetVkAccelerationStructure() const;
+
+  /**
+   * @brief Retrieves the device address of the top-level acceleration structure.
+   * @return Device address of the structure.
+   */
   [[nodiscard]] VkDeviceAddress GetDeviceAddress() const;
 };
 
+/**
+ * @class DescriptorSet
+ * @brief Represents a Vulkan descriptor set resource.
+ */
 class DescriptorSet final : public IGraphicsResource {
-  std::shared_ptr<DescriptorSetLayout> descriptor_set_layout_;
-  VkDescriptorSet descriptor_set_ = VK_NULL_HANDLE;
+  std::shared_ptr<DescriptorSetLayout> descriptor_set_layout_; /**< Associated descriptor set layout. */
+  VkDescriptorSet descriptor_set_ = VK_NULL_HANDLE;            /**< Vulkan descriptor set handle. */
 
  public:
-  [[nodiscard]] const VkDescriptorSet& GetVkDescriptorSet() const;
-  ~DescriptorSet() override;
-  DescriptorSet(const std::shared_ptr<DescriptorSetLayout>& target_layout);
   /**
-   * \brief UpdateImageDescriptorBinding
-   * \param binding_index Target binding
-   * \param image_info The image info for update. Make sure the size is max frame size.
-   * \param array_element
+   * @brief Retrieves the Vulkan descriptor set handle.
+   * @return Vulkan descriptor set handle.
+   */
+  [[nodiscard]] const VkDescriptorSet& GetVkDescriptorSet() const;
+
+  /**
+   * @brief Destructor for DescriptorSet.
+   */
+  ~DescriptorSet() override;
+
+  /**
+   * @brief Constructs a DescriptorSet with the target layout.
+   * @param target_layout Shared pointer to the target descriptor set layout.
+   */
+  DescriptorSet(const std::shared_ptr<DescriptorSetLayout>& target_layout);
+
+  /**
+   * @brief Updates an image binding in the descriptor set.
+   * @param binding_index Target binding index.
+   * @param image_info The Vulkan image info for the update.
+   * @param array_element Array index for the binding. Defaults to 0.
    */
   void UpdateImageDescriptorBinding(uint32_t binding_index, const VkDescriptorImageInfo& image_info,
                                     uint32_t array_element = 0) const;
 
+  /**
+   * @brief Updates an acceleration structure binding in the descriptor set.
+   * @param binding_index Target binding index.
+   * @param acceleration_structure Vulkan acceleration structure handle.
+   */
   void UpdateAccelerationStructureDescriptorBinding(uint32_t binding_index,
                                                     const VkAccelerationStructureKHR& acceleration_structure) const;
+
+  /**
+   * @brief Updates an acceleration structure binding in the descriptor set.
+   * @param binding_index Target binding index.
+   * @param acceleration_structure Shared pointer to the top-level acceleration structure.
+   */
   void UpdateAccelerationStructureDescriptorBinding(
       uint32_t binding_index, const std::shared_ptr<TopLevelAccelerationStructure>& acceleration_structure) const;
+
+  /**
+   * @brief Updates a buffer binding in the descriptor set.
+   * @param binding_index Target binding index.
+   * @param buffer_info Vulkan buffer info for the update.
+   * @param array_element Array index for the binding. Defaults to 0.
+   */
   void UpdateBufferDescriptorBinding(uint32_t binding_index, const VkDescriptorBufferInfo& buffer_info,
                                      uint32_t array_element = 0) const;
 
+  /**
+   * @brief Updates a buffer binding in the descriptor set.
+   * @param binding_index Target binding index.
+   * @param buffer Shared pointer to the buffer resource.
+   * @param array_element Array index for the binding. Defaults to 0.
+   */
   void UpdateBufferDescriptorBinding(uint32_t binding_index, const std::shared_ptr<Buffer>& buffer,
                                      uint32_t array_element = 0) const;
 };

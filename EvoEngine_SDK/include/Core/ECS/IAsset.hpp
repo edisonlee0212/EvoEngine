@@ -1,15 +1,29 @@
+
 #pragma once
 #include "IHandle.hpp"
 #include "ISerializable.hpp"
+
 namespace evo_engine {
+
+/**
+ * Forward declarations of other classes.
+ */
 class EditorLayer;
 class AssetRef;
 class File;
 class Texture2D;
+
+/**
+ * @class IAsset
+ * @brief Base class for managing assets in the evo_engine framework. Provides functionality for serialization,
+ *        deserialization, and interactions with the asset's file system and the editor.
+ */
 class IAsset : public ISerializable {
-  std::weak_ptr<IAsset> self_;
+  std::weak_ptr<IAsset>
+      self_; /**< Weak reference to the current IAsset instance. Used internally for managing self-references. */
 
  protected:
+  /** @cond DOXYGEN_SHOULD_SKIP_THIS */
   friend class Resources;
   friend class EditorLayer;
   friend class AssetRegistry;
@@ -17,81 +31,145 @@ class IAsset : public ISerializable {
   friend class File;
   friend class Folder;
   friend class AssetManager;
-  std::weak_ptr<File> file_record_;
-  [[nodiscard]] std::shared_ptr<IAsset> GetSelf() const;
+  /** @endcond */
+
+  std::weak_ptr<File> file_record_; /**< Weak reference to the file metadata associated with this asset. */
+
   /**
-   * The function that handles serialization. May be invoked by SaveInternal() or ProjectManager.
-   * Function is virtual so user can define their own serialization procedure.
-   * @param path The file path for saving the asset, may or may not be the local stored path.
+   * @brief Gets a shared pointer to the current asset instance.
+   * @return A shared pointer to this asset.
+   */
+  [[nodiscard]] std::shared_ptr<IAsset> GetSelf() const;
+
+  /**
+   * @brief Handles asset-specific saving logic.
+   * @param path The file path to save the asset to, which may or may not be the local stored path.
+   * @return Whether the save operation was successful.
    */
   virtual bool SaveInternal(const std::filesystem::path& path) const;
+
   /**
-   * The function that handles deserialization. May be invoked by Load() or ProjectManager. Function is
-   * virtual so user can define their own deserialization procedure.
-   * @param path The file path for loading the asset, may or may not be the local stored path.
+   * @brief Handles asset-specific loading logic.
+   * @param path The file path to load the asset from, which may or may not be the local stored path.
+   * @return Whether the load operation was successful.
    */
   virtual bool LoadInternal(const std::filesystem::path& path);
-  /**
-   * Whether the asset is saved or not.
-   */
-  bool saved_ = false;
-  uint32_t version_ = 0;
+
+  bool saved_ = false;   /**< Indicates whether the asset is in a saved state. */
+  uint32_t version_ = 0; /**< The version number of the asset. */
 
  public:
-  [[nodiscard]] virtual std::shared_ptr<Texture2D> GenerateThumbnailTexture();
-  [[nodiscard]] uint32_t GetVersion() const;
-  [[maybe_unused]] bool SetPathAndSave(const std::filesystem::path& asset_folder_relative_path);
-  [[nodiscard]] std::filesystem::path GetAssetsFolderRelativePath() const;
-  [[nodiscard]] std::filesystem::path GetAbsolutePath() const;
-  [[nodiscard]] std::string GetTitle() const;
-  [[nodiscard]] bool IsTemporary() const;
-  [[nodiscard]] std::weak_ptr<File> GetFileRecord() const;
   /**
-   * Function will be invoked right after asset creation.
+   * @brief Generates a thumbnail texture for the asset.
+   * @return A shared pointer to the generated thumbnail texture.
+   */
+  [[nodiscard]] virtual std::shared_ptr<Texture2D> GenerateThumbnailTexture();
+
+  /**
+   * @brief Gets the version number of the asset.
+   * @return The version number.
+   */
+  [[nodiscard]] uint32_t GetVersion() const;
+
+  /**
+   * @brief Sets the file path for the asset and saves it.
+   * @param asset_folder_relative_path The relative path to the asset folder.
+   * @return Whether the save operation was successful.
+   */
+  [[maybe_unused]] bool SetPathAndSave(const std::filesystem::path& asset_folder_relative_path);
+
+  /**
+   * @brief Gets the file path of the asset relative to the assets folder.
+   * @return The relative file path.
+   */
+  [[nodiscard]] std::filesystem::path GetAssetsFolderRelativePath() const;
+
+  /**
+   * @brief Gets the absolute file path of the asset.
+   * @return The absolute file path.
+   */
+  [[nodiscard]] std::filesystem::path GetAbsolutePath() const;
+
+  /**
+   * @brief Gets the title of the asset.
+   * @return The title string.
+   */
+  [[nodiscard]] std::string GetTitle() const;
+
+  /**
+   * @brief Checks if the asset is temporary.
+   * @return True if the asset is temporary, false otherwise.
+   */
+  [[nodiscard]] bool IsTemporary() const;
+
+  /**
+   * @brief Gets the file record associated with the asset.
+   * @return A weak pointer to the file record.
+   */
+  [[nodiscard]] std::weak_ptr<File> GetFileRecord() const;
+
+  /**
+   * @brief Invoked right after the asset is created.
    */
   virtual void OnCreate();
 
   /**
-   * SaveInternal the asset to its file path, nothing happens if the path is empty.
+   * @brief Saves the asset to its file path. Does nothing if the path is empty.
+   * @return Whether the save operation was successful.
    */
   bool Save();
+
   /**
-   * Load the asset from its file path, nothing happens if the path is empty.
+   * @brief Loads the asset from its file path. Does nothing if the path is empty.
+   * @return Whether the load operation was successful.
    */
   bool Load();
+
   /**
-   * Export current asset. Will not affect the path member of the asset.
-   * @param path The target path of the asset, must be absolute path and outside project folder.
-   * @return If the asset is successfully exported.
+   * @brief Exports the current asset to a specified path. Does not affect the asset's internal path.
+   * @param path The target path for exporting the asset. Must be an absolute path and outside the project folder.
+   * @return Whether the export operation was successful.
    */
   [[maybe_unused]] bool Export(const std::filesystem::path& path) const;
+
   /**
-   * Import current asset. Will not affect the path member of the asset.
-   * @param path The target path of the asset, must be absolute path and outside project folder.
-   * @return If the asset is successfully imported.
+   * @brief Imports the asset from a specified path. Does not affect the asset's internal path.
+   * @param path The source path for importing the asset. Must be an absolute path and outside the project folder.
+   * @return Whether the import operation was successful.
    */
   [[maybe_unused]] bool Import(const std::filesystem::path& path);
 
   /**
-   * The GUI of the asset when inspected in the editor.
-   * * @return If the asset is modified during inspection.
+   * @brief Provides the GUI representation of the asset when inspected in the editor.
+   * @param editor_layer A shared pointer to the editor layer.
+   * @return Whether the asset was modified during the inspection.
    */
   virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     return false;
   }
+
   /**
-   * During the serialization of the prefab and scene, user should mark all the AssetRef member in the class so they
-   * will be serialized and correctly restored during deserialization.
-   * @param list The list for collecting the AssetRef of all members. You should push all the AssetRef of the class
-   * members to ensure correct behaviour.
+   * @brief Marks all AssetRef members for serialization during prefab and scene serialization.
+   * @param list A list to collect the AssetRef of all members. Push all AssetRef instances of the class members to this
+   *             list to ensure proper deserialization behavior.
    */
   virtual void CollectAssetRef(std::vector<AssetRef>& list) {
   }
+
   /**
-   * Notify asset to be saved later.
+   * @brief Flags the asset to be saved at a later time.
    */
   void SetUnsaved();
+
+  /**
+   * @brief Checks if the asset is in a saved state.
+   * @return True if the asset is saved, false otherwise.
+   */
   [[nodiscard]] bool Saved() const;
+
+  /**
+   * @brief Destructor for the asset.
+   */
   ~IAsset() override;
 };
 

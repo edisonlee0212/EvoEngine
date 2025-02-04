@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include <memory>
@@ -187,7 +188,9 @@ using InternalTypeT = typename InternalType<T>::Type;
 /**
  * @brief Get the internal interface of t.
  *
- * @param t Reference to an PublicT object.
+ * @tparam PublicT The public type of the object.
+ * @tparam InternalT The internal type derived conditionally based on `PublicT`.
+ * @param t Reference to a `PublicT` object.
  * @return InternalT& Reference to the internal instance.
  */
 template <typename PublicT, typename InternalT = std::conditional_t<std::is_const_v<PublicT>,
@@ -204,4 +207,5 @@ InternalT& GetInternal(PublicT& t) noexcept {
   using CastT = std::conditional_t<std::is_const_v<InternalT>, const InternalTPtr, InternalTPtr>;
   return *reinterpret_cast<CastT&>(t);
 }
+
 }  // namespace evo_engine

@@ -1,15 +1,57 @@
+
 #pragma once
 #include "IPrivateComponent.hpp"
+
 namespace evo_engine {
+
+/**
+ * @brief Class representing waypoints for an entity.
+ *
+ * The WayPoints class is used to handle entities' movement along predefined
+ * paths with configurable speeds and modes.
+ */
 class WayPoints : public IPrivateComponent {
  public:
-  enum class Mode { FixedTime, FixedVelocity } mode = Mode::FixedTime;
+  /**
+   * @brief Enum representing modes of waypoint traversal.
+   */
+  enum class Mode {
+    FixedTime,              /**< Move with a fixed time interval between waypoints. */
+    FixedVelocity           /**< Move with a fixed velocity between waypoints. */
+  } mode = Mode::FixedTime; /**< Specifies the mode of waypoint traversal. */
 
+  /**
+   * @brief The speed for movement between waypoints.
+   */
   float speed = 1.0f;
+
+  /**
+   * @brief The list of entity references that define the waypoints.
+   */
   std::vector<EntityRef> entities;
+
+  /**
+   * @brief Function called to provide an interface for inspecting the object's properties.
+   *
+   * @param editor_layer A shared pointer to the editor layer used for rendering the interface.
+   * @return True if inspection was successful, otherwise false.
+   */
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+
+  /**
+   * @brief Function called when the component is created.
+   */
   void OnCreate() override;
+
+  /**
+   * @brief Function called when the component is destroyed.
+   */
   void OnDestroy() override;
+
+  /**
+   * @brief Function called once per frame to perform updates.
+   */
   void Update() override;
 };
+
 }  // namespace evo_engine

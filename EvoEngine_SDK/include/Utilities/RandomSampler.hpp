@@ -1,8 +1,25 @@
+
 #pragma once
+
 namespace evo_engine {
+
+/**
+ * @class RandomSampler
+ * @brief A class to generate random samples for rendering or simulation.
+ */
 class RandomSampler {
  public:
+  /**
+   * @brief Default constructor for RandomSampler.
+   */
   RandomSampler() = default;
+
+  /**
+   * @brief Sets the seed for the random number generator.
+   *
+   * @param start_state The starting state for the RNG.
+   * @param init_seq The initial sequence number (default is 1).
+   */
   void SetSeed(const uint64_t start_state, const uint64_t init_seq = 1) {
     state_ = 0U;
     inc_ = init_seq << 1 | 1u;
@@ -11,6 +28,12 @@ class RandomSampler {
     NextUint();
   }
 
+  /**
+   * @brief Configures the RNG based on a pixel index and a sample index.
+   *
+   * @param pixel_index The index of the pixel.
+   * @param sample_index The sample index.
+   */
   void SetPixelSample(const int pixel_index, const uint64_t sample_index) {
     uint64_t x = pixel_index & 0x0000ffff;  // x = ---- ---- ---- ---- fedc ba98 7654 3210
     x = (x | x << 8) & 0x00FF00FF;          // x = ---- ---- fedc ba98 ---- ---- 7654 3210
@@ -22,14 +45,29 @@ class RandomSampler {
     SetSeed(s0, s1);
   }
 
+  /**
+   * @brief Generates a random floating-point number in the range [0, 1).
+   *
+   * @return A random float.
+   */
   float Get1D() {
     return NextFloat();
   }
 
+  /**
+   * @brief Generates a random 2D point with x and y in the range [0, 1).
+   *
+   * @return A glm::vec2 representing the random point.
+   */
   glm::vec2 Get2D() {
     return {Get1D(), Get1D()};
   }
 
+  /**
+   * @brief Advances the RNG by a specified number of steps.
+   *
+   * @param delta The number of steps to advance (default is 1 << 32).
+   */
   void Advance(int64_t delta = 1ll < 32) {
     uint64_t cur_multiplier = 0x5851f42d4c957f2dULL, cur_plus = inc_, acc_multiplier = 1u, acc_plus = 0u;
 
@@ -46,6 +84,11 @@ class RandomSampler {
   }
 
  private:
+  /**
+   * @brief Generates the next unsigned integer from the RNG.
+   *
+   * @return A 32-bit unsigned random integer.
+   */
   uint32_t NextUint() {
     const uint64_t prev_state = state_;
     state_ = prev_state * 0x5851f42d4c957f2dULL + inc_;
@@ -54,6 +97,11 @@ class RandomSampler {
     return xor_shifted >> rot | xor_shifted << (~rot + 1u & 31);
   }
 
+  /**
+   * @brief Generates the next random double in the range [0, 1).
+   *
+   * @return A random double.
+   */
   double NextDouble() {
     union {
       uint64_t u;
@@ -63,6 +111,11 @@ class RandomSampler {
     return x.d - 1.0;
   }
 
+  /**
+   * @brief Generates the next random float in the range [0, 1).
+   *
+   * @return A random float.
+   */
   float NextFloat() {
     union {
       uint32_t u;
@@ -72,8 +125,8 @@ class RandomSampler {
     return x.f - 1.0f;
   }
 
-  uint64_t state_;  // RNG state.  All values are possible.
-  uint64_t inc_;    // Controls which RNG sequence (stream) is selected. Must
-                    // *always* be odd.
+  uint64_t state_;  ///< The current state of the RNG. All values are possible.
+  uint64_t inc_;    ///< Controls which RNG sequence (stream) is selected. Must always be odd.
 };
+
 }  // namespace evo_engine
