@@ -23,7 +23,7 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
   if (ImGui::Checkbox("Use group index", &use_group_index))
     changed = true;
   if (ImGui::Checkbox("Use segment pairs", &use_segment_pairs))
-    changed = true; 
+    changed = true;
   if (ImGui::Checkbox("Use break threshold", &use_break_threshold))
     changed = true;
   if (ImGui::DragFloat("Break threshold", &break_threshold, 0.0001f, 0.0f, 1.0f, "%.4f")) {
@@ -59,7 +59,7 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
     ImGui::TreePop();
   }
 
-  if (ImGui::DragFloat("U-coordinate multiplier", &u_multiplier, 1.f, 1.f, 20)) 
+  if (ImGui::DragFloat("U-coordinate multiplier", &u_multiplier, 1.f, 1.f, 20))
     changed = true;
 
   if (ImGui::DragFloat("V-coordinate multiplier", &v_multiplier, 0.001f, 0.0f, 100.0f))

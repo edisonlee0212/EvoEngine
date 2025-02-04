@@ -122,7 +122,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
   }
-  const auto current_frame_index = Platform::GetCurrentFrameIndex(); 
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
   static std::shared_ptr<GraphicsPipeline> segment_render_pipeline{};
   struct SegmentRenderPushConstant {

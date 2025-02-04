@@ -341,7 +341,7 @@ VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_seve
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_FLAG_BITS_MAX_ENUM_EXT:
       break;
   }
-  
+
   return VK_FALSE;
 }
 

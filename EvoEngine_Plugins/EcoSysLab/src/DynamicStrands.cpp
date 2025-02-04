@@ -1054,7 +1054,6 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
 
       const auto mismatch_indices = DynamicStrandUtils::CompareIndices(gpu_tet.indices, neighbor_indices);
       gpu_tet.neighbor_tet_ids[mismatch_indices.first] = neighbor_index;
-      
     }
     tetrahedrons.emplace_back(gpu_tet);
   }
@@ -1096,7 +1095,7 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
       gpu_tet.is_bark[i] = -1;
     }
     // set up debugging members
-    gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f); 
+    gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
     for (int& i : gpu_tet.render_neighbor) {
       i = -1;
     }
@@ -1184,7 +1183,7 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
       points.emplace_back(p_cgal, i);
     }
 
-    CGALDelaunay(points, tetrahedrons); 
+    CGALDelaunay(points, tetrahedrons);
   }
 #endif
   if (!use_cgal) {

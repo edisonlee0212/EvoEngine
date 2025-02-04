@@ -2,8 +2,8 @@
 
 using namespace eco_sys_lab_plugin;
 
- float DynamicStrandUtils::PointPlaneDistance(const glm::vec3& target_point, const glm::vec3& target_a,
-                                      const glm::vec3& target_b, const glm::vec3& target_c) {
+float DynamicStrandUtils::PointPlaneDistance(const glm::vec3& target_point, const glm::vec3& target_a,
+                                             const glm::vec3& target_b, const glm::vec3& target_c) {
   // Compute the normal of the triangle
   const glm::vec3 ab = target_b - target_a;
   const glm::vec3 ac = target_c - target_a;
@@ -56,18 +56,18 @@ std::pair<int, int> DynamicStrandUtils::CompareIndices(const int a[4], const int
 
 bool DynamicStrandUtils::IsBetweenPlanes(const int target_indices[4],
                                          std::vector<DynamicStrands::GpuUniformParticle>& particles) {
-  int max_difference = -1; 
+  int max_difference = -1;
 
   for (size_t i = 0; i < 4; i++) {
     for (size_t j = i + 1; j < 4; j++) {
       int diff = glm::abs(particles[target_indices[i]].segment_index - particles[target_indices[j]].segment_index);
       if (diff > max_difference) {
-        max_difference = diff; 
+        max_difference = diff;
       }
     }
   }
-  //return max_difference == 1;
-  return max_difference <= 1; // for now also permit same distance
+  // return max_difference == 1;
+  return max_difference <= 1;  // for now also permit same distance
 }
 
 bool DynamicStrandUtils::IsValid(const int target_indices[4], int size) {
@@ -90,15 +90,15 @@ bool DynamicStrandUtils::IsValid(const int target_indices[4], int size) {
   return true;
 };
 
-void DynamicStrandUtils::AlphaComplex(std::vector<DynamicStrands::GpuDelaunayTetrahedron>& delaunay_triangulation, std::function<bool (DynamicStrands::GpuDelaunayTetrahedron&)> is_inside) {
+void DynamicStrandUtils::AlphaComplex(std::vector<DynamicStrands::GpuDelaunayTetrahedron>& delaunay_triangulation,
+                                      std::function<bool(DynamicStrands::GpuDelaunayTetrahedron&)> is_inside) {
   Jobs::RunParallelFor(delaunay_triangulation.size(), [&](const size_t tet_index) {
     auto& tet = delaunay_triangulation[tet_index];
     tet.inside_at_init = int(is_inside(tet));
   });
 }
 
-void DynamicStrandUtils::FillAlphaComplex(
-    std::vector<DynamicStrands::GpuDelaunayTetrahedron>& alpha_complex) {
+void DynamicStrandUtils::FillAlphaComplex(std::vector<DynamicStrands::GpuDelaunayTetrahedron>& alpha_complex) {
   std::vector<bool> visited(alpha_complex.size(), false);
   for (size_t i = 0; i < alpha_complex.size(); i++) {
     if (alpha_complex[i].inside_at_init || visited[i])
@@ -139,8 +139,7 @@ void DynamicStrandUtils::FillAlphaComplex(
   }
 }
 
-void DynamicStrandUtils::FlagBark(
-    std::vector<DynamicStrands::GpuDelaunayTetrahedron>& alpha_complex) {
+void DynamicStrandUtils::FlagBark(std::vector<DynamicStrands::GpuDelaunayTetrahedron>& alpha_complex) {
   Jobs::RunParallelFor(alpha_complex.size(), [&](const size_t tet_index) {
     auto& tet = alpha_complex[tet_index];
     if (!tet.inside_at_init) {

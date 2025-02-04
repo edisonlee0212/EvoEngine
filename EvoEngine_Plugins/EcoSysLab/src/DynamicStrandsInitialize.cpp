@@ -1,10 +1,10 @@
 #include "DsConstraints.hpp"
+#include "DynamicStrandUtils.hpp"
 #include "DynamicStrands.hpp"
 #include "FoliageDescriptor.hpp"
 #include "UVMapUtils.hpp"
 #include "glm/gtc/matrix_access.hpp"
 #include "glm/gtx/quaternion.hpp"
-#include "DynamicStrandUtils.hpp"
 
 #include "Shader.hpp"
 
@@ -95,7 +95,7 @@ void DynamicStrands::InitializeMesh(const InitializeParameters& initialize_param
   const auto uniform_particles_group_size = Platform::DivUp(uniform_particles.size(), work_group_invocations);
 
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    interior_initialization_pipeline->Bind(vk_command_buffer); 
+    interior_initialization_pipeline->Bind(vk_command_buffer);
     interior_initialization_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     interior_initialization_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
@@ -853,13 +853,14 @@ void DynamicStrands::InitializeData(const InitializeParameters& initialize_param
 
   for (size_t i = 0; i < skeleton_nodes.size(); i++) {
     nodes[i].prev_handle = skeleton_nodes[i].GetParentHandle();
-    nodes[i].width_estimator = std::sqrt(float(std::max(skeleton_nodes[i].data.strand_count, 1))) * std::max(0.001f, skeleton_nodes[i].data.strand_radius);
+    nodes[i].width_estimator = std::sqrt(float(std::max(skeleton_nodes[i].data.strand_count, 1))) *
+                               std::max(0.001f, skeleton_nodes[i].data.strand_radius);
     if (skeleton_nodes[i].data.strand_count == 0) {
-      EVOENGINE_LOG("Node " + std::to_string(i) + " has no strands."); 
+      EVOENGINE_LOG("Node " + std::to_string(i) + " has no strands.");
     }
-    //EVOENGINE_LOG("Radius: " + std::to_string(skeleton_nodes[i].data.strand_radius));
+    // EVOENGINE_LOG("Radius: " + std::to_string(skeleton_nodes[i].data.strand_radius));
     if (skeleton_nodes[i].data.strand_radius == 0) {
-      EVOENGINE_LOG("Node " + std::to_string(i) + " has no radius."); 
+      EVOENGINE_LOG("Node " + std::to_string(i) + " has no radius.");
     }
   }
 
@@ -880,14 +881,14 @@ void DynamicStrands::InitializeData(const InitializeParameters& initialize_param
 
         int node_handle0 = p0.node_index;
         int node_handle1 = p1.node_index;
-        float width_estimator = min(nodes[node_handle0].width_estimator, nodes[node_handle1].width_estimator);
+        float width_estimator = std::min(nodes[node_handle0].width_estimator, nodes[node_handle1].width_estimator);
 
         if (glm::distance2(p0.initial_position, p1.initial_position) >= initialize_parameters.alpha * width_estimator) {
           return false;
         }
       }
     }
-    return true; 
+    return true;
   });
 
   if (initialize_parameters.fill_alpha_shape) {
