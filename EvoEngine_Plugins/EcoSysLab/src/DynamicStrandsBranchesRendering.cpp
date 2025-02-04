@@ -9,7 +9,9 @@ using namespace eco_sys_lab_plugin;
 
 bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (ImGui::Checkbox("Render interior complex", &render_complex))
+  if (ImGui::Checkbox("Tetrahedron complex", &render_complex))
+    changed = true;
+  if (ImGui::Checkbox("Solid", &solid))
     changed = true;
   if (ImGui::Checkbox("Wireframe", &wireframe))
     changed = true;
@@ -23,34 +25,55 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
     changed = true;
   }
 
-  ImGui::Text("Use normal attribute for debugging");
+  if (ImGui::TreeNodeEx("Use normal attribute for debugging")) {
+    if (ImGui::RadioButton("Disabled", (int*)&vertex_colors, Default))
+      changed = true;
+    if (ImGui::RadioButton("Absolute Normals", (int*)&vertex_colors, Normals))
+      changed = true;
+    if (ImGui::RadioButton("Tangents", (int*)&vertex_colors, Tangents))
+      changed = true;
+    if (ImGui::RadioButton("Groups", (int*)&vertex_colors, Groups))
+      changed = true;
+    if (ImGui::RadioButton("Degree", (int*)&vertex_colors, Degree))
+      changed = true;
+    if (ImGui::RadioButton("Bark", (int*)&vertex_colors, Bark))
+      changed = true;
+    if (ImGui::RadioButton("Normal Quaternion", (int*)&vertex_colors, NormalQuaternion))
+      changed = true;
+    if (ImGui::RadioButton("Up", (int*)&vertex_colors, Up))
+      changed = true;
+    if (ImGui::RadioButton("Initial Up", (int*)&vertex_colors, InitUp))
+      changed = true;
+    if (ImGui::RadioButton("Axis", (int*)&vertex_colors, Axis))
+      changed = true;
+    if (ImGui::RadioButton("Initial Axis", (int*)&vertex_colors, InitAxis))
+      changed = true;
+    if (ImGui::RadioButton("Initial Angle", (int*)&vertex_colors, InitAngle))
+      changed = true;
 
-  if (ImGui::RadioButton("Disabled", (int*)&vertex_colors, Default))
+    ImGui::TreePop();
+  }
+
+  if (ImGui::Checkbox("Use polar coordinates for UV", &use_polar_coordinates_for_uv)) {
     changed = true;
-  if (ImGui::RadioButton("Absolute Normals", (int*)&vertex_colors, Normals))
-    changed = true;
-  if (ImGui::RadioButton("Tangents", (int*)&vertex_colors, Tangents))
-    changed = true;
-  if (ImGui::RadioButton("Groups", (int*)&vertex_colors, Groups))
-    changed = true;
-  if (ImGui::RadioButton("Degree", (int*)&vertex_colors, Degree))
-    changed = true;
-  if (ImGui::RadioButton("Bark", (int*)&vertex_colors, Bark))
-    changed = true;
-  if (ImGui::RadioButton("Normal Quaternion", (int*)&vertex_colors, NormalQuaternion))
-    changed = true;
-  if (ImGui::RadioButton("Up", (int*)&vertex_colors, Up))
-    changed = true;
-  if (ImGui::RadioButton("Initial Up", (int*)&vertex_colors, InitUp))
-    changed = true;
-  if (ImGui::RadioButton("Axis", (int*)&vertex_colors, Axis))
-    changed = true;
-  if (ImGui::RadioButton("Initial Axis", (int*)&vertex_colors, InitAxis))
-    changed = true;
-  if (ImGui::RadioButton("Inital Angle", (int*)&vertex_colors, InitAngle))
-    changed = true;
-  if (ImGui::DragFloat("U-coordinate multiplier", &u_multiplier, 1.f, 1.f, 20))
-    changed = true;
+
+    // reset v_multiplier to default value
+    if (use_polar_coordinates_for_uv) {
+      u_multiplier = 1.0f;
+      v_multiplier = 0.025f;
+    } else {
+      u_multiplier = 1.0f;
+      v_multiplier = 1.0f;
+    }
+  }
+
+  if (use_polar_coordinates_for_uv) {
+    if (ImGui::DragFloat("U-coordinate multiplier", &u_multiplier, 1.f, 1.f, 20))
+      changed = true;
+  } else {
+    if (ImGui::DragFloat("U-coordinate multiplier", &u_multiplier, 0.001f, 0.0f, 100.0f))
+      changed = true;
+  }
 
   if (ImGui::DragFloat("V-coordinate multiplier", &v_multiplier, 0.001f, 0.0f, 100.0f))
     changed = true;
@@ -86,6 +109,7 @@ struct BranchesRenderPushConstant {
   int snow_material_index = 0;
   float global_extrusion_distance = 0.0f;
   float break_threshold = 0.01f;
+  int use_polar_coordinates_for_uv = 1;
 };
 
 void DynamicStrands::BuildBranchesRenderingPipelines() {
@@ -291,7 +315,7 @@ uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
     const Handle& renderer_handle, int inner_wood_material_index, int snow_material_index,
     const BranchesRenderParameters& render_parameters, const VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-    const RenderLayer::DeferredRenderingView& view) const {
+    const RenderLayer::DeferredRenderingView& view, VkPolygonMode polygon_mode) const {
   if (!render_parameters.enabled) {
     return 0;
   }
@@ -323,11 +347,11 @@ uint32_t DynamicStrands::RenderBranchesToCameraDeferred(
   render_push_constant.snow_material_index = snow_material_index;
   render_push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
   render_push_constant.break_threshold = render_parameters.break_threshold;
+  render_push_constant.use_polar_coordinates_for_uv = render_parameters.use_polar_coordinates_for_uv ? 1 : 0;
   branches_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   branches_render_pipeline->states.SetViewportScissor(view.viewport);
-  branches_render_pipeline->states.polygon_mode =
-      render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-
+  branches_render_pipeline->states.polygon_mode = polygon_mode;
+  branches_render_pipeline->states.line_width = 2.0f;
   branches_render_pipeline->states.ApplyAllStates(vk_command_buffer);
 
 #ifdef USE_RENDERDOC

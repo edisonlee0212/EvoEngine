@@ -18,4 +18,6 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
   int snow_material_index;
   float global_extrusion_distance;
   float break_threshold;
+
+  int use_polar_coordinates_for_uv;
 };

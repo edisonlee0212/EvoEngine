@@ -225,6 +225,7 @@ class DynamicStrands {
     bool enabled = true;
     bool render_complex = false;
     bool use_cgal = false;
+    bool solid = true;
     bool wireframe = false;
     float alpha = 0.00005f;
     float bifurcation_alpha = 0.00005f;
@@ -252,6 +253,7 @@ class DynamicStrands {
     float break_threshold = 0.01f;
 
     bool persistent_damage = false;
+    bool use_polar_coordinates_for_uv = true;
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -600,7 +602,7 @@ class DynamicStrands {
       const Handle& renderer_handle, int inner_wood_material_index, int snow_material_index,
       const BranchesRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-      const RenderLayer::DeferredRenderingView& view) const;
+      const RenderLayer::DeferredRenderingView& view, VkPolygonMode polygon_mode) const;
 
   uint32_t RenderFoliageToPointLightShadowMap(const FoliageRenderParameters& render_parameters,
                                               const VkCommandBuffer vk_command_buffer,

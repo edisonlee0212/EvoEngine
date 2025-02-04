@@ -145,6 +145,7 @@ void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
   splinter_material_ref.Save("splinter_material_ref", out);
   leaf_material_ref.Save("leaf_material_ref", out);
   snow_material_ref.Save("snow_material_ref", out);
+  wireframe_material_ref.Save("wireframe_material_ref", out);
 }
 
 void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
@@ -153,6 +154,7 @@ void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
   splinter_material_ref.Load("splinter_material_ref", in);
   leaf_material_ref.Load("leaf_material_ref", in);
   snow_material_ref.Load("snow_material_ref", in);
+  wireframe_material_ref.Load("wireframe_material_ref", in);
 }
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -162,6 +164,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   editor_layer->DragAndDropButton<Material>(splinter_material_ref, "Splinter Material");
   editor_layer->DragAndDropButton<Material>(leaf_material_ref, "Leaf Material");
   editor_layer->DragAndDropButton<Material>(snow_material_ref, "Snow Material");
+  editor_layer->DragAndDropButton<Material>(wireframe_material_ref, "Wireframe Material");
   if (ImGui::TreeNode("Initialization settings")) {
     initialize_parameters.OnInspect(editor_layer);
     if (ImGui::Button("Re-initialize mesh")) {
@@ -334,8 +337,18 @@ void DynamicTreeStrands::OnCreate() {
     material->material_properties.albedo_color = glm::vec3(1.0f);
     material->material_properties.transmission = 0.5f;
   }
+
+  if (!wireframe_material_ref.Get<Material>()) {
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
+    wireframe_material_ref = material;
+    material->material_properties.roughness = 0.0f;
+    material->material_properties.metallic = 0.0f;
+    material->material_properties.albedo_color = glm::vec3(0.0f);
+    material->material_properties.transmission = 0.0f;
+  }
   foliage_rendering_instance_handle = Handle();
   small_segments_rendering_instance_handle = Handle();
+  mesh_wireframe_rendering_instance_handle = Handle();
 }
 
 void DynamicTreeStrands::OnDestroy() {
@@ -1157,7 +1170,36 @@ void DynamicTreeStrands::RegisterBranchesRenderInstance(
                 const RenderLayer::DeferredRenderingView& view) {
               return dynamic_strands_copy->RenderBranchesToCameraDeferred(
                   renderer_handle, inner_material_index, snow_material_index, render_parameters, vk_command_buffer,
-                  geometry_pass_color_attachment_infos, view);
+                  geometry_pass_color_attachment_infos, view, VK_POLYGON_MODE_FILL);
+            });
+      }
+    }
+  }
+}
+
+void eco_sys_lab_plugin::DynamicTreeStrands::RegisterBranchesWireframeRenderInstance(
+    const DynamicStrands::BranchesRenderParameters& render_parameters) {
+  const auto render_layer = Application::GetLayer<RenderLayer>();
+  if (!render_layer) {
+    EVOENGINE_LOG("Failed to render! RenderLayer not present!")
+    return;
+  }
+  const auto wireframe_material = wireframe_material_ref.Get<Material>();
+  if (const auto bark_material = bark_material_ref.Get<Material>(); bark_material && wireframe_material) {
+    if (!dynamic_strands->segments.empty()) {
+      if (DynamicStrands::branches_render_pipeline && DynamicStrands::branches_render_pipeline->Initialized()) {
+        const auto dynamic_strands_copy = dynamic_strands;
+        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto renderer_handle = mesh_wireframe_rendering_instance_handle;
+        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, wireframe_material);
+        const auto wireframe_material_index = current_render_storage->RegisterMaterial(wireframe_material);
+        render_layer->DeferredRenderingAllCameras(
+            [=](const VkCommandBuffer vk_command_buffer,
+                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                const RenderLayer::DeferredRenderingView& view) {
+              return dynamic_strands_copy->RenderBranchesToCameraDeferred(
+                  renderer_handle, wireframe_material_index, wireframe_material_index, render_parameters,
+                  vk_command_buffer, geometry_pass_color_attachment_infos, view, VK_POLYGON_MODE_LINE);
             });
       }
     }
