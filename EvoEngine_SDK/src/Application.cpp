@@ -108,7 +108,7 @@ void Application::PreUpdateInternal() {
   }
   ProjectManager::PreUpdate();
   if (const auto editor_layer = GetLayer<EditorLayer>()) {
-    EditorLayer::InitializeImGui();
+    editor_layer->InitializeImGui();
   }
   if (application.active_scene_) {
     TransformGraph::CalculateTransformGraphs(application.active_scene_);

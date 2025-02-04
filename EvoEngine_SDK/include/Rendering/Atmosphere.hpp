@@ -1,15 +1,21 @@
+
 #pragma once
 
 namespace evo_engine {
-struct Atmosphere {
-  float earth_radius = 6360;       // In the paper this is usually Rg or Re (radius ground, eart)
-  float atmosphere_radius = 6420;  // In the paper this is usually R or Ra (radius atmosphere)
-  float hr = 7994;                 // Thickness of the atmosphere if density was uniform (Hr) for Rayleigh scattering
-  float hm = 1200;                 // Same as above but for Mie scattering (Hm)
 
-  float g = 0.76f;  // Mean cosine for Mie scattering
-  int num_samples = 16;
-  int num_samples_light = 8;
-  float intensity = 1.0f;
+/**
+ * @brief Represents the physical and optical characteristics of the Earth's atmosphere.
+ */
+struct Atmosphere {
+  float earth_radius = 6360;       ///< Earth radius in kilometers (usually Rg or Re in literature).
+  float atmosphere_radius = 6420;  ///< Radius of the atmosphere in kilometers (usually R or Ra in literature).
+  float hr = 7994;                 ///< Atmospheric thickness for uniform density (Rayleigh scattering, Hr).
+  float hm = 1200;                 ///< Atmospheric thickness for uniform density (Mie scattering, Hm).
+
+  float g = 0.76f;            ///< Mean cosine value for Mie scattering phase function.
+  int num_samples = 16;       ///< Number of samples used for atmospheric calculations.
+  int num_samples_light = 8;  ///< Number of samples used for light scattering calculations.
+  float intensity = 1.0f;     ///< Intensity of the atmosphere, representing energy or brightness.
 };
+
 }  // namespace evo_engine

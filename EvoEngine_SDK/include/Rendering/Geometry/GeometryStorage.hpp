@@ -5,65 +5,204 @@
 #include "Vertex.hpp"
 
 namespace evo_engine {
+
+/**
+ * @brief Represents a chunk of vertex data used in meshlets.
+ */
 struct VertexDataChunk {
+  /**
+   * @brief An array of vertex data.
+   */
   Vertex vertex_data[Platform::Constants::meshlet_max_vertices_size] = {};
 };
 
+/**
+ * @brief Represents a meshlet structure with triangle indices and associated metadata.
+ */
 struct Meshlet {
-  glm::u8vec3 triangles[Platform::Constants::meshlet_max_triangles_size] = {};  // up to 126 triangles
+  /**
+   * @brief Stores the triangle indices of the meshlet, supporting up to 126 triangles.
+   */
+  glm::u8vec3 triangles[Platform::Constants::meshlet_max_triangles_size] = {};
+
+  /**
+   * @brief Number of vertices used in the meshlet.
+   */
   uint32_t vertices_size = 0;
+
+  /**
+   * @brief Number of triangles used in the meshlet.
+   */
   uint32_t triangle_size = 0;
+
+  /**
+   * @brief Index pointing to the corresponding vertex data chunk.
+   */
   uint32_t vertex_chunk_index = 0;
 };
 
+/**
+ * @brief Represents a chunk of skinned vertex data used in skinned meshlets.
+ */
 struct SkinnedVertexDataChunk {
+  /**
+   * @brief An array of skinned vertex data.
+   */
   SkinnedVertex skinned_vertex_data[Platform::Constants::meshlet_max_vertices_size] = {};
 };
+
+/**
+ * @brief Represents a skinned meshlet structure with triangle indices and associated metadata.
+ */
 struct SkinnedMeshlet {
-  glm::u8vec3 skinned_triangles[Platform::Constants::meshlet_max_triangles_size] = {};  // up to 126 triangles
+  /**
+   * @brief Stores the triangle indices of the skinned meshlet, supporting up to 126 triangles.
+   */
+  glm::u8vec3 skinned_triangles[Platform::Constants::meshlet_max_triangles_size] = {};
+
+  /**
+   * @brief Number of skinned vertices used in the skinned meshlet.
+   */
   uint32_t skinned_vertices_size = 0;
+
+  /**
+   * @brief Number of skinned triangles used in the skinned meshlet.
+   */
   uint32_t skinned_triangle_size = 0;
+
+  /**
+   * @brief Index pointing to the corresponding skinned vertex data chunk.
+   */
   uint32_t skinned_vertex_chunk_index = 0;
 };
 
+/**
+ * @brief Represents a chunk of strand point data used in strand meshlets.
+ */
 struct StrandPointDataChunk {
+  /**
+   * @brief An array of strand point data.
+   */
   StrandPoint strand_point_data[Platform::Constants::meshlet_max_vertices_size] = {};
 };
+
+/**
+ * @brief Represents a strand meshlet structure with segment information and associated metadata.
+ */
 struct StrandMeshlet {
-  glm::u8vec4 segments[Platform::Constants::meshlet_max_triangles_size] = {};  // up to 126 triangles
+  /**
+   * @brief Stores the segment indices of the strand meshlet, supporting up to 126 triangles.
+   */
+  glm::u8vec4 segments[Platform::Constants::meshlet_max_triangles_size] = {};
+
+  /**
+   * @brief Number of strand points used in the strand meshlet.
+   */
   uint32_t strand_points_size = 0;
+
+  /**
+   * @brief Number of segments used in the strand meshlet.
+   */
   uint32_t segment_size = 0;
+
+  /**
+   * @brief Index pointing to the corresponding strand point data chunk.
+   */
   uint32_t strand_point_chunk_index = 0;
 };
+
+/**
+ * @brief Holds range information for geometry storage.
+ */
 class RangeDescriptor {
   friend class GeometryStorage;
+
+  /**
+   * @brief Internal handle associated with the range descriptor.
+   */
   Handle handle_;
 
  public:
-  uint32_t offset;
   /**
-   * \brief When used to record meshlet range. This records the newest number of meshlet for this geometry.
-   * When used to record triangles, this records the newest number of triangles, including the size of the empty
-   * fillers.
+   * @brief Offset value of the range descriptor.
+   */
+  uint32_t offset;
+
+  /**
+   * @brief Range value for the descriptor.
+   *
+   * - When used for meshlets: Represents the count of meshlets for this geometry.
+   * - When used for triangles: Represents the count of triangles, including space for empty fillers.
    */
   uint32_t range;
 
+  /**
+   * @brief Offset for the previous frame's data.
+   */
   uint32_t prev_frame_offset;
+
+  /**
+   * @brief Number of indices in the current frame.
+   */
   uint32_t index_count;
+
+  /**
+   * @brief Number of indices in the previous frame.
+   */
   uint32_t prev_frame_index_count;
 };
 
+/**
+ * @brief Represents data related to a particle's transformation and coloring.
+ */
 struct ParticleInfo {
+  /**
+   * @brief Instance matrix representing the particle's transformation.
+   */
   Transform instance_matrix = {};
+
+  /**
+   * @brief Instance color of the particle.
+   */
   glm::vec4 instance_color = glm::vec4(1.0f);
 };
 
-enum class ParticleInfoListDataStatus { Updated, UpdatePending, Removed };
+/**
+ * @brief Enumerations representing the status of particle information list data.
+ */
+enum class ParticleInfoListDataStatus {
+  Updated,        ///< Data has been updated.
+  UpdatePending,  ///< Data update is pending.
+  Removed         ///< Data has been removed.
+};
+
+/**
+ * @brief Encapsulates the data for a list of particle information.
+ */
 struct ParticleInfoListData {
+  /**
+   * @brief Buffer associated with the particle info list data.
+   */
   std::shared_ptr<Buffer> m_buffer;
+
+  /**
+   * @brief Descriptor set for the particle info list data.
+   */
   std::shared_ptr<DescriptorSet> descriptor_set;
+
+  /**
+   * @brief List of particle information.
+   */
   std::vector<ParticleInfo> particle_info_list;
+
+  /**
+   * @brief Status of the particle info list data.
+   */
   ParticleInfoListDataStatus m_status = ParticleInfoListDataStatus::Updated;
+
+  /**
+   * @brief Range descriptor for the particle info list data.
+   */
   std::shared_ptr<RangeDescriptor> range_descriptor;
 };
 

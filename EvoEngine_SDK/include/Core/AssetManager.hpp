@@ -1,3 +1,4 @@
+
 #pragma once
 #include <stack>
 
@@ -6,47 +7,132 @@
 #include "Serialization.hpp"
 
 namespace evo_engine {
+
+/**
+ * @class AssetManager
+ * @brief Manages the loading, retrieval, and creation of assets in the engine.
+ */
 class AssetManager {
   EVOENGINE_SINGLETON_INSTANCE(AssetManager)
+
  public:
+  /**
+   * @brief Retrieves an asset of type T corresponding to the given handle.
+   * @tparam T The asset type to retrieve.
+   * @param asset_handle The handle associated with the asset.
+   * @return A shared pointer to the requested asset of type T.
+   */
   template <typename T>
   [[nodiscard]] static std::shared_ptr<T> GetAsset(const Handle& asset_handle);
+
+  /**
+   * @brief Retrieves a future object to asynchronously access an asset of type T.
+   * @tparam T The asset type to retrieve.
+   * @param asset_handle The handle associated with the asset.
+   * @return A shared future containing a shared pointer to the requested asset of type T.
+   */
   template <typename T>
   [[nodiscard]] static std::shared_future<std::shared_ptr<T>> GetAssetFuture(const Handle& asset_handle);
+
+  /**
+   * @brief Creates a temporary asset of type T for immediate use.
+   * @tparam T The type of asset to create.
+   * @return A shared pointer to the created temporary asset of type T.
+   */
   template <typename T>
   [[nodiscard]] static std::shared_ptr<T> CreateTemporaryAsset();
 
  private:
+  /**
+   * @class AssetRegistry
+   * @brief Internal registry for managing assets and their corresponding handles.
+   */
   class AssetRegistry {
-    std::mutex asset_registry_mutex;
-    std::unordered_map<Handle, std::weak_ptr<IAsset>> assets_;
-    friend class AssetManager;
+    std::mutex asset_registry_mutex;  ///< Mutex for synchronizing access to the asset registry.
+    std::unordered_map<Handle, std::weak_ptr<IAsset>> assets_;  ///< Map storing assets by their handles.
+
+    friend class AssetManager;  ///< AssetManager has access to private members of AssetRegistry.
   };
 
-  AssetRegistry asset_registry_;
-  bool initialized = false;
+  AssetRegistry asset_registry_;  ///< The asset registry instance.
+  bool initialized = false;       ///< Flag indicating if the AssetManager is initialized.
+
+  /**
+   * @brief Initializes the AssetManager.
+   */
   static void Initialize();
+
+  /**
+   * @brief Cleans up resources when destroying the AssetManager.
+   */
   static void OnDestroy();
+
+  /**
+   * @brief Clears all loaded assets from the asset manager.
+   */
   static void Clear();
-  friend class ProjectManager;
-  friend class Application;
-  friend class IAsset;
-  friend class Prefab;
-  friend class Scene;
-  friend class AssetRef;
-  friend class File;
-  friend class Folder;
-  friend class EditorLayer;
+
+  friend class ProjectManager;  ///< Grants ProjectManager access to private and protected members of AssetManager.
+  friend class Application;     ///< Grants Application access to private and protected members of AssetManager.
+  friend class IAsset;          ///< Grants IAsset access to private and protected members of AssetManager.
+  friend class Prefab;          ///< Grants Prefab access to private and protected members of AssetManager.
+  friend class Scene;           ///< Grants Scene access to private and protected members of AssetManager.
+  friend class AssetRef;        ///< Grants AssetRef access to private and protected members of AssetManager.
+  friend class File;            ///< Grants File access to private and protected members of AssetManager.
+  friend class Folder;          ///< Grants Folder access to private and protected members of AssetManager.
+  friend class EditorLayer;     ///< Grants EditorLayer access to private and protected members of AssetManager.
+
+  /**
+   * @brief Creates a temporary asset given its typename.
+   * @param type_name The typename of the asset to create.
+   * @return A shared pointer to the created temporary asset.
+   */
   [[nodiscard]] static std::shared_ptr<IAsset> CreateTemporaryAsset(const std::string& type_name);
+
+  /**
+   * @brief Retrieves an asset given its typename and handle.
+   * @param type_name The typename of the asset.
+   * @param asset_handle The handle associated with the asset.
+   * @return A shared pointer to the requested asset.
+   */
   [[nodiscard]] static std::shared_ptr<IAsset> GetAsset(const std::string& type_name, const Handle& asset_handle);
 
+  /**
+   * @brief Creates a temporary asset implementation with the given typename and handle.
+   * @param type_name The typename of the asset to create.
+   * @param asset_handle The handle associated with the asset.
+   * @return A shared pointer to the created temporary asset.
+   */
   [[nodiscard]] static std::shared_ptr<IAsset> CreateTemporaryAssetImpl(const std::string& type_name,
                                                                         const Handle& asset_handle);
+
+  /**
+   * @brief Removes an asset from the AssetManager given its handle.
+   * @param asset_handle The handle associated with the asset to remove.
+   */
   static void RemoveAssetImpl(const Handle& asset_handle);
+
+  /**
+   * @brief Retrieves an asset implementation given its handle.
+   * @param asset_handle The handle associated with the asset.
+   * @return A shared pointer to the requested asset.
+   */
   static std::shared_ptr<IAsset> GetAssetImpl(const Handle& asset_handle);
+
+  /**
+   * @brief Retrieves a future object for asynchronously accessing an asset given its handle.
+   * @param asset_handle The handle associated with the asset.
+   * @return A future containing a shared pointer to the requested asset.
+   */
   static std::future<std::shared_ptr<IAsset>> GetAssetFutureImpl(const Handle& asset_handle);
 };
 
+/**
+ * @brief Retrieves an asset of type T corresponding to the given handle.
+ * @tparam T The asset type to retrieve.
+ * @param asset_handle The handle associated with the asset.
+ * @return A shared pointer to the requested asset of type T.
+ */
 template <typename T>
 std::shared_ptr<T> AssetManager::GetAsset(const Handle& asset_handle) {
   try {
@@ -58,6 +144,12 @@ std::shared_ptr<T> AssetManager::GetAsset(const Handle& asset_handle) {
   }
 }
 
+/**
+ * @brief Retrieves a future object to asynchronously access an asset of type T.
+ * @tparam T The asset type to retrieve.
+ * @param asset_handle The handle associated with the asset.
+ * @return A shared future containing a shared pointer to the requested asset of type T.
+ */
 template <typename T>
 std::shared_future<std::shared_ptr<T>> AssetManager::GetAssetFuture(const Handle& asset_handle) {
   try {
@@ -68,6 +160,11 @@ std::shared_future<std::shared_ptr<T>> AssetManager::GetAssetFuture(const Handle
   }
 }
 
+/**
+ * @brief Creates a temporary asset of type T for immediate use.
+ * @tparam T The type of asset to create.
+ * @return A shared pointer to the created temporary asset of type T.
+ */
 template <typename T>
 std::shared_ptr<T> AssetManager::CreateTemporaryAsset() {
   try {
@@ -78,4 +175,5 @@ std::shared_ptr<T> AssetManager::CreateTemporaryAsset() {
     return {};
   }
 }
+
 }  // namespace evo_engine

@@ -1,35 +1,124 @@
+
 #pragma once
 #include <utility>
 #include "Entity.hpp"
 #include "Serialization.hpp"
+
 namespace evo_engine {
+
+/**
+ * @struct POwnersCollection
+ * @brief Represents a collection of owners associated with private components.
+ */
 struct POwnersCollection {
+  /**
+   * @brief Maps an entity to its index in the owners list.
+   */
   std::unordered_map<Entity, size_t, Entity> owners_map;
+
+  /**
+   * @brief Stores a list of entities that own private components.
+   */
   std::vector<Entity> owners_list;
+
+  /**
+   * @brief Default constructor to initialize the owners collection.
+   */
   POwnersCollection() {
     owners_list = std::vector<Entity>();
     owners_map = std::unordered_map<Entity, size_t, Entity>();
   }
 };
+
 class Scene;
+
+/**
+ * @class PrivateComponentStorage
+ * @brief Manages the storage and lifecycle of private components associated with entities.
+ */
 class PrivateComponentStorage {
+  /**
+   * @brief Maps a type ID to its index in the owners collections list.
+   */
   std::unordered_map<size_t, size_t> p_owners_collections_map_;
+
+  /**
+   * @brief Stores a list of type ID and associated owners collections.
+   */
   std::vector<std::pair<size_t, POwnersCollection>> p_owners_collections_list_;
+
+  /**
+   * @brief Maps type IDs to a pool of private component instances.
+   */
   std::unordered_map<size_t, std::vector<std::shared_ptr<IPrivateComponent>>> private_component_pool_;
 
  public:
+  /**
+   * @brief The scene that owns this private component storage.
+   */
   std::weak_ptr<Scene> owner_scene;
+
+  /**
+   * @brief Removes a private component from an entity.
+   * @param entity The entity from which to remove the private component.
+   * @param type_index The type index of the private component.
+   * @param private_component The private component to remove.
+   */
   void RemovePrivateComponent(const Entity &entity, size_t type_index,
                               const std::shared_ptr<IPrivateComponent> &private_component);
+
+  /**
+   * @brief Deletes an entity and its associated private components.
+   * @param entity The entity to delete.
+   */
   void DeleteEntity(const Entity &entity);
+
+  /**
+   * @brief Gets or sets a private component of type T for an entity.
+   * @tparam T The type of the private component.
+   * @param entity The entity for which to get or set the private component.
+   * @return A shared pointer to the private component of type T.
+   */
   template <typename T = IPrivateComponent>
   std::shared_ptr<T> GetOrSetPrivateComponent(const Entity &entity);
+
+  /**
+   * @brief Gets or sets a private component for an entity by type ID.
+   * @param entity The entity for which to get or set the private component.
+   * @param type_id The type ID of the private component.
+   * @return A shared pointer to the private component.
+   */
   std::shared_ptr<IPrivateComponent> GetOrSetPrivateComponent(const Entity &entity, const size_t &type_id);
+
+  /**
+   * @brief Sets a private component for an entity by ID.
+   * @param entity The entity for which to set the private component.
+   * @param id The ID of the private component.
+   */
   void SetPrivateComponent(const Entity &entity, size_t id);
+
+  /**
+   * @brief Removes a private component of type T from an entity.
+   * @tparam T The type of the private component.
+   * @param entity The entity from which to remove the private component.
+   * @param private_component The private component instance to remove.
+   */
   template <typename T = IPrivateComponent>
   void RemovePrivateComponent(const Entity &entity, const std::shared_ptr<IPrivateComponent> &private_component);
+
+  /**
+   * @brief Unsafely retrieves the owners list for a private component type.
+   * @tparam T The type of the private component.
+   * @return A pointer to a vector of entities owning the private component type, or nullptr if not found.
+   */
   template <typename T>
   const std::vector<Entity> *UnsafeGetOwnersList();
+
+  /**
+   * @brief Retrieves the owners list for a private component type.
+   * @tparam T The type of the private component.
+   * @return A vector of entities owning the private component type.
+   */
   template <typename T>
   std::vector<Entity> GetOwnersList();
 };
