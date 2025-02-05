@@ -1,6 +1,7 @@
 #include "LogScan.hpp"
 #include "JoeScanScanner.hpp"
 #include "Json.hpp"
+#include "LogScanReconstruction.hpp"
 #include "Prefab.hpp"
 #include "Scene.hpp"
 using namespace log_scanning_plugin;
@@ -83,8 +84,6 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   static bool enable_profile_rendering = true;
   ImGui::Checkbox("Render Profile", &enable_profile_rendering);
   static auto scan_color = glm::vec4(1, 1, 1, 0.1f);
-  static auto profile_color = glm::vec4(1, 0, 0, 1.f);
-  static auto profile_points_color = glm::vec4(0, 0, 1, 1.f);
   static float brightness_factor = 1.f;
   static bool brightness = true;
   ImGui::Checkbox("Brightness", &brightness);
@@ -111,62 +110,72 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       joe_scan_list->SetParticleInfos(data);
     }
   }
-  if (config_asset && enable_profile_rendering && !profiles.empty()) {
-    static int profile_index = 0;
-    static int scan_head_index = 0;
-    bool changed = ImGui::DragInt("Scan head index", &scan_head_index, 1, 0, 3);
-
+  static int profile_index = 0;
+  const auto& profile = profiles[profile_index];
+  if (enable_profile_rendering && !profiles.empty()) {
+    static LogScanReconstruction reconstruction{};
+    static LogScanReconstruction::ReconstructionParameter reconstruction_parameter{};
+    if (ImGui::TreeNode("Reconstruction settings")) {
+      changed = reconstruction_parameter.OnInspect(editor_layer) || changed;
+      ImGui::TreePop();
+    }
     if (ImGui::DragInt("Profile Index", &profile_index, 1, 0, profiles.size()) || changed) {
       profile_index = glm::clamp(profile_index, 0, static_cast<int>(profiles.size()));
       std::vector<ParticleInfo> profile_data;
-      auto& profile = profiles[profile_index];
-      JoeScanConfig joe_scan_config;
-      joe_scan_config.Import(config_asset);
-      const auto boundary_points = profile.BuildBoundary(joe_scan_config);
-      profile_data.resize(boundary_points.size());
-      Jobs::RunParallelFor(boundary_points.size(), [&](unsigned i) {
+      reconstruction.Initialize(reconstruction_parameter, profile);
+      profile_data.resize(reconstruction.processed_points.size());
+      Jobs::RunParallelFor(reconstruction.processed_points.size(), [&](const unsigned i) {
+        const auto& processed_point = reconstruction.processed_points[i];
         profile_data[i].instance_matrix.SetPosition(
-            glm::vec3(boundary_points[i].x, boundary_points[i].y, profile.encoder_value));
-        profile_data[i].instance_matrix.SetScale(glm::vec3(0.001f, 0.001f, 0.001f));
-        profile_data[i].instance_color = profile_color;
+            glm::vec3(processed_point.position.x, processed_point.position.y, profile.encoder_value));
+        profile_data[i].instance_matrix.SetScale(glm::vec3(0.0005f, 0.0005f, 0.0015f));
+        profile_data[i].instance_color = processed_point.color;
       });
+
       profile_list->SetParticleInfos(profile_data);
 
-      /*
-      points_data.resize(profile.points.size());
-      Jobs::RunParallelFor(points_data.size(), [&](unsigned i) {
-        points_data[i].instance_matrix.SetPosition(
-            glm::vec3(profile.points[i].x, profile.points[i].y, profile.encoder_value));
-        points_data[i].instance_matrix.SetScale(glm::vec3(0.001f, 0.001f, 0.001f));
-        points_data[i].instance_color = profile_points_color;
+      std::vector<ParticleInfo> points_data;
+      points_data.resize(reconstruction.profile_grid.RefCells().size());
+      Jobs::RunParallelFor(points_data.size(), [&](const unsigned i) {
+        const auto& cell = reconstruction.profile_grid.PeekCells()[i];
+        const auto position = reconstruction.profile_grid.GetPosition(i);
+        points_data[i].instance_matrix.SetPosition(glm::vec3(position.x, position.y, profile.encoder_value));
+        points_data[i].instance_matrix.SetScale(glm::vec3(0.003f, 0.003f, 0.001f));
+        switch (cell.type) {
+          case LogScanReconstruction::CellData::Type::Invalid:
+            points_data[i].instance_color = glm::vec4(0, 0, 0, 0.2f);
+            break;
+          case LogScanReconstruction::CellData::Type::ValidTop:
+            points_data[i].instance_color = glm::vec4(1, 0, 1, 0.5);
+            break;
+          case LogScanReconstruction::CellData::Type::ValidBottom:
+            points_data[i].instance_color = glm::vec4(0, 1, 0, 0.5);
+            break;
+          case LogScanReconstruction::CellData::Type::ValidLeft:
+            points_data[i].instance_color = glm::vec4(0, 0, 1, 0.5);
+            break;
+          case LogScanReconstruction::CellData::Type::ValidRight:
+            points_data[i].instance_color = glm::vec4(1, 0, 0, 0.5);
+            break;
+          case LogScanReconstruction::CellData::Type::Skipped:
+            points_data[i].instance_color = glm::vec4(1, 1, 1, .2f);
+            break;
+        }
       });
-      */
-      /*
-      if (scan_head_index >= 0 && scan_head_index <= profile.grid_points.size()) {
-        std::vector<ParticleInfo> points_data;
-        points_data.resize(profile.grid_points[scan_head_index].size());
-        Jobs::RunParallelFor(points_data.size(), [&](unsigned i) {
-          points_data[i].instance_matrix.SetPosition(glm::vec3(profile.grid_points[scan_head_index][i].x,
-                                                               profile.grid_points[scan_head_index][i].y,
-                                                               profile.encoder_value));
-          points_data[i].instance_matrix.SetScale(glm::vec3(0.001f, 0.001f, 0.001f));
-          points_data[i].instance_color = profile_points_color;
-        });
-        profile_points_list->SetParticleInfos(points_data);
-      }*/
+      profile_points_list->SetParticleInfos(points_data);
     }
   }
   GizmoSettings settings{};
   settings.draw_settings.blending = true;
-
+  if (enable_joe_scan_rendering) {
+    editor_layer->DrawGizmoCubes(joe_scan_list, glm::translate(glm::vec3(0, 0, -profile.encoder_value)), 1.f, settings);
+  }
   if (enable_profile_rendering) {
     GizmoSettings settings{};
     settings.draw_settings.blending = true;
-    editor_layer->DrawGizmoCubes(profile_list, glm::mat4(1), 1.f, settings);
-    editor_layer->DrawGizmoCubes(profile_points_list, glm::mat4(1), 1.f, settings);
-  }
-  if (enable_joe_scan_rendering) {
-    editor_layer->DrawGizmoCubes(joe_scan_list, glm::mat4(1), 1.f, settings);
+    editor_layer->DrawGizmoCubes(profile_points_list, glm::translate(glm::vec3(0, 0, -profile.encoder_value)), 1.f,
+                                 settings);
+    editor_layer->DrawGizmoCubes(profile_list, glm::translate(glm::vec3(0, 0, -profile.encoder_value)), 1.f, settings);
   }
 
   return changed;
@@ -245,7 +254,7 @@ void JoeScanConfig::Import(const std::shared_ptr<Json>& json) {
       alignment_count++;
       std::string cam_str = alignment["Camera"];
       std::string las_str = alignment["Laser"];
-      std::string pair_str = cam_str + " " + las_str;
+      std::string pair_str = cam_str.append(" ").append(las_str);
       roll_degree += glm::mod(static_cast<float>(alignment["RollDeg"]), 360.f);
       shift.x -= static_cast<float>(alignment["ShiftX"]);
       shift.y -= static_cast<float>(alignment["ShiftY"]);
@@ -269,207 +278,4 @@ void JoeScanConfig::PlacePrefabs(const std::shared_ptr<Prefab>& prefab) const {
     scene->SetDataComponent(entity, gt);
     scene->SetParent(entity, parent);
   }
-}
-
-std::vector<glm::vec2> LogScanProfile::BuildBoundary(const JoeScanConfig& joe_scan_config) {
-  std::vector<glm::vec2> ret_val;
-  /*
-  const auto get_radians = [](const glm::vec2& a, const glm::vec2& b) {
-    const auto radians = glm::acos(glm::clamp(glm::dot(a, b) / (glm::length(a) * glm::length(b)), -1.0f, 1.0f));
-    if (const auto det = a.x * b.y - a.y * b.x; det < 0)
-      return -glm::degrees(radians);
-    return glm::degrees(radians);
-  };
-
-  const auto ray_intersects_aabb = [](const glm::vec2& ray_origin, const glm::vec2& ray_dir, const glm::vec2& min_bound,
-                                      const glm::vec2& max_bound, float& t) {
-    float t_min = (min_bound.x - ray_origin.x) / ray_dir.x;
-    float t_max = (max_bound.x - ray_origin.x) / ray_dir.x;
-
-    if (t_min > t_max)
-      std::swap(t_min, t_max);
-
-    float ty_min = (min_bound.y - ray_origin.y) / ray_dir.y;
-    float ty_max = (max_bound.y - ray_origin.y) / ray_dir.y;
-
-    if (ty_min > ty_max)
-      std::swap(ty_min, ty_max);
-
-    // Check for overlap between the intervals on the x and y axes
-    if (t_min > ty_max || ty_min > t_max)
-      return false;
-
-    // Update tMin and tMax to ensure the intersection occurs within both intervals
-    if (ty_min > t_min)
-      t_min = ty_min;
-    if (ty_max < t_max)
-      t_max = ty_max;
-
-    // Set the first intersection point distance and calculate the intersection point
-    t = t_min;
-    return true;
-  };
-
-  auto points_min = glm::vec2(FLT_MAX, FLT_MAX);
-  auto points_max = glm::vec2(-FLT_MAX, -FLT_MAX);
-
-  auto centered_points = points;
-  // constexpr auto x_bound = 0.0943f;
-  // constexpr auto y_bound = 0.0689f;
-  for (const auto& i : points) {
-    points_min = glm::min(points_min, i);
-    points_max = glm::max(points_max, i);
-  }
-
-  // const auto center = (points_min + points_max) * .5f;
-  constexpr auto center = glm::vec2(0.0f);
-  for (auto& i : centered_points)
-    i -= center;
-  points_max -= center;
-  points_min -= center;
-  grids.resize(joe_scan_config.scan_heads.size());
-  constexpr auto x_limit = 0.0635f;
-  constexpr auto y_limit = 0.0381f;
-  for (uint32_t grid_i = 0; grid_i < grids.size(); grid_i++) {
-    constexpr float rotation_factor = 5.f;
-    auto& grid = grids[grid_i];
-    grid.Reset(0.001f, points_min - glm::vec2(0.005f), points_max + glm::vec2(0.005f));
-    grid.Clear();
-
-    const auto& scan_head = joe_scan_config.scan_heads[grid_i];
-    const auto scan_head_position = scan_head.shift * 0.0254f;
-    const auto scan_head_direction = glm::normalize(-scan_head_position);
-    std::map<int, float> rotation_depth{};
-
-    bool top_valid = glm::dot(scan_head_direction, glm::vec2(0, 1)) < -0.5f;
-    bool left_valid = glm::dot(scan_head_direction, glm::vec2(1, 0)) < -0.5f;
-    bool right_valid = glm::dot(scan_head_direction, glm::vec2(-1, 0)) < -0.5f;
-    bool bottom_valid = glm::dot(scan_head_direction, glm::vec2(0, -1)) < -0.5f;
-
-    for (const auto& point : centered_points) {
-      if (glm::abs(point.x) > 0.125f)
-        continue;
-      if (glm::abs(point.y) > 0.1f)
-        continue;
-      bool point_top = point.y > 0.f && glm::abs(point.x / point.y) < 9.f / 7.f;
-      bool point_bottom = point.y < 0.f && glm::abs(point.x / point.y) < 9.f / 7.f;
-      bool point_left = point.x > 0.f && glm::abs(point.x / point.y) >= 9.f / 7.f;
-      bool point_right = point.x < 0.f && glm::abs(point.x / point.y) >= 9.f / 7.f;
-
-      if (top_valid) {
-        if (left_valid) {
-          if (point_bottom || point_right)
-            continue;
-        } else if (right_valid) {
-          if (point_bottom || point_left)
-            continue;
-        } else {
-          if (point.y < 0.f)
-            continue;
-        }
-      } else if (bottom_valid) {
-        if (left_valid) {
-          if (point_top || point_right)
-            continue;
-        } else if (right_valid) {
-          if (point_top || point_left)
-            continue;
-        } else {
-          if (point.y > 0.f)
-            continue;
-        }
-      } else {
-        if (left_valid) {
-          if (point.x < 0.f)
-            continue;
-        } else if (right_valid) {
-          if (point.x > 0.f)
-            continue;
-        }
-      }
-      const auto v = point - scan_head_position;
-      const auto v_dir = glm::normalize(v);
-      const auto radians = get_radians(v, scan_head_direction);
-      const int rotation = static_cast<int>(radians * rotation_factor);
-      auto depth = glm::length(v);
-
-      if (float t; ray_intersects_aabb(scan_head_position, v_dir, glm::vec2(-x_limit, -y_limit),
-                                       glm::vec2(x_limit, y_limit), t)) {
-        depth = glm::min(t, depth);
-      }
-      if (const auto search = rotation_depth.find(rotation); search == rotation_depth.end()) {
-        rotation_depth[rotation] = depth;
-      } else if (depth < search->second) {
-        rotation_depth.at(rotation) = depth;
-      }
-    }
-
-    std::vector<std::pair<int, float>> rotation_depth_list;
-    rotation_depth_list.reserve(rotation_depth.size());
-    for (const auto& it : rotation_depth) {
-      rotation_depth_list.emplace_back(it.first, it.second);
-    }
-    if (rotation_depth_list.size() < 2)
-      continue;
-    Jobs::RunParallelFor(grid.RefCells().size(), [&](const size_t cell_i) {
-      const auto pixel_position = grid.GetPosition(static_cast<unsigned>(cell_i));
-      const auto v = pixel_position - scan_head_position;
-      const auto radians = get_radians(v, scan_head_direction);
-      const int rotation = static_cast<int>(radians * rotation_factor);
-      const auto depth = glm::length(v);
-      if (rotation < rotation_depth_list.front().first)
-        return;
-      if (rotation > rotation_depth_list.back().first)
-        return;
-      for (uint32_t list_i = 0; list_i < rotation_depth_list.size() - 1; list_i++) {
-        const auto& left = rotation_depth_list[list_i];
-        const auto& right = rotation_depth_list[list_i + 1];
-        if (rotation < left.first || rotation > right.first)
-          continue;
-        const auto a = static_cast<float>(rotation - left.first) / static_cast<float>(right.first - left.first);
-        if (const auto interpolated_depth = glm::mix(left.second, right.second, a); depth >= interpolated_depth) {
-          grid.RefCell(static_cast<unsigned>(cell_i)).occluded = true;
-          return;
-        }
-      }
-    });
-  }
-  grid_points.resize(grids.size());
-
-  for (int grid_index = 0; grid_index < grids.size(); grid_index++) {
-    grid_points[grid_index].clear();
-    const auto& grid = grids[grid_index];
-    for (uint32_t cell_i = 0; cell_i < grid.PeekCells().size(); cell_i++) {
-      const auto cell_position = grid.GetPosition(cell_i);
-      if (glm::abs(cell_position.x) < x_limit && glm::abs(cell_position.y) < y_limit)
-        continue;
-      if (grid.PeekCells()[cell_i].occluded) {
-        grid_points[grid_index].emplace_back(grid.GetPosition(cell_i) + center);
-      }
-    }
-  }
-
-  ProfileGrid final_grid;
-  final_grid.Reset(0.001f, points_min - glm::vec2(0.005f), points_max + glm::vec2(0.005f));
-  final_grid.Clear();
-
-  for (uint32_t cell_i = 0; cell_i < final_grid.RefCells().size(); cell_i++) {
-    const auto cell_position = final_grid.GetPosition(cell_i);
-    if (glm::abs(cell_position.x) < x_limit && glm::abs(cell_position.y) < y_limit)
-      continue;
-
-    bool occluded = true;
-    for (const auto& grid : grids) {
-      if (!grid.PeekCells()[cell_i].occluded) {
-        occluded = false;
-        break;
-      }
-    }
-    final_grid.RefCells()[cell_i].occluded = occluded;
-    if (occluded) {
-      ret_val.emplace_back(final_grid.GetPosition(cell_i) + center);
-    }
-  }
-  */
-  return ret_val;
 }
