@@ -296,6 +296,7 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   // after load from spline, replace data in sorghumdescriptor
   FileUtils::OpenFile(
       "Load splines", "YAML", {".yml"}, [&](const std::filesystem::path& path) {
+        // @edisonlee0212: here I reconstruct the sorghum descriptor from yaml and create the mesh.
     if (auto tempResult = ImportPrediction(path)) {
       SorghumDescriptorReconstruction reconstruction;
       auto yamlContent = *tempResult;

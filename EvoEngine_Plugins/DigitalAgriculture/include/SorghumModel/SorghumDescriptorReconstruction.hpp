@@ -1,3 +1,13 @@
+/*****************************************************************//**
+ * \file   SorghumDescriptorReconstruction.hpp
+ * \brief  Provides interfaces for the bezier splines and sorghum reconstruction
+ * 
+ * \author Demoy
+ * \date   February 2025
+ *********************************************************************/
+
+// @edisonlee0212: here I define methods.
+
 #pragma once
 #include "SorghumDescriptor.hpp"
 using namespace evo_engine;

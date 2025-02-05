@@ -1,3 +1,13 @@
+/*****************************************************************//**
+ * \file   SorghumDescriptorReconstruction.cpp
+ * \brief  Provides implementation of interfaces defined in SorghumDescriptorReconstruction
+ * 
+ * \author Demoy
+ * \date   February 2025
+ *********************************************************************/
+
+// @edisonlee0212: here are the implementations.
+
 #include "SorghumDescriptorReconstruction.hpp"
 
 #include "Sorghum.hpp"
@@ -122,7 +132,7 @@ std::vector<glm::vec3> CubicBezierSpline::getSurfaceIntersection(const glm::vec3
     glm::vec3 p2 = joints[i + 1].left_handle;
     glm::vec3 p3 = joints[i + 1].position;
 
-    // assume each of the bezier curves should only intersect with the plane once
+    // assume: that each of the bezier curves should only intersect with the plane once
 
     // check whether the start point and the end point are on different sides of the plane
     if (glm::dot(p0 - planePoint, normal) * glm::dot(p3 - planePoint, normal) > 0) {
