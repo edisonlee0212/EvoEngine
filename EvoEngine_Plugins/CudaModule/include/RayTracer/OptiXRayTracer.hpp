@@ -37,15 +37,18 @@ struct CameraProperties {
   CudaBuffer frame_buffer_albedo;
 #pragma endregion
 #pragma region Denoiser
+#if ENABLE_OPTIX_DENOISER
   /*! output of the denoiser pass, in float4 */
   CudaBuffer denoised_buffer;
   OptixDenoiser denoiser = nullptr;
   CudaBuffer denoiser_scratch;
   CudaBuffer denoiser_state;
   CudaBuffer denoiser_intensity;
+
+#endif
 #pragma endregion
   bool accumulate = true;
-
+  float denoiser_strength = 0.0f;
   float fov = 120;
   /*! camera position - *from* where we are looking */
   glm::vec3 camera_position = glm::vec3(0.0f);
@@ -54,7 +57,6 @@ struct CameraProperties {
   glm::vec3 vertical_direction;
   glm::mat4 inverse_projection_view;
 
-  float denoiser_strength = 0.0f;
   float max_distance = 50.0f;
   std::shared_ptr<CudaImage> target_image;
   OutputType output_type = OutputType::Color;
@@ -87,10 +89,8 @@ struct CameraProperties {
 
   void SetOutputType(OutputType value);
 
-  void SetDenoiserStrength(float value);
-
   void Resize(const glm::uvec2& new_size);
-
+  void SetDenoiserStrength(float value);
   void Set(const glm::vec3& position, const glm::quat& rotation);
   void SetSkybox(const std::shared_ptr<CudaImage>& cubemap);
   void OnInspect();

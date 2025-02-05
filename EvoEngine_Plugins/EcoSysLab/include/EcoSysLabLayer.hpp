@@ -194,7 +194,6 @@ class EcoSysLabLayer : public ILayer {
 
   bool visualization_camera_window_focused_ = false;
 
-  void PreUpdate() override;
   void Update() override;
   void LateUpdate() override;
   void OnCreate() override;

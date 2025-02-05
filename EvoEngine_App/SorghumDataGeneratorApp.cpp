@@ -43,14 +43,14 @@ void run_with_editor(const std::filesystem::path& project_path) {
   register_classes();
 
   Application::PushLayer<RenderLayer>("Render Layer");
+#ifdef CUDA_MODULE_PLUGIN
+  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
+#endif
   Application::PushLayer<WindowLayer>("Window Layer");
 
   Application::PushLayer<EditorLayer>("Editor Layer");
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
   Application::PushLayer<SorghumLayer>("Sorghum Layer");
-#endif
-#ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
 
   ApplicationInfo application_info{};

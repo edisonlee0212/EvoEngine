@@ -824,13 +824,6 @@ class EditorLayer : public ILayer {
   friend class ProjectManager;
   friend class RenderInstanceStorage;
 
-  /**
-   * @brief Handles GUI rendering for the editor.
-   *
-   * @param editor_layer Shared pointer to the EditorLayer being rendered.
-   */
-  static void OnGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
   int selection_alpha_ = 0;                          /**< Alpha value for the selected entity. */
   bool gizmo_displaying_ = false;                    /**< Indicates if any gizmo is being displayed. */
   bool gizmo_using_ = false;                         /**< Indicates if any gizmo is being used. */

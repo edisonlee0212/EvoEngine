@@ -261,7 +261,6 @@ class UniverseLayer : public ILayer {
 
   void OnCreate() override;
   void OnDestroy() override;
-  void PreUpdate() override;
   void Update() override;
 
   void CalculateStarPositionSync();

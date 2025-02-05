@@ -30,7 +30,7 @@ void EditorLayer::OnCreate() {
   style.ScrollbarRounding = 0;
 
   style.Colors[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.90f, 0.90f);
-  style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
+  style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.30f, 0.30f, 0.30f, 0.90f);
   style.Colors[ImGuiCol_WindowBg] = ImVec4(0.09f, 0.09f, 0.15f, 1.00f);
   style.Colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
   style.Colors[ImGuiCol_PopupBg] = ImVec4(0.05f, 0.05f, 0.10f, 0.85f);
@@ -196,6 +196,8 @@ void EditorLayer::OnDestroy() {
 }
 
 void EditorLayer::PreUpdate() {
+  InitializeImGui();
+  const auto scene = Application::GetActiveScene();
   if (lock_camera) {
     auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
     const float elapsed_time = static_cast<float>(Times::Now()) - transition_timer_;
@@ -211,7 +213,6 @@ void EditorLayer::PreUpdate() {
       // Camera::ReverseAngle(target_rotation_, m_sceneCameraPitchAngle, m_sceneCameraYawAngle);
     }
   }
-
   gizmo_mesh_tasks_.clear();
   gizmo_instanced_mesh_tasks_.clear();
   gizmo_strands_tasks_.clear();
@@ -220,6 +221,12 @@ void EditorLayer::PreUpdate() {
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("View")) {
+      if (ImGui::BeginMenu("Layer Inspection")) {
+        for (const auto& layer : Application::GetLayers()) {
+          ImGui::Checkbox(layer->layer_name_.c_str(), &layer->enable_inspection);
+        }
+        ImGui::EndMenu();
+      }
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Project")) {
@@ -304,17 +311,15 @@ void EditorLayer::PreUpdate() {
     ImGui::End();
     ImGui::PopStyleVar();
   }
-  if (show_scene_window)
+  if (scene && show_scene_window)
     ResizeCameras();
 
-  if (!main_camera_window_focused_) {
-    const auto active_scene = Application::GetActiveScene();
-    auto& pressed_keys = active_scene->pressed_keys_;
+  if (scene && !main_camera_window_focused_) {
+    auto& pressed_keys = scene->pressed_keys_;
     pressed_keys.clear();
   }
 
-  if (apply_transform_to_main_camera && !Application::IsPlaying()) {
-    const auto scene = Application::GetActiveScene();
+  if (scene && apply_transform_to_main_camera && !Application::IsPlaying()) {
     if (const auto camera = scene->main_camera.Get<Camera>(); camera && scene->IsEntityValid(camera->GetOwner())) {
       auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
       GlobalTransform global_transform;
@@ -323,8 +328,8 @@ void EditorLayer::PreUpdate() {
       scene->SetDataComponent(camera->GetOwner(), global_transform);
     }
   }
-  const auto& scene = Application::GetActiveScene();
-  if (!scene->IsEntityValid(selected_entity_)) {
+
+  if (scene && !scene->IsEntityValid(selected_entity_)) {
     SetSelectedEntity(Entity());
   }
   if (const auto render_layer = Application::GetLayer<RenderLayer>();
@@ -333,8 +338,303 @@ void EditorLayer::PreUpdate() {
   }
 
   selection_alpha_ = glm::clamp(selection_alpha_, 0, 256);
+
+  const auto editor_layer = std::dynamic_pointer_cast<EditorLayer>(GetSelf());
+  if (show_entity_explorer_window) {
+    ImGui::Begin("Entity Explorer");
+    if (scene) {
+      if (ImGui::BeginPopupContextWindow("NewEntityPopup")) {
+        if (ImGui::Button("Create new entity")) {
+          scene->CreateEntity(basic_entity_archetype_);
+        }
+        ImGui::EndPopup();
+      }
+      const char* hierarchy_display_mode[]{"Archetype", "Hierarchy"};
+
+      ImGui::Combo("Display mode", &selected_hierarchy_display_mode, hierarchy_display_mode,
+                   IM_ARRAYSIZE(hierarchy_display_mode));
+      std::string title = scene->GetTitle();
+      if (ImGui::CollapsingHeader(title.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow)) {
+        DraggableAsset(scene);
+        RenameAsset(scene);
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+          ProjectManager::GetInstance().inspecting_asset = scene;
+        }
+        if (ImGui::BeginDragDropTarget()) {
+          if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
+            IM_ASSERT(payload->DataSize == sizeof(Handle));
+            const auto payload_n = *static_cast<Handle*>(payload->Data);
+            const auto new_entity = scene->GetEntity(payload_n);
+            if (const auto parent = scene->GetParent(new_entity); parent.GetIndex() != 0)
+              scene->RemoveChild(new_entity, parent);
+          }
+          ImGui::EndDragDropTarget();
+        }
+        if (selected_hierarchy_display_mode == 0) {
+          scene->UnsafeForEachEntityStorage([&](int i, const std::string& name, const DataComponentStorage& storage) {
+            if (i == 0)
+              return;
+            ImGui::Separator();
+            const std::string title1 = std::to_string(i) + ". " + name;
+            if (ImGui::TreeNode(title1.c_str())) {
+              ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2, 0.3, 0.2, 1.0));
+              ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2, 0.2, 0.2, 1.0));
+              ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2, 0.2, 0.3, 1.0));
+              for (int j = 0; j < storage.entity_alive_count; j++) {
+                Entity entity = storage.chunk_array.entity_array.at(j);
+                std::string title2 = std::to_string(entity.GetIndex()) + ": ";
+                title2 += scene->GetEntityName(entity);
+                const bool enabled = scene->IsEntityEnabled(entity);
+                if (enabled) {
+                  ImGui::PushStyleColor(ImGuiCol_Text, ImVec4({1, 1, 1, 1}));
+                }
+                ImGui::TreeNodeEx(
+                    title2.c_str(),
+                    ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoAutoOpenOnLog |
+                        (selected_entity_ == entity ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
+                if (enabled) {
+                  ImGui::PopStyleColor();
+                }
+                DrawEntityMenu(enabled, entity);
+                if (!lock_entity_selection_ && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                  SetSelectedEntity(entity, false);
+                }
+              }
+              ImGui::PopStyleColor();
+              ImGui::PopStyleColor();
+              ImGui::PopStyleColor();
+              ImGui::TreePop();
+            }
+          });
+        } else if (selected_hierarchy_display_mode == 1) {
+          ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2, 0.3, 0.2, 1.0));
+          ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2, 0.2, 0.2, 1.0));
+          ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2, 0.2, 0.3, 1.0));
+          scene->ForAllEntities([&](int, const Entity entity) {
+            if (scene->GetParent(entity).GetIndex() == 0)
+              DrawEntityNode(entity, 0);
+          });
+          selected_entity_hierarchy_list_.clear();
+          ImGui::PopStyleColor();
+          ImGui::PopStyleColor();
+          ImGui::PopStyleColor();
+        }
+      }
+    } else {
+      ImGui::Text("No Scene!");
+    }
+    ImGui::End();
+  }
+  if (show_entity_inspector_window) {
+    ImGui::Begin("Entity Inspector");
+    if (scene) {
+      ImGui::Text("Selection:");
+      ImGui::SameLine();
+      ImGui::Checkbox("Lock", &lock_entity_selection_);
+      ImGui::SameLine();
+      ImGui::Checkbox("Focus", &highlight_selection_);
+      ImGui::SameLine();
+      ImGui::Checkbox("Gizmos", &enable_gizmos);
+      ImGui::SameLine();
+      if (ImGui::Button("Clear")) {
+        SetSelectedEntity({});
+      }
+      ImGui::Separator();
+      if (scene->IsEntityValid(selected_entity_)) {
+        std::string title = std::to_string(selected_entity_.GetIndex()) + ": ";
+        title += scene->GetEntityName(selected_entity_);
+        bool enabled = scene->IsEntityEnabled(selected_entity_);
+        if (ImGui::Checkbox((title + "##EnabledCheckbox").c_str(), &enabled)) {
+          if (scene->IsEntityEnabled(selected_entity_) != enabled) {
+            scene->SetEnable(selected_entity_, enabled);
+          }
+        }
+        ImGui::SameLine();
+        bool is_static = scene->IsEntityStatic(selected_entity_);
+        if (ImGui::Checkbox("Static##StaticCheckbox", &is_static)) {
+          if (scene->IsEntityStatic(selected_entity_) != is_static) {
+            scene->SetEntityStatic(selected_entity_, enabled);
+          }
+        }
+
+        if (const bool deleted = DrawEntityMenu(scene->IsEntityEnabled(selected_entity_), selected_entity_); !deleted) {
+          if (ImGui::CollapsingHeader("Data components", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::BeginPopupContextItem("DataComponentInspectorPopup")) {
+              ImGui::Text("Add data component: ");
+              ImGui::Separator();
+
+              for (const auto& i : Serialization::GetInstance().data_component_ids_) {
+                const auto id = i.second;
+                const auto name = i.first;
+                if (id == typeid(Transform).hash_code() || id == typeid(GlobalTransform).hash_code() ||
+                    id == typeid(TransformUpdateFlag).hash_code())
+                  continue;
+
+                if (!scene->HasDataComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
+                  scene->AddDataComponent(selected_entity_, id);
+                }
+              }
+              ImGui::Separator();
+              ImGui::EndPopup();
+            }
+            bool skip = false;
+            int i = 0;
+            scene->UnsafeForEachDataComponent(selected_entity_, [&](const DataComponentType& type, void* data) {
+              if (skip)
+                return;
+              std::string info = type.type_name;
+              if (info == "TransformUpdateFlag" || info == "GlobalTransform")
+                return;
+              info += " Size: " + std::to_string(type.type_size);
+              ImGui::Text(info.c_str());
+              ImGui::PushID(i);
+              if (ImGui::BeginPopupContextItem(("DataComponentDeletePopup" + std::to_string(i)).c_str())) {
+                if (ImGui::Button("Remove")) {
+                  skip = true;
+                  scene->RemoveDataComponent(selected_entity_, type.type_index);
+                }
+                ImGui::EndPopup();
+              }
+              ImGui::PopID();
+              InspectComponentData(selected_entity_, static_cast<IDataComponent*>(data), type,
+                                   scene->GetParent(selected_entity_).GetIndex() != 0);
+              ImGui::Separator();
+              i++;
+            });
+          }
+
+          if (ImGui::CollapsingHeader("Private components", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::BeginPopupContextItem("PrivateComponentInspectorPopup")) {
+              ImGui::Text("Add private component: ");
+              ImGui::Separator();
+              for (const auto& i : Serialization::GetInstance().private_component_ids_) {
+                const auto id = i.second;
+                const auto name = i.first;
+                if (!scene->HasPrivateComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
+                  scene->AddPrivateComponent(selected_entity_, id);
+                }
+              }
+              ImGui::Separator();
+              ImGui::EndPopup();
+            }
+
+            int i = 0;
+            bool skip = false;
+            scene->ForEachPrivateComponent(selected_entity_, [&](const PrivateComponentElement& data) {
+              if (skip)
+                return;
+              ImGui::Checkbox(data.private_component_data->GetTypeName().c_str(),
+                              &data.private_component_data->enabled_);
+              DraggablePrivateComponent(data.private_component_data);
+              const std::string tag = "##" + data.private_component_data->GetTypeName() +
+                                      std::to_string(data.private_component_data->GetHandle());
+              if (ImGui::BeginPopupContextItem(tag.c_str())) {
+                if (ImGui::Button(("Remove" + tag).c_str())) {
+                  skip = true;
+                  scene->RemovePrivateComponent(selected_entity_, data.type_index);
+                }
+                ImGui::EndPopup();
+              }
+              if (!skip) {
+                if (ImGui::TreeNodeEx(("Component Settings##" + std::to_string(i)).c_str(),
+                                      ImGuiTreeNodeFlags_DefaultOpen)) {
+                  if (data.private_component_data->OnInspect(editor_layer))
+                    scene->SetUnsaved();
+                  ImGui::TreePop();
+                }
+              }
+              ImGui::Separator();
+              i++;
+            });
+          }
+        }
+      } else {
+        SetSelectedEntity(Entity());
+      }
+    } else {
+      ImGui::Text("No Scene!");
+    }
+    ImGui::End();
+  }
+  if (show_console_window) {
+    if (ImGui::Begin("Console")) {
+      ImGui::Checkbox("Log", &enable_console_logs_);
+      ImGui::SameLine();
+      ImGui::Checkbox("Warning", &enable_console_warnings_);
+      ImGui::SameLine();
+      ImGui::Checkbox("Error", &enable_console_errors_);
+      ImGui::SameLine();
+      if (ImGui::Button("Clear all")) {
+        console_messages_.clear();
+      }
+      int i = 0;
+      for (auto msg = console_messages_.rbegin(); msg != console_messages_.rend(); ++msg) {
+        if (i > 999)
+          break;
+        i++;
+        switch (msg->m_type) {
+          case ConsoleMessageType::Log:
+            if (enable_console_logs_) {
+              ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
+              ImGui::SameLine();
+              ImGui::TextColored(ImVec4(1, 1, 1, 1), msg->m_value.c_str());
+              ImGui::Separator();
+            }
+            break;
+          case ConsoleMessageType::Warning:
+            if (enable_console_warnings_) {
+              ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
+              ImGui::SameLine();
+              ImGui::TextColored(ImVec4(1, 1, 0, 1), msg->m_value.c_str());
+              ImGui::Separator();
+            }
+            break;
+          case ConsoleMessageType::Error:
+            if (enable_console_errors_) {
+              ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
+              ImGui::SameLine();
+              ImGui::TextColored(ImVec4(1, 0, 0, 1), msg->m_value.c_str());
+              ImGui::Separator();
+            }
+            break;
+        }
+      }
+    }
+    ImGui::End();
+  }
+  if (scene && scene_camera_window_focused_ && Input::GetKey(GLFW_KEY_DELETE) == Input::KeyActionType::Press) {
+    if (scene->IsEntityValid(selected_entity_)) {
+      scene->DeleteEntity(selected_entity_);
+    }
+  }
+  if (show_scene_window)
+    SceneCameraWindow();
+  if (show_camera_window)
+    MainCameraWindow();
+  if (scene && show_scene_camera_debug) {
+    if (ImGui::Begin("Scene Camera Debug")) {
+      static float debug_scale = 0.25f;
+      ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
+      debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
+      auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
+      sceneCamera->DebugViews(debug_scale);
+    }
+    ImGui::End();
+  }
+
+  if (scene) {
+    for (const auto& layer : Application::GetLayers()) {
+      if (layer->enable_inspection) {
+        ImGui::Begin(layer->layer_name_.c_str());
+        layer->OnInspect(editor_layer);
+        ImGui::End();
+      }
+    }
+  }
+
+  Resources::OnInspect(editor_layer);
+  ProjectManager::OnInspect(editor_layer);
 }
-const char* hierarchy_display_mode[]{"Archetype", "Hierarchy"};
 void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Scene Window", &show_scene_window);
   if (show_scene_window) {
@@ -854,298 +1154,6 @@ void EditorLayer::ResizeCameras() {
     if (main_camera_allow_auto_resize)
       main_camera->Resize({main_camera_resolution_x, main_camera_resolution_y});
   }
-}
-
-void EditorLayer::OnGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  const auto scene = editor_layer->GetScene();
-  if (editor_layer->show_entity_explorer_window) {
-    ImGui::Begin("Entity Explorer");
-    if (scene) {
-      if (ImGui::BeginPopupContextWindow("NewEntityPopup")) {
-        if (ImGui::Button("Create new entity")) {
-          scene->CreateEntity(editor_layer->basic_entity_archetype_);
-        }
-        ImGui::EndPopup();
-      }
-      ImGui::Combo("Display mode", &editor_layer->selected_hierarchy_display_mode, hierarchy_display_mode,
-                   IM_ARRAYSIZE(hierarchy_display_mode));
-      std::string title = scene->GetTitle();
-      if (ImGui::CollapsingHeader(title.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow)) {
-        DraggableAsset(scene);
-        RenameAsset(scene);
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-          ProjectManager::GetInstance().inspecting_asset = scene;
-        }
-        if (ImGui::BeginDragDropTarget()) {
-          if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
-            IM_ASSERT(payload->DataSize == sizeof(Handle));
-            const auto payload_n = *static_cast<Handle*>(payload->Data);
-            const auto new_entity = scene->GetEntity(payload_n);
-            if (const auto parent = scene->GetParent(new_entity); parent.GetIndex() != 0)
-              scene->RemoveChild(new_entity, parent);
-          }
-          ImGui::EndDragDropTarget();
-        }
-        if (editor_layer->selected_hierarchy_display_mode == 0) {
-          scene->UnsafeForEachEntityStorage([&](int i, const std::string& name, const DataComponentStorage& storage) {
-            if (i == 0)
-              return;
-            ImGui::Separator();
-            const std::string title1 = std::to_string(i) + ". " + name;
-            if (ImGui::TreeNode(title1.c_str())) {
-              ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2, 0.3, 0.2, 1.0));
-              ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2, 0.2, 0.2, 1.0));
-              ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2, 0.2, 0.3, 1.0));
-              for (int j = 0; j < storage.entity_alive_count; j++) {
-                Entity entity = storage.chunk_array.entity_array.at(j);
-                std::string title2 = std::to_string(entity.GetIndex()) + ": ";
-                title2 += scene->GetEntityName(entity);
-                const bool enabled = scene->IsEntityEnabled(entity);
-                if (enabled) {
-                  ImGui::PushStyleColor(ImGuiCol_Text, ImVec4({1, 1, 1, 1}));
-                }
-                ImGui::TreeNodeEx(title2.c_str(),
-                                  ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Leaf |
-                                      ImGuiTreeNodeFlags_NoAutoOpenOnLog |
-                                      (editor_layer->selected_entity_ == entity ? ImGuiTreeNodeFlags_Framed
-                                                                                : ImGuiTreeNodeFlags_FramePadding));
-                if (enabled) {
-                  ImGui::PopStyleColor();
-                }
-                editor_layer->DrawEntityMenu(enabled, entity);
-                if (!editor_layer->lock_entity_selection_ && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                  editor_layer->SetSelectedEntity(entity, false);
-                }
-              }
-              ImGui::PopStyleColor();
-              ImGui::PopStyleColor();
-              ImGui::PopStyleColor();
-              ImGui::TreePop();
-            }
-          });
-        } else if (editor_layer->selected_hierarchy_display_mode == 1) {
-          ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2, 0.3, 0.2, 1.0));
-          ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2, 0.2, 0.2, 1.0));
-          ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2, 0.2, 0.3, 1.0));
-          scene->ForAllEntities([&](int, const Entity entity) {
-            if (scene->GetParent(entity).GetIndex() == 0)
-              editor_layer->DrawEntityNode(entity, 0);
-          });
-          editor_layer->selected_entity_hierarchy_list_.clear();
-          ImGui::PopStyleColor();
-          ImGui::PopStyleColor();
-          ImGui::PopStyleColor();
-        }
-      }
-    } else {
-      ImGui::Text("No Scene!");
-    }
-    ImGui::End();
-  }
-  if (editor_layer->show_entity_inspector_window) {
-    ImGui::Begin("Entity Inspector");
-    if (scene) {
-      ImGui::Text("Selection:");
-      ImGui::SameLine();
-      ImGui::Checkbox("Lock", &editor_layer->lock_entity_selection_);
-      ImGui::SameLine();
-      ImGui::Checkbox("Focus", &editor_layer->highlight_selection_);
-      ImGui::SameLine();
-      ImGui::Checkbox("Gizmos", &editor_layer->enable_gizmos);
-      ImGui::SameLine();
-      if (ImGui::Button("Clear")) {
-        editor_layer->SetSelectedEntity({});
-      }
-      ImGui::Separator();
-      if (scene->IsEntityValid(editor_layer->selected_entity_)) {
-        std::string title = std::to_string(editor_layer->selected_entity_.GetIndex()) + ": ";
-        title += scene->GetEntityName(editor_layer->selected_entity_);
-        bool enabled = scene->IsEntityEnabled(editor_layer->selected_entity_);
-        if (ImGui::Checkbox((title + "##EnabledCheckbox").c_str(), &enabled)) {
-          if (scene->IsEntityEnabled(editor_layer->selected_entity_) != enabled) {
-            scene->SetEnable(editor_layer->selected_entity_, enabled);
-          }
-        }
-        ImGui::SameLine();
-        bool is_static = scene->IsEntityStatic(editor_layer->selected_entity_);
-        if (ImGui::Checkbox("Static##StaticCheckbox", &is_static)) {
-          if (scene->IsEntityStatic(editor_layer->selected_entity_) != is_static) {
-            scene->SetEntityStatic(editor_layer->selected_entity_, enabled);
-          }
-        }
-
-        if (const bool deleted = editor_layer->DrawEntityMenu(scene->IsEntityEnabled(editor_layer->selected_entity_),
-                                                              editor_layer->selected_entity_);
-            !deleted) {
-          if (ImGui::CollapsingHeader("Data components", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (ImGui::BeginPopupContextItem("DataComponentInspectorPopup")) {
-              ImGui::Text("Add data component: ");
-              ImGui::Separator();
-
-              for (const auto& i : Serialization::GetInstance().data_component_ids_) {
-                const auto id = i.second;
-                const auto name = i.first;
-                if (id == typeid(Transform).hash_code() || id == typeid(GlobalTransform).hash_code() ||
-                    id == typeid(TransformUpdateFlag).hash_code())
-                  continue;
-
-                if (!scene->HasDataComponent(editor_layer->selected_entity_, id) && ImGui::Button(name.c_str())) {
-                  scene->AddDataComponent(editor_layer->selected_entity_, id);
-                }
-              }
-              ImGui::Separator();
-              ImGui::EndPopup();
-            }
-            bool skip = false;
-            int i = 0;
-            scene->UnsafeForEachDataComponent(
-                editor_layer->selected_entity_, [&](const DataComponentType& type, void* data) {
-                  if (skip)
-                    return;
-                  std::string info = type.type_name;
-                  if (info == "TransformUpdateFlag" || info == "GlobalTransform")
-                    return;
-                  info += " Size: " + std::to_string(type.type_size);
-                  ImGui::Text(info.c_str());
-                  ImGui::PushID(i);
-                  if (ImGui::BeginPopupContextItem(("DataComponentDeletePopup" + std::to_string(i)).c_str())) {
-                    if (ImGui::Button("Remove")) {
-                      skip = true;
-                      scene->RemoveDataComponent(editor_layer->selected_entity_, type.type_index);
-                    }
-                    ImGui::EndPopup();
-                  }
-                  ImGui::PopID();
-                  editor_layer->InspectComponentData(editor_layer->selected_entity_, static_cast<IDataComponent*>(data),
-                                                     type,
-                                                     scene->GetParent(editor_layer->selected_entity_).GetIndex() != 0);
-                  ImGui::Separator();
-                  i++;
-                });
-          }
-
-          if (ImGui::CollapsingHeader("Private components", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (ImGui::BeginPopupContextItem("PrivateComponentInspectorPopup")) {
-              ImGui::Text("Add private component: ");
-              ImGui::Separator();
-              for (const auto& i : Serialization::GetInstance().private_component_ids_) {
-                const auto id = i.second;
-                const auto name = i.first;
-                if (!scene->HasPrivateComponent(editor_layer->selected_entity_, id) && ImGui::Button(name.c_str())) {
-                  scene->AddPrivateComponent(editor_layer->selected_entity_, id);
-                }
-              }
-              ImGui::Separator();
-              ImGui::EndPopup();
-            }
-
-            int i = 0;
-            bool skip = false;
-            scene->ForEachPrivateComponent(editor_layer->selected_entity_, [&](const PrivateComponentElement& data) {
-              if (skip)
-                return;
-              ImGui::Checkbox(data.private_component_data->GetTypeName().c_str(),
-                              &data.private_component_data->enabled_);
-              DraggablePrivateComponent(data.private_component_data);
-              const std::string tag = "##" + data.private_component_data->GetTypeName() +
-                                      std::to_string(data.private_component_data->GetHandle());
-              if (ImGui::BeginPopupContextItem(tag.c_str())) {
-                if (ImGui::Button(("Remove" + tag).c_str())) {
-                  skip = true;
-                  scene->RemovePrivateComponent(editor_layer->selected_entity_, data.type_index);
-                }
-                ImGui::EndPopup();
-              }
-              if (!skip) {
-                if (ImGui::TreeNodeEx(("Component Settings##" + std::to_string(i)).c_str(),
-                                      ImGuiTreeNodeFlags_DefaultOpen)) {
-                  if (data.private_component_data->OnInspect(editor_layer))
-                    scene->SetUnsaved();
-                  ImGui::TreePop();
-                }
-              }
-              ImGui::Separator();
-              i++;
-            });
-          }
-        }
-      } else {
-        editor_layer->SetSelectedEntity(Entity());
-      }
-    } else {
-      ImGui::Text("No Scene!");
-    }
-    ImGui::End();
-  }
-  if (editor_layer->show_console_window) {
-    if (ImGui::Begin("Console")) {
-      ImGui::Checkbox("Log", &editor_layer->enable_console_logs_);
-      ImGui::SameLine();
-      ImGui::Checkbox("Warning", &editor_layer->enable_console_warnings_);
-      ImGui::SameLine();
-      ImGui::Checkbox("Error", &editor_layer->enable_console_errors_);
-      ImGui::SameLine();
-      if (ImGui::Button("Clear all")) {
-        editor_layer->console_messages_.clear();
-      }
-      int i = 0;
-      for (auto msg = editor_layer->console_messages_.rbegin(); msg != editor_layer->console_messages_.rend(); ++msg) {
-        if (i > 999)
-          break;
-        i++;
-        switch (msg->m_type) {
-          case ConsoleMessageType::Log:
-            if (editor_layer->enable_console_logs_) {
-              ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
-              ImGui::SameLine();
-              ImGui::TextColored(ImVec4(1, 1, 1, 1), msg->m_value.c_str());
-              ImGui::Separator();
-            }
-            break;
-          case ConsoleMessageType::Warning:
-            if (editor_layer->enable_console_warnings_) {
-              ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
-              ImGui::SameLine();
-              ImGui::TextColored(ImVec4(1, 1, 0, 1), msg->m_value.c_str());
-              ImGui::Separator();
-            }
-            break;
-          case ConsoleMessageType::Error:
-            if (editor_layer->enable_console_errors_) {
-              ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
-              ImGui::SameLine();
-              ImGui::TextColored(ImVec4(1, 0, 0, 1), msg->m_value.c_str());
-              ImGui::Separator();
-            }
-            break;
-        }
-      }
-    }
-    ImGui::End();
-  }
-  if (scene && editor_layer->scene_camera_window_focused_ &&
-      Input::GetKey(GLFW_KEY_DELETE) == Input::KeyActionType::Press) {
-    if (scene->IsEntityValid(editor_layer->selected_entity_)) {
-      scene->DeleteEntity(editor_layer->selected_entity_);
-    }
-  }
-  if (editor_layer->show_scene_window)
-    editor_layer->SceneCameraWindow();
-  if (editor_layer->show_camera_window)
-    editor_layer->MainCameraWindow();
-  if (scene && editor_layer->show_scene_camera_debug) {
-    if (ImGui::Begin("Scene Camera Debug")) {
-      static float debug_scale = 0.25f;
-      ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
-      debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
-      auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] =
-          editor_layer->editor_cameras_.at(editor_layer->scene_camera_handle_);
-      sceneCamera->DebugViews(debug_scale);
-    }
-    ImGui::End();
-  }
-  Resources::OnInspect(editor_layer);
-  ProjectManager::OnInspect(editor_layer);
 }
 
 std::shared_ptr<Texture2D> EditorLayer::FindIcon(const std::string& name) {

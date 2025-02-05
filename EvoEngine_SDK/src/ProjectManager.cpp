@@ -89,7 +89,7 @@ void ProjectManager::SetupDefaultScene() {
 
 void ProjectManager::PreUpdate() {
   const auto window_layer = Application::GetLayer<WindowLayer>();
-  if (window_layer && Platform::GetFrameCount() < 3)
+  if (window_layer && Platform::GetFrameCount() < 4)
     return;
   auto& project_manager = GetInstance();
 

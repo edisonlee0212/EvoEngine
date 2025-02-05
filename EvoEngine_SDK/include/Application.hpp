@@ -250,6 +250,7 @@ std::shared_ptr<T> Application::PushLayer(const std::string& layer_name) {
     if (!application.layers_.empty())
       application.layers_.back()->subsequent_layer_ = test;
     application.layers_.push_back(std::dynamic_pointer_cast<ILayer>(test));
+    application.layers_.back()->self_ = test;
   }
   std::dynamic_pointer_cast<ILayer>(test)->layer_name_ = layer_name;
   return test;

@@ -81,6 +81,9 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
 int main() {
   constexpr DemoSetup demo_setup = DemoSetup::Rendering;
   Application::PushLayer<RenderLayer>("Render Layer");
+#ifdef CUDA_MODULE_PLUGIN
+  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
+#endif
   Application::PushLayer<WindowLayer>("Window Layer");
   Application::PushLayer<EditorLayer>("Editor Layer");
 #ifdef UNIVERSE_PLUGIN
@@ -89,9 +92,7 @@ int main() {
   PrivateComponentRegistration<TextureBaking>("TextureBaking");
 #  endif
 #endif
-#ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
-#endif
+
 #ifdef PHYSX_PHYSICS_PLUGIN
   Application::PushLayer<PhysicsLayer>();
 #endif

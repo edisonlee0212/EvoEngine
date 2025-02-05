@@ -79,9 +79,6 @@ void UniverseLayer::OnCreate() {
 void UniverseLayer::OnDestroy() {
 }
 
-void UniverseLayer::PreUpdate() {
-}
-
 void CheckLod(std::mutex &mutex, const std::shared_ptr<TerrainChunk> &chunk, const PlanetInfo &info,
               const GlobalTransform &planet_transform, const GlobalTransform &camera_transform) {
   if (glm::distance(glm::dvec3(chunk->ChunkCenterPosition(planet_transform.GetPosition(), info.radius,
@@ -124,7 +121,8 @@ void RenderChunk(const std::shared_ptr<TerrainChunk> &chunk, const std::shared_p
 
 void UniverseLayer::Update() {
   const auto scene = GetScene();
-
+  if (!scene)
+    return;
   const std::vector<Entity> *const planet_terrain_list = scene->UnsafeGetPrivateComponentOwnersList<PlanetTerrain>();
   if (const auto main_camera = scene->main_camera.Get<Camera>(); planet_terrain_list && main_camera) {
     std::mutex mesh_gen_lock;

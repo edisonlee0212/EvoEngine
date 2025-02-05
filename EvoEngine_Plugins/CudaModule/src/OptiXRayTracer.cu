@@ -48,6 +48,20 @@ void CameraProperties::Resize(const glm::uvec2 &new_size) {
     return;
   target_frame.size = new_size;
   modified = true;
+  // ------------------------------------------------------------------
+  // resize our cuda frame buffer
+  
+  frame_buffer_color.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
+  frame_buffer_normal.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
+  frame_buffer_albedo.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
+
+  // update the launch parameters that we'll pass to the optix
+  // launch:
+  target_frame.color_buffer = reinterpret_cast<glm::vec4 *>(frame_buffer_color.DevicePointer());
+  target_frame.normal_buffer = reinterpret_cast<glm::vec4 *>(frame_buffer_normal.DevicePointer());
+  target_frame.albedo_buffer = reinterpret_cast<glm::vec4 *>(frame_buffer_albedo.DevicePointer());
+
+#if ENABLE_OPTIX_DENOISER
   if (denoiser) {
     OPTIX_CHECK(optixDenoiserDestroy(denoiser));
   };
@@ -63,25 +77,14 @@ void CameraProperties::Resize(const glm::uvec2 &new_size) {
 
   denoiser_scratch.Resize(std::max(denoiser_return_sizes.withOverlapScratchSizeInBytes,
                                    denoiser_return_sizes.withoutOverlapScratchSizeInBytes));
-
-  denoiser_state.Resize(denoiser_return_sizes.stateSizeInBytes);
-  // ------------------------------------------------------------------
-  // resize our cuda frame buffer
   denoised_buffer.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
-  frame_buffer_color.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
-  frame_buffer_normal.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
-  frame_buffer_albedo.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
-
-  // update the launch parameters that we'll pass to the optix
-  // launch:
-  target_frame.color_buffer = reinterpret_cast<glm::vec4 *>(frame_buffer_color.DevicePointer());
-  target_frame.normal_buffer = reinterpret_cast<glm::vec4 *>(frame_buffer_normal.DevicePointer());
-  target_frame.albedo_buffer = reinterpret_cast<glm::vec4 *>(frame_buffer_albedo.DevicePointer());
-
+  denoiser_state.Resize(denoiser_return_sizes.stateSizeInBytes);
+  
   // ------------------------------------------------------------------
   OPTIX_CHECK(optixDenoiserSetup(denoiser, nullptr, target_frame.size.x, target_frame.size.y,
                                  denoiser_state.DevicePointer(), denoiser_state.size_in_bytes,
                                  denoiser_scratch.DevicePointer(), denoiser_scratch.size_in_bytes));
+#endif
 }
 
 void CameraProperties::SetFov(const float value) {
@@ -116,13 +119,14 @@ void CameraProperties::OnInspect() {
     if (ImGui::DragFloat("Focal Length", &focal_length, 0.0001f, 0.0f, 99999.0f, "%.4f")) {
       SetFocalLength(focal_length);
     }
+#if ENABLE_OPTIX_DENOISER
     if (ImGui::DragFloat("Denoiser Strength", &denoiser_strength, 0.01f, 0.0f, 1.0f)) {
       SetDenoiserStrength(denoiser_strength);
     }
+#endif
     ImGui::TreePop();
   }
 }
-
 void CameraProperties::SetDenoiserStrength(const float value) {
   denoiser_strength = glm::clamp(value, 0.0f, 1.0f);
   modified = true;
@@ -329,24 +333,9 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
   input_layer[2].format = OPTIX_PIXEL_FORMAT_FLOAT4;
 
   // -------------------------------------------------------
-  OptixImage2D output_layer;
-  output_layer.data = camera_rendering_launch_params_.camera_properties.denoised_buffer.DevicePointer();
-  /// Width of the image (in pixels)
-  output_layer.width = camera_rendering_launch_params_.camera_properties.target_frame.size.x;
-  /// Height of the image (in pixels)
-  output_layer.height = camera_rendering_launch_params_.camera_properties.target_frame.size.y;
-  /// Stride between subsequent rows of the image (in bytes).
-  output_layer.rowStrideInBytes =
-      camera_rendering_launch_params_.camera_properties.target_frame.size.x * sizeof(glm::vec4);
-  /// Stride between subsequent pixels of the image (in bytes).
-  /// For now, only 0 or the value that corresponds to a dense packing of pixels
-  /// (no gaps) is supported.
-  output_layer.pixelStrideInBytes = sizeof(glm::vec4);
-  /// Pixel format.
-  output_layer.format = OPTIX_PIXEL_FORMAT_FLOAT4;
-
   switch (camera_rendering_launch_params_.camera_properties.output_type) {
     case OutputType::Color: {
+#if ENABLE_OPTIX_DENOISER
       if (camera_properties.denoiser_strength == 0.0f) {
         CUDA_CHECK(MemcpyToArray(
             output_array, 0, 0, (void *)camera_rendering_launch_params_.camera_properties.target_frame.color_buffer,
@@ -354,6 +343,22 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
                 camera_rendering_launch_params_.camera_properties.target_frame.size.y,
             cudaMemcpyDeviceToDevice));
       } else {
+        OptixImage2D output_layer;
+        output_layer.data = camera_rendering_launch_params_.camera_properties.denoised_buffer.DevicePointer();
+        /// Width of the image (in pixels)
+        output_layer.width = camera_rendering_launch_params_.camera_properties.target_frame.size.x;
+        /// Height of the image (in pixels)
+        output_layer.height = camera_rendering_launch_params_.camera_properties.target_frame.size.y;
+        /// Stride between subsequent rows of the image (in bytes).
+        output_layer.rowStrideInBytes =
+            camera_rendering_launch_params_.camera_properties.target_frame.size.x * sizeof(glm::vec4);
+        /// Stride between subsequent pixels of the image (in bytes).
+        /// For now, only 0 or the value that corresponds to a dense packing of pixels
+        /// (no gaps) is supported.
+        output_layer.pixelStrideInBytes = sizeof(glm::vec4);
+        /// Pixel format.
+        output_layer.format = OPTIX_PIXEL_FORMAT_FLOAT4;
+
         OptixDenoiserParams denoiserParams;
         camera_rendering_launch_params_.camera_properties.denoiser_intensity.Resize(sizeof(float));
         if (camera_rendering_launch_params_.camera_properties.denoiser_intensity.size_in_bytes != sizeof(float))
@@ -397,6 +402,13 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
                               camera_rendering_launch_params_.camera_properties.target_frame.size.y,
                           cudaMemcpyDeviceToDevice));
       }
+#else
+      CUDA_CHECK(MemcpyToArray(
+          output_array, 0, 0, (void *)camera_rendering_launch_params_.camera_properties.target_frame.color_buffer,
+          sizeof(glm::vec4) * camera_rendering_launch_params_.camera_properties.target_frame.size.x *
+              camera_rendering_launch_params_.camera_properties.target_frame.size.y,
+          cudaMemcpyDeviceToDevice));
+#endif
     } break;
     case OutputType::Normal: {
       CUDA_CHECK(MemcpyToArray(

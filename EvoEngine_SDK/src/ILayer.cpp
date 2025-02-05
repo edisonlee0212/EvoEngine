@@ -11,6 +11,9 @@ void ILayer::OnInputEvent(const Input::InputEvent& input_event) {
     subsequent_layer_.lock()->OnInputEvent(input_event);
   }
 }
+std::shared_ptr<ILayer> ILayer::GetSelf() const {
+  return self_.lock();
+}
 
 std::string ILayer::GetLayerName() const {
   return layer_name_;
