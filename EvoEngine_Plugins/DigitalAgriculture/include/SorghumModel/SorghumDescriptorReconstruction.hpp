@@ -1,10 +1,11 @@
-/*****************************************************************//**
- * \file   SorghumDescriptorReconstruction.hpp
- * \brief  Provides interfaces for the bezier splines and sorghum reconstruction
- * 
- * \author Demoy
- * \date   February 2025
- *********************************************************************/
+/*****************************************************************/ /**
+                                                                     * \file   SorghumDescriptorReconstruction.hpp
+                                                                     * \brief  Provides interfaces for the bezier
+                                                                     *splines and sorghum reconstruction
+                                                                     *
+                                                                     * \author Demoy
+                                                                     * \date   February 2025
+                                                                     *********************************************************************/
 
 // @edisonlee0212: here I define methods.
 
@@ -69,8 +70,7 @@ class CubicBezierSpline {
    * @return The interpolated point.
    */
   [[nodiscard]] static glm::vec3 interpolation(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
-                                               const glm::vec3& v3,
-                                 const float t);
+                                               const glm::vec3& v3, const float t);
 
   /**
    * @brief Computes the tangent vector at a given parameter t on the spline segment.
@@ -82,8 +82,7 @@ class CubicBezierSpline {
    * @return The tangent vector.
    */
   [[nodiscard]] static glm::vec3 getTangent(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
-                                            const glm::vec3& v3,
-                              const float t);
+                                            const glm::vec3& v3, const float t);
 
   /**
    * @brief Calculates the length of a segment using adaptive sampling.
@@ -97,8 +96,8 @@ class CubicBezierSpline {
    * @return The estimated length of the segment.
    */
   [[nodiscard]] static float calculateLengthAdaptive(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
-                                       const glm::vec3& v3, float t_start = 0, float t_end = 1,
-                                       const float tolerance = 0.001f);
+                                                     const glm::vec3& v3, float t_start = 0, float t_end = 1,
+                                                     const float tolerance = 0.001f);
 
   /**
    * @brief Finds the parameter t corresponding to a target length using adaptive sampling.
@@ -112,8 +111,8 @@ class CubicBezierSpline {
    * @return The parameter t that corresponds to the target length.
    */
   [[nodiscard]] static float findTAdaptive(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
-                                           const glm::vec3& v3,
-                             const float t_start, const float target_length, const float tolerance);
+                                           const glm::vec3& v3, const float t_start, const float target_length,
+                                           const float tolerance);
 
   /**
    * @brief Computes the total length of the spline and updates segment lengths.
@@ -127,8 +126,6 @@ class CubicBezierSpline {
    * @return A vector of sampled points along the spline.
    */
   [[nodiscard]] std::vector<CubicSplineSample> getSamplesByLength(float distance);
-
-
 
   /**
    * @brief Finds intersection points between the spline and a given plane.
@@ -164,9 +161,8 @@ class CubicBezierSpline {
    * @return The intersection parameter t.
    */
   [[nodiscard]] static float bisectionMethod(float t_min, float t_max, const glm::vec3& v0, const glm::vec3& v1,
-                                             const glm::vec3& v2,
-                               const glm::vec3& v3, const glm::vec3& planePoint, const glm::vec3& normal,
-                               float epsilon = 0.0001f);
+                                             const glm::vec3& v2, const glm::vec3& v3, const glm::vec3& planePoint,
+                                             const glm::vec3& normal, float epsilon = 0.0001f);
 
   /**
    * @brief Uses Newton's method to find the intersection parameter t.
@@ -182,9 +178,8 @@ class CubicBezierSpline {
    * @return The intersection parameter t.
    */
   [[nodiscard]] static float newtonMethod(float t, const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
-                                          const glm::vec3& v3,
-                            const glm::vec3& planePoint, const glm::vec3& normal, float epsilon = 0.0001f,
-                            int maxIter = 100);
+                                          const glm::vec3& v3, const glm::vec3& planePoint, const glm::vec3& normal,
+                                          float epsilon = 0.0001f, int maxIter = 100);
 
   /**
    * @brief Computes the tangent at a specific sample point.
@@ -227,7 +222,6 @@ class SorghumDescriptorReconstruction {
       : theta(theta), scale(scale), center(center), stemRaius(stemRaius), stemSegmentsCount(stemSegmentsCount) {
   }
 
-
   /**
    * @brief Reconstructs cubic Bezier splines from YAML content.
    * @param yaml_content The YAML content containing leaf lines.
@@ -258,8 +252,7 @@ class SorghumDescriptorReconstruction {
    * @param samples The number of samples along the stem.
    * @return A vector of points representing the reconstructed stem.
    */
-  std::vector<glm::vec3> ReconstructSorghumStem(
-  SorghumDescriptor& sorghum_descriptor) const;
+  std::vector<glm::vec3> ReconstructSorghumStem(SorghumDescriptor& sorghum_descriptor) const;
 
   /**
    * @brief Reconstructs sorghum geometry using Bezier splines.
