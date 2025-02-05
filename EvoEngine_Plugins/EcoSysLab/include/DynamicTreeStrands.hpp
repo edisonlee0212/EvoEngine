@@ -11,6 +11,7 @@ namespace eco_sys_lab_plugin {
 class DynamicTreeStrands : public IPrivateComponent {
   Handle foliage_rendering_instance_handle;
   Handle small_segments_rendering_instance_handle;
+  Handle mesh_wireframe_rendering_instance_handle;
 
  public:
   int seed = 0;
@@ -46,6 +47,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   AssetRef leaf_material_ref;
   AssetRef snow_material_ref;
   AssetRef segment_pair_material_ref;
+  AssetRef wireframe_material_ref;
   std::shared_ptr<DsBoxSelection> box_selection_operator;
   std::shared_ptr<DsLineCut> line_cut_operator;
   std::shared_ptr<DsPointCut> point_cut_operator;
@@ -110,6 +112,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   void Visualization(const std::shared_ptr<Camera>& target_camera,
                      const DynamicStrands::VisualizationParameters& visualization_parameters) const;
   void RegisterBranchesRenderInstance(const DynamicStrands::BranchesRenderParameters& render_parameters);
+  void RegisterBranchesWireframeRenderInstance(const DynamicStrands::BranchesRenderParameters& render_parameters);
   void RegisterSmallSegmentsRenderInstance(const DynamicStrands::SmallSegmentsRenderParameters& render_parameters);
   void RegisterSmallSegmentsVisualizationRenderInstance(
       const DynamicStrands::SmallSegmentsRenderParameters& render_parameters,

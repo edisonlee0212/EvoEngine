@@ -172,7 +172,12 @@ void EcoSysLabLayer::RegisterStrandRenderingProcedure() const {
       const auto editor_layer = Application::GetLayer<EditorLayer>();
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
         if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {
-          dts->RegisterBranchesRenderInstance(dynamic_strands_settings_.branches_render_parameters);
+          if (dynamic_strands_settings_.branches_render_parameters.solid) {
+            dts->RegisterBranchesRenderInstance(dynamic_strands_settings_.branches_render_parameters);
+          }
+          if (dynamic_strands_settings_.branches_render_parameters.wireframe) {
+            dts->RegisterBranchesWireframeRenderInstance(dynamic_strands_settings_.branches_render_parameters);
+          }
           if (dynamic_strands_settings_.visualization_rendering) {
             dts->RegisterSmallSegmentsVisualizationRenderInstance(
                 dynamic_strands_settings_.small_segments_render_parameters,
