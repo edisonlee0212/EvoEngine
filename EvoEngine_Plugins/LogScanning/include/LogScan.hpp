@@ -19,7 +19,6 @@ struct LogScanProfile {
   float encoder_value = 0.f;
   std::vector<glm::vec2> points;
   std::vector<int> brightness;
-  std::vector<glm::vec2> BuildBoundary(const JoeScanConfig& joe_scan_config);
 };
 
 class LogScan : public IAsset {
