@@ -50,10 +50,10 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
     return;
   }
 
-  //if (target_sorghum_descriptor->stem.spline.segments.empty()) {
-  //  EVOENGINE_ERROR("Failed to generate sorghum geometry: No stem.")
-  //  return;
-  //}
+  if (target_sorghum_descriptor->stem.spline.segments.empty()) {
+    EVOENGINE_ERROR("Failed to generate sorghum geometry: No stem.")
+    return;
+  }
   ClearGeometryEntities();
   const auto scene = GetScene();
   const auto owner = GetOwner();

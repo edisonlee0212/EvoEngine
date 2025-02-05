@@ -62,11 +62,8 @@ class SorghumDescriptor : public IAsset {
   void Deserialize(const YAML::Node& in) override;
   [[maybe_unused]] Entity CreateEntity(const std::string& name) const;
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
-  static void ReconstructFromYAML(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor,
-                                   std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>& yaml_content,
-                                  float theta, float scale);
 
-  std::optional<std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>> ImportPrediction(
+  [[nodiscard]] std::optional<std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>> ImportPrediction(
       const std::filesystem::path& yaml_path);
 };
 

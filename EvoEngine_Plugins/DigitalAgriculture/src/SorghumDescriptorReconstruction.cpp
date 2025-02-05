@@ -66,15 +66,15 @@ float CubicBezierSpline::getLength() {
   return result;
 }
 
-std::vector<SplineSample> CubicBezierSpline::getSamplesByLength(float distance) {
+std::vector<CubicSplineSample> CubicBezierSpline::getSamplesByLength(float distance) {
   float length = getLength();
   int sampleNum = length / distance;
   return getUniformSamples(sampleNum);
 }
 
 
-std::vector<SplineSample> CubicBezierSpline::getUniformSamples(int num) {
-  std::vector<SplineSample> samples;
+std::vector<CubicSplineSample> CubicBezierSpline::getUniformSamples(int num) {
+  std::vector<CubicSplineSample> samples;
   float length = getLength();
   float lengthPerSample = length / (num + 1);
   float sampleLength = lengthPerSample;
@@ -97,7 +97,7 @@ std::vector<SplineSample> CubicBezierSpline::getUniformSamples(int num) {
     glm::vec3 pos = (interpolation(joints[i].position, joints[i].right_handle, joints[i + 1].left_handle,
                                    joints[i + 1].position, t));
 
-    SplineSample s;
+    CubicSplineSample s;
     s.position = pos;
     s.segmentIndex = i;
     s.t = t;
@@ -180,7 +180,7 @@ float CubicBezierSpline::newtonMethod(float t, const glm::vec3& v0, const glm::v
   return t;
 }
 
-glm::vec3 CubicBezierSpline::getTangent(const SplineSample& sample) const {
+glm::vec3 CubicBezierSpline::getTangent(const CubicSplineSample& sample) const {
   glm::vec3 p0 = joints[sample.segmentIndex].position;
   glm::vec3 p1 = joints[sample.segmentIndex].right_handle;
   glm::vec3 p2 = joints[sample.segmentIndex + 1].left_handle;
@@ -287,7 +287,7 @@ std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>> SorghumDesc
   return results;
 }
 
-void SorghumDescriptorReconstruction::ExtendLeafToStem(SorghumLeafDescriptor& leaf) {
+void SorghumDescriptorReconstruction::ExtendLeafToStem(SorghumLeafDescriptor& leaf) const{
   auto firstSegment = leaf.spline.segments[0];
 
   auto right = normalize(glm::cross(firstSegment.front, glm::vec3(0, 1, 0)));
@@ -300,7 +300,7 @@ void SorghumDescriptorReconstruction::ExtendLeafToStem(SorghumLeafDescriptor& le
   segment.up = normalize(glm::cross(right, segment.front));
 
   segment.theta = 180;
-  segment.radius = 0.01f;
+  segment.radius = stemRaius;
   segment.left_height_offset = segment.right_height_offset = 0;
 
   // find the position on the circle;
@@ -308,7 +308,7 @@ void SorghumDescriptorReconstruction::ExtendLeafToStem(SorghumLeafDescriptor& le
   projection.y = 0;
   projection = segment.radius * normalize(-projection);
 
-  segment.position = projection;
+  segment.position = projection + center;
 
   // the segment for smooth interpolation
   SorghumSplineSegment segment2(segment);
@@ -320,18 +320,19 @@ void SorghumDescriptorReconstruction::ExtendLeafToStem(SorghumLeafDescriptor& le
   leaf.spline.segments.insert(leaf.spline.segments.begin() + 1, segment2);
 }
 
-std::vector<glm::vec3> SorghumDescriptorReconstruction::ReconstructSorghumStem(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor, int samples) {
+std::vector<glm::vec3> SorghumDescriptorReconstruction::ReconstructSorghumStem(SorghumDescriptor& sorghum_descriptor) const{
   std::vector<glm::vec3> results;
   SorghumStemDescriptor stem;
   glm::vec3 startPoint(0, 0, 0);
+  startPoint += center;
   glm::vec3 up(0, 0.01, -1);
   glm::vec3 front(-0.04, 1, 0.01);
-  for (int i = 0; i < samples; i++) {
+  for (int i = 0; i < stemSegmentsCount; i++) {
     SorghumSplineSegment segment;
     segment.position = startPoint + (float)i * glm::vec3(0, 0.01, 0);
     segment.up = up;
     segment.front = front;
-    segment.radius = 0.01f;
+    segment.radius = stemRaius;
     segment.theta = 180;
     segment.right_height_offset = segment.left_height_offset = 0;
     stem.spline.segments.emplace_back(segment);
@@ -341,13 +342,13 @@ std::vector<glm::vec3> SorghumDescriptorReconstruction::ReconstructSorghumStem(c
     results.emplace_back(front);
   }
 
-  sorghum_descriptor->stem = stem;
+  sorghum_descriptor.stem = stem;
   return results;
 }
 
-std::vector<std::vector<glm::vec3>> SorghumDescriptorReconstruction::ReconstructSorghumFromBezierSplines(const std::shared_ptr<SorghumDescriptor>& sorghum_descriptor, const std::vector<std::unordered_map<std::string, CubicBezierSpline>>& bezierSplines, float theta, float scale) {
+std::vector<std::vector<glm::vec3>> SorghumDescriptorReconstruction::ReconstructSorghumFromBezierSplines(SorghumDescriptor& sorghum_descriptor, const std::vector<std::unordered_map<std::string, CubicBezierSpline>>& bezierSplines) const{
   // clear previous data
-  sorghum_descriptor->leaves.clear();
+  sorghum_descriptor.leaves.clear();
 
   std::vector<std::string> keys = {"leftPoints", "rightPoints", "centerPoints"};
   int leafCount = bezierSplines.size();
@@ -363,14 +364,13 @@ std::vector<std::vector<glm::vec3>> SorghumDescriptorReconstruction::Reconstruct
 
     std::vector<glm::vec3> leafProfile;
 
-    // get uniform samples from the centerLine
-    // update: change to getting samples based on distance
+    // update: getting samples based on distance
     // auto samples = centerLine.getUniformSamples(32);
     auto samples = centerLine.getSamplesByLength(0.015f);
 
     // reconstruct the local coordinate at each of the samples
     for (int j = 0; j < samples.size(); j++) {
-      SplineSample sample = samples[j];
+      CubicSplineSample sample = samples[j];
       SorghumSplineSegment segment;
 
       // get the intersections of the left and right lines on the profile
@@ -425,7 +425,7 @@ std::vector<std::vector<glm::vec3>> SorghumDescriptorReconstruction::Reconstruct
 
       segment.up = normalize(glm::cross(right, segment.front));
 
-      // w->l
+      // world -> local
       glm::mat4 worldToLocal = inverse(glm::mat4(right.x, right.y, right.z, 0,                 // 1st column
                                                  segment.up.x, segment.up.y, segment.up.z, 0,  // 2nd column
                                                  -normal.x, -normal.y, -normal.z, 0,           // 3rd column
@@ -455,11 +455,142 @@ std::vector<std::vector<glm::vec3>> SorghumDescriptorReconstruction::Reconstruct
     ExtendLeafToStem(leaf_descriptor);
 
     results.emplace_back(leafProfile);
-    sorghum_descriptor->leaves.emplace_back(leaf_descriptor);
+    sorghum_descriptor.leaves.emplace_back(leaf_descriptor);
   }
-  std::cout << "total samples count: " << results.size() << "\n";
+  //std::cout << "total samples count: " << results.size() << "\n";
   return results;
 }
+
+void SorghumDescriptorReconstruction::FillYAMLPointsParticle(int leafIndex, float scale, std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>& yamlContent, std::vector<ParticleInfo>& particleInfos, int leafCount, int lineCount, int PointsCount) {
+   particleInfos.assign(leafCount* PointsCount* lineCount, ParticleInfo{});
+   Jobs::RunParallelFor(leafCount* PointsCount, [&](const auto i) {
+     int yamlContentIndex = leafIndex > -1 ? leafIndex : i / PointsCount;
+     auto& center_info = particleInfos[i];
+     int index = i % PointsCount;
+     center_info.instance_color = glm::vec4(256, 0, 0, 256) / 256.f;
+     center_info.instance_matrix.SetPosition(glm::vec3(yamlContent[yamlContentIndex]["centerPoints"][index]) * scale);
+     center_info.instance_matrix.SetScale(glm::vec3(0.005f));
+  
+     auto& left_info = particleInfos[i + leafCount * PointsCount];
+     left_info.instance_color = glm::vec4(0, 256, 0, 256) / 256.f;
+     left_info.instance_matrix.SetPosition(glm::vec3(yamlContent[yamlContentIndex]["leftPoints"][index]) * scale);
+     left_info.instance_matrix.SetScale(glm::vec3(0.005f));
+  
+     auto& right_info = particleInfos[i + 2 * leafCount * PointsCount];
+     right_info.instance_color = glm::vec4(0, 0, 256, 256) / 256.f;
+     right_info.instance_matrix.SetPosition(glm::vec3(yamlContent[yamlContentIndex]["rightPoints"][index]) * scale);
+     right_info.instance_matrix.SetScale(glm::vec3(0.005f));
+   });
+}
+
+void SorghumDescriptorReconstruction::FillBezierSplinePointsParticle(int leafIndex, float scale, std::vector<std::vector<glm::vec3>>& bezierSplinePoints, std::vector<ParticleInfo>& particleInfos, int leafCount, int lineCount, int PointsCount, bool uniformSegmentCount) {
+  
+  std::vector<glm::vec4> colors = {glm::vec4(0, 256, 256, 128), glm::vec4(256, 0, 256, 128),
+                                   glm::vec4(256, 256, 0, 128)};
+
+  particleInfos.clear();
+  int leafStartIndex = leafIndex > -1 ? leafIndex : 0;
+  for (int i = leafStartIndex; i < bezierSplinePoints.size() && i < leafStartIndex + leafCount; i++) {
+    for (int j = 0; j < bezierSplinePoints[i].size(); j += 3) {
+      ParticleInfo centerInfo;
+      centerInfo.instance_matrix.SetPosition(bezierSplinePoints[i][j] * scale);
+      centerInfo.instance_matrix.SetScale(glm::vec3(0.005f));
+      centerInfo.instance_color = colors[0] / 256.f;
+
+      ParticleInfo leftInfo;
+      leftInfo.instance_matrix.SetPosition(bezierSplinePoints[i][j + 1] * scale);
+      leftInfo.instance_matrix.SetScale(glm::vec3(0.005f));
+      leftInfo.instance_color = colors[1] / 256.f;
+
+      ParticleInfo rightInfo;
+      rightInfo.instance_matrix.SetPosition(bezierSplinePoints[i][j + 2] * scale);
+      rightInfo.instance_matrix.SetScale(glm::vec3(0.005f));
+      rightInfo.instance_color = colors[2] / 256.f;
+
+      particleInfos.emplace_back(centerInfo);
+      particleInfos.emplace_back(leftInfo);
+      particleInfos.emplace_back(rightInfo);
+    }
+  }
+  
+}
+
+void SorghumDescriptorReconstruction::FillLeafSegmentFrameParticle(int leafIndex, float scale, SorghumDescriptor& sorghum_descriptor, std::vector<ParticleInfo>& particleInfos, int leafCount, bool uniformSegmentCount) {
+  std::vector<glm::vec4> colors = {glm::vec4(256, 256, 256, 256), glm::vec4(0, 256, 256, 256),
+                                   glm::vec4(256, 0, 256, 256), glm::vec4(256, 256, 0, 256)};
+  int samplePoints = 10;
+
+  int segmentCount = sorghum_descriptor.leaves[0].spline.segments.size();
+  float dis = glm::distance(sorghum_descriptor.leaves[0].spline.segments[0].position,
+                            sorghum_descriptor.leaves[0].spline.segments[1].position);
+
+  dis = 0.003f;
+  if (uniformSegmentCount) {
+    particleInfos.assign(leafCount * segmentCount * samplePoints, ParticleInfo{});
+    Jobs::RunParallelFor(leafCount * segmentCount, [&](const auto i) {
+      int leafStartIndex = leafIndex > -1 ? leafIndex : i / segmentCount;
+      int segmentIndex = i % segmentCount;
+      auto segment = sorghum_descriptor.leaves[leafStartIndex].spline.segments[segmentIndex];
+      auto position = segment.position;
+      auto front = segment.front;
+      auto up = segment.up;
+      auto right = normalize(glm::cross(front, up));
+
+      for (int j = 0; j < samplePoints; j++) {
+        auto& info = particleInfos[i + j * leafCount * segmentCount];
+        if (j == 0) {
+          info.instance_color = colors[0] / 256.f;
+          info.instance_matrix.SetPosition(position * scale);
+        } else if (j < 3) {
+          info.instance_color = colors[1] / 256.f;
+          info.instance_matrix.SetPosition(((3 - j) * dis * front + position) * scale);
+        } else if (j < 6) {
+          info.instance_color = colors[2] / 256.f;
+          info.instance_matrix.SetPosition(((6 - j) * dis * right + position) * scale);
+        } else {
+          info.instance_color = colors[3] / 256.f;
+          info.instance_matrix.SetPosition(((9 - j) * dis * up + position) * scale);
+        }
+
+        info.instance_matrix.SetScale(glm::vec3(0.002f));
+      }
+    });
+  } else {
+    particleInfos.clear();
+    int leafStartIndex = leafIndex > -1 ? leafIndex : 0;
+    for (int i = leafStartIndex; i < sorghum_descriptor.leaves.size() && i < leafStartIndex + leafCount; i++) {
+      auto leaf = sorghum_descriptor.leaves[i];
+      for (auto segment : leaf.spline.segments) {
+        auto position = segment.position;
+        auto front = normalize(segment.front);
+        auto up = normalize(segment.up);
+        auto right = normalize(glm::cross(front, up));
+
+        for (int j = 0; j < samplePoints; j++) {
+          ParticleInfo info;
+          if (j == 0) {
+            info.instance_color = colors[0] / 256.f;
+            info.instance_matrix.SetPosition(position * scale);
+          } else if (j < 3) {
+            info.instance_color = colors[1] / 256.f;
+            info.instance_matrix.SetPosition(((3 - j) * dis * front + position) * scale);
+          } else if (j < 6) {
+            info.instance_color = colors[2] / 256.f;
+            info.instance_matrix.SetPosition(((6 - j) * dis * right + position) * scale);
+          } else {
+            info.instance_color = colors[3] / 256.f;
+            info.instance_matrix.SetPosition(((9 - j) * dis * up + position) * scale);
+          }
+          info.instance_matrix.SetScale(glm::vec3(0.002f));
+          particleInfos.emplace_back(info);
+        }
+      }
+    }
+  }
+}
+
+
+
 
 
 
