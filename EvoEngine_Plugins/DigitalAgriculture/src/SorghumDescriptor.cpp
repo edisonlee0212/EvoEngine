@@ -2,8 +2,8 @@
 
 #include "IVolume.hpp"
 #include "Sorghum.hpp"
-#include "SorghumLayer.hpp"
 #include "SorghumDescriptorReconstruction.hpp"
+#include "SorghumLayer.hpp"
 #include "assimp/code/AssetLib/3MF/3MFXmlTags.h"
 using namespace digital_agriculture_plugin;
 
@@ -117,7 +117,7 @@ bool SorghumStemDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
       ImGui::TreePop();
     }
   }
-  
+
   return changed;
 }
 
@@ -181,10 +181,10 @@ void SorghumStemDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std:
 
 bool SorghumLeafDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  for (int i = 0; i < spline.segments.size(); i++){
+  for (int i = 0; i < spline.segments.size(); i++) {
     auto segment = spline.segments[i];
     std::string label = "segment No." + std::to_string(i);
-    if (ImGui::TreeNode(label.c_str() )){
+    if (ImGui::TreeNode(label.c_str())) {
       ImGui::Text("position: (%.2f, %.2f, %.2f)", segment.position.x, segment.position.y, segment.position.z);
       ImGui::Text("up: (%.2f, %.2f, %.2f)", segment.up.x, segment.up.y, segment.up.z);
       ImGui::Text("front: (%.2f, %.2f, %.2f)", segment.front.x, segment.front.y, segment.front.z);
@@ -195,10 +195,8 @@ bool SorghumLeafDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
 
       changed = true;
       ImGui::TreePop();
-      
     }
   }
-  
 
   return changed;
 }
@@ -286,38 +284,35 @@ void SorghumLeafDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std:
   }
 }
 
-
-
-
 bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::Button("Instantiate")) {
     CreateEntity("New Sorghum");
   }
   // after load from spline, replace data in sorghumdescriptor
   FileUtils::OpenFile(
-      "Load splines", "YAML", {".yml"}, [&](const std::filesystem::path& path) {
+      "Load splines", "YAML", {".yml"},
+      [&](const std::filesystem::path& path) {
         // @edisonlee0212: here I reconstruct the sorghum descriptor from yaml and create the mesh.
-    if (auto tempResult = ImportPrediction(path)) {
-      SorghumDescriptorReconstruction reconstruction;
-      auto yamlContent = *tempResult;
-      std::cout << "imported from yaml"
-                << "\n"
-                << "leaf count: " << yamlContent.size() << "\n"
-                << "total points: " << yamlContent[0]["centerPoints"].size() * yamlContent.size() * 3 << "\n";
+        if (auto tempResult = ImportPrediction(path)) {
+          SorghumDescriptorReconstruction reconstruction;
+          auto yamlContent = *tempResult;
+          std::cout << "imported from yaml"
+                    << "\n"
+                    << "leaf count: " << yamlContent.size() << "\n"
+                    << "total points: " << yamlContent[0]["centerPoints"].size() * yamlContent.size() * 3 << "\n";
 
-      auto splines = SorghumDescriptorReconstruction::ReconstructBezierSplineFromYAML(yamlContent);
-      SorghumDescriptor temp;
-      auto bezierSampleResults = reconstruction.ReconstructSorghumFromBezierSplines(temp, splines);
-      reconstruction.ReconstructSorghumStem(temp);
+          auto splines = SorghumDescriptorReconstruction::ReconstructBezierSplineFromYAML(yamlContent);
+          SorghumDescriptor temp;
+          auto bezierSampleResults = reconstruction.ReconstructSorghumFromBezierSplines(temp, splines);
+          reconstruction.ReconstructSorghumStem(temp);
 
-      // todo: may need have a copy constructor
-      this->leaves = temp.leaves;
-      this->stem = temp.stem;
-      this->panicle = temp.panicle;
-      CreateEntity("New Sorghum");
-    }
-    
-  },
+          // todo: may need have a copy constructor
+          this->leaves = temp.leaves;
+          this->stem = temp.stem;
+          this->panicle = temp.panicle;
+          CreateEntity("New Sorghum");
+        }
+      },
       false);
   bool changed = false;
   if (ImGui::TreeNodeEx((std::string("Stem")).c_str())) {
@@ -370,10 +365,8 @@ bool SorghumDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
     ImGui::TreePop();
   }
 
-
   return changed;
 }
-
 
 void SorghumDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "panicle" << YAML::Value << YAML::BeginMap;
