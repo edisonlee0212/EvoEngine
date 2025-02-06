@@ -56,6 +56,8 @@ void PhysicsLayer::UploadTransform(const GlobalTransform &global_transform,
 void PhysicsLayer::PreUpdate() {
   const bool playing = Application::IsPlaying();
   const auto active_scene = GetScene();
+  if (!active_scene)
+    return;
   UploadRigidBodyShapes(active_scene);
   UploadTransforms(active_scene, !playing);
   UploadJointLinks(active_scene);

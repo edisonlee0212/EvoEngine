@@ -73,11 +73,12 @@ void RayTracerCamera::OnDestroy() {
   camera_properties_.frame_buffer_color.Free();
   camera_properties_.frame_buffer_normal.Free();
   camera_properties_.frame_buffer_albedo.Free();
+#if ENABLE_OPTIX_DENOISER
   OPTIX_CHECK(optixDenoiserDestroy(camera_properties_.denoiser));
   camera_properties_.denoiser_scratch.Free();
   camera_properties_.denoiser_state.Free();
-  camera_properties_.frame_buffer_color.Free();
   camera_properties_.denoiser_intensity.Free();
+#endif
 }
 
 void RayTracerCamera::Deserialize(const YAML::Node &in) {

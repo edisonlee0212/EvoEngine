@@ -95,6 +95,8 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   static bool auto_time_grow = false;
   static float target_time = 0.0f;
   static float extra_time = 4.f;
+  visualization_camera_->Resize({visualization_camera_resolution_x, visualization_camera_resolution_y});
+
   ImGui::Checkbox("Show Trees", &tree_visualization_settings_.enable);
   if (tree_visualization_settings_.enable) {
     const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
@@ -643,19 +645,17 @@ glm::vec2 EcoSysLabLayer::GetMouseSceneCameraPosition() const {
   return visualization_camera_mouse_position;
 }
 
-void EcoSysLabLayer::PreUpdate() {
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>(); !editor_layer)
-    return;
-  visualization_camera_->Resize({visualization_camera_resolution_x, visualization_camera_resolution_y});
-}
-
 void EcoSysLabLayer::Update() {
+  if (const auto scene = GetScene(); !scene)
+    return;
   RegisterStrandRenderingProcedure();
   DynamicSkeletonPhysics();
   DynamicStrandSimulation();
 }
 
 void EcoSysLabLayer::LateUpdate() {
+  if (const auto scene = GetScene(); !scene)
+    return;
   DynamicSkeletonVisualization();
   DynamicStrandVisualization();
 }

@@ -78,12 +78,11 @@ int main() {
   EngineSetup();
 
   Application::PushLayer<RenderLayer>("Render Layer");
-  Application::PushLayer<WindowLayer>("Window Layer");
-  Application::PushLayer<EditorLayer>("Editor Layer");
-
 #ifdef CUDA_MODULE_PLUGIN
   Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
+  Application::PushLayer<WindowLayer>("Window Layer");
+  Application::PushLayer<EditorLayer>("Editor Layer");
 
 #ifdef PHYSX_PHYSICS_PLUGIN
   Application::PushLayer<PhysicsLayer>();

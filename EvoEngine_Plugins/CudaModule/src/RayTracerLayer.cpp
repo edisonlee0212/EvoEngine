@@ -398,6 +398,7 @@ void RayTracerLayer::OnCreate() {
 }
 
 void RayTracerLayer::PreUpdate() {
+
   if (const auto editor_layer = Application::GetLayer<EditorLayer>();
       show_scene_window && editor_layer && rendering_enabled) {
     scene_camera->Ready(editor_layer->GetSceneCameraPosition(), editor_layer->GetSceneCameraRotation());
@@ -406,6 +407,8 @@ void RayTracerLayer::PreUpdate() {
 
 void RayTracerLayer::LateUpdate() {
   const auto scene = GetScene();
+  if (!scene)
+    return;
   bool ray_tracer_updated = UpdateScene(scene);
   if (!CudaModule::GetRayTracer()->instances.empty()) {
     if (const auto editor_layer = Application::GetLayer<EditorLayer>();

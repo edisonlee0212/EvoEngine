@@ -7,6 +7,9 @@
 
 #include "sstream"
 #include "string"
+
+#define ENABLE_OPTIX_DENOISER false
+
 #define CUDA_CHECK(call)                                                                                    \
   {                                                                                                         \
     cudaError_t rc = cuda##call;                                                                            \

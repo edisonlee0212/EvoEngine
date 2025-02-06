@@ -42,6 +42,11 @@ class ILayer {
   std::weak_ptr<ILayer> subsequent_layer_;
 
   /**
+   * @brief Weak pointer to self.
+   */
+  std::weak_ptr<ILayer> self_;
+
+  /**
    * @brief Grants Application class access to private and protected members of ILayer.
    */
   friend class Application;
@@ -125,6 +130,8 @@ class ILayer {
   virtual void OnInputEvent(const Input::InputEvent& input_event);
 
  public:
+  [[nodiscard]] std::shared_ptr<ILayer> GetSelf() const;
+
   /**
    * @brief Retrieves the name of the layer.
    *

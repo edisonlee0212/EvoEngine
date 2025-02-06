@@ -46,6 +46,9 @@ void register_classes() {
 
 void push_layers(bool enable_window_layer, bool enable_editor_layer) {
   Application::PushLayer<RenderLayer>("Render Layer");
+#ifdef CUDA_MODULE_PLUGIN
+  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
+#endif
   if (enable_window_layer)
     Application::PushLayer<WindowLayer>("Window Layer");
   if (enable_window_layer && enable_editor_layer)
@@ -53,9 +56,6 @@ void push_layers(bool enable_window_layer, bool enable_editor_layer) {
 
 #ifdef ECOSYSLAB_PLUGIN
   Application::PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
-#endif
-#ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
 }
 
