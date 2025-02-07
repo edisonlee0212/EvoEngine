@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include "TreeMeshGenerator.hpp"
@@ -6,13 +7,40 @@ using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
 
+/**
+ * @brief Generates a cylindrical skinned mesh from a skeleton structure.
+ *
+ * @tparam SkeletonData Type of data stored in each skeleton node.
+ * @tparam FlowData Type of data stored in each skeleton flow.
+ * @tparam NodeData Type of additional data stored in each node.
+ */
 template <typename SkeletonData, typename FlowData, typename NodeData>
 class CylindricalSkinnedMeshGenerator {
  public:
+  /**
+   * @brief Generates bone data from the given skeleton structure.
+   *
+   * @param skeleton The skeleton data structure.
+   * @param flow_handles The list of flow handles to process.
+   * @param offset_matrices Output vector containing the transformation matrices for each bone.
+   * @param flow_bone_id_map Output map linking flow handles to bone IDs.
+   */
   static void GenerateBones(const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
                             const std::vector<SkeletonFlowHandle>& flow_handles,
                             std::vector<glm::mat4>& offset_matrices,
                             std::unordered_map<SkeletonFlowHandle, int>& flow_bone_id_map);
+
+  /**
+   * @brief Generates a skinned mesh from the given skeleton data.
+   *
+   * @param skeleton The skeleton data structure.
+   * @param skinned_vertices Output vector storing the generated skinned vertices.
+   * @param indices Output index buffer for the generated mesh.
+   * @param offset_matrices Transformation matrices of bones used in the mesh.
+   * @param settings Configuration settings for the tree mesh generation.
+   * @param vertex_position_modifier Function to modify vertex positions during generation.
+   * @param tex_coords_modifier Function to modify texture coordinates during generation.
+   */
   static void Generate(
       const Skeleton<SkeletonData, FlowData, NodeData>& skeleton, std::vector<SkinnedVertex>& skinned_vertices,
       std::vector<unsigned int>& indices, std::vector<glm::mat4>& offset_matrices,

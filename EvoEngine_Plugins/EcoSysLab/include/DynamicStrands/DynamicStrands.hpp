@@ -1,13 +1,16 @@
+
 #pragma once
 #include "Noises.hpp"
 #include "RenderLayer.hpp"
 #include "StrandGroup.hpp"
 #include "StrandModelData.hpp"
 #include "TreeGrowthData.hpp"
+
 namespace eco_sys_lab_plugin {
 class DsSegmentCollision;
 class DsDynamicHashedGrid;
 }  // namespace eco_sys_lab_plugin
+
 #ifdef USE_RENDERDOC
 #  include "C:\Program Files\RenderDoc\renderdoc_app.h"
 static RENDERDOC_API_1_1_2* rdoc_api = NULL;
@@ -17,9 +20,8 @@ static RENDERDOC_API_1_1_2* rdoc_api = NULL;
 #  include <CGAL/Delaunay_triangulation_3.h>
 #  include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #  include <CGAL/Triangulation_vertex_base_with_info_3.h>
-// #else
-
 #endif
+
 #include "Delaunay.hpp"
 
 #ifdef USE_CGAL
@@ -42,90 +44,150 @@ class DsVelocityUpdate;
 struct DtsStrandGroupData {};
 
 struct DtsStrandData {};
+
 #define BUNDLE_MAX_CONNECTION 64
 #define HASH_GRID_CELL_SIZE 2 << 15
+
+/**
+ * \brief Stores data related to a single strand segment.
+ */
 struct DtsStrandSegmentData {
-  float start_root_distance = 0.0f;
-  float end_root_distance = 0.0f;
-  uint32_t original_segment_index;
+  float start_root_distance = 0.0f;  ///< Distance from the strand root to the start of this segment.
+  float end_root_distance = 0.0f;    ///< Distance from the strand root to the end of this segment.
+  uint32_t original_segment_index;   ///< Index of the original segment this corresponds to.
+
   /**
-   * \brief The handle of the internode this pipe segment belongs to. Pipe -> PipeSegment <-> Cell <- Profile <-
-   * Internode
+   * \brief The handle of the internode this pipe segment belongs to.
+   * Pipe -> PipeSegment <-> Cell <- Profile <- Internode
    */
   SkeletonNodeHandle node_handle = -1;
   StrandSegmentHandle original_segment_handle;
 
-  float original_segment_t;
-  uint32_t segment_index;
+  float original_segment_t;  ///< Parameterized position within the strand's original segmentation.
+  uint32_t segment_index;    ///< Index of the segment within the strand.
 
-  glm::vec2 profile_position;
-  glm::vec2 profile_polar_coordinate;
-  float initial_distance_to_boundary;
+  glm::vec2 profile_position;          ///< Position in the profile space.
+  glm::vec2 profile_polar_coordinate;  ///< Polar coordinate in the segment profile.
+  float initial_distance_to_boundary;  ///< Initial computed distance to the segment boundary.
 };
 
 typedef StrandGroup<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData> DtsStrandGroup;
 
+/**
+ * \brief Class responsible for handling dynamic strands physics simulation.
+ */
 class DynamicStrands {
  public:
+  /**
+   * \brief Default constructor for DynamicStrands.
+   */
   DynamicStrands();
+
+  /**
+   * \brief Gets the current frame index of the simulation.
+   * \return The current frame index.
+   */
   uint32_t GetFrameIndex() const;
+
+  /**
+   * \brief Gets the accumulated simulated time.
+   * \return The total simulated time.
+   */
   float GetSimulatedTime() const;
+
+  /**
+   * \brief Computes the inertia tensor for a box.
+   * \param mass The total mass of the box.
+   * \param width The width of the box.
+   * \param height The height of the box.
+   * \param depth The depth of the box.
+   * \return Computed inertia tensor as a 3D vector.
+   */
   static glm::vec3 ComputeInertiaTensorBox(float mass, float width, float height, float depth);
+
+  /**
+   * \brief Computes the inertia tensor for a rod.
+   * \param mass The mass of the rod.
+   * \param radius The radius of the rod.
+   * \param length The length of the rod.
+   * \return Computed inertia tensor as a 3D vector.
+   */
   static glm::vec3 ComputeInertiaTensorRod(float mass, float radius, float length);
+
 #pragma region Initialization
+  /**
+   * \brief Parameters used during the initialization of the strand model.
+   */
   struct InitializeParameters {
-    float min_segment_length = 0.03f;
-    float max_segment_length = 0.06f;
-    int uniform_subdivision = 5;
-    bool use_voxel_grid_for_segment_pairs = true;
-    Noise3D damage{};
-    glm::vec3 damage_scale_factor = glm::vec3(0.01f);
-    float neighbor_vertical_range = 3.0f;
-    float neighbor_horizontal_range = 3.0f;
+    float min_segment_length = 0.03f;  ///< The minimum length of a segment.
+    float max_segment_length = 0.06f;  ///< The maximum length of a segment.
+    int uniform_subdivision = 5;       ///< The number of uniform subdivisions for strands.
+    bool use_voxel_grid_for_segment_pairs =
+        true;          ///< Flag indicating if voxel grids should be used for segment pair calculations.
+    Noise3D damage{};  ///< Noise parameter for simulating structural damage.
+    glm::vec3 damage_scale_factor = glm::vec3(0.01f);  ///< Scale factor for damage effects.
+    float neighbor_vertical_range = 3.0f;              ///< Vertical range for finding neighboring segments.
+    float neighbor_horizontal_range = 3.0f;            ///< Horizontal range for finding neighboring segments.
 
-    float sapwood_offset = 0.05f;
-    float wood_transition = 0.005f;
+    float sapwood_offset = 0.05f;    ///< Offset for simulating sapwood in the model.
+    float wood_transition = 0.005f;  ///< Transition factor between different wood types.
 
-    glm::vec2 density = {600.f, 700.f};
-    glm::vec2 max_stretch_shear_modulus = {9.5f, 13.5f};
-    glm::vec2 max_bending_modulus = {0.15f, 2.f};
-    glm::vec2 max_twisting_modulus = {0.15f, 2.f};
+    glm::vec2 density = {600.f, 700.f};                   ///< Density range (min, max) for materials.
+    glm::vec2 max_stretch_shear_modulus = {9.5f, 13.5f};  ///< Maximum shear modulus range.
+    glm::vec2 max_bending_modulus = {0.15f, 2.f};         ///< Maximum bending modulus range.
+    glm::vec2 max_twisting_modulus = {0.15f, 2.f};        ///< Maximum twisting modulus range.
 
-    glm::vec2 shear_stretch_strength = {500.f, 250.f};
-    glm::vec2 bending_strength = {500.f, 250.f};
-    glm::vec2 twisting_strength = {500.f, 250.f};
-    glm::vec2 bundle_strength = {500.f, 250.f};
-    glm::vec2 connectivity_strength = {250, 125.f};
+    glm::vec2 shear_stretch_strength = {500.f, 250.f};  ///< Strength settings for shear stretch constraints.
+    glm::vec2 bending_strength = {500.f, 250.f};        ///< Strength settings for bending constraints.
+    glm::vec2 twisting_strength = {500.f, 250.f};       ///< Strength settings for twisting constraints.
+    glm::vec2 bundle_strength = {500.f, 250.f};         ///< Strength settings for bundle constraints.
+    glm::vec2 connectivity_strength = {250, 125.f};     ///< Strength settings for connectivity constraints.
 
-    bool trunk = true;
-    float trunk_offset = 0.3f;
-    float trunk_transition = 0.1f;
-    float trunk_additional_strength_factor = 1250.f;
+    bool trunk = true;                                ///< Whether the model contains a trunk structure.
+    float trunk_offset = 0.3f;                        ///< Offset distance for trunk-based calculations.
+    float trunk_transition = 0.1f;                    ///< Transition factor for trunk segmentation.
+    float trunk_additional_strength_factor = 1250.f;  ///< Additional strength factor applied to trunks.
 
-    SingleDistribution<float> leaf_position_alpha = {0.01f, 0.1f};
-    SingleDistribution<float> leaf_rotation_alpha = {0.01f, 0.1f};
-    SingleDistribution<float> max_leaf_position_strain = {300.f, 5.f};
-    SingleDistribution<float> max_leaf_rotation_strain = {300.f, 5.f};
+    SingleDistribution<float> leaf_position_alpha = {0.01f, 0.1f};      ///< Alpha parameter for leaf positioning.
+    SingleDistribution<float> leaf_rotation_alpha = {0.01f, 0.1f};      ///< Alpha parameter for leaf rotation.
+    SingleDistribution<float> max_leaf_position_strain = {300.f, 5.f};  ///< Maximum strain for leaf positioning.
+    SingleDistribution<float> max_leaf_rotation_strain = {300.f, 5.f};  ///< Maximum strain for leaf rotation.
 
-    GlobalTransform root_transform{};
-    bool use_cgal = false;
-    bool triangulate_per_bundle = false;
+    GlobalTransform root_transform{};  ///< Transformation applied to the root of the strand model.
 
-    // same parameters as for rendering
-    // TODO: maybe we can remove them for rendering
-    float alpha = 0.00005f;
-    float bifurcation_alpha = 0.00005f;
-    float max_dist_squared = 1.0f;
+    bool use_cgal = false;                ///< Whether to use CGAL for geometric computations.
+    bool triangulate_per_bundle = false;  ///< Whether triangulation should be performed per bundle.
 
-    AssetRef foliage_descriptor;
+    float alpha = 0.00005f;              ///< Alpha parameter for high precision calculations.
+    float bifurcation_alpha = 0.00005f;  ///< Alpha parameter for bifurcation computations.
+    float max_dist_squared = 1.0f;       ///< Maximum squared distance considered in calculations.
+
+    AssetRef foliage_descriptor;  ///< Descriptor reference for foliage data.
+
+    /**
+     * \brief Editor inspection function.
+     * \param editor_layer The editor layer to be modified.
+     * \return True if contents are unchanged during inspection.
+     */
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
+
+  /**
+   * \brief Initializes strand data with specified parameters and structures.
+   * \param initialize_parameters The initialization parameters.
+   * \param strand_model_skeleton The skeleton structure for the strand model.
+   * \param strand_model_strand_group The strand group in the model.
+   * \param strand_group The associated strand group data.
+   */
   void InitializeData(const InitializeParameters& initialize_parameters,
                       const StrandModelSkeleton& strand_model_skeleton,
                       const StrandModelStrandGroup& strand_model_strand_group, const DtsStrandGroup& strand_group);
 
+  /**
+   * \brief Initializes the strand mesh with given parameters.
+   * \param initialize_parameters The initialization parameters used for mesh construction.
+   */
   void InitializeMesh(const InitializeParameters& initialize_parameters);
-
 #pragma endregion
 #pragma region Step
   struct PhysicsParameters {

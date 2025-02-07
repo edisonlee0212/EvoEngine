@@ -1,44 +1,74 @@
 #pragma once
 
 namespace eco_sys_lab_plugin {
+/**
+ * @brief Handle type for referencing skeleton nodes.
+ */
 typedef int SkeletonNodeHandle;
+
+/**
+ * @brief Handle type for referencing skeleton flows.
+ */
 typedef int SkeletonFlowHandle;
 
 #pragma region Structural Info
+
+/**
+ * @brief Represents a wound on a skeleton node.
+ */
 struct SkeletonNodeWound {
-  bool apical = false;
-  glm::quat local_rotation = glm::vec3(0.f);
-  float thickness = 0.f;
-  float healing = 0.f;
+  bool apical = false;                        ///< Indicates if the wound is on the apical part.
+  glm::quat local_rotation = glm::vec3(0.f);  ///< Local rotation of the wound.
+  float thickness = 0.f;                      ///< Thickness of the wound.
+  float healing = 0.f;                        ///< Healing factor of the wound.
 };
 
+/**
+ * @brief Stores information about a skeleton node.
+ */
 struct SkeletonNodeInfo {
-  bool locked = false;
+  bool locked = false;  ///< Indicates if the node is locked.
+
   /**
-   * \brief The global position at the start of the node.
+   * @brief The global position at the start of the node.
    */
   glm::vec3 global_position = glm::vec3(0.0f);
+
   /**
-   * \brief The global rotation at the start of the node.
+   * @brief The global rotation at the start of the node.
    */
   glm::quat global_rotation = glm::vec3(0.0f);
 
-  float length = 0.0f;
-  float thickness = 0.1f;
-  float root_distance = 0.0f;
-  float end_distance = 0.0f;
-  int chain_index = 0;
-  glm::quat regulated_global_rotation = glm::vec3(0.0f);
-  std::vector<SkeletonNodeWound> wounds;
+  float length = 0.0f;                                    ///< The length of the node.
+  float thickness = 0.1f;                                 ///< Thickness of the node.
+  float root_distance = 0.0f;                             ///< Distance from the root.
+  float end_distance = 0.0f;                              ///< Distance to the end of the node.
+  int chain_index = 0;                                    ///< Chain index of the node.
+  glm::quat regulated_global_rotation = glm::vec3(0.0f);  ///< Regulated global rotation.
+  std::vector<SkeletonNodeWound> wounds;                  ///< Wounds on the node.
 
-  float leaves = 1.f;
-  float fruits = 1.f;
-  glm::vec4 color = glm::vec4(1.0f);
+  float leaves = 1.f;                 ///< A fraction representing leaf distribution.
+  float fruits = 1.f;                 ///< A fraction representing fruit distribution.
+  glm::vec4 color = glm::vec4(1.0f);  ///< Color of the node.
 
-  int cluster_index = 0;
+  int cluster_index = 0;  ///< Index of the cluster this node belongs to.
 
+  /**
+   * @brief Computes the global end position of the node.
+   * @return The end position as a glm::vec3.
+   */
   [[nodiscard]] glm::vec3 GetGlobalEndPosition() const;
+
+  /**
+   * @brief Computes the global center position of the node.
+   * @return The center position as a glm::vec3.
+   */
   [[nodiscard]] glm::vec3 GetGlobalCenterPosition() const;
+
+  /**
+   * @brief Computes the global direction the node is facing.
+   * @return The direction as a glm::vec3.
+   */
   [[nodiscard]] glm::vec3 GetGlobalDirection() const;
 };
 
@@ -54,21 +84,25 @@ inline glm::vec3 SkeletonNodeInfo::GetGlobalDirection() const {
   return glm::normalize(global_rotation * glm::vec3(0, 0, -1));
 }
 struct SkeletonFlowInfo {
-  glm::vec3 global_start_position = glm::vec3(0.0f);
-  glm::quat global_start_rotation = glm::vec3(0.0f);
-  float start_thickness = 0.0f;
+  glm::vec3 global_start_position = glm::vec3(0.0f);  ///< Global position at the start of the flow.
+  glm::quat global_start_rotation = glm::vec3(0.0f);  ///< Global rotation at the start of the flow.
+  float start_thickness = 0.0f;                       ///< Thickness at the start of the flow.
 
-  glm::vec3 global_end_position = glm::vec3(0.0f);
-  glm::quat global_end_rotation = glm::vec3(0.0f);
-  float end_thickness = 0.0f;
+  glm::vec3 global_end_position = glm::vec3(0.0f);  ///< Global position at the end of the flow.
+  glm::quat global_end_rotation = glm::vec3(0.0f);  ///< Global rotation at the end of the flow.
+  float end_thickness = 0.0f;                       ///< Thickness at the end of the flow.
 
   /**
-   * The length from the start of the first node to the end of the last node.
+   * @brief The length from the start of the first node to the end of the last node.
    */
   float flow_length = 0.0f;
 };
 #pragma endregion
 
+/**
+ * @brief Represents a node in a skeleton structure.
+ * @tparam SkeletonNodeData The type of data stored in the node.
+ */
 template <typename SkeletonNodeData>
 class SkeletonNode {
   template <typename Fd>
@@ -80,67 +114,84 @@ class SkeletonNode {
   template <typename Sd, typename Fd, typename Id>
   friend class SkeletonSerializer;
 
-  bool end_node_ = true;
-  SkeletonNodeHandle handle_ = -1;
-  SkeletonFlowHandle flow_handle_ = -1;
-  SkeletonNodeHandle parent_handle_ = -1;
-  std::vector<SkeletonNodeHandle> child_handles_;
-  bool apical_ = true;
-  int index_ = -1;
+  bool end_node_ = true;                           ///< Indicates if this is an end node.
+  SkeletonNodeHandle handle_ = -1;                 ///< Handle to this node.
+  SkeletonFlowHandle flow_handle_ = -1;            ///< Handle to the corresponding flow.
+  SkeletonNodeHandle parent_handle_ = -1;          ///< Handle to the parent node.
+  std::vector<SkeletonNodeHandle> child_handles_;  ///< Handles of child nodes.
+  bool apical_ = true;                             ///< Indicates if this node is apical.
+  int index_ = -1;                                 ///< Index of this node.
 
  public:
-  SkeletonNodeData data;
+  SkeletonNodeData data;  ///< Custom data associated with the node.
+
   /**
-   * The structural information of current node.
+   * @brief Structural information of the current node.
    */
   SkeletonNodeInfo info;
 
   /**
-   * Whether this node is the end node.
-   * @return True if this is end node, false else wise.
+   * @brief Checks if this node is the end node.
+   * @return True if this is an end node, false otherwise.
    */
   [[nodiscard]] bool IsEndNode() const;
 
   /**
-   * Whether this node is apical_.
-   * @return True if this node is apical, false else wise.
+   * @brief Checks if this node is apical.
+   * @return True if this node is apical, false otherwise.
    */
   [[nodiscard]] bool IsApical() const;
+
   /**
-   * Get the handle of self.
-   * @return NodeHandle of current node.
+   * @brief Retrieves the handle of this node.
+   * @return A handle to this node.
    */
   [[nodiscard]] SkeletonNodeHandle GetHandle() const;
 
   /**
-   * Get the handle of parent.
-   * @return NodeHandle of parent node.
+   * @brief Retrieves the handle of the parent node.
+   * @return A handle to the parent node.
    */
   [[nodiscard]] SkeletonNodeHandle GetParentHandle() const;
 
   /**
-   * Get the handle to belonged flow.
-   * @return FlowHandle of belonged flow.
+   * @brief Retrieves the handle of the flow this node belongs to.
+   * @return A handle to the flow.
    */
   [[nodiscard]] SkeletonFlowHandle GetFlowHandle() const;
 
   /**
-   * Access the children by their handles.
-   * @return The list of handles.
+   * @brief Accesses the child node handles.
+   * @return A const reference to the list of child handles.
    */
   [[nodiscard]] const std::vector<SkeletonNodeHandle>& PeekChildHandles() const;
 
   /**
-   * Access the children by their handles. Allow modification. Potentially break the skeleton structure!
-   * @return The list of handles.
+   * @brief Provides modifiable access to the child node handles.
+   * @note This may break the skeleton structure if misused.
+   * @return A reference to the list of child handles.
    */
   [[nodiscard]] std::vector<SkeletonNodeHandle>& UnsafeRefChildHandles();
+
   SkeletonNode() = default;
+
+  /**
+   * @brief Constructs a skeleton node with a given handle.
+   * @param handle The handle to assign to this node.
+   */
   SkeletonNode(SkeletonNodeHandle handle);
 
+  /**
+   * @brief Retrieves the index of this node.
+   * @return The index of this node.
+   */
   [[nodiscard]] int GetIndex() const;
 };
 
+/**
+ * @brief Represents a flow of nodes in a skeleton structure.
+ * @tparam SkeletonFlowData The type of data stored in the flow.
+ */
 template <typename SkeletonFlowData>
 class SkeletonFlow {
   template <typename Sd, typename Fd, typename Id>
@@ -149,54 +200,73 @@ class SkeletonFlow {
   template <typename Sd, typename Fd, typename Id>
   friend class SkeletonSerializer;
 
-  SkeletonFlowHandle handle_ = -1;
-  std::vector<SkeletonNodeHandle> nodes_;
-  SkeletonFlowHandle parent_handle_ = -1;
-  std::vector<SkeletonFlowHandle> child_handles_;
-  bool apical_ = false;
-  int index_ = -1;
+  SkeletonFlowHandle handle_ = -1;                 ///< Handle to this flow.
+  std::vector<SkeletonNodeHandle> nodes_;          ///< Handles of nodes in this flow.
+  SkeletonFlowHandle parent_handle_ = -1;          ///< Handle of the parent flow.
+  std::vector<SkeletonFlowHandle> child_handles_;  ///< Handles of child flows.
+  bool apical_ = false;                            ///< Indicates if this flow originates from an apical bud.
+  int index_ = -1;                                 ///< Index of this flow.
 
  public:
-  SkeletonFlowData data;
-  SkeletonFlowInfo info;
+  SkeletonFlowData data;  ///< Custom data associated with the flow.
+  SkeletonFlowInfo info;  ///< Structural information of the flow.
 
   /**
-   * Whether this flow is extended from an apical bud. The apical flow will have the same order as parent flow.
-   * @return True if this flow is from apical bud.
+   * @brief Checks if this flow originates from an apical bud.
+   * @return True if this flow is from an apical bud, false otherwise.
    */
   [[nodiscard]] bool IsApical() const;
 
   /**
-   * Get the handle of self.
-   * @return FlowHandle of current flow.
+   * @brief Retrieves the handle of this flow.
+   * @return A handle to this flow.
    */
   [[nodiscard]] SkeletonFlowHandle GetHandle() const;
 
   /**
-   * Get the handle of parent.
-   * @return FlowHandle of parent flow.
+   * @brief Retrieves the handle of the parent flow.
+   * @return A handle to the parent flow.
    */
   [[nodiscard]] SkeletonFlowHandle GetParentHandle() const;
 
   /**
-   * Access the children by their handles.
-   * @return The list of handles.
+   * @brief Accesses the child flow handles.
+   * @return A const reference to the list of child flow handles.
    */
   [[nodiscard]] const std::vector<SkeletonFlowHandle>& PeekChildHandles() const;
 
   /**
-   * Access the nodes that belongs to this flow.
-   * @return The list of handles.
+   * @brief Accesses the node handles belonging to this flow.
+   * @return A const reference to the list of node handles.
    */
   [[nodiscard]] const std::vector<SkeletonNodeHandle>& PeekNodeHandles() const;
+
   SkeletonFlow() = default;
+
+  /**
+   * @brief Constructs a skeleton flow with a given handle.
+   * @param handle The handle to assign to this flow.
+   */
   explicit SkeletonFlow(SkeletonFlowHandle handle);
 
+  /**
+   * @brief Retrieves the index of this flow.
+   * @return The index of this flow.
+   */
   [[nodiscard]] int GetIndex() const;
 };
 
+/**
+ * @brief Stores settings for skeleton clustering.
+ */
 struct SkeletonClusterSettings {};
 
+/**
+ * @brief Represents the skeleton structure composed of nodes and flows.
+ * @tparam SkeletonData The type of data associated with the skeleton.
+ * @tparam FlowData The type of data associated with flows.
+ * @tparam NodeData The type of data associated with nodes.
+ */
 template <typename SkeletonData, typename FlowData, typename NodeData>
 class Skeleton {
   template <typename Sd, typename Fd, typename Id>
@@ -205,44 +275,105 @@ class Skeleton {
   template <typename Sd, typename Fd, typename Id>
   friend class SkeletonSerializer;
 
-  std::vector<SkeletonFlow<FlowData>> flows_;
-  std::vector<SkeletonNode<NodeData>> nodes_;
+  std::vector<SkeletonFlow<FlowData>> flows_;  ///< List of flows in the skeleton.
+  std::vector<SkeletonNode<NodeData>> nodes_;  ///< List of nodes in the skeleton.
 
-  int new_version_ = 0;
-  int version_ = -1;
-  std::vector<SkeletonNodeHandle> sorted_node_list_;
-  std::vector<SkeletonFlowHandle> sorted_flow_list_;
+  int new_version_ = 0;  ///< Indicates the latest version of the structure.
+  int version_ = -1;     ///< Tracks the current version of the structure.
 
+  std::vector<SkeletonNodeHandle> sorted_node_list_;  ///< Sorted list of node handles.
+  std::vector<SkeletonFlowHandle> sorted_flow_list_;  ///< Sorted list of flow handles.
+
+  /**
+   * @brief Allocates a new node handle.
+   * @return The newly allocated node handle.
+   */
   SkeletonNodeHandle AllocateNode();
 
+  /**
+   * @brief Allocates a new flow handle.
+   * @return The newly allocated flow handle.
+   */
   SkeletonFlowHandle AllocateFlow();
 
+  /**
+   * @brief Assigns a parent flow to a target flow.
+   * @param target_handle The handle of the target flow.
+   * @param parent_handle The handle of the parent flow.
+   */
   void SetParentFlow(SkeletonFlowHandle target_handle, SkeletonFlowHandle parent_handle);
 
+  /**
+   * @brief Detaches a child flow from a parent flow.
+   * @param target_handle The handle of the parent flow.
+   * @param child_handle The handle of the child flow.
+   */
   void DetachChildFlow(SkeletonFlowHandle target_handle, SkeletonFlowHandle child_handle);
 
+  /**
+   * @brief Assigns a parent node to a target node.
+   * @param target_handle The handle of the target node.
+   * @param parent_handle The handle of the parent node.
+   */
   void SetParentNode(SkeletonNodeHandle target_handle, SkeletonNodeHandle parent_handle);
 
+  /**
+   * @brief Detaches a child node from a parent node.
+   * @param target_handle The handle of the parent node.
+   * @param child_handle The handle of the child node.
+   */
   void DetachChildNode(SkeletonNodeHandle target_handle, SkeletonNodeHandle child_handle);
 
-  int max_node_index_ = -1;
-  int max_flow_index_ = -1;
+  int max_node_index_ = -1;  ///< Maximum node index.
+  int max_flow_index_ = -1;  ///< Maximum flow index.
 
-  std::vector<SkeletonNodeHandle> base_node_list_;
+  std::vector<SkeletonNodeHandle> base_node_list_;  ///< Base nodes of the skeleton.
 
+  /**
+   * @brief Refreshes the base node list.
+   */
   void RefreshBaseNodeList();
 
  public:
+  /**
+   * @brief Clones another skeleton into this one.
+   * @tparam SrcSkeletonData The source skeleton data type.
+   * @tparam SrcFlowData The source flow data type.
+   * @tparam SrcNodeData The source node data type.
+   * @param src_skeleton The source skeleton to clone.
+   */
   template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
   void Clone(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& src_skeleton);
 
+  /**
+   * @brief Retrieves the maximum node index.
+   * @return The maximum node index.
+   */
   [[nodiscard]] int GetMaxNodeIndex() const;
-  [[nodiscard]] int GetMaxFlowIndex() const;
-  SkeletonData data;
 
+  /**
+   * @brief Retrieves the maximum flow index.
+   * @return The maximum flow index.
+   */
+  [[nodiscard]] int GetMaxFlowIndex() const;
+
+  SkeletonData data;  ///< Custom data associated with the skeleton.
+
+  /**
+   * @brief Calculates distances between nodes.
+   */
   void CalculateDistance();
+
+  /**
+   * @brief Calculates regulated global rotation for nodes.
+   */
   void CalculateRegulatedGlobalRotation();
+
+  /**
+   * @brief Calculates the minimum and maximum bounding box of the skeleton.
+   */
   void CalculateMinMax();
+
   /**
    * Remove nodes, the descendants of this node will also be removed. The relevant flow will also be
    * removed/restructured.
@@ -269,22 +400,49 @@ class Skeleton {
    */
   [[nodiscard]] const std::vector<SkeletonNodeHandle>& PeekSortedNodeList() const;
 
+  /**
+   * @brief Retrieves the sub-tree starting from a node.
+   * @param base_node_handle The base node handle.
+   * @return A vector of node handles belonging to the subtree.
+   */
   [[nodiscard]] std::vector<SkeletonNodeHandle> GetSubTree(SkeletonNodeHandle base_node_handle) const;
-  [[nodiscard]] std::vector<SkeletonNodeHandle> GetChainToRoot(SkeletonNodeHandle end_node_handle) const;
 
+  /**
+   * @brief Retrieves the chain of nodes from a node to the root.
+   * @param end_node_handle The final node handle.
+   * @return A vector of node handles forming the chain to the root.
+   */
+  [[nodiscard]] std::vector<SkeletonNodeHandle> GetChainToRoot(SkeletonNodeHandle end_node_handle) const;
+  /**
+   * @brief Retrieves a list of node handles that are indexed from a given base index.
+   * @param base_index The base index to filter nodes.
+   * @return A vector containing the handles of nodes with an index greater than or equal to the base index.
+   */
   [[nodiscard]] std::vector<SkeletonNodeHandle> GetNodeListBaseIndex(unsigned base_index) const;
   /**
    * To retrieve a list of handles of all flows contained within the tree.
    * @return The list of handles of flows sorted from root to ends.
    */
   [[nodiscard]] const std::vector<SkeletonFlowHandle>& PeekSortedFlowList() const;
-
+  /**
+   * @brief Retrieves a modifiable reference to the list of flows.
+   * @return A reference to the vector containing flows.
+   */
   [[nodiscard]] std::vector<SkeletonFlow<FlowData>>& RefRawFlows();
-
+  /**
+   * @brief Retrieves a modifiable reference to the list of nodes.
+   * @return A reference to the vector containing nodes.
+   */
   [[nodiscard]] std::vector<SkeletonNode<NodeData>>& RefRawNodes();
-
+  /**
+   * @brief Retrieves a non-modifiable reference to the list of flows.
+   * @return A constant reference to the vector containing flows.
+   */
   [[nodiscard]] const std::vector<SkeletonFlow<FlowData>>& PeekRawFlows() const;
-
+  /**
+   * @brief Retrieves a non-modifiable reference to the list of nodes.
+   * @return A constant reference to the vector containing nodes.
+   */
   [[nodiscard]] const std::vector<SkeletonNode<NodeData>>& PeekRawNodes() const;
 
   /**

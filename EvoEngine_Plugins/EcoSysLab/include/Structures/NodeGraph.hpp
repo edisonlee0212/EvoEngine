@@ -1,102 +1,220 @@
 #pragma once
 
 namespace evo_engine {
+/** @brief Handle type for identifying a node in the node graph. */
 typedef int NodeGraphNodeHandle;
+
+/** @brief Handle type for identifying an input pin in the node graph. */
 typedef int NodeGraphInputPinHandle;
+
+/** @brief Handle type for identifying an output pin in the node graph. */
 typedef int NodeGraphOutputPinHandle;
+
+/** @brief Handle type for identifying a link between nodes in the node graph. */
 typedef int NodeGraphLinkHandle;
 
+/**
+ * @brief Represents an input pin of a node in the node graph.
+ * @tparam NodeGraphInputPinData Data type associated with the input pin.
+ */
 template <typename NodeGraphInputPinData>
 class NodeGraphInputPin {
   template <typename Id, typename Od, typename Nd, typename Ld>
   friend class NodeGraph;
-  NodeGraphNodeHandle node_handle_ = -1;
-  bool recycled_ = true;
-  NodeGraphInputPinHandle handle_ = -1;
 
-  NodeGraphLinkHandle link_handle_ = -1;
+  NodeGraphNodeHandle node_handle_ = -1; /**< Handle to the node this input pin belongs to. */
+  bool recycled_ = true;                 /**< Flag indicating if this pin has been recycled. */
+  NodeGraphInputPinHandle handle_ = -1;  /**< Handle identifying this input pin uniquely. */
+  NodeGraphLinkHandle link_handle_ = -1; /**< Handle to the link connected to this input pin, if any. */
 
  public:
-  NodeGraphInputPinData m_data{};
+  NodeGraphInputPinData m_data{}; /**< Data associated with this input pin. */
+
+  /** @brief Default constructor. */
   NodeGraphInputPin() = default;
+
+  /**
+   * @brief Constructs an input pin with a given handle and associated node.
+   * @param handle The handle associated with this input pin.
+   * @param node_handle The handle of the node this input pin belongs to.
+   */
   NodeGraphInputPin(NodeGraphInputPinHandle handle, NodeGraphNodeHandle node_handle);
 };
 
+/**
+ * @brief Represents an output pin of a node in the node graph.
+ * @tparam NodeGraphOutputPinData Data type associated with the output pin.
+ */
 template <typename NodeGraphOutputPinData>
 class NodeGraphOutputPin {
   template <typename Id, typename Od, typename Nd, typename Ld>
   friend class NodeGraph;
-  NodeGraphNodeHandle node_handle_ = -1;
-  bool recycled_ = true;
-  NodeGraphOutputPinHandle handle_ = -1;
 
-  std::vector<NodeGraphLinkHandle> link_handles_{};
+  NodeGraphNodeHandle node_handle_ = -1;            /**< Handle to the node this output pin belongs to. */
+  bool recycled_ = true;                            /**< Flag indicating if this pin has been recycled. */
+  NodeGraphOutputPinHandle handle_ = -1;            /**< Handle identifying this output pin uniquely. */
+  std::vector<NodeGraphLinkHandle> link_handles_{}; /**< Handles to links connected to this output pin. */
 
  public:
-  NodeGraphOutputPinData m_data{};
+  NodeGraphOutputPinData m_data{}; /**< Data associated with this output pin. */
+
+  /** @brief Default constructor. */
   NodeGraphOutputPin() = default;
+
+  /**
+   * @brief Constructs an output pin with a given handle and associated node.
+   * @param handle The handle associated with this output pin.
+   * @param node_handle The handle of the node this output pin belongs to.
+   */
   NodeGraphOutputPin(NodeGraphOutputPinHandle handle, NodeGraphNodeHandle node_handle);
 };
 
+/**
+ * @brief Represents a node in the node graph.
+ * @tparam NodeGraphNodeData Data type associated with the node.
+ */
 template <typename NodeGraphNodeData>
 class NodeGraphNode {
   template <typename Id, typename Od, typename Nd, typename Ld>
   friend class NodeGraph;
-  NodeGraphNodeHandle handle_ = -1;
-  bool recycled_ = true;
 
-  std::vector<NodeGraphInputPinHandle> input_pin_handles_;
-  NodeGraphOutputPinHandle output_pin_handle_;
+  NodeGraphNodeHandle handle_ = -1; /**< Unique handle identifying this node. */
+  bool recycled_ = true;            /**< Flag indicating whether this node has been recycled. */
+
+  std::vector<NodeGraphInputPinHandle> input_pin_handles_; /**< Handles of input pins attached to this node. */
+  NodeGraphOutputPinHandle output_pin_handle_; /**< Handle of the output pin attached to this node (if any). */
 
  public:
-  NodeGraphNodeData data{};
+  NodeGraphNodeData data{}; /**< Data associated with this node. */
+
+  /** @brief Default constructor. */
   NodeGraphNode() = default;
+
+  /**
+   * @brief Constructs a node with a given handle.
+   * @param handle The handle associated with this node.
+   */
   NodeGraphNode(NodeGraphNodeHandle handle);
 };
 
+/**
+ * @brief Represents a link between a node graph input pin and output pin.
+ * @tparam NodeGraphLinkData Data type associated with the link.
+ */
 template <typename NodeGraphLinkData>
 class NodeGraphLink {
-  NodeGraphOutputPinHandle start_ = -1;
-  NodeGraphInputPinHandle end_ = -1;
-  NodeGraphLinkHandle handle_ = -1;
-  bool recycled_ = true;
+  NodeGraphOutputPinHandle start_ = -1; /**< Handle to the output pin where this link starts. */
+  NodeGraphInputPinHandle end_ = -1;    /**< Handle to the input pin where this link ends. */
+  NodeGraphLinkHandle handle_ = -1;     /**< Unique handle identifying this link. */
+  bool recycled_ = true;                /**< Flag indicating whether this link has been recycled. */
 
   template <typename Id, typename Od, typename Nd, typename Ld>
   friend class NodeGraph;
 
  public:
-  NodeGraphLinkData data{};
+  NodeGraphLinkData data{}; /**< Data associated with this link. */
+
+  /** @brief Default constructor. */
   NodeGraphLink() = default;
+
+  /**
+   * @brief Constructs a link between an output pin and an input pin.
+   * @param handle Unique handle for this link.
+   * @param output_pin_handle Handle to the output pin where this link starts.
+   * @param input_pin_handle Handle to the input pin where this link ends.
+   */
   NodeGraphLink(NodeGraphLinkHandle handle, NodeGraphOutputPinHandle output_pin_handle,
                 NodeGraphInputPinHandle input_pin_handle);
 };
 
+/**
+ * @brief Represents a node graph structure containing nodes, input pins, output pins, and links.
+ * @tparam Id Input pin data type.
+ * @tparam Od Output pin data type.
+ * @tparam Nd Node data type.
+ * @tparam Ld Link data type.
+ */
 template <typename Id, typename Od, typename Nd, typename Ld>
 class NodeGraph {
-  std::vector<NodeGraphInputPin<Id>> input_pins_;
-  std::vector<NodeGraphOutputPin<Od>> output_pins_;
-  std::vector<NodeGraphNode<Nd>> nodes_;
+  std::vector<NodeGraphInputPin<Id>> input_pins_;   /**< List of all input pins in the graph. */
+  std::vector<NodeGraphOutputPin<Od>> output_pins_; /**< List of all output pins in the graph. */
+  std::vector<NodeGraphNode<Nd>> nodes_;            /**< List of all nodes in the graph. */
+  std::vector<NodeGraphLink<Ld>> links_;            /**< List of all links in the graph. */
 
-  std::vector<NodeGraphLink<Ld>> links_;
+  std::queue<NodeGraphInputPinHandle> input_pin_pool_;   /**< Pool of recycled input pins. */
+  std::queue<NodeGraphOutputPinHandle> output_pin_pool_; /**< Pool of recycled output pins. */
+  std::queue<NodeGraphNodeHandle> node_pool_;            /**< Pool of recycled nodes. */
+  std::queue<NodeGraphLinkHandle> link_pool_;            /**< Pool of recycled links. */
 
-  std::queue<NodeGraphInputPinHandle> input_pin_pool_;
-  std::queue<NodeGraphOutputPinHandle> output_pin_pool_;
-  std::queue<NodeGraphNodeHandle> node_pool_;
-  std::queue<NodeGraphLinkHandle> link_pool_;
-
+  /**
+   * @brief Allocates an input pin for the given node.
+   * @param node_handle Handle for the node requesting an input pin.
+   * @return Handle to the allocated input pin.
+   */
   NodeGraphInputPinHandle AllocateInputPin(NodeGraphNodeHandle node_handle);
+
+  /**
+   * @brief Allocates an output pin for the given node.
+   * @param node_handle Handle for the node requesting an output pin.
+   * @return Handle to the allocated output pin.
+   */
   NodeGraphOutputPinHandle AllocateOutputPin(NodeGraphNodeHandle node_handle);
 
+  /**
+   * @brief Recycles an output pin back into the pool.
+   * @param handle Handle of the output pin to recycle.
+   */
   void RecycleOutputPin(NodeGraphOutputPinHandle handle);
+
+  /**
+   * @brief Recycles an input pin back into the pool.
+   * @param handle Handle of the input pin to recycle.
+   */
   void RecycleInputPin(NodeGraphInputPinHandle handle);
 
  public:
+  /**
+   * @brief Allocates a link between an output pin and an input pin.
+   * @param start_handle Handle for the starting output pin.
+   * @param end_handle Handle for the ending input pin.
+   * @return Handle to the allocated link.
+   */
   NodeGraphLinkHandle AllocateLink(NodeGraphOutputPinHandle start_handle, NodeGraphInputPinHandle end_handle);
+
+  /**
+   * @brief Recycles a link and returns it back to the pool.
+   * @param handle Handle of the link to recycle.
+   */
   void RecycleLink(NodeGraphLinkHandle handle);
 
+  /**
+   * @brief Allocates a node with the specified number of input pins and determines if it has an output pin.
+   * @param input_pin_count Number of input pins the node should have.
+   * @param has_output Whether the node should have an output pin.
+   * @return Handle to the allocated node.
+   */
   NodeGraphNodeHandle AllocateNode(size_t input_pin_count, bool has_output);
+
+  /**
+   * @brief Recycles a node and returns it back to the pool.
+   * @param handle Handle of the node to recycle.
+   */
   void RecycleNode(NodeGraphNodeHandle handle);
 
+  /**
+   * @brief Handles the inspection and GUI rendering for the node graph in the editor.
+   * @param title The title of the node graph window.
+   * @param editor_layer Shared pointer to the editor layer handling the inspection.
+   * @param node_editor_popup_gui Callback for handling right-click popups in the graph editor.
+   * @param node_title_bar_gui Callback for rendering the title bar of nodes.
+   * @param node_input_pin_gui Callback for rendering input pins.
+   * @param node_output_pin_gui Callback for rendering output pins.
+   * @param link_create_handler Callback for handling new link creation.
+   * @param link_destroy_handler Callback for handling link deletion.
+   * @param hover_handler Callback for handling hover events over nodes, links, or pins.
+   * @param selection_handler Callback for handling node/link selection.
+   * @return True if the asset's content is not modified during inspection; otherwise, false.
+   */
   bool OnInspect(
       const std::string& title, const std::shared_ptr<EditorLayer>& editor_layer,
       const std::function<void(ImVec2 click_pos)>& node_editor_popup_gui,

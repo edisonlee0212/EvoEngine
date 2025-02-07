@@ -209,6 +209,14 @@ class SorghumDescriptorReconstruction {
   int stem_segments_count_ = 54;  ///< The total number of the segments of the stem, defining the height of the stem.
 
  public:
+  /**
+   * @brief Constructs a SorghumDescriptorReconstruction object with specified parameters.
+   * @param theta Rotation angle in degrees.
+   * @param scale Scaling factor for the reconstruction.
+   * @param center Central position of the sorghum plant.
+   * @param stem_radius Radius of the plant stem.
+   * @param stem_segments_count Number of segments defining the height of the stem.
+   */
   explicit SorghumDescriptorReconstruction(const float theta = 50.0f, const float scale = 1.0f,
                                            const glm::vec3 center = glm::vec3(0, 0, 0), const float stem_radius = 0.01f,
                                            const int stem_segments_count = 54)
@@ -246,7 +254,6 @@ class SorghumDescriptorReconstruction {
   /**
    * @brief Reconstructs the sorghum stem using sampled points.
    * @param sorghum_descriptor The descriptor containing sorghum information.
-   * @param samples The number of samples along the stem.
    * @return A vector of points representing the reconstructed stem.
    */
   std::vector<glm::vec3> ReconstructSorghumStem(SorghumDescriptor& sorghum_descriptor) const;
@@ -255,49 +262,53 @@ class SorghumDescriptorReconstruction {
    * @brief Reconstructs sorghum geometry using Bezier splines.
    * @param sorghum_descriptor The sorghum descriptor.
    * @param bezier_splines The Bezier splines representing different parts.
-   * @param theta The rotation angle.
-   * @param scale The scaling factor.
    * @return A vector of reconstructed sorghum structures.
    */
   std::vector<std::vector<glm::vec3>> ReconstructSorghumFromBezierSplines(
       SorghumDescriptor& sorghum_descriptor,
       const std::vector<std::unordered_map<std::string, CubicBezierSpline>>& bezier_splines) const;
 
-  /// @brief Fills particle information using YAML points for gizmo visualization.
-  /// @param leaf_index Index of the leaf to process. If -1, process all leaves.
-  /// @param scale Scaling factor applied to the particle positions.
-  /// @param yaml_content YAML content containing center, left, and right points.
-  /// @param particle_infos Output vector to store the particle information.
-  /// @param leaf_count Number of leaves to process.
-  /// @param line_count Number of particle lines per leaf.
-  /// @param points_count Number of points per line.
+  /**
+   * @brief Fills particle information using YAML points for gizmo visualization.
+   * @param leaf_index Index of the leaf to process. If -1, process all leaves.
+   * @param scale Scaling factor applied to the particle positions.
+   * @param yaml_content YAML content containing center, left, and right points.
+   * @param particle_infos Output vector to store the particle information.
+   * @param leaf_count Number of leaves to process.
+   * @param line_count Number of particle lines per leaf.
+   * @param points_count Number of points per line.
+   */
   static void FillYamlPointsParticle(int leaf_index, float scale,
                                      std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>& yaml_content,
                                      std::vector<ParticleInfo>& particle_infos, int leaf_count = 1, int line_count = 3,
                                      int points_count = 32);
 
-  /// @brief Fills particle information using Bezier spline points for gizmo visualization.
-  /// @param leaf_index Index of the leaf to process. If -1, process all leaves.
-  /// @param scale Scaling factor applied to the particle positions.
-  /// @param bezier_spline_points Bezier spline points for particle positioning.
-  /// @param particle_infos Output vector to store the particle information.
-  /// @param leaf_count Number of leaves to process.
-  /// @param line_count Number of particle lines per leaf.
-  /// @param points_count Number of points per line.
-  /// @param uniform_segment_count Whether the segments have uniform counts.
+  /**
+   * @brief Fills particle information using Bezier spline points for gizmo visualization.
+   * @param leaf_index Index of the leaf to process. If -1, process all leaves.
+   * @param scale Scaling factor applied to the particle positions.
+   * @param bezier_spline_points Bezier spline points for particle positioning.
+   * @param particle_infos Output vector to store the particle information.
+   * @param leaf_count Number of leaves to process.
+   * @param line_count Number of particle lines per leaf.
+   * @param points_count Number of points per line.
+   * @param uniform_segment_count Whether the segments have uniform counts.
+   */
   static void FillBezierSplinePointsParticle(int leaf_index, float scale,
                                              const std::vector<std::vector<glm::vec3>>& bezier_spline_points,
                                              std::vector<ParticleInfo>& particle_infos, int leaf_count = 1,
                                              int line_count = 3, int points_count = 32,
                                              bool uniform_segment_count = false);
 
-  /// @brief Fills particle information using leaf segment frames for gizmo visualization.
-  /// @param leaf_index Index of the leaf to process. If -1, process all leaves.
-  /// @param scale Scaling factor applied to the particle positions.
-  /// @param sorghum_descriptor Descriptor containing leaf and spline segment information.
-  /// @param particle_infos Output vector to store the particle information.
-  /// @param leaf_count Number of leaves to process.
-  /// @param uniform_segment_count Whether the segments have uniform counts.
+  /**
+   * @brief Fills particle information using leaf segment frames for gizmo visualization.
+   * @param leaf_index Index of the leaf to process. If -1, process all leaves.
+   * @param scale Scaling factor applied to the particle positions.
+   * @param sorghum_descriptor Descriptor containing leaf and spline segment information.
+   * @param particle_infos Output vector to store the particle information.
+   * @param leaf_count Number of leaves to process.
+   * @param uniform_segment_count Whether the segments have uniform counts.
+   */
   static void FillLeafSegmentFrameParticle(int leaf_index, float scale, SorghumDescriptor& sorghum_descriptor,
                                            std::vector<ParticleInfo>& particle_infos, int leaf_count,
                                            bool uniform_segment_count = true);

@@ -22,14 +22,14 @@ SkyIlluminanceSnapshot SkyIlluminanceSnapshotLerp(const SkyIlluminanceSnapshot& 
 }
 
 SkyIlluminanceSnapshot SkyIlluminance::Get(float time) {
-  if (m_snapshots.empty()) {
+  if (snapshots.empty()) {
     return {};
   }
-  if (time <= m_snapshots.begin()->first)
-    return m_snapshots.begin()->second;
-  SkyIlluminanceSnapshot last_shot = m_snapshots.begin()->second;
-  float last_time = m_snapshots.begin()->first;
-  for (const auto& pair : m_snapshots) {
+  if (time <= snapshots.begin()->first)
+    return snapshots.begin()->second;
+  SkyIlluminanceSnapshot last_shot = snapshots.begin()->second;
+  float last_time = snapshots.begin()->first;
+  for (const auto& pair : snapshots) {
     if (time < pair.first) {
       if (pair.first - last_time == 0)
         return last_shot;
@@ -38,7 +38,7 @@ SkyIlluminanceSnapshot SkyIlluminance::Get(float time) {
     last_shot = pair.second;
     last_time = pair.first;
   }
-  return std::prev(m_snapshots.end())->second;
+  return std::prev(snapshots.end())->second;
 }
 void SkyIlluminance::ImportCsv(const std::filesystem::path& path) {
   rapidcsv::Document doc(path.string());
@@ -48,21 +48,21 @@ void SkyIlluminance::ImportCsv(const std::filesystem::path& path) {
   const std::vector<float> zenith_series = doc.GetColumn<float>("Zenith");
   assert(time_series.size() == ghi_series.size() && azimuth_series.size() == zenith_series.size() &&
          time_series.size() == azimuth_series.size());
-  m_snapshots.clear();
-  m_maxTime = 0;
-  m_minTime = 999999;
+  snapshots.clear();
+  max_time = 0;
+  min_time = 999999;
   for (int i = 0; i < time_series.size(); i++) {
     SkyIlluminanceSnapshot snapshot;
     snapshot.m_ghi = ghi_series[i];
     snapshot.m_azimuth = azimuth_series[i];
     snapshot.m_zenith = zenith_series[i];
     auto time = time_series[i];
-    m_snapshots[time] = snapshot;
-    if (m_maxTime < time) {
-      m_maxTime = time;
+    snapshots[time] = snapshot;
+    if (max_time < time) {
+      max_time = time;
     }
-    if (m_minTime > time) {
-      m_minTime = time;
+    if (min_time > time) {
+      min_time = time;
     }
   }
 }
@@ -79,7 +79,7 @@ bool SkyIlluminance::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   static SkyIlluminanceSnapshot snapshot;
   static bool auto_apply = false;
   ImGui::Checkbox("Auto Apply", &auto_apply);
-  if (ImGui::SliderFloat("Time", &time, m_minTime, m_maxTime)) {
+  if (ImGui::SliderFloat("Time", &time, min_time, max_time)) {
     snapshot = Get(time);
 #ifdef CUDA_MODULE_PLUGIN
     if (auto_apply) {
@@ -95,11 +95,11 @@ bool SkyIlluminance::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   return changed;
 }
 void SkyIlluminance::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "m_minTime" << YAML::Value << m_minTime;
-  out << YAML::Key << "m_maxTime" << YAML::Value << m_maxTime;
-  if (!m_snapshots.empty()) {
-    out << YAML::Key << "m_snapshots" << YAML::Value << YAML::BeginSeq;
-    for (const auto& pair : m_snapshots) {
+  out << YAML::Key << "min_time" << YAML::Value << min_time;
+  out << YAML::Key << "max_time" << YAML::Value << max_time;
+  if (!snapshots.empty()) {
+    out << YAML::Key << "snapshots" << YAML::Value << YAML::BeginSeq;
+    for (const auto& pair : snapshots) {
       out << YAML::BeginMap;
       out << YAML::Key << "time" << YAML::Value << pair.first;
       out << YAML::Key << "m_ghi" << YAML::Value << pair.second.m_ghi;
@@ -111,18 +111,18 @@ void SkyIlluminance::Serialize(YAML::Emitter& out) const {
   }
 }
 void SkyIlluminance::Deserialize(const YAML::Node& in) {
-  if (in["m_minTime"])
-    m_minTime = in["m_minTime"].as<float>();
-  if (in["m_maxTime"])
-    m_maxTime = in["m_maxTime"].as<float>();
-  if (in["m_snapshots"]) {
-    m_snapshots.clear();
-    for (const auto& data : in["m_snapshots"]) {
+  if (in["min_time"])
+    min_time = in["min_time"].as<float>();
+  if (in["max_time"])
+    max_time = in["max_time"].as<float>();
+  if (in["snapshots"]) {
+    snapshots.clear();
+    for (const auto& data : in["snapshots"]) {
       SkyIlluminanceSnapshot snapshot;
       snapshot.m_ghi = data["m_ghi"].as<float>();
       snapshot.m_azimuth = data["m_azimuth"].as<float>();
       snapshot.m_zenith = data["m_zenith"].as<float>();
-      m_snapshots[data["time"].as<float>()] = snapshot;
+      snapshots[data["time"].as<float>()] = snapshot;
     }
   }
 }
