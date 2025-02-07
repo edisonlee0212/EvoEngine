@@ -824,11 +824,13 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
     auto& particle = uniform_particles[i];
     auto& node_handle = particle.node_index;
 
-    if (bundle_maps[particle.segment_index].find(node_handle) == bundle_maps[particle.segment_index].end()) {
-      bundle_maps[particle.segment_index][node_handle] = Bundle();
+    auto it = bundle_maps[particle.segment_index].lower_bound(node_handle);
+    if (it == bundle_maps[particle.segment_index].end() ||
+        bundle_maps[particle.segment_index].key_comp()(node_handle, it->first)) {
+      it = bundle_maps[particle.segment_index].insert(it, std::make_pair(node_handle, Bundle()));
     }
 
-    bundle_maps[particle.segment_index][node_handle].particles.push_back(i);
+    it->second.particles.push_back(i);
   }
 
   // Triangulate each bundle
@@ -906,9 +908,7 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
           continue;
         }
         auto& next_particle = uniform_particles[particle.next_particle_handle];
-        if (node_indices_above.find(next_particle.node_index) == node_indices_above.end()) {
-          node_indices_above.insert(next_particle.node_index);
-        }
+        node_indices_above.insert(next_particle.node_index);
       }
 
       // for each node above, collect the points and triangles
