@@ -22,35 +22,142 @@ I.e. for min_bound_ = (0, 0) and resolution_ = (2, 2), and m_size = 1,
 the cell centers are at 0.5 and 1.5.
 
 */
-
+/**
+ * @brief Represents a 2D grid of cells with procedural positioning and access methods.
+ *
+ * @tparam CellData The data type stored in each cell.
+ */
 template <typename CellData>
 class CellGrid {
-  glm::vec2 min_bound_ = glm::vec2(0.0f);
-  glm::vec2 max_bound_ = glm::vec2(0.0f);
-  float cell_size_ = 1.0f;
-  glm::ivec2 resolution_ = {0, 0};
-  std::vector<CellData> cells_{};
+  glm::vec2 min_bound_ = glm::vec2(0.0f);  ///< The minimum boundary of the grid.
+  glm::vec2 max_bound_ = glm::vec2(0.0f);  ///< The maximum boundary of the grid.
+  float cell_size_ = 1.0f;                 ///< The size of each cell.
+  glm::ivec2 resolution_ = {0, 0};         ///< The resolution of the grid (number of cells in x and y directions).
+  std::vector<CellData> cells_{};          ///< The storage for grid cells.
 
  public:
+  /**
+   * @brief Default destructor.
+   */
   virtual ~CellGrid() = default;
+
+  /**
+   * @brief Gets the minimum boundary of the grid.
+   * @return The minimum boundary as a glm::vec2.
+   */
   [[nodiscard]] glm::vec2 GetMinBound() const;
+
+  /**
+   * @brief Gets the maximum boundary of the grid.
+   * @return The maximum boundary as a glm::vec2.
+   */
   [[nodiscard]] glm::vec2 GetMaxBound() const;
+
+  /**
+   * @brief Gets the size of a cell.
+   * @return The size of a single cell.
+   */
   [[nodiscard]] float GetCellSize() const;
+
+  /**
+   * @brief Gets the resolution of the grid.
+   * @return The grid resolution as a glm::ivec2.
+   */
   [[nodiscard]] glm::ivec2 GetResolution() const;
+
+  /**
+   * @brief Default constructor.
+   */
   CellGrid() = default;
+
+  /**
+   * @brief Resets the grid with new parameters.
+   * @param cell_size The size of each cell.
+   * @param min_bound The minimum boundary of the grid.
+   * @param resolution The resolution of the grid.
+   */
   void Reset(float cell_size, const glm::vec2& min_bound, const glm::ivec2& resolution);
+
+  /**
+   * @brief Resets the grid using minimum and maximum bounds.
+   * @param cell_size The size of each cell.
+   * @param min_bound The minimum boundary of the grid.
+   * @param max_bound The maximum boundary of the grid.
+   */
   void Reset(float cell_size, const glm::vec2& min_bound, const glm::vec2& max_bound);
+
+  /**
+   * @brief Calculates the grid coordinates for a given position.
+   * @param position The position in world space.
+   * @return The grid coordinates corresponding to the position.
+   */
   [[nodiscard]] glm::ivec2 GetCoordinate(const glm::vec2& position) const;
+
+  /**
+   * @brief Retrieves the grid coordinates from a cell index.
+   * @param index The index of the cell.
+   * @return The grid coordinates as glm::ivec2.
+   */
   [[nodiscard]] glm::ivec2 GetCoordinate(unsigned index) const;
+
+  /**
+   * @brief Accesses a cell reference based on a position.
+   * @param position The position in world space.
+   * @return A reference to the cell at the given position.
+   */
   [[nodiscard]] CellData& RefCell(const glm::vec2& position);
+
+  /**
+   * @brief Accesses a cell reference based on grid coordinates.
+   * @param coordinate The coordinate of the cell.
+   * @return A reference to the cell at the given coordinate.
+   */
   [[nodiscard]] CellData& RefCell(const glm::ivec2& coordinate);
+
+  /**
+   * @brief Accesses a cell reference based on its index.
+   * @param index The index of the cell.
+   * @return A reference to the cell at the given index.
+   */
   [[nodiscard]] CellData& RefCell(unsigned index);
+
+  /**
+   * @brief Provides read-only access to all grid cells.
+   * @return A const reference to the vector of cells.
+   */
   [[nodiscard]] const std::vector<CellData>& PeekCells() const;
+
+  /**
+   * @brief Provides a modifiable reference to all grid cells.
+   * @return A reference to the vector of cells.
+   */
   [[nodiscard]] std::vector<CellData>& RefCells();
+
+  /**
+   * @brief Computes the position of a cell from its grid coordinates.
+   * @param coordinate The grid coordinates.
+   * @return The world-space position of the cell center.
+   */
   [[nodiscard]] glm::vec2 GetPosition(const glm::ivec2& coordinate) const;
+
+  /**
+   * @brief Computes the position of a cell from its index.
+   * @param index The index of the cell.
+   * @return The world-space position of the cell center.
+   */
   [[nodiscard]] glm::vec2 GetPosition(unsigned index) const;
 
+  /**
+   * @brief Iterates over cells within a given radius of a position and applies a function to each.
+   * @param position The central position in world space.
+   * @param radius The search radius.
+   * @param func The function to apply to each found cell.
+   */
   void ForEach(const glm::vec2& position, float radius, const std::function<void(CellData& data)>& func);
+
+  /**
+   * @brief Clears the cell data.
+   */
   virtual void Clear() = 0;
 };
 

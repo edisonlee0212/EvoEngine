@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include <glm/glm.hpp>
@@ -7,34 +8,83 @@
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+
+/**
+ * @enum ProceduralNoiseOperatorType
+ * @brief Defines various operator types for procedural noise calculations.
+ */
 enum class ProceduralNoiseOperatorType {
-  Empty,
-  Reset,
-  Add,
-  Subtract,
-  Multiply,
-  Divide,
-  Pow,
-  Min,
-  Max,
-  FlipUp,
-  FlipDown
+  Empty,     ///< No operation
+  Reset,     ///< Reset to initial value
+  Add,       ///< Add operation
+  Subtract,  ///< Subtract operation
+  Multiply,  ///< Multiply operation
+  Divide,    ///< Divide operation
+  Pow,       ///< Power operation
+  Min,       ///< Minimum operation
+  Max,       ///< Maximum operation
+  FlipUp,    ///< Flip upwards operation
+  FlipDown   ///< Flip downwards operation
 };
 
-enum class ProceduralNoiseValueType { Constant, Linear, Sine, Tangent, Simplex, Perlin };
+/**
+ * @enum ProceduralNoiseValueType
+ * @brief Defines types of procedural noise values.
+ */
+enum class ProceduralNoiseValueType {
+  Constant,  ///< Constant value
+  Linear,    ///< Linearly varying value
+  Sine,      ///< Sine wave
+  Tangent,   ///< Tangent wave
+  Simplex,   ///< Simplex noise
+  Perlin     ///< Perlin noise
+};
 
+/**
+ * @struct ProceduralNoiseStage
+ * @brief Represents a stage in the procedural noise processing pipeline.
+ * @tparam T Type of the value being processed.
+ */
 template <typename T>
 struct ProceduralNoiseStage {
-  std::string m_name = "New node";
-  ProceduralNoiseOperatorType m_operatorType = ProceduralNoiseOperatorType::Empty;
-  ProceduralNoiseValueType m_valueType = ProceduralNoiseValueType::Constant;
-  T m_frequency = T(1.0f);
-  float m_constantValue = 0.f;
-  T m_offset = T(0.0f);
+  std::string m_name = "New node";                                                  ///< Name of the noise stage
+  ProceduralNoiseOperatorType m_operatorType = ProceduralNoiseOperatorType::Empty;  ///< Operator type
+  ProceduralNoiseValueType m_valueType = ProceduralNoiseValueType::Constant;        ///< Value type
+  T m_frequency = T(1.0f);                                                          ///< Frequency of noise
+  float m_constantValue = 0.f;                                                      ///< Constant value
+  T m_offset = T(0.0f);                                                             ///< Offset applied to noise values
+
+  /**
+   * @brief Serializes the noise stage to a YAML emitter.
+   * @param out The YAML emitter.
+   */
   void Serialize(YAML::Emitter& out) const;
+
+  /**
+   * @brief Deserializes the noise stage from a YAML node.
+   * @param in The YAML node.
+   */
   void Deserialize(const YAML::Node& in);
+
+  /**
+   * @brief Saves the noise stage under a given name.
+   * @param name The name under which to save.
+   * @param out The YAML emitter.
+   */
   void Save(const std::string& name, YAML::Emitter& out) const;
+
+  /**
+   * @brief Loads the noise stage from a YAML node.
+   * @param name The name of the node to load from.
+   * @param in The YAML node.
+   */
   void Load(const std::string& name, const YAML::Node& in);
+
+  /**
+   * @brief Computes the noise value based on the given sample point.
+   * @param samplePoint Input sample point.
+   * @param value The value to be modified by this stage.
+   */
   void Calculate(const T& samplePoint, float& value) const;
 };
 
@@ -77,29 +127,121 @@ void ProceduralNoiseStage<T>::Load(const std::string& name, const YAML::Node& in
     Deserialize(in[name]);
 }
 
+/**
+ * @struct ProceduralNoiseFlowData
+ * @brief Represents procedural noise flow data.
+ */
 struct ProceduralNoiseFlowData {};
+
+/**
+ * @struct ProceduralNoiseSkeletonData
+ * @brief Represents skeleton data for procedural noise.
+ */
 struct ProceduralNoiseSkeletonData {};
 
+/**
+ * @class ProceduralNoise2D
+ * @brief Represents a procedural noise generation system for 2D data.
+ */
 class ProceduralNoise2D : public IAsset {
+  /**
+   * @brief Handles inspection of the given skeleton node.
+   * @param node_handle The handle to the skeleton node.
+   * @return True if no modifications were made, otherwise false.
+   */
   bool OnInspect(SkeletonNodeHandle node_handle);
+
+  /**
+   * @brief Processes the provided sample point and modifies the value.
+   * @param nodeHandle The handle to the skeleton node.
+   * @param samplePoint The sample point.
+   * @param value The value to modify.
+   * @return The processed value.
+   */
   float Process(SkeletonNodeHandle nodeHandle, const glm::vec2& samplePoint, float value);
 
  public:
-  Skeleton<ProceduralNoiseSkeletonData, ProceduralNoiseFlowData, ProceduralNoiseStage<glm::vec2>> m_pipeline{};
+  Skeleton<ProceduralNoiseSkeletonData, ProceduralNoiseFlowData, ProceduralNoiseStage<glm::vec2>>
+      m_pipeline{};  ///< Processing pipeline
+
+  /**
+   * @brief Serializes the asset to YAML.
+   * @param out The YAML emitter.
+   */
   void Serialize(YAML::Emitter& out) const override;
+
+  /**
+   * @brief Deserializes the asset from YAML.
+   * @param in The YAML node.
+   */
   void Deserialize(const YAML::Node& in) override;
+
+  /**
+   * @brief Inspects the asset in the editor.
+   * @param editorLayer The editor layer.
+   * @return True if content was not modified.
+   */
   bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+
+  /**
+   * @brief Processes the provided sample point and modifies the value.
+   * @param samplePoint The sample point.
+   * @param value The value to modify.
+   * @return The processed value.
+   */
   float Process(const glm::vec2& samplePoint, float value);
 };
+
+/**
+ * @class ProceduralNoise3D
+ * @brief Represents a procedural noise generation system for 3D data.
+ */
 class ProceduralNoise3D : public IAsset {
+  /**
+   * @brief Handles inspection of the given skeleton node.
+   * @param nodeHandle Handle to the skeleton node.
+   * @return True if no modifications were made, otherwise false.
+   */
   bool OnInspect(SkeletonNodeHandle nodeHandle);
+
+  /**
+   * @brief Processes the provided sample point and modifies the value.
+   * @param nodeHandle The handle to the skeleton node.
+   * @param samplePoint The sample point.
+   * @param value The value to modify.
+   * @return The processed value.
+   */
   float Process(SkeletonNodeHandle nodeHandle, const glm::vec3& samplePoint, float value);
 
  public:
-  Skeleton<ProceduralNoiseSkeletonData, ProceduralNoiseFlowData, ProceduralNoiseStage<glm::vec3>> m_pipeline{};
+  Skeleton<ProceduralNoiseSkeletonData, ProceduralNoiseFlowData, ProceduralNoiseStage<glm::vec3>>
+      m_pipeline{};  ///< Processing pipeline
+
+  /**
+   * @brief Processes the provided sample point and modifies the value.
+   * @param samplePoint The sample point.
+   * @param value The value to modify.
+   * @return The processed value.
+   */
   float Process(const glm::vec3& samplePoint, float value);
+
+  /**
+   * @brief Serializes the asset to YAML.
+   * @param out The YAML emitter.
+   */
   void Serialize(YAML::Emitter& out) const override;
+
+  /**
+   * @brief Deserializes the asset from YAML.
+   * @param in The YAML node.
+   */
   void Deserialize(const YAML::Node& in) override;
+
+  /**
+   * @brief Inspects the asset in the editor.
+   * @param editorLayer The editor layer.
+   * @return True if content was not modified.
+   */
   bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
 };
 

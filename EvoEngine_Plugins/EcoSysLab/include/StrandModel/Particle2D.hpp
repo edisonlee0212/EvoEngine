@@ -1,3 +1,4 @@
+
 #pragma once
 #include "ParticleGrid2D.hpp"
 #include "Skeleton.hpp"
@@ -5,12 +6,21 @@
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {
 
+/**
+ * @struct UpdateSettings
+ * @brief Contains settings for updating particle properties.
+ */
 struct UpdateSettings {
-  float dt;
-  float damping = 0.0f;
-  float max_velocity = 1.0f;
+  float dt;                   ///< Time step for the update.
+  float damping = 0.0f;       ///< Damping factor to reduce velocity.
+  float max_velocity = 1.0f;  ///< Maximum allowable velocity.
 };
 
+/**
+ * @class Particle2D
+ * @brief Represents a 2D particle for physics simulation.
+ * @tparam T The data type associated with the particle.
+ */
 template <typename T>
 class Particle2D {
   template <typename Pd>
@@ -18,56 +28,159 @@ class Particle2D {
 
   template <typename Pd>
   friend class StrandModelProfile;
-  glm::vec3 color_ = glm::vec3(1.0f);
-  glm::vec2 position_ = glm::vec2(0.0f);
-  glm::vec2 last_position_ = glm::vec2(0.0f);
-  glm::vec2 acceleration_ = glm::vec2(0.0f);
-  glm::vec2 delta_position_ = glm::vec2(0.0f);
 
-  ParticleHandle handle_ = -1;
+  glm::vec3 color_ = glm::vec3(1.0f);           ///< Particle color.
+  glm::vec2 position_ = glm::vec2(0.0f);        ///< Current position.
+  glm::vec2 last_position_ = glm::vec2(0.0f);   ///< Previous position.
+  glm::vec2 acceleration_ = glm::vec2(0.0f);    ///< Acceleration applied to the particle.
+  glm::vec2 delta_position_ = glm::vec2(0.0f);  ///< Change in position.
 
-  bool boundary_ = false;
-  float distance_to_boundary_ = 0.0f;
+  ParticleHandle handle_ = -1;  ///< Handle of the particle.
 
-  bool initial_boundary_ = false;
-  float initial_distance_to_boundary_ = 0.0f;
+  bool boundary_ = false;              ///< Flag indicating if the particle is at a boundary.
+  float distance_to_boundary_ = 0.0f;  ///< Distance to the boundary.
 
-  glm::vec2 initial_position_ = glm::vec2(0.0f);
+  bool initial_boundary_ = false;              ///< Initial boundary condition flag.
+  float initial_distance_to_boundary_ = 0.0f;  ///< Initial distance to the boundary.
+
+  glm::vec2 initial_position_ = glm::vec2(0.0f);  ///< Initial position of the particle.
 
  public:
-  SkeletonNodeHandle corresponding_child_node_handle = -1;
-  StrandHandle strand_handle = -1;
-  StrandSegmentHandle strand_segment_handle = -1;
-  bool main_child = false;
-  bool base = false;
+  SkeletonNodeHandle corresponding_child_node_handle = -1;  ///< Corresponding skeleton node handle.
+  StrandHandle strand_handle = -1;                          ///< Strand handle associated with this particle.
+  StrandSegmentHandle strand_segment_handle = -1;           ///< Strand segment handle.
+  bool main_child = false;                                  ///< Flag indicating if it's the main child particle.
+  bool base = false;                                        ///< Flag indicating if it's the base particle.
 
+  /**
+   * @brief Sets the initial position of the particle.
+   * @param initial_position The initial position to set.
+   */
   void SetInitialPosition(const glm::vec2& initial_position);
+
+  /**
+   * @brief Gets the initial position of the particle.
+   * @return The initial position.
+   */
   [[nodiscard]] glm::vec2 GetInitialPosition() const;
+
+  /**
+   * @brief Gets the initial distance of the particle from the boundary.
+   * @return The initial distance to the boundary.
+   */
   [[nodiscard]] float GetInitialDistanceToBoundary() const;
+
+  /**
+   * @brief Gets the distance of the particle from the boundary.
+   * @return The current distance to the boundary.
+   */
   [[nodiscard]] float GetDistanceToBoundary() const;
-  bool enable = true;
+
+  bool enable = true;  ///< Flag indicating whether the particle is active.
+
+  /**
+   * @brief Checks if the particle is a boundary particle.
+   * @return True if the particle is at the boundary, false otherwise.
+   */
   [[nodiscard]] bool IsBoundary() const;
+
+  /**
+   * @brief Checks if the particle was initially at a boundary.
+   * @return True if it was initially at the boundary, false otherwise.
+   */
   [[nodiscard]] bool IsInitialBoundary() const;
-  T data;
+
+  T data;  ///< Additional data associated with the particle.
+
+  /**
+   * @brief Updates the particle properties based on physics simulation.
+   * @param update_settings The settings for the update step.
+   */
   void Update(const UpdateSettings& update_settings);
+
+  /**
+   * @brief Stops the motion of the particle.
+   */
   void Stop();
+
+  /**
+   * @brief Gets the particle's handle.
+   * @return The handle of the particle.
+   */
   [[nodiscard]] ParticleHandle GetHandle() const;
+
+  /**
+   * @brief Gets the color of the particle.
+   * @return The color of the particle.
+   */
   [[nodiscard]] glm::vec3 GetColor() const;
+
+  /**
+   * @brief Sets the color of the particle.
+   * @param color The new color to be assigned.
+   */
   void SetColor(const glm::vec3& color);
 
+  /**
+   * @brief Gets the current position of the particle.
+   * @return The current position.
+   */
   [[nodiscard]] glm::vec2 GetPosition() const;
+
+  /**
+   * @brief Sets the position of the particle.
+   * @param position The new position to set.
+   */
   void SetPosition(const glm::vec2& position);
 
+  /**
+   * @brief Moves the particle to a new position.
+   * @param position The new position to move to.
+   */
   void Move(const glm::vec2& position);
 
+  /**
+   * @brief Gets the velocity of the particle.
+   * @param dt The time step.
+   * @return The velocity vector.
+   */
   [[nodiscard]] glm::vec2 GetVelocity(float dt) const;
+
+  /**
+   * @brief Sets the velocity of the particle.
+   * @param velocity The velocity to set.
+   * @param dt The time step.
+   */
   void SetVelocity(const glm::vec2& velocity, float dt);
 
+  /**
+   * @brief Gets the acceleration of the particle.
+   * @return The acceleration vector.
+   */
   [[nodiscard]] glm::vec2 GetAcceleration() const;
+
+  /**
+   * @brief Sets the acceleration of the particle.
+   * @param acceleration The acceleration vector to set.
+   */
   void SetAcceleration(const glm::vec2& acceleration);
 
+  /**
+   * @brief Gets the polar coordinates of the particle.
+   * @return The polar coordinates (radius, angle).
+   */
   [[nodiscard]] glm::vec2 GetPolarPosition() const;
+
+  /**
+   * @brief Gets the initial polar coordinates of the particle.
+   * @return The initial polar coordinates.
+   */
   [[nodiscard]] glm::vec2 GetInitialPolarPosition() const;
+
+  /**
+   * @brief Sets the position of the particle in polar coordinates.
+   * @param position The polar coordinates (radius, angle).
+   */
   void SetPolarPosition(const glm::vec2& position);
 };
 

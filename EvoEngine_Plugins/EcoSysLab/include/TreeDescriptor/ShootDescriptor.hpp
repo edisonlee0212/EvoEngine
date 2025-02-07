@@ -1,157 +1,312 @@
+
 #pragma once
 #include "Noises.hpp"
 #include "ProceduralNoise.hpp"
 #include "TreeModel.hpp"
+
 using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
+
+/**
+ * \class ShootDescriptor
+ * \brief Represents the parameters controlling procedural tree growth.
+ *
+ * This class defines various properties affecting tree shoot growth, including
+ * internode characteristics, bud behavior, pruning, and environmental influences.
+ */
 class ShootDescriptor : public IAsset {
  public:
+  /**
+   * \brief Generates a thumbnail texture representing the shoot descriptor.
+   * \return A shared pointer to the generated Texture2D.
+   */
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+
   /**
    * \brief The expected height gain for the tree for one year (max root distance).
    */
   float growth_rate = 0.25f;
+
+  /**
+   * \brief The factor influencing how straight the trunk grows.
+   */
   float straight_trunk = 0.0f;
 
 #pragma region Internode
+
+  /**
+   * \brief The number of base internodes in the shoot.
+   */
   int base_internode_count = 1;
+
+  /**
+   * \brief The mean and variance of the angle at the base node for apical growth.
+   */
   glm::vec2 base_node_apical_angle_mean_variance = glm::vec2(0.0f);
 
   /**
    * \brief The mean and variance of the angle between the direction of a lateral bud and its parent shoot.
    */
   glm::vec2 branching_angle_mean_variance = glm::vec2(45, 2);
+
   /**
-   * \brief The mean and variance of an angular difference orientation of lateral buds between two internodes
+   * \brief The mean and variance of an angular difference orientation of lateral buds between two internodes.
    */
   glm::vec2 roll_angle_mean_variance = glm::vec2(30, 2);
+
   /**
-   * \brief The procedural noise of an angular difference orientation of lateral buds between two internodes
+   * \brief A reference to an asset controlling the procedural noise for roll angles between internodes.
    */
   AssetRef roll_angle{};
-  Noise2D roll_angle_noise_2d{};
+
   /**
-   * \brief The mean and variance of an angular difference orientation of lateral buds between two internodes
+   * \brief A procedural noise function affecting roll angles.
+   */
+  Noise2D roll_angle_noise_2d{};
+
+  /**
+   * \brief The mean and variance of an angular difference orientation of lateral buds between two internodes.
    */
   glm::vec2 apical_angle_mean_variance = glm::vec2(0, 3);
+
   /**
-   * \brief The procedural noise of an angular difference orientation of lateral buds between two internodes
+   * \brief A reference to an asset controlling the procedural noise for apical angles between internodes.
    */
   AssetRef apical_angle{};
-  Noise2D apical_angle_noise_2d{};
+
   /**
-   * \brief The gravitropism.
+   * \brief A procedural noise function affecting apical angles.
+   */
+  Noise2D apical_angle_noise_2d{};
+
+  /**
+   * \brief Influence of gravity on the shoot growth direction.
    */
   float gravitropism = 0.0;
+
   /**
-   * \brief The phototropism
+   * \brief Influence of light direction on the shoot growth.
    */
   float phototropism = 0.045f;
+
   /**
-   * \brief The horizontal tropism
+   * \brief Influence of horizontal tropism on the tree's shape.
    */
   float horizontal_tropism = 0.0f;
 
+  /**
+   * \brief Strength of the gravity bending effect on the shoot.
+   */
   float gravity_bending_strength = 0.f;
+
+  /**
+   * \brief Modifier for gravity bending based on thickness.
+   */
   float gravity_bending_thickness_factor = 1.f;
+
+  /**
+   * \brief Maximum effect of gravity bending.
+   */
   float gravity_bending_max = 1.f;
 
   /**
-   * \brief The internode length
+   * \brief The internode length.
    */
   float internode_length = 0.03f;
-  /*
-   * \brief How the thickness of branch effect the length of the actual node.
+
+  /**
+   * \brief Factor by which branch thickness affects internode length.
    */
   float internode_length_thickness_factor = 0.15f;
+
   /**
-   * \brief Thickness of end internode
+   * \brief Thickness of the end internode.
    */
   float end_node_thickness = 0.004f;
+
   /**
-   * \brief The thickness accumulation factor
+   * \brief Factor controlling thickness accumulation along the shoot.
    */
   float thickness_accumulation_factor = 0.45f;
+
   /**
-   * \brief The extra thickness gained from node length.
+   * \brief Additional thickness gained as the internode ages.
    */
   float thickness_age_factor = 0.0f;
+
   /**
-   * \brief The shadow volume factor of the internode.
+   * \brief The effect of internode shadowing in the growth process.
    */
   float internode_shadow_factor = 0.03f;
 
 #pragma endregion
+
 #pragma region Bud fate
+
   /**
-   * \brief The number of lateral buds an internode contains
+   * \brief The number of lateral buds an internode contains.
    */
   int lateral_bud_count = 1;
-  int max_order = -1;
+
   /**
-   * \brief The probability of death of apical bud each year.
+   * \brief The maximum branching order allowed (-1 means no limit).
+   */
+  int max_order = -1;
+
+  /**
+   * \brief The probability of apical bud dying each year.
    */
   float apical_bud_extinction_rate = 0.0f;
+
   /**
-   * \brief The probability of death of lateral bud each year.
+   * \brief The probability of lateral bud flushing each year.
    */
   float lateral_bud_flushing_rate = 0.5f;
+
   /**
-   * \brief Apical control base
+   * \brief The strength of apical control over bud activation.
    */
   float apical_control = 1.25f;
+
   /**
-   * \brief Apical control base
+   * \brief The influence of root distance in determining bud fate.
    */
   float root_distance_control = 0.f;
+
   /**
-   * \brief Apical control base
+   * \brief The effect of tree height on bud activation.
    */
   float height_control = 0.f;
 
   /**
-   * \brief How much inhibitor will an internode generate.
+   * \brief Amount of inhibitor generated by an internode to suppress lateral growth.
    */
   float apical_dominance = 0.25f;
+
   /**
-   * \brief How much inhibitor will shrink when going through the branch.
+   * \brief Reduction of apical dominance as it propagates through the tree structure.
    */
   float apical_dominance_loss = 0.08f;
 
 #pragma endregion
+
 #pragma region Pruning
+
+  /**
+   * \brief Flag indicating if trunk protection is enabled in pruning logic.
+   */
   bool trunk_protection = false;
 
+  /**
+   * \brief The maximum allowed flow length for nutrient distribution.
+   */
   int max_flow_length = 0;
 
   /**
-   * \brief The pruning factor for branch because of absence of light
+   * \brief Factor determining pruning intensity due to lack of light.
    */
   float light_pruning_factor = 0.0f;
 
+  /**
+   * \brief Strength factor affecting branch endurance.
+   */
   float branch_strength = 1.f;
+
+  /**
+   * \brief Effect of thickness on branch strength.
+   */
   float branch_strength_thickness_factor = 3.f;
+
+  /**
+   * \brief Lighting threshold below which branches weaken.
+   */
   float branch_strength_lighting_threshold = 0.f;
+
+  /**
+   * \brief Loss of branch strength over time due to insufficient light.
+   */
   float branch_strength_lighting_loss = 0.f;
+
+  /**
+   * \brief Multiplier affecting how easily branches break.
+   */
   float branch_breaking_multiplier = 1.f;
+
+  /**
+   * \brief Factor influencing the breaking probability of branches.
+   */
   float branch_breaking_factor = 1.f;
+
 #pragma endregion
 
 #pragma region Leaf
+
+  /**
+   * \brief The minimum lighting required for leaf flushing.
+   */
   float leaf_flushing_lighting_requirement = 0.1f;
+
+  /**
+   * \brief Probability of leaf fall.
+   */
   float leaf_fall_probability;
+
+  /**
+   * \brief Maximum allowed distance between a leaf and the nearest branch end.
+   */
   float leaf_distance_to_branch_end_limit;
+
 #pragma endregion
+
 #pragma region Fruit
+
+  /**
+   * \brief The minimum lighting required for fruit flushing.
+   */
   float fruit_flushing_lighting_requirement = 0.1f;
+
+  /**
+   * \brief Probability of fruit fall.
+   */
   float fruit_fall_probability;
+
+  /**
+   * \brief Maximum allowed distance between a fruit and the nearest branch end.
+   */
   float fruit_distance_to_branch_end_limit;
+
 #pragma endregion
+
+  /**
+   * \brief Prepares a ShootGrowthController using current growth parameters.
+   * \param shootGrowthController The controller to configure.
+   */
   void PrepareController(ShootGrowthController& shootGrowthController) const;
 
+  /**
+   * \brief Serializes the shoot descriptor to YAML format.
+   * \param out The YAML emitter to write to.
+   */
   void Serialize(YAML::Emitter& out) const override;
+
+  /**
+   * \brief Deserializes the shoot descriptor from YAML format.
+   * \param in The YAML node containing serialized data.
+   */
   void Deserialize(const YAML::Node& in) override;
+
+  /**
+   * \brief Inspects and modifies shoot descriptor parameters in the editor.
+   * \param editorLayer The editor layer providing UI interaction.
+   * \return True if the asset's content remains unmodified.
+   */
   bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+
+  /**
+   * \brief Collects asset references for dependency tracking.
+   * \param list The list to store asset references.
+   */
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
 

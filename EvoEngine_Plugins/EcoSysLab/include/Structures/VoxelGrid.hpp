@@ -22,51 +22,217 @@ I.e. for min_bound_ = (0, 0) and resolution_= (2, 2), and voxel_size_ = 1,
 the voxel centers are at 0.5 and 1.5.
 
 */
+
+/**
+ * @brief A class representing a three-dimensional voxel grid.
+ *
+ * @tparam VoxelData The type of data stored in each voxel.
+ *
+ * The voxel position is at its center. Each voxel is `dx` wide.
+ *
+ * Coordinate System:
+ * The `min_bound_` stores the lower-left corner of the lower-left voxel.
+ * For `min_bound_ = (0, 0)`, `resolution_ = (2, 2)`, and `voxel_size_ = 1`,
+ * the voxel centers are at 0.5 and 1.5.
+ */
 template <typename VoxelData>
 class VoxelGrid {
-  std::vector<VoxelData> data_;
-  glm::vec3 min_bound_ = glm::vec3(0.0f);
-  float voxel_size_ = 1.0f;
-  glm::ivec3 resolution_ = {0, 0, 0};
+  std::vector<VoxelData> data_;            ///< Stores voxel data.
+  glm::vec3 min_bound_ = glm::vec3(0.0f);  ///< Lower-left bound of the voxel grid.
+  float voxel_size_ = 1.0f;                ///< Size of a single voxel.
+  glm::ivec3 resolution_ = {0, 0, 0};      ///< Grid resolution in voxels.
 
  public:
+  /**
+   * @brief Initializes the voxel grid.
+   *
+   * @param voxel_size Size of a single voxel.
+   * @param resolution Number of voxels in each dimension.
+   * @param min_bound Lower-bound position of the grid.
+   * @param default_data Default data for each voxel.
+   */
   void Initialize(float voxel_size, const glm::ivec3& resolution, const glm::vec3& min_bound,
                   const VoxelData& default_data = {});
+
+  /**
+   * @brief Initializes the voxel grid with bounds.
+   *
+   * @param voxel_size Size of a single voxel.
+   * @param min_bound Lower-bound position of the grid.
+   * @param max_bound Upper-bound position of the grid.
+   * @param default_data Default data for each voxel.
+   */
   void Initialize(float voxel_size, const glm::vec3& min_bound, const glm::vec3& max_bound,
                   const VoxelData& default_data = {});
 
+  /**
+   * @brief Resizes the voxel grid.
+   *
+   * @param diff_min Amount to resize at the lower end.
+   * @param diff_max Amount to resize at the upper end.
+   */
   void Resize(const glm::ivec3& diff_min, const glm::ivec3& diff_max);
 
+  /// @brief Resets all voxels to their default state.
   void Reset();
+
+  /**
+   * @brief Shifts the minimum bound by an offset.
+   *
+   * @param offset Amount to shift the lower bound.
+   */
   void ShiftMinBound(const glm::vec3& offset);
 
+  /// @return The total number of voxels in the grid.
   [[nodiscard]] size_t GetVoxelCount() const;
+
+  /// @return The current resolution of the grid.
   [[nodiscard]] glm::ivec3 GetResolution() const;
+
+  /// @return The minimum bound of the grid.
   [[nodiscard]] glm::vec3 GetMinBound() const;
+
+  /// @return The maximum bound of the grid.
   [[nodiscard]] glm::vec3 GetMaxBound() const;
+
+  /// @return The voxel size.
   [[nodiscard]] float GetVoxelSize() const;
 
+  /**
+   * @brief Retrieves a reference to a voxel data entry by linear index.
+   *
+   * @param index Linear index of the voxel.
+   * @return Reference to the voxel data.
+   */
   [[nodiscard]] VoxelData& Ref(int index);
+
+  /**
+   * @brief Retrieves a constant reference to a voxel data entry by linear index.
+   *
+   * @param index Linear index of the voxel.
+   * @return Const reference to the voxel data.
+   */
   [[nodiscard]] const VoxelData& Peek(int index) const;
+
+  /**
+   * @brief Retrieves a reference to a voxel data entry by coordinates.
+   *
+   * @param coordinate Voxel grid coordinate.
+   * @return Reference to the voxel data.
+   */
   [[nodiscard]] VoxelData& Ref(const glm::ivec3& coordinate);
+
+  /**
+   * @brief Retrieves a constant reference to a voxel data entry by coordinates.
+   *
+   * @param coordinate Voxel grid coordinate.
+   * @return Const reference to the voxel data.
+   */
   [[nodiscard]] const VoxelData& Peek(const glm::ivec3& coordinate) const;
+
+  /**
+   * @brief Retrieves a reference to a voxel data entry by world position.
+   *
+   * @param position World position.
+   * @return Reference to the voxel data.
+   */
   [[nodiscard]] VoxelData& Ref(const glm::vec3& position);
+
+  /**
+   * @brief Retrieves a constant reference to a voxel data entry by world position.
+   *
+   * @param position World position.
+   * @return Const reference to the voxel data.
+   */
   [[nodiscard]] const VoxelData& Peek(const glm::vec3& position) const;
 
+  /**
+   * @brief Computes the linear index from a voxel coordinate.
+   *
+   * @param coordinate Voxel coordinate.
+   * @return Linear index.
+   */
   [[nodiscard]] int GetIndex(const glm::ivec3& coordinate) const;
+
+  /**
+   * @brief Computes the linear index from a world position.
+   *
+   * @param position World position.
+   * @return Linear index.
+   */
   [[nodiscard]] int GetIndex(const glm::vec3& position) const;
+
+  /**
+   * @brief Converts a linear index to voxel coordinates.
+   *
+   * @param index Linear index.
+   * @return Voxel coordinate.
+   */
   [[nodiscard]] glm::ivec3 GetCoordinate(int index) const;
+
+  /**
+   * @brief Converts a world position to voxel coordinates.
+   *
+   * @param position World position.
+   * @return Voxel coordinate.
+   */
   [[nodiscard]] glm::ivec3 GetCoordinate(const glm::vec3& position) const;
+
+  /**
+   * @brief Computes the voxel center position from an index.
+   *
+   * @param index Voxel linear index.
+   * @return Voxel center world position.
+   */
   [[nodiscard]] glm::vec3 GetPosition(int index) const;
+
+  /**
+   * @brief Computes the voxel center position from a coordinate.
+   *
+   * @param coordinate Voxel coordinate.
+   * @return Voxel center world position.
+   */
   [[nodiscard]] glm::vec3 GetPosition(const glm::ivec3& coordinate) const;
 
+  /**
+   * @brief Iterates through voxels in a bounding box.
+   *
+   * @param min_bound Minimum bounding box corner.
+   * @param max_bound Maximum bounding box corner.
+   * @param func Function to be applied on each voxel.
+   */
   void ForEach(const glm::vec3& min_bound, const glm::vec3& max_bound,
                const std::function<void(VoxelData& data)>& func);
+
+  /**
+   * @brief Iterates through voxels in a sphere.
+   *
+   * @param center Sphere center.
+   * @param radius Sphere radius.
+   * @param func Function to be applied on each voxel.
+   */
   void ForEach(const glm::vec3& center, float radius, const std::function<void(VoxelData& data)>& func);
+
+  /**
+   * @brief Iterates through voxels in a spherical shell.
+   *
+   * @param center Sphere center.
+   * @param min_radius Inner radius.
+   * @param max_radius Outer radius.
+   * @param func Function to be applied on each voxel.
+   */
   void ForEach(const glm::vec3& center, float min_radius, float max_radius,
                const std::function<void(VoxelData& data)>& func);
+
+  /**
+   * @brief Checks if a given position is within the voxel grid.
+   *
+   * @param position World position.
+   * @return True if the position is within the grid, otherwise false.
+   */
   [[nodiscard]] bool IsValid(const glm::vec3& position) const;
 
+  /// @return A reference to the underlying voxel data vector.
   [[nodiscard]] std::vector<VoxelData>& RefData();
 };
 

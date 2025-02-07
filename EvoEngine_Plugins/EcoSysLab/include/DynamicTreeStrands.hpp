@@ -1,3 +1,4 @@
+
 #pragma once
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"
@@ -8,117 +9,267 @@
 
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {
+
+/**
+ * @class DynamicTreeStrands
+ * @brief Handles the dynamic strand physics simulation for tree models.
+ */
 class DynamicTreeStrands : public IPrivateComponent {
-  Handle foliage_rendering_instance_handle;
-  Handle small_segments_rendering_instance_handle;
-  Handle mesh_wireframe_rendering_instance_handle;
+  Handle foliage_rendering_instance_handle;         ///< Handle for foliage rendering instance.
+  Handle small_segments_rendering_instance_handle;  ///< Handle for small segment rendering instance.
+  Handle mesh_wireframe_rendering_instance_handle;  ///< Handle for mesh wireframe rendering instance.
 
  public:
-  int seed = 0;
-  StrandModelSkeleton strand_model_skeleton{};
-  DtsStrandGroup subdivided_strand_group{};
+  int seed = 0;                                 ///< Seed for procedural generation.
+  StrandModelSkeleton strand_model_skeleton{};  ///< Skeleton structure for strand models.
+  DtsStrandGroup subdivided_strand_group{};     ///< Subdivided group of strands.
 
-  DynamicStrands::InitializeParameters initialize_parameters{};
-  bool enable_physics = true;
-  std::shared_ptr<DynamicStrands> dynamic_strands{};
+  DynamicStrands::InitializeParameters initialize_parameters{};  ///< Initialization parameters for DynamicStrands.
+  bool enable_physics = true;                                    ///< Flag to enable or disable physics simulation.
+  std::shared_ptr<DynamicStrands> dynamic_strands{};             ///< Shared pointer to DynamicStrands instance.
 
+  /**
+   * @struct PivotTransform
+   * @brief Defines a transform pivot point for strands.
+   */
   struct PivotTransform {
-    Entity target_entity;
-    std::shared_ptr<DsPivotTransform> ds_pivot_transform;
+    Entity target_entity;                                  ///< Target entity associated with this pivot.
+    std::shared_ptr<DsPivotTransform> ds_pivot_transform;  ///< Transform pivot.
   };
+
+  /**
+   * @struct PivotAxis
+   * @brief Defines an axis pivot point for strands.
+   */
   struct PivotAxis {
-    Entity target_entity;
-    std::shared_ptr<DsPivotAxis> ds_pivot_axis;
+    Entity target_entity;                        ///< Target entity associated with this pivot.
+    std::shared_ptr<DsPivotAxis> ds_pivot_axis;  ///< Axis pivot.
   };
+
+  /**
+   * @struct PivotPoint
+   * @brief Defines a point pivot point for strands.
+   */
   struct PivotPoint {
-    Entity target_entity;
-    std::shared_ptr<DsPivotPoint> ds_pivot_point;
+    Entity target_entity;                          ///< Target entity associated with this pivot.
+    std::shared_ptr<DsPivotPoint> ds_pivot_point;  ///< Point pivot.
   };
-  bool limit_strand_length = false;
-  float max_strand_length = 1.f;
 
-  std::vector<PivotPoint> point_pivots;
-  std::vector<PivotAxis> axis_pivots;
-  std::vector<PivotTransform> transform_pivots;
+  bool limit_strand_length = false;  ///< Flag to limit strand length.
+  float max_strand_length = 1.f;     ///< Maximum allowable strand length.
 
-  AssetRef bark_material_ref;
-  AssetRef inner_wood_material_ref;
-  AssetRef splinter_material_ref;
-  AssetRef leaf_material_ref;
-  AssetRef snow_material_ref;
-  AssetRef segment_pair_material_ref;
-  AssetRef wireframe_material_ref;
-  std::shared_ptr<DsBoxSelection> box_selection_operator;
-  std::shared_ptr<DsLineCut> line_cut_operator;
-  std::shared_ptr<DsPointCut> point_cut_operator;
-  std::shared_ptr<DsSaw> saw_operator;
-  std::shared_ptr<DsDrag> drag_operator;
-  std::shared_ptr<DsLeafDrop> leaf_drop;
-  std::shared_ptr<DsSnow> snow;
-  std::shared_ptr<DsWind> wind;
-  std::shared_ptr<DsStopAll> stop_all;
+  std::vector<PivotPoint> point_pivots;          ///< List of point pivots.
+  std::vector<PivotAxis> axis_pivots;            ///< List of axis pivots.
+  std::vector<PivotTransform> transform_pivots;  ///< List of transform pivots.
 
+  AssetRef bark_material_ref;          ///< Reference to bark material asset.
+  AssetRef inner_wood_material_ref;    ///< Reference to inner wood material asset.
+  AssetRef splinter_material_ref;      ///< Reference to splinter material asset.
+  AssetRef leaf_material_ref;          ///< Reference to leaf material asset.
+  AssetRef snow_material_ref;          ///< Reference to snow material asset.
+  AssetRef segment_pair_material_ref;  ///< Reference to segment pair material asset.
+  AssetRef wireframe_material_ref;     ///< Reference to wireframe material asset.
+
+  std::shared_ptr<DsBoxSelection> box_selection_operator;  ///< Operator for box selection.
+  std::shared_ptr<DsLineCut> line_cut_operator;            ///< Operator for line cutting.
+  std::shared_ptr<DsPointCut> point_cut_operator;          ///< Operator for point cutting.
+  std::shared_ptr<DsSaw> saw_operator;                     ///< Operator for saw operation.
+  std::shared_ptr<DsDrag> drag_operator;                   ///< Operator for dragging operation.
+  std::shared_ptr<DsLeafDrop> leaf_drop;                   ///< Operator for simulating leaf drop.
+  std::shared_ptr<DsSnow> snow;                            ///< Operator for simulating snow effects.
+  std::shared_ptr<DsWind> wind;                            ///< Operator for wind simulation.
+  std::shared_ptr<DsStopAll> stop_all;                     ///< Operator to stop all physics interactions.
+
+  /**
+   * @brief Updates the dynamic strands simulation.
+   */
   void UpdateDynamicStrands();
+
+  /**
+   * @brief Creates a static root structure for the tree strands.
+   */
   void CreateStaticRoot();
+
+  /**
+   * @brief Serializes the object data to YAML format.
+   * @param out YAML emitter to store serialized data.
+   */
   void Serialize(YAML::Emitter& out) const override;
+
+  /**
+   * @brief Deserializes the object data from YAML format.
+   * @param in YAML node containing serialized data.
+   */
   void Deserialize(const YAML::Node& in) override;
+
+  /**
+   * @brief Inspects and modifies the object in the editor.
+   * @param editor_layer Shared pointer to editor layer.
+   * @return True if the content is not modified, false otherwise.
+   */
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+
+  /**
+   * @brief Called upon creation of the component.
+   */
   void OnCreate() override;
+
+  /**
+   * @brief Called upon destruction of the component.
+   */
   void OnDestroy() override;
+
+  /**
+   * @brief Collects references to all asset resources.
+   * @param list Vector to store collected asset references.
+   */
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 
+  /**
+   * @enum PivotType
+   * @brief Types of pivot points for dynamic strands.
+   */
   enum class PivotType { Empty, Point, Axis, Transform };
 
+  /**
+   * @struct BoardExperimentSetupSettings
+   * @brief Settings for board experiment setup.
+   */
   struct BoardExperimentSetupSettings {
-    float segment_length = 0.05f;
-    float radius = 0.002f;
-    glm::ivec3 rod_dimension = {20, 40, 20};
-    unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);
-    unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);
-    float center_damage = 0.5f;
-    float center_distance_offset = 0.1f;
-    float center_damage_transition = 0.1f;
-    glm::vec3 initial_velocity = glm::vec3(0.f);
-    glm::vec3 initial_angular_velocity = glm::vec3(0.f);
+    float segment_length = 0.05f;                                            ///< Length of each segment.
+    float radius = 0.002f;                                                   ///< Radius of each strand.
+    glm::ivec3 rod_dimension = {20, 40, 20};                                 ///< Dimensions of the rod structure.
+    unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);  ///< Type of left pivot.
+    unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);     ///< Type of right pivot.
+    float center_damage = 0.5f;                                              ///< Damage factor at the center.
+    float center_distance_offset = 0.1f;                                     ///< Offset distance from the center.
+    float center_damage_transition = 0.1f;                                   ///< Damage transition factor.
+    glm::vec3 initial_velocity = glm::vec3(0.f);                             ///< Initial velocity of the structure.
+    glm::vec3 initial_angular_velocity = glm::vec3(0.f);  ///< Initial angular velocity of the structure.
+
+    /**
+     * @brief Inspects board experiment settings in the editor.
+     * @param editor_layer Shared pointer to editor layer.
+     * @return True if the content is not modified, false otherwise.
+     */
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
+
+  /**
+   * @struct LogExperimentSetupSettings
+   * @brief Settings for log experiment setup.
+   */
   struct LogExperimentSetupSettings {
-    float segment_length = 0.05f;
-    float radius = 0.002f;
-    int rod_size = 800;
-    int rod_segment_count = 20;
-    float center_attraction_strength = 40000;
-    float center_damage = 0.5f;
-    float center_distance_offset = 0.1f;
-    float center_damage_transition = 0.1f;
-    unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);
-    unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);
-    glm::vec3 initial_velocity = glm::vec3(0.f);
-    glm::vec3 initial_angular_velocity = glm::vec3(0.f);
-    bool lock_upper = false;
-    bool t_cut = false;
-    float t_cut_width = 0.7f;
+    float segment_length = 0.05f;              ///< Length of each segment.
+    float radius = 0.002f;                     ///< Radius of each strand.
+    int rod_size = 800;                        ///< Size of the rod structure.
+    int rod_segment_count = 20;                ///< Number of segments in the rod.
+    float center_attraction_strength = 40000;  ///< Strength of the center attraction force.
+    float center_damage = 0.5f;                ///< Damage factor at the center.
+    float center_distance_offset = 0.1f;       ///< Offset distance from the center.
+    float center_damage_transition = 0.1f;     ///< Damage transition factor.
+    unsigned left_pivot_type = static_cast<unsigned>(PivotType::Transform);  ///< Type of left pivot.
+    unsigned right_pivot_type = static_cast<unsigned>(PivotType::Empty);     ///< Type of right pivot.
+    glm::vec3 initial_velocity = glm::vec3(0.f);                             ///< Initial velocity of the structure.
+    glm::vec3 initial_angular_velocity = glm::vec3(0.f);  ///< Initial angular velocity of the structure.
+    bool lock_upper = false;                              ///< Flag to lock the upper part.
+    bool t_cut = false;                                   ///< Flag to enable T-cut operation.
+    float t_cut_width = 0.7f;                             ///< Width of the T-cut.
+
+    /**
+     * @brief Inspects log experiment settings in the editor.
+     * @param editor_layer Shared pointer to editor layer.
+     * @return True if the content is not modified, false otherwise.
+     */
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
+
+  /**
+   * @brief Sets up a board experiment with the given settings.
+   * @param settings Configuration settings for the board experiment.
+   */
   void BoardExperimentSetup(const BoardExperimentSetupSettings& settings);
+
+  /**
+   * @brief Sets up a log experiment with the given settings.
+   * @param settings Configuration settings for the log experiment.
+   */
   void LogExperimentSetup(const LogExperimentSetupSettings& settings);
+
+  /**
+   * @brief Initializes strand particles for the given strand group.
+   * @param target_strand_group Strand group to initialize particles for.
+   */
   void InitializeStrandParticles(const DtsStrandGroup& target_strand_group) const;
+
+  /**
+   * @brief Clears existing strand particles.
+   */
   void ClearStrandParticles() const;
 
+  /**
+   * @brief Advances the interaction step in the simulation.
+   */
   void InteractionStep() const;
+
+  /**
+   * @brief Initializes strand particles based on a tree structure.
+   * @param tree Shared pointer to the tree structure.
+   */
   void InitializeFromTree(const std::shared_ptr<Tree>& tree);
+
+  /**
+   * @brief Advances the physics simulation step.
+   * @param physics_parameters Parameters for the physics simulation step.
+   */
   void PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const;
 
+  /**
+   * @brief Renders visualizations for dynamic strands.
+   * @param target_camera Camera used for visualization.
+   * @param visualization_parameters Parameters for visualization rendering.
+   */
   void Visualization(const std::shared_ptr<Camera>& target_camera,
                      const DynamicStrands::VisualizationParameters& visualization_parameters) const;
+
+  /**
+   * @brief Registers rendering instance for branch visualization.
+   * @param render_parameters Parameters for branch rendering.
+   */
   void RegisterBranchesRenderInstance(const DynamicStrands::BranchesRenderParameters& render_parameters);
+
+  /**
+   * @brief Registers rendering instance for branch wireframe visualization.
+   * @param render_parameters Parameters for branch wireframe rendering.
+   */
   void RegisterBranchesWireframeRenderInstance(const DynamicStrands::BranchesRenderParameters& render_parameters);
+
+  /**
+   * @brief Registers rendering instance for small segment visualization.
+   * @param render_parameters Parameters for small segment rendering.
+   */
   void RegisterSmallSegmentsRenderInstance(const DynamicStrands::SmallSegmentsRenderParameters& render_parameters);
+
+  /**
+   * @brief Registers visualization render instance for small segments.
+   * @param render_parameters Parameters for small segment rendering.
+   * @param visualization_render_parameters Parameters for small segment visualization.
+   */
   void RegisterSmallSegmentsVisualizationRenderInstance(
       const DynamicStrands::SmallSegmentsRenderParameters& render_parameters,
       const DynamicStrands::SmallSegmentsVisualizationRenderParameters& visualization_render_parameters);
+
+  /**
+   * @brief Registers rendering instance for foliage visualization.
+   * @param render_parameters Parameters for foliage rendering.
+   */
   void RegisterFoliageRenderInstance(const DynamicStrands::FoliageRenderParameters& render_parameters);
 
+  /**
+   * @brief Registers rendering instance for segment pair visualization.
+   * @param render_parameters Parameters for segment pair rendering.
+   */
   void RegisterSegmentPairRenderInstance(const DynamicStrands::SegmentPairsRenderParameters& render_parameters);
 };
+
 }  // namespace eco_sys_lab_plugin

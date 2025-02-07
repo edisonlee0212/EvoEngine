@@ -1,54 +1,114 @@
+
 #pragma once
 #include "DynamicStrands.hpp"
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+
+/**
+ * @class DsPreStep
+ * @brief Handles the pre-step calculations for dynamic strands in GPU simulation.
+ */
 class DsPreStep {
  public:
+  /**
+   * @brief Constructor for DsPreStep.
+   */
   DsPreStep();
 
+  /**
+   * @struct SegmentPreStepPushConstant
+   * @brief Stores push constants for segment pre-step calculations.
+   */
   struct SegmentPreStepPushConstant {
-    glm::vec3 acceleration;
-    uint32_t segment_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
-  };
-  struct LeafPreStepPushConstant {
-    glm::vec3 acceleration;
-    uint32_t leaf_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
+    glm::vec3 acceleration;       ///< Acceleration applied to the segments.
+    uint32_t segment_size = 0;    ///< Number of segments.
+    float time_step = 0.01f;      ///< Time step for the simulation.
+    float inv_time_step = 100.f;  ///< Inverse of the time step.
   };
 
-  inline static std::shared_ptr<ComputePipeline> segment_pre_step_pipeline;
-  inline static std::shared_ptr<ComputePipeline> leaf_pre_step_pipeline;
+  /**
+   * @struct LeafPreStepPushConstant
+   * @brief Stores push constants for leaf pre-step calculations.
+   */
+  struct LeafPreStepPushConstant {
+    glm::vec3 acceleration;       ///< Acceleration applied to the leaves.
+    uint32_t leaf_size = 0;       ///< Number of leaves.
+    float time_step = 0.01f;      ///< Time step for the simulation.
+    float inv_time_step = 100.f;  ///< Inverse of the time step.
+  };
+
+  inline static std::shared_ptr<ComputePipeline> segment_pre_step_pipeline;  ///< Compute pipeline for segment pre-step.
+  inline static std::shared_ptr<ComputePipeline> leaf_pre_step_pipeline;     ///< Compute pipeline for leaf pre-step.
+
+  /**
+   * @brief Executes the pre-step calculations on the strands.
+   * @param physics_parameters The physics simulation parameters.
+   * @param target_dynamic_strands The target strand system.
+   */
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };
+
+/**
+ * @class DsPrediction
+ * @brief Handles the prediction step for dynamic strand simulation.
+ */
 class DsPrediction {
  public:
+  /**
+   * @brief Constructor for DsPrediction.
+   */
   DsPrediction();
+
+  /**
+   * @struct SegmentPredictionPushConstant
+   * @brief Stores push constants for segment prediction calculations.
+   */
   struct SegmentPredictionPushConstant {
-    uint32_t segment_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
+    uint32_t segment_size = 0;    ///< Number of segments.
+    float time_step = 0.01f;      ///< Time step for simulation.
+    float inv_time_step = 100.f;  ///< Inverse of the time step.
   };
+
+  /**
+   * @struct SegmentPairPredictionPushConstant
+   * @brief Stores push constants for segment pair prediction calculations.
+   */
   struct SegmentPairPredictionPushConstant {
-    uint32_t pair_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
+    uint32_t pair_size = 0;       ///< Number of segment pairs.
+    float time_step = 0.01f;      ///< Time step for simulation.
+    float inv_time_step = 100.f;  ///< Inverse of the time step.
   };
 
+  /**
+   * @struct LeafPredictionPushConstant
+   * @brief Stores push constants for leaf prediction calculations.
+   */
   struct LeafPredictionPushConstant {
-    uint32_t leaf_size = 0;
-    float time_step = 0.01f;
-    float inv_time_step = 100.f;
+    uint32_t leaf_size = 0;       ///< Number of leaves.
+    float time_step = 0.01f;      ///< Time step for simulation.
+    float inv_time_step = 100.f;  ///< Inverse of the time step.
   };
 
-  inline static std::shared_ptr<ComputePipeline> segment_prediction_pipeline;
-  inline static std::shared_ptr<ComputePipeline> segment_pair_prediction_pipeline;
+  inline static std::shared_ptr<ComputePipeline>
+      segment_prediction_pipeline;  ///< Compute pipeline for segment prediction.
+  inline static std::shared_ptr<ComputePipeline>
+      segment_pair_prediction_pipeline;  ///< Compute pipeline for segment pair prediction.
+  inline static std::shared_ptr<ComputePipeline> leaf_prediction_pipeline;  ///< Compute pipeline for leaf prediction.
+
+  /**
+   * @brief Inspects the object's properties in the editor.
+   * @param editor_layer The editor layer used to inspect the object.
+   * @return True if the asset content remains unmodified.
+   */
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
-  inline static std::shared_ptr<ComputePipeline> leaf_prediction_pipeline;
+
+  /**
+   * @brief Executes the prediction step on the strands.
+   * @param physics_parameters The physics simulation parameters.
+   * @param target_dynamic_strands The target strand system.
+   */
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };

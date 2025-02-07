@@ -6,80 +6,163 @@
 #include "Vertex.hpp"
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {
+/**
+ * @struct RingSegment
+ * @brief Represents a cylindrical ring segment of a tree structure.
+ */
 struct RingSegment {
-  float start_a, end_a;
-  glm::vec3 start_position, end_position;
-  glm::vec3 start_axis, end_axis;
-  float start_radius, end_radius;
-  float start_distance_to_root;
-  float end_distance_to_root;
+  float start_a, end_a;                    ///< Angular range defining the segment.
+  glm::vec3 start_position, end_position;  ///< Start and end positions of the segment.
+  glm::vec3 start_axis, end_axis;          ///< Axial directions at start and end.
+  float start_radius, end_radius;          ///< Radii at start and end.
+  float start_distance_to_root;            ///< Distance from the root to the start of the segment.
+  float end_distance_to_root;              ///< Distance from the root to the end of the segment.
+
+  /**
+   * @brief Default constructor.
+   */
   RingSegment() = default;
 
+  /**
+   * @brief Constructs a ring segment with the specified parameters.
+   * @param start_a Start angle.
+   * @param end_a End angle.
+   * @param start_position Start position.
+   * @param end_position End position.
+   * @param start_axis Axis at the start.
+   * @param end_axis Axis at the end.
+   * @param start_radius Radius at the start.
+   * @param end_radius Radius at the end.
+   * @param start_distance_to_root Distance from the root to the start.
+   * @param end_distance_to_root Distance from the root to the end.
+   */
   RingSegment(float start_a, float end_a, glm::vec3 start_position, glm::vec3 end_position, glm::vec3 start_axis,
               glm::vec3 end_axis, float start_radius, float end_radius, float start_distance_to_root,
               float end_distance_to_root);
 
+  /**
+   * @brief Appends the vertices of the segment to the provided vertex list.
+   * @param vertices The list of vertices to append to.
+   * @param normal_dir The normal direction for the segment.
+   * @param step The number of subdivisions.
+   */
   void AppendPoints(std::vector<Vertex>& vertices, glm::vec3& normal_dir, int step);
 
+  /**
+   * @brief Computes a point in the segment based on normal direction and angle.
+   * @param normal_dir The normal direction.
+   * @param angle The angle at which the point is computed.
+   * @param is_start Whether the point is at the start of the segment.
+   * @param multiplier Optional multiplier for the point position.
+   * @return Computed 3D point.
+   */
   [[nodiscard]] glm::vec3 GetPoint(const glm::vec3& normal_dir, float angle, bool is_start,
                                    float multiplier = 0.0f) const;
+
+  /**
+   * @brief Computes the direction of the segment at a given angle.
+   * @param normal_dir The normal direction.
+   * @param angle The angle at which the direction is computed.
+   * @param is_start Whether the direction is at the start of the segment.
+   * @return Computed direction vector.
+   */
   [[nodiscard]] glm::vec3 GetDirection(const glm::vec3& normal_dir, float angle, bool is_start) const;
 };
 
+/**
+ * @struct PresentationOverrideSettings
+ * @brief Holds settings for overriding the tree presentation.
+ */
 struct PresentationOverrideSettings {
-  float max_thickness = 0.0f;
+  float max_thickness = 0.0f;  ///< The maximum thickness allowed when overriding.
 };
 
+/**
+ * @struct TreeMeshGeneratorSettings
+ * @brief Stores configurable settings for generating tree meshes.
+ */
 struct TreeMeshGeneratorSettings {
+  /**
+   * @enum VertexColorMode
+   * @brief Enum representing different vertex coloring modes.
+   */
   enum class VertexColorMode {
-    InternodeColor,
-    Junction,
+    InternodeColor,  ///< Colors vertices with internode information.
+    Junction,        ///< Colors vertices with junction information.
   };
-  unsigned vertex_color_mode = static_cast<unsigned>(VertexColorMode::InternodeColor);
 
-  bool enable_foliage = true;
-  bool foliage_instancing = true;
-  bool enable_fruit = false;
-  bool enable_branch = true;
+  unsigned vertex_color_mode = static_cast<unsigned>(VertexColorMode::InternodeColor);  ///< Vertex color mode.
 
-  bool presentation_override = false;
-  PresentationOverrideSettings presentation_override_settings = {};
-  bool stitch_all_children = false;
-  float trunk_thickness = 0.1f;
-  float x_subdivision = 0.01f;
-  float trunk_y_subdivision = 0.01f;
-  float branch_y_subdivision = 0.01f;
+  bool enable_foliage = true;      ///< Enables foliage.
+  bool foliage_instancing = true;  ///< Enables foliage instancing.
+  bool enable_fruit = false;       ///< Enables fruit generation.
+  bool enable_branch = true;       ///< Enables branch generation.
 
-  float radius_multiplier = 1.f;
-  bool override_radius = false;
-  float radius = 0.01f;
-  float base_control_point_ratio = 0.3f;
-  float branch_control_point_ratio = 0.3f;
-  bool smoothness = true;
+  bool presentation_override = false;                                ///< Enables overriding of presentation settings.
+  PresentationOverrideSettings presentation_override_settings = {};  ///< Presentation override settings.
+  bool stitch_all_children = false;                                  ///< Enables stitching of all child nodes.
+  float trunk_thickness = 0.1f;                                      ///< Thickness of the trunk.
+  float x_subdivision = 0.01f;                                       ///< X-axis subdivision step.
+  float trunk_y_subdivision = 0.01f;                                 ///< Y-axis subdivision step for the trunk.
+  float branch_y_subdivision = 0.01f;                                ///< Y-axis subdivision step for branches.
 
-  bool auto_level = true;
-  int voxel_subdivision_level = 10;
-  int voxel_smooth_iteration = 5;
-  bool remove_duplicate = true;
+  float radius_multiplier = 1.f;            ///< Multiplier for radius computation.
+  bool override_radius = false;             ///< Enables radius override.
+  float radius = 0.01f;                     ///< Fixed radius when overriding is enabled.
+  float base_control_point_ratio = 0.3f;    ///< Ratio for base control points.
+  float branch_control_point_ratio = 0.3f;  ///< Ratio for branch control points.
+  bool smoothness = true;                   ///< Enables smoother geometry.
 
-  unsigned branch_mesh_type = 0;
+  bool auto_level = true;            ///< Enables automatic subdivision leveling.
+  int voxel_subdivision_level = 10;  ///< Level of voxel subdivision.
+  int voxel_smooth_iteration = 5;    ///< Number of smoothing iterations.
+  bool remove_duplicate = true;      ///< Removes duplicate vertices.
 
-  float tree_part_base_distance = 0.5f;
-  float tree_part_end_distance = 2.f;
-  float tree_part_break_ratio = 4.0f;
+  unsigned branch_mesh_type = 0;  ///< Type of branch mesh.
 
-  float marching_cube_radius = 0.01f;
+  float tree_part_base_distance = 0.5f;  ///< Base distance for tree parts.
+  float tree_part_end_distance = 2.f;    ///< End distance for tree parts.
+  float tree_part_break_ratio = 4.0f;    ///< Ratio for breaking tree parts.
 
+  float marching_cube_radius = 0.01f;  ///< Radius for marching cubes.
+
+  /**
+   * @brief Inspects the tree mesh generator settings.
+   * @param editor_layer The editor layer requesting the inspection.
+   */
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 
+  /**
+   * @brief Saves the settings to YAML format.
+   * @param name The name of the settings.
+   * @param out The YAML emitter to save the settings into.
+   */
   void Save(const std::string& name, YAML::Emitter& out);
 
+  /**
+   * @brief Loads the settings from YAML format.
+   * @param name The name of the settings to load.
+   * @param in The YAML node containing the settings data.
+   */
   void Load(const std::string& name, const YAML::Node& in);
 };
 
+/**
+ * @class CylindricalMeshGenerator
+ * @brief Generates a cylindrical tree mesh based on a skeleton structure.
+ */
 template <typename SkeletonData, typename FlowData, typename NodeData>
 class CylindricalMeshGenerator {
  public:
+  /**
+   * @brief Generates a cylindrical tree mesh from the given skeleton.
+   * @param skeleton The tree skeleton.
+   * @param vertices The output vertex buffer.
+   * @param indices The output index buffer.
+   * @param settings The tree mesh generator settings.
+   * @param vertex_position_modifier A function to modify the vertex position.
+   * @param tex_coords_modifier A function to modify texture coordinates.
+   */
   static void Generate(
       const Skeleton<SkeletonData, FlowData, NodeData>& skeleton, std::vector<Vertex>& vertices,
       std::vector<unsigned int>& indices, const TreeMeshGeneratorSettings& settings,
@@ -87,6 +170,16 @@ class CylindricalMeshGenerator {
                                float distance_to_root)>& vertex_position_modifier,
       const std::function<void(glm::vec2& tex_coords, float x_factor, float distance_to_root)>& tex_coords_modifier);
 
+  /**
+   * @brief Generates a partial tree mesh including only specified nodes.
+   * @param node_handles A set of nodes to generate.
+   * @param skeleton The tree skeleton.
+   * @param vertices The output vertex buffer.
+   * @param indices The output index buffer.
+   * @param settings The tree mesh generator settings.
+   * @param vertex_position_modifier A function to modify vertex positions.
+   * @param tex_coords_modifier A function to modify texture coordinates.
+   */
   static void GeneratePartially(
       const std::unordered_set<SkeletonNodeHandle>& node_handles,
       const Skeleton<SkeletonData, FlowData, NodeData>& skeleton, std::vector<Vertex>& vertices,
@@ -102,12 +195,16 @@ class VoxelMeshGenerator {
                        std::vector<unsigned int>& indices, const TreeMeshGeneratorSettings& settings);
 };
 
+/**
+ * @struct TreePartInfo
+ * @brief Stores information about different tree parts.
+ */
 struct TreePartInfo {
-  int tree_part_index = -1;
-  int line_index = -1;
-  int tree_part_type = 0;
-  float distance_to_start = 0.0f;
-  SkeletonFlowHandle base_flow_handle = -1;
+  int tree_part_index = -1;                  ///< Index of the tree part.
+  int line_index = -1;                       ///< Index of the line.
+  int tree_part_type = 0;                    ///< Type of tree part.
+  float distance_to_start = 0.0f;            ///< Distance to the start of the part.
+  SkeletonFlowHandle base_flow_handle = -1;  ///< Flow handle at the base.
 };
 
 template <typename SkeletonData, typename FlowData, typename NodeData>
