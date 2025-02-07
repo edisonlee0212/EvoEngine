@@ -811,7 +811,12 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
     max_dist_from_root = std::max(max_dist_from_root, uniform_particles[i].segment_index);
   }
 
-  std::vector<std::map<int, std::vector<size_t>>> bundle_maps(max_dist_from_root + 1);
+  struct Bundle {
+    std::vector<size_t> particles;
+    std::vector<size_t> triangulation;
+  };
+
+  std::vector<std::map<int, Bundle>> bundle_maps(max_dist_from_root + 1);
   std::vector<size_t> offsets(max_dist_from_root + 1, 0);
   std::vector<std::vector<size_t>> particle_adjacent_tets(uniform_particles.size(), std::vector<size_t>{});
 
@@ -820,27 +825,60 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
     auto& node_handle = particle.node_index;
 
     if (bundle_maps[particle.segment_index].find(node_handle) == bundle_maps[particle.segment_index].end()) {
-      bundle_maps[particle.segment_index][node_handle] = std::vector<size_t>();
+      bundle_maps[particle.segment_index][node_handle] = Bundle();
     }
 
-    bundle_maps[particle.segment_index][node_handle].push_back(i);
+    bundle_maps[particle.segment_index][node_handle].particles.push_back(i);
   }
 
+  // Triangulate each bundle
+  Jobs::RunParallelFor(bundle_maps.size(), [&](const size_t d) {
+    offsets[d] = tetrahedrons.size();
+    auto& map = bundle_maps[d];
+    Jobs::RunParallelFor(map.size(), [&](const size_t i) {
+      auto& kv_pair = *std::next(map.begin(), i);
+      auto& bundle = kv_pair.second;
+
+      std::vector<float> points;
+
+      for (auto& particle_index : bundle.particles) {
+        auto& particle = uniform_particles[particle_index];
+
+        points.push_back(particle.profile_position.x);
+        points.push_back(particle.profile_position.y);
+      }
+
+      Delaunator::Delaunator2D delaunator(points);
+      for (std::size_t i = 0; i < delaunator.triangles.size(); i += 3) {
+        const auto& v0 = delaunator.triangles[i];
+        const auto& v1 = delaunator.triangles[i + 1];
+        const auto& v2 = delaunator.triangles[i + 2];
+
+        bundle.triangulation.push_back(v0);
+        bundle.triangulation.push_back(v1);
+        bundle.triangulation.push_back(v2);
+      }
+    });
+  });
+
   // TODO: "squish" each bundle such that no internal degenerate tetrahedrons occur
-#ifdef USE_CGAL
+
   // triangulate each bundle:
-  for (int d = 0; d < bundle_maps.size(); d++) {
+  for (int d = 0; d < bundle_maps.size() - 1; d++) {  // skip the last one as there is no match above
     offsets[d] = tetrahedrons.size();
     auto& map = bundle_maps[d];
     for (auto& kv_pair : map) {
+      const int& node_handle = kv_pair.first;
       auto& bundle = kv_pair.second;
-      std::vector<std::pair<Point_CGAL, unsigned>> points;
+      std::vector<glm::vec3> points;
+      std::vector<unsigned int> triangles;
 
-      if (bundle.size() < 3) {
+      if (bundle.particles.size() < 3) {
         continue;
       }
 
-      for (size_t i : bundle) {
+      // collect points from this plane
+      for (size_t i : bundle.particles) {
         auto& particle = uniform_particles[i];
 
         if (particle.next_particle_handle == -1) {
@@ -848,120 +886,109 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
           // TODO: probably even means we can skip this bundle entirely
         }
 
-        auto& next_particle = uniform_particles[particle.next_particle_handle];
-
-        float squish_weight = 0.0f;
-
-        glm::vec3 squished_position =
-            squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
-
-        Point_CGAL p0_cgal(particle.position[0], particle.position[1], particle.position[2]);
-        Point_CGAL p1_cgal(squished_position[0], squished_position[1], squished_position[2]);
-
-        points.emplace_back(p0_cgal, i);
-        points.emplace_back(p1_cgal, particle.next_particle_handle);
+        points.emplace_back(particle.position);
       }
 
-      CGALDelaunay(points, tetrahedrons);
-    }
-  }
-#else
-  for (int d = 0; d < bundle_maps.size(); d++) {
-    offsets[d] = tetrahedrons.size();
-    auto& map = bundle_maps[d];
-    for (auto& kv_pair : map) {
-      auto& bundle = kv_pair.second;
-      std::vector<glm::vec3> points;
-      std::vector<size_t> indices;
-
-      if (bundle.size() < 3) {
-        continue;
+      // collect triangles from this plane
+      for (size_t i = 0; i < bundle.triangulation.size(); i += 3) {
+        triangles.push_back(bundle.triangulation[i]);
+        triangles.push_back(bundle.triangulation[i + 1]);
+        triangles.push_back(bundle.triangulation[i + 2]);
       }
 
-      int end_of_strand_count = 0;
-      for (size_t i : bundle) {
-        auto& particle = uniform_particles[i];
+      // collect points from plane(s) above
 
-        glm::vec3 p0(particle.position[0], particle.position[1], particle.position[2]);
-        points.emplace_back(p0);
-        indices.emplace_back(i);
-
+      // collect nodes above
+      std::set<int> node_indices_above;
+      for (auto particle_index : bundle.particles) {
+        auto& particle = uniform_particles[particle_index];
         if (particle.next_particle_handle == -1) {
-          end_of_strand_count++;
-        } else {
-          auto& next_particle = uniform_particles[particle.next_particle_handle];
-
-          float squish_weight = 0.0f;
-
-          glm::vec3 squished_position =
-              squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
-
-          glm::vec3 p1(squished_position[0], squished_position[1], squished_position[2]);
-
-          points.emplace_back(p1);
-          indices.emplace_back(particle.next_particle_handle);
-        }
-      }
-
-      if (end_of_strand_count == bundle.size()) {
-        continue;
-      }
-
-      TetDelaunay(points, indices, tetrahedrons);
-    }
-  }
-#endif
-
-  std::mutex mtx;
-
-  Jobs::RunParallelFor(tetrahedrons.size(), [&](const size_t tet_index) {
-    auto& tet = tetrahedrons[tet_index];
-
-    for (size_t i = 0; i < 4; i++) {
-      if (tet.indices[i] == -1) {
-        continue;
-      }
-
-      if (tet.indices[i] >= particle_adjacent_tets.size()) {
-        EVOENGINE_ERROR("particle index out of range, skipping!");
-        continue;
-      }
-
-      mtx.lock();
-      particle_adjacent_tets[tet.indices[i]].emplace_back(tet_index);
-      mtx.unlock();
-    }
-  });
-
-  // now glue them back together
-  for (int particle_index = 0; particle_index < uniform_particles.size(); particle_index++) {
-    auto& adjacent_tets = particle_adjacent_tets[particle_index];
-
-    // can't be too many, brute force should work here;
-    for (size_t i = 0; i < adjacent_tets.size(); i++) {
-      for (size_t j = i + 1; j < adjacent_tets.size(); j++) {
-        auto& tet0 = tetrahedrons[adjacent_tets[i]];
-        auto& tet1 = tetrahedrons[adjacent_tets[j]];
-
-        // check if the two share a face
-        size_t occurs_in_both = 0;
-        size_t b_in_both = 0;
-
-        for (size_t i = 0; i < 4; i++) {
-          for (size_t j = 0; j < 4; j++) {
-            if (tet0.indices[i] == tet1.indices[j] && tet0.indices[i] != -1) {
-              occurs_in_both++;
-            }
-          }
-        }
-
-        if (occurs_in_both != 3) {
           continue;
         }
-        const auto mismatch_indices = DynamicStrandUtils::CompareIndices(tet0.indices, tet1.indices);
+        auto& next_particle = uniform_particles[particle.next_particle_handle];
+        if (node_indices_above.find(next_particle.node_index) == node_indices_above.end()) {
+          node_indices_above.insert(next_particle.node_index);
+        }
+      }
 
-        tet0.neighbor_tet_ids[mismatch_indices.first] = adjacent_tets[j];
-        tet1.neighbor_tet_ids[mismatch_indices.second] = adjacent_tets[i];
+      // for each node above, collect the points and triangles
+      for (auto node_index : node_indices_above) {
+        size_t offset = points.size();
+        auto& map_above = bundle_maps[d + 1];
+        if (map_above.find(node_index) == map_above.end()) {
+          continue;
+        }
+
+        // collect points
+        auto& bundle_above = map_above[node_index];
+        for (size_t i : bundle_above.particles) {
+          auto& particle = uniform_particles[bundle.particles[i]];
+          points.emplace_back(particle.position);
+        }
+
+        // collect triangles
+        for (size_t i = 0; i < bundle_above.triangulation.size(); i += 3) {
+          triangles.push_back(bundle_above.triangulation[i] + offset);
+          triangles.push_back(bundle_above.triangulation[i + 1] + offset);
+          triangles.push_back(bundle_above.triangulation[i + 2] + offset);
+        }
+      }
+
+      // run constrained Delaunay triangulation
+      auto tets = Delaunay3D::GenerateTetrahedronsConstrained(points, triangles);
+
+      std::mutex mtx;
+
+      Jobs::RunParallelFor(tetrahedrons.size(), [&](const size_t tet_index) {
+        auto& tet = tetrahedrons[tet_index];
+
+        for (size_t i = 0; i < 4; i++) {
+          if (tet.indices[i] == -1) {
+            continue;
+          }
+
+          if (tet.indices[i] >= particle_adjacent_tets.size()) {
+            EVOENGINE_ERROR("particle index out of range, skipping!");
+            continue;
+          }
+
+          mtx.lock();
+          particle_adjacent_tets[tet.indices[i]].emplace_back(tet_index);
+          mtx.unlock();
+        }
+      });
+
+      // now glue them back together
+      for (int particle_index = 0; particle_index < uniform_particles.size(); particle_index++) {
+        auto& adjacent_tets = particle_adjacent_tets[particle_index];
+
+        // can't be too many, brute force should work here;
+        for (size_t i = 0; i < adjacent_tets.size(); i++) {
+          for (size_t j = i + 1; j < adjacent_tets.size(); j++) {
+            auto& tet0 = tetrahedrons[adjacent_tets[i]];
+            auto& tet1 = tetrahedrons[adjacent_tets[j]];
+
+            // check if the two share a face
+            size_t occurs_in_both = 0;
+            size_t b_in_both = 0;
+
+            for (size_t i = 0; i < 4; i++) {
+              for (size_t j = 0; j < 4; j++) {
+                if (tet0.indices[i] == tet1.indices[j] && tet0.indices[i] != -1) {
+                  occurs_in_both++;
+                }
+              }
+            }
+
+            if (occurs_in_both != 3) {
+              continue;
+            }
+            const auto mismatch_indices = DynamicStrandUtils::CompareIndices(tet0.indices, tet1.indices);
+
+            tet0.neighbor_tet_ids[mismatch_indices.first] = adjacent_tets[j];
+            tet1.neighbor_tet_ids[mismatch_indices.second] = adjacent_tets[i];
+          }
+        }
       }
     }
   }
@@ -1011,7 +1038,8 @@ void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsign
         uniform_particles[gpu_tet.indices[3]].position, uniform_particles[gpu_tet.indices[0]].position,
         uniform_particles[gpu_tet.indices[1]].position, uniform_particles[gpu_tet.indices[2]].position);
 
-    if (d > 0)  // point no. 3 is in front if the triangle 0 1 2, we need to correct this so the triangles face outwards
+    if (d > 0)  // point no. 3 is in front if the triangle 0 1 2, we need to correct this so the triangles face
+                // outwards
     {
       std::swap(gpu_tet.indices[1], gpu_tet.indices[2]);
     }
@@ -1095,7 +1123,8 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
         uniform_particles[gpu_tet.indices[3]].position, uniform_particles[gpu_tet.indices[0]].position,
         uniform_particles[gpu_tet.indices[1]].position, uniform_particles[gpu_tet.indices[2]].position);
 
-    if (d > 0)  // point no. 3 is in front if the triangle 0 1 2, we need to correct this so the triangles face outwards
+    if (d > 0)  // point no. 3 is in front if the triangle 0 1 2, we need to correct this so the triangles face
+                // outwards
     {
       std::swap(gpu_tet.indices[1], gpu_tet.indices[2]);
     }

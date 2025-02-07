@@ -52,6 +52,16 @@ class Delaunay3D {
   static std::vector<Tetrahedron> GenerateTetrahedrons(const std::vector<glm::vec3>& points);
 
   /**
+   * @brief Generates a list of tetrahedrons by performing Delaunay triangulation on a set of points.
+   *
+   * @param points A vector containing the set of points in 3D space.
+   * @param triangles A vector of triangles that act as a constraint for the triangulation
+   * #return A vector containing the generated tetrahedrons.
+   */
+  static std::vector<Delaunay3D::Tetrahedron> GenerateTetrahedronsConstrained(
+      const std::vector<glm::vec3>& points, const std::vector<unsigned int>& triangles);
+
+  /**
    * @brief Finds the outer shell triangles of a set of tetrahedrons.
    *
    * @param tetrahedrons A vector containing the tetrahedrons.

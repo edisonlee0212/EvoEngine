@@ -124,6 +124,80 @@ std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedrons(const std:
   return tetrahedrons;
 }
 
+std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedronsConstrained(
+    const std::vector<glm::vec3>& points, const std::vector<unsigned int>& triangles) {
+  std::vector<Tetrahedron> tetrahedrons{};
+
+  tetgenbehavior behavior{};  // Default behavior (Delaunay tetrahedralization)
+  behavior.zeroindex = 1;
+  behavior.neighout = 1;
+  behavior.quiet = 1;
+  tetgenio in, out;
+
+  // Define vertices
+  in.numberofpoints = points.size();
+  in.pointlist = new double[in.numberofpoints * 3];
+  Jobs::RunParallelFor(points.size(), [&](const auto i) {
+    in.pointlist[i * 3] = points[i].x;
+    in.pointlist[i * 3 + 1] = points[i].y;
+    in.pointlist[i * 3 + 2] = points[i].z;
+  });
+
+  // Define facets (triangles)
+  in.numberoffacets = triangles.size() / 3;  // Number of triangle constraints
+  in.facetlist = new tetgenio::facet[in.numberoffacets];
+  in.facetmarkerlist = new int[in.numberoffacets];  // Optional, for labeling
+
+  // Define a single facet (triangle)
+  tetgenio::facet* f = &in.facetlist[0];
+  tetgenio::init(f);        // Initialize facet
+  f->numberofpolygons = 1;  // One polygon (the triangle itself)
+  f->polygonlist = new tetgenio::polygon[f->numberofpolygons];
+  f->numberofholes = 0;
+  f->holelist = nullptr;
+
+  Jobs::RunParallelFor(triangles.size() / 3, [&](const auto i) {
+    tetgenio::polygon* p = &f->polygonlist[i];
+    p->numberofvertices = 3;  // Triangle has 3 vertices
+    p->vertexlist = new int[p->numberofvertices];
+    p->vertexlist[0] = triangles[i * 3];      // Vertex index 0
+    p->vertexlist[1] = triangles[i * 3 + 1];  // Vertex index 1
+    p->vertexlist[2] = triangles[i * 3 + 2];  // Vertex index 2
+  });
+
+  // No holes or regions
+  in.numberofholes = 0;
+  in.numberofregions = 0;
+
+  try {
+    tetrahedralize(&behavior, &in, &out);
+  } catch (const int err) {
+    EVOENGINE_ERROR("Error during tetrahedralization: " + std::to_string(err));
+  }
+
+  tetrahedrons.resize(out.numberoftetrahedra);
+  Jobs::RunParallelFor(out.numberoftetrahedra, [&](const auto i) {
+    auto& tetrahedron = tetrahedrons[i];
+    tetrahedron.v[0] = out.tetrahedronlist[i * 4];
+    tetrahedron.v[1] = out.tetrahedronlist[i * 4 + 1];
+    tetrahedron.v[2] = out.tetrahedronlist[i * 4 + 2];
+    tetrahedron.v[3] = out.tetrahedronlist[i * 4 + 3];
+    tetrahedron.neighbor_tet_indices[0] = out.neighborlist[i * 4];
+    tetrahedron.neighbor_tet_indices[1] = out.neighborlist[i * 4 + 1];
+    tetrahedron.neighbor_tet_indices[2] = out.neighborlist[i * 4 + 2];
+    tetrahedron.neighbor_tet_indices[3] = out.neighborlist[i * 4 + 3];
+    tetrahedron.volume = CalculateTetrahedronVolume(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
+                                                    points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
+    tetrahedron.circumradius = CalculateTetrahedronCircumradius(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
+                                                                points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
+  });
+
+  // Clean up
+  delete[] in.pointlist;
+
+  return tetrahedrons;
+}
+
 std::vector<glm::uvec3> Delaunay3D::GenerateConvexHullTriangles(const std::vector<glm::vec3>& points) {
   std::vector<glm::uvec3> triangles{};
 #if USE_GEOGRAM
