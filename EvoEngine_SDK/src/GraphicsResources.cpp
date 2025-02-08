@@ -87,9 +87,9 @@ Swapchain::Swapchain(const VkSwapchainCreateInfoKHR& swap_chain_create_info) {
   const auto& device = Platform::GetVkDevice();
   Platform::CheckVk(vkCreateSwapchainKHR(Platform::GetVkDevice(), &swap_chain_create_info, nullptr, &vk_swapchain_));
   uint32_t image_count = 0;
-  vkGetSwapchainImagesKHR(device, vk_swapchain_, &image_count, nullptr);
+  Platform::CheckVk(vkGetSwapchainImagesKHR(device, vk_swapchain_, &image_count, nullptr));
   vk_images_.resize(image_count);
-  vkGetSwapchainImagesKHR(device, vk_swapchain_, &image_count, vk_images_.data());
+  Platform::CheckVk(vkGetSwapchainImagesKHR(device, vk_swapchain_, &image_count, vk_images_.data()));
   flags_ = swap_chain_create_info.flags;
   surface_ = swap_chain_create_info.surface;
   min_image_count_ = swap_chain_create_info.minImageCount;
@@ -289,8 +289,8 @@ Image::Image(VkImageCreateInfo image_create_info) {
 #endif
   VmaAllocationCreateInfo alloc_info = {};
   alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
-  if (vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &alloc_info, &vk_image_, &vma_allocation_,
-                     &vma_allocation_info_)) {
+  if (Platform::CheckVk(vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &alloc_info, &vk_image_,
+                                       &vma_allocation_, &vma_allocation_info_))) {
     throw std::runtime_error("Failed to create image!");
   }
   flags_ = image_create_info.flags;
@@ -323,8 +323,8 @@ Image::Image(VkImageCreateInfo image_create_info, const VmaAllocationCreateInfo&
 
   image_create_info.pNext = &vk_external_mem_image_create_info;
 #endif
-  if (vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &vma_allocation_create_info, &vk_image_,
-                     &vma_allocation_, &vma_allocation_info_)) {
+  if (Platform::CheckVk(vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &vma_allocation_create_info,
+                                       &vk_image_, &vma_allocation_, &vma_allocation_info_))) {
     throw std::runtime_error("Failed to create image!");
   }
   flags_ = image_create_info.flags;
@@ -479,7 +479,7 @@ void* Image::GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR external_mem
   vk_memory_get_win32_handle_info_khr.memory = vma_allocation_info_.deviceMemory;
   vk_memory_get_win32_handle_info_khr.handleType =
       static_cast<VkExternalMemoryHandleTypeFlagBitsKHR>(external_memory_handle_type);
-  vkGetMemoryWin32HandleKHR(Platform::GetVkDevice(), &vk_memory_get_win32_handle_info_khr, &handle);
+  Platform::CheckVk(vkGetMemoryWin32HandleKHR(Platform::GetVkDevice(), &vk_memory_get_win32_handle_info_khr, &handle));
   return handle;
 #  else
   return nullptr;
@@ -532,7 +532,7 @@ void Buffer::UploadData(const size_t size, const void* src) {
   if (vma_allocation_create_info_.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT ||
       vma_allocation_create_info_.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT) {
     void* mapping;
-    vmaMapMemory(Platform::GetVmaAllocator(), vma_allocation_, &mapping);
+    Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), vma_allocation_, &mapping));
     memcpy(mapping, src, size);
     vmaUnmapMemory(Platform::GetVmaAllocator(), vma_allocation_);
   } else {
@@ -548,7 +548,7 @@ void Buffer::DownloadData(const size_t size, void* dst) {
   if (vma_allocation_create_info_.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT ||
       vma_allocation_create_info_.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT) {
     void* mapping;
-    vmaMapMemory(Platform::GetVmaAllocator(), vma_allocation_, &mapping);
+    Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), vma_allocation_, &mapping));
     memcpy(dst, mapping, size);
     vmaUnmapMemory(Platform::GetVmaAllocator(), vma_allocation_);
   } else {
@@ -572,8 +572,8 @@ void Buffer::Allocate(VkBufferCreateInfo buffer_create_info,
 
   buffer_create_info.pNext = &vk_external_mem_buffer_create_info;
 #endif
-  if (vmaCreateBuffer(Platform::GetVmaAllocator(), &buffer_create_info, &vma_allocation_create_info, &vk_buffer_,
-                      &vma_allocation_, &vma_allocation_info_)) {
+  if (Platform::CheckVk(vmaCreateBuffer(Platform::GetVmaAllocator(), &buffer_create_info, &vma_allocation_create_info,
+                                        &vk_buffer_, &vma_allocation_, &vma_allocation_info_))) {
     throw std::runtime_error("Failed to create buffer!");
   }
   assert(buffer_create_info.usage != 0);
@@ -646,8 +646,8 @@ void Buffer::Resize(const VkDeviceSize new_size) {
 
   buffer_create_info.pNext = &vk_external_mem_buffer_create_info;
 #endif
-  if (vmaCreateBuffer(Platform::GetVmaAllocator(), &buffer_create_info, &vma_allocation_create_info_, &vk_buffer_,
-                      &vma_allocation_, &vma_allocation_info_)) {
+  if (Platform::CheckVk(vmaCreateBuffer(Platform::GetVmaAllocator(), &buffer_create_info, &vma_allocation_create_info_,
+                                        &vk_buffer_, &vma_allocation_, &vma_allocation_info_))) {
     throw std::runtime_error("Failed to create buffer!");
   }
   size_ = new_size;
@@ -820,7 +820,8 @@ DescriptorSet::DescriptorSet(const std::shared_ptr<DescriptorSetLayout>& target_
   alloc_info.descriptorSetCount = 1;
   alloc_info.pSetLayouts = &target_layout->GetVkDescriptorSetLayout();
 
-  if (vkAllocateDescriptorSets(Platform::GetVkDevice(), &alloc_info, &descriptor_set_) != VK_SUCCESS) {
+  if (Platform::CheckVk(vkAllocateDescriptorSets(Platform::GetVkDevice(), &alloc_info, &descriptor_set_)) !=
+      VK_SUCCESS) {
     throw std::runtime_error("failed to allocate descriptor sets!");
   }
   descriptor_set_layout_ = target_layout;
@@ -1051,7 +1052,7 @@ void CommandQueue::Submit(
 
   submit_info.pCommandBuffers = vk_command_buffers.data();
 
-  if (vkQueueSubmit(vk_queue_, 1, &submit_info, fence->GetVkFence()) != VK_SUCCESS) {
+  if (Platform::CheckVk(vkQueueSubmit(vk_queue_, 1, &submit_info, fence->GetVkFence())) != VK_SUCCESS) {
     throw std::runtime_error("Failed to submit command buffer!");
   }
 }
@@ -1089,7 +1090,7 @@ void CommandQueue::Submit(
   });
   submit_info.pCommandBuffers = vk_command_buffers.data();
 
-  if (vkQueueSubmit(vk_queue_, 1, &submit_info, fence->GetVkFence()) != VK_SUCCESS) {
+  if (Platform::CheckVk(vkQueueSubmit(vk_queue_, 1, &submit_info, fence->GetVkFence())) != VK_SUCCESS) {
     throw std::runtime_error("Failed to submit command buffer!");
   }
 }
@@ -1127,7 +1128,7 @@ void CommandQueue::Submit(
   }
   submit_info.pCommandBuffers = vk_command_buffers.data();
 
-  if (vkQueueSubmit(vk_queue_, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS) {
+  if (Platform::CheckVk(vkQueueSubmit(vk_queue_, 1, &submit_info, VK_NULL_HANDLE)) != VK_SUCCESS) {
     throw std::runtime_error("Failed to submit command buffer!");
   }
 }
@@ -1166,7 +1167,7 @@ void CommandQueue::Present(const std::vector<std::shared_ptr<Semaphore>>& wait_s
 }
 
 void CommandQueue::WaitIdle() const {
-  vkQueueWaitIdle(vk_queue_);
+  Platform::CheckVk(vkQueueWaitIdle(vk_queue_));
 }
 
 VkQueue CommandQueue::GetVkQueue() const {
@@ -1253,8 +1254,8 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
   acceleration_structure_create_info.size = acceleration_structure_build_sizes_info.accelerationStructureSize;
   acceleration_structure_create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
   acceleration_structure_create_info.pNext = nullptr;
-  vkCreateAccelerationStructureKHR(Platform::GetVkDevice(), &acceleration_structure_create_info, nullptr,
-                                   &vk_acceleration_structure_khr_);
+  Platform::CheckVk(vkCreateAccelerationStructureKHR(Platform::GetVkDevice(), &acceleration_structure_create_info,
+                                                     nullptr, &vk_acceleration_structure_khr_));
 
   // The actual build process starts here
 
@@ -1387,8 +1388,8 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   acceleration_structure_create_info.size = acceleration_structure_build_sizes_info.accelerationStructureSize;
   acceleration_structure_create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
   acceleration_structure_create_info.pNext = nullptr;
-  vkCreateAccelerationStructureKHR(Platform::GetVkDevice(), &acceleration_structure_create_info, nullptr,
-                                   &vk_acceleration_structure_khr_);
+  Platform::CheckVk(vkCreateAccelerationStructureKHR(Platform::GetVkDevice(), &acceleration_structure_create_info,
+                                                     nullptr, &vk_acceleration_structure_khr_));
 
   // The actual build process starts here
 

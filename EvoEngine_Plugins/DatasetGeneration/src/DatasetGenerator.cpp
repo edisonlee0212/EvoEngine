@@ -185,21 +185,21 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
     Application::Loop();
     Application::Loop();
     if (data_generation_parameters.export_mesh) {
-      tree->ExportObj(data_generation_parameters.output_folder /
-                          (data_generation_parameters.output_file_prefix + post_fix + ".obj"),
-                      data_generation_parameters.tree_mesh_generator_settings);
+      tree->ExportObj(
+          data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + post_fix + ".obj"),
+          data_generation_parameters.tree_mesh_generator_settings);
     }
     if (data_generation_parameters.export_skeleton) {
       tree->ExportFlowGraph(data_generation_parameters.output_folder /
-                            (data_generation_parameters.output_file_prefix + post_fix + ".yml"));
+                            (data_generation_parameters.output_file_name + post_fix + ".yml"));
     }
     if (data_generation_parameters.export_point_cloud) {
       const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
       scanner->point_settings = data_generation_parameters.tree_point_cloud_point_settings;
-      scanner->Capture(data_generation_parameters.tree_mesh_generator_settings,
-                       data_generation_parameters.output_folder /
-                           (data_generation_parameters.output_file_prefix + post_fix + ".ply"),
-                       data_generation_parameters.point_cloud_capture_settings);
+      scanner->Capture(
+          data_generation_parameters.tree_mesh_generator_settings,
+          data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + post_fix + ".ply"),
+          data_generation_parameters.point_cloud_capture_settings);
     }
 
     if (data_generation_parameters.export_rendering || data_generation_parameters.export_depth) {
@@ -211,18 +211,21 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
         camera->post_processing_stack_ref.Get<PostProcessingStack>()->enable_bloom = false;
         camera->Resize(camera_capture_settings.render_resolution);
         camera->SetRequireRendering(true);
-        scene->SetDataComponent(camera_entity, camera_capture_settings.global_transform);
+        GlobalTransform camera_global_transform{};
+        camera_global_transform.SetPosition(camera_capture_settings.position);
+        camera_global_transform.SetEulerRotation(glm::radians(camera_capture_settings.euler_rotation));
+        scene->SetDataComponent(camera_entity, camera_global_transform);
         Application::Loop();
         if (data_generation_parameters.export_rendering) {
           camera->GetRenderTexture()->StoreToPng(
-              data_generation_parameters.output_folder / (data_generation_parameters.output_file_prefix + post_fix +
-                                                          "_" + std::to_string(image_index) + ".png"),
+              data_generation_parameters.output_folder /
+                  (data_generation_parameters.output_file_name + post_fix + "_" + std::to_string(image_index) + ".png"),
               camera_capture_settings.output_resolution.x, camera_capture_settings.output_resolution.y);
         }
         if (data_generation_parameters.export_depth) {
           camera->GetRenderTexture()->StoreLinearDepthToPng(
-              data_generation_parameters.output_folder / (data_generation_parameters.output_file_prefix + post_fix +
-                                                          "_" + std::to_string(image_index) + "_d.png"),
+              data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + post_fix + "_" +
+                                                          std::to_string(image_index) + "_d.png"),
               camera->camera_settings.near_distance, camera->camera_settings.far_distance,
               data_generation_parameters.max_depth, camera_capture_settings.output_resolution.x,
               camera_capture_settings.output_resolution.y);
@@ -319,7 +322,7 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
   Application::Loop();
   Application::Loop();
   scanner->Capture(data_generation_parameters.tree_mesh_generator_settings,
-                   data_generation_parameters.output_folder / (data_generation_parameters.output_file_prefix + ".ply"),
+                   data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply"),
                    data_generation_parameters.point_cloud_capture_settings);
   scene->DeleteEntity(forest_entity);
   scene->DeleteEntity(scanner_entity);
@@ -383,7 +386,7 @@ void DatasetGenerator::GeneratePointCloudForForestPatch(
   Application::Loop();
   Application::Loop();
   scanner->Capture(data_generation_parameters.tree_mesh_generator_settings,
-                   data_generation_parameters.output_folder / (data_generation_parameters.output_file_prefix + ".ply"),
+                   data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply"),
                    data_generation_parameters.point_cloud_capture_settings);
   scene->DeleteEntity(forest_entity);
   scene->DeleteEntity(scanner_entity);
@@ -461,7 +464,7 @@ void DatasetGenerator::GeneratePointCloudForForestPatchJoinedSpecies(
   Application::Loop();
   Application::Loop();
   scanner->Capture(data_generation_parameters.tree_mesh_generator_settings,
-                   data_generation_parameters.output_folder / (data_generation_parameters.output_file_prefix + ".ply"),
+                   data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply"),
                    data_generation_parameters.point_cloud_capture_settings);
   scene->DeleteEntity(forest_entity);
   scene->DeleteEntity(scanner_entity);

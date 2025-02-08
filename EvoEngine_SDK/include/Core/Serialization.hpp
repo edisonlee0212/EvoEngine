@@ -687,80 +687,80 @@ class Serialization final {
    * @brief Map to store generators for data components.
    */
   std::unordered_map<std::string, std::function<std::shared_ptr<IDataComponent>(size_t&, size_t&)>>
-      data_component_generators_;
+      data_component_generators_{};
 
   /**
    * @brief Map to store generators for serializable components.
    */
-  std::unordered_map<std::string, std::function<std::shared_ptr<ISerializable>(size_t&)>> serializable_generators_;
+  std::unordered_map<std::string, std::function<std::shared_ptr<ISerializable>(size_t&)>> serializable_generators_{};
 
   /**
    * @brief Map to store clone functions for private components.
    */
   std::unordered_map<std::string,
                      std::function<void(std::shared_ptr<IPrivateComponent>, const std::shared_ptr<IPrivateComponent>&)>>
-      private_component_cloners_;
+      private_component_cloners_{};
 
   /**
    * @brief Map to store clone functions for systems.
    */
   std::unordered_map<std::string, std::function<void(std::shared_ptr<ISystem>, const std::shared_ptr<ISystem>&)>>
-      system_cloners_;
+      system_cloners_{};
 
   /**
    * @brief Map to store IDs for data components.
    */
-  std::map<std::string, size_t> data_component_ids_;
+  std::map<std::string, size_t> data_component_ids_{};
 
   /**
    * @brief Map to store sizes of data components by their IDs.
    */
-  std::unordered_map<size_t, size_t> data_component_sizes_;
+  std::unordered_map<size_t, size_t> data_component_sizes_{};
 
   /**
    * @brief Map to store names of data components by their IDs.
    */
-  std::unordered_map<size_t, std::string> data_component_names_;
+  std::unordered_map<size_t, std::string> data_component_names_{};
 
   /**
    * @brief Map to store IDs for private components.
    */
-  std::map<std::string, size_t> private_component_ids_;
+  std::map<std::string, size_t> private_component_ids_{};
 
   /**
    * @brief Map to store names of private components by their IDs.
    */
-  std::unordered_map<size_t, std::string> private_component_names_;
+  std::unordered_map<size_t, std::string> private_component_names_{};
 
   /**
    * @brief Map to store IDs for systems.
    */
-  std::map<std::string, size_t> system_ids_;
+  std::map<std::string, size_t> system_ids_{};
 
   /**
    * @brief Map to store names of systems by their IDs.
    */
-  std::unordered_map<size_t, std::string> system_names_;
+  std::unordered_map<size_t, std::string> system_names_{};
 
   /**
    * @brief Map to store IDs for serializable components.
    */
-  std::unordered_map<std::string, size_t> serializable_ids_;
+  std::unordered_map<std::string, size_t> serializable_ids_{};
 
   /**
    * @brief Map to store names of serializable components by their IDs.
    */
-  std::unordered_map<size_t, std::string> serializable_names_;
+  std::unordered_map<size_t, std::string> serializable_names_{};
 
   /**
    * @brief Map to store extensions for asset types.
    */
-  std::map<std::string, std::vector<std::string>> asset_extensions_;
+  std::map<std::string, std::vector<std::string>> asset_extensions_{};
 
   /**
    * @brief Map to store type names.
    */
-  std::map<std::string, std::string> type_names_;
+  std::map<std::string, std::string> type_names_{};
 
   /**
    * @brief Register a type of data component.
@@ -1053,6 +1053,11 @@ class Serialization final {
    */
   template <typename T>
   static void DeserializeVector(const std::string& name, std::vector<T>& target, const YAML::Node& in);
+
+  /**
+   * @brief Clear all registered classes.
+   */
+  static void OnDestroy();
 };
 
 template <typename T>

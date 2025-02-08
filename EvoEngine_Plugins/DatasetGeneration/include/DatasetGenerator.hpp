@@ -14,7 +14,9 @@ namespace dataset_generation_plugin {
 class DatasetGenerator {
  public:
   struct CameraCaptureSettings {
-    GlobalTransform global_transform{};
+    glm::vec3 position;
+    glm::vec3 euler_rotation;
+
     CameraSettings camera_settings{};
     glm::uvec2 render_resolution = {2048, 2048};
     glm::uvec2 output_resolution = {1024, 1024};
@@ -52,7 +54,7 @@ class DatasetGenerator {
     float max_depth = 20.f;
     // Export path
     std::filesystem::path output_folder{};
-    std::string output_file_prefix{};
+    std::string output_file_name{};
   };
 
   static void GenerateDataForTree(const TreeDataGenerationParameters& data_generation_parameters);

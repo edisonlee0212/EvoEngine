@@ -6,9 +6,12 @@ def is_windows():
 
 #You should change following lines to make sure they points to the correct directory
 evoengine_directory = "~/EvoEngine/"
+output_root = os.path.expanduser("~/SorghumData")
+
 if is_windows():
-	evoengine_directory = "C:/Users/lllll/Documents/GitHub/EvoEngine/"
-output_root = os.path.expanduser("~/SorghumPointCloudData")
+	root_dir = "C:/Users/lllll/Documents/GitHub/"
+	evoengine_directory = root_dir + "EvoEngine/"
+	output_root = root_dir + "SorghumData"
 
 #Capture current working directory to restore later
 current_directory = os.getcwd()

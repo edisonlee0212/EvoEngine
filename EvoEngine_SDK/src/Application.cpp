@@ -39,55 +39,7 @@
 #include "GpuRayTracerCamera.hpp"
 
 using namespace evo_engine;
-DataComponentRegistration<Transform> transform_registry("Transform");
-DataComponentRegistration<GlobalTransform> global_transform_registry("GlobalTransform");
-DataComponentRegistration<TransformUpdateFlag> transform_update_status_registry("TransformUpdateFlag");
 
-const auto ray_registry = DataComponentRegistration<Ray>("Ray");
-const auto camera_registry = PrivateComponentRegistration<Camera>("Camera");
-const auto animation_player_registry = PrivateComponentRegistration<AnimationPlayer>("AnimationPlayer");
-const auto player_controller_registry = PrivateComponentRegistration<PlayerController>("PlayerController");
-const auto particles_registry = PrivateComponentRegistration<Particles>("Particles");
-const auto mesh_renderer_registry = PrivateComponentRegistration<MeshRenderer>("MeshRenderer");
-const auto strands_renderer_registry = PrivateComponentRegistration<StrandsRenderer>("StrandsRenderer");
-const auto skinned_mesh_renderer_registry = PrivateComponentRegistration<SkinnedMeshRenderer>("SkinnedMeshRenderer");
-const auto animator_registry = PrivateComponentRegistration<Animator>("Animator");
-const auto point_light_registry = PrivateComponentRegistration<PointLight>("PointLight");
-const auto spot_light_registry = PrivateComponentRegistration<SpotLight>("SpotLight");
-const auto directional_light_registry = PrivateComponentRegistration<DirectionalLight>("DirectionalLight");
-const auto way_points_registry = PrivateComponentRegistration<WayPoints>("WayPoints");
-const auto lod_group_registry = PrivateComponentRegistration<LodGroup>("LodGroup");
-const auto unknown_registry = PrivateComponentRegistration<UnknownPrivateComponent>("UnknownPrivateComponent");
-
-const auto pps_registry = AssetRegistration<PostProcessingStack>("PostProcessingStack", {".evepostprocessingstack"});
-const auto i_asset_registry = AssetRegistration<IAsset>("IAsset", {".eveasset"});
-const auto material_registry = AssetRegistration<Material>("Material", {".evematerial"});
-
-const auto cubemap_registry = AssetRegistration<Cubemap>("Cubemap", {".evecubemap"});
-const auto registry = AssetRegistration<LightProbe>("LightProbe", {".evelightprobe"});
-const auto reflection_probe_registry = AssetRegistration<ReflectionProbe>("ReflectionProbe", {".evereflectionprobe"});
-const auto environmental_map_registry =
-    AssetRegistration<EnvironmentalMap>("EnvironmentalMap", {".eveenvironmentalmap"});
-const auto shader_registry = AssetRegistration<Shader>(
-    "Shader", {".eveshader", ".glsl", ".vert", ".frag", ".comp", ".geom", ".task", ".mesh", ".tesc", ".tese"});
-const auto mesh_registry = AssetRegistration<Mesh>("Mesh", {".evemesh"});
-const auto strands_registry = AssetRegistration<Strands>("Strands", {".evestrands", ".hair"});
-const auto prefab_registry = AssetRegistration<Prefab>(
-    "Prefab", {".eveprefab", ".obj", ".gltf", ".glb", ".blend", ".ply", ".fbx", ".dae", ".x3d", ".OBJ", ".FBX"});
-const auto texture_2d_registry = AssetRegistration<Texture2D>(
-    "Texture2D", {".evetexture2d", ".png", ".jpg", ".jpeg", ".tga", ".hdr", ".TGA", ".PNG", ".JPG"});
-const auto scene_registry = AssetRegistration<Scene>("Scene", {".evescene"});
-const auto particle_info_list_registry =
-    AssetRegistration<ParticleInfoList>("ParticleInfoList", {".eveparticleinfolist"});
-const auto animation_registry = AssetRegistration<Animation>("Animation", {".eveanimation"});
-const auto skinned_mesh_registry = AssetRegistration<SkinnedMesh>("SkinnedMesh", {".eveskinnedmesh"});
-
-const auto point_cloud_registry = AssetRegistration<PointCloud>("PointCloud", {".evepointcloud"});
-
-const auto json_registry = AssetRegistration<Json>("Json", {".json"});
-
-const auto cpu_ray_tracer_camera_registry = PrivateComponentRegistration<CpuRayTracerCamera>("CpuRayTracerCamera");
-const auto gpu_ray_tracer_camera_registry = PrivateComponentRegistration<GpuRayTracerCamera>("GpuRayTracerCamera");
 void Application::PreUpdateInternal() {
   auto& application = GetInstance();
   const auto now = std::chrono::system_clock::now();
@@ -244,6 +196,56 @@ void Application::Reset() {
 }
 
 void Application::Initialize(const ApplicationInfo& application_create_info) {
+#pragma region Reflection
+  DataComponentRegistration<Transform> transform_registry("Transform");
+  DataComponentRegistration<GlobalTransform> global_transform_registry("GlobalTransform");
+  DataComponentRegistration<TransformUpdateFlag> transform_update_status_registry("TransformUpdateFlag");
+
+  DataComponentRegistration<Ray> ray_registry("Ray");
+  PrivateComponentRegistration<Camera> camera_registry("Camera");
+  PrivateComponentRegistration<AnimationPlayer> animation_player_registry("AnimationPlayer");
+  PrivateComponentRegistration<PlayerController> player_controller_registry("PlayerController");
+  PrivateComponentRegistration<Particles> particles_registry("Particles");
+  PrivateComponentRegistration<MeshRenderer> mesh_renderer_registry("MeshRenderer");
+  PrivateComponentRegistration<StrandsRenderer> strands_renderer_registry("StrandsRenderer");
+  PrivateComponentRegistration<SkinnedMeshRenderer> skinned_mesh_renderer_registry("SkinnedMeshRenderer");
+  PrivateComponentRegistration<Animator> animator_registry("Animator");
+  PrivateComponentRegistration<PointLight> point_light_registry("PointLight");
+  PrivateComponentRegistration<SpotLight> spot_light_registry("SpotLight");
+  PrivateComponentRegistration<DirectionalLight> directional_light_registry("DirectionalLight");
+  PrivateComponentRegistration<WayPoints> way_points_registry("WayPoints");
+  PrivateComponentRegistration<LodGroup> lod_group_registry("LodGroup");
+  PrivateComponentRegistration<UnknownPrivateComponent> unknown_registry("UnknownPrivateComponent");
+
+  AssetRegistration<PostProcessingStack> pps_registry("PostProcessingStack", {".evepostprocessingstack"});
+  AssetRegistration<IAsset> i_asset_registry("IAsset", {".eveasset"});
+  AssetRegistration<Material> material_registry("Material", {".evematerial"});
+
+  AssetRegistration<Cubemap> cubemap_registry("Cubemap", {".evecubemap"});
+  AssetRegistration<LightProbe> light_probe_registry("LightProbe", {".evelightprobe"});
+  AssetRegistration<ReflectionProbe> reflection_probe_registry("ReflectionProbe", {".evereflectionprobe"});
+  AssetRegistration<EnvironmentalMap> environmental_map_registry("EnvironmentalMap", {".eveenvironmentalmap"});
+  AssetRegistration<Shader> shader_registry(
+      "Shader", {".eveshader", ".glsl", ".vert", ".frag", ".comp", ".geom", ".task", ".mesh", ".tesc", ".tese"});
+  AssetRegistration<Mesh> mesh_registry("Mesh", {".evemesh"});
+  AssetRegistration<Strands> strands_registry("Strands", {".evestrands", ".hair"});
+  AssetRegistration<Prefab> prefab_registry(
+      "Prefab", {".eveprefab", ".obj", ".gltf", ".glb", ".blend", ".ply", ".fbx", ".dae", ".x3d", ".OBJ", ".FBX"});
+  AssetRegistration<Texture2D> texture_2d_registry(
+      "Texture2D", {".evetexture2d", ".png", ".jpg", ".jpeg", ".tga", ".hdr", ".TGA", ".PNG", ".JPG"});
+  AssetRegistration<Scene> scene_registry("Scene", {".evescene"});
+  AssetRegistration<ParticleInfoList> particle_info_list_registry("ParticleInfoList", {".eveparticleinfolist"});
+  AssetRegistration<Animation> animation_registry("Animation", {".eveanimation"});
+  AssetRegistration<SkinnedMesh> skinned_mesh_registry("SkinnedMesh", {".eveskinnedmesh"});
+
+  AssetRegistration<PointCloud> point_cloud_registry("PointCloud", {".evepointcloud"});
+
+  AssetRegistration<Json> json_registry("Json", {".json"});
+
+  PrivateComponentRegistration<CpuRayTracerCamera> cpu_ray_tracer_camera_registry("CpuRayTracerCamera");
+  PrivateComponentRegistration<GpuRayTracerCamera> gpu_ray_tracer_camera_registry("GpuRayTracerCamera");
+#pragma endregion
+
   auto& application = GetInstance();
 
   if (application.application_status_ != ApplicationStatus::Uninitialized) {
@@ -368,6 +370,10 @@ void Application::Terminate() {
   if (has_render_layer) {
     Platform::OnDestroy();
   }
+
+  Serialization::OnDestroy();
+
+  application.application_status_ = ApplicationStatus::Uninitialized;
 }
 
 const std::vector<std::shared_ptr<ILayer>>& Application::GetLayers() {
