@@ -113,21 +113,14 @@ void generate_tree_data(const std::filesystem::path& output_folder) {
     const auto directional_light = scene->GetOrSetPrivateComponent<DirectionalLight>(directional_light_entity).lock();
     directional_light->diffuse_brightness = 2.f;
   }
-  data_generation_parameters.camera_capture_settings.resize(2);
+  data_generation_parameters.camera_capture_settings.resize(1);
   data_generation_parameters.camera_capture_settings[0].camera_settings.fov = 60.f;
-  data_generation_parameters.camera_capture_settings[1].camera_settings.fov = 60.f;
   data_generation_parameters.camera_capture_settings[0].camera_settings.use_clear_color = true;
-  data_generation_parameters.camera_capture_settings[1].camera_settings.use_clear_color = true;
   data_generation_parameters.camera_capture_settings[0].camera_settings.clear_color = glm::vec3(1, 1, 1);
-  data_generation_parameters.camera_capture_settings[1].camera_settings.clear_color = glm::vec3(1, 1, 1);
   data_generation_parameters.camera_capture_settings[0].camera_settings.background_intensity = 10.f;
-  data_generation_parameters.camera_capture_settings[1].camera_settings.background_intensity = 10.f;
-  data_generation_parameters.camera_capture_settings[0].global_transform.SetPosition(glm::vec3(0, 6, 0));
-  data_generation_parameters.camera_capture_settings[1].global_transform.SetPosition(glm::vec3(0, 6, 0));
-  data_generation_parameters.camera_capture_settings[0].global_transform.SetEulerRotation(
-      glm::radians(glm::vec3(-90, glm::linearRand(0.f, 360.f), 0)));
-  data_generation_parameters.camera_capture_settings[1].global_transform.SetEulerRotation(
-      glm::radians(glm::vec3(-90, glm::linearRand(0.f, 360.f), 0)));
+  data_generation_parameters.camera_capture_settings[0].position = glm::vec3(0, 6, 0);
+  data_generation_parameters.camera_capture_settings[0].euler_rotation = glm::vec3(-90, glm::linearRand(0.f, 360.f), 0);
+
   data_generation_parameters.tree_descriptor_path = std::filesystem::path("./TreeStructor/TreeStructor.tree");
   data_generation_parameters.foliage_descriptor_path = std::filesystem::path("./TreeStructor/TreeStructor.foliage");
   // data_generation_parameters.bark_descriptor_path = std::filesystem::path("./TreeStructor/TreeStructor.bark");
@@ -147,7 +140,7 @@ void generate_tree_data(const std::filesystem::path& output_folder) {
   data_generation_parameters.point_cloud_capture_settings = tree_point_cloud_circular_capture_settings;
 
   for (int index = 0; index < 200; index++) {
-    data_generation_parameters.output_file_prefix =
+    data_generation_parameters.output_file_name =
         data_generation_parameters.tree_descriptor_path.stem().string() + "_" + std::to_string(index);
     data_generation_parameters.seed = index;
     DatasetGenerator::GenerateDataForTree(data_generation_parameters);

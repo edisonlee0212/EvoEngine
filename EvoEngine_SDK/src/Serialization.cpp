@@ -230,6 +230,10 @@ void Serialization::LoadAssetList(const std::string &name, std::vector<AssetRef>
     }
   }
 }
+void Serialization::OnDestroy() {
+  auto &serialization = GetInstance();
+  serialization = {};
+}
 
 size_t Serialization::GetSerializableTypeId(const std::string &type_name) {
   const auto &serialization = GetInstance();

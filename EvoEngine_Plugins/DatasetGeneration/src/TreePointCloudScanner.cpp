@@ -12,7 +12,7 @@ using namespace eco_sys_lab_plugin;
 using namespace dataset_generation_plugin;
 #pragma region Settings
 void TreePointCloudPointSettings::OnInspect() {
-  ImGui::DragFloat("Point variance", &m_variance, 0.01f);
+  ImGui::DragFloat("Point variance", &variance, 0.01f);
   ImGui::DragFloat("Point uniform random radius", &ball_rand_radius, 0.01f);
   ImGui::DragFloat("Bounding box offset", &bounding_box_limit, 0.01f);
   ImGui::Checkbox("Type Index", &type_index);
@@ -25,7 +25,7 @@ void TreePointCloudPointSettings::OnInspect() {
 
 void TreePointCloudPointSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
-  out << YAML::Key << "m_variance" << YAML::Value << m_variance;
+  out << YAML::Key << "variance" << YAML::Value << variance;
   out << YAML::Key << "ball_rand_radius" << YAML::Value << ball_rand_radius;
   out << YAML::Key << "type_index" << YAML::Value << type_index;
   out << YAML::Key << "instance_index" << YAML::Value << instance_index;
@@ -40,8 +40,8 @@ void TreePointCloudPointSettings::Save(const std::string& name, YAML::Emitter& o
 void TreePointCloudPointSettings::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     auto& cd = in[name];
-    if (cd["m_variance"])
-      m_variance = cd["m_variance"].as<float>();
+    if (cd["variance"])
+      variance = cd["variance"].as<float>();
     if (cd["ball_rand_radius"])
       ball_rand_radius = cd["ball_rand_radius"].as<float>();
     if (cd["type_index"])
@@ -453,9 +453,9 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
     }
     const auto distance = glm::distance(sample.hit_info.position, sample.start);
     points.emplace_back(sample.hit_info.position +
-                        distance * glm::vec3(glm::gaussRand(0.0f, point_settings.m_variance),
-                                             glm::gaussRand(0.0f, point_settings.m_variance),
-                                             glm::gaussRand(0.0f, point_settings.m_variance)) +
+                        distance * glm::vec3(glm::gaussRand(0.0f, point_settings.variance),
+                                             glm::gaussRand(0.0f, point_settings.variance),
+                                             glm::gaussRand(0.0f, point_settings.variance)) +
                         ball_rand);
 
     if (point_settings.internode_index) {

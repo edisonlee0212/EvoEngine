@@ -421,7 +421,7 @@ void Platform::RecordRenderCommands(const VkRenderingInfo& rendering_info, const
 
 void Platform::WaitForDeviceIdle() {
   const auto& graphics = GetInstance();
-  vkDeviceWaitIdle(graphics.vk_device_);
+  CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
 }
 
 void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkImage target_image,
@@ -490,9 +490,11 @@ void Platform::ImmediateSubmit(const std::function<void(VkCommandBuffer vk_comma
 
   VkFence fence;
   CheckVk(vkCreateFence(graphics.vk_device_, &fence_info, nullptr, &fence));
+  const auto ret_val = vkQueueSubmit(graphics.immediate_submit_queue_->vk_queue_, 1, &submit_info, fence);
 
-  if (vkQueueSubmit(graphics.immediate_submit_queue_->vk_queue_, 1, &submit_info, fence) != VK_SUCCESS) {
-    throw std::runtime_error("Failed to submit command buffer to graphics queue!");
+  if (ret_val != VK_SUCCESS) {
+    throw std::runtime_error("Failed to submit command buffer to graphics queue! Error code: " +
+                             std::to_string(ret_val));
   }
   CheckVk(vkWaitForFences(graphics.vk_device_, 1, &fence, VK_TRUE, UINT64_MAX));
   vkDestroyFence(graphics.vk_device_, fence, nullptr);
@@ -701,9 +703,9 @@ void Platform::CreateInstance() {
   instance_create_info.pNext = nullptr;
 #pragma region Extensions
   uint32_t extension_count = 0;
-  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
+  CheckVk(vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr));
   std::vector<VkExtensionProperties> supported_extension_list(extension_count);
-  vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, supported_extension_list.data());
+  CheckVk(vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, supported_extension_list.data()));
   for (const auto& i : supported_extension_list) {
     vk_supported_instance_extensions_.insert({i.extensionName, i});
   }
@@ -733,9 +735,9 @@ void Platform::CreateInstance() {
 #pragma endregion
 #pragma region Layer
   uint32_t layer_count;
-  vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
+  CheckVk(vkEnumerateInstanceLayerProperties(&layer_count, nullptr));
   vk_supported_layers_.resize(layer_count);
-  vkEnumerateInstanceLayerProperties(&layer_count, vk_supported_layers_.data());
+  CheckVk(vkEnumerateInstanceLayerProperties(&layer_count, vk_supported_layers_.data()));
 #ifdef GRAPHICS_VALIDATION
   if (!CheckLayerSupport("VK_LAYER_KHRONOS_validation")) {
     throw std::runtime_error("Validation layers requested, but not available!");
@@ -843,7 +845,7 @@ void Platform::SelectPhysicalDevice() {
   EVOENGINE_LOG("Found " + std::to_string(device_count) + " device(s).");
 #endif
   std::vector<VkPhysicalDevice> vk_physical_devices(device_count);
-  vkEnumeratePhysicalDevices(vk_instance_, &device_count, vk_physical_devices.data());
+  CheckVk(vkEnumeratePhysicalDevices(vk_instance_, &device_count, vk_physical_devices.data()));
 
   for (const auto& vk_physical_device : vk_physical_devices) {
     physical_devices_.emplace_back(std::make_shared<PhysicalDevice>());
@@ -935,9 +937,10 @@ bool Platform::PhysicalDevice::QueueFamilyIndices::IsComplete() const {
 void Platform::PhysicalDevice::QueryInformation() {
   uint32_t extension_count = 0;
   supported_vk_extensions.clear();
-  vkEnumerateDeviceExtensionProperties(vk_physical_device, nullptr, &extension_count, nullptr);
+  CheckVk(vkEnumerateDeviceExtensionProperties(vk_physical_device, nullptr, &extension_count, nullptr));
   std::vector<VkExtensionProperties> supported_extension_list(extension_count);
-  vkEnumerateDeviceExtensionProperties(vk_physical_device, nullptr, &extension_count, supported_extension_list.data());
+  CheckVk(vkEnumerateDeviceExtensionProperties(vk_physical_device, nullptr, &extension_count,
+                                               supported_extension_list.data()));
   for (const auto& i : supported_extension_list) {
     supported_vk_extensions.insert({i.extensionName, i});
   }
@@ -1248,8 +1251,8 @@ void Platform::CreateLogicalDevice() {
   device_create_info.enabledLayerCount = static_cast<uint32_t>(required_layers_.size());
   device_create_info.ppEnabledLayerNames = c_required_layers.data();
 
-  if (vkCreateDevice(selected_physical_device->vk_physical_device, &device_create_info, nullptr, &vk_device_) !=
-      VK_SUCCESS) {
+  if (CheckVk(vkCreateDevice(selected_physical_device->vk_physical_device, &device_create_info, nullptr,
+                             &vk_device_)) != VK_SUCCESS) {
     throw std::runtime_error("Failed to create logical device!");
   }
 
@@ -1343,7 +1346,7 @@ void Platform::SetupVmaAllocator() {
   }
   vma_allocator_create_info.pTypeExternalMemoryHandleTypes = handle_types.data();
 #endif
-  vmaCreateAllocator(&vma_allocator_create_info, &vma_allocator_);
+  CheckVk(vmaCreateAllocator(&vma_allocator_create_info, &vma_allocator_));
 #pragma endregion
 }
 
@@ -1385,8 +1388,8 @@ std::string Platform::StringifyResultVk(const VkResult& result) {
       return "A requested format is not supported on this device";
     case VK_ERROR_SURFACE_LOST_KHR:
       return "A surface is no longer available";
-      // case VK_ERROR_OUT_OF_POOL_MEMORY:
-      // return "A allocation failed due to having no more space in the descriptor pool";
+    case VK_ERROR_OUT_OF_POOL_MEMORY:
+      return "A allocation failed due to having no more space in the descriptor pool";
     case VK_SUBOPTIMAL_KHR:
       return "A swapchain no longer matches the surface properties exactly, but can still be used";
     case VK_ERROR_OUT_OF_DATE_KHR:
@@ -1402,9 +1405,9 @@ std::string Platform::StringifyResultVk(const VkResult& result) {
   }
 }
 
-void Platform::CheckVk(const VkResult& result) {
+VkResult Platform::CheckVk(const VkResult& result) {
   if (result >= 0) {
-    return;
+    return result;
   }
 #ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
   if (result == VK_ERROR_DEVICE_LOST) {
@@ -1431,7 +1434,7 @@ void Platform::CheckVk(const VkResult& result) {
     if (status != GFSDK_Aftermath_CrashDump_Status_Finished) {
       std::stringstream err_msg;
       err_msg << "Unexpected crash dump status: " << status;
-      throw std::runtime_error(err_msg.str().c_str());
+      EVOENGINE_ERROR(err_msg.str().c_str());
     }
 
     // Terminate on failure
@@ -1439,8 +1442,9 @@ void Platform::CheckVk(const VkResult& result) {
   }
 #endif
 
-  const std::string failure = StringifyResultVk(result);
-  throw std::runtime_error("Vulkan error: " + failure);
+  const std::string failure = std::to_string(result) + "] - " + StringifyResultVk(result);
+  EVOENGINE_ERROR("Vulkan-[Error]: [" + failure);
+  return result;
 }
 
 void Platform::CreateSwapChain() {
@@ -1571,34 +1575,70 @@ void Platform::CreateSwapChainSyncObjects() {
 }
 
 void Platform::RecreateSwapChain() {
-  vkDeviceWaitIdle(vk_device_);
+  CheckVk(vkDeviceWaitIdle(vk_device_));
   CreateSwapChain();
 }
 
 void Platform::OnDestroy() {
   auto& graphics = GetInstance();
-  vkDeviceWaitIdle(graphics.vk_device_);
+  CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
+  const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
+  CheckVk(vkResetFences(graphics.vk_device_, 1, in_flight_fences));
 
-  graphics.descriptor_pool_.reset();
+  graphics.ResetCommandBuffers();
+
+  graphics.immediate_submit_queue_.reset();
+  graphics.main_queue_.reset();
+  graphics.present_queue_.reset();
+
+  graphics.required_layers_.clear();
+  graphics.vk_supported_layers_.clear();
+  graphics.required_instance_extension_names_.clear();
+  graphics.vk_supported_instance_extensions_.clear();
+  graphics.required_device_extension_names_.clear();
 
 #pragma region Vulkan
   graphics.image_available_semaphores_.clear();
-  graphics.command_pool_.reset();
   graphics.swapchain_.reset();
+  graphics.swapchain_version_ = 0;
+  graphics.frame_count = 0;
+
+  graphics.immediate_submit_command_buffer.reset();
+  graphics.used_command_buffer_size_ = 0;
+  graphics.descriptor_pool_.reset();
+  graphics.command_buffer_pool_.clear();
+  graphics.command_pool_.reset();
+  graphics.image_available_semaphores_.clear();
+  graphics.render_finished_semaphores_.clear();
+  graphics.in_flight_fences_.clear();
+  graphics.current_frame_index_ = 0;
+  graphics.next_image_index_ = 0;
+  graphics.buffer_sync_actions.clear();
+
+  graphics.temporary_buffer_sync_actions.clear();
+
+  vmaDestroyAllocator(graphics.vma_allocator_);
+  graphics.vma_allocator_ = VK_NULL_HANDLE;
 
   vkDestroyDevice(graphics.vk_device_, nullptr);
+  graphics.vk_device_ = VK_NULL_HANDLE;
+  graphics.selected_physical_device.reset();
 #pragma region Debug Messenger
 #ifndef NDEBUG
   DestroyDebugUtilsMessengerExt(graphics.vk_instance_, graphics.vk_debug_messenger_, nullptr);
 #endif
 #pragma endregion
 #pragma region Surface
-  if (const auto window_layer = Application::GetLayer<WindowLayer>())
+  if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
     vkDestroySurfaceKHR(graphics.vk_instance_, graphics.vk_surface_, nullptr);
+    graphics.vk_surface_ = VK_NULL_HANDLE;
+  }
 #pragma endregion
-  // vmaDestroyAllocator(graphics.vma_allocator_);
   vkDestroyInstance(graphics.vk_instance_, nullptr);
 #pragma endregion
+
+  graphics.physical_devices_.clear();
+
   graphics.vk_instance_ = nullptr;
   graphics.initialized = false;
 }
@@ -1618,7 +1658,7 @@ void Platform::PreUpdate() {
   const auto window_layer = Application::GetLayer<WindowLayer>();
   const auto vulkan_update = [&](const std::function<void()>& swap_chain_action) {
     const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
-    vkResetFences(graphics.vk_device_, 1, in_flight_fences);
+    CheckVk(vkResetFences(graphics.vk_device_, 1, in_flight_fences));
     for (auto& i : graphics.buffer_sync_actions)
       i.second();
     for (auto& i : graphics.temporary_buffer_sync_actions)
@@ -1646,8 +1686,8 @@ void Platform::PreUpdate() {
               &graphics.next_image_index_);
           graphics.recreate_swap_chain_ = false;
         }
-        if (result != VK_SUCCESS) {
-          throw std::runtime_error("failed to acquire swap chain image!");
+        if (CheckVk(result) != VK_SUCCESS) {
+          throw std::runtime_error("Failed to acquire swap chain image!");
         }
       });
     }
@@ -1692,9 +1732,9 @@ void Platform::LateUpdate() {
   }
   graphics.current_frame_index_ = (graphics.current_frame_index_ + 1) % graphics.max_frame_in_flight_;
 
-  vkDeviceWaitIdle(graphics.vk_device_);
+  CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
   const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
-  vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX);
+  CheckVk(vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX));
   if (window_layer) {
     if (glfwWindowShouldClose(window_layer->window_)) {
       Application::End();

@@ -115,8 +115,8 @@ class Platform final {
      * @brief Struct representing queue family indices needed by the application.
      */
     struct QueueFamilyIndices {
-      std::optional<uint32_t> graphics_and_compute_family;
-      std::optional<uint32_t> present_family;
+      std::optional<uint32_t> graphics_and_compute_family{};
+      std::optional<uint32_t> present_family{};
 
       /**
        * @brief Checks if the required queue families are complete.
@@ -129,9 +129,9 @@ class Platform final {
      * @brief Struct containing swapchain support details.
      */
     struct SwapChainSupportDetails {
-      VkSurfaceCapabilitiesKHR capabilities;        ///< Surface capabilities.
-      std::vector<VkSurfaceFormatKHR> formats;      ///< List of supported formats.
-      std::vector<VkPresentModeKHR> present_modes;  ///< List of supported presentation modes.
+      VkSurfaceCapabilitiesKHR capabilities{};        ///< Surface capabilities.
+      std::vector<VkSurfaceFormatKHR> formats{};      ///< List of supported formats.
+      std::vector<VkPresentModeKHR> present_modes{};  ///< List of supported presentation modes.
     };
 
     QueueFamilyIndices queue_family_indices = {};          ///< Queue family indices.
@@ -292,12 +292,6 @@ class Platform final {
   /// Version of the current swapchain.
   unsigned swapchain_version_ = 0;
 
-  /// Graphics pipeline currently bound for rendering.
-  std::shared_ptr<GraphicsPipeline> bound_graphics_pipeline;
-
-  /// Compute pipeline currently bound for rendering.
-  std::shared_ptr<ComputePipeline> bound_compute_pipeline;
-
   /// Size of used command buffers.
   int used_command_buffer_size_ = 0;
 
@@ -305,13 +299,13 @@ class Platform final {
   std::vector<std::vector<std::shared_ptr<CommandBuffer>>> command_buffer_pool_ = {};
 
   /// Command buffer used for immediate execution of commands.
-  std::shared_ptr<CommandBuffer> immediate_submit_command_buffer;
+  std::shared_ptr<CommandBuffer> immediate_submit_command_buffer{};
 
   /// Map of named buffer synchronization actions.
-  std::unordered_map<std::string, std::function<void()>> buffer_sync_actions;
+  std::unordered_map<std::string, std::function<void()>> buffer_sync_actions{};
 
   /// Temporary list of buffer synchronization actions.
-  std::vector<std::function<void()>> temporary_buffer_sync_actions;
+  std::vector<std::function<void()>> temporary_buffer_sync_actions{};
 
   /**
    * @brief Global defines for shaders, set during initialization.
@@ -381,10 +375,10 @@ class Platform final {
   static void WaitForDeviceIdle();
 
   /// List of primitive counts for debugging purposes.
-  std::vector<size_t> prim_count;
+  std::vector<size_t> prim_count{};
 
   /// List of draw calls for debugging purposes.
-  std::vector<size_t> draw_call;
+  std::vector<size_t> draw_call{};
 
   /**
    * @brief Utility class for platform-specific settings.
@@ -560,7 +554,7 @@ class Platform final {
    *
    * @param result Vulkan result status to check.
    */
-  static void CheckVk(const VkResult& result);
+  static VkResult CheckVk(const VkResult& result);
 
   /**
    * @brief Gets the maximum number of bones allowed in shaders.

@@ -23,6 +23,7 @@
 #include <imgui.h>
 #include <CUDAModule.hpp>
 
+#include "Console.hpp"
 using namespace evo_engine;
 
 void CameraProperties::Set(const glm::vec3 &position, const glm::quat &rotation) {
@@ -50,7 +51,7 @@ void CameraProperties::Resize(const glm::uvec2 &new_size) {
   modified = true;
   // ------------------------------------------------------------------
   // resize our cuda frame buffer
-  
+
   frame_buffer_color.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
   frame_buffer_normal.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
   frame_buffer_albedo.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
@@ -79,7 +80,7 @@ void CameraProperties::Resize(const glm::uvec2 &new_size) {
                                    denoiser_return_sizes.withoutOverlapScratchSizeInBytes));
   denoised_buffer.Resize(target_frame.size.x * target_frame.size.y * sizeof(glm::vec4));
   denoiser_state.Resize(denoiser_return_sizes.stateSizeInBytes);
-  
+
   // ------------------------------------------------------------------
   OPTIX_CHECK(optixDenoiserSetup(denoiser, nullptr, target_frame.size.x, target_frame.size.y,
                                  denoiser_state.DevicePointer(), denoiser_state.size_in_bytes,
@@ -502,20 +503,33 @@ void OptiXRayTracer::ScanPointCloud(const size_t &size, const EnvironmentPropert
 
 OptiXRayTracer::OptiXRayTracer() {
   camera_rendering_launch_params_.camera_properties.target_frame.frame_id = 0;
-  // std::cout << "#Optix: creating optix context ..." << std::endl;
+#ifndef NDEBUG
+  EVOENGINE_LOG("Optix: creating optix context...");
+#endif
   CreateContext();
-  // std::cout << "#Optix: setting up module ..." << std::endl;
+#ifndef NDEBUG
+  EVOENGINE_LOG("Optix: setting up module...");
+#endif
   CreateModules();
-  // std::cout << "#Optix: creating raygen programs ..." << std::endl;
+#ifndef NDEBUG
+  EVOENGINE_LOG("Optix: creating raygen programs...");
+#endif
   CreateRayGenPrograms();
-  // std::cout << "#Optix: creating miss programs ..." << std::endl;
+#ifndef NDEBUG
+  EVOENGINE_LOG("Optix: creating miss programs...");
+#endif
   CreateMissPrograms();
-  // std::cout << "#Optix: creating hitgroup programs ..." << std::endl;
+#ifndef NDEBUG
+  EVOENGINE_LOG("Optix: creating hitgroup programs...");
+#endif
   CreateHitGroupPrograms();
-  // std::cout << "#Optix: setting up optix pipeline ..." << std::endl;
+#ifndef NDEBUG
+  EVOENGINE_LOG("Optix: setting up optix pipeline...");
+#endif
   AssemblePipelines();
-
-  std::cout << "#Optix: context, module, pipeline, etc, all set up ..." << std::endl;
+#ifndef NDEBUG
+  EVOENGINE_LOG("Optix set up finished.");
+#endif
 }
 
 OptiXRayTracer::~OptiXRayTracer() {
@@ -525,11 +539,15 @@ OptiXRayTracer::~OptiXRayTracer() {
 }
 
 static void context_log_cb(const unsigned int level, const char *tag, const char *message, void *) {
+#ifndef NDEBUG
   fprintf(stderr, "[%2d][%12s]: %s\n", static_cast<int>(level), tag, message);
+#endif
 }
 
 void PrintLogMessage(unsigned int level, const char *tag, const char *message, void * /* cbdata */) {
+#ifndef NDEBUG
   std::cerr << "[" << std::setw(2) << level << "][" << std::setw(12) << tag << "]: " << message << std::endl;
+#endif
 }
 
 void OptiXRayTracer::CreateContext() {
@@ -537,7 +555,7 @@ void OptiXRayTracer::CreateContext() {
   constexpr int device_id = 0;
   CUDA_CHECK(StreamCreate(&stream_));
   CUDA_CHECK(GetDeviceProperties(&device_props_, device_id));
-  std::cout << "#Optix: running on device: " << device_props_.name << std::endl;
+  EVOENGINE_LOG(std::string("Optix: running on device: ") + device_props_.name);
   if (const CUresult cu_res = cuCtxGetCurrent(&cuda_context_); cu_res != CUDA_SUCCESS)
     fprintf(stderr, "Error querying current context: error code %d\n", cu_res);
 
@@ -592,8 +610,10 @@ void OptiXRayTracer::CreateMissPrograms() {
     pg_desc.miss.entryFunctionName = "__miss__CR_SS";
     OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                         &camera_rendering_pipeline_.miss_program_groups[RayType::SpacialSampling]));
+#ifndef NDEBUG
     if (sizeof_log > 1)
       std::cout << log << std::endl;
+#endif
   }
   {
     char log[2048];
@@ -620,8 +640,10 @@ void OptiXRayTracer::CreateMissPrograms() {
     OPTIX_CHECK(
         optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                 &illumination_estimation_pipeline_.miss_program_groups[RayType::SpacialSampling]));
+#ifndef NDEBUG
     if (sizeof_log > 1)
       std::cout << log << std::endl;
+#endif
   }
   {
     char log[2048];
@@ -647,8 +669,10 @@ void OptiXRayTracer::CreateMissPrograms() {
     pg_desc.miss.entryFunctionName = "__miss__PCS_SS";
     OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                         &point_cloud_scanning_pipeline_.miss_program_groups[RayType::SpacialSampling]));
+#ifndef NDEBUG
     if (sizeof_log > 1)
       std::cout << log << std::endl;
+#endif
   }
 }
 
@@ -688,8 +712,10 @@ void OptiXRayTracer::CreateHitGroupPrograms() {
         optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &camera_rendering_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::CubicBSpline]));
 
+#ifndef NDEBUG
     if (sizeof_log > 1)
       std::cout << log << std::endl;
+#endif
 
     // -------------------------------------------------------
     // BSSRDF Sampler ray
@@ -717,8 +743,10 @@ void OptiXRayTracer::CreateHitGroupPrograms() {
         optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &camera_rendering_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::CubicBSpline]));
 
+#ifndef NDEBUG
     if (sizeof_log > 1)
       std::cout << log << std::endl;
+#endif
   }
   {
     char log[2048];
@@ -753,8 +781,10 @@ void OptiXRayTracer::CreateHitGroupPrograms() {
     OPTIX_CHECK(optixProgramGroupCreate(
         optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &illumination_estimation_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::CubicBSpline]));
+#ifndef NDEBUG
     if (sizeof_log > 1)
       std::cout << log << std::endl;
+#endif
     // -------------------------------------------------------
     // BSSRDF Sampler ray
     // -------------------------------------------------------
@@ -781,8 +811,10 @@ void OptiXRayTracer::CreateHitGroupPrograms() {
         optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                 &illumination_estimation_pipeline_
                                      .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::CubicBSpline]));
+#ifndef NDEBUG
     if (sizeof_log > 1)
       std::cout << log << std::endl;
+#endif
   }
   {
     char log[2048];
@@ -816,8 +848,10 @@ void OptiXRayTracer::CreateHitGroupPrograms() {
     OPTIX_CHECK(optixProgramGroupCreate(
         optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &point_cloud_scanning_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::CubicBSpline]));
+#ifndef NDEBUG
     if (sizeof_log > 1)
       std::cout << log << std::endl;
+#endif
     // -------------------------------------------------------
     // BSSRDF Sampler ray
     // -------------------------------------------------------
@@ -843,8 +877,10 @@ void OptiXRayTracer::CreateHitGroupPrograms() {
         optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                 &point_cloud_scanning_pipeline_
                                      .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::CubicBSpline]));
+#ifndef NDEBUG
     if (sizeof_log > 1)
       std::cout << log << std::endl;
+#endif
   }
 }
 
@@ -1331,8 +1367,10 @@ void OptiXRayTracer::CreateRayGenProgram(RayTracerPipeline &target_pipeline, cha
   size_t sizeof_log = sizeof(log);
   OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                       &target_pipeline.ray_gen_program_groups));
+#ifndef NDEBUG
   if (sizeof_log > 1)
     std::cout << log << std::endl;
+#endif
 }
 
 void OptiXRayTracer::CreateModule(RayTracerPipeline &target_pipeline, char ptx_code[],
@@ -1378,9 +1416,10 @@ void OptiXRayTracer::CreateModule(RayTracerPipeline &target_pipeline, char ptx_c
   OPTIX_CHECK(optixBuiltinISModuleGet(optix_device_context_, &target_pipeline.module_compile_options,
                                       &target_pipeline.pipeline_compile_options, &builtin_is_options,
                                       &target_pipeline.linear_curve_module));
-
+#ifndef NDEBUG
   if (sizeof_log > 1)
     std::cout << log << std::endl;
+#endif
 }
 
 void OptiXRayTracer::AssemblePipeline(RayTracerPipeline &target_pipeline) const {
@@ -1399,8 +1438,10 @@ void OptiXRayTracer::AssemblePipeline(RayTracerPipeline &target_pipeline) const 
   OPTIX_CHECK(optixPipelineCreate(
       optix_device_context_, &target_pipeline.pipeline_compile_options, &target_pipeline.pipeline_link_options,
       program_groups.data(), static_cast<int>(program_groups.size()), log, &sizeof_log, &target_pipeline.pipeline));
+#ifndef NDEBUG
   if (sizeof_log > 1)
     std::cout << log << std::endl;
+#endif
 
   OptixStackSizes stack_sizes = {};
   for (const auto &program_group : program_groups) {
@@ -1419,8 +1460,10 @@ void OptiXRayTracer::AssemblePipeline(RayTracerPipeline &target_pipeline) const 
                                         direct_callable_stack_size_from_state, continuation_stack_size,
                                         2  // maxTraversableDepth
                                         ));
+#ifndef NDEBUG
   if (sizeof_log > 1)
     std::cout << log << std::endl;
+#endif
 }
 
 void OptiXRayTracer::BuildSbt() {
