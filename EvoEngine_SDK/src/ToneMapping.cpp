@@ -44,17 +44,19 @@ void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
   });
 }
 
-void ToneMapping::BuildPipelines() {
-  pipeline = std::make_shared<ComputePipeline>();
-  pipeline->compute_shader = Shader::CreateTemporary(
-      ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./DefaultResources") / "Shaders/Compute/PostProcessing/ToneMapping.comp");
+void ToneMapping::BuildPipelines(const bool force_rebuild) {
+  if (force_rebuild || !pipeline) {
+    pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/Compute/PostProcessing/ToneMapping.comp");
 
-  pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
-  pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_storage_layout);
-  auto& downsampling_push_constant_range = pipeline->push_constant_ranges.emplace_back();
-  downsampling_push_constant_range.size = sizeof(PushConstant);
-  downsampling_push_constant_range.offset = 0;
-  downsampling_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-  pipeline->Initialize();
+    pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_storage_layout);
+    auto& downsampling_push_constant_range = pipeline->push_constant_ranges.emplace_back();
+    downsampling_push_constant_range.size = sizeof(PushConstant);
+    downsampling_push_constant_range.offset = 0;
+    downsampling_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+    pipeline->Initialize();
+  }
 }

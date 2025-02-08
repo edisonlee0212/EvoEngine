@@ -28,64 +28,6 @@ enum SystemGroup {
 };
 
 /**
- * @brief Enum class for defining different environment types.
- */
-enum class EnvironmentType {
-  EnvironmentalMap,  ///< Uses an environmental map for rendering the environment.
-  Color              ///< Uses a color for rendering the environment.
-};
-
-/**
- * @brief Represents the environment of the engine, storing environmental properties.
- */
-class Environment {
- public:
-  /// Reference to the environmental map asset.
-  AssetRef environmental_map;
-
-  /**
-   * @brief Retrieves the light probe for a specified position.
-   * @param position The position in the scene to query the light probe.
-   * @return Shared pointer to the light probe found at the given position.
-   */
-  [[nodiscard]] std::shared_ptr<LightProbe> GetLightProbe(const glm::vec3& position);
-
-  /**
-   * @brief Retrieves the reflection probe for a specified position.
-   * @param position The position in the scene to query the reflection probe.
-   * @return Shared pointer to the reflection probe found at the given position.
-   */
-  [[nodiscard]] std::shared_ptr<ReflectionProbe> GetReflectionProbe(const glm::vec3& position);
-
-  /// The background color of the environment.
-  glm::vec3 background_color = glm::vec3(1.0f, 1.0f, 1.0f);
-
-  /// Intensity of the background lighting.
-  float background_intensity = 1.0f;
-
-  /// Gamma value for color correction in the environment.
-  float environment_gamma = 2.2f;
-
-  /// Intensity of the ambient light in the environment.
-  float ambient_light_intensity = 0.8f;
-
-  /// The type of environment to render.
-  EnvironmentType environment_type = EnvironmentType::EnvironmentalMap;
-
-  /**
-   * @brief Serializes the environment's data to a YAML emitter.
-   * @param out The YAML emitter to serialize to.
-   */
-  void Serialize(YAML::Emitter& out) const;
-
-  /**
-   * @brief Deserializes the environment's data from a YAML node.
-   * @param in The YAML node to deserialize from.
-   */
-  void Deserialize(const YAML::Node& in);
-};
-
-/**
  * @brief Structure for storing scene data, including entities, metadata, and components.
  */
 struct SceneDataStorage {
@@ -118,399 +60,6 @@ struct SceneDataStorage {
  * @brief Represents a scene in the engine, including entities, systems, and environmental properties.
  */
 class Scene final : public IAsset {
-  friend class Application;
-  friend class Entities;
-  friend class EditorLayer;
-  friend class Serialization;
-  friend class SystemRef;
-  friend struct Entity;
-  friend class Prefab;
-  friend class TransformGraph;
-  friend class PrivateComponentStorage;
-  friend class Input;
-  friend class EditorLayer;
-
- private:
-  /// Stores the states of pressed keys in the scene.
-  std::unordered_map<int, Input::KeyActionType> pressed_keys_ = {};
-
-  /// Storage structure for scene data.
-  SceneDataStorage scene_data_storage_;
-
-  /// Multimap of systems ordered by their execution order.
-  std::multimap<float, std::shared_ptr<ISystem>> systems_;
-
-  /// Map of indexed systems by hash codes.
-  std::map<size_t, std::shared_ptr<ISystem>> indexed_systems_;
-
-  /// Map of systems by their handle identifiers.
-  std::map<Handle, std::shared_ptr<ISystem>> mapped_systems_;
-
-  /// The boundary of the world contained within the scene.
-  Bound world_bound_;
-
-  /**
-   * @brief Serializes a data component storage into a YAML structure.
-   * @param storage The data component storage to serialize.
-   * @param out The YAML emitter to serialize to.
-   */
-  void SerializeDataComponentStorage(const DataComponentStorage& storage, YAML::Emitter& out) const;
-
-  /**
-   * @brief Deserializes a data component storage from a YAML structure.
-   * @param storage_index The index of the data component storage.
-   * @param data_component_storage The storage to deserialize into.
-   * @param in The YAML node to deserialize from.
-   */
-  void DeserializeDataComponentStorage(size_t storage_index, DataComponentStorage& data_component_storage,
-                                       const YAML::Node& in);
-
-  /**
-   * @brief Serializes a system into a YAML structure.
-   * @param system The system to serialize.
-   * @param out The YAML emitter to serialize to.
-   */
-  static void SerializeSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out);
-
-  /**
-   * @brief Deletes an entity from the scene internally.
-   * @param entity_index Index of the entity to delete.
-   */
-  void DeleteEntityInternal(unsigned entity_index);
-
-  /**
-   * @brief Queries a list of data component storages based on an entity query index.
-   * @param entity_query_index The index of the query for filtering data component storages.
-   * @return A vector of references to the matched data component storages.
-   */
-  std::vector<std::reference_wrapper<DataComponentStorage>> QueryDataComponentStorageList(size_t entity_query_index);
-
-  /**
-   * @brief Retrieves a data component storage based on the archetype index of an entity.
-   * @param entity_archetype_index The archetype index to query.
-   * @return An optional pair containing a reference to the data component storage and an unsigned index.
-   */
-  std::optional<std::pair<std::reference_wrapper<DataComponentStorage>, unsigned>> GetDataComponentStorage(
-      size_t entity_archetype_index);
-
-  /**
-   * @brief Retrieves a data component array and stores it in a container.
-   * @tparam T The type of data component.
-   * @param storage The storage structure containing the data components.
-   * @param container A reference to the container where the components will be stored.
-   * @param check_enable Whether to check if the entities are enabled.
-   */
-  template <typename T = IDataComponent>
-  void GetDataComponentArrayStorage(const DataComponentStorage& storage, std::vector<T>& container, bool check_enable);
-
-  /**
-   * @brief Retrieves a list of entities stored in a data component storage.
-   * @param storage A reference to the data component storage to retrieve from.
-   * @param container A reference to the vector where the entities will be stored.
-   * @param check_enable Whether to check if the entities are enabled.
-   */
-  void GetEntityStorage(const DataComponentStorage& storage, std::vector<Entity>& container, bool check_enable) const;
-
-  /**
-   * @brief Swaps two entities within a data component storage.
-   * @param storage Reference to the data component storage where the swap occurs.
-   * @param index1 Index of the first entity in the data component storage.
-   * @param index2 Index of the second entity in the data component storage.
-   * @return The size_t index of the swapped entity.
-   */
-  static size_t SwapEntity(DataComponentStorage& storage, size_t index1, size_t index2);
-
-  /**
-   * @brief Enables or disables a single entity.
-   * @param entity The entity to set the enabled state for.
-   * @param value Boolean value indicating whether to enable or disable the entity.
-   */
-  void SetEnableSingle(const Entity& entity, const bool& value);
-
-  /**
-   * @brief Sets data for a specific data component within an entity.
-   * @param entity_index The index of the entity.
-   * @param id The type ID of the data component.
-   * @param size The size of the data to set.
-   * @param data The pointer to the data to set.
-   */
-  void SetDataComponent(const unsigned& entity_index, size_t id, size_t size, const void* data);
-
-  /**
-   * @brief Retrieves a pointer to a data component for the specified entity.
-   * @param entity The entity containing the data component.
-   * @param id The type ID of the data component.
-   * @return A void pointer to the data component.
-   */
-  [[nodiscard]] void* GetDataComponentPointer(const Entity& entity, const size_t& id);
-
-  /**
-   * @brief Retrieves a pointer to a data component using the entity index and its type ID.
-   * @param entity_index Index of the entity.
-   * @param id The type ID of the data component.
-   * @return A void pointer to the data component.
-   */
-  [[nodiscard]] void* GetDataComponentPointer(unsigned entity_index, const size_t& id);
-
-  /**
-   * @brief Sets a private component for the specified entity.
-   * @param entity The entity to add a private component to.
-   * @param ptr The shared pointer to the private component.
-   */
-  void SetPrivateComponent(const Entity& entity, const std::shared_ptr<IPrivateComponent>& ptr);
-
-  /**
-   * @brief Helper function to execute a function for each descendant of a target entity.
-   * @param target The target entity whose descendants will be iterated over.
-   * @param func The function to execute for each descendant.
-   */
-  void ForEachDescendantHelper(const Entity& target, const std::function<void(const Entity& entity)>& func);
-
-  /**
-   * @brief Helper function to retrieve all descendants of a target entity.
-   * @param target The target entity whose descendants will be retrieved.
-   * @param results A vector to store the resulting descendants.
-   */
-  void GetDescendantsHelper(const Entity& target, std::vector<Entity>& results);
-
-  /**
-   * @brief Removes a data component from an entity.
-   * @param entity The entity from which the data component will be removed.
-   * @param type_index The type index of the data component.
-   */
-  void RemoveDataComponent(const Entity& entity, const size_t& type_index);
-
-  /**
-   * @brief Retrieves a data component for an entity.
-   * @tparam T The type of the data component.
-   * @param index The index of the entity.
-   * @return The data component of type T.
-   */
-  template <typename T = IDataComponent>
-  T GetDataComponent(const size_t& index);
-
-  /**
-   * @brief Checks if an entity contains a data component of a specific type.
-   * @tparam T The type of the data component.
-   * @param index The index of the entity.
-   * @return True if the entity has the data component, false otherwise.
-   */
-  template <typename T = IDataComponent>
-  [[nodiscard]] bool HasDataComponent(const size_t& index) const;
-
-  /**
-   * @brief Checks if an entity contains a data component of a specific type.
-   * @param entity The entity to check.
-   * @param type_id The type ID of the data component.
-   * @return True if the entity has the data component, false otherwise.
-   */
-  [[nodiscard]] bool HasDataComponent(const Entity& entity, size_t type_id) const;
-
-  /**
-   * @brief Checks if an entity in the data storage contains a data component of a specific type.
-   * @param index The index of the entity in the storage.
-   * @param type_id The type ID of the data component.
-   * @return True if the entity has the data component, false otherwise.
-   */
-  [[nodiscard]] bool HasDataComponent(const size_t& index, size_t type_id) const;
-
-  /**
-   * @brief Adds a data component of a specific type to an entity.
-   * @param entity The entity to add the data component to.
-   * @param type_id The type ID of the data component.
-   */
-  void AddDataComponent(const Entity& entity, size_t type_id);
-
-  /**
-   * @brief Sets a data component for an entity.
-   * @tparam T The type of the data component.
-   * @param index The index of the entity in the storage.
-   * @param value The value to set for the data component.
-   */
-  template <typename T = IDataComponent>
-  void SetDataComponent(const size_t& index, const T& value);
-
-  /**
-   * @brief Iterates over all entities in storage and applies the given function to each.
-   * @tparam T1 The type of the data component.
-   * @param dependencies A vector of job handles for dependencies.
-   * @param storage The data component storage.
-   * @param func The function to apply.
-   * @param check_enable Whether to check if the entities are enabled.
-   * @return A JobHandle for the operation.
-   */
-  template <typename T1 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
-                           std::function<void(int i, Entity entity, T1&)>&& func, bool check_enable = true);
-
-  /**
-   * @brief Iterates over all entities in storage and applies the given function to each.
-   * @tparam T1 The first type of the data component.
-   * @tparam T2 The second type of the data component.
-   * @param dependencies A vector of job handles for dependencies.
-   * @param storage The data component storage.
-   * @param func The function to apply.
-   * @param check_enable Whether to check if the entities are enabled.
-   * @return A JobHandle for the operation.
-   */
-  template <typename T1 = IDataComponent, typename T2 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
-                           std::function<void(int i, Entity entity, T1&, T2&)>&& func, bool check_enable = true);
-
-  /**
-   * @brief Iterates over all entities in storage and applies the given function to each.
-   * @tparam T1 The first type of the data component.
-   * @tparam T2 The second type of the data component.
-   * @tparam T3 The third type of the data component.
-   * @param dependencies A vector of job handles for dependencies.
-   * @param storage The data component storage.
-   * @param func The function to apply.
-   * @param check_enable Whether to check if the entities are enabled.
-   * @return A JobHandle for the operation.
-   */
-  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
-                           std::function<void(int i, Entity entity, T1&, T2&, T3&)>&& func, bool check_enable = true);
-
-  /**
-   * @brief Iterates over all entities in storage and applies the given function to each.
-   * @tparam T1 The first type of the data component.
-   * @tparam T2 The second type of the data component.
-   * @tparam T3 The third type of the data component.
-   * @tparam T4 The fourth type of the data component.
-   * @param dependencies A vector of job handles for dependencies.
-   * @param storage The data component storage.
-   * @param func The function to apply.
-   * @param check_enable Whether to check if the entities are enabled.
-   * @return A JobHandle for the operation.
-   */
-  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
-            typename T4 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
-                           std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&)>&& func,
-                           bool check_enable = true);
-
-  /**
-   * @brief Iterates over all entities in storage and applies the given function to each.
-   * @tparam T1 The first type of the data component.
-   * @tparam T2 The second type of the data component.
-   * @tparam T3 The third type of the data component.
-   * @tparam T4 The fourth type of the data component.
-   * @tparam T5 The fifth type of the data component.
-   * @param dependencies A vector of job handles for dependencies.
-   * @param storage The data component storage.
-   * @param func The function to apply.
-   * @param check_enable Whether to check if the entities are enabled.
-   * @return A JobHandle for the operation.
-   */
-  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
-            typename T4 = IDataComponent, typename T5 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
-                           std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&)>&& func,
-                           bool check_enable = true);
-
-  /**
-   * @brief Iterates over all entities in storage and applies the given function to each.
-   * @tparam T1 The first type of the data component.
-   * @tparam T2 The second type of the data component.
-   * @tparam T3 The third type of the data component.
-   * @tparam T4 The fourth type of the data component.
-   * @tparam T5 The fifth type of the data component.
-   * @tparam T6 The sixth type of the data component.
-   * @param dependencies A vector of job handles for dependencies.
-   * @param storage The data component storage.
-   * @param func The function to apply.
-   * @param check_enable Whether to check if the entities are enabled.
-   * @return A JobHandle for the operation.
-   */
-  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
-            typename T4 = IDataComponent, typename T5 = IDataComponent, typename T6 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
-                           std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&)>&& func,
-                           bool check_enable = true);
-
-  /**
-   * @brief Iterates over all entities in storage and applies the given function to each.
-   * @tparam T1 The first type of the data component.
-   * @tparam T2 The second type of the data component.
-   * @tparam T3 The third type of the data component.
-   * @tparam T4 The fourth type of the data component.
-   * @tparam T5 The fifth type of the data component.
-   * @tparam T6 The sixth type of the data component.
-   * @tparam T7 The seventh type of the data component.
-   * @param dependencies A vector of job handles for dependencies.
-   * @param storage The data component storage.
-   * @param func The function to apply.
-   * @param check_enable Whether to check if the entities are enabled.
-   * @return A JobHandle for the operation.
-   */
-  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
-            typename T4 = IDataComponent, typename T5 = IDataComponent, typename T6 = IDataComponent,
-            typename T7 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
-                           std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&, T7&)>&& func,
-                           bool check_enable = true);
-
-  /**
-   * @brief Iterates over all entities in storage and applies the given function to each.
-   * @tparam T1 The first type of the data component.
-   * @tparam T2 The second type of the data component.
-   * @tparam T3 The third type of the data component.
-   * @tparam T4 The fourth type of the data component.
-   * @tparam T5 The fifth type of the data component.
-   * @tparam T6 The sixth type of the data component.
-   * @tparam T7 The seventh type of the data component.
-   * @tparam T8 The eighth type of the data component.
-   * @param dependencies A vector of job handles for dependencies.
-   * @param storage The data component storage.
-   * @param func The function to apply.
-   * @param check_enable Whether to check if the entities are enabled.
-   * @return A JobHandle for the operation.
-   */
-  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
-            typename T4 = IDataComponent, typename T5 = IDataComponent, typename T6 = IDataComponent,
-            typename T7 = IDataComponent, typename T8 = IDataComponent>
-  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
-                           std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&, T7&, T8&)>&& func,
-                           bool check_enable = true);
-
-  /**
-   * @brief Retrieves the metadata for a specified entity.
-   * @param entity The entity whose metadata is being requested.
-   * @return Reference to the metadata of the specified entity.
-   */
-  [[nodiscard]] EntityMetadata& GetEntityMetadata(const Entity& entity);
-
-  /**
-   * @brief Checks if a system of a specific type exists in the scene.
-   * @param type_id The type ID of the system to check.
-   * @return True if the system exists, false otherwise.
-   */
-  bool HasSystem(const size_t& type_id);
-
-  /**
-   * @brief Creates a system of a specific type and adds it to the scene.
-   * @param type_id The type ID of the system to create.
-   * @param order The execution order of the system.
-   * @return Shared pointer to the created system.
-   */
-  std::shared_ptr<ISystem> CreateSystem(const size_t& type_id, float order);
-
-  /**
-   * @brief Adds a private component to the entity.
-   * @param entity The entity to add the private component to.
-   * @param type_id The type ID of the private component.
-   */
-  void AddPrivateComponent(const Entity& entity, const size_t& type_id);
-
- protected:
-  /**
-   * @brief Loads the scene from the specified file path.
-   * @param path The file path to load the scene from.
-   * @return True if the scene was loaded successfully, false otherwise.
-   */
-  bool LoadInternal(const std::filesystem::path& path) override;
-
  public:
   /**
    * @brief Generates a thumbnail texture for the scene.
@@ -669,9 +218,63 @@ class Scene final : public IAsset {
    * @return A shared pointer to the system.
    */
   std::shared_ptr<ISystem> GetOrCreateSystem(const std::string& system_name, float order);
+  /**
+   * @brief Enum class for defining different environment types.
+   */
+  enum class EnvironmentType {
+    EnvironmentalMap,  ///< Uses an environmental map for rendering the environment.
+    Color              ///< Uses a color for rendering the environment.
+  };
 
-  /// The environment associated with the scene.
-  Environment environment;
+  /**
+   * @brief Represents the environment of the engine, storing environmental properties.
+   */
+  class Environment {
+   public:
+    /// Reference to the environmental map asset.
+    AssetRef environmental_map;
+
+    /**
+     * @brief Retrieves the light probe for a specified position.
+     * @param position The position in the scene to query the light probe.
+     * @return Shared pointer to the light probe found at the given position.
+     */
+    [[nodiscard]] std::shared_ptr<LightProbe> GetLightProbe(const glm::vec3& position);
+
+    /**
+     * @brief Retrieves the reflection probe for a specified position.
+     * @param position The position in the scene to query the reflection probe.
+     * @return Shared pointer to the reflection probe found at the given position.
+     */
+    [[nodiscard]] std::shared_ptr<ReflectionProbe> GetReflectionProbe(const glm::vec3& position);
+
+    /// The background color of the environment.
+    glm::vec3 background_color = glm::vec3(1.0f, 1.0f, 1.0f);
+
+    /// Intensity of the background lighting.
+    float background_intensity = 1.0f;
+
+    /// Gamma value for color correction in the environment.
+    float environment_gamma = 2.2f;
+
+    /// Intensity of the ambient light in the environment.
+    float ambient_light_intensity = 0.8f;
+
+    /// The type of environment to render.
+    EnvironmentType environment_type = EnvironmentType::EnvironmentalMap;
+
+    /**
+     * @brief Serializes the environment's data to a YAML emitter.
+     * @param out The YAML emitter to serialize to.
+     */
+    void Serialize(YAML::Emitter& out) const;
+
+    /**
+     * @brief Deserializes the environment's data from a YAML node.
+     * @param in The YAML node to deserialize from.
+     */
+    void Deserialize(const YAML::Node& in);
+  } environment;  /// The environment associated with the scene.
 
   /// Reference to the main camera used in the scene.
   PrivateComponentRef main_camera;
@@ -1253,6 +856,399 @@ class Scene final : public IAsset {
   JobHandle ForEach(const std::vector<JobHandle>& dependencies,
                     std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&, T7&, T8&)>&& func,
                     bool check_enable = true);
+
+ private:
+  friend class Application;
+  friend class Entities;
+  friend class EditorLayer;
+  friend class Serialization;
+  friend class SystemRef;
+  friend struct Entity;
+  friend class Prefab;
+  friend class TransformGraph;
+  friend class PrivateComponentStorage;
+  friend class Input;
+  friend class EditorLayer;
+
+  /// Stores the states of pressed keys in the scene.
+  std::unordered_map<int, Input::KeyActionType> pressed_keys_ = {};
+
+  /// Storage structure for scene data.
+  SceneDataStorage scene_data_storage_;
+
+  /// Multimap of systems ordered by their execution order.
+  std::multimap<float, std::shared_ptr<ISystem>> systems_;
+
+  /// Map of indexed systems by hash codes.
+  std::map<size_t, std::shared_ptr<ISystem>> indexed_systems_;
+
+  /// Map of systems by their handle identifiers.
+  std::map<Handle, std::shared_ptr<ISystem>> mapped_systems_;
+
+  /// The boundary of the world contained within the scene.
+  Bound world_bound_;
+
+  /**
+   * @brief Serializes a data component storage into a YAML structure.
+   * @param storage The data component storage to serialize.
+   * @param out The YAML emitter to serialize to.
+   */
+  void SerializeDataComponentStorage(const DataComponentStorage& storage, YAML::Emitter& out) const;
+
+  /**
+   * @brief Deserializes a data component storage from a YAML structure.
+   * @param storage_index The index of the data component storage.
+   * @param data_component_storage The storage to deserialize into.
+   * @param in The YAML node to deserialize from.
+   */
+  void DeserializeDataComponentStorage(size_t storage_index, DataComponentStorage& data_component_storage,
+                                       const YAML::Node& in);
+
+  /**
+   * @brief Serializes a system into a YAML structure.
+   * @param system The system to serialize.
+   * @param out The YAML emitter to serialize to.
+   */
+  static void SerializeSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out);
+
+  /**
+   * @brief Deletes an entity from the scene internally.
+   * @param entity_index Index of the entity to delete.
+   */
+  void DeleteEntityInternal(unsigned entity_index);
+
+  /**
+   * @brief Queries a list of data component storages based on an entity query index.
+   * @param entity_query_index The index of the query for filtering data component storages.
+   * @return A vector of references to the matched data component storages.
+   */
+  std::vector<std::reference_wrapper<DataComponentStorage>> QueryDataComponentStorageList(size_t entity_query_index);
+
+  /**
+   * @brief Retrieves a data component storage based on the archetype index of an entity.
+   * @param entity_archetype_index The archetype index to query.
+   * @return An optional pair containing a reference to the data component storage and an unsigned index.
+   */
+  std::optional<std::pair<std::reference_wrapper<DataComponentStorage>, unsigned>> GetDataComponentStorage(
+      size_t entity_archetype_index);
+
+  /**
+   * @brief Retrieves a data component array and stores it in a container.
+   * @tparam T The type of data component.
+   * @param storage The storage structure containing the data components.
+   * @param container A reference to the container where the components will be stored.
+   * @param check_enable Whether to check if the entities are enabled.
+   */
+  template <typename T = IDataComponent>
+  void GetDataComponentArrayStorage(const DataComponentStorage& storage, std::vector<T>& container, bool check_enable);
+
+  /**
+   * @brief Retrieves a list of entities stored in a data component storage.
+   * @param storage A reference to the data component storage to retrieve from.
+   * @param container A reference to the vector where the entities will be stored.
+   * @param check_enable Whether to check if the entities are enabled.
+   */
+  void GetEntityStorage(const DataComponentStorage& storage, std::vector<Entity>& container, bool check_enable) const;
+
+  /**
+   * @brief Swaps two entities within a data component storage.
+   * @param storage Reference to the data component storage where the swap occurs.
+   * @param index1 Index of the first entity in the data component storage.
+   * @param index2 Index of the second entity in the data component storage.
+   * @return The size_t index of the swapped entity.
+   */
+  static size_t SwapEntity(DataComponentStorage& storage, size_t index1, size_t index2);
+
+  /**
+   * @brief Enables or disables a single entity.
+   * @param entity The entity to set the enabled state for.
+   * @param value Boolean value indicating whether to enable or disable the entity.
+   */
+  void SetEnableSingle(const Entity& entity, const bool& value);
+
+  /**
+   * @brief Sets data for a specific data component within an entity.
+   * @param entity_index The index of the entity.
+   * @param id The type ID of the data component.
+   * @param size The size of the data to set.
+   * @param data The pointer to the data to set.
+   */
+  void SetDataComponent(const unsigned& entity_index, size_t id, size_t size, const void* data);
+
+  /**
+   * @brief Retrieves a pointer to a data component for the specified entity.
+   * @param entity The entity containing the data component.
+   * @param id The type ID of the data component.
+   * @return A void pointer to the data component.
+   */
+  [[nodiscard]] void* GetDataComponentPointer(const Entity& entity, const size_t& id);
+
+  /**
+   * @brief Retrieves a pointer to a data component using the entity index and its type ID.
+   * @param entity_index Index of the entity.
+   * @param id The type ID of the data component.
+   * @return A void pointer to the data component.
+   */
+  [[nodiscard]] void* GetDataComponentPointer(unsigned entity_index, const size_t& id);
+
+  /**
+   * @brief Sets a private component for the specified entity.
+   * @param entity The entity to add a private component to.
+   * @param ptr The shared pointer to the private component.
+   */
+  void SetPrivateComponent(const Entity& entity, const std::shared_ptr<IPrivateComponent>& ptr);
+
+  /**
+   * @brief Helper function to execute a function for each descendant of a target entity.
+   * @param target The target entity whose descendants will be iterated over.
+   * @param func The function to execute for each descendant.
+   */
+  void ForEachDescendantHelper(const Entity& target, const std::function<void(const Entity& entity)>& func);
+
+  /**
+   * @brief Helper function to retrieve all descendants of a target entity.
+   * @param target The target entity whose descendants will be retrieved.
+   * @param results A vector to store the resulting descendants.
+   */
+  void GetDescendantsHelper(const Entity& target, std::vector<Entity>& results);
+
+  /**
+   * @brief Removes a data component from an entity.
+   * @param entity The entity from which the data component will be removed.
+   * @param type_index The type index of the data component.
+   */
+  void RemoveDataComponent(const Entity& entity, const size_t& type_index);
+
+  /**
+   * @brief Retrieves a data component for an entity.
+   * @tparam T The type of the data component.
+   * @param index The index of the entity.
+   * @return The data component of type T.
+   */
+  template <typename T = IDataComponent>
+  T GetDataComponent(const size_t& index);
+
+  /**
+   * @brief Checks if an entity contains a data component of a specific type.
+   * @tparam T The type of the data component.
+   * @param index The index of the entity.
+   * @return True if the entity has the data component, false otherwise.
+   */
+  template <typename T = IDataComponent>
+  [[nodiscard]] bool HasDataComponent(const size_t& index) const;
+
+  /**
+   * @brief Checks if an entity contains a data component of a specific type.
+   * @param entity The entity to check.
+   * @param type_id The type ID of the data component.
+   * @return True if the entity has the data component, false otherwise.
+   */
+  [[nodiscard]] bool HasDataComponent(const Entity& entity, size_t type_id) const;
+
+  /**
+   * @brief Checks if an entity in the data storage contains a data component of a specific type.
+   * @param index The index of the entity in the storage.
+   * @param type_id The type ID of the data component.
+   * @return True if the entity has the data component, false otherwise.
+   */
+  [[nodiscard]] bool HasDataComponent(const size_t& index, size_t type_id) const;
+
+  /**
+   * @brief Adds a data component of a specific type to an entity.
+   * @param entity The entity to add the data component to.
+   * @param type_id The type ID of the data component.
+   */
+  void AddDataComponent(const Entity& entity, size_t type_id);
+
+  /**
+   * @brief Sets a data component for an entity.
+   * @tparam T The type of the data component.
+   * @param index The index of the entity in the storage.
+   * @param value The value to set for the data component.
+   */
+  template <typename T = IDataComponent>
+  void SetDataComponent(const size_t& index, const T& value);
+
+  /**
+   * @brief Iterates over all entities in storage and applies the given function to each.
+   * @tparam T1 The type of the data component.
+   * @param dependencies A vector of job handles for dependencies.
+   * @param storage The data component storage.
+   * @param func The function to apply.
+   * @param check_enable Whether to check if the entities are enabled.
+   * @return A JobHandle for the operation.
+   */
+  template <typename T1 = IDataComponent>
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+                           std::function<void(int i, Entity entity, T1&)>&& func, bool check_enable = true);
+
+  /**
+   * @brief Iterates over all entities in storage and applies the given function to each.
+   * @tparam T1 The first type of the data component.
+   * @tparam T2 The second type of the data component.
+   * @param dependencies A vector of job handles for dependencies.
+   * @param storage The data component storage.
+   * @param func The function to apply.
+   * @param check_enable Whether to check if the entities are enabled.
+   * @return A JobHandle for the operation.
+   */
+  template <typename T1 = IDataComponent, typename T2 = IDataComponent>
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+                           std::function<void(int i, Entity entity, T1&, T2&)>&& func, bool check_enable = true);
+
+  /**
+   * @brief Iterates over all entities in storage and applies the given function to each.
+   * @tparam T1 The first type of the data component.
+   * @tparam T2 The second type of the data component.
+   * @tparam T3 The third type of the data component.
+   * @param dependencies A vector of job handles for dependencies.
+   * @param storage The data component storage.
+   * @param func The function to apply.
+   * @param check_enable Whether to check if the entities are enabled.
+   * @return A JobHandle for the operation.
+   */
+  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent>
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+                           std::function<void(int i, Entity entity, T1&, T2&, T3&)>&& func, bool check_enable = true);
+
+  /**
+   * @brief Iterates over all entities in storage and applies the given function to each.
+   * @tparam T1 The first type of the data component.
+   * @tparam T2 The second type of the data component.
+   * @tparam T3 The third type of the data component.
+   * @tparam T4 The fourth type of the data component.
+   * @param dependencies A vector of job handles for dependencies.
+   * @param storage The data component storage.
+   * @param func The function to apply.
+   * @param check_enable Whether to check if the entities are enabled.
+   * @return A JobHandle for the operation.
+   */
+  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
+            typename T4 = IDataComponent>
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+                           std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&)>&& func,
+                           bool check_enable = true);
+
+  /**
+   * @brief Iterates over all entities in storage and applies the given function to each.
+   * @tparam T1 The first type of the data component.
+   * @tparam T2 The second type of the data component.
+   * @tparam T3 The third type of the data component.
+   * @tparam T4 The fourth type of the data component.
+   * @tparam T5 The fifth type of the data component.
+   * @param dependencies A vector of job handles for dependencies.
+   * @param storage The data component storage.
+   * @param func The function to apply.
+   * @param check_enable Whether to check if the entities are enabled.
+   * @return A JobHandle for the operation.
+   */
+  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
+            typename T4 = IDataComponent, typename T5 = IDataComponent>
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+                           std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&)>&& func,
+                           bool check_enable = true);
+
+  /**
+   * @brief Iterates over all entities in storage and applies the given function to each.
+   * @tparam T1 The first type of the data component.
+   * @tparam T2 The second type of the data component.
+   * @tparam T3 The third type of the data component.
+   * @tparam T4 The fourth type of the data component.
+   * @tparam T5 The fifth type of the data component.
+   * @tparam T6 The sixth type of the data component.
+   * @param dependencies A vector of job handles for dependencies.
+   * @param storage The data component storage.
+   * @param func The function to apply.
+   * @param check_enable Whether to check if the entities are enabled.
+   * @return A JobHandle for the operation.
+   */
+  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
+            typename T4 = IDataComponent, typename T5 = IDataComponent, typename T6 = IDataComponent>
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+                           std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&)>&& func,
+                           bool check_enable = true);
+
+  /**
+   * @brief Iterates over all entities in storage and applies the given function to each.
+   * @tparam T1 The first type of the data component.
+   * @tparam T2 The second type of the data component.
+   * @tparam T3 The third type of the data component.
+   * @tparam T4 The fourth type of the data component.
+   * @tparam T5 The fifth type of the data component.
+   * @tparam T6 The sixth type of the data component.
+   * @tparam T7 The seventh type of the data component.
+   * @param dependencies A vector of job handles for dependencies.
+   * @param storage The data component storage.
+   * @param func The function to apply.
+   * @param check_enable Whether to check if the entities are enabled.
+   * @return A JobHandle for the operation.
+   */
+  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
+            typename T4 = IDataComponent, typename T5 = IDataComponent, typename T6 = IDataComponent,
+            typename T7 = IDataComponent>
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+                           std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&, T7&)>&& func,
+                           bool check_enable = true);
+
+  /**
+   * @brief Iterates over all entities in storage and applies the given function to each.
+   * @tparam T1 The first type of the data component.
+   * @tparam T2 The second type of the data component.
+   * @tparam T3 The third type of the data component.
+   * @tparam T4 The fourth type of the data component.
+   * @tparam T5 The fifth type of the data component.
+   * @tparam T6 The sixth type of the data component.
+   * @tparam T7 The seventh type of the data component.
+   * @tparam T8 The eighth type of the data component.
+   * @param dependencies A vector of job handles for dependencies.
+   * @param storage The data component storage.
+   * @param func The function to apply.
+   * @param check_enable Whether to check if the entities are enabled.
+   * @return A JobHandle for the operation.
+   */
+  template <typename T1 = IDataComponent, typename T2 = IDataComponent, typename T3 = IDataComponent,
+            typename T4 = IDataComponent, typename T5 = IDataComponent, typename T6 = IDataComponent,
+            typename T7 = IDataComponent, typename T8 = IDataComponent>
+  JobHandle ForEachStorage(const std::vector<JobHandle>& dependencies, DataComponentStorage& storage,
+                           std::function<void(int i, Entity entity, T1&, T2&, T3&, T4&, T5&, T6&, T7&, T8&)>&& func,
+                           bool check_enable = true);
+
+  /**
+   * @brief Retrieves the metadata for a specified entity.
+   * @param entity The entity whose metadata is being requested.
+   * @return Reference to the metadata of the specified entity.
+   */
+  [[nodiscard]] EntityMetadata& GetEntityMetadata(const Entity& entity);
+
+  /**
+   * @brief Checks if a system of a specific type exists in the scene.
+   * @param type_id The type ID of the system to check.
+   * @return True if the system exists, false otherwise.
+   */
+  bool HasSystem(const size_t& type_id);
+
+  /**
+   * @brief Creates a system of a specific type and adds it to the scene.
+   * @param type_id The type ID of the system to create.
+   * @param order The execution order of the system.
+   * @return Shared pointer to the created system.
+   */
+  std::shared_ptr<ISystem> CreateSystem(const size_t& type_id, float order);
+
+  /**
+   * @brief Adds a private component to the entity.
+   * @param entity The entity to add the private component to.
+   * @param type_id The type ID of the private component.
+   */
+  void AddPrivateComponent(const Entity& entity, const size_t& type_id);
+
+ protected:
+  /**
+   * @brief Loads the scene from the specified file path.
+   * @param path The file path to load the scene from.
+   * @return True if the scene was loaded successfully, false otherwise.
+   */
+  bool LoadInternal(const std::filesystem::path& path) override;
 };
 template <typename T>
 std::vector<Entity> Scene::GetPrivateComponentOwnersList() {

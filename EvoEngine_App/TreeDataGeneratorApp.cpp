@@ -146,9 +146,10 @@ void generate_tree_data(const std::filesystem::path& output_folder) {
   // data_generation_parameters.growth_capture = {4096};
   data_generation_parameters.point_cloud_capture_settings = tree_point_cloud_circular_capture_settings;
 
-  for (int index = 0; index < 2; index++) {
+  for (int index = 0; index < 200; index++) {
     data_generation_parameters.output_file_prefix =
         data_generation_parameters.tree_descriptor_path.stem().string() + "_" + std::to_string(index);
+    data_generation_parameters.seed = index;
     DatasetGenerator::GenerateDataForTree(data_generation_parameters);
   }
 }

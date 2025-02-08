@@ -448,7 +448,7 @@ bool ForestDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer
   }
 
   if (ImGui::Button("Instantiate patch")) {
-    InstantiatePatch(setParent);
+    InstantiatePatch(setParent, 0);
   }
 
   if (!tree_infos.empty() && ImGui::Button("Clear")) {
@@ -494,7 +494,7 @@ void ForestDescriptor::Deserialize(const YAML::Node& in) {
   }
 }
 
-void ForestDescriptor::SetupGrid(const glm::ivec2& grid_size, float grid_distance, float random_shift) {
+auto ForestDescriptor::SetupGrid(const glm::ivec2& grid_size, const float grid_distance, float random_shift) -> void {
   tree_infos.clear();
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
@@ -523,7 +523,7 @@ void ForestDescriptor::SetupGrid(const glm::ivec2& grid_size, float grid_distanc
   }
 }
 
-Entity ForestDescriptor::InstantiatePatch(const bool set_parent) const {
+Entity ForestDescriptor::InstantiatePatch(const bool set_parent, const int seed) const {
   const auto scene = Application::GetActiveScene();
   Entity parent;
   if (set_parent) {
@@ -537,6 +537,7 @@ Entity ForestDescriptor::InstantiatePatch(const bool set_parent) const {
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
     tree->tree_model.tree_growth_settings = tree_growth_settings;
     tree->tree_descriptor_ref = gt.tree_descriptor;
+    tree->tree_model.seed = seed * tree_infos.size();
     if (set_parent)
       scene->SetParent(tree_entity, parent);
   }

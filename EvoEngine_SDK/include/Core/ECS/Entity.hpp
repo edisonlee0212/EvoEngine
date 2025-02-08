@@ -4,10 +4,6 @@
 #include "IHandle.hpp"
 
 namespace evo_engine {
-
-#pragma region EntityManager
-#pragma region Entity
-
 class Scene;
 
 /**
@@ -140,8 +136,6 @@ struct Entity final {
   uint32_t operator()(Entity const &key) const;
 };
 
-#pragma region Storage
-
 /**
  * @brief Represents a reference to an entity.
  */
@@ -208,7 +202,7 @@ class EntityRef final {
   }
 
   /**
-   * @brief Relinks the entity handle using a mapping of handles.
+   * @brief Re-links the entity handle using a mapping of handles.
    * @param map Mapping of old handles to new handles.
    */
   void Relink(const std::unordered_map<Handle, Handle> &map) {
@@ -383,14 +377,14 @@ struct EntityArchetypeInfo {
    * @return True if the archetype has the specified type, false otherwise.
    */
   template <typename T>
-  bool HasType() const;
+  [[nodiscard]] bool HasType() const;
 
   /**
    * @brief Checks if the archetype has a specific type by index.
    * @param type_index The index of the type to check for.
    * @return True if the archetype has the specified type, false otherwise.
    */
-  bool HasType(const size_t &type_index) const;
+  [[nodiscard]] bool HasType(const size_t &type_index) const;
 };
 
 /**
@@ -409,7 +403,7 @@ struct EntityQuery final {
    * @brief Gets the index of the entity query.
    * @return The index of the entity query.
    */
-  size_t GetIndex() const;
+  [[nodiscard]] size_t GetIndex() const;
 
   /**
    * @brief Equality operator for EntityQuery objects.
@@ -510,14 +504,14 @@ struct DataComponentStorage {
    * @return True if the storage contains the specified type, false otherwise.
    */
   template <typename T>
-  bool HasType() const;
+  [[nodiscard]] bool HasType() const;
 
   /**
    * @brief Checks if the storage contains a specific type by its index.
    * @param type_id The index of the type to check for.
    * @return True if the storage contains the specified type, false otherwise.
    */
-  bool HasType(const size_t &type_id) const;
+  [[nodiscard]] bool HasType(const size_t &type_id) const;
 };
 
 /**

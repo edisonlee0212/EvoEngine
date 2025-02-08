@@ -48,7 +48,7 @@ class IPostProcessing {
     return false;
   }
 
-  virtual void BuildPipelines() = 0;
+  virtual void BuildPipelines(bool force_rebuild = false) = 0;
 };
 
 class ScreenSpaceAmbientOcclusion : public IPostProcessing {
@@ -90,7 +90,7 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
 
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
-  void BuildPipelines() override;
+  void BuildPipelines(bool force_rebuild = false) override;
 };
 
 class ScreenSpaceReflection : public IPostProcessing {
@@ -118,7 +118,7 @@ class ScreenSpaceReflection : public IPostProcessing {
 
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
-  void BuildPipelines() override;
+  void BuildPipelines(bool force_rebuild = false) override;
 };
 
 class Bloom : public IPostProcessing {
@@ -148,7 +148,7 @@ class Bloom : public IPostProcessing {
   inline static std::shared_ptr<GraphicsPipeline> mix_pipeline;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
-  void BuildPipelines() override;
+  void BuildPipelines(bool force_rebuild = false) override;
 };
 
 class ToneMapping : public IPostProcessing {
@@ -163,7 +163,7 @@ class ToneMapping : public IPostProcessing {
   float gamma = 1.f;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
-  void BuildPipelines() override;
+  void BuildPipelines(bool force_rebuild = false) override;
   inline static std::shared_ptr<ComputePipeline> pipeline;
 };
 

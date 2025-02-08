@@ -126,7 +126,7 @@ class Entities final {
   /**
    * @brief Creates an entity archetype with the given name and types.
    * @param name Name of the entity archetype.
-   * @param types A vector of DataComponentType objects.
+   * @param types A vector of DataComponentType describes the owned data components of the target type entity.
    * @return The created EntityArchetype.
    */
   static EntityArchetype CreateEntityArchetype(const std::string &name, const std::vector<DataComponentType> &types);

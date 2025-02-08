@@ -196,53 +196,58 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
   });
 }
 
-void ScreenSpaceReflection::BuildPipelines() {
-  combine_layout = std::make_shared<DescriptorSetLayout>();
-  combine_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-  combine_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-  combine_layout->Initialize();
-
-  reflect_pipeline = std::make_shared<GraphicsPipeline>();
-  reflect_pipeline->vertex_shader =
-      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-  reflect_pipeline->fragment_shader = Shader::CreateTemporary(
-      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRReflect.frag");
-  reflect_pipeline->geometry_type = GeometryType::Mesh;
-  reflect_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
-  reflect_pipeline->descriptor_set_layouts.emplace_back(Camera::g_buffer_layout);
-  reflect_pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
-  reflect_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-  reflect_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  reflect_pipeline->color_attachment_formats = {2, Platform::Constants::render_texture_color};
-  auto& ssr_reflect_pipeline_push_constant_range = reflect_pipeline->push_constant_ranges.emplace_back();
-  ssr_reflect_pipeline_push_constant_range.size = sizeof(PushConstant);
-  ssr_reflect_pipeline_push_constant_range.offset = 0;
-  ssr_reflect_pipeline_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-  reflect_pipeline->Initialize();
-
-  combine_pipeline = std::make_shared<GraphicsPipeline>();
-  combine_pipeline->vertex_shader =
-      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-  combine_pipeline->fragment_shader = Shader::CreateTemporary(
-      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRCombine.frag");
-  combine_pipeline->geometry_type = GeometryType::Mesh;
-  combine_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
-  combine_pipeline->descriptor_set_layouts.emplace_back(combine_layout);
-  combine_pipeline->descriptor_set_layouts.emplace_back(Camera::g_buffer_layout);
-  combine_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-  combine_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  combine_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-  auto& ssr_combine_pipeline_push_constant_range = combine_pipeline->push_constant_ranges.emplace_back();
-  ssr_combine_pipeline_push_constant_range.size = sizeof(PushConstant);
-  ssr_combine_pipeline_push_constant_range.offset = 0;
-  ssr_combine_pipeline_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-  combine_pipeline->Initialize();
-
-  if (!combine_descriptor_set) {
+void ScreenSpaceReflection::BuildPipelines(const bool force_rebuild) {
+  if (force_rebuild || !combine_layout) {
+    combine_layout = std::make_shared<DescriptorSetLayout>();
+    combine_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                          0);
+    combine_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                          0);
+    combine_layout->Initialize();
+  }
+  if (force_rebuild || !reflect_pipeline) {
+    reflect_pipeline = std::make_shared<GraphicsPipeline>();
+    reflect_pipeline->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    reflect_pipeline->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRReflect.frag");
+    reflect_pipeline->geometry_type = GeometryType::Mesh;
+    reflect_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    reflect_pipeline->descriptor_set_layouts.emplace_back(Camera::g_buffer_layout);
+    reflect_pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
+    reflect_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
+    reflect_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    reflect_pipeline->color_attachment_formats = {2, Platform::Constants::render_texture_color};
+    auto& ssr_reflect_pipeline_push_constant_range = reflect_pipeline->push_constant_ranges.emplace_back();
+    ssr_reflect_pipeline_push_constant_range.size = sizeof(PushConstant);
+    ssr_reflect_pipeline_push_constant_range.offset = 0;
+    ssr_reflect_pipeline_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+    reflect_pipeline->Initialize();
+  }
+  if (force_rebuild || !combine_pipeline) {
+    combine_pipeline = std::make_shared<GraphicsPipeline>();
+    combine_pipeline->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    combine_pipeline->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRCombine.frag");
+    combine_pipeline->geometry_type = GeometryType::Mesh;
+    combine_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    combine_pipeline->descriptor_set_layouts.emplace_back(combine_layout);
+    combine_pipeline->descriptor_set_layouts.emplace_back(Camera::g_buffer_layout);
+    combine_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
+    combine_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    combine_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    auto& ssr_combine_pipeline_push_constant_range = combine_pipeline->push_constant_ranges.emplace_back();
+    ssr_combine_pipeline_push_constant_range.size = sizeof(PushConstant);
+    ssr_combine_pipeline_push_constant_range.offset = 0;
+    ssr_combine_pipeline_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+    combine_pipeline->Initialize();
+  }
+  if (force_rebuild || !combine_descriptor_set) {
     combine_descriptor_set = std::make_shared<DescriptorSet>(combine_layout);
   }
 }

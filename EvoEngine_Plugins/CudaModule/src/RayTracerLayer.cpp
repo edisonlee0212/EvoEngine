@@ -338,7 +338,7 @@ bool RayTracerLayer::UpdateScene(const std::shared_ptr<Scene>& scene) {
   UpdateMeshesStorage(scene, material_storage, geometry_storage, instance_storage, rebuild_acceleration_structure,
                       update_shader_binding_table);
   auto& env_settings = scene->environment;
-  if (const bool use_env_map = env_settings.environment_type == EnvironmentType::EnvironmentalMap;
+  if (const bool use_env_map = env_settings.environment_type == Scene::EnvironmentType::EnvironmentalMap;
       environment_properties.use_environmental_map != use_env_map) {
     environment_properties.use_environmental_map = use_env_map;
     update_shader_binding_table = true;

@@ -48,7 +48,7 @@ class DatasetGenerator {
     TreeMeshGeneratorSettings tree_mesh_generator_settings{};
     std::vector<CameraCaptureSettings> camera_capture_settings{};
     std::shared_ptr<PointCloudCaptureSettings> point_cloud_capture_settings{};
-
+    int seed = 0;
     float max_depth = 20.f;
     // Export path
     std::filesystem::path output_folder{};

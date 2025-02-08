@@ -1617,10 +1617,8 @@ void Platform::PreUpdate() {
   auto& graphics = GetInstance();
   const auto window_layer = Application::GetLayer<WindowLayer>();
   const auto vulkan_update = [&](const std::function<void()>& swap_chain_action) {
-    vkDeviceWaitIdle(graphics.vk_device_);
     const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
-    vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX);
-
+    vkResetFences(graphics.vk_device_, 1, in_flight_fences);
     for (auto& i : graphics.buffer_sync_actions)
       i.second();
     for (auto& i : graphics.temporary_buffer_sync_actions)
@@ -1629,13 +1627,9 @@ void Platform::PreUpdate() {
     GeometryStorage::DeviceSync();
     TextureStorage::DeviceSync();
     swap_chain_action();
-    vkResetFences(graphics.vk_device_, 1, in_flight_fences);
   };
 
   if (window_layer) {
-    if (glfwWindowShouldClose(window_layer->window_)) {
-      Application::End();
-    }
     if (window_layer->window_size_.x != 0 || window_layer->window_size_.y != 0) {
       const auto just_now = Times::Now();
       vulkan_update([&]() {
@@ -1697,6 +1691,15 @@ void Platform::LateUpdate() {
     graphics.present_queue_->Present(signal_semaphores, targets);
   }
   graphics.current_frame_index_ = (graphics.current_frame_index_ + 1) % graphics.max_frame_in_flight_;
+
+  vkDeviceWaitIdle(graphics.vk_device_);
+  const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
+  vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX);
+  if (window_layer) {
+    if (glfwWindowShouldClose(window_layer->window_)) {
+      Application::End();
+    }
+  }
 }
 
 bool Platform::Initialized() {

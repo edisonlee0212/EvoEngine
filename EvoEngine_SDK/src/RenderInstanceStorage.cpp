@@ -1062,10 +1062,10 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
 
 void RenderInstanceStorage::CollectEnvironment(const std::shared_ptr<Scene>& target_scene) {
   switch (target_scene->environment.environment_type) {
-    case EnvironmentType::EnvironmentalMap: {
+    case Scene::EnvironmentType::EnvironmentalMap: {
       environment_info_block.background_color.w = 0.0f;
     } break;
-    case EnvironmentType::Color: {
+    case Scene::EnvironmentType::Color: {
       environment_info_block.background_color = glm::vec4(target_scene->environment.background_color, 1.0f);
     } break;
   }
