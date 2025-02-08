@@ -218,9 +218,10 @@ class ForestDescriptor : public IAsset {
   /**
    * @brief Instantiates a forest patch.
    * @param set_parent Whether to set a parent entity for the instantiated patch.
+   * @param seed The seed of the patch.
    * @return Root entity of the instantiated forest patch.
    */
-  Entity InstantiatePatch(bool set_parent) const;
+  Entity InstantiatePatch(bool set_parent, int seed) const;
 };
 
 }  // namespace eco_sys_lab_plugin

@@ -303,89 +303,97 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
   });
 }
 
-void Bloom::BuildPipelines() {
-  mix_layout = std::make_shared<DescriptorSetLayout>();
-  mix_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-  mix_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-  mix_layout->Initialize();
-
-  if (!mix_descriptor_set) {
+void Bloom::BuildPipelines(const bool force_rebuild) {
+  if (force_rebuild || !mix_layout) {
+    mix_layout = std::make_shared<DescriptorSetLayout>();
+    mix_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    mix_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    mix_layout->Initialize();
+  }
+  if (force_rebuild || !mix_descriptor_set) {
     mix_descriptor_set = std::make_shared<DescriptorSet>(mix_layout);
   }
+  if (force_rebuild || !sampling_layout) {
+    sampling_layout = std::make_shared<DescriptorSetLayout>();
+    sampling_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                           0);
+    sampling_layout->Initialize();
+  }
+  if (force_rebuild || !downsampling_pipeline) {
+    downsampling_pipeline = std::make_shared<GraphicsPipeline>();
+    downsampling_pipeline->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    downsampling_pipeline->fragment_shader =
+        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+                                std::filesystem::path("./DefaultResources") /
+                                    "Shaders/Graphics/Fragment/PostProcessing/BloomDownsampling.frag");
 
-  sampling_layout = std::make_shared<DescriptorSetLayout>();
-  sampling_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-  sampling_layout->Initialize();
+    downsampling_pipeline->geometry_type = GeometryType::Mesh;
+    downsampling_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    downsampling_pipeline->descriptor_set_layouts.emplace_back(sampling_layout);
+    downsampling_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
+    downsampling_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    downsampling_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    auto& downsampling_push_constant_range = downsampling_pipeline->push_constant_ranges.emplace_back();
+    downsampling_push_constant_range.size = sizeof(DownsamplingPushConstant);
+    downsampling_push_constant_range.offset = 0;
+    downsampling_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+    downsampling_pipeline->Initialize();
+  }
+  if (force_rebuild || !upsampling_pipeline) {
+    upsampling_pipeline = std::make_shared<GraphicsPipeline>();
+    upsampling_pipeline->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    upsampling_pipeline->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomUpsampling.frag");
 
-  downsampling_pipeline = std::make_shared<GraphicsPipeline>();
-  downsampling_pipeline->vertex_shader =
-      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-  downsampling_pipeline->fragment_shader = Shader::CreateTemporary(
-      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomDownsampling.frag");
-
-  downsampling_pipeline->geometry_type = GeometryType::Mesh;
-  downsampling_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
-  downsampling_pipeline->descriptor_set_layouts.emplace_back(sampling_layout);
-  downsampling_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-  downsampling_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  downsampling_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-  auto& downsampling_push_constant_range = downsampling_pipeline->push_constant_ranges.emplace_back();
-  downsampling_push_constant_range.size = sizeof(DownsamplingPushConstant);
-  downsampling_push_constant_range.offset = 0;
-  downsampling_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-  downsampling_pipeline->Initialize();
-
-  upsampling_pipeline = std::make_shared<GraphicsPipeline>();
-  upsampling_pipeline->vertex_shader =
-      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-  upsampling_pipeline->fragment_shader = Shader::CreateTemporary(
-      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomUpsampling.frag");
-
-  upsampling_pipeline->geometry_type = GeometryType::Mesh;
-  upsampling_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
-  upsampling_pipeline->descriptor_set_layouts.emplace_back(sampling_layout);
-  upsampling_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-  upsampling_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  upsampling_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-  auto& upsampling_push_constant_range = upsampling_pipeline->push_constant_ranges.emplace_back();
-  upsampling_push_constant_range.size = sizeof(UpsamplingPushConstant);
-  upsampling_push_constant_range.offset = 0;
-  upsampling_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-  upsampling_pipeline->Initialize();
-
-  copy_pipeline = std::make_shared<GraphicsPipeline>();
-  copy_pipeline->vertex_shader =
-      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-  copy_pipeline->fragment_shader = Shader::CreateTemporary(
-      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomCopy.frag");
-  copy_pipeline->geometry_type = GeometryType::Mesh;
-  copy_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
-  copy_pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
-  copy_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-  copy_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  copy_pipeline->color_attachment_formats = {2, Platform::Constants::render_texture_color};
-  copy_pipeline->Initialize();
-
-  mix_pipeline = std::make_shared<GraphicsPipeline>();
-  mix_pipeline->vertex_shader =
-      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-  mix_pipeline->fragment_shader = Shader::CreateTemporary(
-      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomMix.frag");
-  mix_pipeline->geometry_type = GeometryType::Mesh;
-  mix_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
-  mix_pipeline->descriptor_set_layouts.emplace_back(mix_layout);
-  mix_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-  mix_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  mix_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-  mix_pipeline->Initialize();
+    upsampling_pipeline->geometry_type = GeometryType::Mesh;
+    upsampling_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    upsampling_pipeline->descriptor_set_layouts.emplace_back(sampling_layout);
+    upsampling_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
+    upsampling_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    upsampling_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    auto& upsampling_push_constant_range = upsampling_pipeline->push_constant_ranges.emplace_back();
+    upsampling_push_constant_range.size = sizeof(UpsamplingPushConstant);
+    upsampling_push_constant_range.offset = 0;
+    upsampling_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+    upsampling_pipeline->Initialize();
+  }
+  if (force_rebuild || !copy_pipeline) {
+    copy_pipeline = std::make_shared<GraphicsPipeline>();
+    copy_pipeline->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    copy_pipeline->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomCopy.frag");
+    copy_pipeline->geometry_type = GeometryType::Mesh;
+    copy_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    copy_pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
+    copy_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
+    copy_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    copy_pipeline->color_attachment_formats = {2, Platform::Constants::render_texture_color};
+    copy_pipeline->Initialize();
+  }
+  if (force_rebuild || !mix_pipeline) {
+    mix_pipeline = std::make_shared<GraphicsPipeline>();
+    mix_pipeline->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    mix_pipeline->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomMix.frag");
+    mix_pipeline->geometry_type = GeometryType::Mesh;
+    mix_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    mix_pipeline->descriptor_set_layouts.emplace_back(mix_layout);
+    mix_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
+    mix_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    mix_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    mix_pipeline->Initialize();
+  }
 }
 
 void PostProcessingStack::Resize(const glm::uvec2& size) {

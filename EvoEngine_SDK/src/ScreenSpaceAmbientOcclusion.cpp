@@ -293,64 +293,69 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
   });
 }
 
-void ScreenSpaceAmbientOcclusion::BuildPipelines() {
-  combine_layout = std::make_shared<DescriptorSetLayout>();
-  combine_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-  combine_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-  combine_layout->Initialize();
-
-  geometry_pipeline = std::make_shared<GraphicsPipeline>();
-  geometry_pipeline->vertex_shader =
-      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-  geometry_pipeline->fragment_shader = Shader::CreateTemporary(
-      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSAOGeometry.frag");
-  geometry_pipeline->geometry_type = GeometryType::Mesh;
-  geometry_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
-  geometry_pipeline->descriptor_set_layouts.emplace_back(Camera::g_buffer_layout);
-  geometry_pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
-  geometry_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-  geometry_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  geometry_pipeline->color_attachment_formats = {2, Platform::Constants::render_texture_color};
-  auto& ssr_reflect_pipeline_push_constant_range = geometry_pipeline->push_constant_ranges.emplace_back();
-  ssr_reflect_pipeline_push_constant_range.size = sizeof(PushConstant);
-  ssr_reflect_pipeline_push_constant_range.offset = 0;
-  ssr_reflect_pipeline_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-  geometry_pipeline->Initialize();
-
-  combine_pipeline = std::make_shared<GraphicsPipeline>();
-  combine_pipeline->vertex_shader =
-      Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                      "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-  combine_pipeline->fragment_shader = Shader::CreateTemporary(
-      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSAOCombine.frag");
-  combine_pipeline->geometry_type = GeometryType::Mesh;
-  combine_pipeline->descriptor_set_layouts.emplace_back(combine_layout);
-  combine_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-  combine_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  combine_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-  combine_pipeline->Initialize();
-
-  if (!combine_descriptor_set) {
+void ScreenSpaceAmbientOcclusion::BuildPipelines(const bool force_rebuild) {
+  if (force_rebuild || !combine_layout) {
+    combine_layout = std::make_shared<DescriptorSetLayout>();
+    combine_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                          0);
+    combine_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                          0);
+    combine_layout->Initialize();
+  }
+  if (force_rebuild || !geometry_pipeline) {
+    geometry_pipeline = std::make_shared<GraphicsPipeline>();
+    geometry_pipeline->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    geometry_pipeline->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSAOGeometry.frag");
+    geometry_pipeline->geometry_type = GeometryType::Mesh;
+    geometry_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    geometry_pipeline->descriptor_set_layouts.emplace_back(Camera::g_buffer_layout);
+    geometry_pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
+    geometry_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
+    geometry_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    geometry_pipeline->color_attachment_formats = {2, Platform::Constants::render_texture_color};
+    auto& ssr_reflect_pipeline_push_constant_range = geometry_pipeline->push_constant_ranges.emplace_back();
+    ssr_reflect_pipeline_push_constant_range.size = sizeof(PushConstant);
+    ssr_reflect_pipeline_push_constant_range.offset = 0;
+    ssr_reflect_pipeline_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+    geometry_pipeline->Initialize();
+  }
+  if (force_rebuild || !combine_pipeline) {
+    combine_pipeline = std::make_shared<GraphicsPipeline>();
+    combine_pipeline->vertex_shader =
+        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    combine_pipeline->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSAOCombine.frag");
+    combine_pipeline->geometry_type = GeometryType::Mesh;
+    combine_pipeline->descriptor_set_layouts.emplace_back(combine_layout);
+    combine_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
+    combine_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    combine_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    combine_pipeline->Initialize();
+  }
+  if (force_rebuild || !combine_descriptor_set) {
     combine_descriptor_set = std::make_shared<DescriptorSet>(combine_layout);
   }
 
-  if (!blur_layout) {
+  if (force_rebuild || !blur_layout) {
     blur_layout = std::make_shared<DescriptorSetLayout>();
     blur_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     blur_layout->Initialize();
   }
 
-  if (!blur_horizontal_descriptor_set) {
+  if (force_rebuild || !blur_horizontal_descriptor_set) {
     blur_horizontal_descriptor_set = std::make_shared<DescriptorSet>(blur_layout);
   }
-  if (!blur_vertical_descriptor_set) {
+  if (force_rebuild || !blur_vertical_descriptor_set) {
     blur_vertical_descriptor_set = std::make_shared<DescriptorSet>(blur_layout);
   }
 
-  if (!blur_pipeline) {
+  if (force_rebuild || !blur_pipeline) {
     blur_pipeline = std::make_shared<GraphicsPipeline>();
     blur_pipeline->vertex_shader =
         Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /

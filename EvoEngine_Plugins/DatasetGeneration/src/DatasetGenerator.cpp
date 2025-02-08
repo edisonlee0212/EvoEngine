@@ -165,6 +165,7 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   tree->pruning_settings = data_generation_parameters.pruning_settings;
   tree->tree_descriptor_ref = actual_tree_descriptor;
   tree->tree_model.tree_growth_settings.use_space_colonization = false;
+  tree->tree_model.seed = data_generation_parameters.seed;
   Application::Loop();
   int max_iterations = 2048;
   if (data_generation_parameters.max_iteration > 0) {
@@ -260,7 +261,7 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   Application::Loop();
 }
 
-void DatasetGenerator::GenerateDataForForest(int grid_size, float grid_distance, float random_shift,
+void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_distance, const float random_shift,
                                              const TreeDataGenerationParameters& data_generation_parameters,
                                              const std::filesystem::path& species_folder_path) {
   if (!CheckApplication()) {
@@ -287,7 +288,7 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, float grid_distance,
 
   forest_descriptor->SetupGrid({grid_size, grid_size}, grid_distance, random_shift);
   forest_descriptor->ApplyTreeDescriptors(species_folder_path, {1.f});
-  const auto forest_entity = forest_descriptor->InstantiatePatch(false);
+  const auto forest_entity = forest_descriptor->InstantiatePatch(false, data_generation_parameters.seed);
 
   int max_iterations = INT_MAX;
   if (data_generation_parameters.max_iteration > 0) {

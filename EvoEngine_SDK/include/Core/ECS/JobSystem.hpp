@@ -188,7 +188,8 @@ class JobSystem {
   [[nodiscard]] size_t GetWorkerSize() const;
 
   /**
-   * @brief Pushes a new job into the job system.
+   * @brief Pushes a new job into the job system. Job will be in pending start state.
+   * @details This function must be executed on the thread where current job system is created.
    * @param dependencies The list of jobs that must be completed before this job starts.
    * @param func The function to execute as part of the job.
    * @return A handle representing the pushed job.
@@ -196,13 +197,15 @@ class JobSystem {
   [[nodiscard]] JobHandle PushJob(const std::vector<JobHandle>& dependencies, std::function<void()>&& func);
 
   /**
-   * @brief Executes the specified job immediately.
+   * @brief Start execution of the scheduled job.
+   * @details This function must be executed on the thread where current job system is created.
    * @param job_handle The handle of the job to execute.
    */
   void ExecuteJob(const JobHandle& job_handle);
 
   /**
-   * @brief Waits for the completion of a specific job.
+   * @brief Waits for the completion of a job.
+   * @details This function must be executed on the thread where current job system is created.
    * @param job_handle The handle of the job to wait for.
    */
   void Wait(const JobHandle& job_handle);

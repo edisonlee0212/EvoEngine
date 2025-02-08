@@ -27,7 +27,7 @@ class Jobs final {
   static void Initialize(size_t worker_size);
 
   /**
-   * @brief Runs a parallel for-loop on the given function across the specified range.
+   * @brief Completes a parallel for-loop job on the given function across the specified range.
    * @param size The number of iterations to process.
    * @param func The function to execute for each iteration, taking the index as a parameter.
    * @param worker_size Optional: The number of worker threads to use for execution. Defaults to 0.
@@ -35,7 +35,7 @@ class Jobs final {
   static void RunParallelFor(size_t size, const std::function<void(size_t i)>& func, size_t worker_size = 0);
 
   /**
-   * @brief Runs a parallel for-loop on the given function across the specified range with worker indices.
+   * @brief Completes a parallel for-loop job on the given function across the specified range with worker indices.
    * @param size The number of iterations to process.
    * @param func The function to execute for each iteration, taking the index and worker index as parameters.
    * @param worker_size Optional: The number of worker threads to use for execution. Defaults to 0.
@@ -44,7 +44,7 @@ class Jobs final {
                              size_t worker_size = 0);
 
   /**
-   * @brief Schedules a parallel for-loop for execution.
+   * @brief Schedules a parallel for-loop job. Job will be in pending start state.
    * @param size The number of iterations to schedule.
    * @param func The function to execute for each iteration, taking the index as a parameter.
    * @param worker_size Optional: The number of worker threads to use for execution. Defaults to 0.
@@ -53,7 +53,7 @@ class Jobs final {
   static JobHandle ScheduleParallelFor(size_t size, const std::function<void(size_t i)>& func, size_t worker_size = 0);
 
   /**
-   * @brief Schedules a parallel for-loop for execution with worker indices.
+   * @brief Schedules a parallel for-loop job with worker indices. Job will be in pending start state.
    * @param size The number of iterations to schedule.
    * @param func The function to execute for each iteration, taking the index and worker index as parameters.
    * @param worker_size Optional: The number of worker threads to use for execution. Defaults to 0.
@@ -63,7 +63,7 @@ class Jobs final {
                                        size_t worker_size = 0);
 
   /**
-   * @brief Runs a parallel for-loop with dependencies on a set of prior jobs.
+   * @brief Completes a parallel for-loop job with dependencies on a set of prior jobs.
    * @param dependencies A vector of JobHandle representing dependent jobs.
    * @param size The number of iterations to process.
    * @param func The function to execute for each iteration, taking the index as a parameter.
@@ -73,7 +73,7 @@ class Jobs final {
                              const std::function<void(size_t i)>& func, size_t worker_size = 0);
 
   /**
-   * @brief Runs a parallel for-loop with dependencies on a set of prior jobs, including worker indices.
+   * @brief Completes a parallel for-loop job with dependencies on a set of prior jobs, including worker indices.
    * @param dependencies A vector of JobHandle representing dependent jobs.
    * @param size The number of iterations to process.
    * @param func The function to execute for each iteration, taking the index and worker index as parameters.
@@ -83,7 +83,7 @@ class Jobs final {
                              const std::function<void(size_t i, size_t worker_index)>& func, size_t worker_size = 0);
 
   /**
-   * @brief Schedules a parallel for-loop for execution with dependencies.
+   * @brief Schedules a parallel for-loop job with dependencies. Job will be in pending start state.
    * @param dependencies A vector of JobHandle representing dependent jobs.
    * @param size The number of iterations to schedule.
    * @param func The function to execute for each iteration, taking the index as a parameter.
@@ -94,7 +94,7 @@ class Jobs final {
                                        const std::function<void(size_t i)>& func, size_t worker_size = 0);
 
   /**
-   * @brief Schedules a parallel for-loop for execution with dependencies and worker indices.
+   * @brief Schedules a parallel for-loop job with dependencies and worker indices. Job will be in pending start state.
    * @param dependencies A vector of JobHandle representing dependent jobs.
    * @param size The number of iterations to schedule.
    * @param func The function to execute for each iteration, taking the index and worker index as parameters.
@@ -106,7 +106,7 @@ class Jobs final {
                                        size_t worker_size = 0);
 
   /**
-   * @brief Runs a job with dependencies, executing the given function.
+   * @brief Schedules a job with dependencies, executing the given function. Job will be in pending start state.
    * @param dependencies A vector of JobHandle representing dependent jobs.
    * @param func The function to execute once dependencies are resolved.
    * @return A JobHandle representing the scheduled job.
@@ -114,27 +114,27 @@ class Jobs final {
   static JobHandle Run(const std::vector<JobHandle>& dependencies, const std::function<void()>& func);
 
   /**
-   * @brief Runs a job executing the given function without dependencies.
+   * @brief Schedules a job executing the given function without dependencies. Job will be in pending start state.
    * @param func The function to execute.
    * @return A JobHandle representing the scheduled job.
    */
   static JobHandle Run(const std::function<void()>& func);
 
   /**
-   * @brief Combines multiple dependencies into a single JobHandle.
+   * @brief Combines multiple jobs into a single job.
    * @param dependencies A vector of JobHandle representing dependent jobs.
    * @return A JobHandle combining the dependencies.
    */
   static JobHandle Combine(const std::vector<JobHandle>& dependencies);
 
   /**
-   * @brief Executes the given job immediately.
+   * @brief Start execution of the scheduled job.
    * @param job_handle The JobHandle representing the job to execute.
    */
   static void Execute(const JobHandle& job_handle);
 
   /**
-   * @brief Waits for the given job to complete execution.
+   * @brief Waits for the started job to complete execution.
    * @param job_handle The JobHandle representing the job to wait for.
    */
   static void Wait(const JobHandle& job_handle);
