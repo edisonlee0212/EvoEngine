@@ -1,17 +1,12 @@
-import platform
 import os
 
-def is_windows():
-    return platform.system() == "Windows"
-
-#You should change following lines to make sure they points to the correct directory
-evoengine_directory = "~/EvoEngine/"
-output_root = os.path.expanduser("~/SorghumData")
-
-if is_windows():
-	root_dir = "C:/Users/lllll/Documents/GitHub/"
-	evoengine_directory = root_dir + "EvoEngine/"
-	output_root = root_dir + "SorghumData"
+#If you moved this python script, you should change following lines to make sure they points to the correct directory
+file_path = os.path.abspath(__file__)
+file_folder = os.path.dirname(file_path)
+evoengine_directory = os.path.dirname(file_folder) + "/"
+root_dir = os.path.dirname(evoengine_directory)
+#You may modify output folder path here.
+output_root = os.path.dirname(root_dir) + "/SorghumData"
 
 #Capture current working directory to restore later
 current_directory = os.getcwd()
@@ -46,6 +41,7 @@ sorghum_framework.engine_run_windowless(use_gpu, project_path)
 #==================================#
 #         Configurations           #
 #==================================#
+#Following configurations are defined in PythonBinding/src/PyDigitalAgriculture.cpp. You may check all available settings there.
 
 #Create settings for data generation
 data_generation_parameters = sorghum_framework.SorghumDataGenerationParameters()

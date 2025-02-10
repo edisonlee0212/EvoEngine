@@ -51,9 +51,12 @@ using namespace evo_engine;
 namespace py = pybind11;
 
 void register_classes() {
+#  ifdef ECOSYSLAB_PLUGIN
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
   PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
   PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
+  PrivateComponentRegistration<TreePointCloudScanner>("TreePointCloudScanner");
+#  endif
 }
 
 void push_layers(const bool enable_window_layer, const bool enable_editor_layer) {
@@ -199,22 +202,29 @@ Entity import_tree_point_cloud(const std::string& yaml_path) {
   return ret_val;
 }
 
-void tree_structor(const std::string& yaml_path, const ConnectivityGraphSettings& connectivity_graph_settings,
+void tree_structor(const std::filesystem::path& yaml_path, const float import_scale_factor,
+                   const ConnectivityGraphSettings& connectivity_graph_settings,
                    const ReconstructionSettings& reconstruction_settings,
-                   const TreeMeshGeneratorSettings& mesh_generator_settings, const std::string& mesh_path) {
+                   const TreeMeshGeneratorSettings& mesh_generator_settings, const std::filesystem::path& output_folder,
+                   const std::string& file_name_prefix) {
+  if (!std::filesystem::exists(yaml_path)) {
+    EVOENGINE_ERROR("Incorrect yaml path!")
+    return;
+  }
   const auto scene = Application::GetActiveScene();
   const auto temp_entity = scene->CreateEntity("Temp");
   const auto tree_point_cloud = scene->GetOrSetPrivateComponent<TreeStructor>(temp_entity).lock();
 
   tree_point_cloud->connectivity_graph_settings = connectivity_graph_settings;
   tree_point_cloud->reconstruction_settings = reconstruction_settings;
-  tree_point_cloud->ImportGraph(yaml_path);
+  tree_point_cloud->ImportGraph(yaml_path, import_scale_factor);
   tree_point_cloud->EstablishConnectivityGraph();
   tree_point_cloud->BuildSkeletons();
-  tree_point_cloud->ExportForestOBJ(mesh_generator_settings, mesh_path);
-  EVOENGINE_LOG("Exported forest as OBJ");
+  tree_point_cloud->ExportForestObj(mesh_generator_settings, output_folder / (file_name_prefix + ".obj"));
+  tree_point_cloud->ExportForestStatistics(output_folder / (file_name_prefix + ".yml"));
   scene->DeleteEntity(temp_entity);
 }
+
 void yaml_visualization(const std::string& yaml_path, const ConnectivityGraphSettings& connectivity_graph_settings,
                         const ReconstructionSettings& reconstruction_settings,
                         const TreeMeshGeneratorSettings& mesh_generator_settings, const float pos_x, const float pos_y,
@@ -387,24 +397,24 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
   const auto tree = scene->GetOrSetPrivateComponent<Tree>(temp_entity).lock();
   tree->soil = soil;
   tree->climate = climate;
-  std::shared_ptr<TreeDescriptor> treeDescriptor;
+  std::shared_ptr<TreeDescriptor> tree_descriptor;
   if (ProjectManager::IsInAssetsFolder(tree_parameters_path)) {
-    treeDescriptor = std::dynamic_pointer_cast<TreeDescriptor>(
+    tree_descriptor = std::dynamic_pointer_cast<TreeDescriptor>(
         ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(tree_parameters_path)));
   } else {
-    treeDescriptor = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+    tree_descriptor = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
   }
-  tree->tree_descriptor_ref = treeDescriptor;
-  auto& occupancyGrid = tree->tree_model.tree_occupancy_grid;
+  tree->tree_descriptor_ref = tree_descriptor;
+  auto& occupancy_grid = tree->tree_model.tree_occupancy_grid;
   const auto rbv = AssetManager::CreateTemporaryAsset<RadialBoundingVolume>();
   rbv->Import(rbv_path);
 
-  occupancyGrid.Initialize(rbv, glm::vec3(-rbv->m_maxRadius, 0, -rbv->m_maxRadius),
-                           glm::vec3(rbv->m_maxRadius, 2.0f * rbv->m_maxRadius, rbv->m_maxRadius),
-                           treeDescriptor->shoot_descriptor.Get<ShootDescriptor>()->internode_length,
-                           tree->tree_model.tree_growth_settings.space_colonization_removal_distance_factor,
-                           tree->tree_model.tree_growth_settings.space_colonization_theta,
-                           tree->tree_model.tree_growth_settings.space_colonization_detection_distance_factor);
+  occupancy_grid.Initialize(rbv, glm::vec3(-rbv->m_maxRadius, 0, -rbv->m_maxRadius),
+                            glm::vec3(rbv->m_maxRadius, 2.0f * rbv->m_maxRadius, rbv->m_maxRadius),
+                            tree_descriptor->shoot_descriptor.Get<ShootDescriptor>()->internode_length,
+                            tree->tree_model.tree_growth_settings.space_colonization_removal_distance_factor,
+                            tree->tree_model.tree_growth_settings.space_colonization_theta,
+                            tree->tree_model.tree_growth_settings.space_colonization_detection_distance_factor);
 
   tree->tree_model.tree_growth_settings.use_space_colonization = true;
   tree->tree_model.tree_growth_settings.space_colonization_auto_resize = false;
@@ -459,7 +469,13 @@ PYBIND11_MODULE(PyEcoSysLab, m) {
 
   py::class_<ConnectivityGraphSettings>(m, "ConnectivityGraphSettings")
       .def(py::init<>())
+      .def_readwrite("point_existence_check", &ConnectivityGraphSettings::point_existence_check)
       .def_readwrite("point_existence_check_radius", &ConnectivityGraphSettings::point_existence_check_radius)
+      .def_readwrite("zigzag_check", &ConnectivityGraphSettings::zigzag_check)
+      .def_readwrite("zigzag_branch_shortening", &ConnectivityGraphSettings::zigzag_branch_shortening)
+      .def_readwrite("parallel_shift_check_height_limit", &ConnectivityGraphSettings::parallel_shift_check_height_limit)
+      .def_readwrite("parallel_shift_check", &ConnectivityGraphSettings::parallel_shift_check)
+      .def_readwrite("parallel_shift_limit_range", &ConnectivityGraphSettings::parallel_shift_limit_range)
       .def_readwrite("point_point_connection_detection_radius",
                      &ConnectivityGraphSettings::point_point_connection_detection_radius)
       .def_readwrite("point_branch_connection_detection_radius",
@@ -467,7 +483,10 @@ PYBIND11_MODULE(PyEcoSysLab, m) {
       .def_readwrite("branch_branch_connection_max_length_range",
                      &ConnectivityGraphSettings::branch_branch_connection_max_length_range)
       .def_readwrite("direction_connection_angle_limit", &ConnectivityGraphSettings::direction_connection_angle_limit)
-      .def_readwrite("indirect_connection_angle_limit", &ConnectivityGraphSettings::indirect_connection_angle_limit);
+      .def_readwrite("indirect_connection_angle_limit", &ConnectivityGraphSettings::indirect_connection_angle_limit)
+      .def_readwrite("connection_range_limit", &ConnectivityGraphSettings::connection_range_limit)
+      .def_readwrite("max_scatter_point_connection_height",
+                     &ConnectivityGraphSettings::max_scatter_point_connection_height);
 
 #  ifdef DATASET_GENERATION_PLUGIN
   py::class_<TreePointCloudPointSettings>(m, "TreePointCloudPointSettings")
@@ -504,8 +523,32 @@ PYBIND11_MODULE(PyEcoSysLab, m) {
       .def_readwrite("min_height", &ReconstructionSettings::min_height)
       .def_readwrite("minimum_tree_distance", &ReconstructionSettings::minimum_tree_distance)
       .def_readwrite("branch_shortening", &ReconstructionSettings::branch_shortening)
+      .def_readwrite("max_parent_candidate_size", &ReconstructionSettings::max_parent_candidate_size)
+      .def_readwrite("max_child_size", &ReconstructionSettings::max_child_size)
       .def_readwrite("end_node_thickness", &ReconstructionSettings::end_node_thickness)
-      .def_readwrite("minimum_node_count", &ReconstructionSettings::minimum_node_count);
+      .def_readwrite("thickness_sum_factor", &ReconstructionSettings::thickness_sum_factor)
+      .def_readwrite("apply_root_thickness", &ReconstructionSettings::apply_root_thickness)
+      .def_readwrite("thickness_accumulation_factor", &ReconstructionSettings::thickness_accumulation_factor)
+      .def_readwrite("override_thickness_root_distance", &ReconstructionSettings::override_thickness_root_distance)
+      .def_readwrite("override_thickness_root_distance", &ReconstructionSettings::override_thickness_root_distance)
+      .def_readwrite("space_colonization_timeout", &ReconstructionSettings::space_colonization_timeout)
+      .def_readwrite("space_colonization_factor", &ReconstructionSettings::space_colonization_factor)
+      .def_readwrite("space_colonization_removal_distance_factor",
+                     &ReconstructionSettings::space_colonization_removal_distance_factor)
+      .def_readwrite("space_colonization_detection_distance_factor",
+                     &ReconstructionSettings::space_colonization_detection_distance_factor)
+      .def_readwrite("space_colonization_theta", &ReconstructionSettings::space_colonization_theta)
+      .def_readwrite("minimum_node_count", &ReconstructionSettings::minimum_node_count)
+      .def_readwrite("limit_parent_thickness", &ReconstructionSettings::limit_parent_thickness)
+      .def_readwrite("minimum_root_thickness", &ReconstructionSettings::minimum_root_thickness)
+      .def_readwrite("node_back_track_limit", &ReconstructionSettings::node_back_track_limit)
+      .def_readwrite("branch_back_track_limit", &ReconstructionSettings::branch_back_track_limit)
+      .def_readwrite("use_root_distance", &ReconstructionSettings::use_root_distance)
+      .def_readwrite("optimization_timeout", &ReconstructionSettings::optimization_timeout)
+      .def_readwrite("direction_smoothing", &ReconstructionSettings::direction_smoothing)
+      .def_readwrite("position_smoothing", &ReconstructionSettings::position_smoothing)
+      .def_readwrite("smooth_iteration", &ReconstructionSettings::smooth_iteration)
+      .def_readwrite("use_foliage", &ReconstructionSettings::use_foliage);
 
   py::class_<PresentationOverrideSettings>(m, "PresentationOverrideSettings")
       .def(py::init<>())
@@ -617,6 +660,7 @@ PYBIND11_MODULE(PyEcoSysLab, m) {
       .def_readwrite("export_skeleton", &DatasetGenerator::TreeDataGenerationParameters::export_skeleton)
       .def_readwrite("export_rendering", &DatasetGenerator::TreeDataGenerationParameters::export_rendering)
       .def_readwrite("export_depth", &DatasetGenerator::TreeDataGenerationParameters::export_depth)
+      .def_readwrite("export_statistics", &DatasetGenerator::TreeDataGenerationParameters::export_statistics)
 
       .def_readwrite("generate_ground_mesh", &DatasetGenerator::TreeDataGenerationParameters::generate_ground_mesh)
       .def_readwrite("tree_point_cloud_point_settings",

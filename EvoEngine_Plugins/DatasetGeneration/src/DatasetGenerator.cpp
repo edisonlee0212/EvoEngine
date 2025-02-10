@@ -184,6 +184,12 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
 
     Application::Loop();
     Application::Loop();
+
+    if (data_generation_parameters.export_statistics) {
+      tree->GetTreeStatistics().Export(data_generation_parameters.output_folder /
+                                       (data_generation_parameters.output_file_name + "_stats" + post_fix + ".yml"));
+    }
+
     if (data_generation_parameters.export_mesh) {
       tree->ExportObj(
           data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + post_fix + ".obj"),
@@ -191,7 +197,7 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
     }
     if (data_generation_parameters.export_skeleton) {
       tree->ExportFlowGraph(data_generation_parameters.output_folder /
-                            (data_generation_parameters.output_file_name + post_fix + ".yml"));
+                            (data_generation_parameters.output_file_name + "_skeleton" + post_fix + ".yml"));
     }
     if (data_generation_parameters.export_point_cloud) {
       const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
@@ -288,7 +294,7 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
   std::filesystem::create_directories(data_generation_parameters.output_folder);
 
   Application::Loop();
-
+  const auto camera_entity = scene->CreateEntity("Capture Camera");
   forest_descriptor->SetupGrid({grid_size, grid_size}, grid_distance, random_shift);
   forest_descriptor->ApplyTreeDescriptors(species_folder_path, {1.f});
   const auto forest_entity = forest_descriptor->InstantiatePatch(false, data_generation_parameters.seed);
@@ -304,28 +310,73 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
   }
   eco_sys_lab_layer->GenerateMeshes(data_generation_parameters.tree_mesh_generator_settings);
   Application::Loop();
-  /*
-  const auto children = scene->GetChildren(forest_entity);
-  for (const auto& child : children) {
-    const auto tree = scene->GetOrSetPrivateComponent<Tree>(child).lock();
-    if (data_generation_parameters.export_mesh) {
-      tree->ExportObj(?, data_generation_parameters.tree_mesh_generator_settings);
-    }
-    if (data_generation_parameters.export_skeleton) {
-      tree->ExportFlowGraph(?);
+  Application::Loop();
+  if (data_generation_parameters.export_mesh) {
+    eco_sys_lab_layer->ExportAllTrees(data_generation_parameters.output_folder /
+                                      (data_generation_parameters.output_file_name + ".obj"));
+  }
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    int tree_index = 0;
+    for (const auto& tree_entity : *tree_entities) {
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      if (data_generation_parameters.export_statistics) {
+        tree->GetTreeStatistics().Export(
+            data_generation_parameters.output_folder /
+            (data_generation_parameters.output_file_name + "_stats_" + std::to_string(tree_index) + ".yml"));
+      }
+      if (data_generation_parameters.export_skeleton) {
+        tree->ExportFlowGraph(
+            data_generation_parameters.output_folder /
+            (data_generation_parameters.output_file_name + "_skeleton_" + std::to_string(tree_index) + ".yml"));
+      }
+
+      tree_index++;
     }
   }
-  */
-  const auto scanner_entity = scene->CreateEntity("Scanner");
-  const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
-  scanner->point_settings = data_generation_parameters.tree_point_cloud_point_settings;
-  Application::Loop();
-  Application::Loop();
-  scanner->Capture(data_generation_parameters.tree_mesh_generator_settings,
-                   data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply"),
-                   data_generation_parameters.point_cloud_capture_settings);
+
+  if (data_generation_parameters.export_rendering || data_generation_parameters.export_depth) {
+    const auto camera = scene->GetOrSetPrivateComponent<Camera>(camera_entity).lock();
+    for (int image_index = 0; image_index < data_generation_parameters.camera_capture_settings.size(); image_index++) {
+      const auto& camera_capture_settings = data_generation_parameters.camera_capture_settings[image_index];
+      camera->camera_settings = camera_capture_settings.camera_settings;
+      camera->post_processing_stack_ref.Get<PostProcessingStack>()->enable_bloom = false;
+      camera->Resize(camera_capture_settings.render_resolution);
+      camera->SetRequireRendering(true);
+      GlobalTransform camera_global_transform{};
+      camera_global_transform.SetPosition(camera_capture_settings.position);
+      camera_global_transform.SetEulerRotation(glm::radians(camera_capture_settings.euler_rotation));
+      scene->SetDataComponent(camera_entity, camera_global_transform);
+      Application::Loop();
+      if (data_generation_parameters.export_rendering) {
+        camera->GetRenderTexture()->StoreToPng(
+            data_generation_parameters.output_folder /
+                (data_generation_parameters.output_file_name + "_" + std::to_string(image_index) + ".png"),
+            camera_capture_settings.output_resolution.x, camera_capture_settings.output_resolution.y);
+      }
+      if (data_generation_parameters.export_depth) {
+        camera->GetRenderTexture()->StoreLinearDepthToPng(
+            data_generation_parameters.output_folder /
+                (data_generation_parameters.output_file_name + "_" + std::to_string(image_index) + "_d.png"),
+            camera->camera_settings.near_distance, camera->camera_settings.far_distance,
+            data_generation_parameters.max_depth, camera_capture_settings.output_resolution.x,
+            camera_capture_settings.output_resolution.y);
+      }
+    }
+  }
+  if (data_generation_parameters.export_point_cloud) {
+    const auto scanner_entity = scene->CreateEntity("Scanner");
+    const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
+    scanner->point_settings = data_generation_parameters.tree_point_cloud_point_settings;
+    Application::Loop();
+    Application::Loop();
+    scanner->Capture(data_generation_parameters.tree_mesh_generator_settings,
+                     data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply"),
+                     data_generation_parameters.point_cloud_capture_settings);
+    scene->DeleteEntity(scanner_entity);
+  }
+  scene->DeleteEntity(camera_entity);
   scene->DeleteEntity(forest_entity);
-  scene->DeleteEntity(scanner_entity);
   Application::Loop();
 }
 

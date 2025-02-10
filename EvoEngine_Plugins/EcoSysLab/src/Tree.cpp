@@ -161,6 +161,13 @@ bool Tree::ParseBinvox(const std::filesystem::path& file_path, VoxelGrid<TreeOcc
   return true;
 }
 
+TreeStatistics Tree::GetTreeStatistics() const {
+  TreeStatistics ret_val{};
+  const auto& skeleton = tree_model.PeekShootSkeleton();
+  ret_val.Calculate(skeleton);
+  return ret_val;
+}
+
 void Tree::Reset() {
   ClearSkeletalGraph();
   ClearGeometryEntities();

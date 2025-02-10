@@ -1,17 +1,12 @@
-import platform
 import os
 
-def is_windows():
-    return platform.system() == "Windows"
-
-#You should change following lines to make sure they points to the correct directory
-evoengine_directory = "~/EvoEngine/"
-output_root = os.path.expanduser("~/TreeData")
-
-if is_windows():
-	root_dir = "C:/Users/lllll/Documents/GitHub/"
-	evoengine_directory = root_dir + "EvoEngine/"
-	output_root = root_dir + "TreeData"
+#If you moved this python script, you should change following lines to make sure they points to the correct directory
+file_path = os.path.abspath(__file__)
+file_folder = os.path.dirname(file_path)
+evoengine_directory = os.path.dirname(file_folder) + "/"
+root_dir = os.path.dirname(evoengine_directory)
+#You may modify output folder path here.
+output_root = os.path.dirname(root_dir) + "/TreeData"
 
 #Capture current working directory to restore later
 current_directory = os.getcwd()
@@ -30,7 +25,10 @@ sys.path.append(library_directory)
 #Import framework and start data generation``
 import PyEcoSysLab as tree_framework
 
-#Point the framework to load the default project folder that contains 2 sample sorghum descriptors.
+#Project folder path
+project_folder_path = os.path.expanduser(evoengine_directory + "Resources/EcoSysLabProject/")
+
+#Point the framework to load the default project
 project_path = os.path.expanduser(evoengine_directory + "Resources/EcoSysLabProject/test.eveproj")
 
 #Create new folder for output path if necessary
@@ -46,7 +44,7 @@ tree_framework.engine_run_windowless(project_path)
 #==================================#
 #         Configurations           #
 #==================================#
-
+#Following configurations are defined in PythonBinding/src/PyEcoSysLab.cpp. You may check all available settings there.
 #Create settings for data generation
 data_generation_parameters = tree_framework.TreeDataGenerationParameters()
 
@@ -67,12 +65,14 @@ data_generation_parameters.simulation_settings.max_node_count = 65536
 #Trunk length (branches will br pruned)
 data_generation_parameters.pruning_settings.low_branch_pruning = 0.2
 data_generation_parameters.output_folder = output_root
-data_generation_parameters.export_point_cloud = False
+data_generation_parameters.export_point_cloud = True
 data_generation_parameters.export_mesh = True
 
-data_generation_parameters.export_skeleton = False
+data_generation_parameters.export_skeleton = True
 data_generation_parameters.export_rendering = True
 data_generation_parameters.export_depth = True
+data_generation_parameters.export_statistics = True
+
 #Depth value is linearized and clamp with max value. Smaller value means closer to camera. 1.0 means max depth/inf depth.
 data_generation_parameters.max_depth = 8
 data_generation_parameters.generate_ground_mesh = False
