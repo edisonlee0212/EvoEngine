@@ -133,11 +133,14 @@ std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedronsConstrained
   behavior.neighout = 1;
   behavior.quiet = 1;
   tetgenio in, out;
+  in.initialize();
+  out.initialize();
 
   // Define vertices
   in.numberofpoints = points.size();
   in.pointlist = new double[in.numberofpoints * 3];
   Jobs::RunParallelFor(points.size(), [&](const auto i) {
+    assert(i < points.size());
     in.pointlist[i * 3] = points[i].x;
     in.pointlist[i * 3 + 1] = points[i].y;
     in.pointlist[i * 3 + 2] = points[i].z;
@@ -148,22 +151,23 @@ std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedronsConstrained
   in.facetlist = new tetgenio::facet[in.numberoffacets];
   in.facetmarkerlist = new int[in.numberoffacets];  // Optional, for labeling
 
-  // Define a single facet (triangle)
-  tetgenio::facet* f = &in.facetlist[0];
-  tetgenio::init(f);        // Initialize facet
-  f->numberofpolygons = 1;  // One polygon (the triangle itself)
-  f->polygonlist = new tetgenio::polygon[f->numberofpolygons];
-  f->numberofholes = 0;
-  f->holelist = nullptr;
+  for (size_t i = 0; i < triangles.size() / 3; i++) {
+    // Define a single facet (triangle)
+    tetgenio::facet* f = &in.facetlist[i];
+    tetgenio::init(f);        // Initialize facet
+    f->numberofpolygons = 1;  // One polygon (the triangle itself)
+    f->polygonlist = new tetgenio::polygon[f->numberofpolygons];
+    f->numberofholes = 0;
+    f->holelist = nullptr;
 
-  Jobs::RunParallelFor(triangles.size() / 3, [&](const auto i) {
-    tetgenio::polygon* p = &f->polygonlist[i];
+    tetgenio::polygon* p = &f->polygonlist[0];
     p->numberofvertices = 3;  // Triangle has 3 vertices
     p->vertexlist = new int[p->numberofvertices];
+    assert(i * 3 + 2 < triangles.size());
     p->vertexlist[0] = triangles[i * 3];      // Vertex index 0
     p->vertexlist[1] = triangles[i * 3 + 1];  // Vertex index 1
     p->vertexlist[2] = triangles[i * 3 + 2];  // Vertex index 2
-  });
+  }
 
   // No holes or regions
   in.numberofholes = 0;
@@ -191,9 +195,6 @@ std::vector<Delaunay3D::Tetrahedron> Delaunay3D::GenerateTetrahedronsConstrained
     tetrahedron.circumradius = CalculateTetrahedronCircumradius(points[tetrahedron.v[0]], points[tetrahedron.v[1]],
                                                                 points[tetrahedron.v[2]], points[tetrahedron.v[3]]);
   });
-
-  // Clean up
-  delete[] in.pointlist;
 
   return tetrahedrons;
 }

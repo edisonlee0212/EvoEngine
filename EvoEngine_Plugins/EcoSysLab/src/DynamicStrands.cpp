@@ -817,9 +817,8 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
   };
 
   std::vector<std::map<int, Bundle>> bundle_maps(max_dist_from_root + 1);
-  std::vector<size_t> offsets(max_dist_from_root + 1, 0);
-  std::vector<std::vector<size_t>> particle_adjacent_tets(uniform_particles.size(), std::vector<size_t>{});
 
+  // Sort particles into a map according to distance from root and node handle
   for (int i = 0; i < uniform_particles.size(); i++) {
     auto& particle = uniform_particles[i];
     auto& node_handle = particle.node_index;
@@ -833,9 +832,8 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
     it->second.particles.push_back(i);
   }
 
-  // Triangulate each bundle
-  Jobs::RunParallelFor(bundle_maps.size(), [&](const size_t d) {
-    offsets[d] = tetrahedrons.size();
+  // Triangulate each plane between bundles
+  for (size_t d = 0; d < bundle_maps.size(); d++) {
     auto& map = bundle_maps[d];
     Jobs::RunParallelFor(map.size(), [&](const size_t i) {
       auto& kv_pair = *std::next(map.begin(), i);
@@ -861,17 +859,17 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
         bundle.triangulation.push_back(v2);
       }
     });
-  });
+  }
 
   // TODO: "squish" each bundle such that no internal degenerate tetrahedrons occur
 
   // triangulate each bundle:
   for (int d = 0; d < bundle_maps.size() - 1; d++) {  // skip the last one as there is no match above
-    offsets[d] = tetrahedrons.size();
     auto& map = bundle_maps[d];
     for (auto& kv_pair : map) {
       const int& node_handle = kv_pair.first;
       auto& bundle = kv_pair.second;
+      std::vector<size_t> indices;
       std::vector<glm::vec3> points;
       std::vector<unsigned int> triangles;
 
@@ -888,6 +886,7 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
           // TODO: probably even means we can skip this bundle entirely
         }
 
+        indices.emplace_back(i);
         points.emplace_back(particle.position);
       }
 
@@ -922,7 +921,8 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
         // collect points
         auto& bundle_above = map_above[node_index];
         for (size_t i : bundle_above.particles) {
-          auto& particle = uniform_particles[bundle.particles[i]];
+          auto& particle = uniform_particles[i];
+          indices.emplace_back(i);
           points.emplace_back(particle.position);
         }
 
@@ -935,60 +935,82 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
       }
 
       // run constrained Delaunay triangulation
-      auto tets = Delaunay3D::GenerateTetrahedronsConstrained(points, triangles);
+      auto local_tets = Delaunay3D::GenerateTetrahedronsConstrained(points, triangles);
 
-      std::mutex mtx;
+      // add the tets to the global list
+      for (auto& tet : local_tets) {
+        GpuDelaunayTetrahedron gpu_tet;
+        for (size_t i = 0; i < 4; i++) {
+          gpu_tet.indices[i] = indices[tet.v[i]];
+          gpu_tet.neighbor_tet_ids[i] = -1;
+          gpu_tet.is_bark[i] = -1;
+        }
 
-      Jobs::RunParallelFor(tetrahedrons.size(), [&](const size_t tet_index) {
-        auto& tet = tetrahedrons[tet_index];
+        if (!DynamicStrandUtils::IsBetweenPlanes(gpu_tet.indices, uniform_particles)) {
+          continue;
+        }
+
+        // TODO: filter invalid tets
+        // TODO: set up other members
+
+        tetrahedrons.push_back(gpu_tet);
+      }
+    }
+  }
+
+  // TODO: we should do this using the constraint faces, that would be much more efficient
+  // collect the tets that are adjacent to each particle
+  std::vector<std::vector<size_t>> particle_adjacent_tets(uniform_particles.size(), std::vector<size_t>{});
+  std::mutex mtx;
+
+  Jobs::RunParallelFor(tetrahedrons.size(), [&](const size_t tet_index) {
+    auto& tet = tetrahedrons[tet_index];
+
+    for (size_t i = 0; i < 4; i++) {
+      if (tet.indices[i] == -1) {
+        continue;
+      }
+
+      if (tet.indices[i] >= particle_adjacent_tets.size()) {
+        EVOENGINE_ERROR("particle index out of range, skipping!");
+        continue;
+      }
+
+      mtx.lock();
+      particle_adjacent_tets[tet.indices[i]].emplace_back(tet_index);
+      mtx.unlock();
+    }
+  });
+
+  // now glue them back together
+  for (int particle_index = 0; particle_index < uniform_particles.size(); particle_index++) {
+    auto& adjacent_tets = particle_adjacent_tets[particle_index];
+
+    // can't be too many, brute force should work here;
+    for (size_t i = 0; i < adjacent_tets.size(); i++) {
+      for (size_t j = i + 1; j < adjacent_tets.size(); j++) {
+        auto& tet0 = tetrahedrons[adjacent_tets[i]];
+        auto& tet1 = tetrahedrons[adjacent_tets[j]];
+
+        // check if the two share a face
+        size_t occurs_in_both = 0;
+        size_t b_in_both = 0;
 
         for (size_t i = 0; i < 4; i++) {
-          if (tet.indices[i] == -1) {
-            continue;
-          }
-
-          if (tet.indices[i] >= particle_adjacent_tets.size()) {
-            EVOENGINE_ERROR("particle index out of range, skipping!");
-            continue;
-          }
-
-          mtx.lock();
-          particle_adjacent_tets[tet.indices[i]].emplace_back(tet_index);
-          mtx.unlock();
-        }
-      });
-
-      // now glue them back together
-      for (int particle_index = 0; particle_index < uniform_particles.size(); particle_index++) {
-        auto& adjacent_tets = particle_adjacent_tets[particle_index];
-
-        // can't be too many, brute force should work here;
-        for (size_t i = 0; i < adjacent_tets.size(); i++) {
-          for (size_t j = i + 1; j < adjacent_tets.size(); j++) {
-            auto& tet0 = tetrahedrons[adjacent_tets[i]];
-            auto& tet1 = tetrahedrons[adjacent_tets[j]];
-
-            // check if the two share a face
-            size_t occurs_in_both = 0;
-            size_t b_in_both = 0;
-
-            for (size_t i = 0; i < 4; i++) {
-              for (size_t j = 0; j < 4; j++) {
-                if (tet0.indices[i] == tet1.indices[j] && tet0.indices[i] != -1) {
-                  occurs_in_both++;
-                }
-              }
+          for (size_t j = 0; j < 4; j++) {
+            if (tet0.indices[i] == tet1.indices[j] && tet0.indices[i] != -1) {
+              occurs_in_both++;
             }
-
-            if (occurs_in_both != 3) {
-              continue;
-            }
-            const auto mismatch_indices = DynamicStrandUtils::CompareIndices(tet0.indices, tet1.indices);
-
-            tet0.neighbor_tet_ids[mismatch_indices.first] = adjacent_tets[j];
-            tet1.neighbor_tet_ids[mismatch_indices.second] = adjacent_tets[i];
           }
         }
+
+        if (occurs_in_both != 3) {
+          continue;
+        }
+        const auto mismatch_indices = DynamicStrandUtils::CompareIndices(tet0.indices, tet1.indices);
+
+        tet0.neighbor_tet_ids[mismatch_indices.first] = adjacent_tets[j];
+        tet1.neighbor_tet_ids[mismatch_indices.second] = adjacent_tets[i];
       }
     }
   }
