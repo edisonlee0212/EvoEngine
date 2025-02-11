@@ -811,9 +811,31 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
     max_dist_from_root = std::max(max_dist_from_root, uniform_particles[i].segment_index);
   }
 
+  // inherit from tuple so we can use std::set and a lexicographical comparison
+  struct TriangleKey : public std::tuple<size_t, size_t, size_t> {
+    TriangleKey(size_t a, size_t b, size_t c) {
+      std::get<0>(*this) = std::min(a, std::min(b, c));
+      std::get<1>(*this) = std::max(std::min(a, b), std::min(std::max(a, b), c));
+      std::get<2>(*this) = std::max(a, std::max(b, c));
+    }
+  };
+
+  struct Triangle {
+    Triangle(size_t a, size_t b, size_t c) : v0(a), v1(b), v2(c) {
+    }
+
+    size_t v0;
+    size_t v1;
+    size_t v2;
+    int tet_id_below = -1;
+    int face_index_below = -1;
+    int tet_id_above = -1;
+    int face_index_above = -1;
+  };
+
   struct Bundle {
     std::vector<size_t> particles;
-    std::vector<size_t> triangulation;
+    std::map<TriangleKey, Triangle> triangulation;
   };
 
   std::vector<std::map<int, Bundle>> bundle_maps(max_dist_from_root + 1);
@@ -854,16 +876,13 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
         const auto& v1 = delaunator.triangles[i + 1];
         const auto& v2 = delaunator.triangles[i + 2];
 
-        bundle.triangulation.push_back(v0);
-        bundle.triangulation.push_back(v1);
-        bundle.triangulation.push_back(v2);
+        bundle.triangulation.insert(std::make_pair(
+            TriangleKey(bundle.particles[v0], bundle.particles[v1], bundle.particles[v2]), Triangle(v0, v1, v2)));
       }
     });
   }
 
-  // TODO: "squish" each bundle such that no internal degenerate tetrahedrons occur
-
-  // triangulate each bundle:
+  // 3D triangulate each bundle:
   for (int d = 0; d < bundle_maps.size() - 1; d++) {  // skip the last one as there is no match above
     auto& map = bundle_maps[d];
     for (auto& kv_pair : map) {
@@ -877,37 +896,42 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
         continue;
       }
 
-      // collect points from this plane
-      for (size_t i : bundle.particles) {
-        auto& particle = uniform_particles[i];
-
-        if (particle.next_particle_handle == -1) {
-          continue;
-          // TODO: probably even means we can skip this bundle entirely
-        }
-
-        indices.emplace_back(i);
-        points.emplace_back(particle.position);
-      }
-
-      // collect triangles from this plane
-      for (size_t i = 0; i < bundle.triangulation.size(); i += 3) {
-        triangles.push_back(bundle.triangulation[i]);
-        triangles.push_back(bundle.triangulation[i + 1]);
-        triangles.push_back(bundle.triangulation[i + 2]);
-      }
-
-      // collect points from plane(s) above
-
-      // collect nodes above
+      // collect points and nodes above and compute average direction
       std::set<int> node_indices_above;
+      glm::vec3 avg_dir = glm::vec3(0.f);
       for (auto particle_index : bundle.particles) {
         auto& particle = uniform_particles[particle_index];
         if (particle.next_particle_handle == -1) {
           continue;
         }
+
+        indices.emplace_back(particle_index);
+        points.emplace_back(particle.position);
         auto& next_particle = uniform_particles[particle.next_particle_handle];
+        avg_dir += next_particle.position - particle.position;
         node_indices_above.insert(next_particle.node_index);
+      }
+
+      // compute a stretch matrix to "squish" the bundle
+      avg_dir = glm::normalize(avg_dir);
+      float stretch_factor = 0.1f;
+
+      glm::mat3 projection_matrix = glm::mat3(avg_dir.x * avg_dir.x, avg_dir.x * avg_dir.y, avg_dir.x * avg_dir.z,
+                                              avg_dir.y * avg_dir.x, avg_dir.y * avg_dir.y, avg_dir.y * avg_dir.z,
+                                              avg_dir.z * avg_dir.x, avg_dir.z * avg_dir.y, avg_dir.z * avg_dir.z);
+
+      glm::mat3 stretch_matrix = glm::mat3(1.f) + (stretch_factor - 1.0f) * projection_matrix;
+
+      // update positions of already added points
+      for (auto& point : points) {
+        point = stretch_matrix * point;
+      }
+
+      // collect triangles from this plane
+      for (const auto& tri_kv : bundle.triangulation) {
+        triangles.push_back(tri_kv.second.v0);
+        triangles.push_back(tri_kv.second.v1);
+        triangles.push_back(tri_kv.second.v2);
       }
 
       // for each node above, collect the points and triangles
@@ -923,26 +947,29 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
         for (size_t i : bundle_above.particles) {
           auto& particle = uniform_particles[i];
           indices.emplace_back(i);
-          points.emplace_back(particle.position);
+          points.emplace_back(stretch_matrix * particle.position);
         }
 
         // collect triangles
-        for (size_t i = 0; i < bundle_above.triangulation.size(); i += 3) {
-          triangles.push_back(bundle_above.triangulation[i] + offset);
-          triangles.push_back(bundle_above.triangulation[i + 1] + offset);
-          triangles.push_back(bundle_above.triangulation[i + 2] + offset);
+        for (const auto& tri_kv : bundle_above.triangulation) {
+          triangles.push_back(tri_kv.second.v0);
+          triangles.push_back(tri_kv.second.v1);
+          triangles.push_back(tri_kv.second.v2);
         }
       }
 
       // run constrained Delaunay triangulation
       auto local_tets = Delaunay3D::GenerateTetrahedronsConstrained(points, triangles);
+      std::vector<int> valid_index_map(local_tets.size(), -1);
 
       // add the tets to the global list
-      for (auto& tet : local_tets) {
+      for (size_t tet_index = 0; tet_index < local_tets.size(); tet_index++) {
+        auto& tet = local_tets[tet_index];
         GpuDelaunayTetrahedron gpu_tet;
         for (size_t i = 0; i < 4; i++) {
           gpu_tet.indices[i] = indices[tet.v[i]];
           gpu_tet.neighbor_tet_ids[i] = -1;
+          // tet.neighbor_tet_indices[i];
           gpu_tet.is_bark[i] = -1;
         }
 
@@ -950,17 +977,96 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
           continue;
         }
 
-        // TODO: filter invalid tets
         // TODO: set up other members
-
+        valid_index_map[tet_index] = tetrahedrons.size();
         tetrahedrons.push_back(gpu_tet);
+      }
+
+      // update neighbor indices
+      for (size_t tet_index = 0; tet_index < local_tets.size(); tet_index++) {
+        auto& tet = local_tets[tet_index];
+        if (valid_index_map[tet_index] == -1) {
+          continue;
+        }
+        auto& gpu_tet = tetrahedrons[valid_index_map[tet_index]];
+        for (size_t i = 0; i < 4; i++) {
+          if (tet.neighbor_tet_indices[i] == -1) {
+            continue;
+          }
+          gpu_tet.neighbor_tet_ids[i] = valid_index_map[tet.neighbor_tet_indices[i]];
+        }
       }
     }
   }
 
   // TODO: we should do this using the constraint faces, that would be much more efficient
+
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); tet_id++) {
+    auto& gpu_tet = tetrahedrons[tet_id];
+    // iterate through all faces of the tetrahedron
+    for (size_t face_index = 0; face_index < 4; face_index++) {
+      size_t u = (face_index == 0) ? 1 : 0;
+      std::vector<size_t> face_vertices;
+      for (size_t v = 0; v < 4; v++) {
+        if (face_index == v) {
+          continue;
+        }
+
+        // check if all vertices have the same distance from root
+        if (uniform_particles[gpu_tet.indices[v]].segment_index !=
+            uniform_particles[gpu_tet.indices[u]].segment_index) {
+          break;
+        }
+        face_vertices.emplace_back(gpu_tet.indices[v]);
+      }
+
+      if (face_vertices.size() != 3) {
+        continue;
+      }
+
+      size_t d = uniform_particles[gpu_tet.indices[u]].segment_index;
+
+      auto& map = bundle_maps[d];
+      auto& bundle = map[uniform_particles[gpu_tet.indices[u]].node_index];
+      auto tri_it = bundle.triangulation.find(TriangleKey(face_vertices[0], face_vertices[1], face_vertices[2]));
+
+      if (tri_it == bundle.triangulation.end()) {
+        // EVOENGINE_LOG("Triangle not found in triangulation, skipping!");
+        continue;
+      } else {
+        // EVOENGINE_LOG("Triangle found in triangulation!");
+      }
+
+      if (uniform_particles[gpu_tet.indices[face_index]].segment_index < d) {
+        tri_it->second.tet_id_below = tet_id;
+        tri_it->second.face_index_below = face_index;
+      } else {
+        tri_it->second.tet_id_above = tet_id;
+        tri_it->second.face_index_above = face_index;
+      }
+    }
+  }
+
+  // now iterate through all triangles and glue the tets together
+  for (size_t d = 0; d < bundle_maps.size(); d++) {
+    auto& map = bundle_maps[d];
+    for (auto& kv_pair : map) {
+      auto& bundle = kv_pair.second;
+      for (auto& tri_kv : bundle.triangulation) {
+        auto& tri = tri_kv.second;
+        if (tri.tet_id_below != -1 && tri.tet_id_above != -1) {
+          auto& tet_below = tetrahedrons[tri.tet_id_below];
+          auto& tet_above = tetrahedrons[tri.tet_id_above];
+
+          tet_below.neighbor_tet_ids[tri.face_index_below] = tri.tet_id_above;
+          tet_above.neighbor_tet_ids[tri.face_index_above] = tri.tet_id_below;
+        }
+      }
+    }
+  }
+
   // collect the tets that are adjacent to each particle
-  std::vector<std::vector<size_t>> particle_adjacent_tets(uniform_particles.size(), std::vector<size_t>{});
+  /*std::vector<std::vector<size_t>> particle_adjacent_tets(uniform_particles.size(), std::vector<size_t>{});
   std::mutex mtx;
 
   Jobs::RunParallelFor(tetrahedrons.size(), [&](const size_t tet_index) {
@@ -1013,7 +1119,7 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
         tet1.neighbor_tet_ids[mismatch_indices.second] = adjacent_tets[i];
       }
     }
-  }
+  }*/
 }
 
 #ifdef USE_CGAL

@@ -66,8 +66,8 @@ bool DynamicStrandUtils::IsBetweenPlanes(const int target_indices[4],
       }
     }
   }
-  // return max_difference == 1;
-  return max_difference <= 1;  // for now also permit same distance
+  return max_difference == 1;
+  // return max_difference <= 1;  // for now also permit same distance
 }
 
 bool DynamicStrandUtils::IsValid(const int target_indices[4], int size) {
