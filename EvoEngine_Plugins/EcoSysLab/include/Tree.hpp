@@ -15,8 +15,9 @@ using namespace billboard_clouds_plugin;
 #include "TreeGraph.hpp"
 #include "TreeIOTree.hpp"
 #include "TreeMeshGenerator.hpp"
+#include "TreePart.hpp"
+#include "TreeStatistics.hpp"
 #include "TreeVisualizer.hpp"
-
 #ifdef PHYSX_PHYSICS_PLUGIN
 #  include "PhysicsLayer.hpp"
 #  include "RigidBody.hpp"
@@ -102,37 +103,6 @@ struct SkeletalGraphSettings {
    * @brief Handles inspection of graphical settings in the editor.
    */
   void OnInspect();
-};
-
-/**
- * @struct JunctionLine
- * @brief Represents a line that connects junction points in the skeletal graph.
- */
-struct JunctionLine {
-  int line_index = -1;       ///< Index of the line in the skeletal graph.
-  glm::vec3 start_position;  ///< Start position of this line.
-  glm::vec3 end_position;    ///< End position of this line.
-  float start_radius;        ///< Radius at the start of the line.
-  float end_radius;          ///< Radius at the end of the line.
-
-  glm::vec3 start_direction;  ///< Direction at the start.
-  glm::vec3 end_direction;    ///< Direction at the end.
-};
-
-/**
- * @struct TreePartData
- * @brief Holds data representing different parts of a tree.
- */
-struct TreePartData {
-  int tree_part_index;                           ///< Index representing this tree part.
-  bool is_junction = false;                      ///< Flag indicating if this part is a junction.
-  JunctionLine base_line;                        ///< The base line associated with this tree part.
-  std::vector<JunctionLine> children_lines;      ///< List of child lines originating from this part.
-  std::vector<SkeletonNodeHandle> node_handles;  ///< Node handles corresponding to the skeletal structure.
-  std::vector<bool> is_end;                      ///< List indicating if a node is an endpoint.
-  std::vector<int> line_index;                   ///< List of indices referring to corresponding graph lines.
-
-  int num_of_leaves = 0;  ///< Number of leaves attached to this part.
 };
 
 /**
@@ -294,7 +264,7 @@ class Tree : public IPrivateComponent {
   /**
    * @brief Exports the strand model as an OBJ file.
    * @param path The file path to export the strand model to.
-   * @param strand_model_mesh_generator_settings Settings for strand model mesh generation.
+   * @param mesh_generator_settings Settings for strand model mesh generation.
    */
   void ExportStrandModelObj(const std::filesystem::path& path,
                             const StrandModelMeshGeneratorSettings& mesh_generator_settings);
@@ -333,6 +303,11 @@ class Tree : public IPrivateComponent {
    */
   [[nodiscard]] bool ParseBinvox(const std::filesystem::path& file_path,
                                  VoxelGrid<TreeOccupancyGridBasicData>& voxel_grid, float voxel_size = 1.0f);
+  /**
+   * @brief Calculate statistics for current tree.
+   * @return The statistics of the tree.
+   */
+  TreeStatistics GetTreeStatistics() const;
 
   /**
    * @brief Resets the tree state.

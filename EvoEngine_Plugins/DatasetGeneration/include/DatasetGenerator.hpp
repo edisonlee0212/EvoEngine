@@ -43,6 +43,7 @@ class DatasetGenerator {
     bool export_skeleton = false;
     bool export_rendering = false;
     bool export_depth = false;
+    bool export_statistics = false;
 
     // Data generation
     bool generate_ground_mesh = false;

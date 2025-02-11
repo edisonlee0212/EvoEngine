@@ -36,7 +36,7 @@ bool IAsset::SaveInternal(const std::filesystem::path &path) const {
     file_output << out.c_str();
     file_output.close();
   } catch (const std::exception &e) {
-    EVOENGINE_ERROR("Failed to save!")
+    EVOENGINE_ERROR("Failed to save: " + std::string(e.what()))
     return false;
   }
   return true;
@@ -53,7 +53,7 @@ bool IAsset::LoadInternal(const std::filesystem::path &path) {
     const YAML::Node in = YAML::Load(string_stream.str());
     Deserialize(in);
   } catch (const std::exception &e) {
-    EVOENGINE_ERROR("Failed to load!")
+    EVOENGINE_ERROR("Failed to load: " + std::string(e.what()))
     return false;
   }
   return true;

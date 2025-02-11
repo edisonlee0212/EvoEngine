@@ -190,35 +190,35 @@ struct ReconstructionNodeData {
 typedef Skeleton<ReconstructionSkeletonData, ReconstructionFlowData, ReconstructionNodeData> ReconstructionSkeleton;
 
 class TreeStructor : public IPrivateComponent {
-  bool DirectConnectionCheck(const BezierCurve& parentCurve, const BezierCurve& childCurve, bool reverse);
+  bool DirectConnectionCheck(const BezierCurve& parent_curve, const BezierCurve& child_curve, bool reverse);
 
-  static void FindPoints(const glm::vec3& position, VoxelGrid<std::vector<PointData>>& pointVoxelGrid, float radius,
+  static void FindPoints(const glm::vec3& position, VoxelGrid<std::vector<PointData>>& point_voxel_grid, float radius,
                          const std::function<void(const PointData& voxel)>& func);
-  static bool HasPoints(const glm::vec3& position, VoxelGrid<std::vector<PointData>>& pointVoxelGrid, float radius);
+  static bool HasPoints(const glm::vec3& position, VoxelGrid<std::vector<PointData>>& point_voxel_grid, float radius);
   static void ForEachBranchEnd(const glm::vec3& position, VoxelGrid<std::vector<BranchEndData>>& branchEndsVoxelGrid,
                                float radius, const std::function<void(const BranchEndData& voxel)>& func);
 
   static void CalculateNodeTransforms(ReconstructionSkeleton& skeleton);
 
-  void BuildConnectionBranch(BranchHandle processingBranchHandle, SkeletonNodeHandle& prevNodeHandle);
+  void BuildConnectionBranch(BranchHandle processing_branch_handle, SkeletonNodeHandle& prev_node_handle);
 
-  void Unlink(BranchHandle childHandle, BranchHandle parentHandle);
-  void Link(BranchHandle childHandle, BranchHandle parentHandle);
+  void Unlink(BranchHandle child_handle, BranchHandle parent_handle);
+  void Link(BranchHandle child_handle, BranchHandle parent_handle);
 
-  void GetSortedBranchList(BranchHandle branchHandle, std::vector<BranchHandle>& list);
+  void GetSortedBranchList(BranchHandle branch_handle, std::vector<BranchHandle>& list);
 
-  void ConnectBranches(BranchHandle branchHandle);
+  void ConnectBranches(BranchHandle branch_handle);
 
   void ApplyCurve(const OperatorBranch& branch);
 
   void BuildVoxelGrid();
 
-  static void CloneOperatingBranch(const ReconstructionSettings& reconstructionSettings, OperatorBranch& operatorBranch,
-                                   const PredictedBranch& target);
+  static void CloneOperatingBranch(const ReconstructionSettings& reconstruction_settings,
+                                   OperatorBranch& operator_branch, const PredictedBranch& target);
 
   void SpaceColonization();
 
-  void CalculateBranchRootDistance(const std::vector<std::pair<glm::vec3, BranchHandle>>& rootBranchHandles);
+  void CalculateBranchRootDistance(const std::vector<std::pair<glm::vec3, BranchHandle>>& root_branch_handles);
 
   void CalculateSkeletonGraphs();
 
@@ -269,8 +269,8 @@ class TreeStructor : public IPrivateComponent {
 
   ReconstructionSettings reconstruction_settings{};
   ConnectivityGraphSettings connectivity_graph_settings{};
-  void ImportGraph(const std::filesystem::path& path, float scaleFactor = 0.1f);
-  void ExportForestOBJ(const TreeMeshGeneratorSettings& meshGeneratorSettings, const std::filesystem::path& path);
+  void ImportGraph(const std::filesystem::path& path, float import_scale_factor = 0.1f);
+  void ExportForestObj(const TreeMeshGeneratorSettings& mesh_generator_settings, const std::filesystem::path& path);
 
   glm::vec3 min;
   glm::vec3 max;
@@ -281,7 +281,7 @@ class TreeStructor : public IPrivateComponent {
   std::vector<OperatorBranch> operating_branches;
   std::vector<TreePart> tree_parts;
 
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   std::vector<ReconstructionSkeleton> skeletons;
 
@@ -295,19 +295,23 @@ class TreeStructor : public IPrivateComponent {
   void EstablishConnectivityGraph();
 
   void BuildSkeletons();
-  void GenerateForest() const;
+  [[maybe_unused]] Entity GenerateForest();
   void FormInfoEntities() const;
-  void ClearForest() const;
+  void ClearForest();
+  void ExportForestStatistics(const std::string& name, YAML::Emitter& out) const;
+  void ExportForestStatistics(const std::filesystem::path& path) const;
+  EntityRef forest_ref{};
 
   void OnCreate() override;
-  AssetRef tree_descriptor;
+  AssetRef tree_descriptor_ref{};
 
   std::vector<std::shared_ptr<Mesh>> GenerateForestBranchMeshes(
-      const TreeMeshGeneratorSettings& meshGeneratorSettings) const;
+      const TreeMeshGeneratorSettings& mesh_generator_settings) const;
   std::vector<std::shared_ptr<Mesh>> GenerateFoliageMeshes();
 
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void Relink(const std::unordered_map<Handle, Handle>& map, const std::shared_ptr<Scene>& scene) override;
 };
 }  // namespace eco_sys_lab_plugin

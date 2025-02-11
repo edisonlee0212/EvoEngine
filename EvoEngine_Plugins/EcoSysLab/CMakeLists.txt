@@ -5,19 +5,17 @@ set(ECOSYSLAB_INCLUDES
 	${ECOSYSLAB_DIRECTORY}/include
 	${ECOSYSLAB_DIRECTORY}/include
 	${ECOSYSLAB_DIRECTORY}/include/MeshFormation
-	${ECOSYSLAB_DIRECTORY}/include/DynamicSkeleton
-	${ECOSYSLAB_DIRECTORY}/include/DynamicStrands
-	${ECOSYSLAB_DIRECTORY}/include/TreeDescriptor
-	${ECOSYSLAB_DIRECTORY}/include/SpatialCompetition
-	${ECOSYSLAB_DIRECTORY}/include/BranchShape
+	${ECOSYSLAB_DIRECTORY}/include/Physics/DynamicSkeleton
+	${ECOSYSLAB_DIRECTORY}/include/Physics/DynamicStrands
+	${ECOSYSLAB_DIRECTORY}/include/TreeModel/Descriptors
+	${ECOSYSLAB_DIRECTORY}/include/Utilities/SpatialCompetition
 	${ECOSYSLAB_DIRECTORY}/include/Physics
-	${ECOSYSLAB_DIRECTORY}/include/TreeIO
+	${ECOSYSLAB_DIRECTORY}/include/Utilities/TreeIO
 	${ECOSYSLAB_DIRECTORY}/include/Volumes
 	${ECOSYSLAB_DIRECTORY}/include/ClimateModel
 	${ECOSYSLAB_DIRECTORY}/include/SoilModel
-	${ECOSYSLAB_DIRECTORY}/include/StrandModel
+	${ECOSYSLAB_DIRECTORY}/include/TreeModel/StrandModel
 	${ECOSYSLAB_DIRECTORY}/include/TreeModel
-	${ECOSYSLAB_DIRECTORY}/include/SpaceColonizationTreeModel
 	${ECOSYSLAB_DIRECTORY}/include/Utilities
 	${ECOSYSLAB_DIRECTORY}/include/Structures
 	${ECOSYSLAB_DIRECTORY}/include/Reconstruction
