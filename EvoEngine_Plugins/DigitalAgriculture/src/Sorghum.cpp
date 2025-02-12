@@ -366,3 +366,11 @@ void Sorghum::CollectAssetRef(std::vector<AssetRef>& list) {
   if (sorghum_state.Get<SorghumState>())
     list.push_back(sorghum_state);
 }
+uint32_t Sorghum::GetLeafSize() {
+  if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>())
+    return sd->leaves.size();
+  if (const auto ss = sorghum_state.Get<SorghumState>())
+    return ss->leaves.size();
+  EVOENGINE_ERROR("GetLeafSize failed: SorghumDescriptor or SorghumState missing!")
+  return 0;
+}

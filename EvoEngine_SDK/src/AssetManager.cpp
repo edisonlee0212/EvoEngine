@@ -1,14 +1,69 @@
 #include "AssetManager.hpp"
+#include "EditorLayer.hpp"
 #include "FileManager.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
-
 using namespace evo_engine;
 
 void AssetManager::Initialize() {
   auto& asset_manager = GetInstance();
   // Start a thread for asset importing.
   asset_manager.initialized = true;
+}
+void AssetManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  auto& asset_manager = GetInstance();
+  if (ImGui::BeginMainMenuBar()) {
+    if (ImGui::BeginMenu("View")) {
+      ImGui::Checkbox("Assets", &asset_manager.show_asset_inspector_);
+      ImGui::EndMenu();
+    }
+    ImGui::EndMainMenuBar();
+  }
+  if (asset_manager.show_asset_inspector_) {
+    if (ImGui::Begin("Asset Inspector")) {
+      if (editor_layer->inspecting_asset) {
+        const auto& asset = editor_layer->inspecting_asset;
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0.5f, 0, 1));
+        ImGui::Button(asset->GetTitle().c_str());
+        ImGui::PopStyleColor(1);
+        editor_layer->DraggableAsset(asset);
+        ImGui::SameLine();
+        ImGui::Text("Type:");
+        ImGui::SameLine();
+        ImGui::Text(asset->GetTypeName().c_str());
+        if (!asset->IsTemporary()) {
+          if (ImGui::Button("Save")) {
+            asset->Save();
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("Reload")) {
+            asset->Load();
+          }
+        }
+        ImGui::SameLine();
+        FileUtils::SaveFile(
+            "Export...", asset->GetTypeName(), Serialization::PeekAssetExtensions(asset->GetTypeName()),
+            [&](const std::filesystem::path& path) {
+              asset->Export(path);
+            },
+            false);
+        ImGui::SameLine();
+        FileUtils::OpenFile(
+            "Import...", asset->GetTypeName(), Serialization::PeekAssetExtensions(asset->GetTypeName()),
+            [&](const std::filesystem::path& path) {
+              asset->Import(path);
+            },
+            false);
+
+        ImGui::Separator();
+        if (asset->OnInspect(editor_layer))
+          asset->SetUnsaved();
+      } else {
+        ImGui::Text("None");
+      }
+    }
+    ImGui::End();
+  }
 }
 
 void AssetManager::OnDestroy() {
@@ -96,6 +151,10 @@ std::future<std::shared_ptr<IAsset>> AssetManager::GetAssetFutureImpl(const Hand
 
 std::shared_ptr<IAsset> AssetManager::CreateTemporaryAsset(const std::string& type_name) {
   return CreateTemporaryAssetImpl(type_name, Handle());
+}
+
+std::shared_ptr<IAsset> AssetManager::GetAsset(const Handle& asset_handle) {
+  return GetAssetImpl(asset_handle);
 }
 
 std::shared_ptr<IAsset> AssetManager::CreateTemporaryAssetImpl(const std::string& type_name,

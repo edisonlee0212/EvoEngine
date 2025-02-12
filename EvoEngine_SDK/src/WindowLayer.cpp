@@ -156,7 +156,7 @@ void WindowLayer::Render() {
               vk_command_buffer, 0,
               main_camera->GetRenderTexture()->color_present_descriptor_set_->GetVkDescriptorSet());
 
-          const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
+          const auto mesh = Resources::texture_pass_through_quad;
           GeometryStorage::BindVertices(vk_command_buffer);
           mesh->DrawIndexed(vk_command_buffer, render_texture_present->states, 1);
           vkCmdEndRendering(vk_command_buffer);

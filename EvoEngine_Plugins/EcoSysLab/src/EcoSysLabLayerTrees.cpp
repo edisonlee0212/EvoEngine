@@ -461,22 +461,21 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
           }
         } else if (tree_visualizer.m_needUpdate && auto_generate_skeletal_graph_every_frame_) {
           tree->GenerateSkeletalGraph(skeletal_graph_settings, tree_visualizer.m_selectedInternodeHandle,
-                                      Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE"),
-                                      Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"));
+                                      Resources::Primitives::sphere, Resources::Primitives::cube);
         }
         may_need_geometry_generation = false;
       }
       tree_visualizer.Visualize(tree_model, global_transform);
     }
     if (tree_visualization_settings_.show_shadow_grid) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
-                                                  visualization_camera_, shadow_grid_particle_info_list_,
-                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, visualization_camera_,
+                                                  shadow_grid_particle_info_list_, glm::mat4(1.0f), 1.0f,
+                                                  gizmo_settings);
     }
     if (tree_visualization_settings_.show_lighting_grid) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
-                                                  visualization_camera_, lighting_grid_particle_info_list_,
-                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, visualization_camera_,
+                                                  lighting_grid_particle_info_list_, glm::mat4(1.0f), 1.0f,
+                                                  gizmo_settings);
     }
     if (tree_visualization_settings_.display_shoot_stem && !shoot_stem_points_.empty()) {
       gizmo_settings.color_mode = GizmoSettings::ColorMode::Default;
@@ -484,31 +483,26 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                                      glm::mat4(1.0f), 1, gizmo_settings);
     }
     if (tree_visualization_settings_.display_fruit && !fruit_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
-                                                  visualization_camera_, fruit_matrices_, glm::mat4(1.0f), 1.0f,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, visualization_camera_, fruit_matrices_,
+                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
     if (tree_visualization_settings_.display_foliage && !foliage_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"),
-                                                  visualization_camera_, foliage_matrices_, glm::mat4(1.0f), 1.0f,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::quad, visualization_camera_, foliage_matrices_,
+                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     if (tree_visualization_settings_.display_ground_leaves && !ground_leaf_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"),
-                                                  visualization_camera_, ground_leaf_matrices_, glm::mat4(1.0f), 1.0f,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::quad, visualization_camera_,
+                                                  ground_leaf_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
     if (tree_visualization_settings_.display_ground_fruit && !ground_fruit_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
-                                                  visualization_camera_, ground_fruit_matrices_, glm::mat4(1.0f), 1.0f,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, visualization_camera_,
+                                                  ground_fruit_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     if (tree_visualization_settings_.display_bounding_box && !bounding_box_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
-                                                  visualization_camera_, bounding_box_matrices_, glm::mat4(1.0f), 1.0f,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, visualization_camera_,
+                                                  bounding_box_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     gizmo_settings.color_mode = GizmoSettings::ColorMode::Default;
   }
@@ -687,8 +681,8 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
     tree->tree_visualizer.m_checkpointIteration = tree->tree_model.CurrentIteration();
     tree->tree_visualizer.m_needUpdate = true;
     if (auto_generate_skeletal_graph_every_frame_) {
-      tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE"),
-                                  Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"));
+      tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::Primitives::sphere,
+                                  Resources::Primitives::cube);
     }
   }
   return tree_grown;
@@ -717,8 +711,8 @@ void EcoSysLabLayer::GenerateSkeletalGraphs(const SkeletalGraphSettings& target_
     const auto copied_entities = *tree_entities;
     for (auto tree_entity : copied_entities) {
       if (const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock(); tree->generate_mesh)
-        tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE"),
-                                    Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"));
+        tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::Primitives::sphere,
+                                    Resources::Primitives::cube);
     }
   }
 }

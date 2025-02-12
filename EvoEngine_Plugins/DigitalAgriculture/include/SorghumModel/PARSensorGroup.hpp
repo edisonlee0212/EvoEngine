@@ -18,7 +18,7 @@ class PARSensorGroup : public IAsset {
   /**
    * @brief A collection of illumination samplers that measure light properties.
    */
-  std::vector<IlluminationSampler<glm::vec3>> m_samplers;
+  std::vector<IlluminationSampler<glm::vec3>> samplers;
 
   /**
    * @brief Calculates the illumination based on the given ray properties.

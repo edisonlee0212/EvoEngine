@@ -35,7 +35,7 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
   const auto render_layer = Application::GetLayer<RenderLayer>();
   const auto mip_levels = post_processing_stack.result_texture->GetMipLevels();
   const auto base_extent = post_processing_stack.result_texture->GetColorImage()->GetExtent();
-  const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
+  const auto mesh = Resources::texture_pass_through_quad;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
@@ -576,7 +576,7 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
     blur_pipeline->Initialize();
   }
 
-  const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
+  const auto mesh = Resources::texture_pass_through_quad;
 
   PushConstant push_constant{};
 

@@ -30,12 +30,12 @@ bool BasicPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &edito
   const auto up = glm::normalize(gt.GetRotation() * glm::vec3(0, 1, 0));
   const glm::vec3 actual_vector = glm::rotate(front, glm::radians(rotate_angle), up);
   if (render_plane) {
-    editor_layer->DrawGizmoMesh(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), glm::vec4(1, 0, 0, 0.5),
+    editor_layer->DrawGizmoMesh(Resources::Primitives::quad, glm::vec4(1, 0, 0, 0.5),
                                 glm::translate(gt.GetPosition() + front * 0.5f) *
                                     glm::mat4_cast(glm::quatLookAt(up, glm::normalize(actual_vector))) *
                                     glm::scale(glm::vec3(0.1, 0.5, 0.1f)),
                                 1.0f);
-    editor_layer->DrawGizmoMesh(Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD"), color,
+    editor_layer->DrawGizmoMesh(Resources::Primitives::quad, color,
                                 glm::translate(gt.GetPosition()) * glm::mat4_cast(glm::quatLookAt(up, front)) *
                                     glm::scale(glm::vec3(size.x / 2.0f, 1.0, size.y / 2.0f)),
                                 1.0f);
@@ -75,7 +75,7 @@ void BasicPointCloudScanner::Scan() {
   const int column_start = -static_cast<int>(column / 2);
   const auto row = static_cast<unsigned>(size.y / distance.y);
   const int row_start = -(row / 2);
-  const auto size = column * row;
+  const auto sample_size = column * row;
   const auto gt = GetScene()->GetDataComponent<GlobalTransform>(GetOwner());
   const glm::vec3 center = gt.GetPosition();
   const glm::vec3 front = gt.GetRotation() * glm::vec3(0, 0, -1);
@@ -83,10 +83,10 @@ void BasicPointCloudScanner::Scan() {
   const glm::vec3 left = gt.GetRotation() * glm::vec3(1, 0, 0);
   const glm::vec3 actual_vector = glm::rotate(front, glm::radians(rotate_angle), up);
   std::vector<PointCloudSample> pc_samples;
-  pc_samples.resize(size);
+  pc_samples.resize(sample_size);
 
   std::vector<std::shared_future<void>> results;
-  Jobs::RunParallelFor(size, [&](unsigned i) {
+  Jobs::RunParallelFor(sample_size, [&](const unsigned i) {
     const int column_index = static_cast<int>(i) / row;
     const int row_index = static_cast<int>(i) % row;
     const auto position = center + left * static_cast<float>(column_start + column_index) * distance.x +
@@ -98,7 +98,7 @@ void BasicPointCloudScanner::Scan() {
   CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
   for (const auto &sample : pc_samples) {
     if (sample.hit) {
-      points.push_back(sample.hit_info.position - gt.GetPosition());
+      points.push_back(sample.hit_info.position);
       point_colors.emplace_back(sample.hit_info.color);
       handles.push_back(sample.handle);
     }

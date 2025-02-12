@@ -49,9 +49,6 @@ class PointCloud : public IAsset {
   };
 
   glm::dvec3 offset;                  ///< Offset applied to the positions in the point cloud.
-  bool has_positions = false;         ///< True if the point cloud contains position data.
-  bool has_normals = false;           ///< True if the point cloud contains normal data.
-  bool has_colors = false;            ///< True if the point cloud contains color data.
   std::vector<glm::dvec3> positions;  ///< Collection of positions in the point cloud.
   std::vector<glm::dvec3> normals;    ///< Collection of normals in the point cloud.
   std::vector<glm::vec4> colors;      ///< Collection of colors in the point cloud.
@@ -69,7 +66,7 @@ class PointCloud : public IAsset {
    * @param path The path to the file containing the point cloud data.
    * @return True if the load is successful, otherwise false.
    */
-  bool Load(const PointCloudLoadSettings& settings, const std::filesystem::path& path);
+  bool LoadPly(const PointCloudLoadSettings& settings, const std::filesystem::path& path);
 
   /**
    * @brief Saves the point cloud using the given save settings and file path.
@@ -77,7 +74,7 @@ class PointCloud : public IAsset {
    * @param path The path to save the point cloud data to.
    * @return True if the save is successful, otherwise false.
    */
-  bool Save(const PointCloudSaveSettings& settings, const std::filesystem::path& path) const;
+  bool SavePly(const PointCloudSaveSettings& settings, const std::filesystem::path& path) const;
 
   /**
    * @brief Inspects the point cloud's properties using an editor layer.

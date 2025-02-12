@@ -990,44 +990,38 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       scattered_point_info_list->SetParticleInfos(scatter_point_matrices);
     }
     if (debug_scattered_points) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
-                                                  scattered_point_info_list, glm::mat4(1.0f), point_size,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, scattered_point_info_list,
+                                                  glm::mat4(1.0f), point_size, gizmo_settings);
     }
     if (debug_allocated_points) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
-                                                  allocated_point_info_list, glm::mat4(1.0f), point_size,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, allocated_point_info_list,
+                                                  glm::mat4(1.0f), point_size, gizmo_settings);
     }
     if (debug_selected_branches)
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CONE"),
-                                                  selected_branch_info_list, glm::mat4(1.0f), 1.0f, gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cone, selected_branch_info_list,
+                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
     if (debug_scattered_point_connections)
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"),
-                                                  scattered_point_connection_info_list, glm::mat4(1.0f), 1.0f,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder, scattered_point_connection_info_list,
+                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
 
     if (debug_candidate_connections)
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CONE"),
-                                                  candidate_branch_connection_info_list, glm::mat4(1.0f), 1.0f,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cone, candidate_branch_connection_info_list,
+                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
 
     if (debug_reversed_candidate_connections)
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"),
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder,
                                                   reversed_candidate_branch_connection_info_list, glm::mat4(1.0f), 1.0f,
                                                   gizmo_settings);
 
     if (debug_filtered_connections)
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"),
-                                                  filtered_branch_connection_info_list, glm::mat4(1.0f), 1.0f,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder, filtered_branch_connection_info_list,
+                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
     if (debug_selected_branch_connections)
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"),
-                                                  selected_branch_connection_info_list, glm::mat4(1.0f), 1.0f,
-                                                  gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder, selected_branch_connection_info_list,
+                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
 
     if (debug_scatter_point_to_branch_connections)
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"),
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder,
                                                   scatter_point_to_branch_connection_info_list, glm::mat4(1.0f), 1.0f,
                                                   gizmo_settings);
   }
@@ -1065,7 +1059,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto allocated_point_info_entity = scene->CreateEntity("Allocated Points");
     scene->SetParent(allocated_point_info_entity, info_entity);
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(allocated_point_info_entity).lock();
-    particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
+    particles->mesh = Resources::Primitives::sphere;
     particles->particle_info_list = allocated_point_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
@@ -1075,7 +1069,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto scatter_point_info_entity = scene->CreateEntity("Scattered Points");
     scene->SetParent(scatter_point_info_entity, info_entity);
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(scatter_point_info_entity).lock();
-    particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
+    particles->mesh = Resources::Primitives::sphere;
     particles->particle_info_list = scattered_point_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
@@ -1086,7 +1080,7 @@ void TreeStructor::FormInfoEntities() const {
     scene->SetParent(scattered_point_connection_info_entity, info_entity);
     scene->SetEnable(scattered_point_connection_info_entity, false);
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(scattered_point_connection_info_entity).lock();
-    particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    particles->mesh = Resources::Primitives::cylinder;
     particles->particle_info_list = scattered_point_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
@@ -1097,7 +1091,7 @@ void TreeStructor::FormInfoEntities() const {
     scene->SetEnable(candidate_branch_connection_info_entity, false);
     scene->SetParent(candidate_branch_connection_info_entity, info_entity);
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(candidate_branch_connection_info_entity).lock();
-    particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    particles->mesh = Resources::Primitives::cylinder;
     particles->particle_info_list = candidate_branch_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
@@ -1110,7 +1104,7 @@ void TreeStructor::FormInfoEntities() const {
     scene->SetParent(reversed_candidate_branch_connection_info_entity, info_entity);
     const auto particles =
         scene->GetOrSetPrivateComponent<Particles>(reversed_candidate_branch_connection_info_entity).lock();
-    particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    particles->mesh = Resources::Primitives::cylinder;
     particles->particle_info_list = reversed_candidate_branch_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
@@ -1121,7 +1115,7 @@ void TreeStructor::FormInfoEntities() const {
     scene->SetEnable(filtered_branch_connection_info_entity, false);
     scene->SetParent(filtered_branch_connection_info_entity, info_entity);
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(filtered_branch_connection_info_entity).lock();
-    particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    particles->mesh = Resources::Primitives::cylinder;
     particles->particle_info_list = filtered_branch_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
@@ -1131,7 +1125,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto branch_connection_info_entity = scene->CreateEntity("Selected Branch Connections");
     scene->SetParent(branch_connection_info_entity, info_entity);
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(branch_connection_info_entity).lock();
-    particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    particles->mesh = Resources::Primitives::cylinder;
     particles->particle_info_list = selected_branch_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
@@ -1142,7 +1136,7 @@ void TreeStructor::FormInfoEntities() const {
     scene->SetParent(scatter_point_to_branch_connection, info_entity);
     scene->SetEnable(scatter_point_to_branch_connection, false);
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(scatter_point_to_branch_connection).lock();
-    particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    particles->mesh = Resources::Primitives::cylinder;
     particles->particle_info_list = scatter_point_to_branch_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
@@ -1152,7 +1146,7 @@ void TreeStructor::FormInfoEntities() const {
     const auto predicted_branch_connection_info_entity = scene->CreateEntity("Selected Branches");
     scene->SetParent(predicted_branch_connection_info_entity, info_entity);
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(predicted_branch_connection_info_entity).lock();
-    particles->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    particles->mesh = Resources::Primitives::cylinder;
     particles->particle_info_list = selected_branch_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
@@ -2150,7 +2144,7 @@ std::vector<std::shared_ptr<Mesh>> TreeStructor::GenerateFoliageMeshes() {
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
 
-    auto quad_mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD");
+    auto quad_mesh = Resources::Primitives::quad;
     auto& quad_triangles = quad_mesh->UnsafeGetTriangles();
     auto quad_vertices_size = quad_mesh->GetVerticesAmount();
     if (const auto tree_descriptor = this->tree_descriptor_ref.Get<TreeDescriptor>()) {

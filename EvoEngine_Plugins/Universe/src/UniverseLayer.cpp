@@ -159,7 +159,7 @@ void UniverseLayer::Update() {
   counter_++;
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
     if (const auto material = star_material_ref.Get<Material>()) {
-      render_layer->DrawMeshInstanced(Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE"), material, {},
+      render_layer->DrawMeshInstanced(Resources::Primitives::sphere, material, {},
                                       particle_info_list_ref.Get<ParticleInfoList>(), cast_shadow);
     }
   }

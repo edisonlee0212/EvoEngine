@@ -9,7 +9,73 @@
 #include "TextureStorage.hpp"
 #include "Utilities.hpp"
 using namespace evo_engine;
+
+std::shared_ptr<Texture2D> Resources::missing_texture{};
+std::shared_ptr<Texture2D> Resources::default_environmental_map_texture{};
+std::shared_ptr<Texture2D> Resources::default_skybox_texture{};
+
+std::shared_ptr<Cubemap> Resources::default_skybox{};
+std::shared_ptr<EnvironmentalMap> Resources::default_environmental_map{};
+
+std::shared_ptr<Mesh> Resources::texture_pass_through_quad{};
+std::shared_ptr<Mesh> Resources::rendering_cube{};
+
+std::shared_ptr<Mesh> Resources::Primitives::quad{};
+std::shared_ptr<Mesh> Resources::Primitives::sphere{};
+std::shared_ptr<Mesh> Resources::Primitives::cube{};
+std::shared_ptr<Mesh> Resources::Primitives::cone{};
+std::shared_ptr<Mesh> Resources::Primitives::cylinder{};
+std::shared_ptr<Mesh> Resources::Primitives::torus{};
+std::shared_ptr<Mesh> Resources::Primitives::monkey{};
+std::shared_ptr<Mesh> Resources::Primitives::capsule{};
+
+void Resources::Primitives::Load() {
+  {
+    quad = CreateResource<Mesh>();
+    quad->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/quad.evemesh");
+  }
+  {
+    sphere = CreateResource<Mesh>();
+    sphere->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/sphere.evemesh");
+  }
+  {
+    cube = CreateResource<Mesh>();
+    cube->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/cube.evemesh");
+  }
+  {
+    cone = CreateResource<Mesh>();
+    cone->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/cone.evemesh");
+  }
+  {
+    cylinder = CreateResource<Mesh>();
+    cylinder->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/cylinder.evemesh");
+  }
+  {
+    torus = CreateResource<Mesh>();
+    torus->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/torus.evemesh");
+  }
+  {
+    monkey = CreateResource<Mesh>();
+    monkey->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/monkey.evemesh");
+  }
+  {
+    capsule = CreateResource<Mesh>();
+    capsule->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/capsule.evemesh");
+  }
+}
+void Resources::Primitives::OnDestroy() {
+  quad.reset();
+  sphere.reset();
+  cube.reset();
+  cone.reset();
+  cylinder.reset();
+  torus.reset();
+  monkey.reset();
+  capsule.reset();
+}
+
 void Resources::LoadPrimitives() {
+  auto& resources = GetInstance();
   {
     VertexAttributes attributes{};
     attributes.tex_coord = true;
@@ -33,8 +99,8 @@ void Resources::LoadPrimitives() {
     vertices.emplace_back(vertex);
 
     std::vector<glm::uvec3> triangles = {{0, 2, 3}, {0, 3, 1}};
-    const auto tex_pass_through = CreateResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
-    tex_pass_through->SetVertices(attributes, vertices, triangles);
+    texture_pass_through_quad = CreateResource<Mesh>();
+    texture_pass_through_quad->SetVertices(attributes, vertices, triangles);
   }
   {
     VertexAttributes attributes{};
@@ -69,71 +135,39 @@ void Resources::LoadPrimitives() {
         {0, 1, 2}, {1, 0, 3}, {4, 5, 6}, {6, 7, 4}, {7, 3, 0}, {0, 4, 7},
         {6, 2, 1}, {2, 6, 5}, {0, 2, 5}, {5, 4, 0}, {3, 6, 1}, {6, 3, 7},
     };
-    const auto rendering_cube = CreateResource<Mesh>("PRIMITIVE_RENDERING_CUBE");
+    rendering_cube = CreateResource<Mesh>();
     rendering_cube->SetVertices(attributes, vertices, triangles);
   }
-  {
-    const auto quad = CreateResource<Mesh>("PRIMITIVE_QUAD");
-    quad->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/quad.evemesh");
-  }
-  {
-    const auto sphere = CreateResource<Mesh>("PRIMITIVE_SPHERE");
-    sphere->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/sphere.evemesh");
-  }
-  {
-    const auto cube = CreateResource<Mesh>("PRIMITIVE_CUBE");
-    cube->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/cube.evemesh");
-  }
-  {
-    const auto cone = CreateResource<Mesh>("PRIMITIVE_CONE");
-    cone->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/cone.evemesh");
-  }
-  {
-    const auto cylinder = CreateResource<Mesh>("PRIMITIVE_CYLINDER");
-    cylinder->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/cylinder.evemesh");
-  }
-  {
-    const auto torus = CreateResource<Mesh>("PRIMITIVE_TORUS");
-    torus->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/torus.evemesh");
-  }
-  {
-    const auto monkey = CreateResource<Mesh>("PRIMITIVE_MONKEY");
-    monkey->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/monkey.evemesh");
-  }
-  {
-    const auto capsule = CreateResource<Mesh>("PRIMITIVE_CAPSULE");
-    capsule->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/capsule.evemesh");
-  }
+  Primitives::Load();
 }
 
 void Resources::Initialize() {
   auto& resources = GetInstance();
   resources.typed_resources_.clear();
-  resources.named_resources_.clear();
   resources.resources_.clear();
   resources.current_max_handle_ = Handle(1);
   LoadPrimitives();
 
   GeometryStorage::DeviceSync();
 
-  const auto missing_texture = CreateResource<Texture2D>("TEXTURE_MISSING");
+  missing_texture = CreateResource<Texture2D>();
   missing_texture->LoadInternal(std::filesystem::path("./DefaultResources") / "Textures/texture-missing.png");
 
-  const auto default_environmental_map_texture = CreateResource<Texture2D>("DEFAULT_ENVIRONMENTAL_MAP_TEXTURE");
+  default_environmental_map_texture = CreateResource<Texture2D>();
   default_environmental_map_texture->LoadInternal(std::filesystem::path("./DefaultResources") /
                                                   "Textures/Cubemaps/GrandCanyon/GCanyon_C_YumaPoint_3k.hdr");
 
-  const auto default_skybox_texture = CreateResource<Texture2D>("DEFAULT_SKYBOX_TEXTURE");
+  default_skybox_texture = CreateResource<Texture2D>();
   default_skybox_texture->LoadInternal(std::filesystem::path("./DefaultResources") /
                                        "Textures/Cubemaps/GrandCanyon/GCanyon_C_YumaPoint_Env.hdr");
 
   TextureStorage::DeviceSync();
 
-  const auto default_skybox = CreateResource<Cubemap>("DEFAULT_SKYBOX");
+  default_skybox = CreateResource<Cubemap>();
   default_skybox->Initialize(256);
   default_skybox->ConvertFromEquirectangularTexture(default_skybox_texture);
 
-  const auto default_environmental_map = CreateResource<EnvironmentalMap>("DEFAULT_ENVIRONMENTAL_MAP");
+  default_environmental_map = CreateResource<EnvironmentalMap>();
   default_environmental_map->ConstructFromTexture2D(default_environmental_map_texture);
 }
 
@@ -143,72 +177,45 @@ Handle Resources::GenerateNewHandle() {
 
 void Resources::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto& resources = GetInstance();
-  const auto& project_manager = ProjectManager::GetInstance();
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("View")) {
-      ImGui::Checkbox("Assets", &resources.show_assets_);
+      ImGui::Checkbox("Resources", &resources.show_resources_);
       ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
   }
-  if (resources.show_assets_) {
-    ImGui::Begin("Assets");
-    if (ImGui::BeginTabBar("##Assets", ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)) {
-      if (ImGui::BeginTabItem("Inspection")) {
-        if (project_manager.inspecting_asset) {
-          const auto& asset = project_manager.inspecting_asset;
-          ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0.5f, 0, 1));
-          ImGui::Button(asset->GetTitle().c_str());
-          ImGui::PopStyleColor(1);
-          editor_layer->DraggableAsset(asset);
-          ImGui::SameLine();
-          ImGui::Text("Type:");
-          ImGui::SameLine();
-          ImGui::Text(asset->GetTypeName().c_str());
-          if (!asset->IsTemporary()) {
-            if (ImGui::Button("Save")) {
-              asset->Save();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Reload")) {
-              asset->Load();
-            }
-          }
-          ImGui::SameLine();
-          FileUtils::SaveFile(
-              "Export...", asset->GetTypeName(), Serialization::PeekAssetExtensions(asset->GetTypeName()),
-              [&](const std::filesystem::path& path) {
-                asset->Export(path);
-              },
-              false);
-          ImGui::SameLine();
-          FileUtils::OpenFile(
-              "Import...", asset->GetTypeName(), Serialization::PeekAssetExtensions(asset->GetTypeName()),
-              [&](const std::filesystem::path& path) {
-                asset->Import(path);
-              },
-              false);
-
-          ImGui::Separator();
-          if (asset->OnInspect(editor_layer))
-            asset->SetUnsaved();
-        } else {
-          ImGui::Text("None");
-        }
-        ImGui::EndTabItem();
+  if (resources.show_resources_) {
+    if (ImGui::Begin("Resources")) {
+      if (ImGui::CollapsingHeader("Textures")) {
+        ImGui::Button("Missing");
+        editor_layer->DraggableAsset<Texture2D>(missing_texture);
       }
-      if (ImGui::BeginTabItem("Resources")) {
-        for (auto& collection : resources.typed_resources_) {
-          if (ImGui::CollapsingHeader(collection.first.c_str())) {
-            for (auto& i : collection.second) {
-              ImGui::Button(resources.resource_names_[i.second->GetHandle()].c_str());
-              editor_layer->DraggableAsset(i.second);
-            }
-          }
-        }
-        ImGui::EndTabItem();
+      if (ImGui::CollapsingHeader("Cubemap")) {
+        ImGui::Button("Default Skybox");
+        editor_layer->DraggableAsset<Cubemap>(default_skybox);
       }
-      ImGui::EndTabBar();
+      if (ImGui::CollapsingHeader("Environmental Map")) {
+        ImGui::Button("Default Env map");
+        editor_layer->DraggableAsset<EnvironmentalMap>(default_environmental_map);
+      }
+      if (ImGui::CollapsingHeader("Primitives")) {
+        ImGui::Button("Quad");
+        editor_layer->DraggableAsset<Mesh>(Primitives::quad);
+        ImGui::Button("Sphere");
+        editor_layer->DraggableAsset<Mesh>(Primitives::sphere);
+        ImGui::Button("Cube");
+        editor_layer->DraggableAsset<Mesh>(Primitives::cube);
+        ImGui::Button("Cone");
+        editor_layer->DraggableAsset<Mesh>(Primitives::cone);
+        ImGui::Button("Cylinder");
+        editor_layer->DraggableAsset<Mesh>(Primitives::cylinder);
+        ImGui::Button("Torus");
+        editor_layer->DraggableAsset<Mesh>(Primitives::torus);
+        ImGui::Button("Monkey");
+        editor_layer->DraggableAsset<Mesh>(Primitives::monkey);
+        ImGui::Button("Capsule");
+        editor_layer->DraggableAsset<Mesh>(Primitives::capsule);
+      }
     }
     ImGui::End();
   }
@@ -232,7 +239,17 @@ bool Resources::IsResource(const AssetRef& target) {
 void Resources::OnDestroy() {
   auto& resources = GetInstance();
   resources.typed_resources_.clear();
-  resources.named_resources_.clear();
-  resources.resource_names_.clear();
   resources.resources_.clear();
+
+  missing_texture.reset();
+  default_environmental_map_texture.reset();
+  default_skybox_texture.reset();
+
+  default_skybox.reset();
+  default_environmental_map.reset();
+
+  texture_pass_through_quad.reset();
+  rendering_cube.reset();
+
+  Primitives::OnDestroy();
 }

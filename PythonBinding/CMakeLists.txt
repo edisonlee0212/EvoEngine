@@ -28,7 +28,10 @@ function(register_python_binding target_name default_enable)
 		set(option_name PythonBinding-${target_name})
 		option(option_name "Add Python binding for ${target_name}" default_enable)
 		if(option_name)
-			pybind11_add_module(${target_name} ${CMAKE_CURRENT_SOURCE_DIR}/src/${target_name}.cpp)
+			pybind11_add_module(${target_name} 
+				${CMAKE_CURRENT_SOURCE_DIR}/src/PyEvoEngine.cpp
+				${CMAKE_CURRENT_SOURCE_DIR}/src/${target_name}.cpp
+				${CMAKE_CURRENT_SOURCE_DIR}/src/${target_name}Module.cpp)
 			target_compile_definitions(${target_name}
 				PRIVATE
 				${DEFAULT_PROJECT_DEF}
@@ -64,6 +67,5 @@ function(register_python_binding target_name default_enable)
 	endif ()
 endfunction()
 
-register_python_binding(PyEvoEngine ON)
 register_python_binding(PyEcoSysLab ON)
 register_python_binding(PyDigitalAgriculture ON)

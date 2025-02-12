@@ -58,33 +58,30 @@ void EditorLayer::DrawGizmoStrands(const std::shared_ptr<Strands>& strands, cons
 
 void EditorLayer::DrawGizmoCubes(const std::shared_ptr<ParticleInfoList>& instanced_data, const glm::mat4& model,
                                  const float& size, const GizmoSettings& gizmo_settings) {
-  DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), instanced_data, model, size,
-                                gizmo_settings);
+  DrawGizmoMeshInstancedColored(Resources::Primitives::cube, instanced_data, model, size, gizmo_settings);
 }
 
 void EditorLayer::DrawGizmoCube(const glm::vec4& color, const glm::mat4& model, const float& size,
                                 const GizmoSettings& gizmo_settings) {
-  DrawGizmoMesh(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), color, model, size, gizmo_settings);
+  DrawGizmoMesh(Resources::Primitives::cube, color, model, size, gizmo_settings);
 }
 
 void EditorLayer::DrawGizmoSpheres(const std::shared_ptr<ParticleInfoList>& instanced_data, const glm::mat4& model,
                                    const float& size, const GizmoSettings& gizmo_settings) {
-  DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE"), instanced_data, model, size,
-                                gizmo_settings);
+  DrawGizmoMeshInstancedColored(Resources::Primitives::sphere, instanced_data, model, size, gizmo_settings);
 }
 
 void EditorLayer::DrawGizmoSphere(const glm::vec4& color, const glm::mat4& model, const float& size,
                                   const GizmoSettings& gizmo_settings) {
-  DrawGizmoMesh(Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE"), color, model, size, gizmo_settings);
+  DrawGizmoMesh(Resources::Primitives::sphere, color, model, size, gizmo_settings);
 }
 
 void EditorLayer::DrawGizmoCylinders(const std::shared_ptr<ParticleInfoList>& instanced_data, const glm::mat4& model,
                                      const float& size, const GizmoSettings& gizmo_settings) {
-  DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"), instanced_data, model, size,
-                                gizmo_settings);
+  DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder, instanced_data, model, size, gizmo_settings);
 }
 
 void EditorLayer::DrawGizmoCylinder(const glm::vec4& color, const glm::mat4& model, const float& size,
                                     const GizmoSettings& gizmo_settings) {
-  DrawGizmoMesh(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"), color, model, size, gizmo_settings);
+  DrawGizmoMesh(Resources::Primitives::cylinder, color, model, size, gizmo_settings);
 }

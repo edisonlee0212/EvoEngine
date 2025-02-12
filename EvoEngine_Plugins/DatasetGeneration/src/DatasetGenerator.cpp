@@ -521,110 +521,147 @@ void DatasetGenerator::GeneratePointCloudForForestPatchJoinedSpecies(
   scene->DeleteEntity(scanner_entity);
   Application::Loop();
 }
-void DatasetGenerator::GenerateDataForSorghum(const SorghumDataGenerationParameters& data_generation_parameters) {
+
+Entity DatasetGenerator::CreateSorghumEntity(const std::filesystem::path& sorghum_path, int seed) {
+  if (!CheckApplication()) {
+    return {};
+  }
+  const auto scene = Application::GetActiveScene();
+  const auto sorghum_entity = scene->CreateEntity("Sorghum");
+  const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+  if (sorghum_path.empty()) {
+    EVOENGINE_ERROR("No parameter path!")
+    return {};
+  }
+  if (sorghum_path.extension() == ".sorghum") {
+    std::shared_ptr<SorghumDescriptor> sorghum_descriptor;
+    if (sorghum_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / sorghum_path;
+      if (std::filesystem::exists(absolute_path)) {
+        sorghum_descriptor =
+            std::dynamic_pointer_cast<SorghumDescriptor>(ProjectManager::GetOrCreateAsset(sorghum_path));
+      } else if (std::filesystem::exists(sorghum_path)) {
+        sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
+        sorghum_descriptor->Import(std::filesystem::absolute(sorghum_path));
+      } else {
+        EVOENGINE_ERROR("Sorghum Descriptor doesn't exist!")
+        return {};
+      }
+    } else if (ProjectManager::IsInAssetsFolder(sorghum_path)) {
+      sorghum_descriptor = std::dynamic_pointer_cast<SorghumDescriptor>(
+          ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(sorghum_path)));
+    } else if (std::filesystem::exists(sorghum_path)) {
+      sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
+      sorghum_descriptor->Import(sorghum_path);
+    } else {
+      EVOENGINE_ERROR("Sorghum Descriptor doesn't exist!")
+      return {};
+    }
+    sorghum->sorghum_descriptor = sorghum_descriptor;
+  } else if (sorghum_path.extension() == ".ss") {
+    std::shared_ptr<SorghumState> sorghum_state;
+    if (sorghum_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / sorghum_path;
+      if (std::filesystem::exists(absolute_path)) {
+        sorghum_state = std::dynamic_pointer_cast<SorghumState>(ProjectManager::GetOrCreateAsset(sorghum_path));
+      } else if (std::filesystem::exists(sorghum_path)) {
+        sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
+        sorghum_state->Import(std::filesystem::absolute(sorghum_path));
+      } else {
+        EVOENGINE_ERROR("Sorghum State doesn't exist!")
+        return {};
+      }
+    } else if (ProjectManager::IsInAssetsFolder(sorghum_path)) {
+      sorghum_state = std::dynamic_pointer_cast<SorghumState>(
+          ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(sorghum_path)));
+    } else if (std::filesystem::exists(sorghum_path)) {
+      sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
+      sorghum_state->Import(sorghum_path);
+    } else {
+      EVOENGINE_ERROR("Sorghum State doesn't exist!")
+      return {};
+    }
+    sorghum->sorghum_state = sorghum_state;
+  } else if (sorghum_path.extension() == ".sg") {
+    std::shared_ptr<SorghumDescriptor> sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
+    if (sorghum_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / sorghum_path;
+      if (std::filesystem::exists(absolute_path)) {
+        const auto sorghum_generator =
+            std::dynamic_pointer_cast<SorghumGenerator>(ProjectManager::GetOrCreateAsset(sorghum_path));
+        sorghum_generator->Apply(sorghum_descriptor, seed);
+      } else if (std::filesystem::exists(sorghum_path)) {
+        const auto sorghum_generator = AssetManager::CreateTemporaryAsset<SorghumGenerator>();
+        sorghum_generator->Import(std::filesystem::absolute(sorghum_path));
+        sorghum_generator->Apply(sorghum_descriptor, seed);
+      } else {
+        EVOENGINE_ERROR("Sorghum Generator doesn't exist!")
+        return {};
+      }
+
+    } else if (ProjectManager::IsInAssetsFolder(sorghum_path)) {
+      const auto sorghum_generator = std::dynamic_pointer_cast<SorghumGenerator>(
+          ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(sorghum_path)));
+      sorghum_generator->Apply(sorghum_descriptor, seed);
+    } else if (std::filesystem::exists(sorghum_path)) {
+      const auto sorghum_generator = AssetManager::CreateTemporaryAsset<SorghumGenerator>();
+      sorghum_generator->Import(sorghum_path);
+      sorghum_generator->Apply(sorghum_descriptor, seed);
+    } else {
+      EVOENGINE_ERROR("Sorghum Generator doesn't exist!")
+      return {};
+    }
+    sorghum->sorghum_descriptor = sorghum_descriptor;
+  } else {
+    EVOENGINE_ERROR("Unsupported sorghum parameter path format!")
+    return {};
+  }
+  return sorghum_entity;
+}
+Entity DatasetGenerator::CreateSorghumEntity(const std::shared_ptr<IAsset>& sorghum_asset, const int seed) {
+  if (!CheckApplication()) {
+    return {};
+  }
+  const auto scene = Application::GetActiveScene();
+  if (sorghum_asset->GetTypeName() == "SorghumField") {
+    const auto sf = std::dynamic_pointer_cast<SorghumField>(sorghum_asset);
+    return sf->InstantiateField(seed * sf->matrices.size());
+  }
+
+  const auto sorghum_entity = scene->CreateEntity("Sorghum");
+  const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+
+  if (sorghum_asset->GetTypeName() == "SorghumGenerator") {
+    const auto sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
+    std::dynamic_pointer_cast<SorghumGenerator>(sorghum_asset)->Apply(sorghum_descriptor, seed);
+    sorghum->sorghum_generator = sorghum_asset;
+    sorghum->sorghum_descriptor = sorghum_descriptor;
+  } else if (sorghum_asset->GetTypeName() == "SorghumState") {
+    const auto sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
+    std::dynamic_pointer_cast<SorghumState>(sorghum_asset)->Apply(sorghum_descriptor);
+    sorghum->sorghum_state = sorghum_asset;
+    sorghum->sorghum_descriptor = sorghum_descriptor;
+  } else if (sorghum_asset->GetTypeName() == "SorghumDescriptor") {
+    sorghum->sorghum_descriptor = sorghum_asset;
+  } else {
+    EVOENGINE_ERROR("CreateSorghumEntity failed: Invalid asset type!")
+    return {};
+  }
+  return sorghum_entity;
+}
+
+void DatasetGenerator::GenerateDataForSorghum(const Entity& sorghum_entity,
+                                              const SorghumDataGenerationParameters& data_generation_parameters) {
   if (!CheckApplication()) {
     return;
   }
   const auto scene = Application::GetActiveScene();
+  const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+  const auto leaf_size = sorghum->GetLeafSize();
   std::shared_ptr<Soil> soil;
   if (data_generation_parameters.generate_ground_mesh) {
     if (!CheckSoil(soil, data_generation_parameters.generate_ground_mesh))
       return;
-  }
-  const auto sorghum_entity = scene->CreateEntity("Sorghum");
-  const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
-  int leaf_size = 0;
-  if (data_generation_parameters.sorghum_path.empty()) {
-    EVOENGINE_ERROR("No parameter path!")
-    return;
-  }
-  if (data_generation_parameters.sorghum_path.extension() == ".sorghum") {
-    std::shared_ptr<SorghumDescriptor> sorghum_descriptor;
-    if (data_generation_parameters.sorghum_path.is_relative()) {
-      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / data_generation_parameters.sorghum_path;
-      if (std::filesystem::exists(absolute_path)) {
-        sorghum_descriptor = std::dynamic_pointer_cast<SorghumDescriptor>(
-            ProjectManager::GetOrCreateAsset(data_generation_parameters.sorghum_path));
-      } else if (std::filesystem::exists(data_generation_parameters.sorghum_path)) {
-        sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
-        sorghum_descriptor->Import(std::filesystem::absolute(data_generation_parameters.sorghum_path));
-      } else {
-        EVOENGINE_ERROR("Sorghum Descriptor doesn't exist!")
-        return;
-      }
-    } else if (ProjectManager::IsInAssetsFolder(data_generation_parameters.sorghum_path)) {
-      sorghum_descriptor = std::dynamic_pointer_cast<SorghumDescriptor>(ProjectManager::GetOrCreateAsset(
-          ProjectManager::GetAssetsRelativePath(data_generation_parameters.sorghum_path)));
-    } else if (std::filesystem::exists(data_generation_parameters.sorghum_path)) {
-      sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
-      sorghum_descriptor->Import(data_generation_parameters.sorghum_path);
-    } else {
-      EVOENGINE_ERROR("Sorghum Descriptor doesn't exist!")
-      return;
-    }
-    leaf_size = sorghum_descriptor->leaves.size();
-    sorghum->sorghum_descriptor = sorghum_descriptor;
-  } else if (data_generation_parameters.sorghum_path.extension() == ".ss") {
-    std::shared_ptr<SorghumState> sorghum_state;
-    if (data_generation_parameters.sorghum_path.is_relative()) {
-      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / data_generation_parameters.sorghum_path;
-      if (std::filesystem::exists(absolute_path)) {
-        sorghum_state = std::dynamic_pointer_cast<SorghumState>(
-            ProjectManager::GetOrCreateAsset(data_generation_parameters.sorghum_path));
-      } else if (std::filesystem::exists(data_generation_parameters.sorghum_path)) {
-        sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
-        sorghum_state->Import(std::filesystem::absolute(data_generation_parameters.sorghum_path));
-      } else {
-        EVOENGINE_ERROR("Sorghum State doesn't exist!")
-        return;
-      }
-    } else if (ProjectManager::IsInAssetsFolder(data_generation_parameters.sorghum_path)) {
-      sorghum_state = std::dynamic_pointer_cast<SorghumState>(ProjectManager::GetOrCreateAsset(
-          ProjectManager::GetAssetsRelativePath(data_generation_parameters.sorghum_path)));
-    } else if (std::filesystem::exists(data_generation_parameters.sorghum_path)) {
-      sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
-      sorghum_state->Import(data_generation_parameters.sorghum_path);
-    } else {
-      EVOENGINE_ERROR("Sorghum State doesn't exist!")
-      return;
-    }
-    leaf_size = sorghum_state->leaves.size();
-    sorghum->sorghum_state = sorghum_state;
-  } else if (data_generation_parameters.sorghum_path.extension() == ".sg") {
-    std::shared_ptr<SorghumDescriptor> sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
-    if (data_generation_parameters.sorghum_path.is_relative()) {
-      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / data_generation_parameters.sorghum_path;
-      if (std::filesystem::exists(absolute_path)) {
-        const auto sorghum_generator = std::dynamic_pointer_cast<SorghumGenerator>(
-            ProjectManager::GetOrCreateAsset(data_generation_parameters.sorghum_path));
-        sorghum_generator->Apply(sorghum_descriptor, data_generation_parameters.seed);
-      } else if (std::filesystem::exists(data_generation_parameters.sorghum_path)) {
-        const auto sorghum_generator = AssetManager::CreateTemporaryAsset<SorghumGenerator>();
-        sorghum_generator->Import(std::filesystem::absolute(data_generation_parameters.sorghum_path));
-        sorghum_generator->Apply(sorghum_descriptor, data_generation_parameters.seed);
-      } else {
-        EVOENGINE_ERROR("Sorghum Generator doesn't exist!")
-        return;
-      }
-
-    } else if (ProjectManager::IsInAssetsFolder(data_generation_parameters.sorghum_path)) {
-      const auto sorghum_generator = std::dynamic_pointer_cast<SorghumGenerator>(ProjectManager::GetOrCreateAsset(
-          ProjectManager::GetAssetsRelativePath(data_generation_parameters.sorghum_path)));
-      sorghum_generator->Apply(sorghum_descriptor, data_generation_parameters.seed);
-    } else if (std::filesystem::exists(data_generation_parameters.sorghum_path)) {
-      const auto sorghum_generator = AssetManager::CreateTemporaryAsset<SorghumGenerator>();
-      sorghum_generator->Import(data_generation_parameters.sorghum_path);
-      sorghum_generator->Apply(sorghum_descriptor, data_generation_parameters.seed);
-    } else {
-      EVOENGINE_ERROR("Sorghum Generator doesn't exist!")
-      return;
-    }
-
-    leaf_size = sorghum_descriptor->leaves.size();
-    sorghum->sorghum_descriptor = sorghum_descriptor;
-  } else {
-    EVOENGINE_ERROR("Unsupported sorghum parameter path format!")
-    return;
   }
   std::filesystem::create_directories(data_generation_parameters.output_folder);
 
@@ -687,54 +724,66 @@ void DatasetGenerator::GenerateDataForSorghum(const SorghumDataGenerationParamet
       scanner->SavePointCloud(temp_path, points, leaf_indices, instance_indices, type_indices);
     }
   }
-  scene->DeleteEntity(sorghum_entity);
   scene->DeleteEntity(scanner_entity);
   Application::Loop();
 }
 
-void DatasetGenerator::GenerateDataForSorghumGrid(const SorghumGrid& sorghum_grid,
-                                                  const SorghumDataGenerationParameters& data_generation_parameters) {
-  if (data_generation_parameters.sorghum_path.extension() != ".sg") {
-    EVOENGINE_ERROR("Incorrect sorghum generator path!")
+void DatasetGenerator::ApplySorghumGrid(const std::shared_ptr<IAsset>& target_sorghum_field,
+                                        const std::filesystem::path& sorghum_path, const SorghumGrid& sorghum_grid) {
+  if (sorghum_path.extension() != ".sg") {
+    EVOENGINE_ERROR("ApplySorghumGrid failed: Incorrect sorghum generator path!")
+    return;
+  }
+  if (target_sorghum_field->GetTypeName() != "SorghumField") {
+    EVOENGINE_ERROR("ApplySorghumGrid failed: Invalid asset type!")
     return;
   }
   std::shared_ptr<SorghumGenerator> sorghum_generator{};
 
-  if (data_generation_parameters.sorghum_path.is_relative()) {
-    const auto absolute_path = ProjectManager::GetAssetsFolderPath() / data_generation_parameters.sorghum_path;
+  if (sorghum_path.is_relative()) {
+    const auto absolute_path = ProjectManager::GetAssetsFolderPath() / sorghum_path;
     if (std::filesystem::exists(absolute_path)) {
-      sorghum_generator = std::dynamic_pointer_cast<SorghumGenerator>(
-          ProjectManager::GetOrCreateAsset(data_generation_parameters.sorghum_path));
-    } else if (std::filesystem::exists(data_generation_parameters.sorghum_path)) {
+      sorghum_generator = std::dynamic_pointer_cast<SorghumGenerator>(ProjectManager::GetOrCreateAsset(sorghum_path));
+    } else if (std::filesystem::exists(sorghum_path)) {
       sorghum_generator = AssetManager::CreateTemporaryAsset<SorghumGenerator>();
-      sorghum_generator->Import(std::filesystem::absolute(data_generation_parameters.sorghum_path));
+      sorghum_generator->Import(std::filesystem::absolute(sorghum_path));
     } else {
       EVOENGINE_ERROR("Sorghum Generator doesn't exist!")
       return;
     }
-  } else if (ProjectManager::IsInAssetsFolder(data_generation_parameters.sorghum_path)) {
-    sorghum_generator = std::dynamic_pointer_cast<SorghumGenerator>(ProjectManager::GetOrCreateAsset(
-        ProjectManager::GetAssetsRelativePath(data_generation_parameters.sorghum_path)));
-  } else if (std::filesystem::exists(data_generation_parameters.sorghum_path)) {
+  } else if (ProjectManager::IsInAssetsFolder(sorghum_path)) {
+    sorghum_generator = std::dynamic_pointer_cast<SorghumGenerator>(
+        ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(sorghum_path)));
+  } else if (std::filesystem::exists(sorghum_path)) {
     sorghum_generator = AssetManager::CreateTemporaryAsset<SorghumGenerator>();
-    sorghum_generator->Import(data_generation_parameters.sorghum_path);
+    sorghum_generator->Import(sorghum_path);
   } else {
     EVOENGINE_ERROR("Sorghum Generator doesn't exist!")
     return;
   }
-
-  const auto sorghum_field = AssetManager::CreateTemporaryAsset<SorghumField>();
+  ApplySorghumGrid(target_sorghum_field, sorghum_generator, sorghum_grid);
+}
+void DatasetGenerator::ApplySorghumGrid(const std::shared_ptr<IAsset>& target_sorghum_field,
+                                        const std::shared_ptr<IAsset>& sorghum_generator,
+                                        const SorghumGrid& sorghum_grid) {
+  if (target_sorghum_field->GetTypeName() != "SorghumField") {
+    EVOENGINE_ERROR("ApplySorghumGrid failed: Invalid asset type for sorghum field!")
+    return;
+  }
+  if (sorghum_generator->GetTypeName() != "SorghumGenerator") {
+    EVOENGINE_ERROR("ApplySorghumGrid failed: Invalid asset type for sorghum generator!")
+    return;
+  }
+  const auto sorghum_field = std::dynamic_pointer_cast<SorghumField>(target_sorghum_field);
   std::vector<glm::mat4> matrices_list;
   sorghum_grid.GenerateField(matrices_list);
   sorghum_field->matrices.resize(matrices_list.size());
   for (int i = 0; i < matrices_list.size(); i++) {
     sorghum_field->matrices[i] = {sorghum_generator, matrices_list[i]};
   }
-  GenerateDataForSorghumField(sorghum_field, data_generation_parameters);
 }
 
-void DatasetGenerator::GenerateDataForSorghumField(const std::shared_ptr<SorghumField>& sorghum_field,
-                                                   const SorghumDataGenerationParameters& data_generation_parameters) {
+void DatasetGenerator::GenerateDataForAllSorghums(const SorghumDataGenerationParameters& data_generation_parameters) {
   if (!CheckApplication()) {
     return;
   }
@@ -744,7 +793,6 @@ void DatasetGenerator::GenerateDataForSorghumField(const std::shared_ptr<Sorghum
     if (!CheckSoil(soil, data_generation_parameters.generate_ground_mesh))
       return;
   }
-  const auto field = sorghum_field->InstantiateField(data_generation_parameters.seed * sorghum_field->matrices.size());
   Application::GetLayer<SorghumLayer>()->GenerateMeshForAllSorghums(
       data_generation_parameters.sorghum_mesh_generator_settings);
   Application::Loop();
@@ -757,7 +805,6 @@ void DatasetGenerator::GenerateDataForSorghumField(const std::shared_ptr<Sorghum
   const auto point_cloud_output_path =
       data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply");
   scanner->Capture(point_cloud_output_path, data_generation_parameters.point_cloud_capture_settings);
-  scene->DeleteEntity(field);
   scene->DeleteEntity(scanner_entity);
   Application::Loop();
 }

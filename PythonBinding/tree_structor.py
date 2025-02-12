@@ -36,7 +36,9 @@ if not os.path.isdir(output_root):
 	os.mkdir(output_root)
 
 #Start the framework without editor and window.
-tree_framework.engine_run_windowless(project_path)
+tree_framework.RegisterClasses()
+tree_framework.PushEcoSysLabLayer()
+tree_framework.Run(project_path)
 
 #==================================#
 #         Configurations           #
@@ -62,4 +64,7 @@ output_file_name = "reconstructed_result"
 tree_framework.tree_structor(yaml_input_path, import_scale, connectivity_graph_settings, reconstruction_settings, mesh_generator_settings, output_root, output_file_name)
 
 #Terminate engine
-tree_framework.engine_terminate()
+tree_framework.Terminate()
+
+#Change back to original working directory
+os.chdir(current_directory)

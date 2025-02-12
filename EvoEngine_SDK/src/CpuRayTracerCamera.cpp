@@ -105,11 +105,11 @@ void CpuRayTracerCamera::Capture(const CaptureParameters& parameters,
 bool CpuRayTracerCamera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (!texture_ref.Get<Texture2D>()) {
-    auto new_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+    const auto new_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
     new_texture->SetRgbaChannelData({glm::vec4(1.f)}, {1, 1});
     texture_ref = new_texture;
   }
-  if (EditorLayer::DragAndDropButton<Texture2D>(texture_ref, "Target texture"))
+  if (editor_layer->DragAndDropButton<Texture2D>(texture_ref, "Target texture"))
     changed = true;
 
   static glm::ivec2 new_resolution = {64, 64};

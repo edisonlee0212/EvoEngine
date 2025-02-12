@@ -439,7 +439,7 @@ bool RadialBoundingVolume::OnInspect(const std::shared_ptr<EditorLayer>& editorL
     }
     for (int i = 0; i < m_layerAmount; i++) {
       for (int j = 0; j < m_sectorAmount; j++) {
-        editorLayer->DrawGizmoMesh(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), glm::vec4(0, 0, 0, 1),
+        editorLayer->DrawGizmoMesh(Resources::Primitives::cube, glm::vec4(0, 0, 0, 1),
                                    glm::translate(TipPosition(i, j)) * glm::scale(glm::vec3(0.1f)));
       }
     }

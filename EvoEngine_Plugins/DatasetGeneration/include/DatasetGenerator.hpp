@@ -73,9 +73,6 @@ class DatasetGenerator {
       const std::filesystem::path& species_folder_path, const TreeDataGenerationParameters& data_generation_parameters);
 
   struct SorghumDataGenerationParameters {
-    // Parameters
-    std::filesystem::path sorghum_path{};
-
     // Export types
     bool export_point_cloud = false;
     bool export_mesh = false;
@@ -86,18 +83,25 @@ class DatasetGenerator {
     SorghumPointCloudPointSettings sorghum_point_cloud_point_settings{};
     SorghumMeshGeneratorSettings sorghum_mesh_generator_settings{};
     std::shared_ptr<PointCloudCaptureSettings> point_cloud_capture_settings{};
-    int seed = 0;
     // Export path
     std::filesystem::path output_folder{};
     std::string output_file_name{};
   };
 
-  static void GenerateDataForSorghum(const SorghumDataGenerationParameters& data_generation_parameters);
+  static Entity CreateSorghumEntity(const std::filesystem::path& sorghum_path, int seed = 0);
 
-  static void GenerateDataForSorghumGrid(const SorghumGrid& sorghum_grid,
-                                         const SorghumDataGenerationParameters& data_generation_parameters);
-  static void GenerateDataForSorghumField(const std::shared_ptr<SorghumField>& sorghum_field,
-                                          const SorghumDataGenerationParameters& data_generation_parameters);
+  static Entity CreateSorghumEntity(const std::shared_ptr<IAsset>& sorghum_asset, int seed = 0);
+
+  static void ApplySorghumGrid(const std::shared_ptr<IAsset>& target_sorghum_field,
+                               const std::filesystem::path& sorghum_path, const SorghumGrid& sorghum_grid);
+
+  static void ApplySorghumGrid(const std::shared_ptr<IAsset>& target_sorghum_field,
+                               const std::shared_ptr<IAsset>& sorghum_generator, const SorghumGrid& sorghum_grid);
+
+  static void GenerateDataForSorghum(const Entity& sorghum_entity,
+                                     const SorghumDataGenerationParameters& data_generation_parameters);
+
+  static void GenerateDataForAllSorghums(const SorghumDataGenerationParameters& data_generation_parameters);
 };
 
 }  // namespace dataset_generation_plugin

@@ -203,7 +203,7 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
         vkCmdBeginRendering(vk_command_buffer, &render_info);
         prefilter_construct->Bind(vk_command_buffer);
         prefilter_construct->BindDescriptorSet(vk_command_buffer, 0, temp_set->GetVkDescriptorSet());
-        const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_RENDERING_CUBE");
+        const auto mesh = Resources::rendering_cube;
         EquirectangularToCubemapConstant constant{};
         constant.projection_view = capture_projection * capture_views[i];
         constant.m_preset = roughness;

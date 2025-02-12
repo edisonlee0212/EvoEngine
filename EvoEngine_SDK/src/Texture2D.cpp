@@ -273,7 +273,8 @@ bool Texture2D::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
   const auto texture_storage = PeekTexture2DStorage();
   static AssetRef temp;
-  if (EditorLayer::DragAndDropButton<Texture2D>(temp, "Apply Opacity...")) {
+  if (editor_layer->DragAndDropButton<Texture2D>(temp, "Apply Opacity...")) {
+    changed = true;
     if (const auto tex = temp.Get<Texture2D>()) {
       ApplyOpacityMap(tex);
       temp.Clear();

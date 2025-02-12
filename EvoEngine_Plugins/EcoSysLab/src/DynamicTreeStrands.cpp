@@ -177,7 +177,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     ImGui::TreePop();
   }
   static PrivateComponentRef dynamic_tree_strands_tree_ref{};
-  if (EditorLayer::DragAndDropButton<Tree>(dynamic_tree_strands_tree_ref, "Download Strands from Tree...")) {
+  if (editor_layer->DragAndDropButton<Tree>(dynamic_tree_strands_tree_ref, "Download Strands from Tree...")) {
     if (const auto tree = dynamic_tree_strands_tree_ref.Get<Tree>()) {
       InitializeFromTree(tree);
       dynamic_tree_strands_tree_ref.Clear();
@@ -1021,7 +1021,7 @@ void DynamicTreeStrands::InitializeStrandParticles(const DtsStrandGroup& target_
   particle_info_list->SetParticleInfos(particle_infos);
 
   renderer->particle_info_list = particle_info_list;
-  renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
+  renderer->mesh = Resources::Primitives::cube;
   const auto material = AssetManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;

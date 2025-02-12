@@ -151,7 +151,7 @@ Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_en
           transform.SetScale(glm::vec3(4.0f * scale_factor));
           scene->SetDataComponent(sphere, transform);
           const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(sphere).lock();
-          mesh_renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
+          mesh_renderer->mesh = Resources::Primitives::sphere;
           const auto material = AssetManager::CreateTemporaryAsset<Material>();
           mesh_renderer->material = material;
           material->material_properties.roughness = static_cast<float>(i) / (amount - 1);
@@ -175,7 +175,7 @@ Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_en
   auto ground_mat = AssetManager::CreateTemporaryAsset<Material>();
 
   ground_mesh_renderer->material = ground_mat;
-  ground_mesh_renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
+  ground_mesh_renderer->mesh = Resources::Primitives::cube;
   Transform ground_transform;
   ground_transform.SetValue(glm::vec3(0, -2.05, -0), glm::vec3(0), glm::vec3(30, 1, 60));
   scene->SetDataComponent(ground, ground_transform);
@@ -330,7 +330,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         point_light_right_renderer->material.Set<Material>(point_light_right_material);
         point_light_right_material->material_properties.albedo_color = glm::vec3(1.0, 0.8, 0.0);
         point_light_right_material->material_properties.emission = 10.0f;
-        point_light_right_renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
+        point_light_right_renderer->mesh = Resources::Primitives::sphere;
         const auto point_light_right =
             scene->GetOrSetPrivateComponent<PointLight>(left_point_light_right_entity).lock();
         point_light_right->diffuse_brightness = 100;
@@ -442,7 +442,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
 
         Entity ple = scene->CreateEntity("Point Light 1");
         auto plmmc = scene->GetOrSetPrivateComponent<MeshRenderer>(ple).lock();
-        plmmc->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
+        plmmc->mesh = Resources::Primitives::sphere;
         plmmc->material.Set<Material>(shared_mat);
         auto plc = scene->GetOrSetPrivateComponent<PointLight>(ple).lock();
         plc->constant = 1.0f;
@@ -464,7 +464,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
         scene->SetDataComponent(ple2, ltw);
         scene->SetEntityName(ple2, "Point Light 2");
         auto plmmc2 = scene->GetOrSetPrivateComponent<MeshRenderer>(ple2).lock();
-        plmmc2->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
+        plmmc2->mesh = Resources::Primitives::sphere;
         plmmc2->material.Set<Material>(shared_mat);
 
 #  pragma endregion

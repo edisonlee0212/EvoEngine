@@ -88,7 +88,7 @@ bool SorghumGantryCaptureSettings::OnInspect() {
 }
 
 void SorghumGantryCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
-  const glm::vec2 start_point = glm::vec2((grid_size.x) * grid_distance.x, (grid_size.y) * grid_distance.y) * 0.5f;
+  const glm::vec2 start_point = glm::vec2(grid_size.x * grid_distance.x, grid_size.y * grid_distance.y) * 0.5f;
   const int x_step_size = static_cast<int>(grid_size.x * grid_distance.x / step);
   const int y_step_size = static_cast<int>(grid_size.y * grid_distance.y / step);
 

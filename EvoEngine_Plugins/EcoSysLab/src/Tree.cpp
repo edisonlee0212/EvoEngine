@@ -515,7 +515,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         }
         GizmoSettings gizmo_settings{};
         gizmo_settings.draw_settings.blending = true;
-        editor_layer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"),
+        editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube,
                                                     space_colonization_grid_particle_info_list, glm::mat4(1.0f), 1.0f,
                                                     gizmo_settings);
       }
@@ -639,8 +639,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     skeletal_graph_settings.OnInspect();
   }
   if (ImGui::Button("Build skeletal graph")) {
-    GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE"),
-                          Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"));
+    GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::Primitives::sphere, Resources::Primitives::cube);
   }
   ImGui::SameLine();
   if (ImGui::Button("Clear skeletal graph")) {
@@ -892,7 +891,7 @@ std::shared_ptr<Mesh> Tree::GenerateFoliageMesh(const TreeMeshGeneratorSettings&
   std::vector<Vertex> vertices;
   std::vector<unsigned int> indices;
 
-  auto quad_mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD");
+  auto quad_mesh = Resources::Primitives::quad;
   auto& quad_triangles = quad_mesh->UnsafeGetTriangles();
   size_t quad_vertices_size;
   quad_vertices_size = quad_mesh->GetVerticesAmount();
@@ -1006,7 +1005,7 @@ std::shared_ptr<Mesh> Tree::GenerateStrandModelFoliageMesh(
   std::vector<Vertex> vertices;
   std::vector<unsigned int> indices;
 
-  auto quad_mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD");
+  auto quad_mesh = Resources::Primitives::quad;
   auto& quad_triangles = quad_mesh->UnsafeGetTriangles();
   auto quad_vertices_size = quad_mesh->GetVerticesAmount();
   size_t offset = 0;
@@ -2209,7 +2208,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     std::vector<SkinnedVertex> skinned_vertices;
     std::vector<unsigned> indices;
     {
-      auto quad_mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD");
+      auto quad_mesh = Resources::Primitives::quad;
       auto& quad_triangles = quad_mesh->UnsafeGetTriangles();
       auto quad_vertices_size = quad_mesh->GetVerticesAmount();
       size_t offset = 0;
@@ -2400,7 +2399,7 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
     const auto foliage_entity = scene->CreateEntity("Foliage Mesh");
     scene->SetParent(foliage_entity, self);
     if (mesh_generator_settings.foliage_instancing) {
-      const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_QUAD");
+      const auto mesh = Resources::Primitives::quad;
       const auto particle_info_list = GenerateFoliageParticleInfoList(mesh_generator_settings);
       const auto material = AssetManager::CreateTemporaryAsset<Material>();
       bool copied_material = false;
@@ -3011,7 +3010,7 @@ void Tree::InitializeStrandParticles() {
 
   const auto renderer = scene->GetOrSetPrivateComponent<Particles>(strands_entity).lock();
   renderer->particle_info_list = GenerateStrandParticles();
-  renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
+  renderer->mesh = Resources::Primitives::cube;
   const auto material = AssetManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;
@@ -3030,7 +3029,7 @@ void Tree::InitializeStrandParticles(const std::shared_ptr<ParticleInfoList>& pa
 
   const auto renderer = scene->GetOrSetPrivateComponent<Particles>(strands_entity).lock();
   renderer->particle_info_list = particle_info_list;
-  renderer->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE");
+  renderer->mesh = Resources::Primitives::cube;
   const auto material = AssetManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;
