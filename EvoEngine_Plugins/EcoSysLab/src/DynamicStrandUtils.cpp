@@ -54,8 +54,8 @@ std::pair<int, int> DynamicStrandUtils::CompareIndices(const int a[4], const int
   return std::make_pair(a_not_in_b, b_not_in_a);
 };
 
-bool DynamicStrandUtils::IsBetweenPlanes(const int target_indices[4],
-                                         std::vector<DynamicStrands::GpuUniformParticle>& particles) {
+int DynamicStrandUtils::MaxSegmentIndexDifference(const int target_indices[4],
+                                                  std::vector<DynamicStrands::GpuUniformParticle>& particles) {
   int max_difference = -1;
 
   for (size_t i = 0; i < 4; i++) {
@@ -66,8 +66,23 @@ bool DynamicStrandUtils::IsBetweenPlanes(const int target_indices[4],
       }
     }
   }
-  return max_difference == 1;
-  // return max_difference <= 1;  // for now also permit same distance
+  return max_difference;
+}
+
+std::vector<size_t> DynamicStrandUtils::GetFaceVertices(const int indices[4], int face_index) {
+  std::vector<size_t> face_vertices;
+  for (size_t i = 0; i < 4; i++) {
+    if (i == face_index) {
+      continue;
+    }
+    face_vertices.push_back(indices[i]);
+  }
+  return face_vertices;
+}
+
+bool DynamicStrandUtils::IsBetweenPlanes(const int target_indices[4],
+                                         std::vector<DynamicStrands::GpuUniformParticle>& particles) {
+  return MaxSegmentIndexDifference(target_indices, particles) == 1;
 }
 
 bool DynamicStrandUtils::IsValid(const int target_indices[4], int size) {

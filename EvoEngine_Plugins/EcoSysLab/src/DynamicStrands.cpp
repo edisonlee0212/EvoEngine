@@ -962,6 +962,61 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
       auto local_tets = Delaunay3D::GenerateTetrahedronsConstrained(points, triangles);
       std::vector<int> valid_index_map(local_tets.size(), -1);
 
+      // Run a fill-algorithm that collects all tetrahedrons between the two planes
+      std::vector<bool> visited(local_tets.size(), false);  // WARNING: this is not thread safe
+
+      for (size_t tet_index = 0; tet_index < local_tets.size(); tet_index++) {
+        auto& tet = local_tets[tet_index];
+        GpuDelaunayTetrahedron gpu_tet;
+        for (size_t i = 0; i < 4; i++) {
+          gpu_tet.indices[i] = indices[tet.v[i]];
+          gpu_tet.neighbor_tet_ids[i] = -1;
+          // tet.neighbor_tet_indices[i];
+          gpu_tet.is_bark[i] = -1;
+        }
+
+        int max_segment_index_diff = DynamicStrandUtils::MaxSegmentIndexDifference(gpu_tet.indices, uniform_particles);
+        if (max_segment_index_diff == 1) {
+          // now traverse neighboring tetrahedrons until we hit the plane triangles using a bfs
+          std::queue<size_t> queue;
+          queue.push(tet_index);
+          visited[tet_index] = true;
+
+          while (!queue.empty()) {
+            size_t current_tet_index = queue.front();
+            queue.pop();
+            auto& current_tet = local_tets[current_tet_index];
+            for (size_t i = 0; i < 4; i++) {
+              if (current_tet.neighbor_tet_indices[i] == -1) {
+                continue;
+              }
+              size_t neighbor_tet_index = current_tet.neighbor_tet_indices[i];
+              if (visited[neighbor_tet_index]) {
+                continue;
+              }
+
+              visited[neighbor_tet_index] = true;
+              auto& neighbor_tet = local_tets[neighbor_tet_index];
+              int max_segment_index_diff =
+                  DynamicStrandUtils::MaxSegmentIndexDifference(neighbor_tet.v, uniform_particles);
+              if (max_segment_index_diff == 0) {
+                // check if we reached a triangle from the triangulated plane
+                auto face_vertices = DynamicStrandUtils::GetFaceVertices(current_tet.v, i);
+                if (bundle.triangulation.find(TriangleKey(face_vertices[0], face_vertices[1], face_vertices[2])) !=
+                    bundle.triangulation.end()) {
+                } else {
+                  // Must be a (nearly) degenerate triangle that we need to traverse to reach the boundary
+                  queue.push(neighbor_tet_index);
+                }
+
+              } else if (max_segment_index_diff == 1) {
+                queue.push(neighbor_tet_index);
+              }
+            }
+          }
+        }
+      }
+
       // add the tets to the global list
       for (size_t tet_index = 0; tet_index < local_tets.size(); tet_index++) {
         auto& tet = local_tets[tet_index];
@@ -973,7 +1028,7 @@ void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron
           gpu_tet.is_bark[i] = -1;
         }
 
-        if (!DynamicStrandUtils::IsBetweenPlanes(gpu_tet.indices, uniform_particles)) {
+        if (!visited[tet_index]) {
           continue;
         }
 
