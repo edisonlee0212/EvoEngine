@@ -274,7 +274,7 @@ std::shared_ptr<Texture2D> CollectTexture(
                     .string();
   }
   if (!std::filesystem::exists(full_path)) {
-    return Resources::TryGetResource<Texture2D>("TEXTURE_MISSING");
+    return Resources::missing_texture;
   }
   if (const auto search = loaded_textures.find(full_path); search != loaded_textures.end()) {
     return search->second;
@@ -1566,7 +1566,7 @@ bool Prefab::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         EditorLayer::DraggableAsset(ptr);
         EditorLayer::Rename(i.second);
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-          ProjectManager::GetInstance().inspecting_asset = ptr;
+          editor_layer->inspecting_asset = ptr;
         }
       }
       ImGui::TreePop();

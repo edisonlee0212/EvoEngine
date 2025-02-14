@@ -77,7 +77,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
   push_constant.intensity = intensity;
   push_constant.camera_index =
       render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
-  const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
+  const auto mesh = Resources::texture_pass_through_quad;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
     VkRect2D render_area;

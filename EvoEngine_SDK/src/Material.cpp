@@ -307,7 +307,7 @@ bool Material::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
 
     static AssetRef rma_texture_ref{};
-    if (EditorLayer::DragAndDropButton<Texture2D>(rma_texture_ref, "Apply RMA Texture")) {
+    if (editor_layer->DragAndDropButton<Texture2D>(rma_texture_ref, "Apply RMA Texture")) {
       const auto rma_texture = rma_texture_ref.Get<Texture2D>();
       std::vector<glm::vec3> rma_data;
       rma_texture->GetRgbChannelData(rma_data);

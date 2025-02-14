@@ -14,7 +14,7 @@ bool DynamicTreeSkeleton::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
       PhysicsStep(Application::GetLayer<EcoSysLabLayer>()->dynamic_skeleton_settings_.physics_parameters);
     }
   }
-  if (EditorLayer::DragAndDropButton<Tree>(dynamic_tree_skeleton_tree_ref, "Download Skeleton from Tree...")) {
+  if (editor_layer->DragAndDropButton<Tree>(dynamic_tree_skeleton_tree_ref, "Download Skeleton from Tree...")) {
     if (const auto tree = dynamic_tree_skeleton_tree_ref.Get<Tree>()) {
       const auto scene = GetScene();
       const auto owner = GetOwner();

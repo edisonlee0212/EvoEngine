@@ -76,6 +76,11 @@ class Sorghum final : public IPrivateComponent {
    * @param list The list to which asset references will be added.
    */
   void CollectAssetRef(std::vector<AssetRef>& list) override;
+  /**
+   * \brief Get number of leaves for current sorghum.
+   * \return Number of leaves.
+   */
+  uint32_t GetLeafSize();
 };
 
 }  // namespace digital_agriculture_plugin

@@ -381,7 +381,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     const auto sphere_entity = scene->CreateEntity("Sphere");
     scene->GetOrSetPrivateComponent<DsSphereCollider>(sphere_entity);
     const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(sphere_entity).lock();
-    mmr->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
+    mmr->mesh = Resources::Primitives::sphere;
     mmr->material = AssetManager::CreateTemporaryAsset<Material>();
     object_initial_pose.SetPosition(glm::vec3(.5f, 1.3f, 0));
     object_initial_pose.SetScale(glm::vec3(0.3f));
@@ -419,7 +419,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     const auto sphere_entity = scene->CreateEntity("Sphere");
     scene->GetOrSetPrivateComponent<DsSphereCollider>(sphere_entity);
     const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(sphere_entity).lock();
-    mmr->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE");
+    mmr->mesh = Resources::Primitives::sphere;
     mmr->material = AssetManager::CreateTemporaryAsset<Material>();
     object_initial_pose.SetPosition(glm::vec3(0.5f, 1.3f, 0));
     object_initial_pose.SetScale(glm::vec3(0.3f));
@@ -452,7 +452,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     const auto cylinder_entity = scene->CreateEntity("Cylinder");
     scene->GetOrSetPrivateComponent<DsCylinderCollider>(cylinder_entity);
     const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(cylinder_entity).lock();
-    mmr->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    mmr->mesh = Resources::Primitives::cylinder;
     mmr->material = AssetManager::CreateTemporaryAsset<Material>();
 
     object_initial_pose.SetPosition(glm::vec3(0.5f, 1.3f, 0));
@@ -487,7 +487,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     const auto cylinder_entity = scene->CreateEntity("Cylinder");
     scene->GetOrSetPrivateComponent<DsCylinderCollider>(cylinder_entity);
     const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(cylinder_entity).lock();
-    mmr->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    mmr->mesh = Resources::Primitives::cylinder;
     mmr->material = AssetManager::CreateTemporaryAsset<Material>();
     object_initial_pose.SetPosition(glm::vec3(0.5f, 1.3f, 0));
     object_initial_pose.SetEulerRotation(glm::radians(glm::vec3(90.f, 0, 0)));
@@ -594,7 +594,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     const auto cylinder_entity = scene->CreateEntity("Cylinder");
     scene->GetOrSetPrivateComponent<DsCylinderCollider>(cylinder_entity);
     const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(cylinder_entity).lock();
-    mmr->mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER");
+    mmr->mesh = Resources::Primitives::cylinder;
     mmr->material = AssetManager::CreateTemporaryAsset<Material>();
     object_initial_pose.SetPosition(glm::vec3(-1.f, .5f, 0));
     object_initial_pose.SetEulerRotation(glm::radians(glm::vec3(90.f, 0, 0)));

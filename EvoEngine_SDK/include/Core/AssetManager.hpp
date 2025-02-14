@@ -14,7 +14,6 @@ namespace evo_engine {
  */
 class AssetManager {
   EVOENGINE_SINGLETON_INSTANCE(AssetManager)
-
  public:
   /**
    * @brief Retrieves an asset of type T corresponding to the given handle.
@@ -41,8 +40,29 @@ class AssetManager {
    */
   template <typename T>
   [[nodiscard]] static std::shared_ptr<T> CreateTemporaryAsset();
+  /**
+   * @brief Creates a temporary asset given its typename.
+   * @param type_name The typename of the asset to create.
+   * @return A shared pointer to the created temporary asset.
+   */
+  [[nodiscard]] static std::shared_ptr<IAsset> CreateTemporaryAsset(const std::string& type_name);
+
+  /**
+   * @brief Retrieves an asset given its typename and handle.
+   * @param asset_handle The handle associated with the asset.
+   * @return A shared pointer to the requested asset.
+   */
+  [[nodiscard]] static std::shared_ptr<IAsset> GetAsset(const Handle& asset_handle);
 
  private:
+  /**
+   * @brief Retrieves an asset given its typename and handle.
+   * @param type_name The typename of the asset.
+   * @param asset_handle The handle associated with the asset.
+   * @return A shared pointer to the requested asset.
+   */
+  [[nodiscard]] static std::shared_ptr<IAsset> GetAsset(const std::string& type_name, const Handle& asset_handle);
+
   /**
    * @class AssetRegistry
    * @brief Internal registry for managing assets and their corresponding handles.
@@ -58,10 +78,18 @@ class AssetManager {
   bool initialized = false;       ///< Flag indicating if the AssetManager is initialized.
 
   /**
+   * @brief Indicates whether assets should be displayed in the interface.
+   */
+  bool show_asset_inspector_ = true;
+  /**
    * @brief Initializes the AssetManager.
    */
   static void Initialize();
-
+  /**
+   * @brief Displays the resource assets in the editor interface.
+   * @param editor_layer The editor layer instance used for displaying assets.
+   */
+  static void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   /**
    * @brief Cleans up resources when destroying the AssetManager.
    */
@@ -81,21 +109,6 @@ class AssetManager {
   friend class File;            ///< Grants File access to private and protected members of AssetManager.
   friend class Folder;          ///< Grants Folder access to private and protected members of AssetManager.
   friend class EditorLayer;     ///< Grants EditorLayer access to private and protected members of AssetManager.
-
-  /**
-   * @brief Creates a temporary asset given its typename.
-   * @param type_name The typename of the asset to create.
-   * @return A shared pointer to the created temporary asset.
-   */
-  [[nodiscard]] static std::shared_ptr<IAsset> CreateTemporaryAsset(const std::string& type_name);
-
-  /**
-   * @brief Retrieves an asset given its typename and handle.
-   * @param type_name The typename of the asset.
-   * @param asset_handle The handle associated with the asset.
-   * @return A shared pointer to the requested asset.
-   */
-  [[nodiscard]] static std::shared_ptr<IAsset> GetAsset(const std::string& type_name, const Handle& asset_handle);
 
   /**
    * @brief Creates a temporary asset implementation with the given typename and handle.

@@ -7,9 +7,9 @@ using namespace texture_baking_plugin;
 
 bool TextureBaking::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (EditorLayer::DragAndDropButton<MeshRenderer>(reference_mesh_renderer_ref, "Reference entity"))
+  if (editor_layer->DragAndDropButton<MeshRenderer>(reference_mesh_renderer_ref, "Reference entity"))
     changed = true;
-  if (EditorLayer::DragAndDropButton<MeshRenderer>(target_mesh_renderer_ref, "Target entity"))
+  if (editor_layer->DragAndDropButton<MeshRenderer>(target_mesh_renderer_ref, "Target entity"))
     changed = true;
 
   if (reference_mesh_renderer_ref.Get<MeshRenderer>() && target_mesh_renderer_ref.Get<MeshRenderer>()) {

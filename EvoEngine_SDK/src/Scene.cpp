@@ -151,7 +151,7 @@ const char* environment_types[]{"Environmental Map", "Color"};
 bool Scene::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool modified = false;
   if (this == Application::GetActiveScene().get())
-    if (EditorLayer::DragAndDropButton<Camera>(main_camera, "Main Camera", true))
+    if (editor_layer->DragAndDropButton<Camera>(main_camera, "Main Camera", true))
       modified = true;
   if (ImGui::TreeNodeEx("Environment Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
     static int type = static_cast<int>(environment.environment_type);
@@ -161,7 +161,7 @@ bool Scene::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
     switch (environment.environment_type) {
       case EnvironmentType::EnvironmentalMap: {
-        if (EditorLayer::DragAndDropButton<EnvironmentalMap>(environment.environmental_map, "Environmental Map"))
+        if (editor_layer->DragAndDropButton<EnvironmentalMap>(environment.environmental_map, "Environmental Map"))
           modified = true;
       } break;
       case EnvironmentType::Color: {
@@ -192,7 +192,7 @@ bool Scene::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       ImGui::Separator();
       ImGui::EndPopup();
     }
-    for (auto& i : Application::GetActiveScene()->systems_) {
+    for (const auto& i : Application::GetActiveScene()->systems_) {
       if (ImGui::CollapsingHeader(i.second->GetTypeName().c_str())) {
         bool enabled = i.second->Enabled();
         if (ImGui::Checkbox("Enabled", &enabled)) {
@@ -216,7 +216,7 @@ bool Scene::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
 std::shared_ptr<ISystem> Scene::GetOrCreateSystem(const std::string& system_name, float order) {
   size_t type_index;
-  auto ptr = Serialization::ProduceSerializable(system_name, type_index);
+  const auto ptr = Serialization::ProduceSerializable(system_name, type_index);
   auto system = std::dynamic_pointer_cast<ISystem>(ptr);
   system->scene_ = std::dynamic_pointer_cast<Scene>(GetSelf());
   system->handle_ = Handle();
@@ -596,7 +596,7 @@ void Scene::OnCreate() {
   SetDataComponent(main_camera_entity, ltw);
   const auto main_camera_component = GetOrSetPrivateComponent<Camera>(main_camera_entity).lock();
   main_camera = main_camera_component;
-  main_camera_component->skybox = Resources::TryGetResource<Cubemap>("DEFAULT_SKYBOX");
+  main_camera_component->skybox = Resources::default_skybox;
 #pragma endregion
 
 #pragma region Directional Light

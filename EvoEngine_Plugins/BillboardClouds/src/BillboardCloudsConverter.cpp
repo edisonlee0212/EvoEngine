@@ -13,7 +13,7 @@ bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& edi
 
   if (ImGui::TreeNodeEx("Mesh -> Billboard Clouds", ImGuiTreeNodeFlags_DefaultOpen)) {
     static AssetRef mesh_ref;
-    if (EditorLayer::DragAndDropButton<Mesh>(mesh_ref, "Drop mesh here...")) {
+    if (editor_layer->DragAndDropButton<Mesh>(mesh_ref, "Drop mesh here...")) {
       if (const auto mesh = mesh_ref.Get<Mesh>()) {
         BillboardCloud billboard_cloud{};
         billboard_cloud.Process(mesh, AssetManager::CreateTemporaryAsset<Material>());
@@ -31,7 +31,7 @@ bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& edi
 
   if (ImGui::TreeNodeEx("Prefab -> Billboard Clouds", ImGuiTreeNodeFlags_DefaultOpen)) {
     static AssetRef prefab_ref;
-    if (EditorLayer::DragAndDropButton<Prefab>(prefab_ref, "Drop prefab here...")) {
+    if (editor_layer->DragAndDropButton<Prefab>(prefab_ref, "Drop prefab here...")) {
       if (const auto prefab = prefab_ref.Get<Prefab>()) {
         BillboardCloud billboard_cloud{};
         billboard_cloud.Process(prefab);
@@ -51,7 +51,7 @@ bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& edi
   if (ImGui::TreeNodeEx("Entity -> Billboard Clouds", ImGuiTreeNodeFlags_DefaultOpen)) {
     static EntityRef entity_ref;
 
-    if (EditorLayer::DragAndDropButton(entity_ref, "Drop Entity here...")) {
+    if (editor_layer->DragAndDropButton(entity_ref, "Drop Entity here...")) {
       if (const auto entity = entity_ref.Get(); scene->IsEntityValid(entity)) {
         BillboardCloud billboard_cloud{};
         billboard_cloud.Process(scene, entity);
@@ -70,7 +70,7 @@ bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& edi
   if (ImGui::TreeNodeEx("Entity -> Point Clouds", ImGuiTreeNodeFlags_DefaultOpen)) {
     static EntityRef entity_ref;
 
-    if (EditorLayer::DragAndDropButton(entity_ref, "Drop Entity here...")) {
+    if (editor_layer->DragAndDropButton(entity_ref, "Drop Entity here...")) {
       if (const auto entity = entity_ref.Get(); scene->IsEntityValid(entity)) {
         BillboardCloud billboard_cloud{};
         billboard_cloud.Process(scene, entity);
@@ -89,11 +89,10 @@ bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& edi
           Jobs::RunParallelFor(points.size(), [&](const unsigned point_index) {
             point_cloud->positions[point_index] = glm::dvec3(points[point_index]);
           });
-          point_cloud->has_positions = true;
           PointCloud::PointCloudSaveSettings save_settings{};
-          save_settings.binary = false;
+          save_settings.binary = true;
           save_settings.double_precision = false;
-          if (point_cloud->Save(save_settings, path)) {
+          if (point_cloud->SavePly(save_settings, path)) {
             EVOENGINE_LOG("PointCloud Saved!")
           }
           points.clear();
@@ -104,7 +103,7 @@ bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& edi
   if (ImGui::TreeNodeEx("Entity -> Color by distance", ImGuiTreeNodeFlags_DefaultOpen)) {
     static EntityRef entity_ref;
 
-    if (EditorLayer::DragAndDropButton(entity_ref, "Drop Entity here...")) {
+    if (editor_layer->DragAndDropButton(entity_ref, "Drop Entity here...")) {
       if (const auto entity = entity_ref.Get(); scene->IsEntityValid(entity)) {
         BillboardCloud billboard_cloud{};
         billboard_cloud.Process(scene, entity);

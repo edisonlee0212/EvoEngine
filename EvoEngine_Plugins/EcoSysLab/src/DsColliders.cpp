@@ -21,7 +21,7 @@ void DsBoxCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer
   gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_FILL;
   gizmo_settings.draw_settings.line_width = 1.0f;
   gizmo_settings.depth_test = true;
-  editor_layer->DrawGizmoMesh(Resources::TryGetResource<Mesh>("PRIMITIVE_CUBE"), editor_camera, color,
+  editor_layer->DrawGizmoMesh(Resources::Primitives::cube, editor_camera, color,
                               glm::translate(global_transform.GetPosition()) *
                                   glm::mat4_cast(global_transform.GetRotation()) * glm::scale(size),
                               1, gizmo_settings);
@@ -277,7 +277,7 @@ void DsCylinderCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_
   gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_FILL;
   gizmo_settings.draw_settings.line_width = 1.0f;
   gizmo_settings.depth_test = true;
-  editor_layer->DrawGizmoMesh(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"), editor_camera, color,
+  editor_layer->DrawGizmoMesh(Resources::Primitives::cylinder, editor_camera, color,
                               glm::translate(global_transform.GetPosition()) *
                                   glm::mat4_cast(global_transform.GetRotation()) *
                                   glm::scale(glm::vec3(size.x, size.y, size.x)),
@@ -425,7 +425,7 @@ void DsSphereCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_la
   gizmo_settings.draw_settings.line_width = 1.0f;
   gizmo_settings.depth_test = true;
   editor_layer->DrawGizmoMesh(
-      Resources::TryGetResource<Mesh>("PRIMITIVE_SPHERE"), editor_camera, color,
+      Resources::Primitives::sphere, editor_camera, color,
       glm::translate(global_transform.GetPosition()) *
           glm::scale(glm::vec3(glm::max(0.001f, radius * 2.f)) * glm::max(glm::max(scale.x, scale.y), scale.z)),
       1, gizmo_settings);

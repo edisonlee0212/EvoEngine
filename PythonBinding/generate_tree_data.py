@@ -39,7 +39,12 @@ if not os.path.isdir(output_root):
 use_gpu = True
 
 #Start the framework without editor and window.
-tree_framework.engine_run_windowless(project_path)
+tree_framework.PushRenderLayer()
+if use_gpu:
+	tree_framework.PushRayTracerLayer()
+tree_framework.RegisterClasses()
+tree_framework.PushEcoSysLabLayer()
+tree_framework.Run(project_path)
 
 #==================================#
 #         Configurations           #
@@ -121,4 +126,7 @@ for x in range(3):
 	)
 
 #Terminate engine
-tree_framework.engine_terminate()
+tree_framework.Terminate()
+
+#Change back to original working directory
+os.chdir(current_directory)

@@ -297,12 +297,13 @@ void ProjectManager::OnDestroy() {
   project_manager.new_scene_customizer_.reset();
   project_manager.current_focused_folder_.reset();
   project_manager.start_scene_.reset();
-  project_manager.inspecting_asset.reset();
+
   project_manager.initialized = false;
 }
 
 void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto& project_manager = GetInstance();
+  auto& asset_manager = AssetManager::GetInstance();
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("Project")) {
       ImGui::Text(("Current Project path: " + project_manager.project_path_.string()).c_str());
@@ -395,7 +396,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
         h = avail.y;
         ImGui::Splitter(true, 8.0, size1, size2, 32.0f, cell_size + 8.0f, h);
         ImGui::BeginChild("1", ImVec2(size1, h), true);
-        FolderHierarchyHelper(project_manager.assets_folder_);
+        FolderHierarchyHelper(editor_layer, project_manager.assets_folder_);
         ImGui::EndChild();
 
         ImGui::SameLine();
@@ -623,7 +624,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
               if (ImGui::IsMouseDoubleClicked(0) && i.second->GetAssetTypeName() != "Binary") {
                 // If it's an asset then inspect.
                 if (auto asset = AssetManager::GetAssetImpl(i.second->asset_handle_))
-                  project_manager.inspecting_asset = asset;
+                  editor_layer->inspecting_asset = asset;
               }
             }
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
@@ -728,7 +729,8 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   }
 }
 
-void ProjectManager::FolderHierarchyHelper(const std::shared_ptr<Folder>& folder) {
+void ProjectManager::FolderHierarchyHelper(const std::shared_ptr<EditorLayer>& editor_layer,
+                                           const std::shared_ptr<Folder>& folder) {
   auto& project_manager = GetInstance();
   auto focus_folder = project_manager.current_focused_folder_.lock();
   const bool opened = ImGui::TreeNodeEx(
@@ -809,7 +811,7 @@ void ProjectManager::FolderHierarchyHelper(const std::shared_ptr<Folder>& folder
   }
   if (opened) {
     for (const auto& i : folder->children_) {
-      FolderHierarchyHelper(i.second);
+      FolderHierarchyHelper(editor_layer, i.second);
     }
     for (const auto& i : folder->files) {
       if (ImGui::TreeNodeEx((i.second->GetAssetFileName() + i.second->GetAssetExtension()).c_str(),
@@ -820,7 +822,7 @@ void ProjectManager::FolderHierarchyHelper(const std::shared_ptr<Folder>& folder
         if (ImGui::IsMouseDoubleClicked(0) && i.second->GetAssetTypeName() != "Binary") {
           // If it's an asset then inspect.
           if (auto asset = AssetManager::GetAssetImpl(i.second->asset_handle_))
-            project_manager.inspecting_asset = asset;
+            editor_layer->inspecting_asset = asset;
         }
       }
       if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {

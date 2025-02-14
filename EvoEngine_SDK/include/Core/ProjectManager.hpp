@@ -45,9 +45,11 @@ class ProjectManager {
 
   /**
    * @brief Recursive helper function to manage the folder hierarchy.
+   * @param editor_layer Editor layer reference.
    * @param folder The folder to process.
    */
-  static void FolderHierarchyHelper(const std::shared_ptr<Folder>& folder);
+  static void FolderHierarchyHelper(const std::shared_ptr<EditorLayer>& editor_layer,
+                                    const std::shared_ptr<Folder>& folder);
 
   /**
    * @brief Initializes the project manager.
@@ -87,8 +89,7 @@ class ProjectManager {
   static void LoadAllPendingAssets();
 
  public:
-  std::shared_ptr<IAsset> inspecting_asset;  ///< The asset currently being inspected in the editor.
-  bool show_project_window = true;           ///< Indicates whether the project window should be shown in the editor.
+  bool show_project_window = true;  ///< Indicates whether the project window should be shown in the editor.
 
   /**
    * @brief Retrieves the starting scene of the project.

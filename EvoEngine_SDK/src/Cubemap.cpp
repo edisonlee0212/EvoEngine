@@ -183,7 +183,7 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
       }
       vkCmdBeginRendering(vk_command_buffer, &render_info);
       atmosphere_to_cubemap->Bind(vk_command_buffer);
-      const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_RENDERING_CUBE");
+      const auto mesh = Resources::rendering_cube;
       GeometryStorage::BindVertices(vk_command_buffer);
       push_constant.projection_view = capture_projection * capture_views[i];
       atmosphere_to_cubemap->PushConstant(vk_command_buffer, 0, push_constant);
@@ -344,7 +344,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
       vkCmdBeginRendering(vk_command_buffer, &render_info);
       equirectangular_to_cubemap->Bind(vk_command_buffer);
       equirectangular_to_cubemap->BindDescriptorSet(vk_command_buffer, 0, temp_set->GetVkDescriptorSet());
-      const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_RENDERING_CUBE");
+      const auto mesh = Resources::rendering_cube;
       GeometryStorage::BindVertices(vk_command_buffer);
       EquirectangularToCubemapConstant constant{};
       constant.projection_view = capture_projection * capture_views[i];

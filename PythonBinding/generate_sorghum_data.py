@@ -36,7 +36,11 @@ if not os.path.isdir(output_root):
 use_gpu = True
 
 #Start the framework without editor and window.
-sorghum_framework.engine_run_windowless(use_gpu, project_path)
+if use_gpu:
+	sorghum_framework.PushRayTracerLayer()
+sorghum_framework.RegisterClasses()
+sorghum_framework.PushSorghumLayer()
+sorghum_framework.Run(project_path)
 
 #==================================#
 #         Configurations           #
@@ -89,85 +93,139 @@ data_generation_parameters.export_point_cloud = True
 #Whether output point meshes
 data_generation_parameters.export_mesh = True
 
-#Create settings for point cloud capture
-gantry_capture_settings = sorghum_framework.SorghumGantryCaptureSettings()
+#Create settings for point cloud capture single sorghum
+single_sorghum_gantry_capture_settings = sorghum_framework.SorghumGantryCaptureSettings()
 #Expected distance (m) between points, smaller distance means more points.
-gantry_capture_settings.step = 0.005
+single_sorghum_gantry_capture_settings.step = 0.005
 #Expected distance (m) between capture point and ground level
-gantry_capture_settings.sample_height = 2.5
+single_sorghum_gantry_capture_settings.sample_height = 2.5
 #Whether output spline info (yaml)
-gantry_capture_settings.output_spline_info = False
+single_sorghum_gantry_capture_settings.output_spline_info = False
 
 #==================================#
-#         Data generation          #
+#  Single Sorghum Data generation  #
 #==================================#
 
 #Now we generate and save mesh and point cloud for single sorghum with sorghum descriptor.
-#Path to sorghum parameters, can be sorghum generator, sorghum state, or sorghum descriptor; can either be a relative path, or a absolute path; can be inside or outside project folder.
-data_generation_parameters.sorghum_path = "./SorghumGenerator/Sample0.sorghum"
+
+#Load an SorghumDescriptor asset from project's asset folder, and create an entity with this asset.
+#If the sorghum_path points to an asset within project's asset folder, it must be a relative path. If it's an external asset, it must be an absolute path.
+sorghum_descriptor_handle = sorghum_framework.GetAssetHandle("./SorghumGenerator/Sample0.sorghum")
+sorghum_entity = sorghum_framework.CreateEntityFromSorghumDescriptor(sorghum_descriptor_handle)
 #The prefix of the output file name.
 data_generation_parameters.output_file_name = "SD_Sample"
-sorghum_framework.generate_sorghum_data(
+#Generate data for current sorghum entity.
+sorghum_framework.GenerateDataForSorghum(
 	use_gpu,
-	gantry_capture_settings,
+	sorghum_entity,
+	single_sorghum_gantry_capture_settings,
 	data_generation_parameters
 )
+#Make sure you delete this entity afterwards.
+sorghum_framework.DeleteEntity(sorghum_entity)
+
 
 #Note: You don't need to restart the framework to generate another sorghum data.
 
 #Now we generate and save mesh and point cloud for single sorghums with sorghum state.
-data_generation_parameters.sorghum_path = "./SorghumGenerator/Sample0.ss"
+sorghum_state_handle = sorghum_framework.GetAssetHandle("./SorghumGenerator/Sample0.ss")
+sorghum_entity = sorghum_framework.CreateEntityFromSorghumState(sorghum_state_handle)
 #The prefix of the output file name.
 data_generation_parameters.output_file_name = "SS_Sample"
-sorghum_framework.generate_sorghum_data(
+#Generate data for current sorghum entity.
+sorghum_framework.GenerateDataForSorghum(
 	use_gpu,
-	gantry_capture_settings,
+	sorghum_entity,
+	single_sorghum_gantry_capture_settings,
 	data_generation_parameters
 )
+#Make sure you delete this entity afterwards.
+sorghum_framework.DeleteEntity(sorghum_entity)
+
 
 #Now we generate and save mesh and point cloud for 3 randomly generated sorghums with sorghum generator.
-for x in range(3):
+for x in range(2):
 	#The seed for random sorghum generator. Same seed will result in same sorghum geometry.
-	data_generation_parameters.seed = x
-	data_generation_parameters.sorghum_path = "./SorghumGenerator/Season12.sg"
+	seed = x
+	sorghum_generator_handle = sorghum_framework.GetAssetHandle("./SorghumGenerator/Season11.sg")
+	sorghum_entity = sorghum_framework.CreateEntityFromSorghumGenerator(sorghum_generator_handle, seed)
 	#The prefix of the output file name.
 	data_generation_parameters.output_file_name = "SG_Sample" + str(x)
-	sorghum_framework.generate_sorghum_data(
+	#Generate data for current sorghum entity.
+	sorghum_framework.GenerateDataForSorghum(
 		use_gpu,
-		gantry_capture_settings,
+		sorghum_entity,
+		single_sorghum_gantry_capture_settings,
 		data_generation_parameters
 	)
+	#Make sure you delete this entity afterwards.
+	sorghum_framework.DeleteEntity(sorghum_entity)
+
+
+#==================================#
+#  Sorghum Field Data generation   #
+#==================================#
+
+#Create settings for point cloud capture sorghum field
+grid_dimension = 8
+distance_between_sorghum = 0.75
+
+sorghum_field_gantry_capture_settings = sorghum_framework.SorghumGantryCaptureSettings()
+#Expected distance (m) between points, smaller distance means more points.
+sorghum_field_gantry_capture_settings.step = 0.005
+#Expected distance (m) between capture point and ground level
+sorghum_field_gantry_capture_settings.sample_height = 2.5
+#Whether output spline info (yaml)
+sorghum_field_gantry_capture_settings.output_spline_info = False
+#The dimension of the grid
+sorghum_field_gantry_capture_settings.grid_size.x = sorghum_field_gantry_capture_settings.grid_size.y = grid_dimension
+#Distance between sorghums
+sorghum_field_gantry_capture_settings.grid_distance.x = sorghum_field_gantry_capture_settings.grid_distance.y = distance_between_sorghum
 
 #Now we generate and save mesh and point cloud for 3 randomly generated sorghums grids with sorghum generator.
 #First, we need to setup a sorghum grid.
 sorghum_grid = sorghum_framework.SorghumGrid()
 #The dimension of the grid
-sorghum_grid.grid_size_x = sorghum_grid.grid_size_y = 8
+sorghum_grid.grid_size.x = sorghum_grid.grid_size.y = grid_dimension
 #Distance between sorghums
-sorghum_grid.grid_distance_x = sorghum_grid.grid_distance_y = .75
+sorghum_grid.grid_distance.x = sorghum_grid.grid_distance.y = distance_between_sorghum
 #Average of random shift distance of sorghum position
 sorghum_grid.position_offset_mean = 0.2
 #Variance of random shift distance of sorghum position
 sorghum_grid.position_offset_variance = 0.1
-for x in range(3):
+
+#Here we create a runtime asset, it's a temporary asset not exist on disk.
+#============================================================#
+#          YOU have the ownership of runtime asset!          #
+#     YOU are responsible for cleaning it after using it!    #
+#============================================================#
+sorghum_field_handle = sorghum_framework.CreateRuntimeAsset("SorghumField")
+#Prepare sorghum generator asset.
+sorghum_generator_handle = sorghum_framework.GetAssetHandle("./SorghumGenerator/Season12.sg")
+#Apply grid settings and sorghum generator to the sorghum field asset.
+sorghum_framework.ApplySorghumGrid(sorghum_field_handle, sorghum_generator_handle, sorghum_grid)
+for x in range(2):
 	#The seed for random sorghum generator. Same seed will result in same sorghum geometry.
-	data_generation_parameters.seed = x
-	data_generation_parameters.sorghum_path = "./SorghumGenerator/Season12.sg"
+	seed = x
+	sorghum_field_entity = sorghum_framework.CreateEntityFromSorghumField(sorghum_field_handle, seed)
 	#The prefix of the output file name.
 	data_generation_parameters.output_file_name = "Grid_Sample" + str(x)
-	sorghum_framework.generate_sorghum_grid_data(
+	sorghum_framework.GenerateDataForAllSorghums(
 		use_gpu,
-		gantry_capture_settings,
-		sorghum_grid,
+		sorghum_field_gantry_capture_settings,
 		data_generation_parameters
 	)
+	#Make sure you delete this entity afterwards.
+	sorghum_framework.DeleteEntity(sorghum_field_entity)
+#Delete runtime asset as we don't need it anymore.
+sorghum_framework.DeleteRuntimeAsset(sorghum_field_handle)
 
 #==================================#
 #            Clean up              #
 #==================================#
 
 #Close the framework after we finished data generation
-sorghum_framework.engine_terminate()
+sorghum_framework.Terminate()
 
 #Change back to original working directory
 os.chdir(current_directory)

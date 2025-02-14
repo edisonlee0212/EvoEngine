@@ -358,7 +358,7 @@ void EditorLayer::PreUpdate() {
         DraggableAsset(scene);
         RenameAsset(scene);
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-          ProjectManager::GetInstance().inspecting_asset = scene;
+          inspecting_asset = scene;
         }
         if (ImGui::BeginDragDropTarget()) {
           if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
@@ -633,6 +633,7 @@ void EditorLayer::PreUpdate() {
   }
 
   Resources::OnInspect(editor_layer);
+  AssetManager::OnInspect(editor_layer);
   ProjectManager::OnInspect(editor_layer);
 }
 void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -681,7 +682,7 @@ void EditorLayer::InitializeImGui() {
 
 #pragma region Dock
   static bool opt_fullscreen_persistent = true;
-  bool opt_fullscreen = opt_fullscreen_persistent;
+  const bool opt_fullscreen = opt_fullscreen_persistent;
   static ImGuiDockNodeFlags dock_space_flags = ImGuiDockNodeFlags_None;
 
   // We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
@@ -754,7 +755,7 @@ bool EditorLayer::DrawEntityMenu(const bool& enabled, const Entity& entity) cons
 }
 
 void EditorLayer::DrawEntityNode(const Entity& entity, const unsigned& hierarchy_level) {
-  auto scene = GetScene();
+  const auto scene = GetScene();
   std::string title = std::to_string(entity.GetIndex()) + ": ";
   title += scene->GetEntityName(entity);
   const bool enabled = scene->IsEntityEnabled(entity);
@@ -771,7 +772,7 @@ void EditorLayer::DrawEntityNode(const Entity& entity, const unsigned& hierarchy
                          ImGuiTreeNodeFlags_NoAutoOpenOnLog |
                          (selected_entity_ == entity ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
   if (ImGui::BeginDragDropSource()) {
-    auto handle = scene->GetEntityHandle(entity);
+    const auto handle = scene->GetEntityHandle(entity);
     ImGui::SetDragDropPayload("Entity", &handle, sizeof(Handle));
     ImGui::TextColored(ImVec4(0, 0, 1, 1), title.c_str());
     ImGui::EndDragDropSource();
@@ -1313,8 +1314,8 @@ bool EditorLayer::UnsafeDroppablePrivateComponent(PrivateComponentRef& target,
     const auto current_scene = Application::GetActiveScene();
     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
       IM_ASSERT(payload->DataSize == sizeof(Handle));
-      auto payload_n = *static_cast<Handle*>(payload->Data);
-      auto entity = current_scene->GetEntity(payload_n);
+      const auto payload_n = *static_cast<Handle*>(payload->Data);
+      const auto entity = current_scene->GetEntity(payload_n);
       if (current_scene->IsEntityValid(entity)) {
         for (const auto& type_name : type_names) {
           if (current_scene->HasPrivateComponent(entity, type_name)) {
@@ -1354,6 +1355,9 @@ bool EditorLayer::DragAndDropButton(EntityRef& entity_ref, const std::string& na
     if (modifiable) {
       status_changed = Rename(entity_ref);
       status_changed = Remove(entity_ref) || status_changed;
+    }
+    if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+      selected_entity_ = entity;
     }
   } else {
     ImGui::Button("none");
@@ -1552,7 +1556,7 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name,
       status_changed = Remove(target) || status_changed;
     }
     if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-      ProjectManager::GetInstance().inspecting_asset = ptr;
+      inspecting_asset = ptr;
     }
   } else {
     ImGui::Button("none");

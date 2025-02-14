@@ -11,11 +11,8 @@ namespace digital_agriculture_plugin {
  */
 class SorghumGrid {
  public:
-  /** Distance between grid points along the X-axis. */
-  float grid_distance_x = 1.f;
-
-  /** Distance between grid points along the Y-axis. */
-  float grid_distance_y = 1.f;
+  /** Distance between grid points */
+  glm::vec2 grid_distance = glm::vec2(1.f);
 
   /** Mean offset for positional variation. */
   float position_offset_mean = 0.f;
@@ -29,11 +26,8 @@ class SorghumGrid {
   /** Variance for rotation along the Y-axis. */
   float rotation_variance_y = 0.f;
 
-  /** Number of grid points along the X-axis. */
-  int grid_size_x = 10;
-
-  /** Number of grid points along the Y-axis. */
-  int grid_size_y = 10;
+  /** Number of grid points. */
+  glm::ivec2 grid_size = glm::ivec2(10);
 
   /**
    * @brief Generates transformation matrices for the sorghum field.

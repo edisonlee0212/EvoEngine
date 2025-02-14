@@ -58,7 +58,7 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
   push_constant.thickness = thickness;
   push_constant.camera_index =
       render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
-  const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
+  const auto mesh = Resources::texture_pass_through_quad;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor

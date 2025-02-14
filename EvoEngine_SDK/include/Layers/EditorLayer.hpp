@@ -128,6 +128,7 @@ class EditorLayer : public ILayer {
    * @return A shared pointer to the found Texture2D.
    */
   static std::shared_ptr<Texture2D> FindIcon(const std::string& name);
+  std::shared_ptr<IAsset> inspecting_asset;  ///< The asset currently being inspected in the editor.
 
   bool show_console_window = true; /**< Indicates whether the console window is visible. */
 
@@ -369,8 +370,8 @@ class EditorLayer : public ILayer {
    * @param modifiable Whether the asset ref can be modified via the button.
    * @return True if the status of the asset reference changed, false otherwise.
    */
-  static bool DragAndDropButton(AssetRef& target, const std::string& name,
-                                const std::vector<std::string>& acceptable_type_names, bool modifiable = true);
+  bool DragAndDropButton(AssetRef& target, const std::string& name,
+                         const std::vector<std::string>& acceptable_type_names, bool modifiable = true);
 
   /**
    * @brief Draws a drag-and-drop button for a private component reference.
@@ -382,8 +383,8 @@ class EditorLayer : public ILayer {
    * @param modifiable Whether the private component ref can be modified via the button.
    * @return True if the status of the private component reference changed, false otherwise.
    */
-  static bool DragAndDropButton(PrivateComponentRef& target, const std::string& name,
-                                const std::vector<std::string>& acceptable_type_names, bool modifiable = true);
+  bool DragAndDropButton(PrivateComponentRef& target, const std::string& name,
+                         const std::vector<std::string>& acceptable_type_names, bool modifiable = true);
 
   /**
    * @brief Draws a drag-and-drop button for an asset reference.
@@ -395,7 +396,7 @@ class EditorLayer : public ILayer {
    * @return True if the status of the asset reference changed, false otherwise.
    */
   template <typename T = IAsset>
-  static bool DragAndDropButton(AssetRef& target, const std::string& name, bool modifiable = true);
+  bool DragAndDropButton(AssetRef& target, const std::string& name, bool modifiable = true);
 
   /**
    * @brief Draws a drag-and-drop button for a private component reference.
@@ -407,7 +408,7 @@ class EditorLayer : public ILayer {
    * @return True if the status of the private component reference changed, false otherwise.
    */
   template <typename T = IPrivateComponent>
-  static bool DragAndDropButton(PrivateComponentRef& target, const std::string& name, bool modifiable = true);
+  bool DragAndDropButton(PrivateComponentRef& target, const std::string& name, bool modifiable = true);
 
   /**
    * @brief Draws a drag-and-drop button for an entity reference.
@@ -417,7 +418,7 @@ class EditorLayer : public ILayer {
    * @param modifiable Whether the entity ref can be modified via the button.
    * @return True if the status of the entity reference changed, false otherwise.
    */
-  static bool DragAndDropButton(EntityRef& entity_ref, const std::string& name, bool modifiable = true);
+  bool DragAndDropButton(EntityRef& entity_ref, const std::string& name, bool modifiable = true);
 
   /**
    * @brief Makes an asset reference draggable for drag-and-drop operations.
@@ -914,7 +915,7 @@ void EditorLayer::RegisterComponentDataInspector(
 }
 
 template <typename T>
-bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name, bool modifiable) {
+bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name, const bool modifiable) {
   ImGui::Text(name.c_str());
   ImGui::SameLine();
   const auto ptr = target.Get<IAsset>();
@@ -929,7 +930,7 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name, b
       status_changed = Remove(target) || status_changed;
     }
     if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-      ProjectManager::GetInstance().inspecting_asset = ptr;
+      inspecting_asset = ptr;
     }
   } else {
     ImGui::Button("none");
@@ -957,6 +958,9 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
     Draggable(target);
     if (modifiable) {
       status_changed = Remove(target) || status_changed;
+    }
+    if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+      selected_entity_ = ptr->GetOwner();
     }
   } else {
     ImGui::Button("none");

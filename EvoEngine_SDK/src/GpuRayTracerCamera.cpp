@@ -393,7 +393,7 @@ void GpuRayTracerCamera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_bloc
 bool GpuRayTracerCamera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
-  if (EditorLayer::DragAndDropButton<Texture2D>(texture_ref, "Target texture"))
+  if (editor_layer->DragAndDropButton<Texture2D>(texture_ref, "Target texture"))
     changed = true;
 
   static glm::ivec2 new_resolution = {128, 128};

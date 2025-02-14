@@ -23,8 +23,8 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   static AssetRef visibility_test_prefab_ref;
   static AssetRef visibility_test_mesh_ref;
 
-  EditorLayer::DragAndDropButton<Prefab>(visibility_test_prefab_ref, "Visibility Prefab");
-  EditorLayer::DragAndDropButton<Mesh>(visibility_test_mesh_ref, "Visibility Mesh");
+  editor_layer->DragAndDropButton<Prefab>(visibility_test_prefab_ref, "Visibility Prefab");
+  editor_layer->DragAndDropButton<Mesh>(visibility_test_mesh_ref, "Visibility Mesh");
 
   if (const auto boundary_test_prefab = visibility_test_prefab_ref.Get<Prefab>()) {
     boundary_test_prefab->GatherAssets();
@@ -103,7 +103,7 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       false);
 
   static AssetRef triangle_error_prefab_ref;
-  EditorLayer::DragAndDropButton<Prefab>(triangle_error_prefab_ref, "Triangle error Prefab");
+  editor_layer->DragAndDropButton<Prefab>(triangle_error_prefab_ref, "Triangle error Prefab");
   static float error_threshold = 0.0f;
   if (ImGui::SliderFloat("Error threshold", &error_threshold, 0.0f, 1.f)) {
     if (const auto error_prefab = triangle_error_prefab_ref.Get<Prefab>()) {
@@ -147,7 +147,7 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 
   static PrivateComponentRef mesh_entity_ref;
-  EditorLayer::DragAndDropButton<MeshRenderer>(mesh_entity_ref, "Mesh entity");
+  editor_layer->DragAndDropButton<MeshRenderer>(mesh_entity_ref, "Mesh entity");
   if (mesh_entity_ref.Get<MeshRenderer>()) {
     const auto mesh_entity = mesh_entity_ref.Get<MeshRenderer>()->GetOwner();
     VisibilityTest::VisibilityTestParams params{};

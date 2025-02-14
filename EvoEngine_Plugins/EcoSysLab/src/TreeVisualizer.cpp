@@ -462,9 +462,8 @@ void TreeVisualizer::Visualize(const TreeModel& treeModel, const GlobalTransform
     gizmoSettings.depth_test = true;
     gizmoSettings.depth_write = true;
     if (!m_internodeMatrices->PeekParticleInfoList().empty()) {
-      editorLayer->DrawGizmoMeshInstancedColored(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"),
-                                                 ecoSysLabLayer->visualization_camera_, m_internodeMatrices,
-                                                 globalTransform.value, 1.0f, gizmoSettings);
+      editorLayer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder, ecoSysLabLayer->visualization_camera_,
+                                                 m_internodeMatrices, globalTransform.value, 1.0f, gizmoSettings);
       if (m_selectedInternodeHandle != -1) {
         const auto& node = treeSkeleton.PeekNode(m_selectedInternodeHandle);
         auto rotation = node.info.global_rotation;
@@ -477,8 +476,8 @@ void TreeVisualizer::Visualize(const TreeModel& treeModel, const GlobalTransform
                             glm::scale(glm::vec3(2.0f * node.info.thickness + 0.01f, node.info.length / 5.0f,
                                                  2.0f * node.info.thickness + 0.01f));
         const auto color = glm::vec4(1.0f);
-        editorLayer->DrawGizmoMesh(Resources::TryGetResource<Mesh>("PRIMITIVE_CYLINDER"),
-                                   ecoSysLabLayer->visualization_camera_, color, matrix, 1, gizmoSettings);
+        editorLayer->DrawGizmoMesh(Resources::Primitives::cylinder, ecoSysLabLayer->visualization_camera_, color,
+                                   matrix, 1, gizmoSettings);
       }
     }
   }

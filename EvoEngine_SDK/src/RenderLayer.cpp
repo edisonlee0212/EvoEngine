@@ -1589,7 +1589,7 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
       }
       Platform::RecordRenderCommands(render_info, vk_command_buffer, [&]() {
         environmental_brdf_pipeline->Bind(vk_command_buffer);
-        const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
+        const auto mesh = Resources::texture_pass_through_quad;
         GeometryStorage::BindVertices(vk_command_buffer);
         mesh->DrawIndexed(vk_command_buffer, environmental_brdf_pipeline->states, 1);
       });
@@ -1987,7 +1987,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           push_constant.light_split_index = need_fade ? glm::max(128, 256 - editor_layer->selection_alpha_) : 256;
           push_constant.instance_index = need_fade ? 1 : 0;
           deferred_lighting_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-          const auto mesh = Resources::TryGetResource<Mesh>("PRIMITIVE_TEX_PASS_THROUGH");
+          const auto mesh = Resources::texture_pass_through_quad;
           mesh->DrawIndexed(vk_command_buffer, deferred_lighting_pipeline->states, 1);
         });
       }

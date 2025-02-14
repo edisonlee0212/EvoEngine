@@ -27,14 +27,14 @@ void SorghumGrid::GenerateField(std::vector<glm::mat4>& matrices_list) const {
   if (soil_descriptor) {
     height_field = soil_descriptor->height_field.Get<HeightField>();
   }
-  matrices_list.resize(grid_size_x * grid_size_y);
+  matrices_list.resize(grid_size.x * grid_size.y);
   const glm::vec2 start_point =
-      glm::vec2((grid_size_x - 1) * grid_distance_x, (grid_size_y - 1) * grid_distance_y) * 0.5f;
-  for (int i = 0; i < grid_size_x; i++) {
-    for (int j = 0; j < grid_size_y; j++) {
-      glm::vec3 position = glm::vec3(-start_point.x + i * grid_distance_x, 0.0f, -start_point.y + j * grid_distance_y);
-      position.x += glm::linearRand(-grid_distance_x * position_offset_mean, grid_distance_x * position_offset_mean);
-      position.z += glm::linearRand(-grid_distance_y * position_offset_mean, grid_distance_y * position_offset_mean);
+      glm::vec2((grid_size.x - 1) * grid_distance.x, (grid_size.y - 1) * grid_distance.y) * 0.5f;
+  for (int i = 0; i < grid_size.x; i++) {
+    for (int j = 0; j < grid_size.y; j++) {
+      glm::vec3 position = glm::vec3(-start_point.x + i * grid_distance.x, 0.0f, -start_point.y + j * grid_distance.y);
+      position.x += glm::linearRand(-grid_distance.x * position_offset_mean, grid_distance.x * position_offset_mean);
+      position.z += glm::linearRand(-grid_distance.y * position_offset_mean, grid_distance.y * position_offset_mean);
       position += glm::gaussRand(glm::vec3(0.0f), glm::vec3(position_offset_variance, 0.0f, position_offset_variance));
       if (height_field)
         position.y = height_field->GetValue({position.x, position.z}) - 0.01f;
@@ -44,7 +44,7 @@ void SorghumGrid::GenerateField(std::vector<glm::mat4>& matrices_list) const {
           glm::vec3(0.0f), glm::vec3(rotation_variance_xz, rotation_variance_y, rotation_variance_xz)))));
       transform.SetRotation(rotation);
       transform.SetScale(glm::vec3(1.f));
-      matrices_list[i * grid_size_y + j] = transform.value;
+      matrices_list[i * grid_size.y + j] = transform.value;
     }
   }
 }
