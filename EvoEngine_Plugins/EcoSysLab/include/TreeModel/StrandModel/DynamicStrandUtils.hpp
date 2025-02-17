@@ -32,7 +32,7 @@ class DynamicStrandUtils {
 
   static std::vector<size_t> GetFaceVertices(const int indices[4], int face_index);
   static int MaxSegmentIndexDifference(const int target_indices[4],
-                                       std::vector<DynamicStrands::GpuUniformParticle>& particles);
+                                       const std::vector<DynamicStrands::GpuUniformParticle>& particles);
 
   /**
    * @brief Checks if a set of indices falls between two planes in a GPU-based strand simulation.

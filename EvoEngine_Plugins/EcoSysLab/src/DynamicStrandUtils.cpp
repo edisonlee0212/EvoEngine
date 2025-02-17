@@ -55,7 +55,7 @@ std::pair<int, int> DynamicStrandUtils::CompareIndices(const int a[4], const int
 };
 
 int DynamicStrandUtils::MaxSegmentIndexDifference(const int target_indices[4],
-                                                  std::vector<DynamicStrands::GpuUniformParticle>& particles) {
+                                                  const std::vector<DynamicStrands::GpuUniformParticle>& particles) {
   int max_difference = -1;
 
   for (size_t i = 0; i < 4; i++) {
