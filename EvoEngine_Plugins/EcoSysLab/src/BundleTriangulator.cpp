@@ -281,7 +281,6 @@ void BundleTriangulator::Triangulate(std::vector<DynamicStrands::GpuDelaunayTetr
         }
 
         if (!visited[tet_index]) {
-          EVOENGINE_LOG("Tetraheron " << tet_index << " not visited!");
           // check if there are any triangles from the plane that we skip here
           for (size_t face_index = 0; face_index < 4; face_index++) {
             auto face_vertices = DynamicStrandUtils::GetFaceVertices(gpu_tet.indices, face_index);
