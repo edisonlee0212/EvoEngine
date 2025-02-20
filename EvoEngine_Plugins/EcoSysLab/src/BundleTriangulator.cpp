@@ -19,6 +19,43 @@ BundleTriangulator::BundleTriangulator(const std::vector<DynamicStrands::GpuUnif
 BundleTriangulator::~BundleTriangulator() {
 }
 
+unsigned int BundleTriangulator::CheckTrianglesForMatchingTetrahedon(std::map<TriangleKey, Triangle>& triangulation,
+                                                                     std::vector<Delaunay3D::Tetrahedron>& local_tets,
+                                                                     std::vector<size_t>& indices) {
+  unsigned int found = 0;
+  for (auto& triangle_kv : triangulation) {
+    for (auto& tet : local_tets) {
+      // find each triangle index in the tetrahedron
+      int global_tet_indices[4];
+      for (size_t i = 0; i < 4; i++) {
+        global_tet_indices[i] = indices[tet.v[i]];
+      }
+
+      unsigned int matching_indices = 0;
+
+      if (std::find(std::begin(global_tet_indices), std::end(global_tet_indices), std::get<0>(triangle_kv.first)) !=
+          std::end(global_tet_indices)) {
+        matching_indices++;
+      }
+      if (std::find(std::begin(global_tet_indices), std::end(global_tet_indices), std::get<1>(triangle_kv.first)) !=
+          std::end(global_tet_indices)) {
+        matching_indices++;
+      }
+      if (std::find(std::begin(global_tet_indices), std::end(global_tet_indices), std::get<2>(triangle_kv.first)) !=
+          std::end(global_tet_indices)) {
+        matching_indices++;
+      }
+
+      if (matching_indices == 3) {
+        found++;
+        break;
+      }
+    }
+  }
+
+  return found;
+}
+
 void BundleTriangulator::Triangulate(std::vector<DynamicStrands::GpuDelaunayTetrahedron>& tetrahedrons) {
   int max_dist_from_root = 0;
 
@@ -148,6 +185,21 @@ void BundleTriangulator::Triangulate(std::vector<DynamicStrands::GpuDelaunayTetr
 
       // run constrained Delaunay triangulation
       auto local_tets = Delaunay3D::GenerateTetrahedronsConstrained(points, triangles);
+
+      // check if all triangles are matched
+      unsigned int found = CheckTrianglesForMatchingTetrahedon(bundle.triangulation, local_tets, indices);
+      EVOENGINE_LOG("Found " << found << "/" << bundle.triangulation.size() << " matching tetrahedrons below!");
+
+      for (auto node_index : node_indices_above) {
+        auto& map_above = bundle_maps[d + 1];
+        if (map_above.find(node_index) == map_above.end()) {
+          continue;
+        }
+        auto& bundle_above = map_above[node_index];
+        found = CheckTrianglesForMatchingTetrahedon(bundle_above.triangulation, local_tets, indices);
+        EVOENGINE_LOG("Found " << found << "/" << bundle_above.triangulation.size() << " matching tetrahedrons above!");
+      }
+
       std::vector<int> valid_index_map(local_tets.size(), -1);
 
       // Run a fill-algorithm that collects all tetrahedrons between the two planes
@@ -229,6 +281,7 @@ void BundleTriangulator::Triangulate(std::vector<DynamicStrands::GpuDelaunayTetr
         }
 
         if (!visited[tet_index]) {
+          EVOENGINE_LOG("Tetraheron " << tet_index << " not visited!");
           // check if there are any triangles from the plane that we skip here
           for (size_t face_index = 0; face_index < 4; face_index++) {
             auto face_vertices = DynamicStrandUtils::GetFaceVertices(gpu_tet.indices, face_index);
@@ -266,7 +319,7 @@ void BundleTriangulator::Triangulate(std::vector<DynamicStrands::GpuDelaunayTetr
     }
   }
 
-  // TODO: we should do this using the constraint faces, that would be much more efficient
+  // match tetrahedrons using the constraint faces
 
   for (size_t tet_id = 0; tet_id < tetrahedrons.size(); tet_id++) {
     auto& gpu_tet = tetrahedrons[tet_id];

@@ -38,5 +38,8 @@ class BundleTriangulator {
            eco_sys_lab_plugin::BundleTriangulator::Triangle>::const_iterator
   FindTriangle(const TriangleKey& key, const Bundle& bundle, std::set<int>& node_indices_above,
                std::vector<glm::vec3>& points, size_t d, std::vector<std::map<int, Bundle>>& bundle_maps);
+  unsigned int CheckTrianglesForMatchingTetrahedon(std::map<TriangleKey, Triangle>& triangulation,
+                                                   std::vector<Delaunay3D::Tetrahedron>& local_tets,
+                                                   std::vector<size_t>& indices);
 };
 }  // namespace eco_sys_lab_plugin
