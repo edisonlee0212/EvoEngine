@@ -1,6 +1,6 @@
 #pragma once
 
-#include "BTFBase.cuh"
+#include "BtfBase.cuh"
 
 #include "CUDABuffer.hpp"
 
@@ -218,7 +218,7 @@ struct SurfaceMaterial;
 struct RayTracedMaterial {
   MaterialType material_type = MaterialType::Default;
 
-  BTFBase* btf_base;
+  BtfBase* btf_base;
   evo_engine::MaterialProperties material_properties;
 
   std::shared_ptr<CudaImage> albedo_texture;

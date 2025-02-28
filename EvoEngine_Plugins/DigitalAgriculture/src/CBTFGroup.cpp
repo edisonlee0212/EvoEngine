@@ -5,7 +5,7 @@
 #include "CBTFGroup.hpp"
 
 #ifdef CUDA_MODULE_PLUGIN
-#  include "CompressedBTF.hpp"
+#  include "BtfMaterial.hpp"
 #endif
 
 using namespace digital_agriculture_plugin;
@@ -13,15 +13,15 @@ bool CBTFGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 #ifdef CUDA_MODULE_PLUGIN
   static AssetRef temp;
-  if (editor_layer->DragAndDropButton<CompressedBTF>(temp, ("Drop to add..."))) {
+  if (editor_layer->DragAndDropButton<BtfMaterial>(temp, ("Drop to add..."))) {
     btfs.emplace_back(temp);
     temp.Clear();
   }
 
   if (ImGui::TreeNodeEx("List", ImGuiTreeNodeFlags_DefaultOpen)) {
     for (int i = 0; i < btfs.size(); i++) {
-      if (editor_layer->DragAndDropButton<CompressedBTF>(btfs[i], ("No." + std::to_string(i + 1))) &&
-          !btfs[i].Get<CompressedBTF>()) {
+      if (editor_layer->DragAndDropButton<BtfMaterial>(btfs[i], ("No." + std::to_string(i + 1))) &&
+          !btfs[i].Get<BtfMaterial>()) {
         btfs.erase(btfs.begin() + i);
         i--;
       }
@@ -57,9 +57,9 @@ void CBTFGroup::Deserialize(const YAML::Node& in) {
   }
 }
 #ifdef CUDA_MODULE_PLUGIN
-std::shared_ptr<CompressedBTF> CBTFGroup::GetRandom() {
+std::shared_ptr<BtfMaterial> CBTFGroup::GetRandom() {
   if (!btfs.empty()) {
-    return btfs[glm::linearRand(0, static_cast<int>(btfs.size()) - 1)].Get<CompressedBTF>();
+    return btfs[glm::linearRand(0, static_cast<int>(btfs.size()) - 1)].Get<BtfMaterial>();
   }
   return {};
 }

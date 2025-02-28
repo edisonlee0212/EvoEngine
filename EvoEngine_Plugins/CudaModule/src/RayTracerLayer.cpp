@@ -1,8 +1,8 @@
 #include "RayTracerLayer.hpp"
 #include "BTFMeshRenderer.hpp"
 #include "BasicPointCloudScanner.hpp"
+#include "BtfMaterial.hpp"
 #include "ClassRegistry.hpp"
-#include "CompressedBTF.hpp"
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
 #include "OptiXRayTracer.hpp"
@@ -267,17 +267,17 @@ void RayTracerLayer::UpdateMeshesStorage(const std::shared_ptr<Scene>& scene,
       rebuild_instances = rebuild_instances || need_instance_update;
     }
   }
-  if (const auto* ray_traced_entities = scene->UnsafeGetPrivateComponentOwnersList<BTFMeshRenderer>();
+  if (const auto* ray_traced_entities = scene->UnsafeGetPrivateComponentOwnersList<BtfMeshRenderer>();
       ray_traced_entities && render_btf_mesh_renderer) {
     for (auto entity : *ray_traced_entities) {
       if (!scene->IsEntityEnabled(entity))
         continue;
-      auto mesh_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(entity).lock();
+      auto mesh_renderer = scene->GetOrSetPrivateComponent<BtfMeshRenderer>(entity).lock();
       if (!mesh_renderer->IsEnabled())
         continue;
       auto mesh = mesh_renderer->mesh.Get<Mesh>();
-      auto material = mesh_renderer->btf.Get<CompressedBTF>();
-      if (!material || !material->m_bTFBase.m_hasData || !mesh || mesh->UnsafeGetVertices().empty())
+      auto material = mesh_renderer->btf.Get<BtfMaterial>();
+      if (!material || !material->btf_base.has_data || !mesh || mesh->UnsafeGetVertices().empty())
         continue;
       auto global_transform = scene->GetDataComponent<GlobalTransform>(entity).value;
       bool need_instance_update = false;
@@ -309,7 +309,7 @@ void RayTracerLayer::UpdateMeshesStorage(const std::shared_ptr<Scene>& scene,
         ray_traced_geometry.geometry_type = PrimitiveType::Triangle;
         ray_traced_geometry.handle = geometry_handle;
       }
-      if (CheckCompressedBtf(ray_traced_material, material))
+      if (CheckBtfMaterial(ray_traced_material, material))
         need_instance_update = true;
       if (need_instance_update) {
         ray_traced_instance.entity_handle = entity_handle;
@@ -382,11 +382,11 @@ bool RayTracerLayer::UpdateScene(const std::shared_ptr<Scene>& scene) {
   }
   return false;
 }
-PrivateComponentRegistration<BTFMeshRenderer> btfmr_registry("BTFMeshRenderer");
+PrivateComponentRegistration<BtfMeshRenderer> btfmr_registry("BtfMeshRenderer");
 PrivateComponentRegistration<TriangleIlluminationEstimator> tie_registry("TriangleIlluminationEstimator");
 PrivateComponentRegistration<RayTracerCamera> rtc_registry("RayTracerCamera");
 PrivateComponentRegistration<BasicPointCloudScanner> bpcs_registry("BasicPointCloudScanner");
-AssetRegistration<CompressedBTF> cbtf_registry("CompressedBTF", {".cbtf"});
+AssetRegistration<BtfMaterial> btf_registry("BtfMaterial", {".btf"});
 void RayTracerLayer::OnCreate() {
   CudaModule::Init();
 
@@ -631,7 +631,7 @@ void RayTracerLayer::RayCameraWindow() {
 }
 
 bool RayTracerLayer::CheckMaterial(RayTracedMaterial& ray_tracer_material,
-                                   const std::shared_ptr<Material>& material) const {
+                                   const std::shared_ptr<Material>& material) {
   bool changed = false;
   if (ray_tracer_material.material_type == MaterialType::Default && material->vertex_color_only) {
     changed = true;
@@ -677,17 +677,17 @@ bool RayTracerLayer::CheckMaterial(RayTracedMaterial& ray_tracer_material,
   return changed;
 }
 
-bool RayTracerLayer::CheckCompressedBtf(RayTracedMaterial& ray_tracer_material,
-                                        const std::shared_ptr<CompressedBTF>& compressed_btf) {
+bool RayTracerLayer::CheckBtfMaterial(RayTracedMaterial& ray_tracer_material,
+                                        const std::shared_ptr<BtfMaterial>& compressed_btf) {
   bool changed = false;
   if (ray_tracer_material.material_type != MaterialType::CompressedBTF) {
     changed = true;
     ray_tracer_material.material_type = MaterialType::CompressedBTF;
   }
-  if (ray_tracer_material.version != compressed_btf->m_version) {
+  if (ray_tracer_material.version != compressed_btf->GetVersion()) {
     changed = true;
-    ray_tracer_material.version = compressed_btf->m_version;
-    ray_tracer_material.btf_base = &compressed_btf->m_bTFBase;
+    ray_tracer_material.version = compressed_btf->GetVersion();
+    ray_tracer_material.btf_base = &compressed_btf->btf_base;
   }
   return changed;
 }

@@ -259,7 +259,7 @@ struct SurfaceMaterial {
 };
 
 struct SurfaceCompressedBtf {
-  BTFBase btf;
+  BtfBase btf;
 #pragma region Device functions
 
   __device__ void ComputeAngles(const glm::vec3 &direction, const glm::vec3 &normal, const glm::vec3 &tangent,
@@ -294,24 +294,13 @@ struct SurfaceCompressedBtf {
   }
 
   __device__ void GetValue(const glm::vec2 &tex_coord, const glm::vec3 &view_dir, const glm::vec3 &illumination_dir,
-                           const glm::vec3 &normal, const glm::vec3 tangent, glm::vec3 &out, const bool &print) const {
+                           const glm::vec3 &normal, const glm::vec3 tangent, glm::vec3 &out) const {
     out = glm::vec3(1.0f);
     float illumination_theta, illumination_phi, view_theta, view_phi;
     ComputeAngles(-view_dir, normal, tangent, view_theta, view_phi);
     ComputeAngles(illumination_dir, normal, tangent, illumination_theta, illumination_phi);
-
-    if (print) {
-      printf("TexCoord[%.2f, %.2f]\n", tex_coord.x, tex_coord.y);
-      printf("Angles[%.1f, %.1f, %.1f, %.1f]\n", illumination_theta, illumination_phi, view_theta, view_phi);
-      printf("Normal[%.2f, %.2f, %.2f]\n", normal.x, normal.y, normal.z);
-      printf("View[%.2f, %.2f, %.2f]\n", view_dir.x, view_dir.y, view_dir.z);
-      printf("Illumination[%.2f, %.2f, %.2f]\n", illumination_dir.x, illumination_dir.y, illumination_dir.z);
-    }
-    btf.GetValueDeg(tex_coord, illumination_theta, illumination_phi, view_theta, view_phi, out, print);
+    btf.GetValueDeg(tex_coord, illumination_theta, illumination_phi, view_theta, view_phi, out);
     out /= 256.0f;
-    if (print) {
-      printf("ColBase[%.2f, %.2f, %.2f]\n", out.x, out.y, out.z);
-    }
   }
 
 #pragma endregion

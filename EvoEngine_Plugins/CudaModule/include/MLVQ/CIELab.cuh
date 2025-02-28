@@ -1,6 +1,4 @@
 #pragma once
-
-#include "Optix7.hpp"
 #include "SharedCoordinates.cuh"
 
 namespace evo_engine {
@@ -163,19 +161,19 @@ __device__ inline int LogLuv2RgbNormalized(const glm::vec3 &luv, glm::vec3 &rgb)
 }  //--- LogLuv2RGB -------------------------------------------
 
 // This is user defined model for BTF Compression
-__device__ inline void UserCmToRgb(const glm::vec3 &userColorModelData, glm::vec3 &rgb, const SharedCoordinates &tc) {
+__device__ inline void UserCmToRgb(const glm::vec3 &user_color_model_data, glm::vec3 &rgb, const SharedCoordinates &tc) {
 #ifndef ONLY_ONE_COLOR_SPACE
-  if (tc.m_hdrFlag) {
-    if (tc.m_codeBtfFlag)
-      LogLuv2RgbNormalized(userColorModelData, rgb);
+  if (tc.hdr_flag) {
+    if (tc.use_btf_flag)
+      LogLuv2RgbNormalized(user_color_model_data, rgb);
     else
-      LogLuv2Rgb(userColorModelData, rgb);
+      LogLuv2Rgb(user_color_model_data, rgb);
   } else
 #endif
-      if (tc.m_codeBtfFlag) {
-    YCbCrToRgbNormalized(userColorModelData, rgb);
+      if (tc.use_btf_flag) {
+    YCbCrToRgbNormalized(user_color_model_data, rgb);
   } else {
-    YCbCrToRgb(userColorModelData, rgb);
+    YCbCrToRgb(user_color_model_data, rgb);
   }
 }
 }  // namespace evo_engine

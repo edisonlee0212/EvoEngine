@@ -4,7 +4,7 @@
 
 #include "CBTFImporter.hpp"
 #ifdef CUDA_MODULE_PLUGIN
-#  include "CompressedBTF.hpp"
+#  include "BtfMaterial.hpp"
 #endif
 
 using namespace digital_agriculture_plugin;
@@ -66,7 +66,7 @@ void digital_agriculture_plugin::CBTFImporter::Update() {
   auto path = m_importFolders.back();
   m_importFolders.pop_back();
 #ifdef CUDA_MODULE_PLUGIN
-  auto asset = AssetManager::CreateTemporaryAsset<CompressedBTF>();
+  auto asset = AssetManager::CreateTemporaryAsset<BtfMaterial>();
   asset->ImportFromFolder(path);
   asset->Export(m_currentExportFolder.string() + "\\" + path.filename().string() + ".cbtf");
 #endif

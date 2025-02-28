@@ -4,7 +4,7 @@
 #include "IPrivateComponent.hpp"
 
 namespace evo_engine {
-class BTFMeshRenderer : public IPrivateComponent {
+class BtfMeshRenderer : public IPrivateComponent {
  public:
   AssetRef mesh;
   AssetRef btf;
