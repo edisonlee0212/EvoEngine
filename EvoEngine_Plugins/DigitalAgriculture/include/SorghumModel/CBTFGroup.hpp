@@ -1,7 +1,7 @@
 
 #pragma once
 #ifdef CUDA_MODULE_PLUGIN
-#  include "CompressedBTF.hpp"
+#  include "BtfMaterial.hpp"
 #endif
 
 using namespace evo_engine;
@@ -67,12 +67,12 @@ class CBTFGroup : public IAsset {
   /**
    * @brief Retrieves a randomly selected CBTF asset.
    *
-   * This function returns a shared pointer to a randomly chosen CompressedBTF
+   * This function returns a shared pointer to a randomly chosen BtfMaterial
    * asset from the group. Available only when compiled with CUDA support.
    *
    * @return A shared pointer to a randomly selected CompressedBTF asset.
    */
-  std::shared_ptr<CompressedBTF> GetRandom();
+  std::shared_ptr<BtfMaterial> GetRandom();
 #endif
 };
 }  // namespace digital_agriculture_plugin

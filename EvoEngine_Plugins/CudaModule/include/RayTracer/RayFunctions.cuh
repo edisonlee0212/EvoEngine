@@ -146,8 +146,7 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
         glm::vec3 newRayDirection =
             RandomSampleHemisphere(perRayData.random, environment.sun_direction, 1.0f - environment.light_size);
         static_cast<SurfaceCompressedBtf *>(sbtData.material)
-            ->GetValue(hit_info.tex_coord, rayDirection, newRayDirection, hit_info.normal, hit_info.tangent, btfColor,
-                       false /*(perRayData.m_printInfo && sampleID == 0)*/);
+            ->GetValue(hit_info.tex_coord, rayDirection, newRayDirection, hit_info.normal, hit_info.tangent, btfColor);
         energy += glm::vec3(environment.color) * environment.ambient_light_intensity * btfColor;
         const float NdotL = glm::dot(hit_info.normal, newRayDirection);
         if (NdotL > 0.0f) {
@@ -171,8 +170,7 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
       } else {
         glm::vec3 newRayDirection = RandomSampleHemisphere(perRayData.random, reflected, 0.0f);
         static_cast<SurfaceCompressedBtf *>(sbtData.material)
-            ->GetValue(hit_info.tex_coord, rayDirection, newRayDirection, hit_info.normal, hit_info.tangent, btfColor,
-                       false /*(perRayData.m_printInfo && sampleID == 0)*/);
+            ->GetValue(hit_info.tex_coord, rayDirection, newRayDirection, hit_info.normal, hit_info.tangent, btfColor);
         auto origin = hit_info.position;
         origin += hit_info.normal * 1e-3f;
         float3 incidentRayOrigin = make_float3(origin.x, origin.y, origin.z);

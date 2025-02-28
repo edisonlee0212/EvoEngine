@@ -1,8 +1,8 @@
 #pragma once
 #include "EvoEngine_SDK_PCH.hpp"
 
+#include "BtfMaterial.hpp"
 #include "CUDAModule.hpp"
-#include "CompressedBTF.hpp"
 #include "Cubemap.hpp"
 #include "ILayer.hpp"
 
@@ -27,10 +27,10 @@ class RayTracerLayer : public ILayer {
 
   static std::shared_ptr<RayTracerCamera> ray_tracer_camera_;
 
-  bool CheckMaterial(RayTracedMaterial& ray_tracer_material, const std::shared_ptr<Material>& material) const;
+  static bool CheckMaterial(RayTracedMaterial& ray_tracer_material, const std::shared_ptr<Material>& material);
 
-  static bool CheckCompressedBtf(RayTracedMaterial& ray_tracer_material,
-                                 const std::shared_ptr<CompressedBTF>& compressed_btf);
+  static bool CheckBtfMaterial(RayTracedMaterial& ray_tracer_material,
+                                 const std::shared_ptr<BtfMaterial>& compressed_btf);
 
   glm::ivec2 scene_camera_resolution_ = glm::ivec2(0);
 

@@ -4,8 +4,8 @@
 #include "SorghumLayer.hpp"
 #ifdef CUDA_MODULE_PLUGIN
 #  include "BTFMeshRenderer.hpp"
+#  include "BtfMaterial.hpp"
 #  include "CBTFGroup.hpp"
-#  include "CompressedBTF.hpp"
 #endif
 using namespace digital_agriculture_plugin;
 
@@ -117,7 +117,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
           if (sorghum_layer->enable_compressed_btf) {
 #ifdef CUDA_MODULE_PLUGIN
             if (btf_group) {
-              const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
+              const auto btf_renderer = scene->GetOrSetPrivateComponent<BtfMeshRenderer>(leaf_entity).lock();
               btf_renderer->mesh = mesh;
               btf_renderer->btf = btf_group->GetRandom();
             }
@@ -152,7 +152,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
           if (sorghum_layer->enable_compressed_btf) {
 #ifdef CUDA_MODULE_PLUGIN
             if (btf_group) {
-              const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
+              const auto btf_renderer = scene->GetOrSetPrivateComponent<BtfMeshRenderer>(leaf_entity).lock();
               btf_renderer->mesh = mesh;
               btf_renderer->btf = btf_group->GetRandom();
             }
@@ -187,7 +187,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
       if (sorghum_layer->enable_compressed_btf) {
 #ifdef CUDA_MODULE_PLUGIN
         if (const auto btf_group = sorghum_layer->leaf_cbtf_group.Get<CBTFGroup>()) {
-          const auto btf_renderer = scene->GetOrSetPrivateComponent<BTFMeshRenderer>(leaf_entity).lock();
+          const auto btf_renderer = scene->GetOrSetPrivateComponent<BtfMeshRenderer>(leaf_entity).lock();
           btf_renderer->mesh = mesh;
           btf_renderer->btf = btf_group->GetRandom();
         }
