@@ -1,7 +1,7 @@
 #include "RayTracerLayer.hpp"
-#include "BTFMeshRenderer.hpp"
 #include "BasicPointCloudScanner.hpp"
 #include "BtfMaterial.hpp"
+#include "BtfMeshRenderer.hpp"
 #include "ClassRegistry.hpp"
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
@@ -398,7 +398,6 @@ void RayTracerLayer::OnCreate() {
 }
 
 void RayTracerLayer::PreUpdate() {
-
   if (const auto editor_layer = Application::GetLayer<EditorLayer>();
       show_scene_window && editor_layer && rendering_enabled) {
     scene_camera->Ready(editor_layer->GetSceneCameraPosition(), editor_layer->GetSceneCameraRotation());
@@ -630,8 +629,7 @@ void RayTracerLayer::RayCameraWindow() {
   ImGui::PopStyleVar();
 }
 
-bool RayTracerLayer::CheckMaterial(RayTracedMaterial& ray_tracer_material,
-                                   const std::shared_ptr<Material>& material) {
+bool RayTracerLayer::CheckMaterial(RayTracedMaterial& ray_tracer_material, const std::shared_ptr<Material>& material) {
   bool changed = false;
   if (ray_tracer_material.material_type == MaterialType::Default && material->vertex_color_only) {
     changed = true;
@@ -678,7 +676,7 @@ bool RayTracerLayer::CheckMaterial(RayTracedMaterial& ray_tracer_material,
 }
 
 bool RayTracerLayer::CheckBtfMaterial(RayTracedMaterial& ray_tracer_material,
-                                        const std::shared_ptr<BtfMaterial>& compressed_btf) {
+                                      const std::shared_ptr<BtfMaterial>& compressed_btf) {
   bool changed = false;
   if (ray_tracer_material.material_type != MaterialType::CompressedBTF) {
     changed = true;

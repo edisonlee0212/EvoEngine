@@ -1,6 +1,6 @@
 #ifdef CUDA_MODULE_PLUGIN
 #  include <TriangleIlluminationEstimator.hpp>
-#  include "BTFMeshRenderer.hpp"
+#  include "BtfMeshRenderer.hpp"
 #  include "RayTracerLayer.hpp"
 #endif
 #include <SorghumLayer.hpp>
