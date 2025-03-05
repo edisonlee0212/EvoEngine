@@ -3,8 +3,8 @@
 #include "SorghumGenerator.hpp"
 #include "SorghumLayer.hpp"
 #ifdef CUDA_MODULE_PLUGIN
-#  include "BTFMeshRenderer.hpp"
 #  include "BtfMaterial.hpp"
+#  include "BtfMeshRenderer.hpp"
 #  include "CBTFGroup.hpp"
 #endif
 using namespace digital_agriculture_plugin;
