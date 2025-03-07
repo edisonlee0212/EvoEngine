@@ -45,6 +45,12 @@ class DynamicStrandUtils {
    * @return True if the indices are valid, otherwise false.
    */
   static bool IsValid(const int target_indices[4], int size);
+
+  static glm::vec3 CubicHermiteSpline(const glm::vec3& P0, const glm::vec3& P1, const glm::vec3& M0,
+                                      const glm::vec3& M1, float t);
+
+  static glm::vec3 CubicHermiteSplineTangent(const glm::vec3& P0, const glm::vec3& P1, const glm::vec3& M0,
+                                             const glm::vec3& M1, float t);
 };
 
 }  // namespace eco_sys_lab_plugin
