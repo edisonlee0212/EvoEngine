@@ -1,4 +1,5 @@
 #include "DsConstraints.hpp"
+#include "DynamicStrandUtils.hpp"
 #include "DynamicStrands.hpp"
 #include "FoliageDescriptor.hpp"
 #include "UVMapUtils.hpp"
@@ -401,8 +402,39 @@ void DynamicStrands::InitializeData(const InitializeParameters& initialize_param
     const auto& segment = segments[uniform_particle.segment_handle];
     const auto& particle0 = segment.particle0;
     const auto& particle1 = segment.particle1;
+    const glm::vec3& p0 = segments[uniform_particle.segment_handle].particle0.x;
+    const glm::vec3& p1 = segments[uniform_particle.segment_handle].particle1.x;
 
-    uniform_particle.position = glm::mix(particle0.x0, particle1.x0, uniform_particle.t);
+    // TODO
+    // use cubic hermite spline interpolation to update uniform particles
+
+    // particle0 tangent
+    int prev_segment_handle = segments[uniform_particle.segment_handle].prev_handle;
+    glm::vec3 M0;
+    if (prev_segment_handle == -1) {
+      // start point tangent
+      M0 = 0.5f * (p1 - p0);
+    } else {
+      glm::vec3 p_prev = segments[prev_segment_handle].particle0.x;
+      M0 = 0.5f * (p1 - p_prev);
+    }
+
+    // particle1 tangent
+    int next_segment_handle = segments[uniform_particle.segment_handle].next_handle;
+    glm::vec3 M1;
+    if (next_segment_handle == -1) {
+      // end point tangent
+      M1 = 0.5f * (p1 - p0);
+    } else {
+      glm::vec3 p_next = segments[next_segment_handle].particle1.x;
+      M1 = 0.5f * (p_next - p0);
+    }
+
+    uniform_particles[uniform_particle_index].position =
+        DynamicStrandUtils::CubicHermiteSpline(p0, p1, M0, M1, uniform_particle.t);
+    uniform_particles[uniform_particle_index].tangent =
+        DynamicStrandUtils::CubicHermiteSplineTangent(p0, p1, M0, M1, uniform_particle.t);
+
     uniform_particle.initial_position = uniform_particle.position;
     uniform_particle.normal = glm::vec3(0.0f);
     uniform_particle.deg = 0.0f;

@@ -13,7 +13,7 @@ float DynamicStrandUtils::PointPlaneDistance(const glm::vec3& target_point, cons
   const float distance = glm::dot(normal, target_point - target_a);
 
   return distance;
-};
+}
 
 /// @brief Given two arrays of size 4, each containing one element that is not in
 /// the other, compute the respective indices of these elements in the arrays
@@ -52,7 +52,7 @@ std::pair<int, int> DynamicStrandUtils::CompareIndices(const int a[4], const int
   }
 
   return std::make_pair(a_not_in_b, b_not_in_a);
-};
+}
 
 bool DynamicStrandUtils::IsBetweenPlanes(const int target_indices[4],
                                          std::vector<DynamicStrands::GpuUniformParticle>& particles) {
@@ -88,4 +88,29 @@ bool DynamicStrandUtils::IsValid(const int target_indices[4], int size) {
   }
 
   return true;
-};
+}
+
+glm::vec3 DynamicStrandUtils::CubicHermiteSpline(const glm::vec3& P0, const glm::vec3& P1, const glm::vec3& M0,
+                                                 const glm::vec3& M1, float t) {
+  float t2 = t * t;
+  float t3 = t2 * t;
+
+  float h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+  float h10 = t3 - 2.0 * t2 + t;
+  float h01 = -2.0 * t3 + 3.0 * t2;
+  float h11 = t3 - t2;
+
+  return h00 * P0 + h10 * M0 + h01 * P1 + h11 * M1;
+}
+
+glm::vec3 DynamicStrandUtils::CubicHermiteSplineTangent(const glm::vec3& P0, const glm::vec3& P1, const glm::vec3& M0,
+                                                        const glm::vec3& M1, float t) {
+  float t2 = t * t;
+
+  float h00 = 6.0 * t2 - 6.0 * t;
+  float h10 = 3.0 * t2 - 4.0 * t + 1.0;
+  float h01 = -6.0 * t2 + 6.0 * t;
+  float h11 = 3.0 * t2 - 2.0 * t;
+
+  return h00 * P0 + h10 * M0 + h01 * P1 + h11 * M1;
+}
