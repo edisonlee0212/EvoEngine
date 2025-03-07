@@ -21,9 +21,10 @@ bool DynamicStrands::BranchesRenderParameters::OnInspect(const std::shared_ptr<E
   if (ImGui::DragFloat("Degenerate triangle threshold 1e-x", &degen_triangle_threshold_logairthmic, 0.01f, 0.0f, 40.0f,
                        "%.6f"))
     changed = true;
-  if (ImGui::DragFloat("Break threshold", &break_threshold, 0.0001f, 0.0f, 1.0f, "%.4f")) {
+  if (ImGui::DragFloat("Break threshold", &break_threshold, 0.0001f, 0.0f, 1.0f, "%.4f"))
     changed = true;
-  }
+  if (ImGui::Checkbox("Use cubic Hermite spline", &use_cubic_hermite_spline))
+    changed = true;
 
   if (ImGui::TreeNodeEx("Use normal attribute for debugging")) {
     if (ImGui::RadioButton("Disabled", (int*)&vertex_colors, Default))
