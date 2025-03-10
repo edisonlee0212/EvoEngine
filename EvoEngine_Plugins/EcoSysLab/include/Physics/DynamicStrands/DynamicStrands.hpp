@@ -161,6 +161,8 @@ class DynamicStrands {
     float alpha = 0.00005f;              ///< Alpha parameter for high precision calculations.
     float bifurcation_alpha = 0.00005f;  ///< Alpha parameter for bifurcation computations.
     float max_dist_squared = 1.0f;       ///< Maximum squared distance considered in calculations.
+    bool use_cubic_hermite_spline =
+        false;  ///< Whether to use cubic Hermite splines for interpolation, else use linear.
 
     AssetRef foliage_descriptor;  ///< Descriptor reference for foliage data.
 
@@ -292,6 +294,7 @@ class DynamicStrands {
     float alpha = 0.00005f;
     float bifurcation_alpha = 0.00005f;
     float max_dist_squared = 1.0f;
+    bool use_cubic_hermite_spline = true;
     enum VertexColors {
       Default,
       Normals,

@@ -107,6 +107,7 @@ struct UniformParticlePredictionPushConstant {
   uint32_t uniform_particle_size = 0;
   float snow_factor = 50.f;
   float snow_deduction = 0.1f;
+  int use_cubic_hermite_spline = 0;
 };
 
 DynamicStrands::DynamicStrands() {
@@ -241,6 +242,8 @@ void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_rend
     uniform_particle_push_constant.uniform_particle_size = uniform_particles.size();
     uniform_particle_push_constant.snow_deduction = snow_deduction;
     uniform_particle_push_constant.snow_factor = snow_factor;
+    uniform_particle_push_constant.use_cubic_hermite_spline =
+        branches_render_parameters.use_cubic_hermite_spline ? 1 : 0;
     branches_uniform_particle_update_pipeline->Bind(vk_command_buffer);
     branches_uniform_particle_update_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
@@ -404,6 +407,8 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
     if (ImGui::DragFloat("Bifurcation Alpha", &bifurcation_alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
       changed = true;
     if (ImGui::DragFloat("Max Distance Squared", &max_dist_squared, 0.000001f, 0.0f, 1.0f, "%.6f"))
+      changed = true;
+    if (ImGui::Checkbox("Use cubic Hermite spline", &use_cubic_hermite_spline))
       changed = true;
 
     ImGui::TreePop();
