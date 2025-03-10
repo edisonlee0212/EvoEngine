@@ -410,8 +410,9 @@ bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<Edito
       changed = true;
     if (ImGui::Checkbox("Use cubic Hermite spline", &use_cubic_hermite_spline))
       changed = true;
+    if (ImGui::DragInt("Min bundle size", &min_bundle_size, 1, 1, 100))
 
-    ImGui::TreePop();
+      ImGui::TreePop();
   }
 
   return changed;
@@ -1162,16 +1163,29 @@ void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std
   EVOENGINE_LOG("Found " << valid_neighbors << " valid neighbors");
 }
 
-void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal) {
-// TODO: maybe a different library will work here
+void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal,
+                                     size_t min_bundle_size) {
+  auto bundle_maps = DynamicStrandUtils::ComputeBundleMaps(uniform_particles);
+
+// TODO: maybe we should scrap CGAL
 #ifdef USE_CGAL
   if (use_cgal) {
     std::vector<std::pair<Point_CGAL, unsigned>> points;
-    for (int i = 0; i < uniform_particles.size(); i++) {
-      auto& particle = uniform_particles[i];
-      glm::vec3 particle_pos = particle.position;
-      Point_CGAL p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);
-      points.emplace_back(p_cgal, i);
+    for (auto& map : bundle_maps) {
+      for (auto& kv_pair : map) {
+        auto& bundle = kv_pair.second;
+
+        if (bundle.size() < min_bundle_size) {
+          continue;
+        }
+
+        for (size_t i : bundle) {
+          auto& particle = uniform_particles[i];
+          glm::vec3& particle_pos = particle.position;
+          Point_CGAL p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);
+          points.emplace_back(p_cgal, i);
+        }
+      }
     }
 
     CGALDelaunay(points, tetrahedrons);
@@ -1181,11 +1195,21 @@ void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrah
     std::vector<glm::vec3> points;
     std::vector<size_t> indices;
 
-    for (int i = 0; i < uniform_particles.size(); i++) {
-      auto& particle = uniform_particles[i];
-      glm::vec3& particle_pos = particle.position;
-      points.emplace_back(particle_pos);
-      indices.emplace_back(i);
+    for (auto& map : bundle_maps) {
+      for (auto& kv_pair : map) {
+        auto& bundle = kv_pair.second;
+
+        if (bundle.size() < min_bundle_size) {
+          continue;
+        }
+
+        for (size_t i : bundle) {
+          auto& particle = uniform_particles[i];
+          glm::vec3& particle_pos = particle.position;
+          points.emplace_back(particle_pos);
+          indices.emplace_back(i);
+        }
+      }
     }
 
     TetDelaunay(points, indices, tetrahedrons);

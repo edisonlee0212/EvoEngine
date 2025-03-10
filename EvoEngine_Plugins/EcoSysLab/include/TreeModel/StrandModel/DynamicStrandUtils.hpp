@@ -51,6 +51,14 @@ class DynamicStrandUtils {
 
   static glm::vec3 CubicHermiteSplineTangent(const glm::vec3& P0, const glm::vec3& P1, const glm::vec3& M0,
                                              const glm::vec3& M1, float t);
+
+  /**
+   * @brief Computes bundles, i.e. uniform particles which belong to the same branch at the same distance from root.
+   * #param uniform_particles The list of uniform particles used for rendering.
+   * @return bundle maps, the outer vector is indexed by hop distance from root, each map uses the node handle as key.
+   */
+  static std::vector<std::map<int, std::vector<size_t>>> ComputeBundleMaps(
+      std::vector<DynamicStrands::GpuUniformParticle>& uniform_particles);
 };
 
 }  // namespace eco_sys_lab_plugin

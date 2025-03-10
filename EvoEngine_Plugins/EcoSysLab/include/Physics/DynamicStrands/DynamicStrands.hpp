@@ -162,7 +162,8 @@ class DynamicStrands {
     float bifurcation_alpha = 0.00005f;  ///< Alpha parameter for bifurcation computations.
     float max_dist_squared = 1.0f;       ///< Maximum squared distance considered in calculations.
     bool use_cubic_hermite_spline =
-        false;  ///< Whether to use cubic Hermite splines for interpolation, else use linear.
+        false;                ///< Whether to use cubic Hermite splines for interpolation, else use linear.
+    int min_bundle_size = 3;  ///< Minimum size of a bundle, i.e. particle count in that branch.
 
     AssetRef foliage_descriptor;  ///< Descriptor reference for foliage data.
 
@@ -754,6 +755,7 @@ class DynamicStrands {
   void TetDelaunay(const std::vector<glm::vec3>& points, const std::vector<size_t>& particle_indices,
                    std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
   void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
-  void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
+  void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false,
+                       size_t min_bundle_size = 3);
 };
 }  // namespace eco_sys_lab_plugin
