@@ -891,7 +891,7 @@ void DynamicStrands::InitializeData(const InitializeParameters& initialize_param
   }
 
   if (!initialize_parameters.triangulate_per_bundle) {
-    ComputeDelaunay(delaunay_tetrahedrons, initialize_parameters.use_cgal);
+    ComputeDelaunay(delaunay_tetrahedrons, initialize_parameters.use_cgal, initialize_parameters.min_bundle_size);
   } else {
     ComputeDelaunayPerBundle(delaunay_tetrahedrons, initialize_parameters.use_cgal);
   }

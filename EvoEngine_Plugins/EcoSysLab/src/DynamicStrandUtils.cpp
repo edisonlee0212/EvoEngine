@@ -1,4 +1,5 @@
 #include "DynamicStrandUtils.hpp"
+#include <algorithm>
 
 using namespace eco_sys_lab_plugin;
 
@@ -113,4 +114,30 @@ glm::vec3 DynamicStrandUtils::CubicHermiteSplineTangent(const glm::vec3& P0, con
   float h11 = 3.0 * t2 - 2.0 * t;
 
   return h00 * P0 + h10 * M0 + h01 * P1 + h11 * M1;
+}
+
+std::vector<std::map<int, std::vector<size_t>>> DynamicStrandUtils::ComputeBundleMaps(
+    std::vector<DynamicStrands::GpuUniformParticle>& uniform_particles) {
+  int max_dist_from_root = 0;
+
+  for (int i = 0; i < uniform_particles.size(); i++) {
+    max_dist_from_root = std::max(max_dist_from_root, uniform_particles[i].segment_index);
+  }
+
+  std::vector<std::map<int, std::vector<size_t>>> bundle_maps(max_dist_from_root + 1);
+  std::vector<size_t> offsets(max_dist_from_root + 1, 0);
+  std::vector<std::vector<size_t>> particle_adjacent_tets(uniform_particles.size(), std::vector<size_t>{});
+
+  for (int i = 0; i < uniform_particles.size(); i++) {
+    auto& particle = uniform_particles[i];
+    auto& node_handle = particle.node_index;
+
+    if (bundle_maps[particle.segment_index].find(node_handle) == bundle_maps[particle.segment_index].end()) {
+      bundle_maps[particle.segment_index][node_handle] = std::vector<size_t>();
+    }
+
+    bundle_maps[particle.segment_index][node_handle].push_back(i);
+  }
+
+  return bundle_maps;
 }
