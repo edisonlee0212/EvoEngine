@@ -3,7 +3,6 @@
 
 #include <glm/glm.hpp>
 #include <vector>
-#include "NodeGraph.hpp"
 #include "Skeleton.hpp"
 using namespace evo_engine;
 

@@ -212,43 +212,6 @@ void ProceduralNoise2D::Deserialize(const YAML::Node& in) {
 
 bool ProceduralNoise2D::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
   bool changed = false;
-  static NodeGraph<int, int, int, int> graph{};
-  static bool showNodeGraph = false;
-  if (showNodeGraph) {
-    graph.OnInspect(
-        "Node Graph", editorLayer,
-        [&](const ImVec2 clickPos) {
-          if (ImGui::MenuItem("add")) {
-            const auto newNodeHandle = graph.AllocateNode(3, true);
-
-            ImNodes::SetNodeScreenSpacePos(newNodeHandle, clickPos);
-          }
-        },
-        [&](NodeGraphNodeHandle nodeHandle) {
-          ImGui::Text("Node");
-        },
-        [&](NodeGraphInputPinHandle inputPinHandle) {
-          ImGui::Text("Input");
-        },
-        [&](NodeGraphOutputPinHandle outputPinHandle) {
-          ImGui::Text("Output");
-        },
-        [&](NodeGraphOutputPinHandle startHandle, NodeGraphInputPinHandle endHandle) {
-          graph.AllocateLink(startHandle, endHandle);
-        },
-        [&](NodeGraphLinkHandle linkHandle) {
-          graph.RecycleLink(linkHandle);
-        },
-        [&](NodeGraphNodeHandle nodeHandle, NodeGraphLinkHandle linkHandle, NodeGraphInputPinHandle inputPinHandle,
-            NodeGraphOutputPinHandle outputPinHandle) {
-
-        },
-        [&](const std::vector<NodeGraphNodeHandle>& selectedNodeHandles,
-            const std::vector<NodeGraphLinkHandle>& selectedLinkHandles) {
-
-        });
-  }
-
   if (m_pipeline.RefRawNodes().empty()) {
     return changed;
   }

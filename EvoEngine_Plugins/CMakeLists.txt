@@ -44,7 +44,7 @@ function(register_evoengine_plugin plugin_name default_enable)
 endfunction()
 
 register_evoengine_plugin(CudaModule ON)
-
+register_evoengine_plugin(ProceduralNoise ON)
 if (WIN32)
 	register_evoengine_plugin(MeshRepair ON)
 	register_evoengine_plugin(TextureBaking ON)
