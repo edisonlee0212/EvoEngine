@@ -3,7 +3,10 @@
 //
 #include <Application.hpp>
 #include "ClassRegistry.hpp"
-
+#ifdef PROCEDURAL_NOISE_PLUGIN
+#  include "ProceduralNoiseGraph.hpp"
+using namespace evo_engine::procedural_noise;
+#endif
 #include "ProjectManager.hpp"
 
 #include "WindowLayer.hpp"
@@ -79,8 +82,13 @@ int main() {
   AssetRegistration<BarkDescriptor>("BarkDescriptor", {".bs"});
 #endif
 
+#ifdef PROCEDURAL_NOISE_PLUGIN
+  AssetRegistration<ProceduralNoiseGraph>("ProceduralNoiseGraph", {".nodes"});
+#endif
+
 #ifdef LOG_SCANNING_PLUGIN
   AssetRegistration<LogScan>("LogScan", {".jscan"});
+
   PrivateComponentRegistration<JoeScanScanner>("JoeScanScanner");
 #endif
   ApplicationInfo application_configs;
