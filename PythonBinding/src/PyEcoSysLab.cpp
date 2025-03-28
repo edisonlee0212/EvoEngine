@@ -159,9 +159,9 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
                      &TreeGrowthSettings::space_colonization_detection_distance_factor)
       .def_readwrite("space_colonization_theta", &TreeGrowthSettings::space_colonization_theta);
 
-  py::class_<Tree::PruningSettings>(m, "PruningSettings")
+  py::class_<TreePruningSettings>(m, "TreePruningSettings")
       .def(py::init<>())
-      .def_readwrite("low_branch_pruning", &Tree::PruningSettings::low_branch_pruning);
+      .def_readwrite("low_branch_pruning", &TreePruningSettings::low_branch_pruning);
 
   py::class_<CameraSettings>(m, "CameraSettings")
       .def(py::init<>())

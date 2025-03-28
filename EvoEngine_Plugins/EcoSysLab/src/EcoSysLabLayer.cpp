@@ -144,7 +144,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
         }
         if (ImGui::TreeNode("Tree Geometries")) {
           if (ImGui::TreeNode("Skeletal graph")) {
-            skeletal_graph_settings.OnInspect();
+            skeletal_graph_settings.OnInspect(editor_layer);
             ImGui::TreePop();
           }
           if (ImGui::Button("Generate Skeletal graphs")) {

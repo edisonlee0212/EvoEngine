@@ -112,7 +112,7 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
 }
 
 void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
-                               const InitializeParameters& initialize_parameters,
+                               const DynamicStrandsInitializeParameters& initialize_parameters,
                                const VisualizationParameters& visualization_parameters) const {
   if (!Platform::Constants::support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")

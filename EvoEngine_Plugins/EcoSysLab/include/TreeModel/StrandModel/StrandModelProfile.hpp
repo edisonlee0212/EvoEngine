@@ -15,6 +15,19 @@ struct ParticlePhysicsSettings {
   float particle_softness = 0.1f;  ///< Controls how soft the particles behave upon collision.
   float damping = 0.02f;           ///< Damping factor applied to particles.
   float max_speed = 60.0f;         ///< Maximum speed allowed for particles.
+  /**
+   * @brief Saves to a YAML emitter.
+   * @param name The name of the settings entry.
+   * @param out The YAML emitter to serialize data into.
+   */
+  void Save(const std::string& name, YAML::Emitter& out) const;
+
+  /**
+   * @brief Loads from a YAML node.
+   * @param name The name of the settings entry.
+   * @param in The YAML node containing serialized data.
+   */
+  void Load(const std::string& name, const YAML::Node& in);
 };
 
 /**

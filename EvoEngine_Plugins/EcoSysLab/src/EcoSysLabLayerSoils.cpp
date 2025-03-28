@@ -19,8 +19,6 @@ AssetRegistration<SoilLayerDescriptor> soil_layer_d_registry("SoilLayerDescripto
 
 PrivateComponentRegistration<Soil> soil_registry("Soil");
 
-AssetRegistration<ProceduralNoise2D> procedural_noise2d_registry("ProceduralNoise2D", {".noise2D"});
-AssetRegistration<ProceduralNoise3D> procedural_noise3d_registry("ProceduralNoise3D", {".noise3D"});
 AssetRegistration<SoilDescriptor> soil_d_registry("SoilDescriptor", {".soil"});
 bool EcoSysLabLayer::SoilVisualizationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;

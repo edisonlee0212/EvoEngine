@@ -3,8 +3,7 @@
 // #include "VoxelSoilModel.hpp"
 #include "ClimateModel.hpp"
 #include "Octree.hpp"
-#include "TreeGrowthController.hpp"
-
+#include "TreeController.hpp"
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
@@ -19,6 +18,27 @@ struct TreeGrowthSettings {
   float space_colonization_removal_distance_factor = 2;    ///< Distance factor for removing colonization nodes.
   float space_colonization_detection_distance_factor = 4;  ///< Distance factor for detecting colonization nodes.
   float space_colonization_theta = 90.0f;                  ///< The angle parameter used by space colonization.
+
+  /**
+   * @brief Inspects pruning settings in an editor.
+   * @param editor_layer The editor layer managing inspection.
+   * @return True if data was not modified during inspection.
+   */
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+
+  /**
+   * @brief Saves pruning settings to a YAML emitter.
+   * @param name The name of the settings entry.
+   * @param out The YAML emitter to serialize data into.
+   */
+  void Save(const std::string& name, YAML::Emitter& out) const;
+
+  /**
+   * @brief Loads pruning settings from a YAML node.
+   * @param name The name of the settings entry.
+   * @param in The YAML node containing serialized data.
+   */
+  void Load(const std::string& name, const YAML::Node& in);
 };
 
 /**
@@ -28,18 +48,9 @@ class TreeModel {
 #pragma region Tree Growth
   /**
    * @brief Collects the shoot flux of the tree based on its internode list.
-   * @param sorted_internode_list A sorted list of internode handles.
    * @return The computed shoot flux.
    */
-  ShootFlux CollectShootFlux(const std::vector<SkeletonNodeHandle>& sorted_internode_list);
-
-  /**
-   * @brief Computes the strength of each internode.
-   * @param sorted_internode_list A sorted list of internode handles.
-   * @param shoot_growth_controller The controller that regulates shoot growth.
-   */
-  void CalculateInternodeStrength(const std::vector<SkeletonNodeHandle>& sorted_internode_list,
-                                  const ShootGrowthController& shoot_growth_controller);
+  ShootFlux CollectShootFlux();
 
   /**
    * @brief Calculates the growth rate for the tree.
@@ -50,22 +61,22 @@ class TreeModel {
 
   /**
    * @brief Computes the growth potential based on current growth conditions.
-   * @param sorted_internode_list A sorted list of internode handles.
    * @param shoot_growth_controller The controller that regulates shoot growth.
    * @return The computed growth potential.
    */
-  float CalculateGrowthPotential(const std::vector<SkeletonNodeHandle>& sorted_internode_list,
-                                 const ShootGrowthController& shoot_growth_controller);
+  float CalculateGrowthPotential(const ShootGrowthController& shoot_growth_controller);
 
   /**
    * @brief Prunes internodes that do not contribute positively to the tree's growth.
    * @param global_transform The global transformation matrix of the tree.
    * @param climate_model The model representing environmental conditions.
    * @param shoot_growth_controller The controller that regulates shoot growth.
+   * @param shoot_pruning_controller The controller that regulates shoot pruning.
    * @return Whether any internodes were pruned.
    */
   bool PruneInternodes(const glm::mat4& global_transform, ClimateModel& climate_model,
-                       const ShootGrowthController& shoot_growth_controller);
+                       const ShootGrowthController& shoot_growth_controller,
+                       const ShootPruningController& shoot_pruning_controller);
 
   /**
    * @brief Calculates the thickness of internodes in the tree.
@@ -83,10 +94,10 @@ class TreeModel {
   /**
    * @brief Calculates the sagging stress on the tree's internodes.
    * @param internode_handle Handle to the internode affected by sagging stress.
-   * @param shoot_growth_controller The controller that regulates shoot growth.
+   * @param shoot_pruning_controller The controller that regulates shoot growth.
    */
   void CalculateSaggingStress(SkeletonNodeHandle internode_handle,
-                              const ShootGrowthController& shoot_growth_controller);
+                              const ShootPruningController& shoot_pruning_controller);
 
   /**
    * @brief Computes the hierarchical level of each internode in the tree.
@@ -125,10 +136,10 @@ class TreeModel {
                          const ShootGrowthController& shoot_growth_controller, float& collected_inhibitor);
 
   /**
-   * @brief Performs post-processing computations after shoot growth.
+   * @brief Performs pre-processing computations after shoot growth.
    * @param shoot_growth_controller The controller that regulates shoot growth.
    */
-  void ShootGrowthPostProcess(const ShootGrowthController& shoot_growth_controller);
+  void CalculateShootGrowthData(const ShootGrowthController& shoot_growth_controller);
 
   friend class Tree;
 #pragma endregion
@@ -142,7 +153,6 @@ class TreeModel {
   int leaf_count_ = 0;   ///< Number of leaves present in the tree.
   int fruit_count_ = 0;  ///< Number of fruits present in the tree.
 
-  float age_ = 0;                    ///< Age of the tree in years.
   int age_in_year_ = 0;              ///< Integer representation of the tree's age in years.
   float current_delta_time_ = 1.0f;  ///< Time step used for growth calculations.
 
@@ -154,6 +164,8 @@ class TreeModel {
   void ResetReproductiveModule();
 
   std::mt19937 random_engine_;  ///< Random number generator engine.
+
+  int iteration_ = 0;  ///< The current growth iteration of the tree.
 
  public:
   /**
@@ -202,10 +214,8 @@ class TreeModel {
    * @brief Registers the tree within a voxel-based occupancy grid.
    * @param global_transform The global transformation of the tree.
    * @param climate_model The climate model affecting growth.
-   * @param shoot_growth_controller The procedural growth parameters.
    */
-  void RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model,
-                     const ShootGrowthController& shoot_growth_controller);
+  void RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model);
 
   TreeOccupancyGrid tree_occupancy_grid{};  ///< The tree's occupancy grid.
 
@@ -223,8 +233,6 @@ class TreeModel {
    * @param harvest_function A function that returns true if the fruit should be harvested.
    */
   void HarvestFruits(const std::function<bool(const ReproductiveModule& fruit)>& harvest_function);
-
-  int iteration = 0;  ///< The current growth iteration of the tree.
 
   /**
    * @brief Applies tropism effects to a directional vector.
@@ -272,11 +280,13 @@ class TreeModel {
    * @param global_transform The global transformation matrix of the tree.
    * @param climate_model The climate influencing the tree.
    * @param shoot_growth_controller Procedural parameters for branch growth.
+   * @param shoot_pruning_controller Procedural parameters for branch pruning.
    * @param pruning Whether pruning should be applied automatically.
    * @return Whether structural changes occurred during growth.
    */
   bool Grow(float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
-            const ShootGrowthController& shoot_growth_controller, bool pruning = true);
+            const ShootGrowthController& shoot_growth_controller,
+            const ShootPruningController& shoot_pruning_controller, bool pruning = true);
 
   /**
    * @brief Simulates one growth iteration for a subtree.
@@ -285,11 +295,13 @@ class TreeModel {
    * @param global_transform The global transformation matrix of the tree.
    * @param climate_model The climate influencing the tree.
    * @param shoot_growth_controller Procedural parameters for branch growth.
+   * @param shoot_pruning_controller Procedural parameters for branch pruning.
    * @param pruning Whether pruning should be applied automatically.
    * @return Whether structural changes occurred during growth.
    */
   bool Grow(float delta_time, SkeletonNodeHandle base_internode_handle, const glm::mat4& global_transform,
-            ClimateModel& climate_model, const ShootGrowthController& shoot_growth_controller, bool pruning = true);
+            ClimateModel& climate_model, const ShootGrowthController& shoot_growth_controller,
+            const ShootPruningController& shoot_pruning_controller, bool pruning = true);
 
   int history_limit = -1;  ///< The limit for stored history states.
 
@@ -339,6 +351,20 @@ class TreeModel {
    * @param iteration The iteration index to revert to.
    */
   void Reverse(int iteration);
+
+  /**
+   * @brief Saves to a YAML emitter.
+   * @param name The name of the settings entry.
+   * @param out The YAML emitter to serialize data into.
+   */
+  void Save(const std::string& name, YAML::Emitter& out) const;
+
+  /**
+   * @brief Loads from a YAML node.
+   * @param name The name of the settings entry.
+   * @param in The YAML node containing serialized data.
+   */
+  void Load(const std::string& name, const YAML::Node& in);
 };
 
 template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>

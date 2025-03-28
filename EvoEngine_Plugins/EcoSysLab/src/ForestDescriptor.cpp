@@ -473,10 +473,7 @@ void ForestDescriptor::Serialize(YAML::Emitter& out) const {
     i.Serialize(out);
   }
   out << YAML::EndSeq;
-
-  out << YAML::Key << "tree_growth_settings" << YAML::Value << YAML::BeginMap;
-  Tree::SerializeTreeGrowthSettings(tree_growth_settings, out);
-  out << YAML::EndMap;
+  tree_growth_settings.Save("tree_growth_settings", out);
 }
 
 void ForestDescriptor::Deserialize(const YAML::Node& in) {
@@ -488,10 +485,7 @@ void ForestDescriptor::Deserialize(const YAML::Node& in) {
       back.Deserialize(i);
     }
   }
-
-  if (in["tree_growth_settings"]) {
-    Tree::DeserializeTreeGrowthSettings(tree_growth_settings, in["tree_growth_settings"]);
-  }
+  tree_growth_settings.Load("tree_growth_settings", in);
 }
 
 auto ForestDescriptor::SetupGrid(const glm::ivec2& grid_size, const float grid_distance, float random_shift) -> void {

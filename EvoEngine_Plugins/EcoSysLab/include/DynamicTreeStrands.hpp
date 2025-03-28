@@ -20,13 +20,29 @@ class DynamicTreeStrands : public IPrivateComponent {
   Handle mesh_wireframe_rendering_instance_handle;  ///< Handle for mesh wireframe rendering instance.
 
  public:
-  int seed = 0;                                 ///< Seed for procedural generation.
-  StrandModelSkeleton strand_model_skeleton{};  ///< Skeleton structure for strand models.
-  DtsStrandGroup subdivided_strand_group{};     ///< Subdivided group of strands.
+  /**
+   * @brief Initializes dynamic tree strands based on a tree structure.
+   * @param tree Shared pointer to the tree structure.
+   */
+  void InitializeFromTree(const std::shared_ptr<Tree>& tree);
 
-  DynamicStrands::InitializeParameters initialize_parameters{};  ///< Initialization parameters for DynamicStrands.
-  bool enable_physics = true;                                    ///< Flag to enable or disable physics simulation.
-  std::shared_ptr<DynamicStrands> dynamic_strands{};             ///< Shared pointer to DynamicStrands instance.
+  int seed = 0;                ///< Seed for procedural generation.
+  StrandModel strand_model{};  ///< Strand model.
+
+  DynamicStrandsInitializeParameters initialize_parameters{};  ///< Initialization parameters for DynamicStrands.
+  bool enable_physics = true;                                  ///< Flag to enable or disable physics simulation.
+  bool initialized_from_tree = false;
+  bool limit_strand_length = false;    ///< Flag to limit strand length.
+  float max_strand_length = 1.f;       ///< Maximum allowable strand length.
+  AssetRef bark_material_ref;          ///< Reference to bark material asset.
+  AssetRef inner_wood_material_ref;    ///< Reference to inner wood material asset.
+  AssetRef splinter_material_ref;      ///< Reference to splinter material asset.
+  AssetRef leaf_material_ref;          ///< Reference to leaf material asset.
+  AssetRef snow_material_ref;          ///< Reference to snow material asset.
+  AssetRef segment_pair_material_ref;  ///< Reference to segment pair material asset.
+  AssetRef wireframe_material_ref;     ///< Reference to wireframe material asset.
+
+  std::shared_ptr<DynamicStrands> dynamic_strands{};  ///< Shared pointer to DynamicStrands instance.
 
   /**
    * @struct PivotTransform
@@ -55,20 +71,9 @@ class DynamicTreeStrands : public IPrivateComponent {
     std::shared_ptr<DsPivotPoint> ds_pivot_point;  ///< Point pivot.
   };
 
-  bool limit_strand_length = false;  ///< Flag to limit strand length.
-  float max_strand_length = 1.f;     ///< Maximum allowable strand length.
-
   std::vector<PivotPoint> point_pivots;          ///< List of point pivots.
   std::vector<PivotAxis> axis_pivots;            ///< List of axis pivots.
   std::vector<PivotTransform> transform_pivots;  ///< List of transform pivots.
-
-  AssetRef bark_material_ref;          ///< Reference to bark material asset.
-  AssetRef inner_wood_material_ref;    ///< Reference to inner wood material asset.
-  AssetRef splinter_material_ref;      ///< Reference to splinter material asset.
-  AssetRef leaf_material_ref;          ///< Reference to leaf material asset.
-  AssetRef snow_material_ref;          ///< Reference to snow material asset.
-  AssetRef segment_pair_material_ref;  ///< Reference to segment pair material asset.
-  AssetRef wireframe_material_ref;     ///< Reference to wireframe material asset.
 
   std::shared_ptr<DsBoxSelection> box_selection_operator;  ///< Operator for box selection.
   std::shared_ptr<DsLineCut> line_cut_operator;            ///< Operator for line cutting.
@@ -83,7 +88,8 @@ class DynamicTreeStrands : public IPrivateComponent {
   /**
    * @brief Updates the dynamic strands simulation.
    */
-  void UpdateDynamicStrands();
+  void UpdateDynamicStrands(DtsStrandGroup& randomly_subdivided_strand_group,
+                            DtsStrandGroup& uniformly_subdivided_strand_group);
 
   /**
    * @brief Creates a static root structure for the tree strands.
@@ -211,12 +217,6 @@ class DynamicTreeStrands : public IPrivateComponent {
    * @brief Advances the interaction step in the simulation.
    */
   void InteractionStep() const;
-
-  /**
-   * @brief Initializes strand particles based on a tree structure.
-   * @param tree Shared pointer to the tree structure.
-   */
-  void InitializeFromTree(const std::shared_ptr<Tree>& tree);
 
   /**
    * @brief Advances the physics simulation step.

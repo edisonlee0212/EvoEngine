@@ -9,8 +9,10 @@ using namespace billboard_clouds_plugin;
 #include "LSystemString.hpp"
 #include "RadialBoundingVolume.hpp"
 #include "ShootDescriptor.hpp"
+#include "SkeletalGraphSettings.hpp"
 #include "Soil.hpp"
 #include "StrandModelMeshGenerator.hpp"
+#include "TreeController.hpp"
 #include "TreeDescriptor.hpp"
 #include "TreeGraph.hpp"
 #include "TreeIOTree.hpp"
@@ -18,93 +20,9 @@ using namespace billboard_clouds_plugin;
 #include "TreePart.hpp"
 #include "TreeStatistics.hpp"
 #include "TreeVisualizer.hpp"
-#ifdef PHYSX_PHYSICS_PLUGIN
-#  include "PhysicsLayer.hpp"
-#  include "RigidBody.hpp"
-#endif
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
-
-/**
- * @struct BranchPhysicsParameters
- * @brief Defines physics parameters for branches in the tree simulation.
- */
-struct BranchPhysicsParameters {
-#pragma region Physics
-  float density = 1.0f;                                 ///< Density of the branch.
-  float linear_damping = 1.0f;                          ///< Linear damping applied in simulations.
-  float angular_damping = 1.0f;                         ///< Angular damping applied in simulations.
-  int position_solver_iteration = 8;                    ///< Number of solver iterations for position calculations.
-  int velocity_solver_iteration = 8;                    ///< Number of solver iterations for velocity calculations.
-  float joint_drive_stiffness = 3000.0f;                ///< Stiffness of the joint drive.
-  float joint_drive_stiffness_thickness_factor = 3.0f;  ///< Factor affecting stiffness based on thickness.
-  float joint_drive_damping = 10.0f;                    ///< Damping of the joint drive.
-  float joint_drive_damping_thickness_factor = 3.0f;    ///< Factor affecting damping based on thickness.
-  bool enable_acceleration_for_drive = true;            ///< Flag to enable acceleration for drive.
-  float minimum_thickness = 0.01f;                      ///< Minimum thickness threshold.
-
-#pragma endregion
-
-  /**
-   * @brief Serializes the physics parameters to a YAML emitter.
-   * @param out The YAML emitter to serialize data into.
-   */
-  void Serialize(YAML::Emitter& out);
-
-  /**
-   * @brief Deserializes the physics parameters from a YAML node.
-   * @param in The YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in);
-
-  /**
-   * @brief Links the branch physics parameters with the given skeleton structure.
-   * @tparam SkeletonData Data type representing the skeleton.
-   * @tparam FlowData Data type representing the flow in the skeleton structure.
-   * @tparam NodeData Data type representing nodes in the skeleton.
-   * @param scene The scene where simulation occurs.
-   * @param skeleton The skeleton structure to link.
-   * @param corresponding_flow_handles Mapping of flow handles corresponding to skeleton.
-   * @param entity The parent entity.
-   * @param child The child entity linked to the parent.
-   */
-  template <typename SkeletonData, typename FlowData, typename NodeData>
-  void Link(const std::shared_ptr<Scene>& scene, const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
-            const std::unordered_map<unsigned, SkeletonFlowHandle>& corresponding_flow_handles, const Entity& entity,
-            const Entity& child);
-
-  /**
-   * @brief Handles the parameter inspection in the editor.
-   */
-  void OnInspect();
-};
-
-/**
- * @struct SkeletalGraphSettings
- * @brief Defines visualization settings for the skeletal graph of a tree.
- */
-struct SkeletalGraphSettings {
-  float line_thickness = 0.0f;          ///< Thickness of the skeletal graph lines.
-  float fixed_line_thickness = 0.002f;  ///< Fixed thickness value for lines.
-  float branch_point_size = 1.0f;       ///< Size of branch points.
-  float junction_point_size = 1.f;      ///< Size of junction points.
-
-  bool fixed_point_size = true;                                    ///< Determines if point size is fixed.
-  float fixed_point_size_factor = 0.005f;                          ///< Factor affecting fixed point size.
-  glm::vec4 line_color = glm::vec4(1.f, .5f, 0.5f, 1.0f);          ///< Color of skeletal graph lines.
-  glm::vec4 branch_point_color = glm::vec4(1.f, 1.f, 0.f, 1.f);    ///< Color of branch points.
-  glm::vec4 junction_point_color = glm::vec4(0.f, .7f, 1.f, 1.f);  ///< Color of junction points.
-
-  glm::vec4 line_focus_color = glm::vec4(1.f, 0.f, 0.f, 1.f);    ///< Color when a line is in focus.
-  glm::vec4 branch_focus_color = glm::vec4(1.f, 0.f, 0.f, 1.f);  ///< Color when a branch is in focus.
-
-  /**
-   * @brief Handles inspection of graphical settings in the editor.
-   */
-  void OnInspect();
-};
-
 /**
  * @class Tree
  * @brief Represents a procedural tree with various simulation and rendering capabilities.
@@ -125,7 +43,7 @@ class Tree : public IPrivateComponent {
                          const std::shared_ptr<Climate>& climate);
 
   ShootGrowthController shoot_growth_controller_{};
-
+  ShootPruningController shoot_pruning_controller_{};
   /**
    * @brief Generates tree parts based on mesh generation settings.
    * @param mesh_generator_settings Settings for generating meshes.
@@ -136,58 +54,34 @@ class Tree : public IPrivateComponent {
 
  public:
   StrandModelParameters strand_model_parameters{};  ///< Parameters defining strand-based growth modeling.
+  TreeVisualizer tree_visualizer{};                 ///< Visualizer used for debugging and display of the tree model.
 
-  /**
-   * @brief Serializes tree growth settings into a YAML emitter.
-   * @param tree_growth_settings The settings to serialize.
-   * @param out The YAML emitter to store data.
-   */
-  static void SerializeTreeGrowthSettings(const TreeGrowthSettings& tree_growth_settings, YAML::Emitter& out);
+  bool split_root_test = true;         ///< Flag to enable or disable root split testing.
+  bool record_biomass_history = true;  ///< Flag to enable or disable biomass history recording.
+  float left_side_biomass;             ///< Recorded biomass for the left section of the tree.
+  float right_side_biomass;            ///< Recorded biomass for the right section of the tree.
 
-  /**
-   * @brief Deserializes tree growth settings from a YAML node.
-   * @param tree_growth_settings The settings to populate.
-   * @param in The YAML node containing serialized settings.
-   */
-  static void DeserializeTreeGrowthSettings(TreeGrowthSettings& tree_growth_settings, const YAML::Node& in);
+  TreeMeshGeneratorSettings tree_mesh_generator_settings{};  ///< Mesh generation settings for the tree.
+  StrandModelMeshGeneratorSettings
+      strand_model_mesh_generator_settings{};       ///< Mesh generation settings for strand models.
+  SkeletalGraphSettings skeletal_graph_settings{};  ///< Graphical settings for skeletal structure visualization.
 
-  /**
-   * @brief Handles tree growth settings inspection in the editor.
-   * @param tree_growth_settings The settings to inspect.
-   * @return True if settings were not modified, false otherwise.
-   */
-  static bool OnInspectTreeGrowthSettings(TreeGrowthSettings& tree_growth_settings);
+  int temporal_progression_iteration = 0;  ///< The current iteration count for temporal progression.
+  bool temporal_progression = false;       ///< Flag to enable or disable temporal progression.
+
+  std::vector<float> root_biomass_history;   ///< History record of root biomass over time.
+  std::vector<float> shoot_biomass_history;  ///< History record of shoot biomass over time.
+
+  PrivateComponentRef soil;      ///< Reference to the associated soil component.
+  PrivateComponentRef climate;   ///< Reference to the associated climate component.
+  AssetRef tree_descriptor_ref;  ///< Reference to the tree descriptor asset.
+
+  bool enable_history = false;  ///< Flag to enable or disable history recording.
+  int history_iteration = 30;   ///< Number of iterations to retain in the history record.
 
   bool generate_mesh = true;  ///< Flag to determine if a mesh should be generated.
 
-  /**
-   * @struct PruningSettings
-   * @brief Defines settings for pruning operations on the tree.
-   */
-  struct PruningSettings {
-    float low_branch_pruning = 0.f;  ///< Factor defining low branch pruning.
-
-    /**
-     * @brief Inspects pruning settings in an editor.
-     * @param editor_layer The editor layer managing inspection.
-     * @return True if data was not modified during inspection.
-     */
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
-
-    /**
-     * @brief Saves pruning settings to a YAML emitter.
-     * @param name The name of the settings entry.
-     * @param out The YAML emitter to serialize data into.
-     */
-    void Save(const std::string& name, YAML::Emitter& out) const;
-
-    /**
-     * @brief Loads pruning settings from a YAML node.
-     * @param name The name of the settings entry.
-     * @param in The YAML node containing serialized data.
-     */
-    void Load(const std::string& name, const YAML::Node& in);
-  } pruning_settings{};
+  TreePruningSettings pruning_settings{};
 
   float start_time = 0.f;  ///< The starting time reference for tree growth simulation.
 
@@ -314,36 +208,10 @@ class Tree : public IPrivateComponent {
    */
   void Reset();
 
-  TreeVisualizer tree_visualizer{};  ///< Visualizer used for debugging and display of the tree model.
-
-  bool split_root_test = true;         ///< Flag to enable or disable root split testing.
-  bool record_biomass_history = true;  ///< Flag to enable or disable biomass history recording.
-  float left_side_biomass;             ///< Recorded biomass for the left section of the tree.
-  float right_side_biomass;            ///< Recorded biomass for the right section of the tree.
-
-  TreeMeshGeneratorSettings tree_mesh_generator_settings{};  ///< Mesh generation settings for the tree.
-  StrandModelMeshGeneratorSettings
-      strand_model_mesh_generator_settings{};           ///< Mesh generation settings for strand models.
-  SkeletalGraphSettings skeletal_graph_settings{};      ///< Graphical settings for skeletal structure visualization.
-  BranchPhysicsParameters branch_physics_parameters{};  ///< Physics parameters applied to tree branches.
-
-  int temporal_progression_iteration = 0;  ///< The current iteration count for temporal progression.
-  bool temporal_progression = false;       ///< Flag to enable or disable temporal progression.
-
   /**
    * @brief Updates the tree state.
    */
   void Update() override;
-
-  std::vector<float> root_biomass_history;   ///< History record of root biomass over time.
-  std::vector<float> shoot_biomass_history;  ///< History record of shoot biomass over time.
-
-  PrivateComponentRef soil;      ///< Reference to the associated soil component.
-  PrivateComponentRef climate;   ///< Reference to the associated climate component.
-  AssetRef tree_descriptor_ref;  ///< Reference to the tree descriptor asset.
-
-  bool enable_history = false;  ///< Flag to enable or disable history recording.
-  int history_iteration = 30;   ///< Number of iterations to retain in the history record.
 
   /**
    * @brief Clears the skeletal graph representation of the tree.
@@ -555,58 +423,6 @@ class Tree : public IPrivateComponent {
    */
   void ClearAnimatedGeometryEntities() const;
 };
-
-/**
- * @brief Links physics parameters for branches in the tree skeleton.
- * @tparam SkeletonData Data type for skeleton representation.
- * @tparam FlowData Data type for skeleton flow.
- * @tparam NodeData Data type for skeleton nodes.
- * @param scene The scene where physics interactions occur.
- * @param skeleton The skeleton representation.
- * @param corresponding_flow_handles Mapping of skeleton flow handles.
- * @param entity The parent entity in simulation.
- * @param child The child entity linked physically.
- */
-template <typename SkeletonData, typename FlowData, typename NodeData>
-void BranchPhysicsParameters::Link(const std::shared_ptr<Scene>& scene,
-                                   const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
-                                   const std::unordered_map<unsigned, SkeletonFlowHandle>& corresponding_flow_handles,
-                                   const Entity& entity, const Entity& child) {
-#ifdef PHYSX_PHYSICS_PLUGIN
-  if (!scene->HasPrivateComponent<RigidBody>(entity)) {
-    scene->RemovePrivateComponent<RigidBody>(child);
-    scene->RemovePrivateComponent<Joint>(child);
-    return;
-  }
-
-  const auto& flow = skeleton.PeekFlow(corresponding_flow_handles.at(child.GetIndex()));
-
-  const float child_thickness = flow.info.start_thickness;
-  const float child_length = flow.info.flow_length;
-
-  if (child_thickness < minimum_thickness)
-    return;
-  const auto rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(child).lock();
-  rigid_body->SetEnableGravity(false);
-  rigid_body->SetDensityAndMassCenter(density * child_thickness * child_thickness * child_length);
-  rigid_body->SetLinearDamping(linear_damping);
-  rigid_body->SetAngularDamping(angular_damping);
-  rigid_body->SetSolverIterations(position_solver_iteration, velocity_solver_iteration);
-  rigid_body->SetAngularVelocity(glm::vec3(0.0f));
-  rigid_body->SetLinearVelocity(glm::vec3(0.0f));
-
-  auto joint = scene->GetOrSetPrivateComponent<Joint>(child).lock();
-  joint->Link(entity);
-  joint->SetType(JointType::D6);
-  joint->SetMotion(MotionAxis::SwingY, MotionType::Free);
-  joint->SetMotion(MotionAxis::SwingZ, MotionType::Free);
-  joint->SetDrive(DriveType::Swing,
-                  glm::pow(child_thickness, joint_drive_stiffness_thickness_factor) * joint_drive_stiffness,
-                  glm::pow(child_thickness, joint_drive_damping_thickness_factor) * joint_drive_damping,
-                  enable_acceleration_for_drive);
-#endif
-}
-
 /**
  * @brief Imports a tree model from a skeleton structure.
  * @tparam SrcSkeletonData Data type for source skeleton representation.

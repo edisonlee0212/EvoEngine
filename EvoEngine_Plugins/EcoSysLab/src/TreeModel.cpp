@@ -4,7 +4,52 @@
 
 #include "TreeModel.hpp"
 
+#include "SkeletonSerializer.hpp"
+
 using namespace eco_sys_lab_plugin;
+bool TreeGrowthSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
+  if (ImGui::Checkbox("Enable space colonization", &use_space_colonization))
+    changed = true;
+  if (use_space_colonization) {
+    if (ImGui::Checkbox("Space colonization auto resize", &space_colonization_auto_resize))
+      changed = true;
+  }
+  return changed;
+}
+void TreeGrowthSettings::Save(const std::string& name, YAML::Emitter& out) const {
+  out << YAML::Key << name << YAML::BeginMap;
+  out << YAML::Key << "node_developmental_vigor_filling_rate" << YAML::Value << node_developmental_vigor_filling_rate;
+
+  out << YAML::Key << "use_space_colonization" << YAML::Value << use_space_colonization;
+  out << YAML::Key << "space_colonization_auto_resize" << YAML::Value << space_colonization_auto_resize;
+  out << YAML::Key << "space_colonization_removal_distance_factor" << YAML::Value
+      << space_colonization_removal_distance_factor;
+  out << YAML::Key << "space_colonization_detection_distance_factor" << YAML::Value
+      << space_colonization_detection_distance_factor;
+  out << YAML::Key << "space_colonization_theta" << YAML::Value << space_colonization_theta;
+  out << YAML::EndMap;
+}
+void TreeGrowthSettings::Load(const std::string& name, const YAML::Node& in) {
+  if (in["name"]) {
+    const auto& in_settings = in["name"];
+    if (in_settings["node_developmental_vigor_filling_rate"])
+      node_developmental_vigor_filling_rate = in_settings["node_developmental_vigor_filling_rate"].as<float>();
+    if (in_settings["use_space_colonization"])
+      use_space_colonization = in_settings["use_space_colonization"].as<bool>();
+    if (in_settings["space_colonization_auto_resize"])
+      space_colonization_auto_resize = in_settings["space_colonization_auto_resize"].as<bool>();
+    if (in_settings["space_colonization_removal_distance_factor"])
+      space_colonization_removal_distance_factor =
+          in_settings["space_colonization_removal_distance_factor"].as<float>();
+    if (in_settings["space_colonization_detection_distance_factor"])
+      space_colonization_detection_distance_factor =
+          in_settings["space_colonization_detection_distance_factor"].as<float>();
+    if (in_settings["space_colonization_theta"])
+      space_colonization_theta = in_settings["space_colonization_theta"].as<float>();
+  }
+}
+
 void ReproductiveModule::Reset() {
   maturity = 0.0f;
   health = 1.0f;
@@ -27,17 +72,15 @@ void TreeModel::ResetReproductiveModule() {
   fruit_count_ = leaf_count_ = 0;
 }
 
-void TreeModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model,
-                              const ShootGrowthController& shoot_growth_controller) {
+void TreeModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model) {
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   auto& environment_grid = climate_model.environment_grid;
   for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
     const auto& internode = shoot_skeleton_.RefNode(*it);
     const auto& internode_info = internode.info;
-    const float shadow_size = shoot_growth_controller.internode_shadow_factor;
     const float biomass = internode_info.thickness;
     const glm::vec3 world_position = global_transform * glm::vec4(internode_info.global_position, 1.0f);
-    environment_grid.AddShadowValue(world_position, shadow_size);
+    environment_grid.AddShadowValue(world_position, internode.data.shadow_size);
     environment_grid.AddBiomass(world_position, biomass);
     if (internode.IsEndNode()) {
       InternodeVoxelRegistration registration;
@@ -88,10 +131,11 @@ void TreeModel::ApplyTropism(const glm::vec3& target_dir, float tropism, glm::qu
   rotation = glm::quatLookAt(front, up);
 }
 
-bool TreeModel::Grow(float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
-                     const ShootGrowthController& shoot_growth_controller, const bool pruning) {
+bool TreeModel::Grow(const float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
+                     const ShootGrowthController& shoot_growth_controller,
+                     const ShootPruningController& shoot_pruning_controller, const bool pruning) {
   current_delta_time_ = delta_time;
-  age_ += current_delta_time_;
+  shoot_skeleton_.data.age += current_delta_time_;
   bool tree_structure_changed = false;
   if (!initialized_) {
     Initialize(shoot_growth_controller);
@@ -102,57 +146,51 @@ bool TreeModel::Grow(float delta_time, const glm::mat4& global_transform, Climat
   SampleTemperature(global_transform, climate_model);
 
   if (pruning) {
-    const bool any_branch_pruned = PruneInternodes(global_transform, climate_model, shoot_growth_controller);
-    if (any_branch_pruned)
+    CalculateShootGrowthData(shoot_growth_controller);
+    if (PruneInternodes(global_transform, climate_model, shoot_growth_controller, shoot_pruning_controller)) {
       shoot_skeleton_.SortLists();
-    tree_structure_changed = tree_structure_changed || any_branch_pruned;
-  }
-  bool any_branch_grown = false;
-  {
-    const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
-    if (!tree_growth_settings.use_space_colonization) {
-      const auto total_shoot_flux = CollectShootFlux(sorted_node_list);
-      RootFlux total_root_flux;
-      total_root_flux.value = total_shoot_flux.value;
-      const auto total_flux = glm::min(total_shoot_flux.value, total_root_flux.value);
-      CalculateInternodeStrength(sorted_node_list, shoot_growth_controller);
-      const float required_vigor = CalculateGrowthPotential(sorted_node_list, shoot_growth_controller);
-      CalculateGrowthRate(sorted_node_list, total_flux / required_vigor);
+      tree_structure_changed = true;
     }
+  }
+  CalculateShootGrowthData(shoot_growth_controller);
+  {
+    bool any_branch_grown = false;
+    const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
       const bool graph_changed = GrowInternode(climate_model, *it, shoot_growth_controller);
       any_branch_grown = any_branch_grown || graph_changed;
     }
-  }
-
-  if (any_branch_grown) {
-    shoot_skeleton_.SortLists();
+    if (any_branch_grown) {
+      shoot_skeleton_.SortLists();
+      tree_structure_changed = true;
+    }
   }
   {
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
-      const bool reproductive_module_changed = GrowReproductiveModules(climate_model, *it, shoot_growth_controller);
-      any_branch_grown = any_branch_grown || reproductive_module_changed;
+      if (GrowReproductiveModules(climate_model, *it, shoot_growth_controller)) {
+        tree_structure_changed = true;
+      }
     }
   }
-  tree_structure_changed = tree_structure_changed || any_branch_grown;
-  ShootGrowthPostProcess(shoot_growth_controller);
-
   const int year = climate_model.time;
   if (year != age_in_year_) {
     ResetReproductiveModule();
     age_in_year_ = year;
+    tree_structure_changed = true;
   }
-  iteration++;
+  CalculateShootGrowthData(shoot_growth_controller);
 
+  iteration_++;
   return tree_structure_changed;
 }
 
 bool TreeModel::Grow(const float delta_time, const SkeletonNodeHandle base_internode_handle,
                      const glm::mat4& global_transform, ClimateModel& climate_model,
-                     const ShootGrowthController& shoot_growth_controller, const bool pruning) {
+                     const ShootGrowthController& shoot_growth_controller,
+                     const ShootPruningController& shoot_pruning_controller, const bool pruning) {
   current_delta_time_ = delta_time;
-  age_ += current_delta_time_;
+  shoot_skeleton_.data.age += current_delta_time_;
   bool tree_structure_changed = false;
   if (!initialized_) {
     Initialize(shoot_growth_controller);
@@ -165,22 +203,16 @@ bool TreeModel::Grow(const float delta_time, const SkeletonNodeHandle base_inter
   CalculateShootFlux(global_transform, climate_model, shoot_growth_controller);
   SampleTemperature(global_transform, climate_model);
   if (pruning) {
-    const bool any_branch_pruned = PruneInternodes(global_transform, climate_model, shoot_growth_controller);
-    if (any_branch_pruned)
+    CalculateShootGrowthData(shoot_growth_controller);
+    if (PruneInternodes(global_transform, climate_model, shoot_growth_controller, shoot_pruning_controller)) {
       shoot_skeleton_.SortLists();
-    tree_structure_changed = tree_structure_changed || any_branch_pruned;
+      tree_structure_changed = true;
+    }
   }
   bool any_branch_grown = false;
   auto sorted_sub_tree_internode_list = shoot_skeleton_.GetSubTree(base_internode_handle);
 
-  if (!tree_growth_settings.use_space_colonization) {
-    const auto total_shoot_flux = CollectShootFlux(sorted_sub_tree_internode_list);
-    RootFlux total_root_flux;
-    total_root_flux.value = total_shoot_flux.value;
-    const auto total_flux = glm::min(total_shoot_flux.value, total_root_flux.value);
-    const float required_vigor = CalculateGrowthPotential(sorted_sub_tree_internode_list, shoot_growth_controller);
-    CalculateGrowthRate(sorted_sub_tree_internode_list, total_flux / required_vigor);
-  }
+  CalculateShootGrowthData(shoot_growth_controller);
   for (auto it = sorted_sub_tree_internode_list.rbegin(); it != sorted_sub_tree_internode_list.rend(); ++it) {
     const bool graph_changed = GrowInternode(climate_model, *it, shoot_growth_controller);
     any_branch_grown = any_branch_grown || graph_changed;
@@ -188,20 +220,21 @@ bool TreeModel::Grow(const float delta_time, const SkeletonNodeHandle base_inter
   if (any_branch_grown) {
     shoot_skeleton_.SortLists();
     sorted_sub_tree_internode_list = shoot_skeleton_.GetSubTree(base_internode_handle);
+    tree_structure_changed = true;
   }
   for (auto it = sorted_sub_tree_internode_list.rbegin(); it != sorted_sub_tree_internode_list.rend(); ++it) {
-    const bool reproductive_module_changed = GrowReproductiveModules(climate_model, *it, shoot_growth_controller);
-    any_branch_grown = any_branch_grown || reproductive_module_changed;
+    if (GrowReproductiveModules(climate_model, *it, shoot_growth_controller)) {
+      tree_structure_changed = true;
+    }
   }
-  tree_structure_changed = tree_structure_changed || any_branch_grown;
-  ShootGrowthPostProcess(shoot_growth_controller);
-
   const int year = climate_model.time;
   if (year != age_in_year_) {
     ResetReproductiveModule();
     age_in_year_ = year;
+    tree_structure_changed = true;
   }
-  iteration++;
+  CalculateShootGrowthData(shoot_growth_controller);
+  iteration_++;
 
   return tree_structure_changed;
 }
@@ -211,30 +244,29 @@ void TreeModel::Initialize(const ShootGrowthController& shoot_growth_controller)
     Clear();
   random_engine_ = std::mt19937(static_cast<uint32_t>(seed));
   {
-    shoot_skeleton_ = ShootSkeleton(shoot_growth_controller.base_internode_count);
+    shoot_skeleton_ = ShootSkeleton(shoot_growth_controller.root_internode_count);
     shoot_skeleton_.SortLists();
     for (const auto& node_handle : shoot_skeleton_.PeekSortedNodeList()) {
       auto& node = shoot_skeleton_.RefNode(node_handle);
-      node.info.thickness = shoot_growth_controller.end_node_thickness;
+      node.info.thickness = shoot_growth_controller.base_thickness;
       node.data.internode_length = 0.0f;
       node.data.buds.emplace_back();
       auto& apical_bud = node.data.buds.back();
       apical_bud.type = BudType::Apical;
       apical_bud.status = BudStatus::Dormant;
 
-      apical_bud.local_rotation =
-          glm::vec3(glm::radians(shoot_growth_controller.base_node_apical_angle(random_engine_, node)), 0.0f,
-                    glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
+      apical_bud.local_rotation = glm::vec3(0, 0.0f, glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
     }
   }
 
   if (tree_growth_settings.use_space_colonization && tree_growth_settings.space_colonization_auto_resize) {
-    const auto grid_radius =
-        tree_growth_settings.space_colonization_detection_distance_factor * shoot_growth_controller.internode_length;
-    tree_occupancy_grid.Initialize(
-        glm::vec3(-grid_radius, 0.0f, -grid_radius), glm::vec3(grid_radius), shoot_growth_controller.internode_length,
-        tree_growth_settings.space_colonization_removal_distance_factor, tree_growth_settings.space_colonization_theta,
-        tree_growth_settings.space_colonization_detection_distance_factor);
+    const auto grid_radius = tree_growth_settings.space_colonization_detection_distance_factor *
+                             shoot_growth_controller.base_internode_length;
+    tree_occupancy_grid.Initialize(glm::vec3(-grid_radius, 0.0f, -grid_radius), glm::vec3(grid_radius),
+                                   shoot_growth_controller.base_internode_length,
+                                   tree_growth_settings.space_colonization_removal_distance_factor,
+                                   tree_growth_settings.space_colonization_theta,
+                                   tree_growth_settings.space_colonization_detection_distance_factor);
   }
 
   initialized_ = true;
@@ -252,7 +284,7 @@ void TreeModel::CalculateShootFlux(const glm::mat4& global_transform, const Clim
       const auto original_min = tree_occupancy_grid.GetMin();
       const auto original_max = tree_occupancy_grid.GetMax();
       if (const float detection_range = tree_growth_settings.space_colonization_detection_distance_factor *
-                                        shoot_growth_controller.internode_length;
+                                        shoot_growth_controller.base_internode_length;
           min_bound.x - detection_range < original_min.x || min_bound.y < original_min.y ||
           min_bound.z - detection_range < original_min.z || max_bound.x + detection_range > original_max.x ||
           max_bound.y + detection_range > original_max.y || max_bound.z + detection_range > original_max.z) {
@@ -271,34 +303,34 @@ void TreeModel::CalculateShootFlux(const glm::mat4& global_transform, const Clim
       }
       internode_data.light_direction = glm::vec3(0.0f);
       const auto dot_min = glm::cos(glm::radians(tree_occupancy_grid.GetTheta()));
-      voxel_grid.ForEach(
-          internode_data.desired_global_position,
-          tree_growth_settings.space_colonization_removal_distance_factor * shoot_growth_controller.internode_length,
-          [&](TreeOccupancyGridVoxelData& voxel_data) {
-            for (auto& marker : voxel_data.markers) {
-              const auto diff = marker.position - internode_data.desired_global_position;
-              const auto distance = glm::length(diff);
-              const auto direction = glm::normalize(diff);
-              if (distance < tree_growth_settings.space_colonization_detection_distance_factor *
-                                 shoot_growth_controller.internode_length) {
-                if (marker.node_handle != -1)
-                  continue;
-                if (distance < tree_growth_settings.space_colonization_removal_distance_factor *
-                                   shoot_growth_controller.internode_length) {
-                  marker.node_handle = internode_handle;
-                } else {
-                  for (auto& bud : internode_data.buds) {
-                    if (auto bud_direction =
-                            glm::normalize(internode.info.global_rotation * bud.local_rotation * glm::vec3(0, 0, -1));
-                        glm::dot(direction, bud_direction) > dot_min) {
-                      bud.marker_direction += direction;
-                      bud.marker_count++;
-                    }
-                  }
-                }
-              }
-            }
-          });
+      voxel_grid.ForEach(internode_data.desired_global_position,
+                         tree_growth_settings.space_colonization_removal_distance_factor *
+                             shoot_growth_controller.base_internode_length,
+                         [&](TreeOccupancyGridVoxelData& voxel_data) {
+                           for (auto& marker : voxel_data.markers) {
+                             const auto diff = marker.position - internode_data.desired_global_position;
+                             const auto distance = glm::length(diff);
+                             const auto direction = glm::normalize(diff);
+                             if (distance < tree_growth_settings.space_colonization_detection_distance_factor *
+                                                shoot_growth_controller.base_internode_length) {
+                               if (marker.node_handle != -1)
+                                 continue;
+                               if (distance < tree_growth_settings.space_colonization_removal_distance_factor *
+                                                  shoot_growth_controller.base_internode_length) {
+                                 marker.node_handle = internode_handle;
+                               } else {
+                                 for (auto& bud : internode_data.buds) {
+                                   if (auto bud_direction = glm::normalize(internode.info.global_rotation *
+                                                                           bud.local_rotation * glm::vec3(0, 0, -1));
+                                       glm::dot(direction, bud_direction) > dot_min) {
+                                     bud.marker_direction += direction;
+                                     bud.marker_count++;
+                                   }
+                                 }
+                               }
+                             }
+                           }
+                         });
     }
   }
   for (const auto& internode_handle : sorted_internode_list) {
@@ -326,9 +358,11 @@ void TreeModel::CalculateShootFlux(const glm::mat4& global_transform, const Clim
     internode_data.space_occupancy = climate_model.environment_grid.voxel_grid.Peek(position).total_biomass;
   }
 }
-ShootFlux TreeModel::CollectShootFlux(const std::vector<SkeletonNodeHandle>& sorted_internode_list) {
+
+ShootFlux TreeModel::CollectShootFlux() {
   ShootFlux total_shoot_flux;
   total_shoot_flux.value = 0.0f;
+  const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   for (const auto& internode_handle : sorted_internode_list) {
     auto& internode = shoot_skeleton_.RefNode(internode_handle);
     const auto& internode_data = internode.data;
@@ -346,76 +380,6 @@ ShootFlux TreeModel::CollectShootFlux(const std::vector<SkeletonNodeHandle>& sor
     }
   }
   return total_shoot_flux;
-}
-
-void TreeModel::CalculateInternodeStrength(const std::vector<SkeletonNodeHandle>& sorted_internode_list,
-                                           const ShootGrowthController& shoot_growth_controller) {
-  for (const auto& internode_handle : sorted_internode_list) {
-    auto& internode = shoot_skeleton_.RefNode(internode_handle);
-    auto& internode_data = internode.data;
-    internode_data.strength = shoot_growth_controller.internode_strength(random_engine_, internode);
-  }
-}
-
-void TreeModel::ShootGrowthPostProcess(const ShootGrowthController& shoot_growth_controller) {
-  {
-    shoot_skeleton_.min = glm::vec3(FLT_MAX);
-    shoot_skeleton_.max = glm::vec3(-FLT_MAX);
-    shoot_skeleton_.data.desired_min = glm::vec3(FLT_MAX);
-    shoot_skeleton_.data.desired_max = glm::vec3(-FLT_MAX);
-
-    shoot_skeleton_.CalculateDistance();
-    CalculateThickness(shoot_growth_controller);
-    const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
-    for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
-      CalculateBiomass(*it, shoot_growth_controller);
-      CalculateSaggingStress(*it, shoot_growth_controller);
-    }
-    CalculateLevel();
-    CalculateTransform(shoot_growth_controller, true);
-  };
-
-  internode_order_counts.clear();
-  fruit_count_ = leaf_count_ = 0;
-  {
-    int max_order = 0;
-    const auto& sorted_flow_list = shoot_skeleton_.PeekSortedFlowList();
-    for (const auto& flow_handle : sorted_flow_list) {
-      auto& flow = shoot_skeleton_.RefFlow(flow_handle);
-      auto& flow_data = flow.data;
-      if (flow.GetParentHandle() == -1) {
-        flow_data.order = 0;
-      } else {
-        const auto& parent_flow = shoot_skeleton_.RefFlow(flow.GetParentHandle());
-        if (flow.IsApical())
-          flow_data.order = parent_flow.data.order;
-        else
-          flow_data.order = parent_flow.data.order + 1;
-      }
-      max_order = glm::max(max_order, flow_data.order);
-    }
-    internode_order_counts.resize(max_order + 1);
-    std::fill(internode_order_counts.begin(), internode_order_counts.end(), 0);
-    const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
-    for (const auto& internode_handle : sorted_internode_list) {
-      auto& internode = shoot_skeleton_.RefNode(internode_handle);
-      internode.info.leaves = shoot_growth_controller.leaf(random_engine_, internode);
-      const auto order = shoot_skeleton_.RefFlow(internode.GetFlowHandle()).data.order;
-      internode.data.order = order;
-      internode_order_counts[order]++;
-
-      for (const auto& bud : internode.data.buds) {
-        if (bud.status != BudStatus::Died || bud.reproductive_module.maturity <= 0)
-          continue;
-        if (bud.type == BudType::Fruit) {
-          fruit_count_++;
-        } else if (bud.type == BudType::Leaf) {
-          leaf_count_++;
-        }
-      }
-    }
-    shoot_skeleton_.CalculateFlows();
-  }
 }
 
 float TreeModel::GetSubTreeMaxAge(const SkeletonNodeHandle base_internode_handle) const {
@@ -441,7 +405,7 @@ bool TreeModel::Reduce(const ShootGrowthController& shoot_growth_controller,
     if (internode.data.start_age > target_age) {
       if (const auto parent_handle = internode.GetParentHandle(); parent_handle != -1) {
         auto& parent = shoot_skeleton_.RefNode(parent_handle);
-        parent.info.thickness = shoot_growth_controller.end_node_thickness;
+        parent.info.thickness = shoot_growth_controller.base_thickness;
         parent.data.buds[internode.data.index_of_parent_bud].status = BudStatus::Dormant;
       }
       pruning_node_handles.emplace_back(*it);
@@ -449,7 +413,7 @@ bool TreeModel::Reduce(const ShootGrowthController& shoot_growth_controller,
     }
   }
   shoot_skeleton_.RemoveNodes(pruning_node_handles);
-  ShootGrowthPostProcess(shoot_growth_controller);
+  CalculateShootGrowthData(shoot_growth_controller);
   return reduced;
 }
 
@@ -460,9 +424,7 @@ void TreeModel::CalculateTransform(const ShootGrowthController& shoot_growth_con
     auto& internode_data = internode.data;
     auto& internode_info = internode.info;
 
-    internode_info.length = internode_data.internode_length *
-                            glm::pow(internode_info.thickness / shoot_growth_controller.end_node_thickness,
-                                     shoot_growth_controller.internode_length_thickness_factor);
+    internode_info.length = shoot_growth_controller.internode_length(random_engine_, shoot_skeleton_.data, internode);
 
     if (internode.GetParentHandle() == -1) {
       internode_info.global_position = internode_data.desired_global_position = glm::vec3(0.0f);
@@ -472,7 +434,7 @@ void TreeModel::CalculateTransform(const ShootGrowthController& shoot_growth_con
       internode_info.GetGlobalDirection() = glm::normalize(internode_info.global_rotation * glm::vec3(0, 0, -1));
     } else {
       auto& parent_internode = shoot_skeleton_.RefNode(internode.GetParentHandle());
-      internode_data.sagging = shoot_growth_controller.sagging(random_engine_, internode);
+      internode_data.sagging = shoot_growth_controller.sagging(random_engine_, shoot_skeleton_.data, internode);
       auto parent_global_rotation = parent_internode.info.global_rotation;
       internode_info.global_rotation = parent_global_rotation * internode_data.desired_local_rotation;
       auto front = glm::normalize(internode_info.global_rotation * glm::vec3(0, 0, -1));
@@ -508,6 +470,8 @@ void TreeModel::CalculateTransform(const ShootGrowthController& shoot_growth_con
       auto parent_desired_front = parent_internode.data.desired_global_rotation * glm::vec3(0, 0, -1);
       internode_data.desired_global_position =
           parent_internode.data.desired_global_position + parent_internode.info.length * parent_desired_front;
+
+      internode_data.shadow_size = shoot_growth_controller.shadow_size(random_engine_, shoot_skeleton_.data, internode);
     }
 
     shoot_skeleton_.min = glm::min(shoot_skeleton_.min, internode_info.global_position);
@@ -533,7 +497,7 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
                                   const ShootGrowthController& shoot_growth_controller, float& collected_inhibitor) {
   bool graph_changed = false;
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
-  const auto internode_length = shoot_growth_controller.internode_length;
+  const auto internode_length = shoot_growth_controller.base_internode_length;
   auto& internode_data = internode.data;
   const auto& internode_info = internode.info;
   internode_data.internode_length += extended_length;
@@ -547,24 +511,27 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
     auto desired_global_front = desired_global_rotation * glm::vec3(0, 0, -1);
     auto desired_global_up = desired_global_rotation * glm::vec3(0, 1, 0);
     if (internode_handle != 0) {
-      ApplyTropism(-current_gravity_direction, shoot_growth_controller.gravitropism(random_engine_, internode),
+      ApplyTropism(-current_gravity_direction,
+                   shoot_growth_controller.gravitropism(random_engine_, shoot_skeleton_.data, internode),
                    desired_global_front, desired_global_up);
-      ApplyTropism(internode_data.light_direction, shoot_growth_controller.phototropism(random_engine_, internode),
+      ApplyTropism(internode_data.light_direction,
+                   shoot_growth_controller.phototropism(random_engine_, shoot_skeleton_.data, internode),
                    desired_global_front, desired_global_up);
     }
     // First, remove only apical bud.
     internode.data.buds.clear();
     // Allocate Lateral bud for current internode
 
-    const auto lateral_bud_count = shoot_growth_controller.lateral_bud_count(random_engine_, internode);
+    const auto lateral_bud_count =
+        shoot_growth_controller.lateral_bud_count(random_engine_, shoot_skeleton_.data, internode);
     for (int i = 0; i < lateral_bud_count; i++) {
       internode_data.buds.emplace_back();
       auto& new_lateral_bud = internode_data.buds.back();
       new_lateral_bud.type = BudType::Lateral;
       new_lateral_bud.status = BudStatus::Dormant;
-      new_lateral_bud.local_rotation =
-          glm::vec3(0.f, glm::radians(shoot_growth_controller.branching_angle(random_engine_, internode)),
-                    Random::Uniform(random_engine_, 0.f, 360.f));
+      new_lateral_bud.local_rotation = glm::vec3(
+          0.f, glm::radians(shoot_growth_controller.branching_angle(random_engine_, shoot_skeleton_.data, internode)),
+          Random::Uniform(random_engine_, 0.f, 360.f));
     }
 
     // Allocate Fruit bud for current internode
@@ -576,9 +543,9 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
         new_fruit_bud.type = BudType::Fruit;
         new_fruit_bud.status = BudStatus::Dormant;
 
-        new_fruit_bud.local_rotation =
-            glm::vec3(glm::radians(shoot_growth_controller.branching_angle(random_engine_, internode)), 0.0f,
-                      glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
+        new_fruit_bud.local_rotation = glm::vec3(
+            glm::radians(shoot_growth_controller.branching_angle(random_engine_, shoot_skeleton_.data, internode)),
+            0.0f, glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
       }
     }
     // Allocate Leaf bud for current internode
@@ -591,9 +558,9 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
         new_leaf_bud.type = BudType::Leaf;
         new_leaf_bud.status = BudStatus::Dormant;
 
-        new_leaf_bud.local_rotation =
-            glm::vec3(glm::radians(shoot_growth_controller.branching_angle(random_engine_, internode)), 0.0f,
-                      glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
+        new_leaf_bud.local_rotation = glm::vec3(
+            glm::radians(shoot_growth_controller.branching_angle(random_engine_, shoot_skeleton_.data, internode)),
+            0.0f, glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
       }
     }
 
@@ -606,44 +573,114 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
     new_internode.data.index_of_parent_bud = 0;
     new_internode.data.light_intake = old_internode.data.light_intake;
     new_internode.data.light_direction = old_internode.data.light_direction;
-    old_internode.data.finish_age = new_internode.data.start_age = age_;
+    old_internode.data.finish_age = new_internode.data.start_age = shoot_skeleton_.data.age;
     new_internode.data.finish_age = 0.0f;
     new_internode.data.order = old_internode.data.order;
     new_internode.data.inhibitor_sink = 0.0f;
     new_internode.data.internode_length = glm::clamp(extended_length, 0.0f, internode_length);
     new_internode.info.root_distance = old_internode.info.root_distance + new_internode.data.internode_length;
-    new_internode.info.thickness = shoot_growth_controller.end_node_thickness;
+    new_internode.info.thickness = shoot_growth_controller.base_thickness;
     new_internode.info.global_rotation = glm::quatLookAt(desired_global_front, desired_global_up);
     new_internode.data.desired_local_rotation =
         glm::inverse(old_internode.info.global_rotation) * new_internode.info.global_rotation;
 
-    if (shoot_growth_controller.apical_bud_extinction_rate(random_engine_, old_internode) <
+    if (shoot_growth_controller.bud_flushing_rate(random_engine_, shoot_skeleton_.data, old_internode) >=
         Random::Uniform(random_engine_, 0.f, 1.f)) {
       // Allocate apical bud for new internode
       new_internode.data.buds.emplace_back();
       auto& new_apical_bud = new_internode.data.buds.back();
       new_apical_bud.type = BudType::Apical;
       new_apical_bud.status = BudStatus::Dormant;
-      new_apical_bud.local_rotation =
-          glm::vec3(glm::radians(shoot_growth_controller.apical_angle(random_engine_, new_internode)), 0.0f,
-                    glm::radians(shoot_growth_controller.roll_angle(random_engine_, new_internode)));
+      new_apical_bud.local_rotation = glm::vec3(
+          glm::radians(shoot_growth_controller.apical_angle(random_engine_, shoot_skeleton_.data, new_internode)), 0.0f,
+          glm::radians(shoot_growth_controller.roll_angle(random_engine_, shoot_skeleton_.data, new_internode)));
       if (extra_length > internode_length) {
         float child_inhibitor = 0.0f;
         ElongateInternode(extra_length - internode_length, new_internode_handle, shoot_growth_controller,
                           child_inhibitor);
         auto& current_new_internode = shoot_skeleton_.RefNode(new_internode_handle);
         current_new_internode.data.inhibitor_sink += glm::max(
-            0.0f, child_inhibitor * glm::clamp(1.0f - shoot_growth_controller.apical_dominance_loss, 0.0f, 1.0f));
-        collected_inhibitor += current_new_internode.data.inhibitor_sink +
-                               shoot_growth_controller.apical_dominance(random_engine_, current_new_internode);
+            0.0f, child_inhibitor * glm::clamp(1.0f - shoot_growth_controller.growth_inhibitor_transport_reduction(
+                                                          random_engine_, shoot_skeleton_.data, current_new_internode),
+                                               0.0f, 1.0f));
+        collected_inhibitor +=
+            current_new_internode.data.inhibitor_sink +
+            shoot_growth_controller.growth_inhibitor(random_engine_, shoot_skeleton_.data, current_new_internode);
       } else {
-        collected_inhibitor += shoot_growth_controller.apical_dominance(random_engine_, new_internode);
+        collected_inhibitor +=
+            shoot_growth_controller.growth_inhibitor(random_engine_, shoot_skeleton_.data, new_internode);
       }
     } else {
       new_internode.info.thickness = old_internode.info.thickness;
     }
   }
   return graph_changed;
+}
+void TreeModel::CalculateShootGrowthData(const ShootGrowthController& shoot_growth_controller) {
+  const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
+  int max_order = 0;
+  const auto& sorted_flow_list = shoot_skeleton_.PeekSortedFlowList();
+  {
+    shoot_skeleton_.min = glm::vec3(FLT_MAX);
+    shoot_skeleton_.max = glm::vec3(-FLT_MAX);
+    shoot_skeleton_.data.desired_min = glm::vec3(FLT_MAX);
+    shoot_skeleton_.data.desired_max = glm::vec3(-FLT_MAX);
+
+    shoot_skeleton_.CalculateDistance();
+    CalculateThickness(shoot_growth_controller);
+    for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
+      CalculateBiomass(*it, shoot_growth_controller);
+    }
+    CalculateLevel();
+    CalculateTransform(shoot_growth_controller, true);
+  }
+  shoot_skeleton_.CalculateFlows();
+
+  for (const auto& flow_handle : sorted_flow_list) {
+    auto& flow = shoot_skeleton_.RefFlow(flow_handle);
+    auto& flow_data = flow.data;
+    if (flow.GetParentHandle() == -1) {
+      flow_data.order = 0;
+    } else {
+      const auto& parent_flow = shoot_skeleton_.RefFlow(flow.GetParentHandle());
+      if (flow.IsApical())
+        flow_data.order = parent_flow.data.order;
+      else
+        flow_data.order = parent_flow.data.order + 1;
+    }
+    max_order = glm::max(max_order, flow_data.order);
+  }
+
+  internode_order_counts.clear();
+  fruit_count_ = leaf_count_ = 0;
+  internode_order_counts.resize(max_order + 1);
+  std::fill(internode_order_counts.begin(), internode_order_counts.end(), 0);
+  for (const auto& internode_handle : sorted_internode_list) {
+    auto& internode = shoot_skeleton_.RefNode(internode_handle);
+    internode.info.leaves = shoot_growth_controller.leaf(random_engine_, shoot_skeleton_.data, internode);
+    const auto order = shoot_skeleton_.RefFlow(internode.GetFlowHandle()).data.order;
+    internode.data.order = order;
+    internode_order_counts[order]++;
+
+    for (const auto& bud : internode.data.buds) {
+      if (bud.status != BudStatus::Died || bud.reproductive_module.maturity <= 0)
+        continue;
+      if (bud.type == BudType::Fruit) {
+        fruit_count_++;
+      } else if (bud.type == BudType::Leaf) {
+        leaf_count_++;
+      }
+    }
+  }
+
+  if (!tree_growth_settings.use_space_colonization) {
+    const auto total_shoot_flux = CollectShootFlux();
+    RootFlux total_root_flux;
+    total_root_flux.value = total_shoot_flux.value;
+    const auto total_flux = glm::min(total_shoot_flux.value, total_root_flux.value);
+    const float required_vigor = CalculateGrowthPotential(shoot_growth_controller);
+    CalculateGrowthRate(sorted_internode_list, total_flux / required_vigor);
+  }
 }
 
 bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHandle internode_handle,
@@ -657,11 +694,14 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
       auto& child_node = shoot_skeleton_.RefNode(child_handle);
       float child_node_inhibitor = 0.f;
       if (!child_node.data.buds.empty() && child_node.data.buds[0].type == BudType::Apical) {
-        child_node_inhibitor = shoot_growth_controller.apical_dominance(random_engine_, child_node);
+        child_node_inhibitor =
+            shoot_growth_controller.growth_inhibitor(random_engine_, shoot_skeleton_.data, child_node);
       }
       internode_data.inhibitor_sink +=
           glm::max(0.0f, (child_node_inhibitor + child_node.data.inhibitor_sink) *
-                             glm::clamp(1.0f - shoot_growth_controller.apical_dominance_loss, 0.0f, 1.0f));
+                             glm::clamp(1.0f - shoot_growth_controller.growth_inhibitor_transport_reduction(
+                                                   random_engine_, shoot_skeleton_.data, internode),
+                                        0.0f, 1.0f));
     }
     if (!internode.data.buds.empty()) {
       const auto& bud = internode.data.buds[0];
@@ -671,18 +711,23 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
         if (tree_growth_settings.use_space_colonization) {
           if (shoot_skeleton_.data.max_marker_count > 0)
             elongate_length = static_cast<float>(bud.marker_count) / shoot_skeleton_.data.max_marker_count *
-                              shoot_growth_controller.internode_length;
+                              shoot_growth_controller.base_internode_length;
         } else {
           elongate_length = internode_data.growth_rate * current_delta_time_ *
-                            shoot_growth_controller.internode_length * shoot_growth_controller.internode_growth_rate;
+                            shoot_growth_controller.base_internode_length *
+                            shoot_growth_controller.internode_growth_rate;
         }
         // Use up the vigor stored in this bud.
         float collected_inhibitor = 0.0f;
         graph_changed =
             ElongateInternode(elongate_length, internode_handle, shoot_growth_controller, collected_inhibitor) ||
             graph_changed;
-        shoot_skeleton_.RefNode(internode_handle).data.inhibitor_sink += glm::max(
-            0.0f, collected_inhibitor * glm::clamp(1.0f - shoot_growth_controller.apical_dominance_loss, 0.0f, 1.0f));
+        auto& current_internode = shoot_skeleton_.RefNode(internode_handle);
+
+        current_internode.data.inhibitor_sink += glm::max(
+            0.0f, collected_inhibitor * glm::clamp(1.0f - shoot_growth_controller.growth_inhibitor_transport_reduction(
+                                                              random_engine_, shoot_skeleton_.data, current_internode),
+                                                   0.0f, 1.0f));
       }
     }
   }
@@ -694,8 +739,8 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
     const auto& internode_data = internode.data;
     const auto& internode_info = internode.info;
     if (bud.type == BudType::Lateral && bud.status == BudStatus::Dormant) {
-      float flush_probability = bud.flushing_rate =
-          shoot_growth_controller.lateral_bud_flushing_rate(random_engine_, internode);
+      float flush_probability =
+          shoot_growth_controller.bud_flushing_rate(random_engine_, shoot_skeleton_.data, internode);
       if (tree_growth_settings.use_space_colonization) {
         if (shoot_skeleton_.data.max_marker_count > 0)
           flush_probability *= static_cast<float>(bud.marker_count) / shoot_skeleton_.data.max_marker_count;
@@ -709,15 +754,17 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
         const auto desired_global_rotation = internode_info.global_rotation * bud.local_rotation;
         auto desired_global_front = desired_global_rotation * glm::vec3(0, 0, -1);
         auto desired_global_up = desired_global_rotation * glm::vec3(0, 1, 0);
-        ApplyTropism(-current_gravity_direction, shoot_growth_controller.gravitropism(random_engine_, internode),
+        ApplyTropism(-current_gravity_direction,
+                     shoot_growth_controller.gravitropism(random_engine_, shoot_skeleton_.data, internode),
                      desired_global_front, desired_global_up);
-        ApplyTropism(internode_data.light_direction, shoot_growth_controller.phototropism(random_engine_, internode),
+        ApplyTropism(internode_data.light_direction,
+                     shoot_growth_controller.phototropism(random_engine_, shoot_skeleton_.data, internode),
                      desired_global_front, desired_global_up);
         if (const auto horizontal_direction = glm::vec3(desired_global_front.x, 0.0f, desired_global_front.z);
             glm::length(horizontal_direction) > glm::epsilon<float>()) {
           ApplyTropism(glm::normalize(horizontal_direction),
-                       shoot_growth_controller.horizontal_tropism(random_engine_, internode), desired_global_front,
-                       desired_global_up);
+                       shoot_growth_controller.horizontal_tropism(random_engine_, shoot_skeleton_.data, internode),
+                       desired_global_front, desired_global_up);
         }
         // Remove current lateral bud.
         internode.data.buds[bud_index] = internode.data.buds.back();
@@ -731,12 +778,12 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
         auto& new_internode = shoot_skeleton_.RefNode(new_internode_handle);
         new_internode.data = {};
         new_internode.data.index_of_parent_bud = 0;
-        new_internode.data.start_age = age_;
+        new_internode.data.start_age = shoot_skeleton_.data.age;
         new_internode.data.finish_age = 0.0f;
         new_internode.data.order = old_internode.data.order + 1;
         new_internode.data.internode_length = 0.0f;
         new_internode.info.root_distance = old_internode.info.root_distance;
-        new_internode.info.thickness = shoot_growth_controller.end_node_thickness;
+        new_internode.info.thickness = shoot_growth_controller.base_thickness;
         new_internode.data.desired_local_rotation =
             glm::inverse(old_internode.info.global_rotation) * glm::quatLookAt(desired_global_front, desired_global_up);
         // Allocate apical bud
@@ -899,59 +946,14 @@ void TreeModel::CalculateGrowthRate(const std::vector<SkeletonNodeHandle>& sorte
   }
 }
 
-float TreeModel::CalculateGrowthPotential(const std::vector<SkeletonNodeHandle>& sorted_internode_list,
-                                          const ShootGrowthController& shoot_growth_controller) {
-  const float apical_control = shoot_growth_controller.apical_control;
-  const float root_distance_control = shoot_growth_controller.root_distance_control;
-  const float height_control = shoot_growth_controller.height_control;
-
+float TreeModel::CalculateGrowthPotential(const ShootGrowthController& shoot_growth_controller) {
   float max_grow_potential = 0.0f;
-
-  std::vector<float> apical_control_values{};
-
-  const auto max_val = shoot_growth_controller.use_level_for_apical_control ? shoot_skeleton_.data.max_level
-                                                                            : shoot_skeleton_.data.max_order;
-  apical_control_values.resize(max_val + 1);
-  apical_control_values[0] = 1.0f;
-  for (int i = 1; i < (max_val + 1); i++) {
-    apical_control_values[i] = apical_control_values[i - 1] * apical_control;
-  }
-
+  const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   for (const auto& internode_handle : sorted_internode_list) {
-    auto& node = shoot_skeleton_.RefNode(internode_handle);
-
-    float local_apical_control;
-    if (apical_control > 1.0f) {
-      local_apical_control =
-          1.0f / apical_control_values[(shoot_growth_controller.use_level_for_apical_control ? node.data.level
-                                                                                             : node.data.order)];
-    } else if (apical_control < 1.0f) {
-      local_apical_control =
-          apical_control_values[max_val - (shoot_growth_controller.use_level_for_apical_control ? node.data.level
-                                                                                                : node.data.order)];
-    } else {
-      local_apical_control = 1.0f;
-    }
-    float local_root_distance_control;
-    if (root_distance_control != 0.f) {
-      float distance = node.info.root_distance + node.info.length;
-      if (distance == 0.f)
-        distance = 1.f;
-      local_root_distance_control = glm::pow(1.f / distance, root_distance_control);
-    } else {
-      local_root_distance_control = 1.f;
-    }
-    float local_height_control;
-    if (height_control != 0.f) {
-      float y = node.info.GetGlobalEndPosition().y;
-      if (y == 0.f)
-        y = 1.f;
-      local_height_control = glm::pow(1.f / y, height_control);
-    } else {
-      local_height_control = 1.f;
-    }
-    node.data.growth_potential = local_apical_control * local_root_distance_control * local_height_control;
-    max_grow_potential = glm::max(max_grow_potential, node.data.growth_potential);
+    auto& internode = shoot_skeleton_.RefNode(internode_handle);
+    internode.data.growth_potential =
+        shoot_growth_controller.growth_potential(random_engine_, shoot_skeleton_.data, internode);
+    max_grow_potential = glm::max(max_grow_potential, internode.data.growth_potential);
   }
   float total_desired_growth_rate = 1.0f;
   for (const auto& internode_handle : sorted_internode_list) {
@@ -969,23 +971,23 @@ void TreeModel::CalculateThickness(const ShootGrowthController& shoot_growth_con
   for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
     const auto internode_handle = *it;
     auto& internode = shoot_skeleton_.RefNode(internode_handle);
-    const auto& internode_data = internode.data;
     auto& internode_info = internode.info;
     float child_thickness_collection = 0.0f;
+
+    const float thickness_accumulation_factor = glm::clamp(
+        shoot_growth_controller.thickness_accumulation_factor(random_engine_, shoot_skeleton_.data, internode), 0.0f,
+        1.0f);
+
     for (const auto& i : internode.PeekChildHandles()) {
       const auto& child_internode = shoot_skeleton_.PeekNode(i);
-      child_thickness_collection +=
-          glm::pow(child_internode.info.thickness, 1.0f / shoot_growth_controller.thickness_accumulation_factor);
+      child_thickness_collection += glm::pow(child_internode.info.thickness, 1.0f / thickness_accumulation_factor);
     }
-    child_thickness_collection += shoot_growth_controller.thickness_age_factor *
-                                  shoot_growth_controller.end_node_thickness *
-                                  shoot_growth_controller.internode_growth_rate * (age_ - internode_data.start_age);
+    child_thickness_collection += shoot_growth_controller.thickness(random_engine_, shoot_skeleton_.data, internode);
     if (child_thickness_collection != 0.0f) {
       internode_info.thickness =
-          glm::max(internode_info.thickness,
-                   glm::pow(child_thickness_collection, shoot_growth_controller.thickness_accumulation_factor));
+          glm::max(internode_info.thickness, glm::pow(child_thickness_collection, thickness_accumulation_factor));
     } else {
-      internode_info.thickness = glm::max(internode_info.thickness, shoot_growth_controller.end_node_thickness);
+      internode_info.thickness = glm::max(internode_info.thickness, shoot_growth_controller.base_thickness);
     }
   }
 }
@@ -995,9 +997,9 @@ void TreeModel::CalculateBiomass(SkeletonNodeHandle internode_handle,
   auto& internode_data = internode.data;
   const auto& internode_info = internode.info;
   internode_data.descendant_total_biomass = internode_data.biomass = 0.0f;
-  const auto relative_thickness = internode_info.thickness / shoot_growth_controller.end_node_thickness;
+  const auto relative_thickness = internode_info.thickness / shoot_growth_controller.base_thickness;
   internode_data.biomass = internode_data.density * (relative_thickness * relative_thickness) *
-                           internode_data.internode_length / shoot_growth_controller.internode_length;
+                           internode_data.internode_length / shoot_growth_controller.base_internode_length;
   glm::vec3 positioned_sum = glm::vec3(0.f);
   glm::vec3 desired_position_sum = glm::vec3(0.f);
   for (const auto& i : internode.PeekChildHandles()) {
@@ -1030,7 +1032,7 @@ void TreeModel::CalculateBiomass(SkeletonNodeHandle internode_handle,
 }
 
 void TreeModel::CalculateSaggingStress(const SkeletonNodeHandle internode_handle,
-                                       const ShootGrowthController& shoot_growth_controller) {
+                                       const ShootPruningController& shoot_pruning_controller) {
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
   if (internode.IsEndNode() || internode.info.thickness == 0.f || internode.info.length == 0.f) {
     internode.data.sagging_force = 0.f;
@@ -1061,7 +1063,7 @@ void TreeModel::CalculateSaggingStress(const SkeletonNodeHandle internode_handle
   if (glm::isnan(internode.data.sagging_force)) {
     internode.data.sagging_force = 0.f;
   }
-  const auto breaking_force = shoot_growth_controller.breaking_force(random_engine_, internode);
+  const auto breaking_force = shoot_pruning_controller.breaking_force(random_engine_, shoot_skeleton_.data, internode);
   internode.data.sagging_stress = internode.data.sagging_force / breaking_force;
 }
 
@@ -1076,8 +1078,7 @@ void TreeModel::Clear() {
     tree_occupancy_grid = {};
   }
 
-  age_ = 0;
-  iteration = 0;
+  iteration_ = 0;
 }
 
 int TreeModel::GetLeafCount() const {
@@ -1089,13 +1090,17 @@ int TreeModel::GetFruitCount() const {
 }
 
 bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel& climate_model,
-                                const ShootGrowthController& shoot_growth_controller) {
+                                const ShootGrowthController& shoot_growth_controller,
+                                const ShootPruningController& shoot_pruning_controller) {
   bool root_to_end_pruned = false;
+
   {
     const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
     std::vector<SkeletonNodeHandle> pruning_node_handles{};
     for (const auto& internode_handle : sorted_internode_list) {
       auto& internode = shoot_skeleton_.RefNode(internode_handle);
+      internode.data.strength =
+          shoot_pruning_controller.internode_strength(random_engine_, shoot_skeleton_.data, internode);
       if (internode_handle == 0)
         continue;
       if (internode.info.locked)
@@ -1117,8 +1122,8 @@ bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel&
       }
 
       if (const float pruning_probability =
-              shoot_growth_controller.root_to_end_pruning_factor(random_engine_, global_transform, climate_model,
-                                                                 shoot_skeleton_, internode) *
+              shoot_pruning_controller.root_to_end_pruning_factor(random_engine_, global_transform, climate_model,
+                                                                  shoot_skeleton_, internode) *
               current_delta_time_;
           !pruning && pruning_probability > Random::Uniform(random_engine_, 0.f, 1.f))
         pruning = true;
@@ -1138,7 +1143,7 @@ bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel&
     for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
       const auto internode_handle = *it;
       CalculateBiomass(internode_handle, shoot_growth_controller);
-      CalculateSaggingStress(internode_handle, shoot_growth_controller);
+      CalculateSaggingStress(internode_handle, shoot_pruning_controller);
       auto& internode = shoot_skeleton_.RefNode(internode_handle);
       if (internode_handle == 0)
         continue;
@@ -1160,8 +1165,8 @@ bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel&
         }
       }
       if (const float pruning_probability =
-              shoot_growth_controller.end_to_root_pruning_factor(random_engine_, global_transform, climate_model,
-                                                                 shoot_skeleton_, internode) *
+              shoot_pruning_controller.end_to_root_pruning_factor(random_engine_, global_transform, climate_model,
+                                                                  shoot_skeleton_, internode) *
               current_delta_time_;
           !pruning && pruning_probability > Random::Uniform(random_engine_, 0.f, 1.f))
         pruning = true;
@@ -1224,4 +1229,246 @@ void TreeModel::Reverse(int iteration) {
   assert(iteration >= 0 && iteration < history_.size());
   shoot_skeleton_ = history_[iteration];
   history_.erase((history_.begin() + iteration), history_.end());
+}
+void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
+  out << YAML::Key << name << YAML::Value << YAML::BeginMap;
+  {
+    out << YAML::Key << "shoot_skeleton" << YAML::Value << YAML::BeginMap;
+    {
+      SkeletonSerializer<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>::Serialize(
+          out, shoot_skeleton_,
+          [&](YAML::Emitter& node_out, const InternodeGrowthData& node_data) {
+            node_out << YAML::Key << "buds" << YAML::Value << YAML::BeginSeq;
+            for (const auto& bud : node_data.buds) {
+              node_out << YAML::BeginMap;
+              {
+                node_out << YAML::Key << "T" << YAML::Value << static_cast<unsigned>(bud.type);
+                node_out << YAML::Key << "S" << YAML::Value << static_cast<unsigned>(bud.status);
+                node_out << YAML::Key << "LR" << YAML::Value << bud.local_rotation;
+                node_out << YAML::Key << "RM" << YAML::Value << YAML::BeginMap;
+                {
+                  node_out << YAML::Key << "M" << YAML::Value << bud.reproductive_module.maturity;
+                  node_out << YAML::Key << "H" << YAML::Value << bud.reproductive_module.health;
+                  node_out << YAML::Key << "T" << YAML::Value << bud.reproductive_module.transform;
+                }
+                node_out << YAML::EndMap;
+              }
+              node_out << YAML::EndMap;
+            }
+            node_out << YAML::EndSeq;
+          },
+          [&](YAML::Emitter& flow_out, const ShootStemGrowthData& flow_data) {
+            flow_out << YAML::Key << "order" << YAML::Value << flow_data.order;
+          },
+          [&](YAML::Emitter& skeleton_out, const ShootGrowthData& skeleton_data) {
+            skeleton_out << YAML::Key << "desired_min" << YAML::Value << skeleton_data.desired_min;
+            skeleton_out << YAML::Key << "desired_max" << YAML::Value << skeleton_data.desired_max;
+            skeleton_out << YAML::Key << "age" << YAML::Value << skeleton_data.age;
+
+            const auto node_size = shoot_skeleton_.PeekRawNodes().size();
+            auto internode_length = std::vector<float>(node_size);
+            auto index_of_parent_bud = std::vector<int>(node_size);
+            auto start_age = std::vector<float>(node_size);
+            auto finish_age = std::vector<float>(node_size);
+            auto desired_local_rotation = std::vector<glm::quat>(node_size);
+            auto desired_global_rotation = std::vector<glm::quat>(node_size);
+            auto desired_global_position = std::vector<glm::vec3>(node_size);
+
+            auto extra_mass = std::vector<float>(node_size);
+            auto density = std::vector<float>(node_size);
+
+            for (int node_index = 0; node_index < node_size; node_index++) {
+              const auto& node = shoot_skeleton_.PeekRawNodes().at(node_index);
+              internode_length.at(node_index) = node.data.internode_length;
+              index_of_parent_bud.at(node_index) = node.data.index_of_parent_bud;
+              start_age.at(node_index) = node.data.start_age;
+              finish_age.at(node_index) = node.data.finish_age;
+              desired_local_rotation.at(node_index) = node.data.desired_local_rotation;
+              desired_global_rotation.at(node_index) = node.data.desired_global_rotation;
+              desired_global_position.at(node_index) = node.data.desired_global_position;
+
+              extra_mass.at(node_index) = node.data.extra_mass;
+              density.at(node_index) = node.data.density;
+            }
+            if (node_size != 0) {
+              skeleton_out << YAML::Key << "node.data.internode_length" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(internode_length.data()),
+                                           internode_length.size() * sizeof(float));
+              skeleton_out << YAML::Key << "node.data.index_of_parent_bud" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(index_of_parent_bud.data()),
+                                           index_of_parent_bud.size() * sizeof(int));
+              skeleton_out << YAML::Key << "node.data.start_age" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(start_age.data()),
+                                           start_age.size() * sizeof(float));
+              skeleton_out << YAML::Key << "node.data.finish_age" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(finish_age.data()),
+                                           finish_age.size() * sizeof(float));
+              skeleton_out << YAML::Key << "node.data.desired_local_rotation" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(desired_local_rotation.data()),
+                                           desired_local_rotation.size() * sizeof(glm::quat));
+              skeleton_out << YAML::Key << "node.data.desired_global_rotation" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(desired_global_rotation.data()),
+                                           desired_global_rotation.size() * sizeof(glm::quat));
+              skeleton_out << YAML::Key << "node.data.desired_global_position" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(desired_global_position.data()),
+                                           desired_global_position.size() * sizeof(glm::vec3));
+
+              skeleton_out << YAML::Key << "node.data.extra_mass" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(extra_mass.data()),
+                                           extra_mass.size() * sizeof(float));
+              skeleton_out << YAML::Key << "node.data.density" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(density.data()),
+                                           density.size() * sizeof(float));
+            }
+          });
+    }
+    out << YAML::EndMap;
+  }
+  out << YAML::EndMap;
+}
+void TreeModel::Load(const std::string& name, const YAML::Node& in) {
+  if (in[name]) {
+    if (const auto& in_tree_model = in[name]) {
+      const auto& in_shoot_skeleton = in_tree_model["shoot_skeleton"];
+      SkeletonSerializer<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>::Deserialize(
+          in_shoot_skeleton, shoot_skeleton_,
+          [&](const YAML::Node& node_in, InternodeGrowthData& node_data) {
+            node_data.buds.clear();
+            if (node_in["buds"]) {
+              const auto& in_buds = node_in["buds"];
+              for (const auto& in_bud : in_buds) {
+                node_data.buds.emplace_back();
+                auto& bud = node_data.buds.back();
+                if (in_bud["T"])
+                  bud.type = static_cast<BudType>(in_bud["T"].as<unsigned>());
+                if (in_bud["S"])
+                  bud.status = static_cast<BudStatus>(in_bud["S"].as<unsigned>());
+                if (in_bud["LR"])
+                  bud.local_rotation = in_bud["LR"].as<glm::quat>();
+                if (in_bud["RM"]) {
+                  const auto& in_reproductive_module = in_bud["RM"];
+                  if (in_reproductive_module["M"])
+                    bud.reproductive_module.maturity = in_reproductive_module["M"].as<float>();
+                  if (in_reproductive_module["H"])
+                    bud.reproductive_module.health = in_reproductive_module["H"].as<float>();
+                  if (in_reproductive_module["T"])
+                    bud.reproductive_module.transform = in_reproductive_module["T"].as<glm::mat4>();
+                }
+              }
+            }
+          },
+          [&](const YAML::Node& flow_in, ShootStemGrowthData& flow_data) {
+            if (flow_in["data"])
+              flow_data.order = flow_in["data"].as<int>();
+          },
+          [&](const YAML::Node& skeleton_in, ShootGrowthData& skeleton_data) {
+            if (skeleton_in["desired_min"])
+              skeleton_data.desired_min = skeleton_in["desired_min"].as<glm::vec3>();
+            if (skeleton_in["desired_max"])
+              skeleton_data.desired_max = skeleton_in["desired_max"].as<glm::vec3>();
+            if (skeleton_in["age"])
+              skeleton_data.age = skeleton_in["age"].as<float>();
+
+            if (skeleton_in["node.data.internode_length"]) {
+              auto list = std::vector<float>();
+              const auto data = skeleton_in["node.data.internode_length"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(float));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.internode_length = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.index_of_parent_bud"]) {
+              auto list = std::vector<int>();
+              const auto data = skeleton_in["node.data.index_of_parent_bud"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(int));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.index_of_parent_bud = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.start_age"]) {
+              auto list = std::vector<float>();
+              const auto data = skeleton_in["node.data.start_age"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(float));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.start_age = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.finish_age"]) {
+              auto list = std::vector<float>();
+              const auto data = skeleton_in["node.data.finish_age"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(float));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.finish_age = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.desired_local_rotation"]) {
+              auto list = std::vector<glm::quat>();
+              const auto data = skeleton_in["node.data.desired_local_rotation"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(glm::quat));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.desired_local_rotation = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.desired_global_rotation"]) {
+              auto list = std::vector<glm::quat>();
+              const auto data = skeleton_in["node.data.desired_global_rotation"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(glm::quat));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.desired_global_rotation = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.desired_global_position"]) {
+              auto list = std::vector<glm::vec3>();
+              const auto data = skeleton_in["node.data.desired_global_position"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(glm::vec3));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.desired_global_position = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.extra_mass"]) {
+              auto list = std::vector<float>();
+              const auto data = skeleton_in["node.data.extra_mass"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(float));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.extra_mass = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.density"]) {
+              auto list = std::vector<float>();
+              const auto data = skeleton_in["node.data.density"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(float));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.density = list[i];
+              }
+            }
+          });
+      initialized_ = true;
+    }
+  }
 }
