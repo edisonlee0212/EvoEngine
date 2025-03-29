@@ -277,7 +277,7 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
                             1.f / initialize_parameters.wood_transition, distance_to_boundary)) *
         1e9f;
     segment.strength =
-        glm::max(1e-9f, 1.0f - initialize_parameters.damage.GetValue(
+        glm::max(1e-9f, 1.0f - initialize_parameters.damage_graph.GetValue(
                                    glm::vec3(target_strand_segment_data.profile_position * segment.radius * 2.f,
                                              target_strand_segment_data.end_root_distance) /
                                    initialize_parameters.damage_scale_factor));

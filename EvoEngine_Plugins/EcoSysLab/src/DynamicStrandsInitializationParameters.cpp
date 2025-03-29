@@ -19,12 +19,12 @@ bool DynamicStrandsInitializeParameters::OnInspect(const std::shared_ptr<EditorL
   if (ImGui::DragFloat("Neighbor horizontal range", &neighbor_horizontal_range, 0.01f, 0.01f, 10.0f))
     changed = true;
   if (ImGui::TreeNodeEx("Physical properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::TreeNode("Damage")) {
-      if (damage.OnInspect()) {
-        changed = true;
-      }
-      ImGui::TreePop();
+    static bool show_damage_graph = false;
+    ImGui::Checkbox("Show damage graph", &show_damage_graph);
+    if (show_damage_graph) {
+      changed = damage_graph.ShowGraph("Damage graph", editor_layer) | changed;
     }
+
     if (ImGui::DragFloat3("Damage scale factor", &damage_scale_factor.x, 0.001f, 0.f, 1.f)) {
       changed = true;
     }
@@ -137,7 +137,7 @@ void DynamicStrandsInitializeParameters::Save(const std::string& name, YAML::Emi
   out << YAML::Key << "max_segment_length" << YAML::Value << max_segment_length;
   out << YAML::Key << "uniform_subdivision" << YAML::Value << uniform_subdivision;
 
-  damage.Save("damage", out);
+  damage_graph.Save("damage_graph", out);
 
   out << YAML::Key << "damage_scale_factor" << YAML::Value << damage_scale_factor;
   out << YAML::Key << "neighbor_vertical_range" << YAML::Value << neighbor_vertical_range;
@@ -194,7 +194,7 @@ void DynamicStrandsInitializeParameters::Load(const std::string& name, const YAM
     if (in_parameters["uniform_subdivision"])
       uniform_subdivision = in_parameters["uniform_subdivision"].as<int>();
 
-    damage.Load("damage", in_parameters);
+    damage_graph.Load("damage_graph", in_parameters);
     if (in_parameters["damage_scale_factor"])
       damage_scale_factor = in_parameters["damage_scale_factor"].as<glm::vec3>();
     if (in_parameters["neighbor_vertical_range"])

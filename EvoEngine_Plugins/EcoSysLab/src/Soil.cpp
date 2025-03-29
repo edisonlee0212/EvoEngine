@@ -36,8 +36,8 @@ bool OnInspectSoilParameters(SoilParameters& soil_parameters) {
   return changed;
 }
 
-void SetSoilPhysicalMaterial(Noise3D& c, Noise3D& p, float sand_ratio, float silt_ratio, float clay_ratio,
-                             float compactness) {
+void SetSoilPhysicalMaterial(procedural_noise::ProceduralNoise3D& c, procedural_noise::ProceduralNoise3D& p,
+                             float sand_ratio, float silt_ratio, float clay_ratio, float compactness) {
   assert(compactness <= 1.0f && compactness >= 0.0f);
 
   const float weight = sand_ratio + silt_ratio + clay_ratio;
@@ -50,7 +50,7 @@ void SetSoilPhysicalMaterial(Noise3D& c, Noise3D& p, float sand_ratio, float sil
   static glm::vec2 silt_material_properties = glm::vec2(1.9f, 1.5f);
   static glm::vec2 clay_material_properties = glm::vec2(2.1f, 0.05f);
   static glm::vec2 air_material_properties = glm::vec2(5.0f, 30.0f);
-
+  /*
   c.noise_descriptors.resize(1);
   p.noise_descriptors.resize(1);
   c.noise_descriptors[0].type = 0;
@@ -58,7 +58,7 @@ void SetSoilPhysicalMaterial(Noise3D& c, Noise3D& p, float sand_ratio, float sil
   c.noise_descriptors[0].offset = sand_ratio * sand_material_properties.x + silt_ratio * silt_material_properties.x +
                                   clay_ratio * clay_material_properties.x + air_ratio * air_material_properties.x;
   p.noise_descriptors[0].offset = sand_ratio * sand_material_properties.y + silt_ratio * silt_material_properties.y +
-                                  clay_ratio * clay_material_properties.y + air_ratio * air_material_properties.y;
+                                  clay_ratio * clay_material_properties.y + air_ratio * air_material_properties.y;*/
 }
 
 bool SoilLayerDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -73,7 +73,7 @@ bool SoilLayerDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
     ImGui::SliderFloat("Clay ratio", &clay_ratio, 0.0f, 1.0f);
     ImGui::SliderFloat("Compactness", &compactness, 0.0f, 1.0f);
     if (ImGui::Button("Generate soil")) {
-      SetSoilPhysicalMaterial(capacity, permeability, sand_ratio, silt_ratio, clay_ratio, compactness);
+      SetSoilPhysicalMaterial(capacity_graph, permeability_graph, sand_ratio, silt_ratio, clay_ratio, compactness);
       changed = true;
     }
     if (ImGui::TreeNode("Generate from preset combination")) {
@@ -118,32 +118,38 @@ bool SoilLayerDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
     }
     ImGui::TreePop();
   }
-
-  if (ImGui::TreeNode("Capacity")) {
-    changed = capacity.OnInspect() || changed;
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Permeability")) {
-    changed = permeability.OnInspect() || changed;
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Density")) {
-    changed = density.OnInspect() || changed;
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Initial nutrients")) {
-    changed = initial_nutrients.OnInspect() || changed;
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Initial water")) {
-    changed = initial_water.OnInspect() || changed;
-    ImGui::TreePop();
+  static bool show_capacity = false;
+  ImGui::Checkbox("Show capacity", &show_capacity);
+  if (show_capacity) {
+    changed = capacity_graph.ShowGraph("Capacity graph", editor_layer) | changed;
   }
 
-  if (ImGui::TreeNode("Thickness")) {
-    changed = thickness.OnInspect() || changed;
-    ImGui::TreePop();
+  static bool show_permeability = false;
+  ImGui::Checkbox("Show permeability", &show_permeability);
+  if (show_permeability) {
+    changed = permeability_graph.ShowGraph("Permeability graph", editor_layer) | changed;
   }
+  static bool show_density = false;
+  ImGui::Checkbox("Show density", &show_density);
+  if (show_density) {
+    changed = density_graph.ShowGraph("Density graph", editor_layer) | changed;
+  }
+  static bool show_initial_nutrients = false;
+  ImGui::Checkbox("Show initial nutrients", &show_initial_nutrients);
+  if (show_initial_nutrients) {
+    changed = initial_nutrients_graph.ShowGraph("Initial nutrients graph", editor_layer) | changed;
+  }
+  static bool show_initial_water = false;
+  ImGui::Checkbox("Show initial water", &show_initial_water);
+  if (show_initial_water) {
+    changed = initial_water_graph.ShowGraph("Initial water graph", editor_layer) | changed;
+  }
+  static bool show_thickness = false;
+  ImGui::Checkbox("Show thickness", &show_thickness);
+  if (show_thickness) {
+    changed = thickness_graph.ShowGraph("Thickness graph", editor_layer) | changed;
+  }
+
   if (ImGui::TreeNode("Textures")) {
     if (editor_layer->DragAndDropButton<Texture2D>(albedo_texture, "Albedo"))
       changed = true;
@@ -161,13 +167,13 @@ bool SoilLayerDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 }
 
 void SoilLayerDescriptor::Serialize(YAML::Emitter& out) const {
-  capacity.Save("capacity", out);
-  permeability.Save("permeability", out);
-  density.Save("density", out);
-  initial_nutrients.Save("initial_nutrients", out);
-  initial_water.Save("initial_water", out);
+  capacity_graph.Save("capacity_graph", out);
+  permeability_graph.Save("permeability_graph", out);
+  density_graph.Save("density_graph", out);
+  initial_nutrients_graph.Save("initial_nutrients_graph", out);
+  initial_water_graph.Save("initial_water_graph", out);
 
-  thickness.Save("thickness", out);
+  thickness_graph.Save("thickness_graph", out);
 
   albedo_texture.Save("albedo_texture", out);
   roughness_texture.Save("roughness_texture", out);
@@ -177,12 +183,12 @@ void SoilLayerDescriptor::Serialize(YAML::Emitter& out) const {
 }
 
 void SoilLayerDescriptor::Deserialize(const YAML::Node& in) {
-  capacity.Load("capacity", in);
-  permeability.Load("permeability", in);
-  density.Load("density", in);
-  initial_nutrients.Load("initial_nutrients", in);
-  initial_water.Load("initial_water", in);
-  thickness.Load("thickness", in);
+  capacity_graph.Load("capacity_graph", in);
+  permeability_graph.Load("permeability_graph", in);
+  density_graph.Load("density_graph", in);
+  initial_nutrients_graph.Load("initial_nutrients_graph", in);
+  initial_water_graph.Load("initial_water_graph", in);
+  thickness_graph.Load("thickness_graph", in);
 
   albedo_texture.Load("albedo_texture", in);
   roughness_texture.Load("roughness_texture", in);
@@ -860,23 +866,23 @@ void Soil::InitializeSoilModel() {
         soil_layers.emplace_back();
         auto& soil_layer = soil_layers.back();
         soil_layer.m_mat.m_c = [=](const glm::vec3& position) {
-          return soil_layer_descriptor->capacity.GetValue(position);
+          return soil_layer_descriptor->capacity_graph.GetValue(position);
         };
         soil_layer.m_mat.m_p = [=](const glm::vec3& position) {
-          return soil_layer_descriptor->permeability.GetValue(position);
+          return soil_layer_descriptor->permeability_graph.GetValue(position);
         };
         soil_layer.m_mat.m_d = [=](const glm::vec3& position) {
-          return soil_layer_descriptor->density.GetValue(position);
+          return soil_layer_descriptor->density_graph.GetValue(position);
         };
         soil_layer.m_mat.m_n = [=](const glm::vec3& position) {
-          return soil_layer_descriptor->initial_nutrients.GetValue(position);
+          return soil_layer_descriptor->initial_nutrients_graph.GetValue(position);
         };
         soil_layer.m_mat.m_w = [=](const glm::vec3& position) {
-          return soil_layer_descriptor->initial_water.GetValue(position);
+          return soil_layer_descriptor->initial_water_graph.GetValue(position);
         };
         soil_layer.m_mat.m_id = material_index;
         soil_layer.m_thickness = [soil_layer_descriptor](const glm::vec2& position) {
-          return soil_layer_descriptor->thickness.GetValue(position);
+          return soil_layer_descriptor->thickness_graph.GetValue(position);
         };
         const auto albedo = soil_layer_descriptor->albedo_texture.Get<Texture2D>();
         const auto height = soil_layer_descriptor->height_texture.Get<Texture2D>();

@@ -21,6 +21,12 @@ bool IAsset::Load() {
   }
   return false;
 }
+void IAsset::Save(const std::string &name, YAML::Emitter &out) const {
+  ISerializable::Save(name, out);
+}
+void IAsset::Load(const std::string &name, const YAML::Node &in) {
+  ISerializable::Load(name, in);
+}
 
 std::shared_ptr<IAsset> IAsset::GetSelf() const {
   return self_.lock();
