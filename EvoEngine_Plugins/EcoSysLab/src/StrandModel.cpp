@@ -1,4 +1,8 @@
 #include "StrandModel.hpp"
+
+#include "SkeletonSerializer.hpp"
+#include "StrandGroupSerializer.hpp"
+#include "StrandModelProfileSerializer.hpp"
 using namespace evo_engine;
 using namespace eco_sys_lab_plugin;
 
@@ -815,4 +819,268 @@ float StrandModel::InterpolateStrandSegmentRadius(StrandSegmentHandle strand_seg
   float radius, tangent;
   Strands::CubicInterpolation(p[0], p[1], p[2], p[3], radius, tangent, a);
   return radius;
+}
+void StrandModel::Save(const std::string& name, YAML::Emitter& out) const {
+  out << YAML::Key << name << YAML::Value << YAML::BeginMap;
+  {
+    out << YAML::Key << "strand_model_skeleton" << YAML::Value << YAML::BeginMap;
+    {
+      SkeletonSerializer<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData>::Serialize(
+          out, strand_model_skeleton,
+          [&](YAML::Emitter& node_out, const StrandModelNodeData& node_data) {
+            node_out << YAML::Key << "profile" << YAML::Value << YAML::BeginMap;
+            {
+              StrandModelProfileSerializer<CellParticlePhysicsData>::Serialize(
+                  node_out, node_data.profile, [&](YAML::Emitter&, const CellParticlePhysicsData&) {
+                  });
+            }
+            node_out << YAML::EndMap;
+          },
+          [&](YAML::Emitter&, const StrandModelFlowData&) {
+          },
+          [&](YAML::Emitter& skeleton_out, const StrandModelSkeletonData& skeleton_data) {
+            skeleton_out << YAML::Key << "strand_group" << YAML::Value << YAML::BeginMap;
+            {
+              StrandGroupSerializer<StrandModelStrandGroupData, StrandModelStrandData, StrandModelStrandSegmentData>::
+                  Serialize(
+                      skeleton_out, skeleton_data.strand_group,
+                      [&](YAML::Emitter&, const StrandModelStrandSegmentData&) {
+                      },
+                      [&](YAML::Emitter&, const StrandModelStrandData&) {
+                      },
+                      [&](YAML::Emitter& group_out, const StrandModelStrandGroupData&) {
+                        const auto strand_segment_size = skeleton_data.strand_group.PeekStrandSegments().size();
+                        auto node_handle = std::vector<SkeletonNodeHandle>(strand_segment_size);
+                        auto is_boundary = std::vector<uint8_t>(strand_segment_size);
+                        auto profile_particle_handle = std::vector<ParticleHandle>(strand_segment_size);
+
+                        auto profile_position = std::vector<glm::vec2>(strand_segment_size);
+                        auto initial_distance_to_boundary = std::vector<float>(strand_segment_size);
+                        for (int strand_segment_index = 0; strand_segment_index < strand_segment_size;
+                             strand_segment_index++) {
+                          const auto& strand_segment_data =
+                              skeleton_data.strand_group.PeekStrandSegmentData(strand_segment_index);
+                          node_handle[strand_segment_index] = strand_segment_data.node_handle;
+                          is_boundary[strand_segment_index] = strand_segment_data.is_boundary;
+                          profile_particle_handle[strand_segment_index] = strand_segment_data.profile_particle_handle;
+
+                          profile_position[strand_segment_index] = strand_segment_data.profile_position;
+                          initial_distance_to_boundary[strand_segment_index] =
+                              strand_segment_data.initial_distance_to_boundary;
+                        }
+                        if (strand_segment_size != 0) {
+                          group_out << YAML::Key << "ss.data.node_handle" << YAML::Value
+                                    << YAML::Binary(reinterpret_cast<const unsigned char*>(node_handle.data()),
+                                                    node_handle.size() * sizeof(SkeletonNodeHandle));
+
+                          group_out << YAML::Key << "ss.data.is_boundary" << YAML::Value
+                                    << YAML::Binary(is_boundary.data(), is_boundary.size() * sizeof(uint8_t));
+
+                          group_out << YAML::Key << "ss.data.profile_particle_handle" << YAML::Value
+                                    << YAML::Binary(
+                                           reinterpret_cast<const unsigned char*>(profile_particle_handle.data()),
+                                           profile_particle_handle.size() * sizeof(ParticleHandle));
+
+                          group_out << YAML::Key << "ss.data.profile_position" << YAML::Value
+                                    << YAML::Binary(reinterpret_cast<const unsigned char*>(profile_position.data()),
+                                                    profile_position.size() * sizeof(glm::vec2));
+
+                          group_out << YAML::Key << "ss.data.initial_distance_to_boundary" << YAML::Value
+                                    << YAML::Binary(
+                                           reinterpret_cast<const unsigned char*>(initial_distance_to_boundary.data()),
+                                           initial_distance_to_boundary.size() * sizeof(float));
+                        }
+                      });
+            }
+            skeleton_out << YAML::EndMap;
+
+            const auto node_size = strand_model_skeleton.PeekRawNodes().size();
+            auto offset = std::vector<glm::vec2>(node_size);
+            auto twist_angle = std::vector<float>(node_size);
+            auto split = std::vector<int>(node_size);
+            auto strand_radius = std::vector<float>(node_size);
+            auto strand_count = std::vector<int>(node_size);
+
+            for (int node_index = 0; node_index < node_size; node_index++) {
+              const auto& node = strand_model_skeleton.PeekRawNodes().at(node_index);
+              offset.at(node_index) = node.data.offset;
+              twist_angle.at(node_index) = node.data.twist_angle;
+              split.at(node_index) = node.data.split == 1;
+              strand_radius.at(node_index) = node.data.strand_radius;
+              strand_count.at(node_index) = node.data.strand_count;
+            }
+            if (node_size != 0) {
+              skeleton_out << YAML::Key << "node.data.offset" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(offset.data()),
+                                           offset.size() * sizeof(glm::vec2));
+              skeleton_out << YAML::Key << "node.data.twist_angle" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(twist_angle.data()),
+                                           twist_angle.size() * sizeof(float));
+              skeleton_out << YAML::Key << "node.data.split" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(split.data()),
+                                           split.size() * sizeof(int));
+              skeleton_out << YAML::Key << "node.data.strand_radius" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_radius.data()),
+                                           strand_radius.size() * sizeof(float));
+              skeleton_out << YAML::Key << "node.data.strand_count" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(strand_count.data()),
+                                           strand_count.size() * sizeof(float));
+            }
+          });
+    }
+    out << YAML::EndMap;
+  }
+  out << YAML::EndMap;
+}
+void StrandModel::Load(const std::string& name, const YAML::Node& in) {
+  if (in[name]) {
+    if (const auto& in_strand_model = in[name]) {
+      const auto& in_strand_model_skeleton = in_strand_model["strand_model_skeleton"];
+      SkeletonSerializer<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData>::Deserialize(
+          in_strand_model_skeleton, strand_model_skeleton,
+          [&](const YAML::Node& node_in, StrandModelNodeData& node_data) {
+            node_data = {};
+            if (node_in["profile"]) {
+              const auto& in_strand_group = node_in["profile"];
+              StrandModelProfileSerializer<CellParticlePhysicsData>::Deserialize(
+                  in_strand_group, node_data.profile, [&](const YAML::Node&, CellParticlePhysicsData&) {
+                  });
+            }
+          },
+          [&](const YAML::Node&, StrandModelFlowData&) {
+          },
+          [&](const YAML::Node& skeleton_in, StrandModelSkeletonData& skeleton_data) {
+            if (skeleton_in["strand_group"]) {
+              const auto& in_strand_group = skeleton_in["strand_group"];
+              StrandGroupSerializer<StrandModelStrandGroupData, StrandModelStrandData, StrandModelStrandSegmentData>::
+                  Deserialize(
+                      in_strand_group, strand_model_skeleton.data.strand_group,
+                      [&](const YAML::Node&, StrandModelStrandSegmentData&) {
+                      },
+                      [&](const YAML::Node&, StrandModelStrandData&) {
+                      },
+                      [&](const YAML::Node& group_in, StrandModelStrandGroupData&) {
+                        if (group_in["ss.data.node_handle"]) {
+                          auto list = std::vector<SkeletonNodeHandle>();
+                          const auto data = group_in["ss.data.node_handle"].as<YAML::Binary>();
+                          list.resize(data.size() / sizeof(SkeletonNodeHandle));
+                          std::memcpy(list.data(), data.data(), data.size());
+                          for (size_t i = 0; i < list.size(); i++) {
+                            auto& strand_segment = skeleton_data.strand_group.RefStrandSegmentData(i);
+                            strand_segment.node_handle = list[i];
+                          }
+                        }
+                        if (group_in["ss.data.is_boundary"]) {
+                          auto list = std::vector<uint8_t>();
+                          const auto data = group_in["ss.data.is_boundary"].as<YAML::Binary>();
+                          list.resize(data.size() / sizeof(uint8_t));
+                          std::memcpy(list.data(), data.data(), data.size());
+                          for (size_t i = 0; i < list.size(); i++) {
+                            auto& strand_segment = skeleton_data.strand_group.RefStrandSegmentData(i);
+                            strand_segment.is_boundary = list[i] != 0;
+                          }
+                        }
+                        if (group_in["ss.data.profile_particle_handle"]) {
+                          auto list = std::vector<ParticleHandle>();
+                          const auto data = group_in["ss.data.profile_particle_handle"].as<YAML::Binary>();
+                          list.resize(data.size() / sizeof(ParticleHandle));
+                          std::memcpy(list.data(), data.data(), data.size());
+                          for (size_t i = 0; i < list.size(); i++) {
+                            auto& strand_segment = skeleton_data.strand_group.RefStrandSegmentData(i);
+                            strand_segment.profile_particle_handle = list[i];
+                          }
+                        }
+
+                        if (group_in["ss.data.profile_position"]) {
+                          auto list = std::vector<glm::vec2>();
+                          const auto data = group_in["ss.data.profile_position"].as<YAML::Binary>();
+                          list.resize(data.size() / sizeof(glm::vec2));
+                          std::memcpy(list.data(), data.data(), data.size());
+                          for (size_t i = 0; i < list.size(); i++) {
+                            auto& strand_segment = skeleton_data.strand_group.RefStrandSegmentData(i);
+                            strand_segment.profile_position = list[i];
+                          }
+                        }
+
+                        if (group_in["ss.data.initial_distance_to_boundary"]) {
+                          auto list = std::vector<float>();
+                          const auto data = group_in["ss.data.initial_distance_to_boundary"].as<YAML::Binary>();
+                          list.resize(data.size() / sizeof(float));
+                          std::memcpy(list.data(), data.data(), data.size());
+                          for (size_t i = 0; i < list.size(); i++) {
+                            auto& strand_segment = skeleton_data.strand_group.RefStrandSegmentData(i);
+                            strand_segment.initial_distance_to_boundary = list[i] != 0;
+                          }
+                        }
+                      });
+            }
+
+            if (skeleton_in["node.data.offset"]) {
+              auto list = std::vector<glm::vec2>();
+              const auto data = skeleton_in["node.data.offset"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(glm::vec2));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = strand_model_skeleton.RefNode(i);
+                node.data.offset = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.twist_angle"]) {
+              auto list = std::vector<float>();
+              const auto data = skeleton_in["node.data.twist_angle"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(float));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = strand_model_skeleton.RefNode(i);
+                node.data.twist_angle = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.packing_iteration"]) {
+              auto list = std::vector<int>();
+              const auto data = skeleton_in["node.data.packing_iteration"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(int));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = strand_model_skeleton.RefNode(i);
+                node.data.packing_iteration = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.split"]) {
+              auto list = std::vector<int>();
+              const auto data = skeleton_in["node.data.split"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(int));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = strand_model_skeleton.RefNode(i);
+                node.data.split = list[i] == 1;
+              }
+            }
+
+            if (skeleton_in["node.data.strand_radius"]) {
+              auto list = std::vector<float>();
+              const auto data = skeleton_in["node.data.strand_radius"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(float));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = strand_model_skeleton.RefNode(i);
+                node.data.strand_radius = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.strand_count"]) {
+              auto list = std::vector<int>();
+              const auto data = skeleton_in["node.data.strand_count"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(int));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = strand_model_skeleton.RefNode(i);
+                node.data.strand_count = list[i];
+              }
+            }
+          });
+    }
+  }
 }

@@ -111,6 +111,20 @@ class StrandModel {
    * @return Interpolated radius value.
    */
   [[nodiscard]] float InterpolateStrandSegmentRadius(StrandSegmentHandle strand_segment_handle, float a) const;
+
+  /**
+   * @brief Saves to a YAML emitter.
+   * @param name The name of the settings entry.
+   * @param out The YAML emitter to serialize data into.
+   */
+  void Save(const std::string& name, YAML::Emitter& out) const;
+
+  /**
+   * @brief Loads from a YAML node.
+   * @param name The name of the settings entry.
+   * @param in The YAML node containing serialized data.
+   */
+  void Load(const std::string& name, const YAML::Node& in);
 };
 
 }  // namespace eco_sys_lab_plugin

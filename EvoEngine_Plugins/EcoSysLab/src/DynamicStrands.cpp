@@ -3,10 +3,8 @@
 #include "DsConstraints.hpp"
 #include "DsPhysics.hpp"
 #include "DynamicStrandUtils.hpp"
-#include "FoliageDescriptor.hpp"
 #include "Shader.hpp"
 #include "UVMapUtils.hpp"
-#include "glm/gtc/matrix_access.hpp"
 #include "glm/gtx/quaternion.hpp"
 using namespace eco_sys_lab_plugin;
 
@@ -286,136 +284,6 @@ uint32_t DynamicStrands::GetFrameIndex() const {
 
 float DynamicStrands::GetSimulatedTime() const {
   return simulated_time;
-}
-
-bool DynamicStrands::InitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::DragFloat("Min segment length", &min_segment_length, 0.001f, 0.001f, max_segment_length))
-    changed = true;
-  if (ImGui::DragFloat("Max segment length", &max_segment_length, 0.001f, min_segment_length, 1.0f))
-    changed = true;
-  if (ImGui::Checkbox("Use grid for segment pairs", &use_voxel_grid_for_segment_pairs)) {
-    changed = true;
-  }
-  if (ImGui::DragInt("Uniform subdivision", &uniform_subdivision, 1, 1, 16)) {
-    uniform_subdivision = glm::clamp(uniform_subdivision, 1, 16);
-    changed = true;
-  }
-  if (ImGui::DragFloat("Neighbor vertical range", &neighbor_vertical_range, 0.01f, 0.01f, 10.0f))
-    changed = true;
-  if (ImGui::DragFloat("Neighbor horizontal range", &neighbor_horizontal_range, 0.01f, 0.01f, 10.0f))
-    changed = true;
-  if (ImGui::TreeNodeEx("Physical properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::TreeNode("Damage")) {
-      if (damage.OnInspect()) {
-        changed = true;
-      }
-      ImGui::TreePop();
-    }
-    if (ImGui::DragFloat3("Damage scale factor", &damage_scale_factor.x, 0.001f, 0.f, 1.f)) {
-      changed = true;
-    }
-
-    if (ImGui::DragFloat("Sapwood offset", &sapwood_offset, 0.01f, 0.0f, 1.0f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat("Sapwood transition", &wood_transition, 0.001f, 0.001f, 1.f)) {
-      wood_transition = glm::clamp(wood_transition, 0.001f, 1.f);
-      changed = true;
-    }
-    if (ImGui::TreeNode("Wood material")) {
-      if (ImGui::DragFloat2("Density", &density.x, 1.f, 1, 1000)) {
-        changed = true;
-      }
-
-      if (ImGui::DragFloat2("Shear/Stretch modulus", &max_stretch_shear_modulus.x, 0.01f, 0.f, 1000.f)) {
-        changed = true;
-      }
-      if (ImGui::DragFloat2("Bending modulus", &max_bending_modulus.x, 0.01f, 0.f, 1000.f)) {
-        changed = true;
-      }
-      if (ImGui::DragFloat2("Twisting modulus", &max_twisting_modulus.x, 0.01f, 0.f, 1000.f)) {
-        changed = true;
-      }
-      ImGui::TreePop();
-    }
-
-    if (ImGui::DragFloat2("Shear/Stretch strength", &shear_stretch_strength.x, 1.f, 0.f, 2000.f)) {
-      changed = true;
-    }
-
-    if (ImGui::DragFloat2("Bending strength", &bending_strength.x, 1.f, 0.f, 2000.f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat2("Twisting strength", &twisting_strength.x, 1.f, 0.f, 2000.f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat2("Bundle strength", &bundle_strength.x, 1.f, 0.f, 2000.f)) {
-      changed = true;
-    }
-
-    if (ImGui::DragFloat2("Segment Pair strength", &connectivity_strength.x, 1.f, 0.f, 2000.f)) {
-      changed = true;
-    }
-    if (ImGui::Checkbox("Trunk", &trunk)) {
-      changed = true;
-    }
-    if (trunk) {
-      if (ImGui::DragFloat("Trunk offset", &trunk_offset, 0.01f, 0.0f, 1.0f)) {
-        changed = true;
-      }
-      if (ImGui::DragFloat("Trunk transition", &trunk_transition, 0.01f, 0.001f, 1.f)) {
-        trunk_transition = glm::clamp(trunk_transition, 0.001f, 10.f);
-        changed = true;
-      }
-      if (ImGui::DragFloat("Trunk additional strength", &trunk_additional_strength_factor, 0.01f, 0.001f, 1.f)) {
-        trunk_additional_strength_factor = glm::clamp(trunk_additional_strength_factor, 0.0f, 1.f);
-        changed = true;
-      }
-    }
-
-    if (ImGui::TreeNode("Foliage attachments")) {
-      if (leaf_position_alpha.OnInspect("Leaf position alpha"))
-        changed = true;
-
-      if (leaf_rotation_alpha.OnInspect("Leaf rotation alpha"))
-        changed = true;
-
-      if (max_leaf_position_strain.OnInspect("Max leaf position strain"))
-        changed = true;
-
-      if (max_leaf_rotation_strain.OnInspect("Max leaf rotation strain"))
-        changed = true;
-
-      ImGui::TreePop();
-    }
-
-    ImGui::TreePop();
-  }
-
-  editor_layer->DragAndDropButton<FoliageDescriptor>(foliage_descriptor, "Foliage Descriptor");
-
-  if (ImGui::TreeNode("Meshing Properties")) {
-#ifdef USE_CGAL
-    if (ImGui::Checkbox("Use CGAL", &use_cgal))
-      changed = true;
-#endif  // USE_CGAL
-    if (ImGui::Checkbox("Triangulate per bundle", &triangulate_per_bundle))
-      changed = true;
-    if (ImGui::DragFloat("Alpha", &alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
-      changed = true;
-    if (ImGui::DragFloat("Bifurcation Alpha", &bifurcation_alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
-      changed = true;
-    if (ImGui::DragFloat("Max Distance Squared", &max_dist_squared, 0.000001f, 0.0f, 1.0f, "%.6f"))
-      changed = true;
-    if (ImGui::Checkbox("Use cubic Hermite spline", &use_cubic_hermite_spline))
-      changed = true;
-    if (ImGui::DragInt("Min bundle size", &min_bundle_size, 1, 1, 100))
-
-      ImGui::TreePop();
-  }
-
-  return changed;
 }
 
 bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -794,6 +662,7 @@ void DynamicStrands::Clear() {
   delaunay_tetrahedrons.clear();
   hashed_grid_elements.clear();
   hashed_grid_cell_starts.clear();
+  constraints.clear();
 }
 
 glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height,

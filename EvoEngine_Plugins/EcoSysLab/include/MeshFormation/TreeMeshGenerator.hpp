@@ -137,7 +137,7 @@ struct TreeMeshGeneratorSettings {
    * @param name The name of the settings.
    * @param out The YAML emitter to save the settings into.
    */
-  void Save(const std::string& name, YAML::Emitter& out);
+  void Save(const std::string& name, YAML::Emitter& out) const;
 
   /**
    * @brief Loads the settings from YAML format.

@@ -9,115 +9,40 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
-void DynamicTreeStrands::UpdateDynamicStrands() {
-  auto source_strand_group = strand_model_skeleton.data.strand_group;
+void DynamicTreeStrands::UpdateDynamicStrands(DtsStrandGroup& randomly_subdivided_strand_group,
+                                              DtsStrandGroup& uniformly_subdivided_strand_group) {
+  auto strand_model_strand_group = strand_model.strand_model_skeleton.data.strand_group;
   if (limit_strand_length) {
-    const auto size = source_strand_group.PeekStrands().size();
-    for (StrandHandle strand_handle = 0; strand_handle < source_strand_group.PeekStrands().size(); strand_handle++) {
+    const auto size = strand_model_strand_group.PeekStrands().size();
+    for (StrandHandle strand_handle = 0; strand_handle < strand_model_strand_group.PeekStrands().size();
+         strand_handle++) {
       StrandSegmentHandle segment_handle;
       float t;
-      source_strand_group.FindStrandT(strand_handle, segment_handle, t, max_strand_length);
+      strand_model_strand_group.FindStrandT(strand_handle, segment_handle, t, max_strand_length);
       if (t <= 0.f)
         continue;
-      const auto new_strand_handle = source_strand_group.Cut(segment_handle, t);
+      const auto new_strand_handle = strand_model_strand_group.Cut(segment_handle, t);
       if (new_strand_handle == -1)
         continue;
       if (new_strand_handle >= size) {
-        source_strand_group.RemoveStrand(new_strand_handle);
+        strand_model_strand_group.RemoveStrand(new_strand_handle);
       }
     }
   }
 
-  dynamic_strands->constraints.clear();
   std::mt19937 random_engine(seed);
-
-  source_strand_group.Subdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
-      subdivided_strand_group,
-      [&]() {
-        return Random::Uniform(random_engine, initialize_parameters.min_segment_length,
-                               initialize_parameters.max_segment_length);
-      },
-      [](StrandHandle src_handle, DtsStrandData& strand_data) {
-      },
-      [&](const float start_root_distance, const float end_root_distance, const StrandSegmentHandle src_handle,
-          const uint32_t original_segment_index, const float segment_t, DtsStrandSegmentData& segment_data,
-          const uint32_t sub_segment_index) {
-        const auto& src_segment_data = source_strand_group.PeekStrandSegmentData(src_handle);
-        segment_data.node_handle = src_segment_data.node_handle;
-        segment_data.original_segment_t = segment_t;
-        segment_data.original_segment_handle = src_handle;
-        segment_data.original_segment_index = original_segment_index;
-        segment_data.segment_index = sub_segment_index;
-        segment_data.start_root_distance = start_root_distance;
-        segment_data.end_root_distance = end_root_distance;
-        const auto& strand_segment = source_strand_group.PeekStrandSegment(src_handle);
-        const auto& strand = source_strand_group.PeekStrand(strand_segment.GetStrandHandle());
-        const auto& strand_segment_handles = strand.PeekStrandSegmentHandles();
-        glm::vec2 p0, p1, p3;
-        const glm::vec2 p2 = src_segment_data.profile_position;
-        float d0, d1, d3;
-        const float d2 = src_segment_data.initial_distance_to_boundary;
-        if (src_handle == strand_segment_handles.front()) {
-          d1 = d2;
-          d0 = d1 * 2.0f - d2;
-
-          p1 = p2;
-          p0 = p1 * 2.0f - p2;
-        } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
-          const auto& prev_segment_data = source_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
-          d0 = d2;
-          d1 = prev_segment_data.initial_distance_to_boundary;
-
-          p0 = p2;
-          p1 = prev_segment_data.profile_position;
-        } else {
-          const auto& prev_segment = source_strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
-          const auto& prev_segment_data = source_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
-          const auto& prev_prev_segment_data = source_strand_group.PeekStrandSegmentData(prev_segment.GetPrevHandle());
-          d0 = prev_prev_segment_data.initial_distance_to_boundary;
-          d1 = prev_segment_data.initial_distance_to_boundary;
-
-          p0 = prev_prev_segment_data.profile_position;
-          p1 = prev_segment_data.profile_position;
-        }
-        if (src_handle == strand_segment_handles.back()) {
-          d3 = d2 * 2.0f - d1;
-
-          p3 = p2 * 2.0f - p1;
-        } else {
-          const auto& next_segment_data = source_strand_group.PeekStrandSegmentData(strand_segment.GetNextHandle());
-          d3 = next_segment_data.initial_distance_to_boundary;
-
-          p3 = next_segment_data.profile_position;
-        }
-        segment_data.initial_distance_to_boundary = Strands::CubicInterpolation(d0, d1, d2, d3, segment_t);
-        segment_data.profile_position = Strands::CubicInterpolation(p0, p1, p2, p3, segment_t);
-        const auto calculate_polar_coordinates = [](const glm::vec2& profile_position) {
-          const auto r = glm::length(profile_position);
-          if (r <= glm::epsilon<float>()) {
-            return glm::vec2(0.0f);
-          }
-          if (profile_position.y >= 0)
-            return glm::vec2(r, glm::acos(profile_position.x / r));
-          return glm::vec2(r, -glm::acos(profile_position.x / r));
-        };
-
-        segment_data.profile_polar_coordinate = calculate_polar_coordinates(segment_data.profile_position);
-      },
-      (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
-
-  dynamic_strands->constraints.emplace_back(std::make_shared<DsStiffRod>());
-  dynamic_strands->constraints.emplace_back(std::make_shared<DsBundle>());
-  dynamic_strands->constraints.emplace_back(std::make_shared<DsLeafAttachment>());
-  subdivided_strand_group.RandomAssignColor();
 
   transform_pivots.clear();
   const auto owner = GetOwner();
   const auto scene = GetScene();
   initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
 
-  dynamic_strands->InitializeData(initialize_parameters, strand_model_skeleton, source_strand_group,
-                                  subdivided_strand_group);
+  dynamic_strands->InitializeData(random_engine, initialize_parameters, strand_model.strand_model_skeleton,
+                                  strand_model_strand_group, randomly_subdivided_strand_group,
+                                  uniformly_subdivided_strand_group);
+  if (initialized_from_tree) {
+    CreateStaticRoot();
+  }
 }
 
 void DynamicTreeStrands::CreateStaticRoot() {
@@ -140,21 +65,48 @@ void DynamicTreeStrands::CreateStaticRoot() {
 }
 
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
+  out << YAML::Key << "seed" << YAML::Value << seed;
+  out << YAML::Key << "enable_physics" << YAML::Value << enable_physics;
+  out << YAML::Key << "limit_strand_length" << YAML::Value << limit_strand_length;
+  out << YAML::Key << "max_strand_length" << YAML::Value << max_strand_length;
+
   bark_material_ref.Save("bark_material_ref", out);
   inner_wood_material_ref.Save("inner_wood_material_ref", out);
   splinter_material_ref.Save("splinter_material_ref", out);
   leaf_material_ref.Save("leaf_material_ref", out);
   snow_material_ref.Save("snow_material_ref", out);
+  segment_pair_material_ref.Save("segment_pair_material_ref", out);
   wireframe_material_ref.Save("wireframe_material_ref", out);
+
+  strand_model.Save("strand_model", out);
+  initialize_parameters.Save("initialize_parameters", out);
+
+  out << YAML::Key << "initialized_from_tree" << YAML::Value << initialized_from_tree;
 }
 
 void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
+  if (in["seed"])
+    seed = in["seed"].as<int>();
+  if (in["initialized_from_tree"])
+    initialized_from_tree = in["initialized_from_tree"].as<bool>();
+
+  if (in["enable_physics"])
+    enable_physics = in["enable_physics"].as<bool>();
+  if (in["limit_strand_length"])
+    limit_strand_length = in["limit_strand_length"].as<bool>();
+  if (in["max_strand_length"])
+    max_strand_length = in["max_strand_length"].as<float>();
+
   bark_material_ref.Load("bark_material_ref", in);
   inner_wood_material_ref.Load("inner_wood_material_ref", in);
   splinter_material_ref.Load("splinter_material_ref", in);
   leaf_material_ref.Load("leaf_material_ref", in);
   snow_material_ref.Load("snow_material_ref", in);
+  segment_pair_material_ref.Load("segment_pair_material_ref", in);
   wireframe_material_ref.Load("wireframe_material_ref", in);
+
+  strand_model.Load("strand_model", in);
+  initialize_parameters.Load("initialize_parameters", in);
 }
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -184,9 +136,10 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     }
   }
 
-  const auto& strand_group = strand_model_skeleton.data.strand_group;
+  const auto& strand_group = strand_model.strand_model_skeleton.data.strand_group;
   if (ImGui::Button("Re-subdivide")) {
-    UpdateDynamicStrands();
+    DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
+    UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
     dynamic_strands->Upload();
     dynamic_strands->InitializeMesh(initialize_parameters);
   }
@@ -214,12 +167,14 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     ImGui::Text(
         (std::string("Original strand segment count: ") + std::to_string(strand_group.PeekStrandSegments().size()))
             .c_str());
+    ImGui::Text((std::string("Subdivided strand count: ") + std::to_string(dynamic_strands->strands.size())).c_str());
+    ImGui::Text((std::string("Segment count: ") + std::to_string(dynamic_strands->segments.size())).c_str());
+    ImGui::Text((std::string("Segment pair count: ") + std::to_string(dynamic_strands->segment_pairs.size())).c_str());
     ImGui::Text(
-        (std::string("Subdivided strand count: ") + std::to_string(subdivided_strand_group.PeekStrands().size()))
+        (std::string("Uniform particles count: ") + std::to_string(dynamic_strands->uniform_particles.size())).c_str());
+    ImGui::Text(
+        (std::string("Delaunay tetrahedrons count: ") + std::to_string(dynamic_strands->delaunay_tetrahedrons.size()))
             .c_str());
-    ImGui::Text((std::string("Subdivided strand segment count: ") +
-                 std::to_string(subdivided_strand_group.PeekStrandSegments().size()))
-                    .c_str());
     ImGui::TreePop();
   }
 
@@ -401,6 +356,7 @@ bool DynamicTreeStrands::LogExperimentSetupSettings::OnInspect(const std::shared
 }
 
 void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings& settings) {
+  auto& strand_model_skeleton = strand_model.strand_model_skeleton;
   strand_model_skeleton = {1};
   auto& strand_group = strand_model_skeleton.data.strand_group;
   float board_length = static_cast<float>(settings.rod_dimension.z) * settings.segment_length;
@@ -446,11 +402,13 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
   const bool saved_strand_length_limit = limit_strand_length;
   limit_strand_length = false;
 
-  const bool trunk = initialize_parameters.trunk;
-  initialize_parameters.trunk = false;
-  UpdateDynamicStrands();
+  const bool trunk = initialize_parameters.trunk_additional_strength;
+  initialize_parameters.trunk_additional_strength = false;
+  DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
+  initialized_from_tree = false;
+  UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
 
-  const auto& target_strand_segment_data_list = subdivided_strand_group.PeekStrandSegmentDataList();
+  const auto& target_strand_segment_data_list = randomly_subdivided_strand_group.PeekStrandSegmentDataList();
 
   Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
     auto& segment = dynamic_strands->segments[i];
@@ -468,7 +426,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 
   dynamic_strands->Upload();
   dynamic_strands->InitializeMesh(initialize_parameters);
-  initialize_parameters.trunk = trunk;
+  initialize_parameters.trunk_additional_strength = trunk;
 
   limit_strand_length = saved_strand_length_limit;
 
@@ -669,6 +627,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 }
 
 void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& settings) {
+  auto& strand_model_skeleton = strand_model.strand_model_skeleton;
   strand_model_skeleton = {1};
   auto& strand_group = strand_model_skeleton.data.strand_group;
   const float log_length = static_cast<float>(settings.rod_segment_count) * settings.segment_length;
@@ -741,11 +700,13 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   const bool saved_strand_length_limit = limit_strand_length;
   limit_strand_length = false;
 
-  const bool trunk = initialize_parameters.trunk;
-  initialize_parameters.trunk = false;
-  UpdateDynamicStrands();
+  const bool trunk = initialize_parameters.trunk_additional_strength;
+  initialize_parameters.trunk_additional_strength = false;
+  DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
+  initialized_from_tree = false;
+  UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
 
-  const auto& target_strand_segment_data_list = subdivided_strand_group.PeekStrandSegmentDataList();
+  const auto& target_strand_segment_data_list = randomly_subdivided_strand_group.PeekStrandSegmentDataList();
 
   GlobalTransform inv_root_transform;
   inv_root_transform.value = glm::inverse(initialize_parameters.root_transform.value);
@@ -806,7 +767,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   }
   dynamic_strands->Upload();
   dynamic_strands->InitializeMesh(initialize_parameters);
-  initialize_parameters.trunk = trunk;
+  initialize_parameters.trunk_additional_strength = trunk;
 
   limit_strand_length = saved_strand_length_limit;
 
@@ -1060,11 +1021,12 @@ void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree) {
         bark_material_ref = mat;
     }
   }
-  strand_model_skeleton = tree->strand_model.strand_model_skeleton;
-  UpdateDynamicStrands();
+  strand_model = tree->strand_model;
+  DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
+  initialized_from_tree = true;
+  UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
   dynamic_strands->Upload();
   dynamic_strands->InitializeMesh(initialize_parameters);
-  CreateStaticRoot();
 }
 
 void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const {

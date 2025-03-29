@@ -1,7 +1,6 @@
 
 #pragma once
 #include "Noises.hpp"
-#include "ProceduralNoise.hpp"
 #include "TreeModel.hpp"
 
 using namespace evo_engine;
@@ -41,11 +40,6 @@ class ShootDescriptor : public IAsset {
   int base_internode_count = 1;
 
   /**
-   * \brief The mean and variance of the angle at the base node for apical growth.
-   */
-  glm::vec2 base_node_apical_angle_mean_variance = glm::vec2(0.0f);
-
-  /**
    * \brief The mean and variance of the angle between the direction of a lateral bud and its parent shoot.
    */
   glm::vec2 branching_angle_mean_variance = glm::vec2(45, 2);
@@ -56,11 +50,6 @@ class ShootDescriptor : public IAsset {
   glm::vec2 roll_angle_mean_variance = glm::vec2(30, 2);
 
   /**
-   * \brief A reference to an asset controlling the procedural noise for roll angles between internodes.
-   */
-  AssetRef roll_angle{};
-
-  /**
    * \brief A procedural noise function affecting roll angles.
    */
   Noise2D roll_angle_noise_2d{};
@@ -69,11 +58,6 @@ class ShootDescriptor : public IAsset {
    * \brief The mean and variance of an angular difference orientation of lateral buds between two internodes.
    */
   glm::vec2 apical_angle_mean_variance = glm::vec2(0, 3);
-
-  /**
-   * \brief A reference to an asset controlling the procedural noise for apical angles between internodes.
-   */
-  AssetRef apical_angle{};
 
   /**
    * \brief A procedural noise function affecting apical angles.
@@ -280,9 +264,11 @@ class ShootDescriptor : public IAsset {
 
   /**
    * \brief Prepares a ShootGrowthController using current growth parameters.
-   * \param shootGrowthController The controller to configure.
+   * \param shoot_growth_controller The controller to configure.
+   * \param shoot_pruning_controller The controller to configure.
    */
-  void PrepareController(ShootGrowthController& shootGrowthController) const;
+  void PrepareController(ShootGrowthController& shoot_growth_controller,
+                         ShootPruningController& shoot_pruning_controller) const;
 
   /**
    * \brief Serializes the shoot descriptor to YAML format.
@@ -298,10 +284,10 @@ class ShootDescriptor : public IAsset {
 
   /**
    * \brief Inspects and modifies shoot descriptor parameters in the editor.
-   * \param editorLayer The editor layer providing UI interaction.
+   * \param editor_layer The editor layer providing UI interaction.
    * \return True if the asset's content remains unmodified.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   /**
    * \brief Collects asset references for dependency tracking.

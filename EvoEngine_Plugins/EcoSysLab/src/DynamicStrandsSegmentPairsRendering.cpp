@@ -63,12 +63,10 @@ bool DynamicStrands::SegmentPairsRenderParameters::OnInspect(const std::shared_p
   return changed;
 }
 
-uint32_t DynamicStrands::RenderSegmentPairsToCameraForward(int material_index,
-                                                           const InitializeParameters& initialize_parameters,
-                                                           const SegmentPairsRenderParameters& render_parameters,
-                                                           VkCommandBuffer vk_command_buffer,
-                                                           const std::shared_ptr<Camera>& target_camera,
-                                                           const RenderLayer::ForwardRenderingView& view) const {
+uint32_t DynamicStrands::RenderSegmentPairsToCameraForward(
+    int material_index, const DynamicStrandsInitializeParameters& initialize_parameters,
+    const SegmentPairsRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
+    const std::shared_ptr<Camera>& target_camera, const RenderLayer::ForwardRenderingView& view) const {
   if (!render_parameters.enabled) {
     return 0;
   }

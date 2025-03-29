@@ -78,7 +78,7 @@ glm::vec3 RingSegment::GetDirection(const glm::vec3& normal_dir, float angle, co
   return direction;
 }
 
-void TreeMeshGeneratorSettings::Save(const std::string& name, YAML::Emitter& out) {
+void TreeMeshGeneratorSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
   out << YAML::Key << "x_subdivision" << YAML::Value << x_subdivision;
   out << YAML::Key << "trunk_y_subdivision" << YAML::Value << trunk_y_subdivision;

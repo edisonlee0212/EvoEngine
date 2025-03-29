@@ -254,7 +254,7 @@ struct SmallSegmentsVisualizationRenderPushConstant {
 };
 
 uint32_t DynamicStrands::RenderSmallSegmentsVisualizationToCameraDeferred(
-    const Handle& renderer_handle, const InitializeParameters& initialize_parameters,
+    const Handle& renderer_handle, const DynamicStrandsInitializeParameters& initialize_parameters,
     const SmallSegmentsVisualizationRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view) const {

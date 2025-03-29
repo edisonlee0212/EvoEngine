@@ -124,13 +124,15 @@ bool Noise2D::OnInspect() {
 void Noise2D::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
   out << YAML::Key << "min_max" << YAML::Value << min_max;
-  out << YAML::Key << "noise_descriptors" << YAML::BeginSeq;
-  for (const auto& i : noise_descriptors) {
-    out << YAML::BeginMap;
-    i.Serialize(out);
-    out << YAML::EndMap;
+  if (!noise_descriptors.empty()) {
+    out << YAML::Key << "noise_descriptors" << YAML::Value << YAML::BeginSeq;
+    for (const auto& i : noise_descriptors) {
+      out << YAML::BeginMap;
+      i.Serialize(out);
+      out << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
   }
-  out << YAML::EndSeq;
   out << YAML::EndMap;
 }
 
@@ -159,11 +161,15 @@ void Noise2D::RandomOffset(const float min, const float max) {
 void Noise3D::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
   out << YAML::Key << "min_max" << YAML::Value << min_max;
-  out << YAML::Key << "noise_descriptors" << YAML::BeginSeq;
-  for (const auto& i : noise_descriptors) {
-    i.Serialize(out);
+  if (!noise_descriptors.empty()) {
+    out << YAML::Key << "noise_descriptors" << YAML::Value << YAML::BeginSeq;
+    for (const auto& i : noise_descriptors) {
+      out << YAML::BeginMap;
+      i.Serialize(out);
+      out << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
   }
-  out << YAML::EndSeq;
   out << YAML::EndMap;
 }
 

@@ -47,9 +47,6 @@ struct ReproductiveModule {
  */
 class Bud {
  public:
-  float flushing_rate;    ///< The rate at which the bud flushes (not serialized).
-  float extinction_rate;  ///< The rate at which the bud is extinguished (not serialized).
-
   BudType type = BudType::Apical;         ///< Type of the bud.
   BudStatus status = BudStatus::Dormant;  ///< Current status of the bud.
 
@@ -107,7 +104,7 @@ struct InternodeGrowthData {
   float extra_mass = 0.0f;     ///< Extra mass contribution.
   float density = 1.0f;        ///< Density of the internode.
   float strength = 1.0f;       ///< Strength parameter.
-
+  float shadow_size = 0.0f;    ///< How much shadow does this internode casts.
   /**
    * @brief List of buds associated with this internode.
    *
@@ -118,10 +115,10 @@ struct InternodeGrowthData {
   std::vector<glm::mat4> leaves;  ///< List storing leaf transformations.
   std::vector<glm::mat4> fruits;  ///< List storing fruit transformations.
 
-  int level = 0;                       ///< Hierarchical level (not serialized).
-  bool max_child = false;              ///< Boolean flag for maximum children (not serialized).
-  float descendant_total_biomass = 0;  ///< Total biomass of descendants (not serialized).
-  float biomass = 0;                   ///< Biomass of this internode (not serialized).
+  int level = 0;                       ///< Hierarchical level.
+  bool max_child = false;              ///< Boolean flag for maximum children.
+  float descendant_total_biomass = 0;  ///< Total biomass of descendants.
+  float biomass = 0;                   ///< Biomass of this internode.
 
   glm::vec3 desired_descendant_weight_center = glm::vec3(0.0f);  ///< Desired weight center of descendants.
   glm::vec3 descendant_weight_center = glm::vec3(0.0f);          ///< Actual weight center of descendants.
@@ -163,6 +160,8 @@ struct ShootGrowthData {
   int max_order = 0;  ///< Maximum order reached.
 
   unsigned index = 0;  ///< Index used for identification.
+
+  float age = 0;  ///< Age of the tree in years.
 };
 
 /**

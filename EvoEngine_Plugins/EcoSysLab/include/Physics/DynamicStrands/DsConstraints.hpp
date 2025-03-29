@@ -5,7 +5,7 @@ using namespace evo_engine;
 namespace eco_sys_lab_plugin {
 class IDsConstraint {
  public:
-  virtual void InitializeData(const DynamicStrands::InitializeParameters& initialize_parameters,
+  virtual void InitializeData(const DynamicStrandsInitializeParameters& initialize_parameters,
                               const StrandModelSkeleton& strand_model_skeleton,
                               const DtsStrandGroup& subdivided_strand_group,
                               const DynamicStrands& target_dynamic_strands) {

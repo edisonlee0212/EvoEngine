@@ -106,12 +106,24 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
         }
       }
 
-      ds->strand_model_skeleton = tree->strand_model.strand_model_skeleton;
-      ds->UpdateDynamicStrands();
-
+      ds->strand_model = tree->strand_model;
+      DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
+      ds->initialized_from_tree = true;
+      ds->UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
       ds->dynamic_strands->Upload();
       ds->dynamic_strands->InitializeMesh(ds->initialize_parameters);
-      ds->CreateStaticRoot();
+    }
+  }
+  if (const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+      dts_entities && !dts_entities->empty()) {
+    for (auto dts_entity : *dts_entities) {
+      if (scene->HasPrivateComponent<Tree>(dts_entity))
+        continue;
+      const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(dts_entity).lock();
+      DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
+      ds->UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
+      ds->dynamic_strands->Upload();
+      ds->dynamic_strands->InitializeMesh(ds->initialize_parameters);
     }
   }
 }
