@@ -6,6 +6,7 @@
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
+#include "ProceduralNoise.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"

@@ -1,7 +1,6 @@
 
 #pragma once
 #include "DynamicStrandsInitializationParameters.hpp"
-#include "Noises.hpp"
 #include "RenderLayer.hpp"
 #include "StrandGroup.hpp"
 #include "StrandModelData.hpp"

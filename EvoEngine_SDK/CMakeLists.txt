@@ -36,6 +36,7 @@ set(EVOENGINE_SDK_INCLUDES
 	${EVOENGINE_SDK_DIR}/include/Editor
 	${EVOENGINE_SDK_DIR}/include/Utilities
 	${EVOENGINE_SDK_DIR}/include/Utilities/NsightAftermath
+	${EVOENGINE_SDK_DIR}/include/Utilities/ProceduralNoise
 	${CMAKE_CURRENT_BINARY_DIR}
 	)
 set(EVOENGINE_SDK_INCLUDES ${EVOENGINE_SDK_INCLUDES} PARENT_SCOPE)

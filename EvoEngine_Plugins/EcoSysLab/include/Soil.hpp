@@ -22,12 +22,12 @@ class SoilLayerDescriptor : public IAsset {
   AssetRef normal_texture;     ///< Reference to the normal texture.
   AssetRef height_texture;     ///< Reference to the height texture.
 
-  Noise3D capacity;           ///< 3D noise representing capacity.
-  Noise3D permeability;       ///< 3D noise representing permeability.
-  Noise3D density;            ///< 3D noise representing density.
-  Noise3D initial_nutrients;  ///< 3D noise representing initial nutrients.
-  Noise3D initial_water;      ///< 3D noise representing initial water.
-  Noise2D thickness;          ///< 2D noise representing thickness.
+  procedural_noise::ProceduralNoise3D capacity_graph{};           ///< 3D noise representing capacity.
+  procedural_noise::ProceduralNoise3D permeability_graph{};       ///< 3D noise representing permeability.
+  procedural_noise::ProceduralNoise3D density_graph{};            ///< 3D noise representing density.
+  procedural_noise::ProceduralNoise3D initial_nutrients_graph{};  ///< 3D noise representing initial nutrients.
+  procedural_noise::ProceduralNoise3D initial_water_graph{};      ///< 3D noise representing initial water.
+  procedural_noise::ProceduralNoise2D thickness_graph{};          ///< 2D noise representing thickness.
 
   /**
    * \brief Handles inspection logic for the soil layer descriptor.

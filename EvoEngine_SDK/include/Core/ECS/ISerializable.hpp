@@ -35,7 +35,7 @@ class ISerializable : public IHandle {
    * @param name The name under which to save the object.
    * @param out The YAML emitter to output the serialized data.
    */
-  void Save(const std::string &name, YAML::Emitter &out) const;
+  virtual void Save(const std::string &name, YAML::Emitter &out) const;
 
   /**
    * @brief Loads the object state from a given YAML node.
@@ -43,7 +43,7 @@ class ISerializable : public IHandle {
    * @param name The name under which the object data is stored.
    * @param in The YAML node containing the serialized data.
    */
-  void Load(const std::string &name, const YAML::Node &in);
+  virtual void Load(const std::string &name, const YAML::Node &in);
 
   /**
    * @brief Retrieves the type name of the current object.

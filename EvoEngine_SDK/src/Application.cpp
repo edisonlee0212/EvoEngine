@@ -37,6 +37,7 @@
 #include "WindowLayer.hpp"
 
 #include "GpuRayTracerCamera.hpp"
+#include "ProceduralNoise.hpp"
 
 using namespace evo_engine;
 
@@ -220,6 +221,12 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   AssetRegistration<PostProcessingStack> pps_registry("PostProcessingStack", {".evepostprocessingstack"});
   AssetRegistration<IAsset> i_asset_registry("IAsset", {".eveasset"});
   AssetRegistration<Material> material_registry("Material", {".evematerial"});
+  AssetRegistration<procedural_noise::ProceduralNoise2D> procedural_noise_2d_registry("ProceduralNoise2D",
+                                                                                      {".evenoise2d"});
+  AssetRegistration<procedural_noise::ProceduralNoise3D> procedural_noise_3d_registry("ProceduralNoise3D",
+                                                                                      {".evenoise3d"});
+  AssetRegistration<procedural_noise::ProceduralNoise4D> procedural_noise_4d_registry("ProceduralNoise4D",
+                                                                                      {".evenoise4d"});
 
   AssetRegistration<Cubemap> cubemap_registry("Cubemap", {".evecubemap"});
   AssetRegistration<LightProbe> light_probe_registry("LightProbe", {".evelightprobe"});

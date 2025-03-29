@@ -126,6 +126,22 @@ class IAsset : public ISerializable {
   bool Load();
 
   /**
+   * @brief Saves the current object state to a YAML emitter.
+   *
+   * @param name The name under which to save the object.
+   * @param out The YAML emitter to output the serialized data.
+   */
+  void Save(const std::string& name, YAML::Emitter& out) const override;
+
+  /**
+   * @brief Loads the object state from a given YAML node.
+   *
+   * @param name The name under which the object data is stored.
+   * @param in The YAML node containing the serialized data.
+   */
+  void Load(const std::string& name, const YAML::Node& in) override;
+
+  /**
    * @brief Exports the current asset to a specified path. Does not affect the asset's internal path.
    * @param path The target path for exporting the asset. Must be an absolute path and outside the project folder.
    * @return Whether the export operation was successful.

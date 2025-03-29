@@ -1,6 +1,5 @@
 
 #pragma once
-#include "Noises.hpp"
 #include "TreeModel.hpp"
 
 using namespace evo_engine;
@@ -52,7 +51,7 @@ class ShootDescriptor : public IAsset {
   /**
    * \brief A procedural noise function affecting roll angles.
    */
-  Noise2D roll_angle_noise_2d{};
+  procedural_noise::ProceduralNoise4D roll_angle_graph{};
 
   /**
    * \brief The mean and variance of an angular difference orientation of lateral buds between two internodes.
@@ -62,7 +61,7 @@ class ShootDescriptor : public IAsset {
   /**
    * \brief A procedural noise function affecting apical angles.
    */
-  Noise2D apical_angle_noise_2d{};
+  procedural_noise::ProceduralNoise4D apical_angle_graph{};
 
   /**
    * \brief Influence of gravity on the shoot growth direction.

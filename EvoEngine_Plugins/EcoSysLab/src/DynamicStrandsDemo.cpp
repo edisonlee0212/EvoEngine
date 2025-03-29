@@ -39,7 +39,7 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
   dts->initialize_parameters.max_segment_length = 0.06f;
   dts->initialize_parameters.min_segment_length = 0.03f;
   dts->initialize_parameters.damage_scale_factor = glm::vec3(0.01f);
-  dts->initialize_parameters.damage.noise_descriptors.clear();
+  dts->initialize_parameters.damage_graph.Reset();
   dts->enable_physics = false;
   object_initial_pose = {};
   tree_initial_pose = {};
@@ -219,8 +219,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.bundle_strength = glm::vec2(250.f);
     dts->initialize_parameters.connectivity_strength = glm::vec2(250.f);
 
-    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
-    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
 
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
     dts->BoardExperimentSetup(board_experiment_setup_settings);
@@ -240,8 +240,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.bundle_strength = glm::vec2(250.f);
     dts->initialize_parameters.connectivity_strength = glm::vec2(250.f);
 
-    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
-    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
 
     board_experiment_setup_settings.left_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
     board_experiment_setup_settings.right_pivot_type = static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
@@ -262,8 +262,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.twisting_strength = glm::vec2(250.f);
     dts->initialize_parameters.bundle_strength = glm::vec2(250.f);
     dts->initialize_parameters.connectivity_strength = glm::vec2(250.f);
-    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
-    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
 
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
     dts->BoardExperimentSetup(board_experiment_setup_settings);
@@ -282,8 +282,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.twisting_strength = glm::vec2(250.f);
     dts->initialize_parameters.bundle_strength = glm::vec2(250.f);
     dts->initialize_parameters.connectivity_strength = glm::vec2(250.f);
-    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
-    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
 
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
     dts->BoardExperimentSetup(board_experiment_setup_settings);
@@ -301,8 +301,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.rod_segment_count = 10;
     log_experiment_setup_settings.rod_size = 3200;
 
-    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
-    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
     dts->initialize_parameters.shear_stretch_strength = glm::vec2(750.f, 50.f);
     dts->initialize_parameters.bending_strength = glm::vec2(750.f, 50.f);
     dts->initialize_parameters.twisting_strength = glm::vec2(750.f, 50.f);
@@ -322,8 +322,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.rod_segment_count = 10;
     log_experiment_setup_settings.rod_size = 3200;
 
-    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
-    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
     dts->initialize_parameters.shear_stretch_strength = glm::vec2(500.f);
     dts->initialize_parameters.bending_strength = glm::vec2(500.f);
     dts->initialize_parameters.twisting_strength = glm::vec2(500.f);
@@ -343,8 +343,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.rod_segment_count = 10;
     log_experiment_setup_settings.rod_size = 3200;
 
-    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
-    noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
     dts->initialize_parameters.shear_stretch_strength = glm::vec2(50.f, 750.f);
     dts->initialize_parameters.bending_strength = glm::vec2(50.f, 750.f);
     dts->initialize_parameters.twisting_strength = glm::vec2(50.f, 750.f);
@@ -370,10 +370,10 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.max_segment_length = 0.03f;
     dts->initialize_parameters.min_segment_length = 0.015f;
 
-    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
-    noise.type = static_cast<unsigned>(NoiseType::Perlin);
-    noise.multiplier = 0.95f;
-    noise.shift = glm::vec3(1000.f);
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    // noise.multiplier = 0.95f;
+    // noise.shift = glm::vec3(1000.f);
 
     board_experiment_setup_settings.center_damage = 0.7f;
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
@@ -408,10 +408,10 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.twisting_strength = glm::vec2(100.f);
     dts->initialize_parameters.bundle_strength = glm::vec2(100.f);
     dts->initialize_parameters.connectivity_strength = glm::vec2(100.f);
-    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
-    noise.type = static_cast<unsigned>(NoiseType::Perlin);
-    noise.multiplier = 0.95f;
-    noise.shift = glm::vec3(1000.f);
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    // noise.multiplier = 0.95f;
+    // noise.shift = glm::vec3(1000.f);
     board_experiment_setup_settings.center_damage = 0.7f;
     dts->initialize_parameters.damage_scale_factor = glm::vec3(0.01f);
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
@@ -442,9 +442,9 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.twisting_strength = glm::vec2(100.f);
     dts->initialize_parameters.bundle_strength = glm::vec2(100.f);
     dts->initialize_parameters.connectivity_strength = glm::vec2(100.f);
-    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
-    noise.type = static_cast<unsigned>(NoiseType::Perlin);
-    noise.multiplier = 0.99f;
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    // noise.multiplier = 0.99f;
     board_experiment_setup_settings.center_damage = 0.0f;
     dts->initialize_parameters.damage_scale_factor = glm::vec3(0.005f, 0.1f, 0.05f);
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
@@ -477,9 +477,9 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dts->initialize_parameters.twisting_strength = glm::vec2(100.f);
     dts->initialize_parameters.bundle_strength = glm::vec2(100.f);
     dts->initialize_parameters.connectivity_strength = glm::vec2(100.f);
-    auto& noise = dts->initialize_parameters.damage.noise_descriptors.emplace_back();
-    noise.type = static_cast<unsigned>(NoiseType::Perlin);
-    noise.multiplier = 0.99f;
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    // noise.multiplier = 0.99f;
     board_experiment_setup_settings.center_damage = 0.0f;
     dts->initialize_parameters.damage_scale_factor = glm::vec3(0.005f, 0.1f, 0.05f);
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};

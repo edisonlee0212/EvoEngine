@@ -1,18 +1,18 @@
 #pragma once
-#include "Noises.hpp"
 #include "Plot2D.hpp"
+using namespace evo_engine;
 namespace eco_sys_lab_plugin {
 /**
  * \brief Parameters used during the initialization of the dynamic strand model.
  */
 struct DynamicStrandsInitializeParameters {
-  float min_segment_length = 0.03f;                  ///< The minimum length of a segment.
-  float max_segment_length = 0.06f;                  ///< The maximum length of a segment.
-  int uniform_subdivision = 5;                       ///< The number of uniform subdivisions per segment for strands.
-  Noise3D damage{};                                  ///< Noise parameter for simulating structural damage.
-  glm::vec3 damage_scale_factor = glm::vec3(0.01f);  ///< Scale factor for damage effects.
-  float neighbor_vertical_range = 3.0f;              ///< Vertical range for finding neighboring segments.
-  float neighbor_horizontal_range = 3.0f;            ///< Horizontal range for finding neighboring segments.
+  float min_segment_length = 0.03f;                    ///< The minimum length of a segment.
+  float max_segment_length = 0.06f;                    ///< The maximum length of a segment.
+  int uniform_subdivision = 5;                         ///< The number of uniform subdivisions per segment for strands.
+  procedural_noise::ProceduralNoise3D damage_graph{};  ///< Noise parameter for simulating structural damage.
+  glm::vec3 damage_scale_factor = glm::vec3(0.01f);    ///< Scale factor for damage effects.
+  float neighbor_vertical_range = 3.0f;                ///< Vertical range for finding neighboring segments.
+  float neighbor_horizontal_range = 3.0f;              ///< Horizontal range for finding neighboring segments.
 
   float sapwood_offset = 0.05f;    ///< Offset for simulating sapwood in the model.
   float wood_transition = 0.005f;  ///< Transition factor between different wood types.

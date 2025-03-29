@@ -60,28 +60,16 @@ void ShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_cont
     if (roll_angle_mean_variance.y == 0.f) {
       return roll_angle_mean_variance.x;
     }
-
     float value = Random::Gaussian(random_engine, roll_angle_mean_variance.x, roll_angle_mean_variance.y);
-    /*
-            if (const auto noise = roll_angle.Get<ProceduralNoise2D>())
-            {
-                    noise->Process(glm::vec2(internode.GetHandle(), internode.info.m_rootDistance), value);
-            }*/
-    value += roll_angle_noise_2d.GetValue(glm::vec2(internode.GetHandle(), internode.info.root_distance));
+    value += roll_angle_graph.GetValue(glm::vec4(internode.info.global_position, internode.info.root_distance));
     return value;
   };
   shoot_growth_controller.apical_angle = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
                                              const SkeletonNode<InternodeGrowthData>& internode) {
     if (straight_trunk != 0.f && internode.data.order == 0 && internode.info.root_distance < straight_trunk)
       return 0.f;
-
     float value = Random::Gaussian(random_engine, apical_angle_mean_variance.x, apical_angle_mean_variance.y);
-    /*
-            if (const auto noise = apical_angle.Get<ProceduralNoise2D>())
-            {
-                    noise->Process(glm::vec2(internode.GetHandle(), internode.info.m_rootDistance), value);
-            }*/
-    value += apical_angle_noise_2d.GetValue(glm::vec2(internode.GetHandle(), internode.info.root_distance));
+    value += apical_angle_graph.GetValue(glm::vec4(internode.info.global_position, internode.info.root_distance));
     return value;
   };
   shoot_growth_controller.gravitropism = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
@@ -217,8 +205,8 @@ void ShootDescriptor::Serialize(YAML::Emitter& out) const {
 
   out << YAML::Key << "growth_rate" << YAML::Value << growth_rate;
 
-  roll_angle_noise_2d.Save("roll_angle_noise_2d", out);
-  apical_angle_noise_2d.Save("apical_angle_noise_2d", out);
+  roll_angle_graph.Save("roll_angle_graph", out);
+  apical_angle_graph.Save("apical_angle_graph", out);
 
   out << YAML::Key << "branching_angle_mean_variance" << YAML::Value << branching_angle_mean_variance;
   out << YAML::Key << "roll_angle_mean_variance" << YAML::Value << roll_angle_mean_variance;
@@ -276,8 +264,8 @@ void ShootDescriptor::Deserialize(const YAML::Node& in) {
   if (in["growth_rate"])
     growth_rate = in["growth_rate"].as<float>();
 
-  roll_angle_noise_2d.Load("roll_angle_noise_2d", in);
-  apical_angle_noise_2d.Load("apical_angle_noise_2d", in);
+  roll_angle_graph.Load("roll_angle_graph", in);
+  apical_angle_graph.Load("apical_angle_graph", in);
 
   if (in["branching_angle_mean_variance"])
     branching_angle_mean_variance = in["branching_angle_mean_variance"].as<glm::vec2>();
@@ -384,13 +372,15 @@ bool ShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer
       changed =
           ImGui::DragFloat2("Apical angle base/var", &apical_angle_mean_variance.x, 0.1f, 0.0f, 100.0f) || changed;
       // editorLayer->DragAndDropButton<ProceduralNoise2D>(apical_angle, "Apical Angle Noise");
-      if (ImGui::TreeNodeEx("Roll Angle Noise2D")) {
-        changed = roll_angle_noise_2d.OnInspect() | changed;
-        ImGui::TreePop();
+      static bool show_roll_angle_graph = false;
+      static bool show_apical_angle_graph = false;
+      ImGui::Checkbox("Show roll angle graph", &show_roll_angle_graph);
+      ImGui::Checkbox("Show apical angle graph", &show_apical_angle_graph);
+      if (show_roll_angle_graph) {
+        changed = roll_angle_graph.ShowGraph("Roll Angle Graph", editor_layer) | changed;
       }
-      if (ImGui::TreeNodeEx("Apical Angle Noise2D")) {
-        changed = apical_angle_noise_2d.OnInspect() | changed;
-        ImGui::TreePop();
+      if (show_apical_angle_graph) {
+        changed = apical_angle_graph.ShowGraph("Apical Angle Graph", editor_layer) | changed;
       }
       ImGui::TreePop();
     }
