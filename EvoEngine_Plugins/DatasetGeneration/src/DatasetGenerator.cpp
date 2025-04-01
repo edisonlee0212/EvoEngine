@@ -45,6 +45,82 @@ bool CheckSoil(std::shared_ptr<Soil>& soil, bool generate_ground_mesh) {
   return true;
 }
 
+std::shared_ptr<TreeDescriptor> DatasetGenerator::TreeDataGenerationParameters::GetActualTreeDescriptor() const {
+  std::shared_ptr<TreeDescriptor> actual_tree_descriptor = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+  if (tree_descriptor_path.empty() || !tree_descriptor_path.has_extension()) {
+    EVOENGINE_ERROR("Tree Descriptor doesn't exist!");
+    return actual_tree_descriptor;
+  }
+  if (tree_descriptor_path.is_relative()) {
+    std::shared_ptr<TreeDescriptor> tree_descriptor;
+    const auto absolute_path = ProjectManager::GetAssetsFolderPath() / tree_descriptor_path;
+    if (std::filesystem::exists(absolute_path)) {
+      tree_descriptor =
+          std::dynamic_pointer_cast<TreeDescriptor>(ProjectManager::GetOrCreateAsset(tree_descriptor_path));
+    } else {
+      EVOENGINE_ERROR("Tree Descriptor doesn't exist!");
+      return actual_tree_descriptor;
+    }
+    actual_tree_descriptor->shoot_descriptor = tree_descriptor->shoot_descriptor;
+    actual_tree_descriptor->foliage_descriptor = tree_descriptor->foliage_descriptor;
+    actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
+    actual_tree_descriptor->fruit_descriptor = tree_descriptor->fruit_descriptor;
+    actual_tree_descriptor->flower_descriptor = tree_descriptor->flower_descriptor;
+  } else {
+    std::shared_ptr<TreeDescriptor> tree_descriptor;
+    if (ProjectManager::IsInAssetsFolder(tree_descriptor_path)) {
+      tree_descriptor = std::dynamic_pointer_cast<TreeDescriptor>(
+          ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(tree_descriptor_path)));
+    } else {
+      EVOENGINE_ERROR("Tree Descriptor doesn't exist!");
+      return actual_tree_descriptor;
+    }
+    actual_tree_descriptor->shoot_descriptor = tree_descriptor->shoot_descriptor;
+    actual_tree_descriptor->foliage_descriptor = tree_descriptor->foliage_descriptor;
+    actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
+    actual_tree_descriptor->fruit_descriptor = tree_descriptor->fruit_descriptor;
+    actual_tree_descriptor->flower_descriptor = tree_descriptor->flower_descriptor;
+  }
+
+  if (!foliage_descriptor_path.empty()) {
+    if (foliage_descriptor_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / foliage_descriptor_path;
+      if (std::filesystem::exists(absolute_path)) {
+        actual_tree_descriptor->foliage_descriptor =
+            std::dynamic_pointer_cast<FoliageDescriptor>(ProjectManager::GetOrCreateAsset(foliage_descriptor_path));
+      } else {
+        EVOENGINE_ERROR("Foliage Descriptor doesn't exist!");
+      }
+    } else {
+      if (ProjectManager::IsInAssetsFolder(foliage_descriptor_path)) {
+        actual_tree_descriptor->foliage_descriptor = std::dynamic_pointer_cast<FoliageDescriptor>(
+            ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(foliage_descriptor_path)));
+      } else {
+        EVOENGINE_ERROR("Foliage Descriptor doesn't exist!");
+      }
+    }
+  }
+
+  if (!bark_descriptor_path.empty()) {
+    if (bark_descriptor_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / bark_descriptor_path;
+      if (std::filesystem::exists(absolute_path)) {
+        actual_tree_descriptor->bark_descriptor =
+            std::dynamic_pointer_cast<BarkDescriptor>(ProjectManager::GetOrCreateAsset(bark_descriptor_path));
+      } else {
+        EVOENGINE_ERROR("Bark Descriptor doesn't exist!");
+      }
+    } else {
+      if (ProjectManager::IsInAssetsFolder(bark_descriptor_path)) {
+        actual_tree_descriptor->bark_descriptor = std::dynamic_pointer_cast<BarkDescriptor>(
+            ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(bark_descriptor_path)));
+      } else {
+        EVOENGINE_ERROR("Bark Descriptor doesn't exist!");
+      }
+    }
+  }
+  return actual_tree_descriptor;
+}
 void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& data_generation_parameters) {
   if (!CheckApplication()) {
     return;
@@ -66,82 +142,7 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   if (soil_descriptor) {
     height_field = soil_descriptor->height_field.Get<HeightField>();
   }
-  std::shared_ptr<TreeDescriptor> actual_tree_descriptor = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
-
-  if (data_generation_parameters.tree_descriptor_path.is_relative()) {
-    std::shared_ptr<TreeDescriptor> tree_descriptor;
-    const auto absolute_path = ProjectManager::GetAssetsFolderPath() / data_generation_parameters.tree_descriptor_path;
-    if (std::filesystem::exists(absolute_path)) {
-      tree_descriptor = std::dynamic_pointer_cast<TreeDescriptor>(
-          ProjectManager::GetOrCreateAsset(data_generation_parameters.tree_descriptor_path));
-    } else {
-      EVOENGINE_ERROR("Tree Descriptor doesn't exist!");
-      return;
-    }
-    actual_tree_descriptor->shoot_descriptor = tree_descriptor->shoot_descriptor;
-    actual_tree_descriptor->foliage_descriptor = tree_descriptor->foliage_descriptor;
-    actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
-    actual_tree_descriptor->fruit_descriptor = tree_descriptor->fruit_descriptor;
-    actual_tree_descriptor->flower_descriptor = tree_descriptor->flower_descriptor;
-  } else {
-    std::shared_ptr<TreeDescriptor> tree_descriptor;
-    if (ProjectManager::IsInAssetsFolder(data_generation_parameters.tree_descriptor_path)) {
-      tree_descriptor = std::dynamic_pointer_cast<TreeDescriptor>(ProjectManager::GetOrCreateAsset(
-          ProjectManager::GetAssetsRelativePath(data_generation_parameters.tree_descriptor_path)));
-    } else {
-      EVOENGINE_ERROR("Tree Descriptor doesn't exist!");
-      return;
-    }
-    actual_tree_descriptor->shoot_descriptor = tree_descriptor->shoot_descriptor;
-    actual_tree_descriptor->foliage_descriptor = tree_descriptor->foliage_descriptor;
-    actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
-    actual_tree_descriptor->fruit_descriptor = tree_descriptor->fruit_descriptor;
-    actual_tree_descriptor->flower_descriptor = tree_descriptor->flower_descriptor;
-  }
-
-  if (!data_generation_parameters.foliage_descriptor_path.empty()) {
-    if (data_generation_parameters.foliage_descriptor_path.is_relative()) {
-      const auto absolute_path =
-          ProjectManager::GetAssetsFolderPath() / data_generation_parameters.foliage_descriptor_path;
-      if (std::filesystem::exists(absolute_path)) {
-        actual_tree_descriptor->foliage_descriptor = std::dynamic_pointer_cast<FoliageDescriptor>(
-            ProjectManager::GetOrCreateAsset(data_generation_parameters.foliage_descriptor_path));
-      } else {
-        EVOENGINE_ERROR("Foliage Descriptor doesn't exist!");
-      }
-    } else {
-      if (ProjectManager::IsInAssetsFolder(data_generation_parameters.foliage_descriptor_path)) {
-        actual_tree_descriptor->foliage_descriptor =
-            std::dynamic_pointer_cast<FoliageDescriptor>(ProjectManager::GetOrCreateAsset(
-                ProjectManager::GetAssetsRelativePath(data_generation_parameters.foliage_descriptor_path)));
-      } else {
-        EVOENGINE_ERROR("Foliage Descriptor doesn't exist!");
-        return;
-      }
-    }
-  }
-
-  if (!data_generation_parameters.bark_descriptor_path.empty()) {
-    if (data_generation_parameters.bark_descriptor_path.is_relative()) {
-      const auto absolute_path =
-          ProjectManager::GetAssetsFolderPath() / data_generation_parameters.bark_descriptor_path;
-      if (std::filesystem::exists(absolute_path)) {
-        actual_tree_descriptor->bark_descriptor = std::dynamic_pointer_cast<BarkDescriptor>(
-            ProjectManager::GetOrCreateAsset(data_generation_parameters.bark_descriptor_path));
-      } else {
-        EVOENGINE_ERROR("Bark Descriptor doesn't exist!");
-      }
-    } else {
-      if (ProjectManager::IsInAssetsFolder(data_generation_parameters.bark_descriptor_path)) {
-        actual_tree_descriptor->bark_descriptor =
-            std::dynamic_pointer_cast<BarkDescriptor>(ProjectManager::GetOrCreateAsset(
-                ProjectManager::GetAssetsRelativePath(data_generation_parameters.bark_descriptor_path)));
-      } else {
-        EVOENGINE_ERROR("Bark Descriptor doesn't exist!");
-        return;
-      }
-    }
-  }
+  const auto actual_tree_descriptor = data_generation_parameters.GetActualTreeDescriptor();
 
   if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
       tree_entities && !tree_entities->empty()) {
@@ -195,10 +196,6 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
           data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + post_fix + ".obj"),
           data_generation_parameters.tree_mesh_generator_settings);
     }
-    if (data_generation_parameters.export_skeleton) {
-      tree->ExportFlowGraph(data_generation_parameters.output_folder /
-                            (data_generation_parameters.output_file_name + "_skeleton" + post_fix + ".yml"));
-    }
     if (data_generation_parameters.export_point_cloud) {
       const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
       scanner->point_settings = data_generation_parameters.tree_point_cloud_point_settings;
@@ -207,7 +204,14 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
           data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + post_fix + ".ply"),
           data_generation_parameters.point_cloud_capture_settings);
     }
-
+    if (data_generation_parameters.export_flow_graph) {
+      tree->ExportFlowGraph(data_generation_parameters.output_folder /
+                            (data_generation_parameters.output_file_name + "_flows" + post_fix + ".yml"));
+    }
+    if (data_generation_parameters.export_node_graph) {
+      tree->ExportNodeGraph(data_generation_parameters.output_folder /
+                            (data_generation_parameters.output_file_name + "_nodes" + post_fix + ".yml"));
+    }
     if (data_generation_parameters.export_rendering || data_generation_parameters.export_depth) {
       const auto camera = scene->GetOrSetPrivateComponent<Camera>(camera_entity).lock();
       for (int image_index = 0; image_index < data_generation_parameters.camera_capture_settings.size();
@@ -325,12 +329,16 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
             data_generation_parameters.output_folder /
             (data_generation_parameters.output_file_name + "_stats_" + std::to_string(tree_index) + ".yml"));
       }
-      if (data_generation_parameters.export_skeleton) {
+      if (data_generation_parameters.export_flow_graph) {
         tree->ExportFlowGraph(
             data_generation_parameters.output_folder /
-            (data_generation_parameters.output_file_name + "_skeleton_" + std::to_string(tree_index) + ".yml"));
+            (data_generation_parameters.output_file_name + "_flows_" + std::to_string(tree_index) + ".yml"));
       }
-
+      if (data_generation_parameters.export_node_graph) {
+        tree->ExportNodeGraph(
+            data_generation_parameters.output_folder /
+            (data_generation_parameters.output_file_name + "_nodes_" + std::to_string(tree_index) + ".yml"));
+      }
       tree_index++;
     }
   }

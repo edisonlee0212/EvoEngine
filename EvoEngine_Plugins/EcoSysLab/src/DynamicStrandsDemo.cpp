@@ -651,7 +651,7 @@ void DynamicStrandsDemo::Update() {
   const auto owner = GetOwner();
   const auto scene = GetScene();
   const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
-
+  dts->dynamic_strands->UpdateBindings();
   if (demo_status == DemoStatus::TreeGrowth) {
     const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
     eco_sys_lab_layer->Simulate(simulation_settings, simulation_stats);

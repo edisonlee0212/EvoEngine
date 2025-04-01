@@ -2082,8 +2082,6 @@ void TreeStructor::ClearForest() {
   forest_ref.Clear();
 }
 void TreeStructor::ExportForestStatistics(const std::string& name, YAML::Emitter& out) const {
-  const auto scene = GetScene();
-
   out << YAML::Key << name << YAML::Value << YAML::BeginSeq;
   int i = 0;
   for (const auto& skeleton : skeletons) {
@@ -2102,6 +2100,94 @@ void TreeStructor::ExportForestStatistics(const std::filesystem::path& path) con
     YAML::Emitter out;
     out << YAML::BeginMap;
     ExportForestStatistics("Forest Statistics", out);
+    out << YAML::EndMap;
+    std::ofstream file_output(path.string());
+    file_output << out.c_str();
+    file_output.close();
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to save: " + std::string(e.what()))
+  }
+}
+void TreeStructor::ExportNodeGraphs(const std::string& name, YAML::Emitter& out) const {
+  out << YAML::Key << name << YAML::Value << YAML::BeginSeq;
+  int i = 0;
+  for (const auto& skeleton : skeletons) {
+    TreeStatistics tree_statistic{};
+    tree_statistic.Calculate(skeleton);
+    out << YAML::BeginMap;
+    out << YAML::Key << "Tree Index" << YAML::Value << i;
+
+    out << YAML::Key << "Nodes" << YAML::Value << YAML::BeginSeq;
+    for (const auto& node_handle : skeleton.PeekSortedNodeList()) {
+      const auto& node = skeleton.PeekNode(node_handle);
+      out << YAML::BeginMap;
+      out << YAML::Key << "I" << YAML::Value << node_handle;
+      out << YAML::Key << "PI" << YAML::Value << node.GetParentHandle();
+      out << YAML::Key << "FI" << YAML::Value << node.GetFlowHandle();
+      out << YAML::Key << "SP" << YAML::Value << node.info.global_position;
+      out << YAML::Key << "EP" << YAML::Value << node.info.GetGlobalEndPosition();
+      out << YAML::Key << "D" << YAML::Value << node.info.GetGlobalDirection();
+      out << YAML::Key << "T" << YAML::Value << node.info.thickness;
+      out << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+
+    out << YAML::EndMap;
+    i++;
+  }
+  out << YAML::EndSeq;
+}
+
+void TreeStructor::ExportNodeGraphs(const std::filesystem::path& path) const {
+  try {
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    ExportFlowGraphs("Forest Node Graphs", out);
+    out << YAML::EndMap;
+    std::ofstream file_output(path.string());
+    file_output << out.c_str();
+    file_output.close();
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to save: " + std::string(e.what()))
+  }
+}
+
+void TreeStructor::ExportFlowGraphs(const std::string& name, YAML::Emitter& out) const {
+  out << YAML::Key << name << YAML::Value << YAML::BeginSeq;
+  int i = 0;
+  for (const auto& skeleton : skeletons) {
+    TreeStatistics tree_statistic{};
+    tree_statistic.Calculate(skeleton);
+    out << YAML::BeginMap;
+    out << YAML::Key << "Tree Index" << YAML::Value << i;
+
+    out << YAML::Key << "Flows" << YAML::Value << YAML::BeginSeq;
+    for (const auto& flow_handle : skeleton.PeekSortedFlowList()) {
+      const auto& flow = skeleton.PeekFlow(flow_handle);
+      out << YAML::BeginMap;
+      out << YAML::Key << "I" << YAML::Value << flow_handle;
+      out << YAML::Key << "PI" << YAML::Value << flow.GetParentHandle();
+      out << YAML::Key << "SP" << YAML::Value << flow.info.global_start_position;
+      out << YAML::Key << "SD" << YAML::Value << flow.info.global_start_rotation * glm::vec3(0, 0, -1);
+      out << YAML::Key << "ST" << YAML::Value << flow.info.start_thickness;
+
+      out << YAML::Key << "EP" << YAML::Value << flow.info.global_end_position;
+      out << YAML::Key << "ED" << YAML::Value << flow.info.global_end_rotation * glm::vec3(0, 0, -1);
+      out << YAML::Key << "ET" << YAML::Value << flow.info.end_thickness;
+      out << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+
+    out << YAML::EndMap;
+    i++;
+  }
+  out << YAML::EndSeq;
+}
+void TreeStructor::ExportFlowGraphs(const std::filesystem::path& path) const {
+  try {
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    ExportFlowGraphs("Forest Flow Graphs", out);
     out << YAML::EndMap;
     std::ofstream file_output(path.string());
     file_output << out.c_str();

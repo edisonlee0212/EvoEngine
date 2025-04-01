@@ -271,7 +271,7 @@ void Folder::DeleteChild(const Handle& child_handle) {
 std::shared_ptr<IAsset> Folder::GetOrCreateAsset(const std::string& file_name, const std::string& extension) {
   const auto type_name = Serialization::GetAssetTypeName(extension);
   if (type_name == "Binary") {
-    EVOENGINE_ERROR("Asset type not registered!")
+    EVOENGINE_ERROR(std::string("Asset type not registered! Ext: ") + extension)
     return {};
   }
   for (const auto& i : files) {

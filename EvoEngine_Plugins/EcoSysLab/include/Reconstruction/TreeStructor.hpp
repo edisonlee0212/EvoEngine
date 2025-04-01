@@ -300,6 +300,11 @@ class TreeStructor : public IPrivateComponent {
   void ClearForest();
   void ExportForestStatistics(const std::string& name, YAML::Emitter& out) const;
   void ExportForestStatistics(const std::filesystem::path& path) const;
+
+  void ExportNodeGraphs(const std::string& name, YAML::Emitter& out) const;
+  void ExportNodeGraphs(const std::filesystem::path& path) const;
+  void ExportFlowGraphs(const std::string& name, YAML::Emitter& out) const;
+  void ExportFlowGraphs(const std::filesystem::path& path) const;
   EntityRef forest_ref{};
 
   void OnCreate() override;

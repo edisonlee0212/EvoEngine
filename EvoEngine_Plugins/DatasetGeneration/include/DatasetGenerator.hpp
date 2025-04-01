@@ -40,10 +40,11 @@ class DatasetGenerator {
     // Export types
     bool export_point_cloud = false;
     bool export_mesh = false;
-    bool export_skeleton = false;
     bool export_rendering = false;
     bool export_depth = false;
     bool export_statistics = false;
+    bool export_node_graph = false;
+    bool export_flow_graph = false;
 
     // Data generation
     bool generate_ground_mesh = false;
@@ -56,6 +57,8 @@ class DatasetGenerator {
     // Export path
     std::filesystem::path output_folder{};
     std::string output_file_name{};
+
+    std::shared_ptr<TreeDescriptor> GetActualTreeDescriptor() const;
   };
 
   static void GenerateDataForTree(const TreeDataGenerationParameters& data_generation_parameters);
