@@ -46,7 +46,30 @@ tree_framework.Run(project_path)
 #Following configurations are defined in PythonBinding/src/PyEcoSysLab.cpp. You may check all available settings there.
 #You may modify connectivity graph settings here.
 connectivity_graph_settings = tree_framework.ConnectivityGraphSettings()
+
+#Point-point connection max height
+connectivity_graph_settings.max_scatter_point_connection_height = 1.5
+#Point-point detection radius
+connectivity_graph_settings.point_point_connection_detection_radius = 0.05
+#Point-branch detection radius
+connectivity_graph_settings.point_branch_connection_detection_radius = 0.1
+#Branch-branch detection range
+connectivity_graph_settings.branch_branch_connection_max_length_range = 8.0
+#Direct connection angle limit
+connectivity_graph_settings.direction_connection_angle_limit = 90.0
+#Indirect connection angle limit
+connectivity_graph_settings.indirect_connection_angle_limit = 90.0
+#Zigzag check
 connectivity_graph_settings.zigzag_check = True
+connectivity_graph_settings.zigzag_branch_shortening = 0.1
+#Parallel shift check
+connectivity_graph_settings.parallel_shift_check = True
+connectivity_graph_settings.parallel_shift_limit_range = 3.0
+#Point existence check
+connectivity_graph_settings.point_existence_check = True
+connectivity_graph_settings.point_existence_check_radius = 0.1
+
+
 #You may modify reconstruction settings here.
 reconstruction_settings = tree_framework.ReconstructionSettings()
 reconstruction_settings.end_node_thickness = 0.004
