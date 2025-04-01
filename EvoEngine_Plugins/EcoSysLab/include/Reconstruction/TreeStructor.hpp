@@ -101,12 +101,12 @@ struct ConnectivityGraphSettings {
   float zigzag_branch_shortening = 0.1f;
   float parallel_shift_check_height_limit = 1.5f;
   bool parallel_shift_check = true;
-  float parallel_shift_limit_range = 2.0f;
+  float parallel_shift_limit_range = 3.0f;
   float point_point_connection_detection_radius = 0.05f;
   float point_branch_connection_detection_radius = 0.1f;
-  float branch_branch_connection_max_length_range = 5.0f;
-  float direction_connection_angle_limit = 65.0f;
-  float indirect_connection_angle_limit = 65.0f;
+  float branch_branch_connection_max_length_range = 8.0f;
+  float direction_connection_angle_limit = 70.0f;
+  float indirect_connection_angle_limit = 70.0f;
 
   float connection_range_limit = 1.0f;
 

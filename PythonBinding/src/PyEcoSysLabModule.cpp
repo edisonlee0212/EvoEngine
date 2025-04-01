@@ -191,7 +191,7 @@ void tree_structor(const std::filesystem::path& yaml_path, const float import_sc
                                     (tree_data_generation_parameters.output_file_name + "_flows.yml"));
   }
   if (tree_data_generation_parameters.export_node_graph) {
-    tree_structor->ExportFlowGraphs(tree_data_generation_parameters.output_folder /
+    tree_structor->ExportNodeGraphs(tree_data_generation_parameters.output_folder /
                                     (tree_data_generation_parameters.output_file_name + "_nodes.yml"));
   }
   scene->DeleteEntity(temp_entity);

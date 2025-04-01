@@ -728,13 +728,27 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       ClearForest();
     }
     ImGui::Separator();
-    const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
-    FileUtils::SaveFile(
-        "Export all forest as OBJ", "OBJ", {".obj"},
-        [&](const std::filesystem::path& path) {
-          ExportForestObj(eco_sys_lab_layer->mesh_generator_settings, path);
-        },
-        false);
+    if (GetScene()->IsEntityValid(forest_ref.Get())) {
+      const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+      FileUtils::SaveFile(
+          "Export OBJ", "OBJ", {".obj"},
+          [&](const std::filesystem::path& path) {
+            ExportForestObj(eco_sys_lab_layer->mesh_generator_settings, path);
+          },
+          false);
+      FileUtils::SaveFile(
+          "Export flow graph", "YAML", {".yml"},
+          [&](const std::filesystem::path& path) {
+            ExportFlowGraphs(path);
+          },
+          false);
+      FileUtils::SaveFile(
+          "Export node graph", "YAML", {".yml"},
+          [&](const std::filesystem::path& path) {
+            ExportNodeGraphs(path);
+          },
+          false);
+    }
   }
 
   ImGui::Checkbox("Debug Rendering", &enable_debug_rendering);
@@ -2142,7 +2156,7 @@ void TreeStructor::ExportNodeGraphs(const std::filesystem::path& path) const {
   try {
     YAML::Emitter out;
     out << YAML::BeginMap;
-    ExportFlowGraphs("Forest Node Graphs", out);
+    ExportNodeGraphs("Forest Node Graphs", out);
     out << YAML::EndMap;
     std::ofstream file_output(path.string());
     file_output << out.c_str();
