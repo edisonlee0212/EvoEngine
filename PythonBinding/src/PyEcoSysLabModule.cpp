@@ -159,23 +159,41 @@ Entity import_tree_point_cloud(const std::string& yaml_path) {
 void tree_structor(const std::filesystem::path& yaml_path, const float import_scale_factor,
                    const ConnectivityGraphSettings& connectivity_graph_settings,
                    const ReconstructionSettings& reconstruction_settings,
-                   const TreeMeshGeneratorSettings& mesh_generator_settings, const std::filesystem::path& output_folder,
-                   const std::string& file_name_prefix) {
+                   const DatasetGenerator::TreeDataGenerationParameters& tree_data_generation_parameters) {
   if (!std::filesystem::exists(yaml_path)) {
     EVOENGINE_ERROR("Incorrect yaml path!")
     return;
   }
   const auto scene = Application::GetActiveScene();
   const auto temp_entity = scene->CreateEntity("Temp");
-  const auto tree_point_cloud = scene->GetOrSetPrivateComponent<TreeStructor>(temp_entity).lock();
+  const auto tree_structor = scene->GetOrSetPrivateComponent<TreeStructor>(temp_entity).lock();
+  if (!tree_data_generation_parameters.tree_descriptor_path.empty()) {
+    const auto actual_tree_descriptor = tree_data_generation_parameters.GetActualTreeDescriptor();
+    tree_structor->tree_descriptor_ref = actual_tree_descriptor;
+  }
+  tree_structor->connectivity_graph_settings = connectivity_graph_settings;
+  tree_structor->reconstruction_settings = reconstruction_settings;
+  tree_structor->ImportGraph(yaml_path, import_scale_factor);
+  tree_structor->EstablishConnectivityGraph();
+  tree_structor->BuildSkeletons();
 
-  tree_point_cloud->connectivity_graph_settings = connectivity_graph_settings;
-  tree_point_cloud->reconstruction_settings = reconstruction_settings;
-  tree_point_cloud->ImportGraph(yaml_path, import_scale_factor);
-  tree_point_cloud->EstablishConnectivityGraph();
-  tree_point_cloud->BuildSkeletons();
-  tree_point_cloud->ExportForestObj(mesh_generator_settings, output_folder / (file_name_prefix + ".obj"));
-  tree_point_cloud->ExportForestStatistics(output_folder / (file_name_prefix + ".yml"));
+  if (tree_data_generation_parameters.export_mesh) {
+    tree_structor->ExportForestObj(
+        tree_data_generation_parameters.tree_mesh_generator_settings,
+        tree_data_generation_parameters.output_folder / (tree_data_generation_parameters.output_file_name + ".obj"));
+  }
+  if (tree_data_generation_parameters.export_statistics) {
+    tree_structor->ExportForestStatistics(tree_data_generation_parameters.output_folder /
+                                          (tree_data_generation_parameters.output_file_name + ".yml"));
+  }
+  if (tree_data_generation_parameters.export_flow_graph) {
+    tree_structor->ExportFlowGraphs(tree_data_generation_parameters.output_folder /
+                                    (tree_data_generation_parameters.output_file_name + "_flows.yml"));
+  }
+  if (tree_data_generation_parameters.export_node_graph) {
+    tree_structor->ExportFlowGraphs(tree_data_generation_parameters.output_folder /
+                                    (tree_data_generation_parameters.output_file_name + "_nodes.yml"));
+  }
   scene->DeleteEntity(temp_entity);
 }
 

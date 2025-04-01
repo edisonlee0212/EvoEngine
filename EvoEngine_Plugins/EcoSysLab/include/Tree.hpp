@@ -320,36 +320,11 @@ class Tree : public IPrivateComponent {
   void FromSkeleton(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& src_skeleton);
 
   /**
-   * @brief Imports a tree model from an L-System string.
-   * @param l_system_string The L-System string representing the tree structure.
-   */
-  void FromLSystemString(const std::shared_ptr<LSystemString>& l_system_string);
-
-  /**
-   * @brief Imports a tree model from a tree graph.
-   * @param tree_graph The tree graph representation.
-   */
-  void FromTreeGraph(const std::shared_ptr<TreeGraph>& tree_graph);
-
-  /**
-   * @brief Imports a tree model from a version 2 tree graph.
-   * @param tree_graph_v2 The version 2 tree graph representation.
-   */
-  void FromTreeGraphV2(const std::shared_ptr<TreeGraphV2>& tree_graph);
-
-  /**
    * @brief Exports tree parts data as YAML.
    * @param mesh_generator_settings Settings for generating meshes.
    * @param out The YAML emitter.
    */
   void ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, YAML::Emitter& out);
-
-  /**
-   * @brief Exports tree parts data as JSON.
-   * @param mesh_generator_settings Settings for generating meshes.
-   * @param out The JSON object to store data.
-   */
-  void ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_settings, nlohmann::json& out);
 
   /**
    * @brief Exports flow graph data as YAML.
@@ -362,6 +337,18 @@ class Tree : public IPrivateComponent {
    * @param path The file path for exporting.
    */
   void ExportFlowGraph(const std::filesystem::path& path) const;
+
+  /**
+   * @brief Exports node graph data as YAML.
+   * @param out The YAML emitter.
+   */
+  void ExportNodeGraph(YAML::Emitter& out) const;
+
+  /**
+   * @brief Exports node graph data to a file.
+   * @param path The file path for exporting.
+   */
+  void ExportNodeGraph(const std::filesystem::path& path) const;
 
   /**
    * @brief Exports tree parts data to a file.

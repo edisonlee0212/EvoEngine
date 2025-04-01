@@ -888,8 +888,13 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
                                           const std::function<void(YAML::Emitter&, const Od&)>& output_pin_func,
                                           const std::function<void(YAML::Emitter&, const Nd&)>& node_func,
                                           const std::function<void(YAML::Emitter&, const Ld&)>& link_func) const {
-  auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-  ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&editor_context_));
+  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  ImNodesEditorContext* prev_editor_context = nullptr;
+  if (editor_layer) {
+    prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
+    ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&editor_context_));
+  }
+
   std::unordered_map<NodeGraphOutputPinHandle, int> output_pin_map;
   std::unordered_map<NodeGraphInputPinHandle, int> input_pin_map;
   std::unordered_map<NodeGraphLinkHandle, int> link_map;
@@ -928,8 +933,10 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
     const auto& node = nodes_[handle];
     if (!node.recycled_) {
       out << YAML::BeginMap;
-      const auto& screen_pos = ImNodes::GetNodeScreenSpacePos(node.handle_);
-      out << YAML::Key << "P" << YAML::Value << glm::vec2(screen_pos.x, screen_pos.y);
+      if (editor_layer) {
+        const auto& screen_pos = ImNodes::GetNodeScreenSpacePos(node.handle_);
+        out << YAML::Key << "P" << YAML::Value << glm::vec2(screen_pos.x, screen_pos.y);
+      }
       if (!node.input_pin_handles_.empty()) {
         out << YAML::Key << "I" << YAML::BeginSeq;
         for (const auto& input_pin_handle : node.input_pin_handles_) {
@@ -1000,8 +1007,9 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
     }
   }
   out << YAML::EndSeq;
-
-  ImNodes::EditorContextSet(prev_editor_context);
+  if (editor_layer) {
+    ImNodes::EditorContextSet(prev_editor_context);
+  }
 }
 template <typename Id, typename Od, typename Nd, typename Ld>
 void NodeGraph<Id, Od, Nd, Ld>::Deserialize(const YAML::Node& in,
@@ -1009,8 +1017,13 @@ void NodeGraph<Id, Od, Nd, Ld>::Deserialize(const YAML::Node& in,
                                             const std::function<void(const YAML::Node&, Od&)>& output_pin_func,
                                             const std::function<void(const YAML::Node&, Nd&)>& node_func,
                                             const std::function<void(const YAML::Node&, Ld&)>& link_func) {
-  auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-  ImNodes::EditorContextSet(&editor_context_);
+  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  ImNodesEditorContext* prev_editor_context = nullptr;
+  if (editor_layer) {
+    prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
+    ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&editor_context_));
+  }
+
   nodes_.clear();
   input_pins_.clear();
   output_pins_.clear();
@@ -1061,7 +1074,7 @@ void NodeGraph<Id, Od, Nd, Ld>::Deserialize(const YAML::Node& in,
       auto& new_node = nodes_.back();
       new_node.handle_ = current_handle;
 
-      if (in_node["P"]) {
+      if (editor_layer && in_node["P"]) {
         const auto position = in_node["P"].as<glm::vec2>();
         ImNodes::SetNodeEditorSpacePos(new_node.handle_, ImVec2(position.x, position.y));
       }
@@ -1106,8 +1119,9 @@ void NodeGraph<Id, Od, Nd, Ld>::Deserialize(const YAML::Node& in,
       current_handle++;
     }
   }
-
-  ImNodes::EditorContextSet(prev_editor_context);
+  if (editor_layer) {
+    ImNodes::EditorContextSet(prev_editor_context);
+  }
 }
 template <typename Id, typename Od, typename Nd, typename Ld>
 void NodeGraph<Id, Od, Nd, Ld>::Save(const std::string& name, YAML::Emitter& out,

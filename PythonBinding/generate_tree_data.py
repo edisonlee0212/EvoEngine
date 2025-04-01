@@ -73,10 +73,12 @@ data_generation_parameters.output_folder = output_root
 data_generation_parameters.export_point_cloud = True
 data_generation_parameters.export_mesh = True
 
-data_generation_parameters.export_skeleton = True
 data_generation_parameters.export_rendering = True
 data_generation_parameters.export_depth = True
 data_generation_parameters.export_statistics = True
+
+data_generation_parameters.export_node_graph = True
+data_generation_parameters.export_flow_graph = True
 
 #Depth value is linearized and clamp with max value. Smaller value means closer to camera. 1.0 means max depth/inf depth.
 data_generation_parameters.max_depth = 8

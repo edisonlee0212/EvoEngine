@@ -98,9 +98,10 @@ void generate_tree_data(const std::filesystem::path& output_folder) {
 
   data_generation_parameters.export_point_cloud = false;
   data_generation_parameters.export_mesh = true;
-  data_generation_parameters.export_skeleton = false;
   data_generation_parameters.export_rendering = true;
   data_generation_parameters.export_depth = true;
+  data_generation_parameters.export_flow_graph = true;
+  data_generation_parameters.export_node_graph = true;
   // Depth value is linearized and clamp with max value. Smaller value means closer to camera. 1.0 means max depth/inf
   // depth.
   data_generation_parameters.max_depth = 8.f;

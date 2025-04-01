@@ -200,10 +200,11 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
 
       .def_readwrite("export_point_cloud", &DatasetGenerator::TreeDataGenerationParameters::export_point_cloud)
       .def_readwrite("export_mesh", &DatasetGenerator::TreeDataGenerationParameters::export_mesh)
-      .def_readwrite("export_skeleton", &DatasetGenerator::TreeDataGenerationParameters::export_skeleton)
       .def_readwrite("export_rendering", &DatasetGenerator::TreeDataGenerationParameters::export_rendering)
       .def_readwrite("export_depth", &DatasetGenerator::TreeDataGenerationParameters::export_depth)
       .def_readwrite("export_statistics", &DatasetGenerator::TreeDataGenerationParameters::export_statistics)
+      .def_readwrite("export_flow_graph", &DatasetGenerator::TreeDataGenerationParameters::export_flow_graph)
+      .def_readwrite("export_node_graph", &DatasetGenerator::TreeDataGenerationParameters::export_node_graph)
 
       .def_readwrite("generate_ground_mesh", &DatasetGenerator::TreeDataGenerationParameters::generate_ground_mesh)
       .def_readwrite("tree_point_cloud_point_settings",
