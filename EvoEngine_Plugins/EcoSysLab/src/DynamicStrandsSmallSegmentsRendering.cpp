@@ -276,15 +276,21 @@ uint32_t DynamicStrands::RenderSmallSegmentsVisualizationToCameraDeferred(
   segment_push_constant.max_color = render_parameters.segment_color_max;
   segment_push_constant.position_scale = render_parameters.position_scale;
 
+  // build input for graphs (Note: input does not exist here)
+  StrengthGraph::Input strength_input;
+  BiologicalPropertiesGraph::Input biological_properties_input;
+
   switch (static_cast<VisualizationParameters::SegmentRenderMode>(render_parameters.segment_render_mode)) {
     case VisualizationParameters::SegmentRenderMode::BoundaryDistance: {
       segment_push_constant.factor = render_parameters.segment_boundary_distance_modular;
       break;
     }
     case VisualizationParameters::SegmentRenderMode::StretchShearLimit: {
+      glm::vec2 shear_stretch_strength = initialize_parameters.strength_graph.GetShearStretchStrength(strength_input);
       segment_push_constant.factor =
-          initialize_parameters.trunk_additional_strength_factor +
-          glm::max(initialize_parameters.shear_stretch_strength.x, initialize_parameters.shear_stretch_strength.y);
+          initialize_parameters.biological_properties_graph.GetValues(biological_properties_input)
+              .trunk_additional_strength_factor +
+          glm::max(shear_stretch_strength.x, shear_stretch_strength.y);
       break;
     }
     default: {

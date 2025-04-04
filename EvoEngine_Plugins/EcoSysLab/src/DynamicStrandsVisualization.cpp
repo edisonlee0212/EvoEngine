@@ -346,15 +346,24 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   segment_push_constant.camera_index =
       render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
   segment_push_constant.multiplier = visualization_parameters.segment_radius_multiplier;
+
+  // build input for graphs (Note: input does not exist here)
+  StrengthGraph::Input strength_input;
+  BiologicalPropertiesGraph::Input biological_properties_input;
+
   switch (static_cast<VisualizationParameters::SegmentRenderMode>(visualization_parameters.segment_render_mode)) {
     case VisualizationParameters::SegmentRenderMode::BoundaryDistance: {
       segment_push_constant.factor = visualization_parameters.segment_boundary_distance_modular;
       break;
     }
     case VisualizationParameters::SegmentRenderMode::StretchShearLimit: {
+      StrengthGraph::Output::ShearStretchStrengthType shear_stretch_strength =
+          initialize_parameters.strength_graph.GetShearStretchStrength(strength_input);
+      float trunk_additional_strength_factor =
+          initialize_parameters.biological_properties_graph.GetValues(biological_properties_input)
+              .trunk_additional_strength_factor;
       segment_push_constant.factor =
-          initialize_parameters.trunk_additional_strength_factor +
-          glm::max(initialize_parameters.shear_stretch_strength.x, initialize_parameters.shear_stretch_strength.y);
+          trunk_additional_strength_factor + glm::max(shear_stretch_strength.x, shear_stretch_strength.y);
       break;
     }
     default: {
@@ -375,30 +384,33 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
       render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
   segment_pair_push_constant.multiplier = visualization_parameters.segment_pair_radius_multiplier;
   segment_pair_push_constant.strand_segment_pair_size = segment_pairs.size();
+  float trunk_additional_strength_factor =
+      initialize_parameters.biological_properties_graph.GetValues(biological_properties_input)
+          .trunk_additional_strength_factor;
   switch (
       static_cast<VisualizationParameters::SegmentPairRenderMode>(visualization_parameters.segment_pair_render_mode)) {
     case VisualizationParameters::SegmentPairRenderMode::BendingLimit: {
+      glm::vec2 bending_strength = initialize_parameters.strength_graph.GetBendingStrength(strength_input);
       segment_pair_push_constant.factor =
-          initialize_parameters.trunk_additional_strength_factor +
-          glm::max(initialize_parameters.bending_strength.x, initialize_parameters.bending_strength.y);
+          trunk_additional_strength_factor + glm::max(bending_strength.x, bending_strength.y);
       break;
     }
     case VisualizationParameters::SegmentPairRenderMode::TwistLimit: {
+      glm::vec2 twisting_strength = initialize_parameters.strength_graph.GetTwistingStrength(strength_input);
       segment_pair_push_constant.factor =
-          initialize_parameters.trunk_additional_strength_factor +
-          glm::max(initialize_parameters.twisting_strength.x, initialize_parameters.twisting_strength.y);
+          trunk_additional_strength_factor + glm::max(twisting_strength.x, twisting_strength.y);
       break;
     }
     case VisualizationParameters::SegmentPairRenderMode::BundleLimit: {
+      glm::vec2 bundle_strength = initialize_parameters.strength_graph.GetBundleStrength(strength_input);
       segment_pair_push_constant.factor =
-          initialize_parameters.trunk_additional_strength_factor +
-          glm::max(initialize_parameters.bundle_strength.x, initialize_parameters.bundle_strength.y);
+          trunk_additional_strength_factor + glm::max(bundle_strength.x, bundle_strength.y);
       break;
     }
     case VisualizationParameters::SegmentPairRenderMode::ConnectivityLimit: {
+      glm::vec2 connectivity_strength = initialize_parameters.strength_graph.GetConnectivityStrength(strength_input);
       segment_pair_push_constant.factor =
-          initialize_parameters.trunk_additional_strength_factor +
-          glm::max(initialize_parameters.connectivity_strength.x, initialize_parameters.connectivity_strength.y);
+          trunk_additional_strength_factor + glm::max(connectivity_strength.x, connectivity_strength.y);
       break;
     }
     default: {

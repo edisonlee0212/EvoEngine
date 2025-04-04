@@ -31,11 +31,13 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
   log_experiment_setup_settings.t_cut = false;
   log_experiment_setup_settings.t_cut_width = 0.7f;
   board_experiment_setup_settings.rod_dimension = {20, 40, 20};
-  dts->initialize_parameters.shear_stretch_strength = {500.f, 250.f};
-  dts->initialize_parameters.bending_strength = {500.f, 250.f};
-  dts->initialize_parameters.twisting_strength = {500.f, 250.f};
-  dts->initialize_parameters.bundle_strength = {500.f, 250.f};
-  dts->initialize_parameters.connectivity_strength = {250.f, 125.f};
+
+  dts->initialize_parameters.strength_graph.SetShearStretchStrength({500.f, 250.f});
+  dts->initialize_parameters.strength_graph.SetBendingStrength({500.f, 250.f});
+  dts->initialize_parameters.strength_graph.SetTwistingStrength({500.f, 250.f});
+  dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 250.f});
+  dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 125.f});
+
   dts->initialize_parameters.max_segment_length = 0.06f;
   dts->initialize_parameters.min_segment_length = 0.03f;
   dts->initialize_parameters.damage_scale_factor = glm::vec3(0.01f);
@@ -113,8 +115,11 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.center_damage = 0.95f;
     log_experiment_setup_settings.center_distance_offset = 0.01f;
     log_experiment_setup_settings.center_damage_transition = 0.02f;
-    dts->initialize_parameters.bundle_strength = {500.f, 50.f};
-    dts->initialize_parameters.connectivity_strength = {100.f, 100.f};
+
+    // TODO
+    dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({100.f, 100.f});
+
     log_experiment_setup_settings.t_cut = true;
     log_experiment_setup_settings.t_cut_width = 0.f;
     target_factor0 = 2.f;
@@ -134,8 +139,10 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.center_damage = 1.f;
     log_experiment_setup_settings.center_distance_offset = 0.01f;
     log_experiment_setup_settings.center_damage_transition = 0.02f;
-    dts->initialize_parameters.bundle_strength = {500.f, 50.f};
-    dts->initialize_parameters.connectivity_strength = {250.f, 250.f};
+
+    dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
+
     log_experiment_setup_settings.lock_upper = true;
     log_experiment_setup_settings.t_cut = true;
     target_factor0 = 0.3f;
@@ -155,8 +162,9 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.center_damage = 0.95f;
     log_experiment_setup_settings.center_distance_offset = 0.01f;
     log_experiment_setup_settings.center_damage_transition = 0.02f;
-    dts->initialize_parameters.bundle_strength = {500.f, 50.f};
-    dts->initialize_parameters.connectivity_strength = {250.f, 250.f};
+
+    dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
 
     // target_factor0 = 0.3f;
     target_factor1 = 1.f;
@@ -174,8 +182,10 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     demo_type = DemoType::BoardBreak;
     demo_status = DemoStatus::Simulation;
     board_experiment_setup_settings.center_damage = 0.f;
-    dts->initialize_parameters.bundle_strength = {500.f, 50.f};
-    dts->initialize_parameters.connectivity_strength = {250.f, 250.f};
+
+    dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
+
     dts->BoardExperimentSetup(board_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -187,8 +197,10 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     demo_type = DemoType::BoardBreak;
     demo_status = DemoStatus::Simulation;
     board_experiment_setup_settings.center_damage = 0.f;
-    dts->initialize_parameters.bundle_strength = {100.f, 100.f};
-    dts->initialize_parameters.connectivity_strength = {250.f, 250.f};
+
+    dts->initialize_parameters.strength_graph.SetBundleStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
+
     dts->BoardExperimentSetup(board_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -199,8 +211,10 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     camera_pose.SetEulerRotation(glm::radians(glm::vec3(-20, -45, 0)));
     demo_type = DemoType::BoardBreak;
     demo_status = DemoStatus::Simulation;
-    dts->initialize_parameters.bundle_strength = {175.f, 175.f};
-    dts->initialize_parameters.connectivity_strength = {250.f, 250.f};
+
+    dts->initialize_parameters.strength_graph.SetBundleStrength({175.f, 175.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
+
     dts->BoardExperimentSetup(board_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -213,11 +227,11 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     demo_type = DemoType::TwistingBreak;
     demo_status = DemoStatus::Simulation;
     target_factor0 = 0.f;
-    dts->initialize_parameters.shear_stretch_strength = glm::vec2(250.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(250.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(250.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(250.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(250.f);
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
 
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
@@ -234,11 +248,12 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     target_factor0 = 0.f;
     demo_type = DemoType::BendingBreak;
     demo_status = DemoStatus::Simulation;
-    dts->initialize_parameters.shear_stretch_strength = glm::vec2(250.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(250.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(250.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(250.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(250.f);
+
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
 
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
@@ -257,11 +272,12 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     target_factor0 = 0.f;
     demo_type = DemoType::ShearingBreak;
     demo_status = DemoStatus::Simulation;
-    dts->initialize_parameters.shear_stretch_strength = glm::vec2(250.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(250.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(250.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(250.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(250.f);
+
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
 
@@ -277,11 +293,12 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     target_factor0 = 0.f;
     demo_type = DemoType::StretchingBreak;
     demo_status = DemoStatus::Simulation;
-    dts->initialize_parameters.shear_stretch_strength = glm::vec2(250.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(250.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(250.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(250.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(250.f);
+
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({250.f, 250.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
 
@@ -303,11 +320,12 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
-    dts->initialize_parameters.shear_stretch_strength = glm::vec2(750.f, 50.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(750.f, 50.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(750.f, 50.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(750.f, 50.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(750.f, 50.f);
+
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({750.f, 50.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({750.f, 50.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({750.f, 50.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({750.f, 50.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({750.f, 50.f});
     dts->LogExperimentSetup(log_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -324,11 +342,11 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
-    dts->initialize_parameters.shear_stretch_strength = glm::vec2(500.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(500.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(500.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(500.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(500.f);
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({500.f, 500.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({500.f, 500.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({500.f, 500.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 500.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({500.f, 500.f});
     dts->LogExperimentSetup(log_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -345,11 +363,11 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
-    dts->initialize_parameters.shear_stretch_strength = glm::vec2(50.f, 750.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(50.f, 750.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(50.f, 750.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(50.f, 750.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(50.f, 750.f);
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({50.f, 750.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({50.f, 750.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({50.f, 750.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({50.f, 750.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({50.f, 750.f});
     dts->LogExperimentSetup(log_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -362,11 +380,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     target_factor0 = 0.f;
     demo_type = DemoType::BoardCollision;
     demo_status = DemoStatus::Simulation;
-    dts->initialize_parameters.shear_stretch_strength = glm::vec2(100.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(100.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(100.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(100.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(100.f);
+
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({100.f, 100.f});
+
     dts->initialize_parameters.max_segment_length = 0.03f;
     dts->initialize_parameters.min_segment_length = 0.015f;
 
@@ -403,11 +423,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     target_factor0 = 0.f;
     demo_type = DemoType::BoardCollision;
     demo_status = DemoStatus::Simulation;
-    dts->initialize_parameters.shear_stretch_strength = glm::vec2(100.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(100.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(100.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(100.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(100.f);
+
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({100.f, 100.f});
+
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
     // noise.multiplier = 0.95f;
@@ -437,11 +459,12 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     target_factor0 = 0.f;
     demo_type = DemoType::BoardCollision;
     demo_status = DemoStatus::Simulation;
-    dts->initialize_parameters.shear_stretch_strength = glm::vec2(100.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(100.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(100.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(100.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(100.f);
+
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({100.f, 100.f});
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
     // noise.multiplier = 0.99f;
@@ -472,11 +495,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     target_factor0 = 0.f;
     demo_type = DemoType::BoardCollision;
     demo_status = DemoStatus::Simulation;
-    dts->initialize_parameters.shear_stretch_strength = glm::vec2(100.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(100.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(100.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(100.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(100.f);
+
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({100.f, 100.f});
+
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
     // noise.multiplier = 0.99f;
@@ -513,7 +538,11 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     target_growth_time = 8.f;
     tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Acacia.tree");
     const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
-    tree_dts->initialize_parameters.trunk_additional_strength_factor = 500.f;
+
+    BiologicalPropertiesGraph::Output biological_properties_output;
+    biological_properties_output.trunk_additional_strength_factor = 500.f;
+    tree_dts->initialize_parameters.biological_properties_graph.SetValues(biological_properties_output);
+
     tree_dts->enable_physics = false;
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -532,7 +561,11 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Acacia.tree");
     const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
     tree_dts->enable_physics = false;
-    tree_dts->initialize_parameters.trunk_additional_strength_factor = 1250.f;
+
+    BiologicalPropertiesGraph::Output biological_properties_output;
+    biological_properties_output.trunk_additional_strength_factor = 1250.f;
+    tree_dts->initialize_parameters.biological_properties_graph.SetValues(biological_properties_output);
+
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }

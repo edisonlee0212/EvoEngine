@@ -1,4 +1,5 @@
 #pragma once
+#include <DynamicTreeStrandGraph.hpp>
 #include "Plot2D.hpp"
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {
@@ -17,21 +18,16 @@ struct DynamicStrandsInitializeParameters {
   float sapwood_offset = 0.05f;    ///< Offset for simulating sapwood in the model.
   float wood_transition = 0.005f;  ///< Transition factor between different wood types.
 
-  glm::vec2 density = {600.f, 700.f};                   ///< Density range (min, max) for materials.
-  glm::vec2 max_stretch_shear_modulus = {9.5f, 13.5f};  ///< Maximum shear modulus range.
-  glm::vec2 max_bending_modulus = {0.15f, 2.f};         ///< Maximum bending modulus range.
-  glm::vec2 max_twisting_modulus = {0.15f, 2.f};        ///< Maximum twisting modulus range.
+  ModulusGraph modulus_graph{ModulusGraph::Output()};  ///< Graph for offset distance for trunk-based calculations.
+  bool show_modulus_graph = false;                     ///< Whether to show the trunk offset graph.
 
-  glm::vec2 shear_stretch_strength = {500.f, 250.f};  ///< Strength settings for shear stretch constraints.
-  glm::vec2 bending_strength = {500.f, 250.f};        ///< Strength settings for bending constraints.
-  glm::vec2 twisting_strength = {500.f, 250.f};       ///< Strength settings for twisting constraints.
-  glm::vec2 bundle_strength = {500.f, 250.f};         ///< Strength settings for bundle constraints.
-  glm::vec2 connectivity_strength = {250, 125.f};     ///< Strength settings for connectivity constraints.
+  StrengthGraph strength_graph{StrengthGraph::Output()};  ///< Graph for strength calculations.
+  bool show_strength_graph = false;                       ///< Whether to show the strength graph.
+  bool trunk_additional_strength = true;                  ///< Whether the model contains a trunk structure.
 
-  bool trunk_additional_strength = true;            ///< Whether the model contains a trunk structure.
-  float trunk_offset = 0.3f;                        ///< Offset distance for trunk-based calculations.
-  float trunk_transition = 0.1f;                    ///< Transition factor for trunk segmentation.
-  float trunk_additional_strength_factor = 1250.f;  ///< Additional strength factor applied to trunks.
+  BiologicalPropertiesGraph biological_properties_graph{
+      BiologicalPropertiesGraph::Output()};       ///< Graph for biological properties calculations.
+  bool show_biological_properties_graph = false;  ///< Whether to show the biological properties graph.
 
   SingleDistribution<float> leaf_position_alpha = {0.01f, 0.1f};      ///< Alpha parameter for leaf positioning.
   SingleDistribution<float> leaf_rotation_alpha = {0.01f, 0.1f};      ///< Alpha parameter for leaf rotation.

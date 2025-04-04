@@ -253,16 +253,30 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     const float distance_to_boundary = target_strand_segment_data.initial_distance_to_boundary * segment.radius * 2.f;
     const float root_distance =
         (target_strand_segment_data.start_root_distance + target_strand_segment_data.end_root_distance) * .5f;
+    BiologicalPropertiesGraph::Input biological_properties_input;
+    biological_properties_input.root_distance = root_distance;
+    biological_properties_input.polar_distance = segment.profile_polar_coordinate.x;
+    biological_properties_input.polar_angle = segment.profile_polar_coordinate.y;
+    biological_properties_input.profile_boundary_distance = distance_to_boundary;
+
+    BiologicalPropertiesGraph::Output biological_properties =
+        initialize_parameters.biological_properties_graph.GetValues(biological_properties_input);
     const float trunk_strength_factor =
         initialize_parameters.trunk_additional_strength
-            ? ActivationFunction::Sigmoid(initialize_parameters.trunk_additional_strength_factor, 0.f,
-                                          initialize_parameters.trunk_offset,
-                                          1.f / initialize_parameters.trunk_transition, root_distance)
+            ? ActivationFunction::Sigmoid(biological_properties.trunk_additional_strength_factor, 0.f,
+                                          biological_properties.trunk_offset,
+                                          1.f / biological_properties.trunk_transition, root_distance)
             : 0.f;
+    ModulusGraph::Input modulus_input;
+    modulus_input.root_distance = root_distance;
+    modulus_input.polar_distance = segment.profile_polar_coordinate.x;
+    modulus_input.polar_angle = segment.profile_polar_coordinate.y;
+    modulus_input.profile_boundary_distance = distance_to_boundary;
+
+    ModulusGraph::Output::DensityType density = initialize_parameters.modulus_graph.GetDensity(modulus_input);
     segment.original_mass = glm::max(
         1e-6f, segment.radius * segment.radius * glm::pi<float>() *
-                   ActivationFunction::Sigmoid(initialize_parameters.density.x, initialize_parameters.density.y,
-                                               initialize_parameters.sapwood_offset,
+                   ActivationFunction::Sigmoid(density.x, density.y, initialize_parameters.sapwood_offset,
                                                1.f / initialize_parameters.wood_transition, distance_to_boundary) *
                    segment.rest_length);
     segment.extra_mass = 0.f;
@@ -270,11 +284,14 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     segment.inertia_tensor = ComputeInertiaTensorRod(segment.original_mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     const float area = glm::pi<float>() * segment.radius * segment.radius;
+
+    ModulusGraph::Output::ShearStretchModulusType max_stretch_shear_modulus =
+        initialize_parameters.modulus_graph.GetShearStretchModulus(modulus_input);
     segment.max_young_modulus =
-        glm::max(1e-9f, ActivationFunction::Sigmoid(
-                            initialize_parameters.max_stretch_shear_modulus.x,
-                            initialize_parameters.max_stretch_shear_modulus.y, initialize_parameters.sapwood_offset,
-                            1.f / initialize_parameters.wood_transition, distance_to_boundary)) *
+        glm::max(1e-9f,
+                 ActivationFunction::Sigmoid(max_stretch_shear_modulus.x, max_stretch_shear_modulus.y,
+                                             initialize_parameters.sapwood_offset,
+                                             1.f / initialize_parameters.wood_transition, distance_to_boundary)) *
         1e9f;
     segment.strength =
         glm::max(1e-9f, 1.0f - initialize_parameters.damage_graph.GetValue(
@@ -286,9 +303,17 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     segment.profile_polar_coordinate = target_strand_segment_data.profile_polar_coordinate;
 
     segment.shear_stretch_alpha = 1.f / (segment.max_young_modulus * area / segment.rest_length);
+
+    StrengthGraph::Input strength_input;
+    strength_input.root_distance = root_distance;
+    strength_input.polar_distance = segment.profile_polar_coordinate.x;
+    strength_input.polar_angle = segment.profile_polar_coordinate.y;
+    strength_input.profile_boundary_distance = distance_to_boundary;
+
+    StrengthGraph::Output::ShearStretchStrengthType shear_stretch_strength =
+        initialize_parameters.strength_graph.GetShearStretchStrength(strength_input);
     const float max_shear_stretch_strain = glm::max(
-        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.shear_stretch_strength.x,
-                                                                    initialize_parameters.shear_stretch_strength.y,
+        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(shear_stretch_strength.x, shear_stretch_strength.y,
                                                                     initialize_parameters.sapwood_offset,
                                                                     1.f / initialize_parameters.wood_transition,
                                                                     distance_to_boundary));
@@ -825,11 +850,24 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
         (target_strand_segment0_data.start_root_distance + target_strand_segment0_data.end_root_distance +
          target_strand_segment1_data.start_root_distance + target_strand_segment1_data.end_root_distance) *
         .25f;
+    BiologicalPropertiesGraph::Input biological_properties_input;
+    biological_properties_input.root_distance = root_distance;
+    biological_properties_input.polar_distance = (target_strand_segment0_data.profile_polar_coordinate.x +
+                                                  target_strand_segment1_data.profile_polar_coordinate.x) *
+                                                 .5f;
+    biological_properties_input.polar_angle = (target_strand_segment0_data.profile_polar_coordinate.y +
+                                               target_strand_segment1_data.profile_polar_coordinate.y) *
+                                              .5f;
+    biological_properties_input.profile_boundary_distance = (target_strand_segment0_data.initial_distance_to_boundary +
+                                                             target_strand_segment1_data.initial_distance_to_boundary) *
+                                                            .5f;
+    BiologicalPropertiesGraph::Output biological_properties =
+        initialize_parameters.biological_properties_graph.GetValues(biological_properties_input);
     const float trunk_strength_factor =
         initialize_parameters.trunk_additional_strength
-            ? ActivationFunction::Sigmoid(initialize_parameters.trunk_additional_strength_factor, 0.f,
-                                          initialize_parameters.trunk_offset,
-                                          1.f / initialize_parameters.trunk_transition, root_distance)
+            ? ActivationFunction::Sigmoid(biological_properties.trunk_additional_strength_factor, 0.f,
+                                          biological_properties.trunk_offset,
+                                          1.f / biological_properties.trunk_transition, root_distance)
             : 0.f;
     const bool direct_connection = segment_data_list[segment_pair.segment0_handle].pair_handles[1] == pair_index;
     auto& segment0_particle0 = segment0.particle0;
@@ -846,17 +884,31 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     segment_pair.bend_twist_bundle_integrity = 1.0f;
     segment_pair.connectivity_integrity = direct_connection ? 1.0f : 0.0f;
     const float distance_to_boundary = (segment0.boundary_distance + segment1.boundary_distance) * .5f;
+
+    ModulusGraph::Input modulus_graph_input;
+    modulus_graph_input.root_distance = root_distance;
+    modulus_graph_input.polar_distance = (target_strand_segment0_data.profile_polar_coordinate.x +
+                                          target_strand_segment1_data.profile_polar_coordinate.x) *
+                                         .5f;
+    modulus_graph_input.polar_angle = (target_strand_segment0_data.profile_polar_coordinate.y +
+                                       target_strand_segment1_data.profile_polar_coordinate.y) *
+                                      .5f;
+    modulus_graph_input.profile_boundary_distance = (target_strand_segment0_data.initial_distance_to_boundary +
+                                                     target_strand_segment1_data.initial_distance_to_boundary) *
+                                                    .5f;
+
+    glm::vec2 max_bending_modulus = initialize_parameters.modulus_graph.GetBendingModulus(modulus_graph_input);
     segment_pair.max_bending_modulus =
         glm::max(1e-9f, ActivationFunction::Sigmoid(
-                            initialize_parameters.max_bending_modulus.x, initialize_parameters.max_bending_modulus.y,
-                            initialize_parameters.sapwood_offset, 1.f / initialize_parameters.wood_transition,
-                            distance_to_boundary)) *
+                            max_bending_modulus.x, max_bending_modulus.y, initialize_parameters.sapwood_offset,
+                            1.f / initialize_parameters.wood_transition, distance_to_boundary)) *
         1e9f;
+
+    glm::vec2 max_twisting_modulus = initialize_parameters.modulus_graph.GetTwistingModulus(modulus_graph_input);
     segment_pair.max_torsion_modulus =
         glm::max(1e-9f, ActivationFunction::Sigmoid(
-                            initialize_parameters.max_twisting_modulus.x, initialize_parameters.max_twisting_modulus.y,
-                            initialize_parameters.sapwood_offset, 1.f / initialize_parameters.wood_transition,
-                            distance_to_boundary)) *
+                            max_twisting_modulus.x, max_twisting_modulus.y, initialize_parameters.sapwood_offset,
+                            1.f / initialize_parameters.wood_transition, distance_to_boundary)) *
         1e9f;
     const float segment_radius = (segment0.radius + segment1.radius) * .5f;
     const float segment_length = (segment0.rest_length + segment1.rest_length) * .5f;
@@ -868,28 +920,42 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     const auto& q0 = segment0.q0;
     const auto& q1 = segment1.q0;
     segment_pair.rest_darboux_vector = glm::conjugate(q0) * q1;
+
+    StrengthGraph::Input strength_graph_input;  // TODO: update parameters
+    strength_graph_input.root_distance = root_distance;
+    strength_graph_input.polar_distance = (target_strand_segment0_data.profile_polar_coordinate.x +
+                                           target_strand_segment1_data.profile_polar_coordinate.x) *
+                                          .5f;
+    strength_graph_input.polar_angle = (target_strand_segment0_data.profile_polar_coordinate.y +
+                                        target_strand_segment1_data.profile_polar_coordinate.y) *
+                                       .5f;
+    strength_graph_input.profile_boundary_distance = (target_strand_segment0_data.initial_distance_to_boundary +
+                                                      target_strand_segment1_data.initial_distance_to_boundary) *
+                                                     .5f;
+    // TODO: evaluate all at once
+
+    glm::vec2 bending_strength = initialize_parameters.strength_graph.GetBendingStrength(strength_graph_input);
     const float max_bending_strain = glm::max(
-        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.bending_strength.x,
-                                                                    initialize_parameters.bending_strength.y,
+        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(bending_strength.x, bending_strength.y,
                                                                     initialize_parameters.sapwood_offset,
                                                                     1.f / initialize_parameters.wood_transition,
                                                                     distance_to_boundary));
+    glm::vec2 twisting_strength = initialize_parameters.strength_graph.GetTwistingStrength(strength_graph_input);
     const float max_twisting_strain = glm::max(
-        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.twisting_strength.x,
-                                                                    initialize_parameters.twisting_strength.y,
+        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(twisting_strength.x, twisting_strength.y,
                                                                     initialize_parameters.sapwood_offset,
                                                                     1.f / initialize_parameters.wood_transition,
                                                                     distance_to_boundary));
+    glm::vec2 bundle_strength = initialize_parameters.strength_graph.GetBundleStrength(strength_graph_input);
 
     const float max_bundle_strain = glm::max(
-        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.bundle_strength.x,
-                                                                    initialize_parameters.bundle_strength.y,
-                                                                    initialize_parameters.sapwood_offset,
-                                                                    1.f / initialize_parameters.wood_transition,
-                                                                    distance_to_boundary));
+        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(
+                                            bundle_strength.x, bundle_strength.y, initialize_parameters.sapwood_offset,
+                                            1.f / initialize_parameters.wood_transition, distance_to_boundary));
+    glm::vec2 connectivity_strength =
+        initialize_parameters.strength_graph.GetConnectivityStrength(strength_graph_input);
     const float max_connectivity_strain = glm::max(
-        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(initialize_parameters.connectivity_strength.x,
-                                                                    initialize_parameters.connectivity_strength.y,
+        0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(connectivity_strength.x, connectivity_strength.y,
                                                                     initialize_parameters.sapwood_offset,
                                                                     1.f / initialize_parameters.wood_transition,
                                                                     distance_to_boundary));
