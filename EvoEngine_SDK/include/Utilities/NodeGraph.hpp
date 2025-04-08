@@ -827,6 +827,12 @@ bool NodeGraph<Id, Od, Nd, Ld>::OnInspect(
   }
   ImNodes::MiniMap();
   ImNodes::EndNodeEditor();
+
+  if (ImNodes::IsEditorHovered() && ImGui::GetIO().MouseWheel != 0) {
+    const float zoom = ImNodes::EditorContextGetZoom() + ImGui::GetIO().MouseWheel * 0.1f;
+    ImNodes::EditorContextSetZoom(zoom, ImGui::GetMousePos());
+  }
+
   NodeGraphNodeHandle hovered_node_handle = -1;
   NodeGraphLinkHandle hovered_link_handle = -1;
   NodeGraphInputPinHandle hovered_input_pin_handle = -1;
@@ -893,6 +899,11 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
   if (editor_layer) {
     prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&editor_context_));
+
+    out << YAML::Key << "ZoomScale" << YAML::Value << editor_context_.ZoomScale;
+    out << YAML::Key << "Panning" << YAML::Value << glm::vec2(editor_context_.Panning.x, editor_context_.Panning.y);
+    out << YAML::Key << "AutoPanningDelta" << YAML::Value
+        << glm::vec2(editor_context_.AutoPanningDelta.x, editor_context_.AutoPanningDelta.y);
   }
 
   std::unordered_map<NodeGraphOutputPinHandle, int> output_pin_map;
@@ -1022,6 +1033,17 @@ void NodeGraph<Id, Od, Nd, Ld>::Deserialize(const YAML::Node& in,
   if (editor_layer) {
     prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&editor_context_));
+    if (in["ZoomScale"]) {
+      editor_context_.ZoomScale = in["ZoomScale"].as<float>();
+    }
+    if (in["Panning"]) {
+      const auto t = in["Panning"].as<glm::vec2>();
+      editor_context_.Panning = ImVec2(t.x, t.y);
+    }
+    if (in["AutoPanningDelta"]) {
+      const auto t = in["AutoPanningDelta"].as<glm::vec2>();
+      editor_context_.Panning = ImVec2(t.x, t.y);
+    }
   }
 
   nodes_.clear();
