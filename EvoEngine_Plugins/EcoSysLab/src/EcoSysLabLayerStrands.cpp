@@ -7,7 +7,7 @@
 #  include <RayTracerLayer.hpp>
 #endif
 
-#include "BarkDescriptor.hpp"
+#include "BasicBarkDescriptor.hpp"
 #include "ClassRegistry.hpp"
 #include "DsColliders.hpp"
 #include "DsOperators.hpp"
@@ -96,11 +96,11 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
       const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
       if (const auto td = tree->tree_descriptor_ref.Get<TreeDescriptor>()) {
         ds->initialize_parameters.foliage_descriptor = td->foliage_descriptor;
-        if (const auto fd = td->foliage_descriptor.Get<FoliageDescriptor>()) {
+        if (const auto fd = td->foliage_descriptor.Get<BasicFoliageDescriptor>()) {
           if (const auto mat = fd->leaf_material_ref.Get<Material>())
             ds->leaf_material_ref = mat;
         }
-        if (const auto bd = td->bark_descriptor.Get<BarkDescriptor>()) {
+        if (const auto bd = td->bark_descriptor.Get<BasicBarkDescriptor>()) {
           if (const auto mat = bd->bark_material_ref.Get<Material>())
             ds->bark_material_ref = mat;
         }

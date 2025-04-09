@@ -74,9 +74,9 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   m_procedural_log_parameters.OnInspect();
 
   if (ImGui::Button("Initialize Log")) {
-    auto branch_shape = m_branch_shape.Get<BarkDescriptor>();
+    auto branch_shape = m_branch_shape.Get<BasicBarkDescriptor>();
     if (!branch_shape) {
-      branch_shape = AssetManager::CreateTemporaryAsset<BarkDescriptor>();
+      branch_shape = AssetManager::CreateTemporaryAsset<BasicBarkDescriptor>();
       m_branch_shape = branch_shape;
       branch_shape->bark_depth = branch_shape->base_depth = 0.1f;
     }
@@ -87,7 +87,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     RefreshMesh(m_available_best_grading[m_best_grading_index]);
   }
   if (ImGui::TreeNode("Log Mesh Generation")) {
-    // editorLayer->DragAndDropButton<BarkDescriptor>(m_branchShape, "Branch Shape", true);
+    // editorLayer->DragAndDropButton<BasicBarkDescriptor>(m_branchShape, "Branch Shape", true);
     ImGui::DragFloat("Y Subdivision", &m_log_wood_mesh_generation_settings.m_y_subdivision, 0.01f, 0.01f, 0.5f);
     static int rotate_degrees = 10;
     ImGui::DragInt("Degrees", &rotate_degrees, 1, 1, 360);
@@ -284,7 +284,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 }
 
 void LogGrader::InitializeLogRandomly(const ProceduralLogParameters& procedural_log_parameters,
-                                      const std::shared_ptr<BarkDescriptor>& branch_shape) {
+                                      const std::shared_ptr<BasicBarkDescriptor>& branch_shape) {
   m_log_wood.m_intersections.clear();
   m_log_wood.m_length = LogWood::FeetToMeter(procedural_log_parameters.m_length_without_trim_in_feet);
   const auto length_step_in_meters = LogWood::InchesToMeters(procedural_log_parameters.m_length_step_in_inches);
@@ -509,9 +509,9 @@ void LogGrader::OnCreate() {
   m_surface3 = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   m_surface4 = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
 
-  auto branch_shape = m_branch_shape.Get<BarkDescriptor>();
+  auto branch_shape = m_branch_shape.Get<BasicBarkDescriptor>();
   if (!branch_shape) {
-    branch_shape = AssetManager::CreateTemporaryAsset<BarkDescriptor>();
+    branch_shape = AssetManager::CreateTemporaryAsset<BasicBarkDescriptor>();
     m_branch_shape = branch_shape;
     branch_shape->bark_depth = branch_shape->base_depth = 0.1f;
   }

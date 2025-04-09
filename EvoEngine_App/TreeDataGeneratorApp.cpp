@@ -91,8 +91,6 @@ void generate_tree_data(const std::filesystem::path& output_folder) {
   data_generation_parameters.simulation_settings.max_flow_count = 1024;
   // Max amound of nodes
   data_generation_parameters.simulation_settings.max_node_count = 65536;
-  // Trunk length (branches will br pruned)
-  data_generation_parameters.pruning_settings.low_branch_pruning = 0.2f;
 
   data_generation_parameters.output_folder = output_folder;
 

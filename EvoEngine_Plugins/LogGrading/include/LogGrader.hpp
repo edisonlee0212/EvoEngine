@@ -1,7 +1,7 @@
 #pragma once
 #include <Plot2D.hpp>
 
-#include "BarkDescriptor.hpp"
+#include "BasicBarkDescriptor.hpp"
 #include "LogWood.hpp"
 using namespace evo_engine;
 using namespace eco_sys_lab_plugin;
@@ -48,7 +48,7 @@ class LogGrader : public IPrivateComponent {
   AssetRef m_branch_shape{};
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void InitializeLogRandomly(const ProceduralLogParameters& procedural_log_parameters,
-                             const std::shared_ptr<BarkDescriptor>& branch_shape);
+                             const std::shared_ptr<BasicBarkDescriptor>& branch_shape);
   LogWoodMeshGenerationSettings m_log_wood_mesh_generation_settings{};
   LogWood m_log_wood{};
   void GenerateCylinderMesh(const std::shared_ptr<Mesh>& mesh,

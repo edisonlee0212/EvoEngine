@@ -1,14 +1,15 @@
 
 #pragma once
+#include "BasicPruningDescriptor.hpp"
 #ifdef BILLBOARD_CLOUDS_PLUGIN
 #  include "BillboardCloud.hpp"
 using namespace billboard_clouds_plugin;
 #endif
+#include "BasicFoliageDescriptor.hpp"
+#include "BasicShootDescriptor.hpp"
 #include "Climate.hpp"
-#include "FoliageDescriptor.hpp"
 #include "LSystemString.hpp"
 #include "RadialBoundingVolume.hpp"
-#include "ShootDescriptor.hpp"
 #include "SkeletalGraphSettings.hpp"
 #include "Soil.hpp"
 #include "StrandModelMeshGenerator.hpp"
@@ -34,13 +35,8 @@ class Tree : public IPrivateComponent {
   /**
    * @brief Prepares the growth controller with specified simulation settings.
    * @param simulation_settings Settings for the simulation.
-   * @param shoot_descriptor Descriptor defining shoot behavior.
-   * @param soil The soil environmental factor.
-   * @param climate The climate environmental factor.
    */
-  void PrepareController(const SimulationSettings& simulation_settings,
-                         const std::shared_ptr<ShootDescriptor>& shoot_descriptor, const std::shared_ptr<Soil>& soil,
-                         const std::shared_ptr<Climate>& climate);
+  void PrepareController(const SimulationSettings& simulation_settings);
 
   ShootGrowthController shoot_growth_controller_{};
   ShootPruningController shoot_pruning_controller_{};
@@ -80,8 +76,6 @@ class Tree : public IPrivateComponent {
   int history_iteration = 30;   ///< Number of iterations to retain in the history record.
 
   bool generate_mesh = true;  ///< Flag to determine if a mesh should be generated.
-
-  TreePruningSettings pruning_settings{};
 
   float start_time = 0.f;  ///< The starting time reference for tree growth simulation.
 
@@ -423,9 +417,9 @@ void Tree::FromSkeleton(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData
     EVOENGINE_WARNING("Growing tree without tree descriptor!");
     td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
     tree_descriptor_ref = td;
-    const auto shoot_descriptor = AssetManager::CreateTemporaryAsset<ShootDescriptor>();
+    const auto shoot_descriptor = AssetManager::CreateTemporaryAsset<BasicShootDescriptor>();
     td->shoot_descriptor = shoot_descriptor;
-    const auto foliage_descriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
+    const auto foliage_descriptor = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
     td->foliage_descriptor = foliage_descriptor;
   }
   tree_model.Initialize(src_skeleton);

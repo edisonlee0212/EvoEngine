@@ -5,7 +5,7 @@
 #include <Material.hpp>
 #include <Mesh.hpp>
 #include <TransformGraph.hpp>
-#include "ShootDescriptor.hpp"
+#include "BasicShootDescriptor.hpp"
 #include "SkeletonSerializer.hpp"
 #include "StrandGroupSerializer.hpp"
 
@@ -13,7 +13,6 @@
 #include "Climate.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EditorLayer.hpp"
-#include "FoliageDescriptor.hpp"
 #include "Octree.hpp"
 #include "Soil.hpp"
 #include "StrandModelProfileSerializer.hpp"
@@ -60,16 +59,11 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 
   if (const auto td = tree_descriptor_ref.Get<TreeDescriptor>()) {
-    const auto sd = td->shoot_descriptor.Get<ShootDescriptor>();
+    const auto sd = td->shoot_descriptor.Get<BasicShootDescriptor>();
     if (sd) {
       ImGui::DragInt("TreeModel Seed", &tree_model.seed, 1, 0);
       ImGui::DragInt("StrandModel Seed", &strand_model.seed, 1, 0);
       if (ImGui::TreeNode("Tree settings")) {
-        if (ImGui::TreeNode("Pruning settings")) {
-          if (pruning_settings.OnInspect(editor_layer))
-            changed = true;
-          ImGui::TreePop();
-        }
         if (ImGui::DragFloat("Start time", &start_time, 0.01f, 0.0f, 100.f))
           changed = true;
         ImGui::Checkbox("Enable History", &enable_history);
@@ -352,7 +346,6 @@ void Tree::OnDestroy() {
   shoot_biomass_history.clear();
 
   generate_mesh = true;
-  pruning_settings = {};
   start_time = 0.f;
 }
 
@@ -391,26 +384,13 @@ void Tree::BuildStrandModel() {
 
 bool Tree::TryGrow(const SimulationSettings& simulation_settings, bool pruning) {
   const auto scene = GetScene();
-  auto td = tree_descriptor_ref.Get<TreeDescriptor>();
-  if (!td) {
-    EVOENGINE_WARNING("Growing tree without tree descriptor!");
-    td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
-    tree_descriptor_ref = td;
-    const auto sd = AssetManager::CreateTemporaryAsset<ShootDescriptor>();
-    td->shoot_descriptor = sd;
-    const auto fd = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
-    td->foliage_descriptor = fd;
-  }
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
-
   if (const auto climate_candidate = EcoSysLabLayer::FindClimate(); !climate_candidate.expired())
     climate = climate_candidate.lock();
   if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
     soil = soil_candidate.lock();
-
   const auto s = this->soil.Get<Soil>();
   const auto c = this->climate.Get<Climate>();
-
   if (!s) {
     EVOENGINE_ERROR("No soil model!")
     return false;
@@ -420,16 +400,13 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, bool pruning) 
     return false;
   }
 
-  const auto owner = GetOwner();
-
-  auto sd = td->shoot_descriptor.Get<ShootDescriptor>();
-  if (!sd) {
-    sd = AssetManager::CreateTemporaryAsset<ShootDescriptor>();
-    td->shoot_descriptor = sd;
-    EVOENGINE_WARNING("Shoot Descriptor Missing!");
+  try {
+    PrepareController(simulation_settings);
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR(e.what())
+    return false;
   }
-
-  PrepareController(simulation_settings, sd, s, c);
+  const auto owner = GetOwner();
   const bool grown =
       tree_model.Grow(simulation_settings.delta_time, scene->GetDataComponent<GlobalTransform>(owner).value,
                       c->climate_model, shoot_growth_controller_, shoot_pruning_controller_, pruning);
@@ -450,7 +427,6 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, bool pruning) 
 bool Tree::TryGrowSubTree(const SimulationSettings& simulation_settings, const SkeletonNodeHandle base_internode_handle,
                           const bool pruning) {
   const auto scene = GetScene();
-  const auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
 
   const auto climate_candidate = EcoSysLabLayer::FindClimate();
@@ -470,22 +446,14 @@ bool Tree::TryGrowSubTree(const SimulationSettings& simulation_settings, const S
     EVOENGINE_ERROR("No climate model!");
     return false;
   }
-
-  if (!td) {
-    EVOENGINE_ERROR("No tree descriptor!");
+  try {
+    PrepareController(simulation_settings);
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR(e.what())
     return false;
   }
-
   const auto owner = GetOwner();
 
-  auto shoot_descriptor = td->shoot_descriptor.Get<ShootDescriptor>();
-  if (!shoot_descriptor) {
-    shoot_descriptor = AssetManager::CreateTemporaryAsset<ShootDescriptor>();
-    td->shoot_descriptor = shoot_descriptor;
-    EVOENGINE_WARNING("Shoot Descriptor Missing!");
-  }
-
-  PrepareController(simulation_settings, shoot_descriptor, s, c);
   const bool grown = tree_model.Grow(simulation_settings.delta_time, base_internode_handle,
                                      scene->GetDataComponent<GlobalTransform>(owner).value, c->climate_model,
                                      shoot_growth_controller_, shoot_pruning_controller_, pruning);
@@ -505,7 +473,6 @@ bool Tree::TryGrowSubTree(const SimulationSettings& simulation_settings, const S
 
 void Tree::Serialize(YAML::Emitter& out) const {
   tree_descriptor_ref.Save("tree_descriptor_ref", out);
-  pruning_settings.Save("pruning_settings", out);
 
   strand_model_parameters.Save("strand_model_parameters", out);
   tree_mesh_generator_settings.Save("tree_mesh_generator_settings", out);
@@ -515,8 +482,6 @@ void Tree::Serialize(YAML::Emitter& out) const {
 
 void Tree::Deserialize(const YAML::Node& in) {
   tree_descriptor_ref.Load("tree_descriptor_ref", in);
-
-  pruning_settings.Load("pruning_settings", in);
 
   strand_model_parameters.Load("strand_model_parameters", in);
   tree_mesh_generator_settings.Load("tree_mesh_generator_settings", in);
@@ -552,69 +517,37 @@ void Tree::CollectAssetRef(std::vector<AssetRef>& list) {
   }
 }
 
-void Tree::PrepareController(const SimulationSettings& simulation_settings,
-                             const std::shared_ptr<ShootDescriptor>& shoot_descriptor,
-                             const std::shared_ptr<Soil>& soil, const std::shared_ptr<Climate>& climate) {
-  shoot_descriptor->PrepareController(shoot_growth_controller_, shoot_pruning_controller_);
-
-  shoot_pruning_controller_.end_to_root_pruning_factor = [&](std::mt19937& random_engine, const glm::mat4&,
-                                                             ClimateModel&, const ShootSkeleton&,
-                                                             const SkeletonNode<InternodeGrowthData>& internode) {
-    if (shoot_descriptor->trunk_protection && internode.data.order == 0) {
-      return 0.f;
-    }
-    float pruning_probability = 0.0f;
-    if (shoot_descriptor->light_pruning_factor != 0.f) {
-      if (internode.IsEndNode()) {
-        if (internode.data.light_intake < shoot_descriptor->light_pruning_factor) {
-          pruning_probability += 999.f;
-        }
-      }
-    }
-    if (internode.data.sagging_stress > 1.) {
-      pruning_probability += shoot_descriptor->branch_breaking_multiplier *
-                             glm::pow(internode.data.sagging_stress, shoot_descriptor->branch_breaking_multiplier);
-    }
-    return pruning_probability;
-  };
-  shoot_pruning_controller_.root_to_end_pruning_factor =
-      [&](std::mt19937& random_engine, const glm::mat4& global_transform, ClimateModel& climate_model,
-          const ShootSkeleton& shoot_skeleton, const SkeletonNode<InternodeGrowthData>& internode) {
-        if (shoot_descriptor->trunk_protection && internode.data.order == 0) {
-          return 0.f;
-        }
-
-        if (shoot_descriptor->max_flow_length != 0 && shoot_descriptor->max_flow_length < internode.info.chain_index) {
-          return 999.f;
-        }
-        if (const auto max_distance = shoot_skeleton.PeekNode(0).info.end_distance;
-            max_distance > 5.0f * shoot_growth_controller_.base_internode_length && internode.data.order > 0 &&
-            internode.info.root_distance / max_distance < pruning_settings.low_branch_pruning) {
-          if (const auto parent_handle = internode.GetParentHandle(); parent_handle != -1) {
-            const auto& parent = shoot_skeleton.PeekNode(parent_handle);
-            if (parent.PeekChildHandles().size() > 1) {
-              return 999.f;
-            }
-          }
-        }
-        if (simulation_settings.crown_shyness_distance > 0.f && internode.IsEndNode()) {
-          const glm::vec3 end_position = global_transform * glm::vec4(internode.info.GetGlobalEndPosition(), 1.0f);
-          bool prune_by_crown_shyness = false;
-          climate_model.environment_grid.voxel_grid.ForEach(
-              end_position, simulation_settings.crown_shyness_distance * 2.0f, [&](const EnvironmentVoxel& data) {
-                if (prune_by_crown_shyness)
-                  return;
-                for (const auto& i : data.internode_voxel_registrations) {
-                  if (i.tree_skeleton_index == shoot_skeleton.data.index)
-                    continue;
-                  if (glm::distance(end_position, i.position) < simulation_settings.crown_shyness_distance)
-                    prune_by_crown_shyness = true;
-                }
-              });
-          if (prune_by_crown_shyness)
-            return 999.f;
-        }
-        constexpr float pruning_probability = 0.0f;
-        return pruning_probability;
-      };
+void Tree::PrepareController(const SimulationSettings& simulation_settings) {
+  const auto td = tree_descriptor_ref.Get<TreeDescriptor>();
+  if (!td) {
+    throw std::runtime_error("Growing tree without tree descriptor!");
+  }
+  const auto shoot_descriptor = td->shoot_descriptor.Get<IShootDescriptor>();
+  if (!shoot_descriptor) {
+    throw std::runtime_error("Shoot Descriptor Missing!");
+  }
+  const auto pruning_descriptor = td->pruning_descriptor.Get<IPruningDescriptor>();
+  if (!pruning_descriptor) {
+    throw std::runtime_error("Pruning Descriptor Missing!");
+  }
+  const auto foliage_descriptor = td->foliage_descriptor.Get<IFoliageDescriptor>();
+  if (!foliage_descriptor) {
+    throw std::runtime_error("Foliage Descriptor Missing!");
+  }
+  if (const auto fruit_descriptor = td->fruit_descriptor.Get<IFruitDescriptor>()) {
+    fruit_descriptor->PrepareGrowthController(shoot_growth_controller_);
+  } else {
+    shoot_growth_controller_.fruit = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+                                         const SkeletonNode<InternodeGrowthData>& internode) {
+      return 0.0f;
+    };
+    shoot_growth_controller_.fruit_fall_probability = [&](std::mt19937& random_engine,
+                                                          const ShootGrowthData& shoot_growth_data,
+                                                          const SkeletonNode<InternodeGrowthData>& internode) {
+      return 0.0f;
+    };
+  }
+  shoot_descriptor->PrepareGrowthController(shoot_growth_controller_);
+  foliage_descriptor->PrepareGrowthController(shoot_growth_controller_);
+  pruning_descriptor->PreparePruningController(simulation_settings, shoot_pruning_controller_);
 }

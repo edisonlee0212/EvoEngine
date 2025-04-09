@@ -793,6 +793,11 @@ bool NodeGraph<Id, Od, Nd, Ld>::OnInspect(
       !ImGui::IsAnyItemHovered() && open_popup) {
     ImGui::OpenPopup(id);
   }
+  if (ImGui::BeginPopupEx(id, ImGuiWindowFlags_NoDecoration)) {
+    const ImVec2 click_pos = ImGui::GetMousePosOnOpeningCurrentPopup();
+    canvas_popup_gui(click_pos);
+    ImGui::EndPopup();
+  }
 
   for (auto& node : nodes_) {
     if (node.recycled_)
@@ -826,6 +831,7 @@ bool NodeGraph<Id, Od, Nd, Ld>::OnInspect(
     ImNodes::Link(link.handle_, link.start_ + (1 << 17), link.end_ + (1 << 16));
   }
   ImNodes::MiniMap();
+
   ImNodes::EndNodeEditor();
 
   if (ImNodes::IsEditorHovered() && ImGui::GetIO().MouseWheel != 0) {
@@ -841,11 +847,7 @@ bool NodeGraph<Id, Od, Nd, Ld>::OnInspect(
   std::vector<NodeGraphLinkHandle> selected_links;
   int handle = -1;
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.f, 8.f));
-  if (ImGui::BeginPopupEx(id, ImGuiWindowFlags_NoDecoration)) {
-    const ImVec2 click_pos = ImGui::GetMousePosOnOpeningCurrentPopup();
-    canvas_popup_gui(click_pos);
-    ImGui::EndPopup();
-  } else {
+  {
     if (ImNodes::IsNodeHovered(&handle)) {
       hovered_node_handle = handle;
     }

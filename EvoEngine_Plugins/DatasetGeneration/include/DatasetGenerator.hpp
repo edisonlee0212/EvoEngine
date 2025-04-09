@@ -30,7 +30,6 @@ class DatasetGenerator {
     // Growth control
     SimulationSettings simulation_settings{};
     TreeGrowthSettings tree_growth_settings{};
-    TreePruningSettings pruning_settings{};
 
     // Stop condition
     int max_iteration = -1;

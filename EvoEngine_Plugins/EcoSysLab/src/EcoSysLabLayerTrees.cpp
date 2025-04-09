@@ -6,30 +6,32 @@
 #ifdef CUDA_MODULE_PLUGIN
 #  include <RayTracerLayer.hpp>
 #endif
-#include "BarkDescriptor.hpp"
-#include "Times.hpp"
-
+#include "AdvancedShootDescriptor.hpp"
+#include "BasicBarkDescriptor.hpp"
+#include "BasicFlowerDescriptor.hpp"
+#include "BasicFoliageDescriptor.hpp"
+#include "BasicFruitDescriptor.hpp"
+#include "BasicPruningDescriptor.hpp"
 #include "ClassRegistry.hpp"
 #include "Climate.hpp"
 #include "DynamicTreeStrands.hpp"
-#include "FlowerDescriptor.hpp"
-#include "FoliageDescriptor.hpp"
 #include "ForestDescriptor.hpp"
-#include "FruitDescriptor.hpp"
 #include "Soil.hpp"
 #include "SpatialPlantDistributionSimulator.hpp"
+#include "Times.hpp"
 #include "Tree.hpp"
 #include "TreeStructor.hpp"
 using namespace eco_sys_lab_plugin;
 PrivateComponentRegistration<Tree> tree_registry("Tree");
-AssetRegistration<BarkDescriptor> bark_descriptor_registry("BarkDescriptor", {".bark"});
+AssetRegistration<BasicBarkDescriptor> bark_descriptor_registry("BasicBarkDescriptor", {".bark"});
 AssetRegistration<ForestDescriptor> forest_d_registry("ForestDescriptor", {".forest"});
 AssetRegistration<TreeDescriptor> tree_d_registry("TreeDescriptor", {".tree"});
-AssetRegistration<ShootDescriptor> shoot_d_registry("ShootDescriptor", {".shoot"});
-AssetRegistration<FruitDescriptor> fruit_d_registry("FruitDescriptor", {".fruit"});
-AssetRegistration<FlowerDescriptor> flower_d_registry("FlowerDescriptor", {".flower"});
-AssetRegistration<FoliageDescriptor> foliage_d_registry("FoliageDescriptor", {".foliage"});
-
+AssetRegistration<BasicPruningDescriptor> pruning_d_registry("BasicPruningDescriptor", {".pruning"});
+AssetRegistration<BasicShootDescriptor> shoot_d_registry("BasicShootDescriptor", {".shoot"});
+AssetRegistration<BasicFruitDescriptor> fruit_d_registry("BasicFruitDescriptor", {".fruit"});
+AssetRegistration<BasicFlowerDescriptor> flower_d_registry("BasicFlowerDescriptor", {".flower"});
+AssetRegistration<BasicFoliageDescriptor> foliage_d_registry("BasicFoliageDescriptor", {".foliage"});
+AssetRegistration<AdvancedShootDescriptor> a_shoot_d_registry("AdvancedShootDescriptor", {".ashoot"});
 void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = GetScene();
   const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();

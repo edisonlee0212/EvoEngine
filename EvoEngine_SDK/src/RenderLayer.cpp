@@ -988,7 +988,7 @@ void RenderLayer::RenderGizmos() const {
           gizmos_instanced_colored->BindDescriptorSet(
               vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
           gizmos_instanced_colored->BindDescriptorSet(vk_command_buffer, 1,
-                                                      i.instanced_data->GetDescriptorSet()->GetVkDescriptorSet());
+                                                      i.particle_info_list->GetDescriptorSet()->GetVkDescriptorSet());
 
           i.editor_camera_component->GetRenderTexture()->Render(
               vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
@@ -1001,7 +1001,7 @@ void RenderLayer::RenderGizmos() const {
                 gizmos_instanced_colored->PushConstant(vk_command_buffer, 0, push_constant);
                 GeometryStorage::BindVertices(vk_command_buffer);
                 i.mesh->DrawIndexed(vk_command_buffer, gizmos_instanced_colored->states,
-                                    i.instanced_data->PeekParticleInfoList().size());
+                                    i.particle_info_list->PeekParticleInfoList().size());
               });
         });
       }
@@ -1039,12 +1039,12 @@ void RenderLayer::RenderGizmos() const {
                 GizmosPushConstant push_constant;
                 push_constant.model = i.model;
                 push_constant.color = i.color;
-                push_constant.size = i.m_size;
+                push_constant.size = i.size;
                 push_constant.camera_index =
                     current_render_instances->GetCameraIndex(i.editor_camera_component->GetHandle());
                 gizmos_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
                 GeometryStorage::BindStrandPoints(vk_command_buffer);
-                i.m_strands->DrawIndexed(vk_command_buffer, gizmos_pipeline->states, 1);
+                i.strands->DrawIndexed(vk_command_buffer, gizmos_pipeline->states, 1);
               });
         });
       }

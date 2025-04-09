@@ -1,7 +1,7 @@
 
 #include "DynamicTreeStrands.hpp"
 
-#include "BarkDescriptor.hpp"
+#include "BasicBarkDescriptor.hpp"
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"
 #include "DsPhysics.hpp"
@@ -1012,11 +1012,11 @@ void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree) {
   tree->BuildStrandModel();
   if (const auto td = tree->tree_descriptor_ref.Get<TreeDescriptor>()) {
     initialize_parameters.foliage_descriptor = td->foliage_descriptor;
-    if (const auto fd = td->foliage_descriptor.Get<FoliageDescriptor>()) {
+    if (const auto fd = td->foliage_descriptor.Get<BasicFoliageDescriptor>()) {
       if (const auto mat = fd->leaf_material_ref.Get<Material>())
         leaf_material_ref = mat;
     }
-    if (const auto bd = td->bark_descriptor.Get<BarkDescriptor>()) {
+    if (const auto bd = td->bark_descriptor.Get<BasicBarkDescriptor>()) {
       if (const auto mat = bd->bark_material_ref.Get<Material>())
         bark_material_ref = mat;
     }

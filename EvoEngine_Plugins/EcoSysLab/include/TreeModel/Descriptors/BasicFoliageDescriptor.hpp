@@ -1,18 +1,19 @@
 #pragma once
 #include "Skeleton.hpp"
+#include "TreeDescriptor.hpp"
 
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
 
 /**
- * @class FoliageDescriptor
+ * @class BasicFoliageDescriptor
  * @brief Represents a foliage descriptor for procedural tree generation.
  *
  * This class defines parameters for generating foliage on a procedural tree model.
  * It includes attributes for leaf size, count, branching angles, and material references.
  */
-class FoliageDescriptor : public IAsset {
+class BasicFoliageDescriptor : public IFoliageDescriptor {
  public:
   /// Leaf size represented as width and height.
   glm::vec2 leaf_size = glm::vec2(0.04f, 0.08f);
@@ -44,6 +45,21 @@ class FoliageDescriptor : public IAsset {
   /// Gravitropism effect.
   float gravitropism = 0.f;
 
+  /**
+   * \brief The minimum lighting required for leaf flushing.
+   */
+  float leaf_flushing_lighting_requirement = 0.1f;
+
+  /**
+   * \brief Probability of leaf fall.
+   */
+  float leaf_fall_probability = 3;
+
+  /**
+   * \brief Maximum allowed distance between a leaf and the nearest branch end.
+   */
+  float leaf_distance_to_branch_end_limit = 10;
+
   /// Reference to the leaf material asset.
   AssetRef leaf_material_ref;
 
@@ -73,11 +89,10 @@ class FoliageDescriptor : public IAsset {
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 
   /**
-   * @brief Generates a thumbnail texture for this foliage descriptor.
-   * @return A shared pointer to the generated texture.
+   * \brief Prepares a ShootGrowthController using current growth parameters.
+   * \param shoot_growth_controller The controller to configure.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
-
+  void PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const override;
   /**
    * @brief Generates foliage transformation matrices based on internode information.
    * @param[out] matrices Vector to store the transformation matrices.
@@ -85,7 +100,7 @@ class FoliageDescriptor : public IAsset {
    * @param[in] tree_size The overall tree size.
    */
   void GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internode_info,
-                               float tree_size) const;
+                               float tree_size) const override;
 };
 
 }  // namespace eco_sys_lab_plugin

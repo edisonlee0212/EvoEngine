@@ -1,7 +1,7 @@
 #include "TreeStructor.hpp"
 #include <unordered_set>
+#include "BasicFoliageDescriptor.hpp"
 #include "EcoSysLabLayer.hpp"
-#include "FoliageDescriptor.hpp"
 #include "Platform.hpp"
 #include "rapidcsv.h"
 using namespace eco_sys_lab_plugin;
@@ -250,7 +250,7 @@ void TreeStructor::BuildConnectionBranch(const BranchHandle processing_branch_ha
   /*
   if(const auto treeDescriptor = tree_descriptor_ref.Get<TreeDescriptor>())
   {
-          if(const auto shootDescriptor = treeDescriptor->m_shootDescriptor.Get<ShootDescriptor>())
+          if(const auto shootDescriptor = treeDescriptor->m_shootDescriptor.Get<BasicShootDescriptor>())
           {
                   connectionChainAmount = glm::max(2, static_cast<int>(connectionChainLength /
                           shootDescriptor->internode_length));
@@ -2249,9 +2249,9 @@ std::vector<std::shared_ptr<Mesh>> TreeStructor::GenerateFoliageMeshes() {
     auto quad_vertices_size = quad_mesh->GetVerticesAmount();
     if (const auto tree_descriptor = this->tree_descriptor_ref.Get<TreeDescriptor>()) {
       size_t offset = 0;
-      auto foliage_descriptor = tree_descriptor->foliage_descriptor.Get<FoliageDescriptor>();
+      auto foliage_descriptor = tree_descriptor->foliage_descriptor.Get<BasicFoliageDescriptor>();
       if (!foliage_descriptor)
-        foliage_descriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
+        foliage_descriptor = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
       const auto& node_list = skeleton.PeekSortedNodeList();
       for (const auto& internode_handle : node_list) {
         const auto& internode = skeleton.PeekNode(internode_handle);

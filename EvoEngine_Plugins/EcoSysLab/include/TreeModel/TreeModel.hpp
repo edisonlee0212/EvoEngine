@@ -255,8 +255,6 @@ class TreeModel {
 
   TreeGrowthSettings tree_growth_settings;  ///< Growth settings used for simulation.
 
-  glm::vec3 current_gravity_direction = glm::vec3(0, -1, 0);  ///< The current gravity vector.
-
   /**
    * @brief Erases all data related to the tree.
    */

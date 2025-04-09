@@ -278,7 +278,7 @@ void voxel_space_colonization_tree_data(
   VoxelGrid<TreeOccupancyGridBasicData> input_grid{};
   if (tree->ParseBinvox(binvox_path, input_grid, 1.f)) {
     occupancy_grid.Initialize(input_grid, glm::vec3(-radius, 0, -radius), glm::vec3(radius, 2.0f * radius, radius),
-                              tree_descriptor->shoot_descriptor.Get<ShootDescriptor>()->internode_length,
+                              tree_descriptor->shoot_descriptor.Get<BasicShootDescriptor>()->internode_length,
                               tree->tree_model.tree_growth_settings.space_colonization_removal_distance_factor,
                               tree->tree_model.tree_growth_settings.space_colonization_theta,
                               tree->tree_model.tree_growth_settings.space_colonization_detection_distance_factor);
@@ -383,7 +383,7 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
 
   occupancy_grid.Initialize(rbv, glm::vec3(-rbv->m_maxRadius, 0, -rbv->m_maxRadius),
                             glm::vec3(rbv->m_maxRadius, 2.0f * rbv->m_maxRadius, rbv->m_maxRadius),
-                            tree_descriptor->shoot_descriptor.Get<ShootDescriptor>()->internode_length,
+                            tree_descriptor->shoot_descriptor.Get<BasicShootDescriptor>()->internode_length,
                             tree->tree_model.tree_growth_settings.space_colonization_removal_distance_factor,
                             tree->tree_model.tree_growth_settings.space_colonization_theta,
                             tree->tree_model.tree_growth_settings.space_colonization_detection_distance_factor);

@@ -248,6 +248,7 @@ void TreeModel::Initialize(const ShootGrowthController& shoot_growth_controller)
     shoot_skeleton_.SortLists();
     for (const auto& node_handle : shoot_skeleton_.PeekSortedNodeList()) {
       auto& node = shoot_skeleton_.RefNode(node_handle);
+      node.data.internode_thickness = 1.f;
       node.info.thickness = shoot_growth_controller.base_thickness;
       node.data.internode_length = 0.0f;
       node.data.buds.emplace_back();
@@ -338,7 +339,7 @@ void TreeModel::CalculateShootFlux(const glm::mat4& global_transform, const Clim
     auto& internode_data = internode.data;
     auto& internode_info = internode.info;
     internode_data.light_intake = 0.0f;
-    internode_data.light_direction = -current_gravity_direction;
+    internode_data.light_direction = -shoot_skeleton_.data.gravity_direction;
     bool sample_light_intensity = false;
 
     for (const auto& bud : internode_data.buds) {
@@ -440,8 +441,8 @@ void TreeModel::CalculateTransform(const ShootGrowthController& shoot_growth_con
       auto front = glm::normalize(internode_info.global_rotation * glm::vec3(0, 0, -1));
       auto up = glm::normalize(internode_info.global_rotation * glm::vec3(0, 1, 0));
       if (sagging) {
-        float dot_p = glm::abs(glm::dot(front, current_gravity_direction));
-        ApplyTropism(current_gravity_direction, internode_data.sagging * (1.0f - dot_p), front, up);
+        float dot_p = glm::abs(glm::dot(front, shoot_skeleton_.data.gravity_direction));
+        ApplyTropism(shoot_skeleton_.data.gravity_direction, internode_data.sagging * (1.0f - dot_p), front, up);
         internode_info.global_rotation = glm::quatLookAt(front, up);
       }
       auto parent_regulated_up = parent_internode.info.regulated_global_rotation * glm::vec3(0, 1, 0);
@@ -460,9 +461,9 @@ void TreeModel::CalculateTransform(const ShootGrowthController& shoot_growth_con
         auto parent_front = glm::normalize(parent_internode.info.global_rotation * glm::vec3(0, 0, -1));
         const auto sin_value = glm::sin(glm::acos(glm::dot(parent_front, front)));
         const auto offset = glm::normalize(glm::vec2(relative_front.x, relative_front.y)) * sin_value;
-        internode_info.global_position += parent_left * parent_internode.info.thickness * offset.x;
-        internode_info.global_position += parent_up * parent_internode.info.thickness * offset.y;
-        internode_info.global_position += parent_front * parent_internode.info.thickness * sin_value;
+        internode_info.global_position += parent_left * parent_internode.info.thickness * .5f * offset.x;
+        internode_info.global_position += parent_up * parent_internode.info.thickness * .5f * offset.y;
+        internode_info.global_position += parent_front * parent_internode.info.thickness * .5f * sin_value;
       }
 
       internode_data.desired_global_rotation =
@@ -507,16 +508,9 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
   if (extra_length >= 0) {
     graph_changed = true;
     internode_data.internode_length = internode_length;
-    const auto desired_global_rotation = internode_info.global_rotation * internode_data.buds.front().local_rotation;
-    auto desired_global_front = desired_global_rotation * glm::vec3(0, 0, -1);
-    auto desired_global_up = desired_global_rotation * glm::vec3(0, 1, 0);
+    auto desired_global_rotation = internode_info.global_rotation * internode_data.buds.front().local_rotation;
     if (internode_handle != 0) {
-      ApplyTropism(-current_gravity_direction,
-                   shoot_growth_controller.gravitropism(random_engine_, shoot_skeleton_.data, internode),
-                   desired_global_front, desired_global_up);
-      ApplyTropism(internode_data.light_direction,
-                   shoot_growth_controller.phototropism(random_engine_, shoot_skeleton_.data, internode),
-                   desired_global_front, desired_global_up);
+      shoot_growth_controller.tropism(random_engine_, shoot_skeleton_.data, internode, desired_global_rotation);
     }
     // First, remove only apical bud.
     internode.data.buds.clear();
@@ -529,9 +523,9 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
       auto& new_lateral_bud = internode_data.buds.back();
       new_lateral_bud.type = BudType::Lateral;
       new_lateral_bud.status = BudStatus::Dormant;
-      new_lateral_bud.local_rotation = glm::vec3(
-          0.f, glm::radians(shoot_growth_controller.branching_angle(random_engine_, shoot_skeleton_.data, internode)),
-          Random::Uniform(random_engine_, 0.f, 360.f));
+      new_lateral_bud.index = i + 1;
+      new_lateral_bud.local_rotation =
+          shoot_growth_controller.bud_rotation(random_engine_, shoot_skeleton_.data, internode, new_lateral_bud);
     }
 
     // Allocate Fruit bud for current internode
@@ -542,10 +536,9 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
         auto& new_fruit_bud = internode_data.buds.back();
         new_fruit_bud.type = BudType::Fruit;
         new_fruit_bud.status = BudStatus::Dormant;
-
-        new_fruit_bud.local_rotation = glm::vec3(
-            glm::radians(shoot_growth_controller.branching_angle(random_engine_, shoot_skeleton_.data, internode)),
-            0.0f, glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
+        new_fruit_bud.index = i + 1;
+        new_fruit_bud.local_rotation =
+            shoot_growth_controller.bud_rotation(random_engine_, shoot_skeleton_.data, internode, new_fruit_bud);
       }
     }
     // Allocate Leaf bud for current internode
@@ -557,10 +550,9 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
         // Hack: Leaf bud will be given vigor for the first time.
         new_leaf_bud.type = BudType::Leaf;
         new_leaf_bud.status = BudStatus::Dormant;
-
-        new_leaf_bud.local_rotation = glm::vec3(
-            glm::radians(shoot_growth_controller.branching_angle(random_engine_, shoot_skeleton_.data, internode)),
-            0.0f, glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
+        new_leaf_bud.index = i + 1;
+        new_leaf_bud.local_rotation =
+            shoot_growth_controller.bud_rotation(random_engine_, shoot_skeleton_.data, internode, new_leaf_bud);
       }
     }
 
@@ -579,10 +571,13 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
     new_internode.data.inhibitor_sink = 0.0f;
     new_internode.data.internode_length = glm::clamp(extended_length, 0.0f, internode_length);
     new_internode.info.root_distance = old_internode.info.root_distance + new_internode.data.internode_length;
-    new_internode.info.thickness = shoot_growth_controller.base_thickness;
-    new_internode.info.global_rotation = glm::quatLookAt(desired_global_front, desired_global_up);
+
+    new_internode.info.global_rotation = desired_global_rotation;
     new_internode.data.desired_local_rotation =
         glm::inverse(old_internode.info.global_rotation) * new_internode.info.global_rotation;
+
+    new_internode.data.internode_thickness = 1.f;
+    new_internode.info.thickness = shoot_growth_controller.base_thickness;
 
     if (shoot_growth_controller.bud_flushing_rate(random_engine_, shoot_skeleton_.data, old_internode) >=
         Random::Uniform(random_engine_, 0.f, 1.f)) {
@@ -591,9 +586,9 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
       auto& new_apical_bud = new_internode.data.buds.back();
       new_apical_bud.type = BudType::Apical;
       new_apical_bud.status = BudStatus::Dormant;
-      new_apical_bud.local_rotation = glm::vec3(
-          glm::radians(shoot_growth_controller.apical_angle(random_engine_, shoot_skeleton_.data, new_internode)), 0.0f,
-          glm::radians(shoot_growth_controller.roll_angle(random_engine_, shoot_skeleton_.data, new_internode)));
+      new_apical_bud.index = 0;
+      new_apical_bud.local_rotation =
+          shoot_growth_controller.bud_rotation(random_engine_, shoot_skeleton_.data, old_internode, new_apical_bud);
       if (extra_length > internode_length) {
         float child_inhibitor = 0.0f;
         ElongateInternode(extra_length - internode_length, new_internode_handle, shoot_growth_controller,
@@ -751,21 +746,8 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
       if (flush_probability >= Random::Uniform(random_engine_, 0.f, 1.f)) {
         graph_changed = true;
         // Prepare information for new internode
-        const auto desired_global_rotation = internode_info.global_rotation * bud.local_rotation;
-        auto desired_global_front = desired_global_rotation * glm::vec3(0, 0, -1);
-        auto desired_global_up = desired_global_rotation * glm::vec3(0, 1, 0);
-        ApplyTropism(-current_gravity_direction,
-                     shoot_growth_controller.gravitropism(random_engine_, shoot_skeleton_.data, internode),
-                     desired_global_front, desired_global_up);
-        ApplyTropism(internode_data.light_direction,
-                     shoot_growth_controller.phototropism(random_engine_, shoot_skeleton_.data, internode),
-                     desired_global_front, desired_global_up);
-        if (const auto horizontal_direction = glm::vec3(desired_global_front.x, 0.0f, desired_global_front.z);
-            glm::length(horizontal_direction) > glm::epsilon<float>()) {
-          ApplyTropism(glm::normalize(horizontal_direction),
-                       shoot_growth_controller.horizontal_tropism(random_engine_, shoot_skeleton_.data, internode),
-                       desired_global_front, desired_global_up);
-        }
+        auto desired_global_rotation = internode_info.global_rotation * bud.local_rotation;
+        shoot_growth_controller.tropism(random_engine_, shoot_skeleton_.data, internode, desired_global_rotation);
         // Remove current lateral bud.
         internode.data.buds[bud_index] = internode.data.buds.back();
         internode.data.buds.pop_back();
@@ -783,15 +765,18 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
         new_internode.data.order = old_internode.data.order + 1;
         new_internode.data.internode_length = 0.0f;
         new_internode.info.root_distance = old_internode.info.root_distance;
-        new_internode.info.thickness = shoot_growth_controller.base_thickness;
         new_internode.data.desired_local_rotation =
-            glm::inverse(old_internode.info.global_rotation) * glm::quatLookAt(desired_global_front, desired_global_up);
+            glm::inverse(old_internode.info.global_rotation) * desired_global_rotation;
+
         // Allocate apical bud
         new_internode.data.buds.emplace_back();
         auto& apical_bud = new_internode.data.buds.back();
         apical_bud.type = BudType::Apical;
         apical_bud.status = BudStatus::Dormant;
         apical_bud.local_rotation = glm::vec3(0.f);
+
+        new_internode.data.internode_thickness = 1.f;
+        new_internode.info.thickness = shoot_growth_controller.base_thickness;
       }
     }
   }
@@ -972,6 +957,7 @@ void TreeModel::CalculateThickness(const ShootGrowthController& shoot_growth_con
     const auto internode_handle = *it;
     auto& internode = shoot_skeleton_.RefNode(internode_handle);
     auto& internode_info = internode.info;
+    auto& internode_data = internode.data;
     float child_thickness_collection = 0.0f;
 
     const float thickness_accumulation_factor = glm::clamp(
@@ -980,28 +966,29 @@ void TreeModel::CalculateThickness(const ShootGrowthController& shoot_growth_con
 
     for (const auto& i : internode.PeekChildHandles()) {
       const auto& child_internode = shoot_skeleton_.PeekNode(i);
-      child_thickness_collection += glm::pow(child_internode.info.thickness, 1.0f / thickness_accumulation_factor);
+      child_thickness_collection +=
+          glm::pow(child_internode.data.internode_thickness, 1.0f / thickness_accumulation_factor);
     }
     child_thickness_collection += shoot_growth_controller.thickness(random_engine_, shoot_skeleton_.data, internode);
     if (child_thickness_collection != 0.0f) {
-      internode_info.thickness =
-          glm::max(internode_info.thickness, glm::pow(child_thickness_collection, thickness_accumulation_factor));
+      internode_data.internode_thickness = glm::max(
+          internode_data.internode_thickness, glm::pow(child_thickness_collection, thickness_accumulation_factor));
     } else {
-      internode_info.thickness = glm::max(internode_info.thickness, shoot_growth_controller.base_thickness);
+      internode_data.internode_thickness = glm::max(internode_data.internode_thickness, 1.f);
     }
+    internode_info.thickness = internode_data.internode_thickness * shoot_growth_controller.base_thickness;
   }
 }
 void TreeModel::CalculateBiomass(SkeletonNodeHandle internode_handle,
                                  const ShootGrowthController& shoot_growth_controller) {
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
   auto& internode_data = internode.data;
-  const auto& internode_info = internode.info;
   internode_data.descendant_total_biomass = internode_data.biomass = 0.0f;
-  const auto relative_thickness = internode_info.thickness / shoot_growth_controller.base_thickness;
-  internode_data.biomass = internode_data.density * (relative_thickness * relative_thickness) *
+  internode_data.biomass = internode_data.density *
+                           (internode_data.internode_thickness * internode_data.internode_thickness) *
                            internode_data.internode_length / shoot_growth_controller.base_internode_length;
-  glm::vec3 positioned_sum = glm::vec3(0.f);
-  glm::vec3 desired_position_sum = glm::vec3(0.f);
+  auto positioned_sum = glm::vec3(0.f);
+  auto desired_position_sum = glm::vec3(0.f);
   for (const auto& i : internode.PeekChildHandles()) {
     const auto& child_internode = shoot_skeleton_.RefNode(i);
     internode_data.descendant_total_biomass +=
@@ -1243,6 +1230,7 @@ void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
               node_out << YAML::BeginMap;
               {
                 node_out << YAML::Key << "T" << YAML::Value << static_cast<unsigned>(bud.type);
+                node_out << YAML::Key << "I" << YAML::Value << bud.index;
                 node_out << YAML::Key << "S" << YAML::Value << static_cast<unsigned>(bud.status);
                 node_out << YAML::Key << "LR" << YAML::Value << bud.local_rotation;
                 node_out << YAML::Key << "RM" << YAML::Value << YAML::BeginMap;
@@ -1264,9 +1252,10 @@ void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
             skeleton_out << YAML::Key << "desired_min" << YAML::Value << skeleton_data.desired_min;
             skeleton_out << YAML::Key << "desired_max" << YAML::Value << skeleton_data.desired_max;
             skeleton_out << YAML::Key << "age" << YAML::Value << skeleton_data.age;
-
+            skeleton_out << YAML::Key << "gravity_direction" << YAML::Value << skeleton_data.gravity_direction;
             const auto node_size = shoot_skeleton_.PeekRawNodes().size();
             auto internode_length = std::vector<float>(node_size);
+            auto internode_thickness = std::vector<float>(node_size);
             auto index_of_parent_bud = std::vector<int>(node_size);
             auto start_age = std::vector<float>(node_size);
             auto finish_age = std::vector<float>(node_size);
@@ -1280,6 +1269,7 @@ void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
             for (int node_index = 0; node_index < node_size; node_index++) {
               const auto& node = shoot_skeleton_.PeekRawNodes().at(node_index);
               internode_length.at(node_index) = node.data.internode_length;
+              internode_thickness.at(node_index) = node.data.internode_thickness;
               index_of_parent_bud.at(node_index) = node.data.index_of_parent_bud;
               start_age.at(node_index) = node.data.start_age;
               finish_age.at(node_index) = node.data.finish_age;
@@ -1293,6 +1283,9 @@ void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
             if (node_size != 0) {
               skeleton_out << YAML::Key << "node.data.internode_length" << YAML::Value
                            << YAML::Binary(reinterpret_cast<const unsigned char*>(internode_length.data()),
+                                           internode_length.size() * sizeof(float));
+              skeleton_out << YAML::Key << "node.data.internode_thickness" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(internode_thickness.data()),
                                            internode_length.size() * sizeof(float));
               skeleton_out << YAML::Key << "node.data.index_of_parent_bud" << YAML::Value
                            << YAML::Binary(reinterpret_cast<const unsigned char*>(index_of_parent_bud.data()),
@@ -1341,6 +1334,8 @@ void TreeModel::Load(const std::string& name, const YAML::Node& in) {
                 auto& bud = node_data.buds.back();
                 if (in_bud["T"])
                   bud.type = static_cast<BudType>(in_bud["T"].as<unsigned>());
+                if (in_bud["I"])
+                  bud.index = in_bud["I"].as<int>();
                 if (in_bud["S"])
                   bud.status = static_cast<BudStatus>(in_bud["S"].as<unsigned>());
                 if (in_bud["LR"])
@@ -1368,7 +1363,8 @@ void TreeModel::Load(const std::string& name, const YAML::Node& in) {
               skeleton_data.desired_max = skeleton_in["desired_max"].as<glm::vec3>();
             if (skeleton_in["age"])
               skeleton_data.age = skeleton_in["age"].as<float>();
-
+            if (skeleton_in["gravity_direction"])
+              skeleton_data.gravity_direction = skeleton_in["gravity_direction"].as<glm::vec3>();
             if (skeleton_in["node.data.internode_length"]) {
               auto list = std::vector<float>();
               const auto data = skeleton_in["node.data.internode_length"].as<YAML::Binary>();
@@ -1379,7 +1375,16 @@ void TreeModel::Load(const std::string& name, const YAML::Node& in) {
                 node.data.internode_length = list[i];
               }
             }
-
+            if (skeleton_in["node.data.internode_thickness"]) {
+              auto list = std::vector<float>();
+              const auto data = skeleton_in["node.data.internode_thickness"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(float));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.internode_thickness = list[i];
+              }
+            }
             if (skeleton_in["node.data.index_of_parent_bud"]) {
               auto list = std::vector<int>();
               const auto data = skeleton_in["node.data.index_of_parent_bud"].as<YAML::Binary>();

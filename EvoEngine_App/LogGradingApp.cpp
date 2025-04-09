@@ -6,7 +6,7 @@
 
 #include "WindowLayer.hpp"
 #ifdef ECOSYSLAB_PLUGIN
-#  include "BarkDescriptor.hpp"
+#  include "BasicBarkDescriptor.hpp"
 #  include "HeightField.hpp"
 #  include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
@@ -74,7 +74,7 @@ int main() {
   PrivateComponentRegistration<LogGrader>("LogGrader");
 #endif
 #ifdef ECOSYSLAB_PLUGIN
-  AssetRegistration<BarkDescriptor>("BarkDescriptor", {".bs"});
+  AssetRegistration<BasicBarkDescriptor>("BasicBarkDescriptor", {".bs"});
 #endif
 
 #ifdef LOG_SCANNING_PLUGIN
