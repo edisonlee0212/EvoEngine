@@ -1,17 +1,17 @@
-
 #pragma once
+#include "TreeDescriptor.hpp"
 
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
 
 /**
- * @class BarkDescriptor
+ * @class BasicBarkDescriptor
  * @brief Represents the properties of a bark descriptor used in procedural tree generation.
  *
  * This class defines parameters that control the bark appearance on procedurally generated trees.
  */
-class BarkDescriptor : public IAsset {
+class BasicBarkDescriptor : public IBarkDescriptor {
  public:
   /**
    * @brief Frequency of the bark pattern along the X-axis.
@@ -66,13 +66,7 @@ class BarkDescriptor : public IAsset {
    * @param distance_to_root Distance from the root of the tree.
    * @return The computed bark pattern value.
    */
-  float GetValue(float x_factor, float distance_to_root) const;
-
-  /**
-   * @brief Generates a thumbnail texture representing the bark pattern.
-   * @return A shared pointer to the generated Texture2D.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  float GetValue(float x_factor, float distance_to_root) const override;
 
   /**
    * @brief Serializes the bark descriptor properties to a YAML emitter.

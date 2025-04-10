@@ -1,26 +1,17 @@
-
 #pragma once
-#include "TreeModel.hpp"
-
+#include "TreeDescriptor.hpp"
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
-
 /**
- * \class ShootDescriptor
+ * \class BasicShootDescriptor
  * \brief Represents the parameters controlling procedural tree growth.
  *
  * This class defines various properties affecting tree shoot growth, including
  * internode characteristics, bud behavior, pruning, and environmental influences.
  */
-class ShootDescriptor : public IAsset {
+class BasicShootDescriptor : public IShootDescriptor {
  public:
-  /**
-   * \brief Generates a thumbnail texture representing the shoot descriptor.
-   * \return A shared pointer to the generated Texture2D.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
-
   /**
    * \brief The expected height gain for the tree for one year (max root distance).
    */
@@ -37,27 +28,14 @@ class ShootDescriptor : public IAsset {
    * \brief The number of base internodes in the shoot.
    */
   int base_internode_count = 1;
-
   /**
-   * \brief The mean and variance of the angle between the direction of a lateral bud and its parent shoot.
+   * \brief A procedural noise function affecting roll angles.
    */
-  glm::vec2 branching_angle_mean_variance = glm::vec2(45, 2);
-
-  /**
-   * \brief The mean and variance of an angular difference orientation of lateral buds between two internodes.
-   */
-  glm::vec2 roll_angle_mean_variance = glm::vec2(30, 2);
-
+  procedural_noise::ProceduralNoise4D branching_angle_graph{};
   /**
    * \brief A procedural noise function affecting roll angles.
    */
   procedural_noise::ProceduralNoise4D roll_angle_graph{};
-
-  /**
-   * \brief The mean and variance of an angular difference orientation of lateral buds between two internodes.
-   */
-  glm::vec2 apical_angle_mean_variance = glm::vec2(0, 3);
-
   /**
    * \brief A procedural noise function affecting apical angles.
    */
@@ -150,7 +128,7 @@ class ShootDescriptor : public IAsset {
   /**
    * \brief The strength of apical control over bud activation.
    */
-  float apical_control = 1.25f;
+  float apical_control = 0.f;
 
   /**
    * \brief The influence of root distance in determining bud fate.
@@ -174,100 +152,11 @@ class ShootDescriptor : public IAsset {
 
 #pragma endregion
 
-#pragma region Pruning
-
-  /**
-   * \brief Flag indicating if trunk protection is enabled in pruning logic.
-   */
-  bool trunk_protection = false;
-
-  /**
-   * \brief The maximum allowed flow length for nutrient distribution.
-   */
-  int max_flow_length = 0;
-
-  /**
-   * \brief Factor determining pruning intensity due to lack of light.
-   */
-  float light_pruning_factor = 0.0f;
-
-  /**
-   * \brief Strength factor affecting branch endurance.
-   */
-  float branch_strength = 1.f;
-
-  /**
-   * \brief Effect of thickness on branch strength.
-   */
-  float branch_strength_thickness_factor = 3.f;
-
-  /**
-   * \brief Lighting threshold below which branches weaken.
-   */
-  float branch_strength_lighting_threshold = 0.f;
-
-  /**
-   * \brief Loss of branch strength over time due to insufficient light.
-   */
-  float branch_strength_lighting_loss = 0.f;
-
-  /**
-   * \brief Multiplier affecting how easily branches break.
-   */
-  float branch_breaking_multiplier = 1.f;
-
-  /**
-   * \brief Factor influencing the breaking probability of branches.
-   */
-  float branch_breaking_factor = 1.f;
-
-#pragma endregion
-
-#pragma region Leaf
-
-  /**
-   * \brief The minimum lighting required for leaf flushing.
-   */
-  float leaf_flushing_lighting_requirement = 0.1f;
-
-  /**
-   * \brief Probability of leaf fall.
-   */
-  float leaf_fall_probability;
-
-  /**
-   * \brief Maximum allowed distance between a leaf and the nearest branch end.
-   */
-  float leaf_distance_to_branch_end_limit;
-
-#pragma endregion
-
-#pragma region Fruit
-
-  /**
-   * \brief The minimum lighting required for fruit flushing.
-   */
-  float fruit_flushing_lighting_requirement = 0.1f;
-
-  /**
-   * \brief Probability of fruit fall.
-   */
-  float fruit_fall_probability;
-
-  /**
-   * \brief Maximum allowed distance between a fruit and the nearest branch end.
-   */
-  float fruit_distance_to_branch_end_limit;
-
-#pragma endregion
-
   /**
    * \brief Prepares a ShootGrowthController using current growth parameters.
    * \param shoot_growth_controller The controller to configure.
-   * \param shoot_pruning_controller The controller to configure.
    */
-  void PrepareController(ShootGrowthController& shoot_growth_controller,
-                         ShootPruningController& shoot_pruning_controller) const;
+  void PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const override;
 
   /**
    * \brief Serializes the shoot descriptor to YAML format.
@@ -287,12 +176,6 @@ class ShootDescriptor : public IAsset {
    * \return True if the asset's content remains unmodified.
    */
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * \brief Collects asset references for dependency tracking.
-   * \param list The list to store asset references.
-   */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
 
 }  // namespace eco_sys_lab_plugin

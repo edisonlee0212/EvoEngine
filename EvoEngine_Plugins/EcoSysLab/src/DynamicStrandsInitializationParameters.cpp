@@ -1,6 +1,6 @@
 #include "DynamicStrandsInitializationParameters.hpp"
 
-#include "FoliageDescriptor.hpp"
+#include "BasicFoliageDescriptor.hpp"
 
 using namespace eco_sys_lab_plugin;
 
@@ -106,7 +106,7 @@ bool DynamicStrandsInitializeParameters::OnInspect(const std::shared_ptr<EditorL
     ImGui::TreePop();
   }
 
-  editor_layer->DragAndDropButton<FoliageDescriptor>(foliage_descriptor, "Foliage Descriptor");
+  editor_layer->DragAndDropButton<BasicFoliageDescriptor>(foliage_descriptor, "Foliage Descriptor");
 
   if (ImGui::TreeNode("Meshing Properties")) {
 #ifdef USE_CGAL

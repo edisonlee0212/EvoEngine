@@ -11,12 +11,7 @@ struct ShootGrowthController {
   /**
    * \brief Determines whether branches should push growth.
    */
-  bool branch_push = false;
-
-  /**
-   * \brief Indicates whether to use level-based apical control.
-   */
-  bool use_level_for_apical_control = false;
+  bool branch_push = true;
 
 #pragma region Internode
   /**
@@ -32,45 +27,15 @@ struct ShootGrowthController {
   /**
    * \brief The mean and variance of the angle between the direction of a lateral bud and its parent shoot.
    */
-  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                      const SkeletonNode<InternodeGrowthData>& internode)>
-      branching_angle;
-
+  std::function<glm::quat(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+                          const SkeletonNode<InternodeGrowthData>& internode, const Bud& bud)>
+      bud_rotation;
   /**
-   * \brief The mean and variance of an angular difference orientation of lateral buds between two internodes.
+   * \brief The tropism factor affecting internode growth direction.
    */
-  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                      const SkeletonNode<InternodeGrowthData>& internode)>
-      roll_angle;
-
-  /**
-   * \brief The mean and variance of the angular difference between the growth direction and the direction of the apical
-   * bud.
-   */
-  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                      const SkeletonNode<InternodeGrowthData>& internode)>
-      apical_angle;
-
-  /**
-   * \brief The gravitropism factor affecting internode growth.
-   */
-  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                      const SkeletonNode<InternodeGrowthData>& internode)>
-      gravitropism;
-
-  /**
-   * \brief The phototropism factor affecting internode growth.
-   */
-  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                      const SkeletonNode<InternodeGrowthData>& internode)>
-      phototropism;
-
-  /**
-   * \brief The horizontal tropism affecting internode orientation.
-   */
-  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                      const SkeletonNode<InternodeGrowthData>& internode)>
-      horizontal_tropism;
+  std::function<void(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+                     const SkeletonNode<InternodeGrowthData>& internode, glm::quat& rotation)>
+      tropism;
 
   /**
    * \brief The strength of gravity bending for the internode.
@@ -187,35 +152,6 @@ struct ShootGrowthController {
                       const SkeletonNode<InternodeGrowthData>& internode)>
       fruit_fall_probability;
 #pragma endregion
-};
-
-/**
- * @struct TreePruningSettings
- * @brief Defines settings for pruning operations on the tree.
- */
-struct TreePruningSettings {
-  float low_branch_pruning = 0.f;  ///< Factor defining low branch pruning.
-
-  /**
-   * @brief Inspects pruning settings in an editor.
-   * @param editor_layer The editor layer managing inspection.
-   * @return True if data was not modified during inspection.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
-   * @brief Saves pruning settings to a YAML emitter.
-   * @param name The name of the settings entry.
-   * @param out The YAML emitter to serialize data into.
-   */
-  void Save(const std::string& name, YAML::Emitter& out) const;
-
-  /**
-   * @brief Loads pruning settings from a YAML node.
-   * @param name The name of the settings entry.
-   * @param in The YAML node containing serialized data.
-   */
-  void Load(const std::string& name, const YAML::Node& in);
 };
 
 /**

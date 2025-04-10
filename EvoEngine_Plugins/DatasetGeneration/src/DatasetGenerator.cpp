@@ -1,6 +1,6 @@
 #include "DatasetGenerator.hpp"
 
-#include "BarkDescriptor.hpp"
+#include "BasicBarkDescriptor.hpp"
 #include "Climate.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "ForestDescriptor.hpp"
@@ -87,13 +87,13 @@ std::shared_ptr<TreeDescriptor> DatasetGenerator::TreeDataGenerationParameters::
       const auto absolute_path = ProjectManager::GetAssetsFolderPath() / foliage_descriptor_path;
       if (std::filesystem::exists(absolute_path)) {
         actual_tree_descriptor->foliage_descriptor =
-            std::dynamic_pointer_cast<FoliageDescriptor>(ProjectManager::GetOrCreateAsset(foliage_descriptor_path));
+            std::dynamic_pointer_cast<IFoliageDescriptor>(ProjectManager::GetOrCreateAsset(foliage_descriptor_path));
       } else {
         EVOENGINE_ERROR("Foliage Descriptor doesn't exist!");
       }
     } else {
       if (ProjectManager::IsInAssetsFolder(foliage_descriptor_path)) {
-        actual_tree_descriptor->foliage_descriptor = std::dynamic_pointer_cast<FoliageDescriptor>(
+        actual_tree_descriptor->foliage_descriptor = std::dynamic_pointer_cast<IFoliageDescriptor>(
             ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(foliage_descriptor_path)));
       } else {
         EVOENGINE_ERROR("Foliage Descriptor doesn't exist!");
@@ -106,13 +106,13 @@ std::shared_ptr<TreeDescriptor> DatasetGenerator::TreeDataGenerationParameters::
       const auto absolute_path = ProjectManager::GetAssetsFolderPath() / bark_descriptor_path;
       if (std::filesystem::exists(absolute_path)) {
         actual_tree_descriptor->bark_descriptor =
-            std::dynamic_pointer_cast<BarkDescriptor>(ProjectManager::GetOrCreateAsset(bark_descriptor_path));
+            std::dynamic_pointer_cast<IBarkDescriptor>(ProjectManager::GetOrCreateAsset(bark_descriptor_path));
       } else {
         EVOENGINE_ERROR("Bark Descriptor doesn't exist!");
       }
     } else {
       if (ProjectManager::IsInAssetsFolder(bark_descriptor_path)) {
-        actual_tree_descriptor->bark_descriptor = std::dynamic_pointer_cast<BarkDescriptor>(
+        actual_tree_descriptor->bark_descriptor = std::dynamic_pointer_cast<IBarkDescriptor>(
             ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(bark_descriptor_path)));
       } else {
         EVOENGINE_ERROR("Bark Descriptor doesn't exist!");
@@ -163,7 +163,6 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
     scene->SetDataComponent(tree_entity, gt);
   }
 
-  tree->pruning_settings = data_generation_parameters.pruning_settings;
   tree->tree_descriptor_ref = actual_tree_descriptor;
   tree->tree_model.tree_growth_settings.use_space_colonization = false;
   tree->tree_model.seed = data_generation_parameters.seed;

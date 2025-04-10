@@ -34,12 +34,6 @@ class ForestPatch : public IAsset {
   /// Settings for simulation of tree growth.
   SimulationSettings simulation_settings{};
 
-  /// Minimum pruning of lower branches.
-  float min_low_branch_pruning = 0.f;
-
-  /// Maximum pruning of lower branches.
-  float max_low_branch_pruning = 0.f;
-
   /// Total simulation time.
   float simulation_time = 0.f;
 

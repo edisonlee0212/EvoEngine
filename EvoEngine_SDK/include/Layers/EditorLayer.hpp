@@ -96,23 +96,23 @@ struct GizmoMeshTask {
  * @brief Structure representing a gizmo instanced mesh task.
  */
 struct GizmoInstancedMeshTask {
-  std::shared_ptr<Mesh> mesh;                       /**< Shared pointer to the instanced mesh. */
-  std::shared_ptr<Camera> editor_camera_component;  /**< Shared pointer to the editor camera component. */
-  std::shared_ptr<ParticleInfoList> instanced_data; /**< Shared pointer to particle instance data. */
-  glm::mat4 model;                                  /**< The model matrix for the instanced gizmo mesh. */
-  float size;                                       /**< The size of the instanced gizmo mesh. */
-  GizmoSettings gizmo_settings;                     /**< The settings for the gizmo. */
+  std::shared_ptr<Mesh> mesh;                           /**< Shared pointer to the instanced mesh. */
+  std::shared_ptr<Camera> editor_camera_component;      /**< Shared pointer to the editor camera component. */
+  std::shared_ptr<ParticleInfoList> particle_info_list; /**< Shared pointer to particle instance data. */
+  glm::mat4 model;                                      /**< The model matrix for the instanced gizmo mesh. */
+  float size;                                           /**< The size of the instanced gizmo mesh. */
+  GizmoSettings gizmo_settings;                         /**< The settings for the gizmo. */
 };
 
 /**
  * @brief Structure representing a gizmo strands task.
  */
 struct GizmoStrandsTask {
-  std::shared_ptr<Strands> m_strands;              /**< Shared pointer to the strands associated with the gizmo. */
+  std::shared_ptr<Strands> strands;                /**< Shared pointer to the strands associated with the gizmo. */
   std::shared_ptr<Camera> editor_camera_component; /**< Shared pointer to the editor camera component. */
   glm::vec4 color;                                 /**< The color of the gizmo strands. */
   glm::mat4 model;                                 /**< The model matrix for the gizmo strands. */
-  float m_size;                                    /**< The size of the gizmo strands. */
+  float size;                                      /**< The size of the gizmo strands. */
   GizmoSettings gizmo_settings;                    /**< Settings for the gizmo strands. */
 };
 
@@ -599,6 +599,13 @@ class EditorLayer : public ILayer {
                      const float& size = 1.0f, const GizmoSettings& gizmo_settings = {});
 
   /**
+   * @brief Draws a gizmo mesh with specified settings.
+   *
+   * @param gizmo_mesh_task Structure representing a gizmo mesh task.
+   */
+  void DrawGizmoMesh(const GizmoMeshTask& gizmo_mesh_task);
+
+  /**
    * @brief Draws gizmo strands with specified settings.
    *
    * @param strands Shared pointer to the strands.
@@ -613,18 +620,32 @@ class EditorLayer : public ILayer {
                         const float& size = 1.0f, const GizmoSettings& gizmo_settings = {});
 
   /**
+   * @brief Draws gizmo strands with specified settings.
+   *
+   * @param gizmo_strands_task Structure representing a gizmo strands task.
+   */
+  void DrawGizmoStrands(const GizmoStrandsTask& gizmo_strands_task);
+
+  /**
+   * @brief Draws an instanced, colored gizmo mesh with specified settings.
+   *
+   * @param gizmo_instanced_mesh_task Structure representing a gizmo instanced mesh task..
+   */
+  void DrawGizmoMeshInstancedColored(const GizmoInstancedMeshTask& gizmo_instanced_mesh_task);
+
+  /**
    * @brief Draws an instanced, colored gizmo mesh with specified settings.
    *
    * @param mesh Shared pointer to the instanced mesh.
    * @param editor_camera_component Shared pointer to the editor camera component.
-   * @param instanced_data Shared pointer to particle instance data.
+   * @param particle_info_list Shared pointer to particle instance data.
    * @param model The model matrix for the mesh (default: identity matrix).
    * @param size The size of the gizmo mesh (default: 1.0f).
    * @param gizmo_settings The settings for the gizmo mesh (default: {}).
    */
   void DrawGizmoMeshInstancedColored(const std::shared_ptr<Mesh>& mesh,
                                      const std::shared_ptr<Camera>& editor_camera_component,
-                                     const std::shared_ptr<ParticleInfoList>& instanced_data,
+                                     const std::shared_ptr<ParticleInfoList>& particle_info_list,
                                      const glm::mat4& model = glm::mat4(1.0f), const float& size = 1.0f,
                                      const GizmoSettings& gizmo_settings = {});
 
@@ -632,13 +653,13 @@ class EditorLayer : public ILayer {
    * @brief Draws an instanced, colored gizmo mesh without camera association.
    *
    * @param mesh Shared pointer to the instanced mesh.
-   * @param instanced_data Shared pointer to particle instance data.
+   * @param particle_info_list Shared pointer to particle instance data.
    * @param model The model matrix for the mesh (default: identity matrix).
    * @param size The size of the gizmo mesh (default: 1.0f).
    * @param gizmo_settings The settings for the gizmo mesh (default: {}).
    */
   void DrawGizmoMeshInstancedColored(const std::shared_ptr<Mesh>& mesh,
-                                     const std::shared_ptr<ParticleInfoList>& instanced_data,
+                                     const std::shared_ptr<ParticleInfoList>& particle_info_list,
                                      const glm::mat4& model = glm::mat4(1.0f), const float& size = 1.0f,
                                      const GizmoSettings& gizmo_settings = {});
 
@@ -671,13 +692,14 @@ class EditorLayer : public ILayer {
   /**
    * @brief Draws gizmo cubes using instanced particle data.
    *
-   * @param instanced_data Shared pointer to particle instance data.
+   * @param particle_info_list Shared pointer to particle instance data.
    * @param model The model matrix for the cubes (default: identity matrix).
    * @param size The size of the gizmo cubes (default: 1.0f).
    * @param gizmo_settings The settings for the gizmo cubes (default: {}).
    */
-  void DrawGizmoCubes(const std::shared_ptr<ParticleInfoList>& instanced_data, const glm::mat4& model = glm::mat4(1.0f),
-                      const float& size = 1.0f, const GizmoSettings& gizmo_settings = {});
+  void DrawGizmoCubes(const std::shared_ptr<ParticleInfoList>& particle_info_list,
+                      const glm::mat4& model = glm::mat4(1.0f), const float& size = 1.0f,
+                      const GizmoSettings& gizmo_settings = {});
 
   /**
    * @brief Draws a single gizmo cube with specified settings.
@@ -693,12 +715,12 @@ class EditorLayer : public ILayer {
   /**
    * @brief Draws gizmo spheres using instanced particle data.
    *
-   * @param instanced_data Shared pointer to particle instance data.
+   * @param particle_info_list Shared pointer to particle instance data.
    * @param model The model matrix for the spheres (default: identity matrix).
    * @param size The size of the gizmo spheres (default: 1.0f).
    * @param gizmo_settings The settings for the gizmo spheres (default: {}).
    */
-  void DrawGizmoSpheres(const std::shared_ptr<ParticleInfoList>& instanced_data,
+  void DrawGizmoSpheres(const std::shared_ptr<ParticleInfoList>& particle_info_list,
                         const glm::mat4& model = glm::mat4(1.0f), const float& size = 1.0f,
                         const GizmoSettings& gizmo_settings = {});
 
@@ -716,12 +738,12 @@ class EditorLayer : public ILayer {
   /**
    * @brief Draws gizmo cylinders using instanced particle data.
    *
-   * @param instanced_data Shared pointer to particle instance data.
+   * @param particle_info_list Shared pointer to particle instance data.
    * @param model The model matrix for the cylinders (default: identity matrix).
    * @param size The size of the gizmo cylinders (default: 1.0f).
    * @param gizmo_settings The settings for the gizmo cylinders (default: {}).
    */
-  void DrawGizmoCylinders(const std::shared_ptr<ParticleInfoList>& instanced_data,
+  void DrawGizmoCylinders(const std::shared_ptr<ParticleInfoList>& particle_info_list,
                           const glm::mat4& model = glm::mat4(1.0f), const float& size = 1.0f,
                           const GizmoSettings& gizmo_settings = {});
 
@@ -1002,7 +1024,25 @@ void EditorLayer::Draggable(AssetRef& target) {
 }
 template <typename T>
 bool EditorLayer::Droppable(AssetRef& target) {
-  return UnsafeDroppableAsset(target, {Serialization::GetSerializableTypeName<T>()});
+  bool status_changed = false;
+  if (ImGui::BeginDragDropTarget()) {
+    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Asset")) {
+      const std::shared_ptr<IAsset> ptr = target.Get<IAsset>();
+      IM_ASSERT(payload->DataSize == sizeof(Handle));
+      const Handle payload_n = *static_cast<Handle*>(payload->Data);
+      if (!ptr || payload_n.GetValue() != target.GetAssetHandle().GetValue()) {
+        const auto asset = AssetManager::GetAssetImpl(payload_n);
+        if (std::dynamic_pointer_cast<T>(asset)) {
+          target.Clear();
+          target.asset_handle_ = payload_n;
+          target.Update();
+          status_changed = true;
+        }
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
+  return status_changed;
 }
 
 template <typename T>

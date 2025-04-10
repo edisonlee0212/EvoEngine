@@ -1,8 +1,8 @@
-#include "BarkDescriptor.hpp"
+#include "BasicBarkDescriptor.hpp"
 
 using namespace eco_sys_lab_plugin;
 
-bool BarkDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool BasicBarkDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Bark X Frequency", &bark_x_frequency, 0.1f, 0.0f, 100.0f))
     changed = true;
@@ -24,7 +24,7 @@ bool BarkDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   return changed;
 }
 
-float BarkDescriptor::GetValue(const float x_factor, const float distance_to_root) const {
+float BasicBarkDescriptor::GetValue(const float x_factor, const float distance_to_root) const {
   const float bark = bark_depth * glm::perlin(glm::vec3(bark_x_frequency * glm::sin(x_factor * 2.0f * glm::pi<float>()),
                                                         bark_x_frequency * glm::cos(x_factor * 2.0f * glm::pi<float>()),
                                                         bark_y_frequency * distance_to_root));
@@ -39,17 +39,7 @@ float BarkDescriptor::GetValue(const float x_factor, const float distance_to_roo
   return bark + base;
 }
 
-std::shared_ptr<Texture2D> BarkDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/BarkDescriptor.png"));
-  }
-  return thumbnail;
-}
-
-void BarkDescriptor::Serialize(YAML::Emitter& out) const {
+void BasicBarkDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "bark_x_frequency" << YAML::Value << bark_x_frequency;
   out << YAML::Key << "bark_y_frequency" << YAML::Value << bark_y_frequency;
   out << YAML::Key << "bark_depth" << YAML::Value << bark_depth;
@@ -60,7 +50,7 @@ void BarkDescriptor::Serialize(YAML::Emitter& out) const {
   bark_material_ref.Save("bark_material_ref", out);
 }
 
-void BarkDescriptor::Deserialize(const YAML::Node& in) {
+void BasicBarkDescriptor::Deserialize(const YAML::Node& in) {
   if (in["bark_x_frequency"])
     bark_x_frequency = in["bark_x_frequency"].as<float>();
   if (in["bark_y_frequency"])
@@ -78,7 +68,7 @@ void BarkDescriptor::Deserialize(const YAML::Node& in) {
   bark_material_ref.Load("bark_material_ref", in);
 }
 
-void BarkDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
+void BasicBarkDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
   if (bark_material_ref.Get<Material>())
     list.push_back(bark_material_ref);
 }

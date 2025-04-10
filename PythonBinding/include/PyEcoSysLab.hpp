@@ -37,7 +37,7 @@ using namespace dataset_generation_plugin;
 #  include "HeightField.hpp"
 #  include "ObjectRotator.hpp"
 
-#  include "FoliageDescriptor.hpp"
+#  include "BasicFoliageDescriptor.hpp"
 #  include "ParticlePhysics2DDemo.hpp"
 #  include "Physics2DDemo.hpp"
 #  include "RadialBoundingVolume.hpp"

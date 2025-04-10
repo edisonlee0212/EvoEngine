@@ -68,8 +68,6 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
         tree->generate_mesh = true;
       }
       tree->start_time = glm::linearRand(0.0f, start_time_max);
-      tree->pruning_settings.low_branch_pruning = glm::mix(min_low_branch_pruning, max_low_branch_pruning,
-                                                           glm::abs(glm::perlin(offset + transform.GetPosition())));
     }
   }
 
@@ -142,8 +140,6 @@ Entity ForestPatch::InstantiatePatch(
         tree->generate_mesh = true;
       }
       tree->start_time = glm::linearRand(0.0f, start_time_max);
-      tree->pruning_settings.low_branch_pruning = glm::mix(min_low_branch_pruning, max_low_branch_pruning,
-                                                           glm::abs(glm::perlin(offset + transform.GetPosition())));
     }
   }
 
@@ -176,8 +172,6 @@ void ForestPatch::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "position_offset_variance" << YAML::Value << position_offset_variance;
   out << YAML::Key << "rotation_offset_variance" << YAML::Value << rotation_offset_variance;
 
-  out << YAML::Key << "min_low_branch_pruning" << YAML::Value << min_low_branch_pruning;
-  out << YAML::Key << "max_low_branch_pruning" << YAML::Value << max_low_branch_pruning;
   out << YAML::Key << "simulation_time" << YAML::Value << simulation_time;
   out << YAML::Key << "start_time_max" << YAML::Value << start_time_max;
 
@@ -196,10 +190,6 @@ void ForestPatch::Deserialize(const YAML::Node& in) {
   if (in["rotation_offset_variance"])
     rotation_offset_variance = in["rotation_offset_variance"].as<glm::vec3>();
 
-  if (in["min_low_branch_pruning"])
-    min_low_branch_pruning = in["min_low_branch_pruning"].as<float>();
-  if (in["max_low_branch_pruning"])
-    max_low_branch_pruning = in["max_low_branch_pruning"].as<float>();
   if (in["simulation_time"])
     simulation_time = in["simulation_time"].as<float>();
   if (in["start_time_max"])
@@ -233,10 +223,6 @@ bool ForestPatch::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
     ImGui::TreePop();
   }
 
-  if (ImGui::DragFloat("Min low branch pruning", &min_low_branch_pruning, 0.01f, 0.f, max_low_branch_pruning))
-    changed = true;
-  if (ImGui::DragFloat("Max low branch pruning", &max_low_branch_pruning, 0.01f, min_low_branch_pruning, 1.f))
-    changed = true;
   if (ImGui::DragFloat("Simulation time", &simulation_time, 0.1f, 0.0f, 100.f))
     changed = true;
   if (ImGui::DragFloat("Start time max", &start_time_max, 0.01f, 0.0f, 10.f))

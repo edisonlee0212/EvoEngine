@@ -159,10 +159,6 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
                      &TreeGrowthSettings::space_colonization_detection_distance_factor)
       .def_readwrite("space_colonization_theta", &TreeGrowthSettings::space_colonization_theta);
 
-  py::class_<TreePruningSettings>(m, "TreePruningSettings")
-      .def(py::init<>())
-      .def_readwrite("low_branch_pruning", &TreePruningSettings::low_branch_pruning);
-
   py::class_<CameraSettings>(m, "CameraSettings")
       .def(py::init<>())
       .def_readwrite("near_distance", &CameraSettings::near_distance)
@@ -191,7 +187,6 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
 
       .def_readwrite("simulation_settings", &DatasetGenerator::TreeDataGenerationParameters::simulation_settings)
       .def_readwrite("tree_growth_settings", &DatasetGenerator::TreeDataGenerationParameters::tree_growth_settings)
-      .def_readwrite("pruning_settings", &DatasetGenerator::TreeDataGenerationParameters::pruning_settings)
 
       .def_readwrite("max_iteration", &DatasetGenerator::TreeDataGenerationParameters::max_iteration)
       .def_readwrite("use_node_growth_capture",

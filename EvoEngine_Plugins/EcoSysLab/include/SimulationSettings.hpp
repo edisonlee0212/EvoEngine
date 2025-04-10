@@ -1,10 +1,4 @@
-
 #pragma once
-
-#include "Climate.hpp"
-#include "Soil.hpp"
-#include "Strands.hpp"
-#include "Tree.hpp"
 
 using namespace evo_engine;
 

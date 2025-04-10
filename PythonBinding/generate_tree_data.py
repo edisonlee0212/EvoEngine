@@ -65,10 +65,8 @@ data_generation_parameters.tree_point_cloud_point_settings.line_index = export_j
 data_generation_parameters.tree_mesh_generator_settings.enable_foliage = True
 data_generation_parameters.tree_mesh_generator_settings.vertex_color_mode = 0
 data_generation_parameters.simulation_settings.max_flow_count = 1024
-#Max amound of nodes
+#Max amount of nodes
 data_generation_parameters.simulation_settings.max_node_count = 65536
-#Trunk length (branches will br pruned)
-data_generation_parameters.pruning_settings.low_branch_pruning = 0.2
 data_generation_parameters.output_folder = output_root
 data_generation_parameters.export_point_cloud = True
 data_generation_parameters.export_mesh = True

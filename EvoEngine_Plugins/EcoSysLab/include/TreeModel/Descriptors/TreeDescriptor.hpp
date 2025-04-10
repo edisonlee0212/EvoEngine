@@ -1,9 +1,125 @@
-
 #pragma once
+#include "TreeController.hpp"
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
-
+/**
+ * \class IShootDescriptor
+ * \brief Represents the parameters controlling procedural tree growth.
+ */
+class IShootDescriptor : public IAsset {
+ public:
+  /**
+   * \brief Prepares a ShootGrowthController using current growth parameters.
+   * \param shoot_growth_controller The controller to configure.
+   */
+  virtual void PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const = 0;
+  /**
+   * \brief Generates a thumbnail texture representing the shoot descriptor.
+   * \return A shared pointer to the generated Texture2D.
+   */
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+};
+/**
+ * \class IPruningDescriptor
+ * \brief Represents the parameters controlling procedural tree pruning.
+ */
+class IPruningDescriptor : public IAsset {
+ public:
+  /**
+   * \brief Prepares a ShootPruningController using current growth parameters.
+   * \param simulation_settings Simulation settings.
+   * \param shoot_pruning_controller The controller to configure.
+   */
+  virtual void PreparePruningController(const SimulationSettings& simulation_settings,
+                                        ShootPruningController& shoot_pruning_controller) const = 0;
+  /**
+   * \brief Generates a thumbnail texture representing the shoot descriptor.
+   * \return A shared pointer to the generated Texture2D.
+   */
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+};
+/**
+ * \class IFoliageDescriptor
+ * \brief Represents the parameters controlling foliage generation.
+ */
+class IFoliageDescriptor : public IAsset {
+ public:
+  /**
+   * \brief Prepares a ShootGrowthController using current growth parameters.
+   * \param shoot_growth_controller The controller to configure.
+   */
+  virtual void PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const = 0;
+  /**
+   * @brief Generates foliage transformation matrices based on internode information.
+   * @param[out] matrices Vector to store the transformation matrices.
+   * @param[in] internode_info Information about the skeleton node internode.
+   * @param[in] tree_size The overall tree size.
+   */
+  virtual void GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internode_info,
+                                       float tree_size) const = 0;
+  /**
+   * \brief Generates a thumbnail texture representing the shoot descriptor.
+   * \return A shared pointer to the generated Texture2D.
+   */
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+};
+/**
+ * \class IFruitDescriptor
+ * \brief Represents the parameters controlling fruit generation.
+ */
+class IFruitDescriptor : public IAsset {
+ public:
+  /**
+   * \brief Prepares a ShootGrowthController using current growth parameters.
+   * \param shoot_growth_controller The controller to configure.
+   */
+  virtual void PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const = 0;
+  /**
+   * @brief Generates fruit transformation matrices based on internode information.
+   * @param[out] matrices Vector to store the transformation matrices.
+   * @param[in] internode_info Information about the skeleton node internode.
+   * @param[in] tree_size The overall tree size.
+   */
+  virtual void GenerateFruitMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internode_info,
+                                     float tree_size) const = 0;
+  /**
+   * \brief Generates a thumbnail texture representing the shoot descriptor.
+   * \return A shared pointer to the generated Texture2D.
+   */
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+};
+/**
+ * \class IBarkDescriptor
+ * \brief Represents the parameters controlling foliage generation.
+ */
+class IBarkDescriptor : public IAsset {
+ public:
+  /**
+   * @brief Computes a bark pattern value based on input parameters.
+   * @param x_factor A factor affecting the bark pattern along the X-axis.
+   * @param distance_to_root Distance from the root of the tree.
+   * @return The computed bark pattern value.
+   */
+  virtual float GetValue(float x_factor, float distance_to_root) const = 0;
+  /**
+   * \brief Generates a thumbnail texture representing the shoot descriptor.
+   * \return A shared pointer to the generated Texture2D.
+   */
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+};
+/**
+ * \class IFlowerDescriptor
+ * \brief Represents the parameters controlling foliage generation.
+ */
+class IFlowerDescriptor : public IAsset {
+ public:
+  /**
+   * \brief Generates a thumbnail texture representing the shoot descriptor.
+   * \return A shared pointer to the generated Texture2D.
+   */
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+};
 /**
  * @brief Represents a tree descriptor asset in the EcoSysLab plugin.
  *
@@ -17,7 +133,10 @@ class TreeDescriptor : public IAsset {
    * @brief Reference to the shoot descriptor asset.
    */
   AssetRef shoot_descriptor;
-
+  /**
+   * @brief Reference to the pruning descriptor asset.
+   */
+  AssetRef pruning_descriptor;
   /**
    * @brief Reference to the foliage descriptor asset.
    */

@@ -1,8 +1,8 @@
-#include "FoliageDescriptor.hpp"
+#include "BasicFoliageDescriptor.hpp"
 #include "TreeModel.hpp"
 using namespace eco_sys_lab_plugin;
 
-void FoliageDescriptor::Serialize(YAML::Emitter& out) const {
+void BasicFoliageDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "leaf_size" << YAML::Value << leaf_size;
   out << YAML::Key << "leaf_count_per_internode" << YAML::Value << leaf_count_per_internode;
   out << YAML::Key << "position_variance" << YAML::Value << position_variance;
@@ -14,9 +14,13 @@ void FoliageDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "horizontal_tropism" << YAML::Value << horizontal_tropism;
   out << YAML::Key << "gravitropism" << YAML::Value << gravitropism;
   leaf_material_ref.Save("leaf_material_ref", out);
+
+  out << YAML::Key << "leaf_flushing_lighting_requirement" << YAML::Value << leaf_flushing_lighting_requirement;
+  out << YAML::Key << "leaf_fall_probability" << YAML::Value << leaf_fall_probability;
+  out << YAML::Key << "leaf_distance_to_branch_end_limit" << YAML::Value << leaf_distance_to_branch_end_limit;
 }
 
-void FoliageDescriptor::Deserialize(const YAML::Node& in) {
+void BasicFoliageDescriptor::Deserialize(const YAML::Node& in) {
   if (in["leaf_size"])
     leaf_size = in["leaf_size"].as<glm::vec2>();
   if (in["leaf_count_per_internode"])
@@ -38,11 +42,24 @@ void FoliageDescriptor::Deserialize(const YAML::Node& in) {
   if (in["gravitropism"])
     gravitropism = in["gravitropism"].as<float>();
   leaf_material_ref.Load("leaf_material_ref", in);
+
+  if (in["leaf_flushing_lighting_requirement"])
+    leaf_flushing_lighting_requirement = in["leaf_flushing_lighting_requirement"].as<float>();
+  if (in["leaf_fall_probability"])
+    leaf_fall_probability = in["leaf_fall_probability"].as<float>();
+  if (in["leaf_distance_to_branch_end_limit"])
+    leaf_distance_to_branch_end_limit = in["leaf_distance_to_branch_end_limit"].as<float>();
 }
 
-bool FoliageDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool BasicFoliageDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-
+  if (ImGui::TreeNodeEx("Leaf bud")) {
+    changed =
+        ImGui::DragFloat("Lighting requirement", &leaf_flushing_lighting_requirement, 0.01f, 0.0f, 1.0f) || changed;
+    changed = ImGui::DragFloat("Drop prob", &leaf_fall_probability, 0.01f) || changed;
+    changed = ImGui::DragFloat("Distance To End Limit", &leaf_distance_to_branch_end_limit, 0.01f) || changed;
+    ImGui::TreePop();
+  }
   if (ImGui::DragFloat2("Leaf size", &leaf_size.x, 0.001f, 0.0f, 1.0f))
     changed = true;
   if (ImGui::DragInt("Leaf per node", &leaf_count_per_internode, 1, 0, 50))
@@ -67,23 +84,27 @@ bool FoliageDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
   return changed;
 }
 
-void FoliageDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
+void BasicFoliageDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
   if (leaf_material_ref.Get<Material>())
     list.push_back(leaf_material_ref);
 }
 
-std::shared_ptr<Texture2D> FoliageDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/FoliageDescriptor.png"));
-  }
-  return thumbnail;
+void BasicFoliageDescriptor::PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const {
+  shoot_growth_controller.leaf = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+                                     const SkeletonNode<InternodeGrowthData>& internode) {
+    return internode.data.light_intake > leaf_flushing_lighting_requirement;
+  };
+
+  shoot_growth_controller.leaf_fall_probability = [&](std::mt19937& random_engine,
+                                                      const ShootGrowthData& shoot_growth_data,
+                                                      const SkeletonNode<InternodeGrowthData>& internode) {
+    return leaf_fall_probability;
+  };
 }
 
-void FoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& matrices,
-                                                const SkeletonNodeInfo& internode_info, const float tree_size) const {
+void BasicFoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& matrices,
+                                                     const SkeletonNodeInfo& internode_info,
+                                                     const float tree_size) const {
   if (internode_info.thickness <= max_node_thickness && internode_info.root_distance >= min_root_distance &&
       internode_info.end_distance <= max_end_distance) {
     for (int i = 0; i < leaf_count_per_internode * internode_info.leaves; i++) {

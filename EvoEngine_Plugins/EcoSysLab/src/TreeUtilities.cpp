@@ -389,11 +389,11 @@ void Tree::GenerateTreeParts(const TreeMeshGeneratorSettings& mesh_generator_set
   if (!td) {
     EVOENGINE_WARNING("TreeDescriptor missing!");
     td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
-    td->foliage_descriptor = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
+    td->foliage_descriptor = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
   }
-  auto fd = td->foliage_descriptor.Get<FoliageDescriptor>();
+  auto fd = td->foliage_descriptor.Get<BasicFoliageDescriptor>();
   if (!fd)
-    fd = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
+    fd = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
 
   const auto& skeleton = tree_model.RefShootSkeleton();
   const auto& sorted_internode_list = skeleton.PeekSortedNodeList();

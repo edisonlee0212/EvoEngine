@@ -19,14 +19,68 @@
 #include "AssetManager.hpp"
 #include "TreeMeshGenerator.hpp"
 
-#include "BarkDescriptor.hpp"
+#include "BasicBarkDescriptor.hpp"
+#include "BasicFlowerDescriptor.hpp"
+#include "BasicFoliageDescriptor.hpp"
+#include "BasicFruitDescriptor.hpp"
+#include "BasicShootDescriptor.hpp"
 #include "DynamicTreeSkeleton.hpp"
-#include "FlowerDescriptor.hpp"
-#include "FoliageDescriptor.hpp"
-#include "FruitDescriptor.hpp"
-#include "ShootDescriptor.hpp"
 using namespace eco_sys_lab_plugin;
 
+std::shared_ptr<Texture2D> IShootDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ShootDescriptor.png"));
+  }
+  return thumbnail;
+}
+std::shared_ptr<Texture2D> IPruningDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/PruningDescriptor.png"));
+  }
+  return thumbnail;
+}
+std::shared_ptr<Texture2D> IFoliageDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/FoliageDescriptor.png"));
+  }
+  return thumbnail;
+}
+std::shared_ptr<Texture2D> IFruitDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/FruitDescriptor.png"));
+  }
+  return thumbnail;
+}
+std::shared_ptr<Texture2D> IBarkDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/BarkDescriptor.png"));
+  }
+  return thumbnail;
+}
+std::shared_ptr<Texture2D> IFlowerDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/FlowerDescriptor.png"));
+  }
+  return thumbnail;
+}
 void TreeDescriptor::OnCreate() {
 }
 
@@ -46,30 +100,34 @@ bool TreeDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   } else {
     ImGui::Text("Create soil and climate entity to instantiate!");
   }
-  if (editor_layer->DragAndDropButton<ShootDescriptor>(shoot_descriptor, "Shoot Descriptor"))
+  if (editor_layer->DragAndDropButton<IShootDescriptor>(shoot_descriptor, "Shoot Descriptor"))
     changed = true;
-  if (editor_layer->DragAndDropButton<FoliageDescriptor>(foliage_descriptor, "Foliage Descriptor"))
+  if (editor_layer->DragAndDropButton<IPruningDescriptor>(pruning_descriptor, "Pruning Descriptor"))
     changed = true;
-  if (editor_layer->DragAndDropButton<FruitDescriptor>(fruit_descriptor, "Fruit Descriptor"))
+  if (editor_layer->DragAndDropButton<IFoliageDescriptor>(foliage_descriptor, "Foliage Descriptor"))
     changed = true;
-  if (editor_layer->DragAndDropButton<FlowerDescriptor>(flower_descriptor, "Flower Descriptor"))
+  if (editor_layer->DragAndDropButton<IFruitDescriptor>(fruit_descriptor, "Fruit Descriptor"))
     changed = true;
-
-  editor_layer->DragAndDropButton<BarkDescriptor>(bark_descriptor, "BarkDescriptor");
+  if (editor_layer->DragAndDropButton<IFlowerDescriptor>(flower_descriptor, "Flower Descriptor"))
+    changed = true;
+  if (editor_layer->DragAndDropButton<IBarkDescriptor>(bark_descriptor, "Bark Descriptor"))
+    changed = true;
   return changed;
 }
 
 void TreeDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
-  if (shoot_descriptor.Get<ShootDescriptor>())
+  if (shoot_descriptor.Get<BasicShootDescriptor>())
     list.push_back(shoot_descriptor);
-  if (foliage_descriptor.Get<FoliageDescriptor>())
+  if (pruning_descriptor.Get<BasicPruningDescriptor>())
+    list.push_back(pruning_descriptor);
+  if (foliage_descriptor.Get<BasicFoliageDescriptor>())
     list.push_back(foliage_descriptor);
-  if (fruit_descriptor.Get<FruitDescriptor>())
+  if (fruit_descriptor.Get<BasicFruitDescriptor>())
     list.push_back(fruit_descriptor);
-  if (flower_descriptor.Get<FlowerDescriptor>())
+  if (flower_descriptor.Get<BasicFlowerDescriptor>())
     list.push_back(flower_descriptor);
 
-  if (bark_descriptor.Get<BarkDescriptor>())
+  if (bark_descriptor.Get<BasicBarkDescriptor>())
     list.push_back(bark_descriptor);
 }
 
@@ -102,6 +160,7 @@ Entity TreeDescriptor::Instantiate() const {
 
 void TreeDescriptor::Serialize(YAML::Emitter& out) const {
   shoot_descriptor.Save("shoot_descriptor", out);
+  pruning_descriptor.Save("pruning_descriptor", out);
   foliage_descriptor.Save("foliage_descriptor", out);
   bark_descriptor.Save("bark_descriptor", out);
 
@@ -121,6 +180,7 @@ std::shared_ptr<Texture2D> TreeDescriptor::GenerateThumbnailTexture() {
 
 void TreeDescriptor::Deserialize(const YAML::Node& in) {
   shoot_descriptor.Load("shoot_descriptor", in);
+  pruning_descriptor.Load("pruning_descriptor", in);
   foliage_descriptor.Load("foliage_descriptor", in);
   bark_descriptor.Load("bark_descriptor", in);
 

@@ -1,7 +1,7 @@
+#include "BasicFoliageDescriptor.hpp"
 #include "DsConstraints.hpp"
 #include "DynamicStrandUtils.hpp"
 #include "DynamicStrands.hpp"
-#include "FoliageDescriptor.hpp"
 #include "UVMapUtils.hpp"
 #include "glm/gtc/matrix_access.hpp"
 #include "glm/gtx/quaternion.hpp"
@@ -921,9 +921,9 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
 
   // Create foliage here.
   auto initialize_parameters_copy = initialize_parameters;
-  auto fd = initialize_parameters_copy.foliage_descriptor.Get<FoliageDescriptor>();
+  auto fd = initialize_parameters_copy.foliage_descriptor.Get<BasicFoliageDescriptor>();
   if (!fd) {
-    fd = AssetManager::CreateTemporaryAsset<FoliageDescriptor>();
+    fd = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
   }
   const auto& node_list = strand_model_skeleton.PeekSortedNodeList();
   const auto tree_dim = strand_model_skeleton.max - strand_model_skeleton.min;

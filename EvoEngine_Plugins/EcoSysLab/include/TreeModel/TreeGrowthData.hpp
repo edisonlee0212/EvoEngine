@@ -49,7 +49,7 @@ class Bud {
  public:
   BudType type = BudType::Apical;         ///< Type of the bud.
   BudStatus status = BudStatus::Dormant;  ///< Current status of the bud.
-
+  int index = 0;
   glm::quat local_rotation = glm::vec3(0.0f);  ///< Local rotation of the bud.
 
   ReproductiveModule reproductive_module;  ///< Reproductive module associated with the bud.
@@ -89,9 +89,10 @@ struct TreeVoxelData {
  */
 struct InternodeGrowthData {
   float internode_length = 0.0f;  ///< Length of the internode.
-  int index_of_parent_bud = 0;    ///< Index of the parent bud.
-  float start_age = 0;            ///< Age at which growth starts.
-  float finish_age = 0.0f;        ///< Age at which growth finishes.
+  float internode_thickness = 0.0f;
+  int index_of_parent_bud = 0;  ///< Index of the parent bud.
+  float start_age = 0;          ///< Age at which growth starts.
+  float finish_age = 0.0f;      ///< Age at which growth finishes.
 
   glm::quat desired_local_rotation = glm::vec3(0.0f);   ///< Desired local rotation.
   glm::quat desired_global_rotation = glm::vec3(0.0f);  ///< Desired global rotation.
@@ -159,9 +160,9 @@ struct ShootGrowthData {
   int max_level = 0;  ///< Maximum level reached in the shoot.
   int max_order = 0;  ///< Maximum order reached.
 
-  unsigned index = 0;  ///< Index used for identification.
-
-  float age = 0;  ///< Age of the tree in years.
+  unsigned index = 0;                                 ///< Index used for identification.
+  glm::vec3 gravity_direction = glm::vec3(0, -1, 0);  ///< Current direction of gravity;
+  float age = 0;                                      ///< Age of the tree in years.
 };
 
 /**
