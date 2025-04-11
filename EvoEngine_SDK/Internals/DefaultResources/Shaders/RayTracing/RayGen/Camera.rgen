@@ -11,29 +11,45 @@ layout(push_constant) uniform EE_CAMERA_CONSTANTS {
   uint EE_FRAME_ID;
 };
 
+layout(location = 0) rayPayloadEXT CameraRayTracingPayload hit_value;
 #define FLT_MAX 3.402823466e+38
 
 void main() 
 {
+	const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
 	const uvec2 pixel_coordinate = gl_LaunchIDEXT.xy;
-	const vec2 pixel_center = vec2(pixel_coordinate) + vec2(0.5);
-	const vec2 in_uv = pixel_center / vec2(gl_LaunchSizeEXT.xy);
-	vec2 d = in_uv * 2.0 - 1.0;
+	hit_value.seed = pixel_coordinate.x + pixel_coordinate.y * gl_LaunchSizeEXT.x + 1664525u * EE_FRAME_ID;
+	hit_value.seed = uint(1664525u * EE_RANDOM(hit_value.seed));
 
-	uint seed = pixel_coordinate.x + pixel_coordinate.y * gl_LaunchSizeEXT.x + EE_FRAME_ID;
+	vec3 result_color = vec3(0, 0, 0);
+	const uint sample_size = camera.sample_size;
 
-	vec4 camera_start = EE_CAMERAS[EE_CAMERA_INDEX].inverse_projection_view * vec4(d.x, d.y, 0, 1);
-	vec4 camera_end = EE_CAMERAS[EE_CAMERA_INDEX].inverse_projection_view * vec4(d.x, d.y, 1, 1);
-	camera_start /= camera_start.w;
-	camera_end /= camera_end.w;
-	vec3 sample_origin = camera_start.xyz;
-	vec3 sample_direction = normalize(camera_end.xyz - camera_start.xyz);
-	hit_value.type = 0;
-	traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, camera_start.xyz, 0, sample_direction, 1000, 0);
-	if(hit_value.type == 0){
-		imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(0, 0, 0, 1));
-	}else{
-		imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(d.x, d.y, 0, 1));
+	[[unroll]]
+	for(uint i = 0; i < sample_size; i++){
+		
+		const vec2 pixel_center = vec2(pixel_coordinate) + vec2(EE_RANDOM(hit_value.seed), EE_RANDOM(hit_value.seed)) - vec2(0.5);
+		const vec2 in_uv = pixel_center / vec2(gl_LaunchSizeEXT.xy);
+		vec2 d = in_uv * 2.0 - 1.0;
+
+		vec4 camera_start = camera.inverse_projection_view * vec4(d.x, d.y, 0, 1);
+		vec4 camera_end = camera.inverse_projection_view * vec4(d.x, d.y, 1, 1);
+		camera_start /= camera_start.w;
+		camera_end /= camera_end.w;
+		vec3 sample_origin = camera_start.xyz;
+		vec3 sample_direction = normalize(camera_end.xyz - camera_start.xyz);
+
+
+		hit_value.type = 0;
+		hit_value.hit_count = 0;
+		
+		traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, camera_start.xyz, 0, sample_direction, 1e20f, 0);
+		result_color += hit_value.color;
 	}
-	//imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(camera_start.xyz, 1));
+
+	result_color /= sample_size;
+	vec3 prev_color = imageLoad(result_image, ivec2(gl_LaunchIDEXT.xy)).xyz;
+	result_color = (result_color + pow(prev_color, vec3(camera.gamma)) * EE_FRAME_ID) / (EE_FRAME_ID + 1);
+
+	result_color = pow(result_color, vec3(1.f / camera.gamma));
+	imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(result_color.x, result_color.y, result_color.z, 1));
 }

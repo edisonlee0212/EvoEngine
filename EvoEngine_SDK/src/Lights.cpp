@@ -143,8 +143,15 @@ bool DirectionalLightInfoBlock::operator!=(const DirectionalLightInfoBlock& othe
     return true;
   if (specular != other.specular)
     return true;
-  if (light_space_matrix != other.light_space_matrix)
+  if (light_space_matrix[0] != other.light_space_matrix[0])
     return true;
+  if (light_space_matrix[1] != other.light_space_matrix[1])
+    return true;
+  if (light_space_matrix[2] != other.light_space_matrix[2])
+    return true;
+  if (light_space_matrix[3] != other.light_space_matrix[3])
+    return true;
+
   if (light_frustum_width != other.light_frustum_width)
     return true;
   if (light_frustum_distance != other.light_frustum_distance)
@@ -206,7 +213,17 @@ bool PointLightInfoBlock::operator!=(const PointLightInfoBlock& other) const {
     return true;
   if (specular != other.specular)
     return true;
-  if (light_space_matrix != other.light_space_matrix)
+  if (light_space_matrix[0] != other.light_space_matrix[0])
+    return true;
+  if (light_space_matrix[1] != other.light_space_matrix[1])
+    return true;
+  if (light_space_matrix[2] != other.light_space_matrix[2])
+    return true;
+  if (light_space_matrix[3] != other.light_space_matrix[3])
+    return true;
+  if (light_space_matrix[4] != other.light_space_matrix[4])
+    return true;
+  if (light_space_matrix[5] != other.light_space_matrix[5])
     return true;
   if (reserved_parameters != other.reserved_parameters)
     return true;

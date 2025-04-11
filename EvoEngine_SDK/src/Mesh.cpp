@@ -162,21 +162,21 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
     return;
   }
   vertices_ = vertices;
-  // triangles_ = triangles;
   triangles_.clear();
   triangles_.reserve(triangles.size());
   for (const auto& triangle : triangles) {
     const auto& i1 = triangle.x;
     const auto& i2 = triangle.y;
     const auto& i3 = triangle.z;
-    if (i1 >= vertices_.size())
+    if (i1 < 0 || i1 >= vertices_.size())
       continue;
-    if (i2 >= vertices_.size())
+    if (i2 < 0 || i2 >= vertices_.size())
       continue;
-    if (i3 >= vertices_.size())
+    if (i3 < 0 || i3 >= vertices_.size())
       continue;
     triangles_.emplace_back() = triangle;
   }
+
 #pragma region Bound
   glm::vec3 min_bound = vertices_.at(0).position;
   glm::vec3 max_bound = vertices_.at(0).position;
@@ -202,12 +202,15 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
 
   if (version_ != 0)
     GeometryStorage::FreeMesh(GetHandle());
-  GeometryStorage::AllocateMesh(GetHandle(), vertices_, triangles_, meshlet_range_, triangle_range_);
+
+  auto v_c = vertices_;
+  auto t_c = triangles_;
+  GeometryStorage::AllocateMesh(GetHandle(), v_c, t_c, meshlet_range_, triangle_range_);
 
   version_++;
 
   if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
-    blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices, triangles);
+    blas_ = std::make_shared<BottomLevelAccelerationStructure>(v_c, t_c);
   }
 
   saved_ = false;

@@ -8,7 +8,7 @@
 #include "PerFrame.glsl"
 
 #include "Vertex.glsl"
-layout(set = 1, binding = 0) readonly buffer EE_VERTICES_BLOCK {
+layout(std430, set = 1, binding = 0) readonly buffer EE_VERTICES_BLOCK {
   Vertex EE_VERTICES[];
 };
 

@@ -31,22 +31,22 @@ void GeometryStorage::UploadData() {
 
   for (int index = 0; index < particle_info_list_data_list_.size(); index++) {
     if (auto& particle_info_list_data = particle_info_list_data_list_.at(index);
-        particle_info_list_data.m_status == ParticleInfoListDataStatus::Removed) {
+        particle_info_list_data.status == ParticleInfoListDataStatus::Removed) {
       particle_info_list_data_list_.at(index) = particle_info_list_data_list_.back();
       particle_info_list_data_list_.pop_back();
       index--;
-    } else if (particle_info_list_data.m_status == ParticleInfoListDataStatus::UpdatePending) {
-      particle_info_list_data.m_buffer->UploadVector(particle_info_list_data.particle_info_list);
+    } else if (particle_info_list_data.status == ParticleInfoListDataStatus::UpdatePending) {
+      particle_info_list_data.buffer->UploadVector(particle_info_list_data.particle_info_list);
 
       version_++;
 
       VkDescriptorBufferInfo buffer_info{};
       buffer_info.offset = 0;
       buffer_info.range = VK_WHOLE_SIZE;
-      buffer_info.buffer = particle_info_list_data.m_buffer->GetVkBuffer();
+      buffer_info.buffer = particle_info_list_data.buffer->GetVkBuffer();
       particle_info_list_data.descriptor_set->UpdateBufferDescriptorBinding(0, buffer_info, 0);
 
-      particle_info_list_data.m_status = ParticleInfoListDataStatus::Updated;
+      particle_info_list_data.status = ParticleInfoListDataStatus::Updated;
     }
   }
   for (int index = 0; index < particle_info_list_data_list_.size(); index++) {
@@ -209,8 +209,8 @@ const StrandPoint& GeometryStorage::PeekStrandPoint(const size_t strand_point_in
       .strand_point_data[strand_point_index % Platform::Constants::meshlet_max_vertices_size];
 }
 
-void GeometryStorage::AllocateMesh(const Handle& handle, const std::vector<Vertex>& vertices,
-                                   const std::vector<glm::uvec3>& triangles,
+void GeometryStorage::AllocateMesh(const Handle& handle, std::vector<Vertex>& vertices,
+                                   std::vector<glm::uvec3>& triangles,
                                    const std::shared_ptr<RangeDescriptor>& target_meshlet_range,
                                    const std::shared_ptr<RangeDescriptor>& target_triangle_range) {
   if (vertices.empty() || triangles.empty()) {
@@ -230,8 +230,8 @@ void GeometryStorage::AllocateMesh(const Handle& handle, const std::vector<Verte
   target_triangle_range->index_count = triangles.size();
 
   std::vector<meshopt_Meshlet> meshlets_results;
-  std::vector<unsigned> meshlet_result_vertices;
-  std::vector<unsigned char> meshlet_result_triangles;
+  std::vector<uint32_t> meshlet_result_vertices;
+  std::vector<uint8_t> meshlet_result_triangles;
   const auto max_meshlets =
       meshopt_buildMeshletsBound(triangles.size() * 3, Platform::Constants::meshlet_max_vertices_size,
                                  Platform::Constants::meshlet_max_triangles_size);
@@ -242,6 +242,8 @@ void GeometryStorage::AllocateMesh(const Handle& handle, const std::vector<Verte
       meshlets_results.data(), meshlet_result_vertices.data(), meshlet_result_triangles.data(), &triangles.at(0).x,
       triangles.size() * 3, &vertices.at(0).position.x, vertices.size(), sizeof(Vertex),
       Platform::Constants::meshlet_max_vertices_size, Platform::Constants::meshlet_max_triangles_size, 0);
+  std::vector<Vertex> replacement_vertices;
+  std::vector<glm::uvec3> replacement_triangles;
 
   target_meshlet_range->range = meshlet_size;
   for (size_t meshlet_index = 0; meshlet_index < meshlet_size; meshlet_index++) {
@@ -254,12 +256,16 @@ void GeometryStorage::AllocateMesh(const Handle& handle, const std::vector<Verte
     auto& current_chunk = storage.vertex_data_chunks_[current_meshlet.vertex_chunk_index];
 
     const auto& meshlet_result = meshlets_results.at(meshlet_index);
-    for (unsigned vi = 0; vi < meshlet_result.vertex_count; vi++) {
+
+    const uint32_t replacement_vertex_offset = replacement_vertices.size();
+
+    for (uint32_t vi = 0; vi < meshlet_result.vertex_count; vi++) {
       current_chunk.vertex_data[vi] = vertices[meshlet_result_vertices.at(meshlet_result.vertex_offset + vi)];
+      replacement_vertices.emplace_back(current_chunk.vertex_data[vi]);
     }
     current_meshlet.vertices_size = meshlet_result.vertex_count;
     current_meshlet.triangle_size = meshlet_result.triangle_count;
-    for (unsigned ti = 0; ti < meshlet_result.triangle_count; ti++) {
+    for (uint32_t ti = 0; ti < meshlet_result.triangle_count; ti++) {
       auto& current_meshlet_triangle = current_meshlet.triangles[ti];
       current_meshlet_triangle = glm::u8vec3(meshlet_result_triangles[ti * 3 + meshlet_result.triangle_offset],
                                              meshlet_result_triangles[ti * 3 + meshlet_result.triangle_offset + 1],
@@ -272,9 +278,15 @@ void GeometryStorage::AllocateMesh(const Handle& handle, const std::vector<Verte
                           current_meshlet.vertex_chunk_index * Platform::Constants::meshlet_max_vertices_size;
       global_triangle.z = current_meshlet_triangle.z +
                           current_meshlet.vertex_chunk_index * Platform::Constants::meshlet_max_vertices_size;
+
+      replacement_triangles.emplace_back(current_meshlet_triangle.x + replacement_vertex_offset,
+                                         current_meshlet_triangle.y + replacement_vertex_offset,
+                                         current_meshlet_triangle.z + replacement_vertex_offset);
     }
     target_triangle_range->range += current_meshlet.triangle_size;
   }
+  vertices = replacement_vertices;
+  triangles = replacement_triangles;
 
   storage.meshlet_range_descriptor_.push_back(target_meshlet_range);
   storage.triangle_range_descriptor_.push_back(target_triangle_range);
@@ -299,8 +311,8 @@ void GeometryStorage::AllocateSkinnedMesh(const Handle& handle, const std::vecto
   target_skinned_triangle_range->range = 0;
   target_skinned_triangle_range->index_count = skinned_triangles.size();
   std::vector<meshopt_Meshlet> skinned_meshlets_results{};
-  std::vector<unsigned> skinned_meshlet_result_vertices{};
-  std::vector<unsigned char> skinned_meshlet_result_triangles{};
+  std::vector<uint32_t> skinned_meshlet_result_vertices{};
+  std::vector<uint8_t> skinned_meshlet_result_triangles{};
   const auto max_meshlets =
       meshopt_buildMeshletsBound(skinned_triangles.size() * 3, Platform::Constants::meshlet_max_vertices_size,
                                  Platform::Constants::meshlet_max_triangles_size);
@@ -323,13 +335,13 @@ void GeometryStorage::AllocateSkinnedMesh(const Handle& handle, const std::vecto
     auto& current_skinned_chunk = storage.skinned_vertex_data_chunks_.back();
 
     const auto& skinned_meshlet_result = skinned_meshlets_results.at(skinned_meshlet_index);
-    for (unsigned vi = 0; vi < skinned_meshlet_result.vertex_count; vi++) {
+    for (uint32_t vi = 0; vi < skinned_meshlet_result.vertex_count; vi++) {
       current_skinned_chunk.skinned_vertex_data[vi] =
           skinned_vertices[skinned_meshlet_result_vertices.at(skinned_meshlet_result.vertex_offset + vi)];
     }
     current_skinned_meshlet.skinned_vertices_size = skinned_meshlet_result.vertex_count;
     current_skinned_meshlet.skinned_triangle_size = skinned_meshlet_result.triangle_count;
-    for (unsigned ti = 0; ti < skinned_meshlet_result.triangle_count; ti++) {
+    for (uint32_t ti = 0; ti < skinned_meshlet_result.triangle_count; ti++) {
       auto& current_meshlet_triangle = current_skinned_meshlet.skinned_triangles[ti];
       current_meshlet_triangle =
           glm::u8vec3(skinned_meshlet_result_triangles[ti * 3 + skinned_meshlet_result.triangle_offset],
@@ -688,9 +700,9 @@ void GeometryStorage::AllocateParticleInfo(const Handle& handle,
   buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  info_data.m_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  info_data.buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   info_data.descriptor_set = std::make_shared<DescriptorSet>(ParticleInfoList::instanced_data_layout);
-  info_data.m_status = ParticleInfoListDataStatus::UpdatePending;
+  info_data.status = ParticleInfoListDataStatus::UpdatePending;
 }
 
 void GeometryStorage::UpdateParticleInfo(const std::shared_ptr<RangeDescriptor>& range_descriptor,
@@ -698,9 +710,12 @@ void GeometryStorage::UpdateParticleInfo(const std::shared_ptr<RangeDescriptor>&
   auto& storage = GetInstance();
   assert(range_descriptor->offset < storage.particle_info_list_data_list_.size());
   auto& info_data = storage.particle_info_list_data_list_.at(range_descriptor->offset);
-  assert(info_data.m_status != ParticleInfoListDataStatus::Removed);
+  assert(info_data.status != ParticleInfoListDataStatus::Removed);
+  if (particle_infos.empty() && info_data.particle_info_list.empty()) {
+    return;
+  }
   info_data.particle_info_list = particle_infos;
-  info_data.m_status = ParticleInfoListDataStatus::UpdatePending;
+  info_data.status = ParticleInfoListDataStatus::UpdatePending;
 }
 
 void GeometryStorage::FreeParticleInfo(const std::shared_ptr<RangeDescriptor>& range_descriptor) {
@@ -710,8 +725,8 @@ void GeometryStorage::FreeParticleInfo(const std::shared_ptr<RangeDescriptor>& r
   }
   assert(range_descriptor->offset < storage.particle_info_list_data_list_.size());
   auto& info_data = storage.particle_info_list_data_list_.at(range_descriptor->offset);
-  assert(info_data.m_status != ParticleInfoListDataStatus::Removed);
-  info_data.m_status = ParticleInfoListDataStatus::Removed;
+  assert(info_data.status != ParticleInfoListDataStatus::Removed);
+  info_data.status = ParticleInfoListDataStatus::Removed;
 }
 
 const std::vector<ParticleInfo>& GeometryStorage::PeekParticleInfoList(

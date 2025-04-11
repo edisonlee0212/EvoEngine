@@ -43,7 +43,7 @@ void RayTracingPipeline::Initialize() {
       raygen_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
       shader_groups.push_back(raygen_group_ci);
     } else {
-      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled vertex shader!")
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled ray gen shader!")
       return;
     }
   }
@@ -68,7 +68,7 @@ void RayTracingPipeline::Initialize() {
       miss_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
       shader_groups.push_back(miss_group_ci);
     } else {
-      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled vertex shader!")
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled miss shader!")
       return;
     }
   }
@@ -93,7 +93,7 @@ void RayTracingPipeline::Initialize() {
       closes_hit_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
       shader_groups.push_back(closes_hit_group_ci);
     } else {
-      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled vertex shader!")
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled closest hit shader!")
       return;
     }
   }
@@ -118,7 +118,7 @@ void RayTracingPipeline::Initialize() {
       closes_hit_group_ci.intersectionShader = VK_SHADER_UNUSED_KHR;
       shader_groups.push_back(closes_hit_group_ci);
     } else {
-      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled vertex shader!")
+      EVOENGINE_ERROR("Failed to build graphics pipeline: Attempt to link uncompiled any hit shader!")
       return;
     }
   }
@@ -146,7 +146,7 @@ void RayTracingPipeline::Initialize() {
   raytracing_pipeline_create_info.groupCount = static_cast<uint32_t>(shader_groups.size());
   raytracing_pipeline_create_info.pGroups = shader_groups.data();
 
-  raytracing_pipeline_create_info.maxPipelineRayRecursionDepth = 1;
+  raytracing_pipeline_create_info.maxPipelineRayRecursionDepth = 8;
   try {
     Platform::CheckVk(vkCreateRayTracingPipelinesKHR(Platform::GetVkDevice(), VK_NULL_HANDLE, VK_NULL_HANDLE, 1,
                                                      &raytracing_pipeline_create_info, nullptr,

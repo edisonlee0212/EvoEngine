@@ -20,6 +20,34 @@ glm::vec3 CameraInfoBlock::UnProject(const glm::vec3& position) const {
   start = inverse * start;
   return start / start.w;
 }
+bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
+  if (projection_view != other.projection_view)
+    return true;
+  if (clear_color != other.clear_color)
+    return true;
+  if (resolution != other.resolution)
+    return true;
+  if (fade_ratio != other.fade_ratio)
+    return true;
+  if (fade_factor != other.fade_factor)
+    return true;
+  if (skybox_texture_index != other.skybox_texture_index)
+    return true;
+  if (environmental_prefiltered_index != other.environmental_prefiltered_index)
+    return true;
+  if (environmental_irradiance_texture_index != other.environmental_irradiance_texture_index)
+    return true;
+  if (camera_use_clear_color != other.camera_use_clear_color)
+    return true;
+  if (gamma != other.gamma)
+    return true;
+  if (sample_size != other.sample_size)
+    return true;
+  if (bounce != other.bounce)
+    return true;
+
+  return false;
+}
 
 void Camera::UpdateGBuffer() {
   if (!Platform::Initialized())
@@ -208,6 +236,10 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
     }
     camera_info_block.environmental_prefiltered_index = reflection_probe->cubemap_->GetTextureStorageIndex();
   }
+
+  camera_info_block.sample_size = camera_settings.sample_size;
+  camera_info_block.bounce = camera_settings.bounce;
+  camera_info_block.gamma = camera_settings.gamma;
 }
 
 void Camera::AppendGBufferColorAttachmentInfos(std::vector<VkRenderingAttachmentInfo>& attachment_infos,
@@ -259,6 +291,8 @@ void Camera::Resize(const glm::uvec2& size) {
 
 void Camera::OnCreate() {
   size_ = glm::uvec2(1, 1);
+  frame_count_ = 0;
+  camera_settings = {};
   RenderTextureCreateInfo render_texture_create_info{};
   render_texture_create_info.extent.width = size_.x;
   render_texture_create_info.extent.height = size_.y;
@@ -427,6 +461,11 @@ void Camera::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "background_intensity" << YAML::Value << camera_settings.background_intensity;
   out << YAML::Key << "fade_ratio" << YAML::Value << camera_settings.fade_ratio;
   out << YAML::Key << "fade_factor" << YAML::Value << camera_settings.fade_factor;
+
+  out << YAML::Key << "sample_size" << YAML::Value << camera_settings.sample_size;
+  out << YAML::Key << "bounce" << YAML::Value << camera_settings.bounce;
+  out << YAML::Key << "gamma" << YAML::Value << camera_settings.gamma;
+
   skybox.Save("skybox", out);
   post_processing_stack_ref.Save("post_processing_stack_ref", out);
 }
@@ -460,6 +499,13 @@ void Camera::Deserialize(const YAML::Node& in) {
 
   if (in["background_intensity"])
     camera_settings.background_intensity = in["background_intensity"].as<float>();
+
+  if (in["sample_size"])
+    camera_settings.sample_size = in["sample_size"].as<uint32_t>();
+  if (in["bounce"])
+    camera_settings.bounce = in["bounce"].as<uint32_t>();
+  if (in["gamma"])
+    camera_settings.gamma = in["gamma"].as<float>();
 }
 
 void Camera::OnDestroy() {
@@ -472,6 +518,7 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   uint32_t mode = static_cast<uint32_t>(camera_render_mode);
   if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
     camera_render_mode = static_cast<CameraRenderMode>(mode);
+    frame_count_ = 0;
     changed = true;
   }
   if (ImGui::DragFloat("Fade ratio", &camera_settings.fade_ratio, 0.01f, 0.01f, 1.0f)) {
@@ -479,6 +526,17 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
   if (camera_settings.fade_ratio != 0.f) {
     if (ImGui::DragFloat("Fade factor", &camera_settings.fade_factor, 0.01f, 0.01f, 1.0f)) {
+      changed = true;
+    }
+  }
+  if (camera_render_mode == CameraRenderMode::RayTracing) {
+    if (ImGui::DragFloat("Gamma", &camera_settings.gamma, 0.01f, 0.01f, 10.0f)) {
+      changed = true;
+    }
+    if (ImGui::SliderInt("Samples", &camera_settings.sample_size, 1, 32)) {
+      changed = true;
+    }
+    if (ImGui::SliderInt("Bounce", &camera_settings.bounce, 1, 8)) {
       changed = true;
     }
   }

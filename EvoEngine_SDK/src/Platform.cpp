@@ -220,11 +220,14 @@ void Platform::Initialize() {
     RenderLayer::per_frame_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     RenderLayer::per_frame_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     RenderLayer::per_frame_layout->PushDescriptorBinding(
-        9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, Platform::Settings::max_texture_2d_resource_size);
+        9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, Settings::max_texture_2d_resource_size);
     RenderLayer::per_frame_layout->PushDescriptorBinding(
-        10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, Platform::Settings::max_cubemap_resource_size);
+        10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR |
+            VK_SHADER_STAGE_MISS_BIT_KHR,
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, Settings::max_cubemap_resource_size);
     RenderLayer::per_frame_layout->Initialize();
   }
   if (!RenderLayer::meshlet_layout) {
