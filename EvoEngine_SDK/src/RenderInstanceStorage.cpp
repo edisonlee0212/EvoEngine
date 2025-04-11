@@ -1289,7 +1289,12 @@ bool RenderInstanceStorage::operator!=(const RenderInstanceStorage& other) const
       return true;
   }
 
-  if (external_render_instances != other.external_render_instances)
+  for (uint32_t i = 0; i < camera_info_blocks_.size(); i++) {
+    if (camera_info_blocks_[i] != other.camera_info_blocks_[i])
+      return true;
+  }
+
+  if (*external_render_instances != *other.external_render_instances)
     return true;
 
   if (geometry_storage_version != other.geometry_storage_version)
@@ -1444,7 +1449,7 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
 }
 
 void RenderInstanceStorage::UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene) {
-  // mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene, *this);
+  mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene, *this);
 }
 
 bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,

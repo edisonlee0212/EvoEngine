@@ -15,6 +15,12 @@ struct Camera {
   int irradiance_map_index;
   int prefiltered_map_index;
   int use_clear_color;
+
+  // Ray tracing
+  uint padding;
+  float gamma;
+  uint sample_size;
+  uint bounce;
 };
 
 // Camera

@@ -27,6 +27,12 @@ struct CameraInfoBlock {
   int environmental_prefiltered_index = 0;         ///< Index of the environmental prefiltered texture.
   int camera_use_clear_color = 0;                  ///< Flag to indicate if the camera uses the clear color.
 
+  // Ray tracing
+  uint32_t padding = 0;
+  float gamma = 2.2f;
+  uint32_t sample_size = 4;
+  uint32_t bounce = 4;
+
   /**
    * @brief Projects a 3D world position into 2D screen space.
    * @param position The 3D position to project.
@@ -40,6 +46,7 @@ struct CameraInfoBlock {
    * @return The unprojected 3D world position.
    */
   [[nodiscard]] glm::vec3 UnProject(const glm::vec3& position) const;
+  bool operator!=(const CameraInfoBlock& other) const;
 };
 
 /**
@@ -251,7 +258,9 @@ class Camera final : public IPrivateComponent {
   ImTextureID g_buffer_material_tex_coord_im_texture_id_ = {};  ///< ImTextureID for GBuffer texcoords.
   ImTextureID g_buffer_material_indices_im_texture_id_ = {};    ///< ImTextureID for GBuffer material indices.
 
-  size_t frame_count_ = 0;              ///< Frame count used for tracking rendering updates.
+  uint32_t frame_count_ = 0;  ///< Frame count used for tracking rendering updates.
+
+  glm::mat4 prev_global_transform_{};
   bool rendered_ = false;               ///< Indicates whether the camera has rendered.
   bool require_rendering_ = false;      ///< Indicates whether the camera requires rendering.
   glm::uvec2 size_ = glm::uvec2(1, 1);  ///< The size of the camera's resolution.

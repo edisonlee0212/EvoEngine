@@ -1243,7 +1243,6 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
       Platform::GetSelectedPhysicalDevice()
           ->acceleration_structure_properties_khr.minAccelerationStructureScratchOffsetAlignment;
   buffer_create_info.size = acceleration_structure_build_sizes_info.buildScratchSize + scratch_buffer_alignment;
-  ;
   buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
   const auto scratch_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
@@ -1268,7 +1267,8 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
   acceleration_build_geometry_info.geometryCount = 1;
   acceleration_build_geometry_info.pGeometries = &acceleration_structure_geometry;
   acceleration_build_geometry_info.scratchData.deviceAddress =
-      (scratch_buffer->GetDeviceAddress() + scratch_buffer_alignment - 1) & ~(scratch_buffer_alignment - 1);
+      (scratch_buffer->GetDeviceAddress() + scratch_buffer_alignment - 1) / scratch_buffer_alignment *
+      scratch_buffer_alignment;
 
   VkAccelerationStructureBuildRangeInfoKHR acceleration_structure_build_range_info{};
   acceleration_structure_build_range_info.primitiveCount = primitive_count;
@@ -1313,10 +1313,10 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   render_instance_storage.deferred_render_instances->ForEachRenderInstance(
       [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
         auto& acceleration_structure_instance = acceleration_structure_instances.emplace_back();
-        const auto global_transform = scene->GetDataComponent<GlobalTransform>(render_instance->owner);
-        memcpy(&acceleration_structure_instance.transform.matrix[0][0], glm::value_ptr(global_transform.value),
+        const auto tt = glm::transpose(render_instance->model.value);
+        memcpy(&acceleration_structure_instance.transform.matrix[0][0], glm::value_ptr(tt),
                sizeof(VkTransformMatrixKHR));
-        acceleration_structure_instance.instanceCustomIndex = render_instance->instance_index;
+        acceleration_structure_instance.instanceCustomIndex = static_cast<uint32_t>(render_instance->instance_index);
         acceleration_structure_instance.mask = 0xFF;
         acceleration_structure_instance.instanceShaderBindingTableRecordOffset = 0;
         acceleration_structure_instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
@@ -1402,7 +1402,8 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   acceleration_build_geometry_info.geometryCount = 1;
   acceleration_build_geometry_info.pGeometries = &acceleration_structure_geometry;
   acceleration_build_geometry_info.scratchData.deviceAddress =
-      (scratch_buffer->GetDeviceAddress() + scratch_buffer_alignment - 1) & ~(scratch_buffer_alignment - 1);
+      (scratch_buffer->GetDeviceAddress() + scratch_buffer_alignment - 1) / scratch_buffer_alignment *
+      scratch_buffer_alignment;
 
   VkAccelerationStructureBuildRangeInfoKHR acceleration_structure_build_range_info{};
   acceleration_structure_build_range_info.primitiveCount = instance_count;

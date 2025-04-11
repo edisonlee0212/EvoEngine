@@ -736,8 +736,7 @@ void RenderLayer::OnCreate() {
 #endif
 #pragma endregion
 #pragma region Ray Tracing Pipelines
-#ifndef USE_RENDERDOC
-  if (Platform::Constants::support_ray_tracing && !ray_tracing_camera_pipeline) {
+  if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing && !ray_tracing_camera_pipeline) {
     ray_tracing_camera_pipeline = std::make_shared<RayTracingPipeline>();
     ray_tracing_camera_pipeline->raygen_shader =
         Shader::CreateTemporary(ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
@@ -746,7 +745,7 @@ void RenderLayer::OnCreate() {
         Shader::CreateTemporary(ShaderType::Miss, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/Miss/Camera.rmiss");
     ray_tracing_camera_pipeline->closest_hit_shader = Shader::CreateTemporary(
-        ShaderType::Miss, Platform::GetShaderGlobalDefines(),
+        ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/ClosestHit/Camera.rchit");
     ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
     ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout);
@@ -757,7 +756,6 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
     ray_tracing_camera_pipeline->Initialize();
   }
-#endif
 #pragma endregion
 
   const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
@@ -839,7 +837,12 @@ void RenderLayer::ClearAllCameras() const {
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (const auto& i : cameras) {
-      if (i.second->rendered_) {
+      if (i.second->prev_global_transform_ != i.first.value) {
+        i.second->frame_count_ = 0;
+        i.second->prev_global_transform_ = i.first.value;
+      }
+      if ((i.second->camera_render_mode == Camera::CameraRenderMode::Rasterization && i.second->rendered_) ||
+          (i.second->camera_render_mode == Camera::CameraRenderMode::RayTracing && i.second->frame_count_ == 0)) {
         if (const auto render_texture = i.second->GetRenderTexture()) {
           render_texture->Clear(vk_command_buffer);
         }
@@ -859,42 +862,44 @@ void RenderLayer::PrepareForRendering() {
   const auto current_render_instances = render_instances_list_[current_frame_index];
   ApplyAnimators();
   if (UpdateRenderInstanceStorage(scene, current_frame_index)) {
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        0, current_render_instances->render_info_descriptor_buffer);
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        1, current_render_instances->environment_info_descriptor_buffer);
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        2, current_render_instances->camera_info_descriptor_buffer);
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        3, current_render_instances->material_info_descriptor_buffer);
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        4, current_render_instances->instance_info_descriptor_buffer);
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        5, kernel_descriptor_buffers_[current_frame_index]);
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        6, current_render_instances->directional_light_info_descriptor_buffer);
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        7, current_render_instances->point_light_info_descriptor_buffer);
-    per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        8, current_render_instances->spot_light_info_descriptor_buffer);
-
-    meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, GeometryStorage::GetVertexBuffer());
-    meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1,
-                                                                                 GeometryStorage::GetMeshletBuffer());
-    if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
-      current_render_instances->UpdateTopLevelAccelerationStructure(scene);
-      if (current_render_instances->mesh_top_level_acceleration_structure) {
-        ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-            0, GeometryStorage::GetVertexBuffer());
-        ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-            1, GeometryStorage::GetTriangleBuffer());
-        ray_tracing_descriptor_sets_[current_frame_index]->UpdateAccelerationStructureDescriptorBinding(
-            2, current_render_instances->mesh_top_level_acceleration_structure);
-      }
-    }
   }
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      0, current_render_instances->render_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      1, current_render_instances->environment_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      2, current_render_instances->camera_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      3, current_render_instances->material_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      4, current_render_instances->instance_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      5, kernel_descriptor_buffers_[current_frame_index]);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      6, current_render_instances->directional_light_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      7, current_render_instances->point_light_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      8, current_render_instances->spot_light_info_descriptor_buffer);
+
+  meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, GeometryStorage::GetVertexBuffer());
+  meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1, GeometryStorage::GetMeshletBuffer());
+
   TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
   TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
+  if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
+    if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
+      current_render_instances->UpdateTopLevelAccelerationStructure(scene);
+    }
+    if (current_render_instances->mesh_top_level_acceleration_structure) {
+      ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+          0, GeometryStorage::GetVertexBuffer());
+      ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+          1, GeometryStorage::GetTriangleBuffer());
+      ray_tracing_descriptor_sets_[current_frame_index]->UpdateAccelerationStructureDescriptorBinding(
+          2, current_render_instances->mesh_top_level_acceleration_structure);
+    }
+  }
 }
 
 void RenderLayer::RenderAll() {
@@ -1449,11 +1454,12 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
   const auto current_render_instances = render_instances_list_[current_frame_index];
   current_render_instances->BuildFromScene(render_settings, scene, world_bound);
   const bool render_instance_updated =
-      current_render_instances != render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
-                                                         Platform::GetMaxFramesInFlight()];
-  if (render_instance_updated) {
-    current_render_instances->Upload();
-  }
+      *current_render_instances !=
+      *render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
+                              Platform::GetMaxFramesInFlight()];
+  // if (render_instance_updated) {
+  current_render_instances->Upload();
+  //}
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
     if (scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
       for (const auto& i : current_render_instances->instance_info_blocks_) {
@@ -1468,7 +1474,9 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
     world_bound.min -= glm::vec3(0.1f);
     world_bound.max += glm::vec3(0.1f);
     scene->SetBound(world_bound);
-    current_render_instances->Upload();
+    for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
+      camera->frame_count_ = 0;
+    }
   }
   return render_instance_updated;
 }
@@ -2020,6 +2028,7 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
   const auto scene = Application::GetActiveScene();
+
   if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       Platform::EverythingBarrier(vk_command_buffer);
@@ -2042,6 +2051,7 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
     });
     camera->rendered_ = true;
     camera->require_rendering_ = false;
+    camera->frame_count_++;
   }
 }
 

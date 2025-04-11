@@ -31,6 +31,19 @@ struct CameraSettings {
 
   /** @brief The background intensity applied to the camera's view. */
   float background_intensity = 1.0f;
+
+  /**
+   * \brief Ray tracing sample per pixel
+   */
+  int sample_size = 4;
+  /**
+   * \brief Ray tracing bounces
+   */
+  int bounce = 4;
+  /**
+   * \brief Ray tracing camera gamma
+   */
+  float gamma = 2.2f;
 };
 
 }  // namespace evo_engine

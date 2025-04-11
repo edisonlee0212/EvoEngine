@@ -107,7 +107,39 @@ void AssetManager::RemoveAssetImpl(const Handle& asset_handle) {
 }
 
 std::shared_ptr<IAsset> AssetManager::GetAssetImpl(const Handle& asset_handle) {
-  return GetAssetFutureImpl(asset_handle).get();
+  // return GetAssetFutureImpl(asset_handle).get();
+  if (asset_handle == 0) {
+    throw std::invalid_argument("Asset handle is 0!");
+  }
+  auto& asset_manager = GetInstance();
+  {
+    std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+    if (const auto search = asset_manager.asset_registry_.assets_.find(asset_handle);
+        search != asset_manager.asset_registry_.assets_.end() && !search->second.expired()) {
+      return search->second.lock();
+    }
+  }
+  if (const std::shared_ptr<File> file = FileManager::GetFile(asset_handle)) {
+    size_t hash_code;
+    auto ret_val = std::dynamic_pointer_cast<IAsset>(
+        Serialization::ProduceSerializable(file->asset_type_name_, hash_code, asset_handle));
+    ret_val->file_record_ = file;
+    ret_val->self_ = ret_val;
+    ret_val->OnCreate();
+    if (const auto absolute_path = file->GetAbsolutePath(); std::filesystem::exists(absolute_path)) {
+      ret_val->Load();
+    } else {
+      ret_val->Save();
+    }
+    file->asset_ = ret_val;
+    // file->GetThumbnail();
+    {
+      std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+      asset_manager.asset_registry_.assets_[asset_handle] = ret_val;
+    }
+    return ret_val;
+  }
+  return Resources::TryGetResource<IAsset>(asset_handle);
 }
 
 std::future<std::shared_ptr<IAsset>> AssetManager::GetAssetFutureImpl(const Handle& asset_handle) {

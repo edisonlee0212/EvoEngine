@@ -183,7 +183,7 @@ struct ParticleInfoListData {
   /**
    * @brief Buffer associated with the particle info list data.
    */
-  std::shared_ptr<Buffer> m_buffer;
+  std::shared_ptr<Buffer> buffer;
 
   /**
    * @brief Descriptor set for the particle info list data.
@@ -198,7 +198,7 @@ struct ParticleInfoListData {
   /**
    * @brief Status of the particle info list data.
    */
-  ParticleInfoListDataStatus m_status = ParticleInfoListDataStatus::Updated;
+  ParticleInfoListDataStatus status = ParticleInfoListDataStatus::Updated;
 
   /**
    * @brief Range descriptor for the particle info list data.
@@ -272,8 +272,7 @@ class GeometryStorage final {
   [[nodiscard]] static const SkinnedVertex& PeekSkinnedVertex(size_t skinned_vertex_index);
   [[nodiscard]] static const StrandPoint& PeekStrandPoint(size_t strand_point_index);
 
-  static void AllocateMesh(const Handle& handle, const std::vector<Vertex>& vertices,
-                           const std::vector<glm::uvec3>& triangles,
+  static void AllocateMesh(const Handle& handle, std::vector<Vertex>& vertices, std::vector<glm::uvec3>& triangles,
                            const std::shared_ptr<RangeDescriptor>& target_meshlet_range,
                            const std::shared_ptr<RangeDescriptor>& target_triangle_range);
   static void AllocateSkinnedMesh(const Handle& handle, const std::vector<SkinnedVertex>& skinned_vertices,

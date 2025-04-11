@@ -389,7 +389,7 @@ class Platform final {
     inline static bool use_mesh_shader = true;
 
     /// Flag to indicate the use of ray tracing.
-    inline static bool use_ray_tracing = false;
+    inline static bool use_ray_tracing = true;
 
     /// Resolution for directional light shadow maps.
     inline static uint32_t directional_light_shadow_map_resolution = 2048;
