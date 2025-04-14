@@ -9,7 +9,7 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (render_segments) {
     if (ImGui::Combo("Segment mode",
                      {"Default", "Segment color", "Group index", "Boundary distance", "Strength", "Shear/Strain strain",
-                      "Shear/Stretch limit", "Segment color", "Strand color"},
+                      "Shear/Stretch limit", "Segment color", "Strand color", "Fungus density"},
                      segment_render_mode))
       changed = true;
     switch (segment_render_mode) {

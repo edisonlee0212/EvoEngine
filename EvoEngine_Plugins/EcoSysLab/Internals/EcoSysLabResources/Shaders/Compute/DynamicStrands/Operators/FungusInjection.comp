@@ -1,0 +1,89 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+#include "Math.glsl"
+
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	mat4 projection_view;
+	vec2 point;
+	vec2 screen_size;
+
+	uint segment_size;
+	float point_size;
+};
+
+bool LineCircleIntersect(in vec2 P1, in vec2 P2, in vec2 C, float r) {
+	// Early exit: Line segment is a point
+    if (distance(P1, P2) < 1e-9f) {
+        return length(P1 - C) <= r;
+    }
+
+    // Check if both endpoints are inside the circle
+    if (length(P1 - C) <= r && length(P2 - C) <= r) {
+        return true;
+    }
+
+    vec2 d = P2 - P1;
+    vec2 f = P1 - C;
+
+    // Compute t_closest
+    float t_closest = dot(f, d) / dot(d, d);
+
+    // Clamp t to the segment
+    float t_segment = clamp(t_closest, 0.0f, 1.0f);
+
+    // Compute closest point
+    vec2 P_closest = P1 + t_segment * d;
+
+    // Compute distance from closest point to circle center
+    // Check if distance is within the radius
+    return length(P_closest - C) <= r;
+}
+
+void main(){
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint segment_index = baseID + local_index;
+
+		if(segment_index >= segment_size) break;
+
+		Segment segment = segments[segment_index];
+
+		vec3 particle0_position = segment.particle0.x;
+		vec3 particle1_position = segment.particle1.x;
+
+		vec4 particle0_screen_space_coord = projection_view * vec4(particle0_position, 1.0f);
+		vec3 particle0_screen_space_position = particle0_screen_space_coord.xyz / particle0_screen_space_coord.w;
+		vec4 particle1_screen_space_coord = projection_view * vec4(particle1_position, 1.0f);
+		vec3 particle1_screen_space_position = particle1_screen_space_coord.xyz / particle1_screen_space_coord.w;
+		
+		vec2 particle0_screen = vec2((particle0_screen_space_position.x + 1.0f) * 0.5f, (-particle0_screen_space_position.y + 1.0f) * 0.5f) * screen_size;
+		vec2 particle1_screen = vec2((particle1_screen_space_position.x + 1.0f) * 0.5f, (-particle1_screen_space_position.y + 1.0f) * 0.5f) * screen_size;
+
+		if(LineCircleIntersect(particle0_screen, particle1_screen, point, point_size)){
+			// TODO: Add fungus density here!
+			segments[segment_index].fungus_density = segments[segment_index].fungus_density + 1.0f;
+		}
+	}
+}

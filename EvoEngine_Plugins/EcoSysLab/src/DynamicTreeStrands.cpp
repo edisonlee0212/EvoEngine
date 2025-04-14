@@ -247,6 +247,7 @@ void DynamicTreeStrands::OnCreate() {
   line_cut_operator = std::make_shared<DsLineCut>();
   saw_operator = std::make_shared<DsSaw>();
   stop_all = std::make_shared<DsStopAll>();
+  fungus_injection_operator = std::make_shared<DsFungusInjection>();
   enable_physics = true;
   if (!bark_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
@@ -315,6 +316,7 @@ void DynamicTreeStrands::OnDestroy() {
   box_selection_operator.reset();
   drag_operator.reset();
   saw_operator.reset();
+  fungus_injection_operator.reset();
 }
 
 void DynamicTreeStrands::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -1074,6 +1076,9 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
       }
       if (point_cut_operator->enabled) {
         point_cut_operator->Execute(dynamic_strands);
+      }
+      if (fungus_injection_operator->enabled) {
+        fungus_injection_operator->Execute(dynamic_strands);
       }
     });
   }

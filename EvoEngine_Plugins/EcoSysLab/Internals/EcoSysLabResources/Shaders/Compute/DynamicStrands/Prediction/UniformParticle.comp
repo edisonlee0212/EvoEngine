@@ -67,7 +67,7 @@ void main(){
 
 		vec3 normal = normalize(uniform_particle.normal_deg.xyz);
 		float local_extrusion_distance = uniform_particle.local_extrusion_distance;
-		float snow_property = segments[uniform_particle.segment_handle].property1;
+		float snow_property = segments[uniform_particle.segment_handle].snow_amount;
 
 		if(segments[uniform_particle.segment_handle].group_index == 0){
 			local_extrusion_distance = normal.y > max(1e-6f, 1.f - snow_property * snow_factor) ? snow_property : 0.f;

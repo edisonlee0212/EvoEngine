@@ -80,9 +80,9 @@ struct Segment {
   int group_index;
 
   float extra_mass;
-  float property1;
-  float property2;
-  float property3;
+  float snow_amount;
+  float fungus_density;
+  float fungus_density_prev;
 
   Particle particle0;
   Particle particle1;

@@ -47,6 +47,7 @@ void main(){
 		segment.particle1.acceleration = segment.inv_mass != 0.0f ? acceleration * (segment.original_mass + segment.extra_mass) / segment.original_mass : vec3(0.0, 0.0, 0.0);
 		
 		segment.extra_mass = 0.f;
+		segment.fungus_density_prev = segment.fungus_density;
 		segments[segment_index] = segment;
 	}
 }

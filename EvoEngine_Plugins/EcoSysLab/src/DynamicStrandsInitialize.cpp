@@ -266,7 +266,7 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
                                                1.f / initialize_parameters.wood_transition, distance_to_boundary) *
                    segment.rest_length);
     segment.extra_mass = 0.f;
-    segment.property1 = segment.property2 = segment.property3 = 0.f;
+    segment.snow_amount = segment.fungus_density = segment.fungus_density_prev = 0.f;
     segment.inertia_tensor = ComputeInertiaTensorRod(segment.original_mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     const float area = glm::pi<float>() * segment.radius * segment.radius;

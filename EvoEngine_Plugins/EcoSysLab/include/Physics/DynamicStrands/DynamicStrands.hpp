@@ -407,9 +407,10 @@ class DynamicStrands {
     int32_t group_index = 0;
 
     float extra_mass = 0.f;
-    float property1 = 0.f;
-    float property2 = 0.f;
-    float property3 = 0.f;
+    float snow_amount = 0.f;
+    float fungus_density = 0.f;
+
+    float fungus_density_prev = 0.f;
 
     GpuParticle particle0{};
     GpuParticle particle1{};
