@@ -346,6 +346,7 @@ DsPointCut::DsPointCut() {
 
 void DsPointCut::Update(const glm::vec2& point, const glm::vec2& screen_size, const float point_size,
                         const glm::mat4& projection_view, const unsigned cut_mode) {
+  EVOENGINE_LOG("Cut mode: " << cut_mode);
   push_constant.point = point;
   push_constant.screen_size = screen_size;
   push_constant.point_size = point_size;
@@ -712,4 +713,49 @@ void DsStopAll::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
+}
+
+DsFungusInjection::DsFungusInjection() {
+  if (!pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Operators/FungusInjection.comp");
+    pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader = shader;
+    pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(FungusInjectionPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    pipeline->Initialize();
+  }
+}
+
+void DsFungusInjection::Update(const glm::vec2& point, const glm::vec2& screen_size, float point_size,
+                               const glm::mat4& projection_view) {
+  push_constant.point = point;
+  push_constant.screen_size = screen_size;
+  push_constant.point_size = point_size;
+  push_constant.projection_view = projection_view;
+}
+
+void DsFungusInjection::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  push_constant.segment_size = target_dynamic_strands->segments.size();
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    pipeline->Bind(vk_command_buffer);
+    pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+
+    vkCmdDispatch(vk_command_buffer,
+                  Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+  enabled = false;
 }

@@ -337,6 +337,18 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
                 });
                 break;
               }
+              case DynamicStrandsSettings::OperatorMode::FungusInjection: {
+                draw_list->AddCircleFilled(
+                    canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_current.y),
+                    dynamic_strands_settings_.point_cut_thickness, IM_COL32(255, 0, 0, 255));
+                for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+                  dts->fungus_injection_operator->enabled = true;
+                  dts->fungus_injection_operator->Update(
+                      strands_operator_mouse_current, glm::vec2(canvas_size.x, canvas_size.y),
+                      dynamic_strands_settings_.point_cut_thickness, camera_projection_view);
+                });
+                break;
+              }
               default:
                 break;
             }
@@ -467,7 +479,7 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
 void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Operators")) {
     ImGui::Combo("Transform Mode", {"None", "Translate", "Rotate"}, transform_mode);
-    ImGui::Combo("Operator Mode", {"Drag", "Saw", "Line Cut", "Point Cut"}, operator_mode);
+    ImGui::Combo("Operator Mode", {"Drag", "Saw", "Line Cut", "Point Cut", "Fungus Injection"}, operator_mode);
     switch (static_cast<OperatorMode>(operator_mode)) {
       case OperatorMode::Drag: {
         ImGui::DragFloat("Drag acceleration multiplier", &drag_multiplier, 0.001f, 0.0f, 1.0f);
@@ -480,6 +492,12 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
       }
       case OperatorMode::PointCut: {
         ImGui::DragFloat("Cutter thickness", &point_cut_thickness, 1.f, 1.0f, 100.0f);
+        break;
+      }
+      case OperatorMode::FungusInjection: {
+        ImGui::DragFloat("Injection thickness", &point_cut_thickness, 1.f, 1.0f, 100.0f);
+        // TODO: Selector to choose between brown and white rot fungus
+        ImGui::Text("Fungus types are not implemented yet.");
         break;
       }
     }

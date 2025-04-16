@@ -75,15 +75,16 @@ class DynamicTreeStrands : public IPrivateComponent {
   std::vector<PivotAxis> axis_pivots;            ///< List of axis pivots.
   std::vector<PivotTransform> transform_pivots;  ///< List of transform pivots.
 
-  std::shared_ptr<DsBoxSelection> box_selection_operator;  ///< Operator for box selection.
-  std::shared_ptr<DsLineCut> line_cut_operator;            ///< Operator for line cutting.
-  std::shared_ptr<DsPointCut> point_cut_operator;          ///< Operator for point cutting.
-  std::shared_ptr<DsSaw> saw_operator;                     ///< Operator for saw operation.
-  std::shared_ptr<DsDrag> drag_operator;                   ///< Operator for dragging operation.
-  std::shared_ptr<DsLeafDrop> leaf_drop;                   ///< Operator for simulating leaf drop.
-  std::shared_ptr<DsSnow> snow;                            ///< Operator for simulating snow effects.
-  std::shared_ptr<DsWind> wind;                            ///< Operator for wind simulation.
-  std::shared_ptr<DsStopAll> stop_all;                     ///< Operator to stop all physics interactions.
+  std::shared_ptr<DsBoxSelection> box_selection_operator;        ///< Operator for box selection.
+  std::shared_ptr<DsLineCut> line_cut_operator;                  ///< Operator for line cutting.
+  std::shared_ptr<DsPointCut> point_cut_operator;                ///< Operator for point cutting.
+  std::shared_ptr<DsSaw> saw_operator;                           ///< Operator for saw operation.
+  std::shared_ptr<DsDrag> drag_operator;                         ///< Operator for dragging operation.
+  std::shared_ptr<DsLeafDrop> leaf_drop;                         ///< Operator for simulating leaf drop.
+  std::shared_ptr<DsSnow> snow;                                  ///< Operator for simulating snow effects.
+  std::shared_ptr<DsWind> wind;                                  ///< Operator for wind simulation.
+  std::shared_ptr<DsStopAll> stop_all;                           ///< Operator to stop all physics interactions.
+  std::shared_ptr<DsFungusInjection> fungus_injection_operator;  ///< Operator for fungus injection.
 
   /**
    * @brief Updates the dynamic strands simulation.

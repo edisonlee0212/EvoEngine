@@ -572,4 +572,43 @@ class DsStopAll : public IDsPhysicsOperator {
                const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
 };
 
+class DsFungusInjection : public IDsOperator {
+  /**
+   * @struct FungusInjectionPushConstant
+   * @brief Push constant structure for fungus injection.
+   */
+  struct FungusInjectionPushConstant {
+    glm::mat4 projection_view;  ///< Projection-view matrix for rendering.
+    glm::vec2 point;            ///< Screen-space position for injection.
+    glm::vec2 screen_size;      ///< Screen resolution.
+
+    uint32_t segment_size;  ///< Number of segment pairs affected by the injection.
+    float point_size;       ///< Size of the point affecting the injection.
+  };
+
+  inline static std::shared_ptr<ComputePipeline> pipeline{};  ///< Compute pipeline for fungus injection.
+  FungusInjectionPushConstant push_constant;  ///< Push constant controlling the fungus injection operation.
+ public:
+  glm::vec3 target_position;  ///< Target position for fungus injection.
+  /**
+   * @brief Constructor initializing default values.
+   */
+  DsFungusInjection();
+
+  /**
+   * @brief Updates the fungus injection parameters.
+   * @param point The screen-space position of the cutting point.
+   * @param screen_size The dimensions of the screen.
+   * @param point_size The size of the point affecting the cut.
+   * @param projection_view The projection-view matrix.
+   */
+  void Update(const glm::vec2& point, const glm::vec2& screen_size, float point_size, const glm::mat4& projection_view);
+
+  /**
+   * @brief Executes the fungus injection operation on the strands.
+   * @param target_dynamic_strands The target DynamicStrands.
+   */
+  void Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
+};
+
 }  // namespace eco_sys_lab_plugin

@@ -12,6 +12,8 @@ const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
 const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
+const float FUNGUS_GROWTH_RATIO = 0.1;
+
 uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
 uint laneID = gl_LocalInvocationID.x;
 
@@ -41,6 +43,12 @@ void main(){
 
 		int segment0_handle = segment_pairs[pair_index].segment0_handle;
 		int segment1_handle = segment_pairs[pair_index].segment1_handle;
+
+		// propagate fungus density
+		segments[segment0_handle].fungus_density = min(8.0, segments[segment0_handle].fungus_density
+			+ FUNGUS_GROWTH_RATIO * time_step * segments[segment1_handle].fungus_density_prev);
+		segments[segment1_handle].fungus_density = min(8.0, segments[segment1_handle].fungus_density
+			+ FUNGUS_GROWTH_RATIO * time_step * segments[segment0_handle].fungus_density_prev);
 		
 		float strength = (segments[segment0_handle].strength + segments[segment1_handle].strength) * .5f;
 
