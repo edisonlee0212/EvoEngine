@@ -555,8 +555,8 @@ class DsStopAll : public IDsPhysicsOperator {
   };
 
   inline static std::shared_ptr<ComputePipeline> segment_pipeline{};  ///< Compute pipeline for stopping segment motion.
-  inline static std::shared_ptr<ComputePipeline> leaf_pipeline{};     ///< Compute pipeline for stopping leaf motion.
 
+  inline static std::shared_ptr<ComputePipeline> leaf_pipeline{};  ///< Compute pipeline for stopping leaf motion.
  public:
   /**
    * @brief Constructor initializing default stop values.
@@ -582,11 +582,18 @@ class DsFungusInjection : public IDsOperator {
     glm::vec2 point;            ///< Screen-space position for injection.
     glm::vec2 screen_size;      ///< Screen resolution.
 
-    uint32_t segment_size;  ///< Number of segment pairs affected by the injection.
-    float point_size;       ///< Size of the point affecting the injection.
+    uint32_t segment_size;   ///< Number of segment pairs affected by the injection.
+    float point_size;        ///< Size of the point affecting the injection.
+    float injection_amount;  ///< Amount of fungus injected.
   };
 
-  inline static std::shared_ptr<ComputePipeline> pipeline{};  ///< Compute pipeline for fungus injection.
+  inline static std::shared_ptr<ComputePipeline>
+      min_dist_reset_pipeline{};  ///< Compute pipeline for resetting minimum distance.
+  inline static std::shared_ptr<ComputePipeline>
+      find_closest_pipeline{};  ///< Compute pipeline for minimum distance calculations.
+  inline static std::shared_ptr<ComputePipeline> inject_pipeline{};  ///< Compute pipeline for fungus injection.
+  inline static std::shared_ptr<DescriptorSet>
+      min_distance_descriptor_set{};          ///< Descriptor set for minimum distance calculations.
   FungusInjectionPushConstant push_constant;  ///< Push constant controlling the fungus injection operation.
  public:
   glm::vec3 target_position;  ///< Target position for fungus injection.
@@ -602,7 +609,8 @@ class DsFungusInjection : public IDsOperator {
    * @param point_size The size of the point affecting the cut.
    * @param projection_view The projection-view matrix.
    */
-  void Update(const glm::vec2& point, const glm::vec2& screen_size, float point_size, const glm::mat4& projection_view);
+  void Update(const glm::vec2& point, const glm::vec2& screen_size, float point_size, float injection_amount,
+              const glm::mat4& projection_view);
 
   /**
    * @brief Executes the fungus injection operation on the strands.

@@ -427,6 +427,7 @@ void DsSaw::Update(const std::vector<glm::vec2>& line, const glm::mat4& projecti
   }
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   line_buffer[current_frame_index]->UploadVector(line_point_pairs);
+  line_buffer[current_frame_index]->SetDebugName("Line buffer");
   line_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, line_buffer[current_frame_index]);
   push_constant.projection_view = projection_view;
 }
@@ -716,42 +717,134 @@ void DsStopAll::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
 }
 
 DsFungusInjection::DsFungusInjection() {
-  if (!pipeline) {
-    static std::shared_ptr<Shader> shader{};
-    shader = std::make_shared<Shader>();
-    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                       std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Operators/FungusInjection.comp");
-    pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader = shader;
-    pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+  static std::shared_ptr<Buffer> min_distance_buffer{};
+  static std::shared_ptr<DescriptorSetLayout> min_distance_layout{};
+
+  if (!min_distance_layout) {
+    min_distance_layout = std::make_shared<DescriptorSetLayout>();
+    min_distance_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    min_distance_layout->Initialize();
+  }
+
+  if (!min_dist_reset_pipeline) {
+    static std::shared_ptr<Shader> reset_shader{};
+    reset_shader = std::make_shared<Shader>();
+    reset_shader->TryCompile(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/MinDistReset.comp");
+    min_dist_reset_pipeline = std::make_shared<ComputePipeline>();
+    min_dist_reset_pipeline->compute_shader = reset_shader;
+    min_dist_reset_pipeline->descriptor_set_layouts.emplace_back(min_distance_layout);
+
+    min_dist_reset_pipeline->Initialize();
+  }
+
+  if (!find_closest_pipeline) {
+    static std::shared_ptr<Shader> find_closest_shader{};
+    find_closest_shader = std::make_shared<Shader>();
+    find_closest_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                    std::filesystem::path("./EcoSysLabResources") /
+                                        "Shaders/Compute/DynamicStrands/Operators/FungusFindClosest.comp");
+    find_closest_pipeline = std::make_shared<ComputePipeline>();
+    find_closest_pipeline->compute_shader = find_closest_shader;
+    find_closest_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    find_closest_pipeline->descriptor_set_layouts.emplace_back(min_distance_layout);
+    auto& push_constant_range = find_closest_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(FungusInjectionPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    pipeline->Initialize();
+    find_closest_pipeline->Initialize();
   }
+
+  if (!inject_pipeline) {
+    static std::shared_ptr<Shader> injection_shader{};
+    injection_shader = std::make_shared<Shader>();
+    injection_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                 std::filesystem::path("./EcoSysLabResources") /
+                                     "Shaders/Compute/DynamicStrands/Operators/FungusInjection.comp");
+    inject_pipeline = std::make_shared<ComputePipeline>();
+    inject_pipeline->compute_shader = injection_shader;
+    inject_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    inject_pipeline->descriptor_set_layouts.emplace_back(min_distance_layout);
+    auto& push_constant_range = inject_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(FungusInjectionPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    inject_pipeline->Initialize();
+  }
+
+  struct GpuMinDistance {
+    int global_min_distance = 0;
+    unsigned int global_index_of_min = 0;
+    int padding0 = 0;
+    int padding1 = 0;
+  };
+
+  if (!min_distance_buffer) {
+    VkBufferCreateInfo buffer_create_info{};
+    buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    buffer_create_info.size = sizeof(GpuMinDistance);  // NOT SURE
+    VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
+    buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    min_distance_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  }
+
+  if (!min_distance_descriptor_set) {
+    min_distance_descriptor_set = std::make_shared<DescriptorSet>(min_distance_layout);
+  }
+
+  min_distance_buffer->Resize(sizeof(GpuMinDistance));
+  min_distance_descriptor_set->UpdateBufferDescriptorBinding(0, min_distance_buffer);
+  min_distance_buffer->SetDebugName("Min distance buffer");
 }
 
 void DsFungusInjection::Update(const glm::vec2& point, const glm::vec2& screen_size, float point_size,
-                               const glm::mat4& projection_view) {
+                               float injection_amount, const glm::mat4& projection_view) {
   push_constant.point = point;
   push_constant.screen_size = screen_size;
   push_constant.point_size = point_size;
+  push_constant.injection_amount = injection_amount;
   push_constant.projection_view = projection_view;
 }
 
 void DsFungusInjection::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
+
+  // first call reset shader
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    min_dist_reset_pipeline->Bind(vk_command_buffer);
+    min_dist_reset_pipeline->BindDescriptorSet(vk_command_buffer, 0, min_distance_descriptor_set->GetVkDescriptorSet());
+    vkCmdDispatch(vk_command_buffer, 1, 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+
   push_constant.segment_size = target_dynamic_strands->segments.size();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    pipeline->Bind(vk_command_buffer);
-    pipeline->BindDescriptorSet(
+    find_closest_pipeline->Bind(vk_command_buffer);
+
+    find_closest_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    find_closest_pipeline->BindDescriptorSet(vk_command_buffer, 1, min_distance_descriptor_set->GetVkDescriptorSet());
+    find_closest_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+
+    vkCmdDispatch(vk_command_buffer,
+                  Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    inject_pipeline->Bind(vk_command_buffer);
+    inject_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    inject_pipeline->BindDescriptorSet(vk_command_buffer, 1, min_distance_descriptor_set->GetVkDescriptorSet());
+    inject_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
     vkCmdDispatch(vk_command_buffer,
                   Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);

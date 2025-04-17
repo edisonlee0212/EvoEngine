@@ -142,9 +142,10 @@ class DsPrediction {
    * @brief Stores push constants for segment pair prediction calculations.
    */
   struct SegmentPairPredictionPushConstant {
-    uint32_t pair_size = 0;       ///< Number of segment pairs.
-    float time_step = 0.01f;      ///< Time step for simulation.
-    float inv_time_step = 100.f;  ///< Inverse of the time step.
+    uint32_t pair_size = 0;           ///< Number of segment pairs.
+    float time_step = 0.01f;          ///< Time step for simulation.
+    float inv_time_step = 100.f;      ///< Inverse of the time step.
+    float fungus_growth_rate = 0.1f;  ///< Ratio of fungus growth.
   };
 
   /**

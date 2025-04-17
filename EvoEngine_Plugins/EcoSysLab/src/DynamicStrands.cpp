@@ -399,15 +399,25 @@ glm::vec3 DynamicStrands::GpuSegment::GetCenterX0() const {
 
 void DynamicStrands::Upload() {
   device_strands_buffer->UploadVector(strands);
+  device_strands_buffer->SetDebugName("Strands Buffer");
   device_nodes_buffer->UploadVector(nodes);
+  device_nodes_buffer->SetDebugName("Nodes Buffer");
   device_segments_buffer->UploadVector(segments);
+  device_segments_buffer->SetDebugName("Segments Buffer");
   device_segment_pairs_buffer->UploadVector(segment_pairs);
+  device_segment_pairs_buffer->SetDebugName("Segment Pairs Buffer");
   device_segment_data_list_buffer->UploadVector(segment_data_list);
+  device_segment_data_list_buffer->SetDebugName("Segment Data List Buffer");
   device_uniform_particles_buffer->UploadVector(uniform_particles);
+  device_uniform_particles_buffer->SetDebugName("Uniform Particles Buffer");
   device_delaunay_tetrahedrons_buffer->UploadVector(delaunay_tetrahedrons);
+  device_delaunay_tetrahedrons_buffer->SetDebugName("Delaunay Tetrahedrons Buffer");
   device_hashed_grid_elements_buffer->UploadVector(hashed_grid_elements);
+  device_hashed_grid_elements_buffer->SetDebugName("Hashed Grid Elements Buffer");
   device_hashed_grid_cell_starts_buffer->UploadVector(hashed_grid_cell_starts);
+  device_hashed_grid_cell_starts_buffer->SetDebugName("Hashed Grid Cell Starts Buffer");
   device_foliage_buffer->UploadVector(foliage);
+  device_foliage_buffer->SetDebugName("Foliage Buffer");
   for (const auto& c : constraints) {
     c->UploadData();
   }
@@ -576,6 +586,9 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     feedback_buffer->Resize(sizeof(uint32_t) * group_size);
     dynamic_grouping_descriptor_set->UpdateBufferDescriptorBinding(0, new_group_index_buffer);
     dynamic_grouping_descriptor_set->UpdateBufferDescriptorBinding(1, feedback_buffer);
+    feedback_buffer->SetDebugName("Feedback Buffer");
+
+    new_group_index_buffer->SetDebugName("New Group Index Buffer");
 
     Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
       reset_pipeline->Bind(vk_command_buffer);

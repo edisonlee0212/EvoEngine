@@ -744,6 +744,18 @@ const VmaAllocationInfo& Buffer::GetVmaAllocationInfo() const {
   return vma_allocation_info_;
 }
 
+void Buffer::SetDebugName(const std::string& name) const {
+  // debug shader function
+  if (vkSetDebugUtilsObjectNameEXT) {
+    VkDebugUtilsObjectNameInfoEXT nameInfo{};
+    nameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+    nameInfo.objectType = VK_OBJECT_TYPE_BUFFER;
+    nameInfo.objectHandle = reinterpret_cast<uint64_t>(vk_buffer_);
+    nameInfo.pObjectName = name.c_str();
+    vkSetDebugUtilsObjectNameEXT(Platform::GetVkDevice(), &nameInfo);
+  }
+}
+
 DescriptorSetLayout::~DescriptorSetLayout() {
   if (!Platform::Initialized())
     return;

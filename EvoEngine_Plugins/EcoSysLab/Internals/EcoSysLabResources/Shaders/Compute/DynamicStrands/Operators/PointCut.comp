@@ -7,6 +7,7 @@
 
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrands.glsl"
+#include "LineCircleIntersect.glsl"
 #include "Math.glsl"
 
 const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
@@ -18,76 +19,53 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	mat4 projection_view;
-	vec2 point;
-	vec2 screen_size;
+  mat4 projection_view;
+  vec2 point;
+  vec2 screen_size;
 
-	uint segment_pair_size;
-	uint cut_mode;
-	float point_size;
+  uint segment_pair_size;
+  uint cut_mode;
+  float point_size;
 };
 
-bool LineCircleIntersect(in vec2 P1, in vec2 P2, in vec2 C, float r) {
-	// Early exit: Line segment is a point
-    if (distance(P1, P2) < 1e-9f) {
-        return length(P1 - C) <= r;
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint segment_pair_index = baseID + local_index;
+
+    if (segment_pair_index >= segment_pair_size)
+      break;
+
+    SegmentPair segment_pair = segment_pairs[segment_pair_index];
+
+    Segment segment0 = segments[segment_pair.segment0_handle];
+    Segment segment1 = segments[segment_pair.segment1_handle];
+
+    vec3 segment0_center_position = (segment0.particle0.x + segment0.particle1.x) * 0.5f;
+    vec3 segment1_center_position = (segment1.particle0.x + segment1.particle1.x) * 0.5f;
+
+    vec4 segment0_screen_space_coord = projection_view * vec4(segment0_center_position, 1.0f);
+    vec3 segment0_screen_space_position = segment0_screen_space_coord.xyz / segment0_screen_space_coord.w;
+    vec4 segment1_screen_space_coord = projection_view * vec4(segment1_center_position, 1.0f);
+    vec3 segment1_screen_space_position = segment1_screen_space_coord.xyz / segment1_screen_space_coord.w;
+
+    vec2 segment0_screen =
+        vec2((segment0_screen_space_position.x + 1.0f) * 0.5f, (-segment0_screen_space_position.y + 1.0f) * 0.5f) *
+        screen_size;
+    vec2 segment1_screen =
+        vec2((segment1_screen_space_position.x + 1.0f) * 0.5f, (-segment1_screen_space_position.y + 1.0f) * 0.5f) *
+        screen_size;
+
+    if (LineCircleIntersect(segment0_screen, segment1_screen, point, point_size)) {
+      if (cut_mode == 0)
+        segment_pairs[segment_pair_index].connectivity_integrity = 0.f;
+      segment_pairs[segment_pair_index].bend_twist_bundle_integrity = 0.f;
     }
-
-    // Check if both endpoints are inside the circle
-    if (length(P1 - C) <= r && length(P2 - C) <= r) {
-        return true;
-    }
-
-    vec2 d = P2 - P1;
-    vec2 f = P1 - C;
-
-    // Compute t_closest
-    float t_closest = dot(f, d) / dot(d, d);
-
-    // Clamp t to the segment
-    float t_segment = clamp(t_closest, 0.0f, 1.0f);
-
-    // Compute closest point
-    vec2 P_closest = P1 + t_segment * d;
-
-    // Compute distance from closest point to circle center
-    // Check if distance is within the radius
-    return length(P_closest - C) <= r;
-}
-
-void main(){
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint segment_pair_index = baseID + local_index;
-
-		if(segment_pair_index >= segment_pair_size) break;
-
-		SegmentPair segment_pair = segment_pairs[segment_pair_index];
-
-		Segment segment0 = segments[segment_pair.segment0_handle];
-		Segment segment1 = segments[segment_pair.segment1_handle];
-
-		vec3 segment0_center_position = (segment0.particle0.x + segment0.particle1.x) * 0.5f;
-		vec3 segment1_center_position = (segment1.particle0.x + segment1.particle1.x) * 0.5f;
-
-		vec4 segment0_screen_space_coord = projection_view * vec4(segment0_center_position, 1.0f);
-		vec3 segment0_screen_space_position = segment0_screen_space_coord.xyz / segment0_screen_space_coord.w;
-		vec4 segment1_screen_space_coord = projection_view * vec4(segment1_center_position, 1.0f);
-		vec3 segment1_screen_space_position = segment1_screen_space_coord.xyz / segment1_screen_space_coord.w;
-		
-		vec2 segment0_screen = vec2((segment0_screen_space_position.x + 1.0f) * 0.5f, (-segment0_screen_space_position.y + 1.0f) * 0.5f) * screen_size;
-		vec2 segment1_screen = vec2((segment1_screen_space_position.x + 1.0f) * 0.5f, (-segment1_screen_space_position.y + 1.0f) * 0.5f) * screen_size;
-
-		if(LineCircleIntersect(segment0_screen, segment1_screen, point, point_size)){
-			if(cut_mode == 0) segment_pairs[segment_pair_index].connectivity_integrity = 0.f;
-			segment_pairs[segment_pair_index].bend_twist_bundle_integrity = 0.f;
-		}
-	}
+  }
 }

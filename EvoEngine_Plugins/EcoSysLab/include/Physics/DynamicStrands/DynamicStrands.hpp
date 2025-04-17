@@ -168,6 +168,7 @@ class DynamicStrands {
     bool dynamic_grouping = false;
     int grouping_iteration = 128;
     glm::vec3 gravity = glm::vec3(0, -9.81f, 0);
+    float fungus_growth_rate = 0.1f;  ///< The growth rate of the fungus.
 
     float dt = 0.0001f;
     float aw = 5.0f;
@@ -245,6 +246,7 @@ class DynamicStrands {
 
     glm::vec4 foliage_color_min = glm::vec4(0, 0, 1, 1);
     glm::vec4 foliage_color_max = glm::vec4(1, 0, 0, 1);
+
     glm::vec4 foliage_color_main = glm::vec4(0, 1, 0, 1);
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
@@ -430,21 +432,28 @@ class DynamicStrands {
     float extra_mass = 0.f;
     float snow_amount = 0.f;
     float fungus_density = 0.f;
-
     float fungus_density_prev = 0.f;
+
+    float screen_depth = 0.0f;
+    float padding0;
+    float padding1;
+    float padding2;
 
     float C = 0.2f;
     float HC = 1.0f;
     float HL = 1.0f;
     float RW = 0.0f;
+
     float RB = 0.0f;
     float C_pre = 0.2f;
     float HC_pre = 1.0f;
     float HL_pre = 1.0f;
+
     float RW_pre = 0.0f;
     float RB_pre = 0.0f;
     float K = 0.2f;
     float diffusion_c = 0.f;
+
     float diffusion_w = 0.f;
     float diffusion_b = 0.f;
 
