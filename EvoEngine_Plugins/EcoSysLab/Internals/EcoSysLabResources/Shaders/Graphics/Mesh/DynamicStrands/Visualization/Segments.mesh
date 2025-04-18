@@ -132,6 +132,10 @@ void main(){
 
 	}
 	
+
+
+
+
 	float highlight1_ratio = 0.0f;
 	float highlight2_ratio = 0.0f;
 	float selected_ratio = 0.0f;

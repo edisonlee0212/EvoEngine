@@ -24,6 +24,14 @@ struct Node {
   int padding2;
 };
 
+
+
+
+
+
+
+
+
 struct Particle {
   vec3 x0;
   int padding0;
