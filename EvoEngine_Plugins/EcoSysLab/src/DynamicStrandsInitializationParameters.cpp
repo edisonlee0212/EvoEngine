@@ -37,53 +37,25 @@ bool DynamicStrandsInitializeParameters::OnInspect(const std::shared_ptr<EditorL
       changed = true;
     }
     if (ImGui::TreeNode("Wood material")) {
-      if (ImGui::DragFloat2("Density", &density.x, 1.f, 1, 1000)) {
-        changed = true;
-      }
-
-      if (ImGui::DragFloat2("Shear/Stretch modulus", &max_stretch_shear_modulus.x, 0.01f, 0.f, 1000.f)) {
-        changed = true;
-      }
-      if (ImGui::DragFloat2("Bending modulus", &max_bending_modulus.x, 0.01f, 0.f, 1000.f)) {
-        changed = true;
-      }
-      if (ImGui::DragFloat2("Twisting modulus", &max_twisting_modulus.x, 0.01f, 0.f, 1000.f)) {
-        changed = true;
+      ImGui::Checkbox("Show modulus graph", &show_modulus_graph);
+      if (show_modulus_graph) {
+        changed = modulus_graph.ShowGraph("modulus graph", editor_layer) || changed;
       }
       ImGui::TreePop();
     }
 
-    if (ImGui::DragFloat2("Shear/Stretch strength", &shear_stretch_strength.x, 1.f, 0.f, 2000.f)) {
-      changed = true;
-    }
-
-    if (ImGui::DragFloat2("Bending strength", &bending_strength.x, 1.f, 0.f, 2000.f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat2("Twisting strength", &twisting_strength.x, 1.f, 0.f, 2000.f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat2("Bundle strength", &bundle_strength.x, 1.f, 0.f, 2000.f)) {
-      changed = true;
-    }
-
-    if (ImGui::DragFloat2("Segment Pair strength", &connectivity_strength.x, 1.f, 0.f, 2000.f)) {
-      changed = true;
+    ImGui::Checkbox("Show strength graph", &show_strength_graph);
+    if (show_strength_graph) {
+      changed = strength_graph.ShowGraph("Strength", editor_layer) || changed;
     }
     if (ImGui::Checkbox("Trunk", &trunk_additional_strength)) {
       changed = true;
     }
+
     if (trunk_additional_strength) {
-      if (ImGui::DragFloat("Trunk offset", &trunk_offset, 0.01f, 0.0f, 1.0f)) {
-        changed = true;
-      }
-      if (ImGui::DragFloat("Trunk transition", &trunk_transition, 0.01f, 0.001f, 1.f)) {
-        trunk_transition = glm::clamp(trunk_transition, 0.001f, 10.f);
-        changed = true;
-      }
-      if (ImGui::DragFloat("Trunk additional strength", &trunk_additional_strength_factor, 0.01f, 0.001f, 1.f)) {
-        trunk_additional_strength_factor = glm::clamp(trunk_additional_strength_factor, 0.0f, 1.f);
-        changed = true;
+      ImGui::Checkbox("Show trunk biological properties graph", &show_biological_properties_graph);
+      if (show_biological_properties_graph) {
+        changed = biological_properties_graph.ShowGraph("biological properties", editor_layer) || changed;
       }
     }
 
@@ -146,21 +118,12 @@ void DynamicStrandsInitializeParameters::Save(const std::string& name, YAML::Emi
   out << YAML::Key << "sapwood_offset" << YAML::Value << sapwood_offset;
   out << YAML::Key << "wood_transition" << YAML::Value << wood_transition;
 
-  out << YAML::Key << "density" << YAML::Value << density;
-  out << YAML::Key << "max_stretch_shear_modulus" << YAML::Value << max_stretch_shear_modulus;
-  out << YAML::Key << "max_bending_modulus" << YAML::Value << max_bending_modulus;
-  out << YAML::Key << "max_twisting_modulus" << YAML::Value << max_twisting_modulus;
+  modulus_graph.Save("modulus_graph", out);
 
-  out << YAML::Key << "shear_stretch_strength" << YAML::Value << shear_stretch_strength;
-  out << YAML::Key << "bending_strength" << YAML::Value << bending_strength;
-  out << YAML::Key << "twisting_strength" << YAML::Value << twisting_strength;
-  out << YAML::Key << "bundle_strength" << YAML::Value << bundle_strength;
-  out << YAML::Key << "connectivity_strength" << YAML::Value << connectivity_strength;
+  strength_graph.Save("strength_graph", out);
 
   out << YAML::Key << "trunk_additional_strength" << YAML::Value << trunk_additional_strength;
-  out << YAML::Key << "trunk_offset" << YAML::Value << trunk_offset;
-  out << YAML::Key << "trunk_transition" << YAML::Value << trunk_transition;
-  out << YAML::Key << "trunk_additional_strength_factor" << YAML::Value << trunk_additional_strength_factor;
+  biological_properties_graph.Save("biological_properties_graph", out);
 
   leaf_position_alpha.Save("leaf_position_alpha", out);
   leaf_rotation_alpha.Save("leaf_rotation_alpha", out);
@@ -206,35 +169,13 @@ void DynamicStrandsInitializeParameters::Load(const std::string& name, const YAM
       sapwood_offset = in_parameters["sapwood_offset"].as<float>();
     if (in_parameters["wood_transition"])
       wood_transition = in_parameters["wood_transition"].as<float>();
+    modulus_graph.Load("modulus_graph", in_parameters);
 
-    if (in_parameters["density"])
-      density = in_parameters["density"].as<glm::vec2>();
-    if (in_parameters["max_stretch_shear_modulus"])
-      max_stretch_shear_modulus = in_parameters["max_stretch_shear_modulus"].as<glm::vec2>();
-    if (in_parameters["max_bending_modulus"])
-      max_bending_modulus = in_parameters["max_bending_modulus"].as<glm::vec2>();
-    if (in_parameters["max_twisting_modulus"])
-      max_twisting_modulus = in_parameters["max_twisting_modulus"].as<glm::vec2>();
-
-    if (in_parameters["shear_stretch_strength"])
-      shear_stretch_strength = in_parameters["shear_stretch_strength"].as<glm::vec2>();
-    if (in_parameters["bending_strength"])
-      bending_strength = in_parameters["bending_strength"].as<glm::vec2>();
-    if (in_parameters["twisting_strength"])
-      twisting_strength = in_parameters["twisting_strength"].as<glm::vec2>();
-    if (in_parameters["bundle_strength"])
-      bundle_strength = in_parameters["bundle_strength"].as<glm::vec2>();
-    if (in_parameters["connectivity_strength"])
-      connectivity_strength = in_parameters["connectivity_strength"].as<glm::vec2>();
+    strength_graph.Load("strength_graph", in_parameters);
 
     if (in_parameters["trunk_additional_strength"])
       trunk_additional_strength = in_parameters["trunk_additional_strength"].as<bool>();
-    if (in_parameters["trunk_offset"])
-      trunk_offset = in_parameters["trunk_offset"].as<float>();
-    if (in_parameters["trunk_transition"])
-      trunk_transition = in_parameters["trunk_transition"].as<float>();
-    if (in_parameters["trunk_additional_strength_factor"])
-      trunk_additional_strength_factor = in_parameters["trunk_additional_strength_factor"].as<float>();
+    biological_properties_graph.Load("biological_properties_graph", in_parameters);
 
     leaf_position_alpha.Load("leaf_position_alpha", in_parameters);
     leaf_rotation_alpha.Load("leaf_rotation_alpha", in_parameters);

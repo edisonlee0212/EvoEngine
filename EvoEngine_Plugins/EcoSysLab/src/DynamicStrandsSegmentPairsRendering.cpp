@@ -85,29 +85,42 @@ uint32_t DynamicStrands::RenderSegmentPairsToCameraForward(
   segment_pair_push_constant.segment_pair_size = segment_pairs.size();
   segment_pair_push_constant.multiplier = render_parameters.thickness_multiplier;
   segment_pair_push_constant.position_scale = render_parameters.position_scale;
+
+  // Build node graph input (Note: input does not exist here)
+  StrengthGraph::Input strength_input;
+  BiologicalPropertiesGraph::Input biological_properties_input;
+
   switch (static_cast<VisualizationParameters::SegmentPairRenderMode>(render_parameters.segment_pair_render_mode)) {
     case VisualizationParameters::SegmentPairRenderMode::BendingLimit: {
+      glm::vec2 bending_strength = initialize_parameters.strength_graph.GetBendingStrength(strength_input);
       segment_pair_push_constant.factor =
-          initialize_parameters.trunk_additional_strength_factor +
-          glm::max(initialize_parameters.bending_strength.x, initialize_parameters.bending_strength.y);
+          initialize_parameters.biological_properties_graph.GetValues(biological_properties_input)
+              .trunk_additional_strength_factor +
+          glm::max(bending_strength.x, bending_strength.y);
       break;
     }
     case VisualizationParameters::SegmentPairRenderMode::TwistLimit: {
+      glm::vec2 twisting_strength = initialize_parameters.strength_graph.GetTwistingStrength(strength_input);
       segment_pair_push_constant.factor =
-          initialize_parameters.trunk_additional_strength_factor +
-          glm::max(initialize_parameters.twisting_strength.x, initialize_parameters.twisting_strength.y);
+          initialize_parameters.biological_properties_graph.GetValues(biological_properties_input)
+              .trunk_additional_strength_factor +
+          glm::max(twisting_strength.x, twisting_strength.y);
       break;
     }
     case VisualizationParameters::SegmentPairRenderMode::BundleLimit: {
+      glm::vec2 bundle_strength = initialize_parameters.strength_graph.GetBundleStrength(strength_input);
       segment_pair_push_constant.factor =
-          initialize_parameters.trunk_additional_strength_factor +
-          glm::max(initialize_parameters.bundle_strength.x, initialize_parameters.bundle_strength.y);
+          initialize_parameters.biological_properties_graph.GetValues(biological_properties_input)
+              .trunk_additional_strength_factor +
+          glm::max(bundle_strength.x, bundle_strength.y);
       break;
     }
     case VisualizationParameters::SegmentPairRenderMode::ConnectivityLimit: {
+      glm::vec2 connectivity_strength = initialize_parameters.strength_graph.GetConnectivityStrength(strength_input);
       segment_pair_push_constant.factor =
-          initialize_parameters.trunk_additional_strength_factor +
-          glm::max(initialize_parameters.connectivity_strength.x, initialize_parameters.connectivity_strength.y);
+          initialize_parameters.biological_properties_graph.GetValues(biological_properties_input)
+              .trunk_additional_strength_factor +
+          glm::max(connectivity_strength.x, connectivity_strength.y);
       break;
     }
     default: {

@@ -6,6 +6,7 @@
 #ifdef CUDA_MODULE_PLUGIN
 #  include <RayTracerLayer.hpp>
 #endif
+
 #include "AdvancedShootDescriptor.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFlowerDescriptor.hpp"
@@ -14,6 +15,7 @@
 #include "BasicPruningDescriptor.hpp"
 #include "ClassRegistry.hpp"
 #include "Climate.hpp"
+#include "DynamicTreeStrandGraph.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "ForestDescriptor.hpp"
 #include "Soil.hpp"
@@ -32,6 +34,10 @@ AssetRegistration<BasicFruitDescriptor> fruit_d_registry("BasicFruitDescriptor",
 AssetRegistration<BasicFlowerDescriptor> flower_d_registry("BasicFlowerDescriptor", {".flower"});
 AssetRegistration<BasicFoliageDescriptor> foliage_d_registry("BasicFoliageDescriptor", {".foliage"});
 AssetRegistration<AdvancedShootDescriptor> a_shoot_d_registry("AdvancedShootDescriptor", {".ashoot"});
+AssetRegistration<ModulusGraph> modulus_graph_registry("ModulusGraph", {".evemodulus"});
+AssetRegistration<StrengthGraph> strength_graph_registry("StrengthGraph", {".evestrength"});
+AssetRegistration<BiologicalPropertiesGraph> biological_properties_graph_registry("TrunkGraph", {".evetrunk"});
+
 void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = GetScene();
   const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
