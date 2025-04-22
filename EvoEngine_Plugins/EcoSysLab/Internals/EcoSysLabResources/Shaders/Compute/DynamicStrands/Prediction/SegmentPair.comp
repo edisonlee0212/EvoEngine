@@ -4,6 +4,7 @@
 #extension GL_KHR_shader_subgroup_vote : require
 #extension GL_ARB_shading_language_include : enable
 #extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_shader_atomic_float : require
 
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrandsPhysics.glsl"

@@ -130,6 +130,27 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
 
+  if (ImGui::Button("Fungus")) {
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
+    target_factor0 = 1.5f;
+    demo_type = DemoType::Fungus;
+    demo_status = DemoStatus::Simulation;
+    log_experiment_setup_settings.rod_segment_count = 10;
+    log_experiment_setup_settings.rod_size = 3200;
+
+    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
+    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
+    /*dts->initialize_parameters.shear_stretch_strength = glm::vec2(500.f);
+    dts->initialize_parameters.bending_strength = glm::vec2(500.f);
+    dts->initialize_parameters.twisting_strength = glm::vec2(500.f);
+    dts->initialize_parameters.bundle_strength = glm::vec2(500.f);
+    dts->initialize_parameters.connectivity_strength = glm::vec2(500.f);*/
+    dts->LogExperimentSetup(log_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+  }
   if (ImGui::Button("Log break [Clean]")) {
     ResetEnvironment(editor_layer);
     camera_pose.SetPosition(glm::vec3(0.5, 0.7, 1));
@@ -880,6 +901,10 @@ void DynamicStrandsDemo::Update() {
         const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
         tree_dts->PhysicsStep(physics_parameters);
       }
+      break;
+    }
+    case DemoType::Fungus: {
+      dts->PhysicsStep(physics_parameters);
       break;
     }
     default:

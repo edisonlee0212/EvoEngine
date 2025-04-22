@@ -3,6 +3,100 @@
 #include "Shader.hpp"
 
 using namespace eco_sys_lab_plugin;
+DsFungus::DsFungus() {
+  if (!fungus_diffusion_edge_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Fungus/FungusDiffusion_edge.comp");
+    fungus_diffusion_edge_pipeline = std::make_shared<ComputePipeline>();
+    fungus_diffusion_edge_pipeline->compute_shader = shader;
+    fungus_diffusion_edge_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = fungus_diffusion_edge_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(FungusDiffusionEdgePushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    fungus_diffusion_edge_pipeline->Initialize();
+  }
+
+  if (!fungus_diffusion_node_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Fungus/FungusDiffusion_node.comp");
+    fungus_diffusion_node_pipeline = std::make_shared<ComputePipeline>();
+    fungus_diffusion_node_pipeline->compute_shader = shader;
+    fungus_diffusion_node_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = fungus_diffusion_node_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(FungusDiffusionNodePushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    fungus_diffusion_node_pipeline->Initialize();
+  }
+}
+
+bool DsFungus::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
+  return changed;
+}
+
+void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+                       const DynamicStrands& target_dynamic_strands) {
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+
+  // First, process diffusion through edges (segment pairs)
+  FungusDiffusionEdgePushConstant edge_push_constant;
+  edge_push_constant.pair_size = target_dynamic_strands.segment_pairs.size();
+  edge_push_constant.matrixAw4 = glm::mat4(physics_parameters.matrixAw);
+  edge_push_constant.matrixAb4 = glm::mat4(physics_parameters.matrixAb);
+  edge_push_constant.matrixAc4 = glm::mat4(physics_parameters.matrixAc);
+
+  // Then, update fungal properties on nodes (segments)
+  FungusDiffusionNodePushConstant node_push_constant;
+  node_push_constant.segment_size = target_dynamic_strands.segments.size();
+  node_push_constant.dt = physics_parameters.dt;
+  node_push_constant.aw = physics_parameters.aw;
+  node_push_constant.ab = physics_parameters.ab;
+  node_push_constant.bw = physics_parameters.bw;
+  node_push_constant.bb = physics_parameters.bb;
+  node_push_constant.ycw = physics_parameters.ycw;
+  node_push_constant.ycb = physics_parameters.ycb;
+  node_push_constant.ylw = physics_parameters.ylw;
+  node_push_constant.pc = physics_parameters.pc;
+  node_push_constant.pl = physics_parameters.pl;
+  node_push_constant.k = physics_parameters.k;
+  node_push_constant.delta = physics_parameters.delta;
+  node_push_constant.ll = physics_parameters.ll;
+  node_push_constant.lc = physics_parameters.lc;
+
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    // Process edge diffusion first
+    fungus_diffusion_edge_pipeline->Bind(vk_command_buffer);
+    fungus_diffusion_edge_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    fungus_diffusion_edge_pipeline->PushConstant(vk_command_buffer, 0, edge_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(edge_push_constant.pair_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    // Then process node updates
+    fungus_diffusion_node_pipeline->Bind(vk_command_buffer);
+    fungus_diffusion_node_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    fungus_diffusion_node_pipeline->PushConstant(vk_command_buffer, 0, node_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(node_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+}
+
 DsPreStep::DsPreStep() {
   if (!segment_pre_step_pipeline) {
     static std::shared_ptr<Shader> shader{};

@@ -74,6 +74,7 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
 	uint color_mode;
 	float multiplier;
 	float factor;
+	float length_multiplier;
 };
 
 taskPayloadSharedEXT Task ts_in;
@@ -104,7 +105,9 @@ void main(){
 	vec3 front = normalize(end_position - start_position);
 	vec4 rotation = quatLookAt(front, vec3(front.y, front.z, front.x));
 
-	mat4 instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, distance(start_position, end_position)));
+	float length = length_multiplier * distance(start_position, end_position);
+
+	mat4 instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, length));
 	
 	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 	
@@ -128,8 +131,8 @@ void main(){
 	}else if(color_mode == 8){
 		color = segments[segment.strand_handle].color; // TODO: Is this correct?
 	}else if(color_mode == 9){ // fungus density
-		color = vec4(mix(vec3(1.0), vec3(0.26, 0.13, 0.0), clamp(segments[segment_id].fungus_density / 8.0, 0.0, 1.0)), 1.0);
-
+		//color = vec4(mix(vec3(1.0), vec3(0.26, 0.13, 0.0), clamp(segments[segment_id].fungus_density / 8.0, 0.0, 1.0)), 1.0);
+		color = vec4(mix(vec3(1.0), vec3(0.26, 0.13, 0.0), clamp(segments[segment_id].RW, 0.0, 1.0)), 1.0);
 	}
 	
 	float highlight1_ratio = 0.0f;

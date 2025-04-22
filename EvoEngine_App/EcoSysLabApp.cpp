@@ -12,6 +12,7 @@
 #include "Times.hpp"
 #ifdef ECOSYSLAB_PLUGIN
 #  include "EcoSysLabLayer.hpp"
+#  include "FungusTest.hpp"
 #  include "ObjectRotator.hpp"
 #  include "ParticlePhysics2DDemo.hpp"
 #  include "Physics2DDemo.hpp"
@@ -92,6 +93,7 @@ int main() {
   PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
   PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
+  PrivateComponentRegistration<FungusTest>("FungusTest");
 #endif
 #ifdef TEXTURE_BAKING_PLUGIN
   PrivateComponentRegistration<TextureBaking>("TextureBaking");

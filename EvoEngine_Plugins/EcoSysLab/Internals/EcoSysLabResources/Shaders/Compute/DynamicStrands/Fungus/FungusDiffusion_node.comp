@@ -1,0 +1,139 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrandsPhysics.glsl"
+
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+//const float dt = 0.0001f;
+//const float aw = 5.0f;
+//const float ab = 5.0f;
+//const float bw = 3.0f;
+//const float bb = 3.0f;
+//const float ycw = 1.0f;
+//const float ycb = 1.0f;
+//const float ylw = 2.0f;
+//const float pc = 0.2f;
+//const float pl = 0.1f;
+//const float k = 0.2f;
+//const float delta = 0.05f;
+//const float ll = 0.5f;
+//const float lc = 0.5f;
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint segment_size;
+    float dt;
+    float aw;
+    float ab;
+    float bw;
+    float bb;
+    float ycw;
+    float ycb;
+    float ylw;
+    float pc;
+    float pl;
+    float k;
+    float delta;
+    float ll;
+    float lc;
+};
+
+
+void main(){
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint segment_index = baseID + local_index;
+
+		if(segment_index >= segment_size) break;
+
+		// Calculate K based on boundary distance
+        segments[segment_index].K = 1.0 / (8.0 * segments[segment_index].boundary_distance + 0.5);
+        //segments[segment_index].K = 0.2;
+        
+        // Get diffusion values from the segment
+        float diffusion_c = segments[segment_index].diffusion_c;
+        float diffusion_w = segments[segment_index].diffusion_w;
+        float diffusion_b = segments[segment_index].diffusion_b;
+        
+        // Update chemical protection (C)
+        segments[segment_index].C = segments[segment_index].C_pre + 
+                         dt * (0.001 * diffusion_c + 
+                                    segments[segment_index].K * (1.0 - segments[segment_index].C_pre) * 
+                                    (segments[segment_index].RW_pre + segments[segment_index].RB_pre) * 
+                                    segments[segment_index].HC_pre - 
+                                    delta * segments[segment_index].C_pre);
+                                
+        // Clamp to valid range
+        segments[segment_index].C = clamp(segments[segment_index].C, 0.0, 1.0);
+        
+        // Update health of carbon (HC)
+        segments[segment_index].HC = segments[segment_index].HC_pre + 
+                          dt * ((-ycw * segments[segment_index].RW_pre - 
+                                       ycb * segments[segment_index].RB_pre) * 
+                                      segments[segment_index].HC_pre + 
+                                      pc * segments[segment_index].C_pre * 
+                                      (1.0 - segments[segment_index].HC_pre));
+                                  
+        segments[segment_index].HC = clamp(segments[segment_index].HC, 0.0, 1.0);
+        
+        // Update health of lignin (HL)
+        segments[segment_index].HL = segments[segment_index].HL_pre + 
+                          dt * ((-ylw * segments[segment_index].RW_pre) * 
+                                      segments[segment_index].HL_pre + 
+                                      pl * segments[segment_index].C_pre * 
+                                      (1.0 - segments[segment_index].HL_pre));
+                                  
+        segments[segment_index].HL = clamp(segments[segment_index].HL, 0.0, 1.0);
+        
+        // Update white rot (RW)
+        segments[segment_index].RW = segments[segment_index].RW_pre + 
+                          dt * (aw * segments[segment_index].RW_pre * 
+                                      (1.0 - segments[segment_index].RW_pre) * 
+                                      (ll * segments[segment_index].HL_pre + 
+                                       lc * segments[segment_index].HC_pre) - 
+                                      bw * segments[segment_index].C_pre * 
+                                      segments[segment_index].RW_pre + 
+                                      0.1 * diffusion_w);
+                                  
+        segments[segment_index].RW = clamp(segments[segment_index].RW, 0.0, 1.0);
+        
+        // Update brown rot (RB)
+        segments[segment_index].RB = segments[segment_index].RB_pre + 
+                          dt * (ab * segments[segment_index].RB_pre * 
+                                      (1.0 - segments[segment_index].RB_pre) * 
+                                      segments[segment_index].HC_pre - 
+                                      bb * segments[segment_index].C_pre * 
+                                      segments[segment_index].RB_pre + 
+                                      0.1 * diffusion_b);
+                                  
+        segments[segment_index].RB = clamp(segments[segment_index].RB, 0.0, 1.0);
+        
+        // Update previous values for next iteration
+        segments[segment_index].C_pre = segments[segment_index].C;
+        segments[segment_index].HC_pre = segments[segment_index].HC;
+        segments[segment_index].HL_pre = segments[segment_index].HL;
+        segments[segment_index].RW_pre = segments[segment_index].RW;
+        segments[segment_index].RB_pre = segments[segment_index].RB;
+        segments[segment_index].diffusion_c = 0.0;
+        segments[segment_index].diffusion_w = 0.0;
+        segments[segment_index].diffusion_b = 0.0;
+	}
+}

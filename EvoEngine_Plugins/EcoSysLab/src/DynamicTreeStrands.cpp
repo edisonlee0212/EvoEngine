@@ -726,6 +726,14 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     segment.particle1.v = settings.initial_velocity;
     segment.angular_v = settings.initial_angular_velocity;
   });
+
+  if (settings.fungus_test) {
+    auto& segment = dynamic_strands->segments[0];
+    segment.RW = 1.0f;
+    segment.RB = 1.0f;
+    segment.RW_pre = 1.0f;
+    segment.RB_pre = 1.0f;
+  }
   if (settings.lock_upper) {
     Jobs::RunParallelFor(dynamic_strands->segment_pairs.size(), [&](const auto i) {
       auto& segment_pair = dynamic_strands->segment_pairs[i];

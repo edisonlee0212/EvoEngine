@@ -21,6 +21,8 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
   for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
     if (prediction)
       prediction->Execute(physics_parameters, *this);
+    if (fungus)
+      fungus->Execute(physics_parameters, *this);
     for (int iteration_i = 0; iteration_i < physics_parameters.position_constraint_iteration; iteration_i++) {
       for (const auto& c : constraints) {
         if (c->enabled)
@@ -165,6 +167,7 @@ DynamicStrands::DynamicStrands() {
   dynamic_hashed_grid = std::make_shared<DsDynamicHashedGrid>();
   segment_collision = std::make_shared<DsSegmentCollision>();
   structural_damage = std::make_shared<DsStructuralDamage>();
+  fungus = std::make_shared<DsFungus>();
 
   BuildRenderComputePipelines();
   BuildBranchesRenderingPipelines();

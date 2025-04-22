@@ -281,6 +281,25 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
                    segment.rest_length);
     segment.extra_mass = 0.f;
     segment.snow_amount = segment.fungus_density = segment.fungus_density_prev = 0.f;
+
+    segment.C = 0.2f;
+    segment.HC = 1.0f;
+    segment.HL = 1.0f;
+    segment.RW = 0.0f;
+    segment.RB = 0.0f;
+    segment.C_pre = 0.2f;
+    segment.HC_pre = 1.0f;
+    segment.HL_pre = 1.0f;
+    segment.RW_pre = 0.0f;
+    segment.RB_pre = 0.0f;
+    segment.K = 0.2f;
+    segment.diffusion_c = 0.f;
+    segment.diffusion_w = 0.f;
+    segment.diffusion_b = 0.f;
+
+    segment.property_1 = 0.f;
+    segment.property_2 = 0.f;
+
     segment.inertia_tensor = ComputeInertiaTensorRod(segment.original_mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     const float area = glm::pi<float>() * segment.radius * segment.radius;
