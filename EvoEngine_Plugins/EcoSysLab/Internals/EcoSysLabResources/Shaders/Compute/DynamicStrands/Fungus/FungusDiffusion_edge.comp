@@ -1,0 +1,113 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_shader_atomic_float : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrandsPhysics.glsl"
+
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+const float FUNGUS_GROWTH_RATIO = 0.1;
+
+//const mat3 matrixAw = mat3(0.1, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+//const mat3 matrixAb = mat3(0.1, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+//const mat3 matrixAc = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+	uint pair_size;
+	mat4  matrixAw4;      // offset = 16
+    mat4  matrixAb4;      // offset = 80
+    mat4  matrixAc4;      // offset = 144
+};
+
+void computeDiffusionWeights(vec3 source_pos, vec3 target_pos, float source_distance, float target_distance, 
+                           out float dc_weight, out float dw_weight, out float db_weight) 
+{
+    vec3 edge_dir = source_pos - target_pos;
+    float d = length(edge_dir);
+    
+    if (d < 0.000001) {
+        dc_weight = 0.0;
+        dw_weight = 0.0;
+        db_weight = 0.0;
+        return;
+    }
+    
+    edge_dir /= d;
+    
+    mat3 matrixAw = mat3(matrixAw4);
+    mat3 matrixAb = mat3(matrixAb4);
+    mat3 matrixAc = mat3(matrixAc4);
+
+    // Calculate quadratic forms using matrix multiplication
+    float kw = max(dot(edge_dir * matrixAw, edge_dir), 0.0);
+    float kb = max(dot(edge_dir * matrixAb, edge_dir), 0.0);
+    float kc = max(dot(edge_dir * matrixAc, edge_dir), 0.0);
+    
+    float coef = min(source_distance, target_distance);
+    coef = coef * coef * 16.0;
+    //coef = 1.0;
+    
+    dw_weight = kw / d * coef;
+    db_weight = kb / d * coef;
+    dc_weight = kc / d;
+}
+
+void main(){
+
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint pair_index = baseID + local_index;
+		if(pair_index >= pair_size) break;
+
+		int segment0_handle = segment_pairs[pair_index].segment0_handle;
+		int segment1_handle = segment_pairs[pair_index].segment1_handle;
+
+		// Get segment positions and boundary distances
+        vec3 segment0_pos = (segments[segment0_handle].particle0.x + segments[segment0_handle].particle1.x) / 2;
+        vec3 segment1_pos = (segments[segment1_handle].particle0.x + segments[segment1_handle].particle1.x) / 2;
+        float segment0_distance = segments[segment0_handle].boundary_distance;
+        float segment1_distance = segments[segment1_handle].boundary_distance;
+        
+        // Calculate diffusion weights
+        float dc_weight, dw_weight, db_weight;
+        computeDiffusionWeights(segment0_pos, segment1_pos, segment0_distance, segment1_distance, 
+                              dc_weight, dw_weight, db_weight);
+        
+        // Accumulate diffusion contribution from neighbors
+        atomicAdd(segments[segment0_handle].diffusion_c, dc_weight * segments[segment1_handle].C_pre);
+        atomicAdd(segments[segment0_handle].diffusion_w, dw_weight * segments[segment1_handle].RW_pre);
+        atomicAdd(segments[segment0_handle].diffusion_b, db_weight * segments[segment1_handle].RB_pre);
+        
+        // Add reverse direction contributions (undirected graph)
+        atomicAdd(segments[segment1_handle].diffusion_c, dc_weight * segments[segment0_handle].C_pre);
+        atomicAdd(segments[segment1_handle].diffusion_w, dw_weight * segments[segment0_handle].RW_pre);
+        atomicAdd(segments[segment1_handle].diffusion_b, db_weight * segments[segment0_handle].RB_pre);
+        
+        // Add diagonal terms (self-interactions with negative values for conservation)
+        //atomicAdd(segments[segment0_handle].diffusion_c, -dc_weight * segments[segment0_handle].C_pre);
+        //atomicAdd(segments[segment0_handle].diffusion_w, -dw_weight * segments[segment0_handle].RW_pre);
+        //atomicAdd(segments[segment0_handle].diffusion_b, -db_weight * segments[segment0_handle].RB_pre);
+        
+        //atomicAdd(segments[segment1_handle].diffusion_c, -dc_weight * segments[segment1_handle].C_pre);
+        //atomicAdd(segments[segment1_handle].diffusion_w, -dw_weight * segments[segment1_handle].RW_pre);
+        //atomicAdd(segments[segment1_handle].diffusion_b, -db_weight * segments[segment1_handle].RB_pre);
+	}
+}

@@ -6,6 +6,72 @@ using namespace evo_engine;
 namespace eco_sys_lab_plugin {
 
 /**
+ * @class DsFungus
+ * @brief Handles the fungal diffusion simulation on dynamic strands.
+ */
+class DsFungus {
+ public:
+  /**
+   * @brief Constructor for DsFungus.
+   */
+  DsFungus();
+
+  /**
+   * @struct FungusDiffusionEdgePushConstant
+   * @brief Stores push constants for fungal diffusion edge calculations.
+   */
+  struct FungusDiffusionEdgePushConstant {
+    uint32_t pair_size = 0;  ///< Number of segment pairs.
+    uint32_t _pad0[3];
+    glm::mat4 matrixAw4;
+    glm::mat4 matrixAb4;
+    glm::mat4 matrixAc4;
+  };
+
+  /**
+   * @struct FungusDiffusionNodePushConstant
+   * @brief Stores push constants for fungal diffusion node calculations.
+   */
+  struct FungusDiffusionNodePushConstant {
+    uint32_t segment_size = 0;  ///< Number of segments.
+    float dt = 0.0001f;
+    float aw = 5.0f;
+    float ab = 5.0f;
+    float bw = 3.0f;
+    float bb = 3.0f;
+    float ycw = 1.0f;
+    float ycb = 1.0f;
+    float ylw = 2.0f;
+    float pc = 0.2f;
+    float pl = 0.1f;
+    float k = 0.2f;
+    float delta = 0.05f;
+    float ll = 0.5f;
+    float lc = 0.5f;
+  };
+
+  inline static std::shared_ptr<ComputePipeline>
+      fungus_diffusion_edge_pipeline;  ///< Compute pipeline for fungal diffusion through edges.
+  inline static std::shared_ptr<ComputePipeline>
+      fungus_diffusion_node_pipeline;  ///< Compute pipeline for fungal diffusion at nodes.
+
+  /**
+   * @brief Inspects the object's properties in the editor.
+   * @param editor_layer The editor layer used to inspect the object.
+   * @return True if the asset content remains unmodified.
+   */
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+
+  /**
+   * @brief Executes the fungal diffusion simulation on the strands.
+   * @param physics_parameters The physics simulation parameters.
+   * @param target_dynamic_strands The target strand system.
+   */
+  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const DynamicStrands& target_dynamic_strands);
+};
+
+/**
  * @class DsPreStep
  * @brief Handles the pre-step calculations for dynamic strands in GPU simulation.
  */

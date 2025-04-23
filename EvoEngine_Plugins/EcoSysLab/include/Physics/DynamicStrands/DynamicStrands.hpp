@@ -38,6 +38,7 @@ class DsPreStep;
 class IDsPhysicsOperator;
 class IDsConstraint;
 class DsPrediction;
+class DsFungus;
 class DsStructuralDamage;
 class DsVelocityUpdate;
 struct DtsStrandGroupData {};
@@ -168,6 +169,24 @@ class DynamicStrands {
     int grouping_iteration = 128;
     glm::vec3 gravity = glm::vec3(0, -9.81f, 0);
 
+    float dt = 0.0001f;
+    float aw = 5.0f;
+    float ab = 5.0f;
+    float bw = 3.0f;
+    float bb = 3.0f;
+    float ycw = 1.0f;
+    float ycb = 1.0f;
+    float ylw = 2.0f;
+    float pc = 0.2f;
+    float pl = 0.1f;
+    float k = 0.2f;
+    float delta = 0.05f;
+    float ll = 0.5f;
+    float lc = 0.5f;
+    glm::mat3 matrixAw = glm::mat3(0.1f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+    glm::mat3 matrixAb = glm::mat3(0.1f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+    glm::mat3 matrixAc = glm::mat3(1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
@@ -200,11 +219,11 @@ class DynamicStrands {
       SegmentColor
     };
     bool render_segments = true;
-    bool render_segment_pairs = true;
+    bool render_segment_pairs = false;
     bool render_uniform_particles = false;
-    bool render_foliage = true;
+    bool render_foliage = false;
 
-    uint32_t segment_render_mode = 6;
+    uint32_t segment_render_mode = 9;
     uint32_t segment_pair_render_mode = 5;
     uint32_t uniform_particle_render_mode = 2;
     uint32_t foliage_render_mode = 0;
@@ -214,6 +233,7 @@ class DynamicStrands {
     glm::vec4 segment_color_main = glm::vec4(0.3, 0.15, 0.0, 0.5);
     float segment_radius_multiplier = 0.9f;
     float segment_boundary_distance_modular = 0.03f;
+    float segment_length_multiplier = 1.0f;
 
     glm::vec4 segment_pair_color_min = glm::vec4(0, 0, 1, 1);
     glm::vec4 segment_pair_color_max = glm::vec4(1, 0, 0, 1);
@@ -309,6 +329,7 @@ class DynamicStrands {
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
+  std::shared_ptr<DsFungus> fungus;
   std::shared_ptr<DsPreStep> pre_step;
   std::shared_ptr<DsPrediction> prediction;
   std::shared_ptr<DsStructuralDamage> structural_damage;
@@ -411,6 +432,24 @@ class DynamicStrands {
     float fungus_density = 0.f;
 
     float fungus_density_prev = 0.f;
+
+    float C = 0.2f;
+    float HC = 1.0f;
+    float HL = 1.0f;
+    float RW = 0.0f;
+    float RB = 0.0f;
+    float C_pre = 0.2f;
+    float HC_pre = 1.0f;
+    float HL_pre = 1.0f;
+    float RW_pre = 0.0f;
+    float RB_pre = 0.0f;
+    float K = 0.2f;
+    float diffusion_c = 0.f;
+    float diffusion_w = 0.f;
+    float diffusion_b = 0.f;
+
+    float property_1 = 0.f;
+    float property_2 = 0.f;
 
     GpuParticle particle0{};
     GpuParticle particle1{};

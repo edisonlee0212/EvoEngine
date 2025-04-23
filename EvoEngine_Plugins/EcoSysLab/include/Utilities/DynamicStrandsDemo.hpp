@@ -67,7 +67,8 @@ class DynamicStrandsDemo : public IPrivateComponent {
     TrunkStrength,    ///< Demonstrates different tree trunk strength.
     Wind,             ///< Simulates tree reaction to wind.
     TreeCollision,    ///< Demonstrates tree collisions.
-    TreeBreak         ///< Demonstrates tree breaking physics.
+    TreeBreak,        ///< Demonstrates tree breaking physics.
+    Fungus
   };
 
   /**

@@ -42,6 +42,8 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
     }
     if (ImGui::DragFloat("Segment radius multiplier", &segment_radius_multiplier, 0.1f, 0.1f, 1000.f))
       changed = true;
+    if (ImGui::DragFloat("Segment length multiplier", &segment_length_multiplier, 0.05f, 0.2f, 1.0f))
+      changed = true;
   }
 
   if (ImGui::Checkbox("Segment Pair", &render_segment_pairs))
@@ -135,6 +137,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     uint32_t render_mode = 2;
     float multiplier = 1.0f;
     float factor = 1.0f;
+    float length_multiplier = 1.0f;
   };
 
   if (!segment_render_pipeline) {
@@ -351,6 +354,8 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   StrengthGraph::Input strength_input;
   BiologicalPropertiesGraph::Input biological_properties_input;
 
+  segment_push_constant.length_multiplier = visualization_parameters.segment_length_multiplier;
+  //(Implement Fungus Propogation)
   switch (static_cast<VisualizationParameters::SegmentRenderMode>(visualization_parameters.segment_render_mode)) {
     case VisualizationParameters::SegmentRenderMode::BoundaryDistance: {
       segment_push_constant.factor = visualization_parameters.segment_boundary_distance_modular;

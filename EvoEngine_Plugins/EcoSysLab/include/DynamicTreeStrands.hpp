@@ -181,7 +181,8 @@ class DynamicTreeStrands : public IPrivateComponent {
     glm::vec3 initial_angular_velocity = glm::vec3(0.f);  ///< Initial angular velocity of the structure.
     bool lock_upper = false;                              ///< Flag to lock the upper part.
     bool t_cut = false;                                   ///< Flag to enable T-cut operation.
-    float t_cut_width = 0.7f;                             ///< Width of the T-cut.
+    bool fungus_test = true;
+    float t_cut_width = 0.7f;  ///< Width of the T-cut.
 
     /**
      * @brief Inspects log experiment settings in the editor.
