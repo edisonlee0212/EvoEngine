@@ -22,6 +22,10 @@ void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in fl
 void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in float over_relaxation);
 void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step);
 
+float AdaptAlphaToLigninHealth(in float lignin_health, in float alpha) {
+  return alpha / clamp(2.0 * lignin_health - 1.0, 0.001, 1.0);
+}
+
 // Constraint Solvers Impl
 void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle) {
   vec3 x0_correction, x1_correction;
@@ -38,7 +42,7 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   float inv_mass_p1 = next_handle != -1 ? segments[next_handle].inv_mass : inv_mass_q;
 
   vec4 q = segments[segment_handle].q;
-  vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
+  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha));
   float rest_length = segments[segment_handle].rest_length;
 
   project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
@@ -82,7 +86,7 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   float inv_mass_p1 = next_handle != -1 ? segments[next_handle].inv_mass : inv_mass_q;
 
   vec4 q = segments[segment_handle].q;
-  vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
+  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha));
   float rest_length = segments[segment_handle].rest_length;
 
   project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
@@ -433,7 +437,7 @@ void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
 
   vec4 q = segments[segment_handle].q;
 
-  vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
+  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha));
 
   float rest_length = segments[segment_handle].rest_length;
 

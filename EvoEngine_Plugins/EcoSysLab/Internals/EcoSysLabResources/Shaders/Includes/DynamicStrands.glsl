@@ -81,13 +81,8 @@ struct Segment {
 
   float extra_mass;
   float snow_amount;
-  float fungus_density;
-  float fungus_density_prev;
-
   float screen_depth;
   int padding0;
-  int padding1;
-  int padding2;
 
   float C;   // Chemical defense
   float HC;  // Carbon health

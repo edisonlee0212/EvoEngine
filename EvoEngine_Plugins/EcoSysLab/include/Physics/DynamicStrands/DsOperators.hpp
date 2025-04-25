@@ -608,6 +608,9 @@ class DsFungusInjection : public IDsOperator {
    * @param point The screen-space position of the cutting point.
    * @param screen_size The dimensions of the screen.
    * @param point_size The size of the point affecting the cut.
+   * @param injection_amount The amount of fungus injected.
+   * @param white_rot Whether to inject white rot.
+   * @param brown_rot Whether to inject brown rot.
    * @param projection_view The projection-view matrix.
    */
   void Update(const glm::vec2& point, const glm::vec2& screen_size, float point_size, float injection_amount,
