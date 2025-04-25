@@ -116,8 +116,7 @@ void main() {
   } else if (color_mode == 8) {
     color = segments[segment.strand_handle].color;
   } else if (color_mode == 9) {  // fungus density
-    color =
-        vec4(mix(vec3(1.0), vec3(0.26, 0.13, 0.0), clamp(segments[segment_id].fungus_density / 8.0, 0.0, 1.0)), 1.0);
+    color = vec4(0.0, clamp(segments[segment_id].RW, 0.0, 1.0), clamp(segments[segment_id].RB, 0.0, 1.0), 1.0);
   } else if (color_mode == 10) {  // screen depth
     if (segments[segment_id].screen_depth > 0.0f) {
       color = vec4(mix(vec3(1.0), vec3(1.0, 0.0, 0.0), clamp(segments[segment_id].screen_depth, 0.0, 1.0)), 1.0);

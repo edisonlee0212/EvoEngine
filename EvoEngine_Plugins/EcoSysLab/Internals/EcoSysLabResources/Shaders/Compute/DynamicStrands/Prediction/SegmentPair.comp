@@ -45,13 +45,6 @@ void main() {
     int segment0_handle = segment_pairs[pair_index].segment0_handle;
     int segment1_handle = segment_pairs[pair_index].segment1_handle;
 
-    // propagate fungus density
-    segments[segment0_handle].fungus_density =
-        min(MAX_FUNGUS_DENSITY, segments[segment0_handle].fungus_density +
-                                    fungus_growth_rate * time_step * segments[segment1_handle].fungus_density_prev);
-    segments[segment1_handle].fungus_density =
-        min(MAX_FUNGUS_DENSITY, segments[segment1_handle].fungus_density +
-                                    fungus_growth_rate * time_step * segments[segment0_handle].fungus_density_prev);
 
     float strength = (segments[segment0_handle].strength + segments[segment1_handle].strength) * .5f;
 

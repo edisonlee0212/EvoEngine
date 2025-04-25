@@ -49,8 +49,6 @@ void main() {
   float min_distance_to_screen = INFINITY;
   uint index_of_min = 0;
 
-  // if (gl_GlobalInvocationID.x == 0 && gl_GlobalInvocationID.y == 0 && gl_GlobalInvocationID.z == 0) {
-  //}
   BARRIER();
 
   [[unroll]]
@@ -64,7 +62,7 @@ void main() {
     segments[segment_index].screen_depth = INFINITY;
     // only allow injection if there is no fungus already
     // we set threshold to injection amount so small diffusions will not prohibit injection
-    if (segments[segment_index].fungus_density >= injection_amount)
+    if (segments[segment_index].RW >= injection_amount)
       continue;
 
     Segment segment = segments[segment_index];
