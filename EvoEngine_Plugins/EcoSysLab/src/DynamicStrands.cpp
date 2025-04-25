@@ -21,7 +21,7 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
   for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
     if (prediction)
       prediction->Execute(physics_parameters, *this);
-    if (fungus)
+    if (fungus && physics_parameters.enable_fungus)
       fungus->Execute(physics_parameters, *this);
     for (int iteration_i = 0; iteration_i < physics_parameters.position_constraint_iteration; iteration_i++) {
       for (const auto& c : constraints) {
@@ -295,6 +295,104 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     changed = true;
   if (ImGui::DragInt("Sub step", &sub_step, 1, 1, 100)) {
     changed = true;
+  }
+  if (ImGui::Checkbox("Enable Fungus", &enable_fungus)) {
+    changed = true;
+  }
+  if (enable_fungus) {
+    if (ImGui::TreeNode("Fungus propogation")) {
+      if (ImGui::InputFloat("Time Step", &dt, 0.0f, 0.0f, "%.5f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Growth rate (white rot)", &aw, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Growth rate (brown rot)", &ab, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Chemical defense (white rot)", &bw, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Chemical defense (brown rot)", &bb, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Carbon tissue damage (white rot)", &ycw, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Carbon tissue damage (brown rot)", &ycb, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Lignin tissue damage (white rot)", &ylw, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Carbon regeneration", &pc, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Lignin regeneration", &pl, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Defense rate", &k, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Defence decay rate", &delta, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Lignin weight for white rot", &ll, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Carbon weight for white rot", &lc, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Boundary reaction for rot growth", &bo, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Boundary reaction for propogation", &be, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat("Lignin threshold", &lignin_threshold, 0.0f, 0.0f, "%.2f")) {
+        changed = true;
+      }
+
+      // matrixAw: input by columns (glm is column-major)
+      ImGui::Text("Diffusion matrix for white rot");
+      float* pAw = glm::value_ptr(matrixAw);
+      if (ImGui::InputFloat3("matrixAw col0", pAw + 0, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat3("matrixAw col1", pAw + 3, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat3("matrixAw col2", pAw + 6, "%.2f")) {
+        changed = true;
+      }
+
+      // matrixAb: same pattern as matrixAw
+      ImGui::Text("Diffusion matrix for brown rot");
+      float* pAb = glm::value_ptr(matrixAb);
+      if (ImGui::InputFloat3("matrixAb col0", pAb + 0, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat3("matrixAb col1", pAb + 3, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat3("matrixAb col2", pAb + 6, "%.2f")) {
+        changed = true;
+      }
+
+      // matrixAc: same pattern as matrixAw
+      ImGui::Text("Diffusion matrix for carbon");
+      float* pAc = glm::value_ptr(matrixAc);
+      if (ImGui::InputFloat3("matrixAc col0", pAc + 0, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat3("matrixAc col1", pAc + 3, "%.2f")) {
+        changed = true;
+      }
+      if (ImGui::InputFloat3("matrixAc col2", pAc + 6, "%.2f")) {
+        changed = true;
+      }
+      ImGui::TreePop();
+    }
   }
 
   if (ImGui::Checkbox("Structural damage", &enable_structural_damage)) {

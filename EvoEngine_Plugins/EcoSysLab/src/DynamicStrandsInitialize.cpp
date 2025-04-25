@@ -297,7 +297,7 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     segment.diffusion_w = 0.f;
     segment.diffusion_b = 0.f;
 
-    segment.property_1 = 0.f;
+    segment.pairs_count = 0;
     segment.property_2 = 0.f;
 
     segment.inertia_tensor = ComputeInertiaTensorRod(segment.original_mass, segment.radius, segment.rest_length);

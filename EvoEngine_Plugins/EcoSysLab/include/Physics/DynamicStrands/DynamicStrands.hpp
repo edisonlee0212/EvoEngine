@@ -170,11 +170,13 @@ class DynamicStrands {
     glm::vec3 gravity = glm::vec3(0, -9.81f, 0);
     float fungus_growth_rate = 0.1f;  ///< The growth rate of the fungus.
 
-    float dt = 0.0001f;
+    bool enable_fungus = true;
+
+    float dt = 0.0005f;
     float aw = 5.0f;
     float ab = 5.0f;
-    float bw = 3.0f;
-    float bb = 3.0f;
+    float bw = 2.0f;
+    float bb = 2.0f;
     float ycw = 1.0f;
     float ycb = 1.0f;
     float ylw = 2.0f;
@@ -184,9 +186,12 @@ class DynamicStrands {
     float delta = 0.05f;
     float ll = 0.5f;
     float lc = 0.5f;
-    glm::mat3 matrixAw = glm::mat3(0.1f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
-    glm::mat3 matrixAb = glm::mat3(0.1f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
-    glm::mat3 matrixAc = glm::mat3(1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+    float bo = 1.0f;
+    float be = 2.0f;
+    float lignin_threshold = -1.0f;
+    glm::mat3 matrixAw = glm::mat3(0.1f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
+    glm::mat3 matrixAb = glm::mat3(0.1f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
+    glm::mat3 matrixAc = glm::mat3(0.01f, 0.0f, 0.0f, 0.0f, 0.01f, 0.0f, 0.0f, 0.0f, 0.01f);
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -202,6 +207,7 @@ class DynamicStrands {
       StretchShearLimit,
       SegmentColor,
       StrandColor,
+      Test
     };
 
     enum class UniformParticleRenderMode { Default, SegmentColor, SingleParticles };
@@ -235,6 +241,7 @@ class DynamicStrands {
     float segment_radius_multiplier = 0.9f;
     float segment_boundary_distance_modular = 0.03f;
     float segment_length_multiplier = 1.0f;
+    float general_factor = 1.0f;
 
     glm::vec4 segment_pair_color_min = glm::vec4(0, 0, 1, 1);
     glm::vec4 segment_pair_color_max = glm::vec4(1, 0, 0, 1);
@@ -457,7 +464,7 @@ class DynamicStrands {
     float diffusion_w = 0.f;
     float diffusion_b = 0.f;
 
-    float property_1 = 0.f;
+    int32_t pairs_count = 0;
     float property_2 = 0.f;
 
     GpuParticle particle0{};

@@ -107,7 +107,7 @@ struct Segment {
   float diffusion_w;
   float diffusion_b;
 
-  float property_1;
+  int pairs_count;
   float property_2;
 
   Particle particle0;

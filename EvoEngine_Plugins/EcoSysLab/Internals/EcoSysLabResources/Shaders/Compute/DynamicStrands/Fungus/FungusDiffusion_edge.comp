@@ -15,10 +15,6 @@ const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SI
 
 const float FUNGUS_GROWTH_RATIO = 0.1;
 
-//const mat3 matrixAw = mat3(0.1, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
-//const mat3 matrixAb = mat3(0.1, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
-//const mat3 matrixAc = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
-
 uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
 uint laneID = gl_LocalInvocationID.x;
 
@@ -30,6 +26,8 @@ barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint pair_size;
+    float be;
+    float lignin_threshold;
 	mat4  matrixAw4;      // offset = 16
     mat4  matrixAb4;      // offset = 80
     mat4  matrixAc4;      // offset = 144
@@ -60,8 +58,14 @@ void computeDiffusionWeights(vec3 source_pos, vec3 target_pos, float source_dist
     float kc = max(dot(edge_dir * matrixAc, edge_dir), 0.0);
     
     float coef = min(source_distance, target_distance);
-    coef = coef * coef * 16.0;
-    //coef = 1.0;
+    if(be < 0.001)
+    {
+        coef = 1.0;
+    }
+    else
+    {
+        coef = pow(4.0 * (coef + 0.01), be);
+    }
     
     dw_weight = kw / d * coef;
     db_weight = kb / d * coef;
@@ -79,6 +83,9 @@ void main(){
 
 		int segment0_handle = segment_pairs[pair_index].segment0_handle;
 		int segment1_handle = segment_pairs[pair_index].segment1_handle;
+
+        atomicAdd(segments[segment0_handle].pairs_count, 1);
+        atomicAdd(segments[segment1_handle].pairs_count, 1);
 
 		// Get segment positions and boundary distances
         vec3 segment0_pos = (segments[segment0_handle].particle0.x + segments[segment0_handle].particle1.x) / 2;
@@ -102,12 +109,18 @@ void main(){
         atomicAdd(segments[segment1_handle].diffusion_b, db_weight * segments[segment0_handle].RB_pre);
         
         // Add diagonal terms (self-interactions with negative values for conservation)
-        //atomicAdd(segments[segment0_handle].diffusion_c, -dc_weight * segments[segment0_handle].C_pre);
-        //atomicAdd(segments[segment0_handle].diffusion_w, -dw_weight * segments[segment0_handle].RW_pre);
-        //atomicAdd(segments[segment0_handle].diffusion_b, -db_weight * segments[segment0_handle].RB_pre);
+        atomicAdd(segments[segment0_handle].diffusion_c, -dc_weight * segments[segment0_handle].C_pre);
+        atomicAdd(segments[segment0_handle].diffusion_w, -dw_weight * segments[segment0_handle].RW_pre);
+        atomicAdd(segments[segment0_handle].diffusion_b, -db_weight * segments[segment0_handle].RB_pre);
         
-        //atomicAdd(segments[segment1_handle].diffusion_c, -dc_weight * segments[segment1_handle].C_pre);
-        //atomicAdd(segments[segment1_handle].diffusion_w, -dw_weight * segments[segment1_handle].RW_pre);
-        //atomicAdd(segments[segment1_handle].diffusion_b, -db_weight * segments[segment1_handle].RB_pre);
+        atomicAdd(segments[segment1_handle].diffusion_c, -dc_weight * segments[segment1_handle].C_pre);
+        atomicAdd(segments[segment1_handle].diffusion_w, -dw_weight * segments[segment1_handle].RW_pre);
+        atomicAdd(segments[segment1_handle].diffusion_b, -db_weight * segments[segment1_handle].RB_pre);
+
+        if(segments[segment1_handle].HL<lignin_threshold || segments[segment0_handle].HL<lignin_threshold)
+        {
+            segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
+            segment_pairs[pair_index].connectivity_integrity = 0.0;
+        }
 	}
 }
