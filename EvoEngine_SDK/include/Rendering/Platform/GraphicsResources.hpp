@@ -623,6 +623,8 @@ class Buffer final : public IGraphicsResource {
    * @return VMA allocation information.
    */
   [[nodiscard]] const VmaAllocationInfo& GetVmaAllocationInfo() const;
+
+  void SetDebugName(const std::string& name) const;
 };
 template <typename T>
 void Buffer::UploadVector(const std::vector<T>& data) {

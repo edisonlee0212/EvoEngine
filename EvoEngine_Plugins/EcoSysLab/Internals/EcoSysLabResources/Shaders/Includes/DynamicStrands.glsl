@@ -84,24 +84,31 @@ struct Segment {
   float fungus_density;
   float fungus_density_prev;
 
-  float C; // Chemical defense
-  float HC; // Carbon health
+  float screen_depth;
+  int padding0;
+  int padding1;
+  int padding2;
+
+  float C;   // Chemical defense
+  float HC;  // Carbon health
   float HL;  // Lignin health
-  float RW; // White rot density
+  float RW;  // White rot density
+
   float RB;  // Brown rot density
   float C_pre;
   float HC_pre;
   float HL_pre;
+
   float RW_pre;
   float RB_pre;
-  float K;	//Defense induction rate
+  float K;  // Defense induction rate
   float diffusion_c;
+
   float diffusion_w;
   float diffusion_b;
 
   float property_1;
   float property_2;
-
 
   Particle particle0;
   Particle particle1;

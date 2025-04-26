@@ -20,61 +20,44 @@ layout(triangles) out;
 
 layout(max_vertices = SEGMENT_VERTICES_SIZE, max_primitives = SEGMENT_TRIANGLE_SIZE) out;
 
-const uint SEGMENT_VERTEX_ITERATIONS    = ((SEGMENT_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-const uint SEGMENT_PRIMITIVE_ITERATIONS = ((SEGMENT_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint SEGMENT_VERTEX_ITERATIONS = ((SEGMENT_VERTICES_SIZE + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint SEGMENT_PRIMITIVE_ITERATIONS = ((SEGMENT_TRIANGLE_SIZE + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
 layout(location = 0) out MS_V_OUT {
-	vec3 frag_pos;
-	vec3 normal;
-	vec3 tangent;
-	vec4 color;
-} ms_v_out[];
+  vec3 frag_pos;
+  vec3 normal;
+  vec3 tangent;
+  vec4 color;
+}
+ms_v_out[];
 
-struct Task{
-	uint	baseID;
-	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
+struct Task {
+  uint baseID;
+  uint8_t deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
 
-vec3 positions[] = {
-    vec3(-0.5, -0.5, -0.5),
-    vec3(0.5, 0.5, -0.5),
-	vec3(0.5, -0.5, -0.5),
-	vec3(-0.5, 0.5, -0.5),
+vec3 positions[] = {vec3(-0.5, -0.5, -0.5), vec3(0.5, 0.5, -0.5), vec3(0.5, -0.5, -0.5), vec3(-0.5, 0.5, -0.5),
 
-	vec3(-0.5, -0.5, 0.5),
-	vec3(0.5, -0.5, 0.5),
-	vec3(0.5, 0.5, 0.5),
-	vec3(-0.5, 0.5, 0.5)
-};
+                    vec3(-0.5, -0.5, 0.5),  vec3(0.5, -0.5, 0.5), vec3(0.5, 0.5, 0.5),   vec3(-0.5, 0.5, 0.5)};
 
-uvec3 triangles[] = {
-	uvec3(0, 1, 2),
-	uvec3(1, 0, 3),
-	uvec3(4, 5, 6),
+uvec3 triangles[] = {uvec3(0, 1, 2), uvec3(1, 0, 3), uvec3(4, 5, 6),
 
-	uvec3(6, 7, 4),
-	uvec3(7, 3, 0),
-	uvec3(0, 4, 7),
+                     uvec3(6, 7, 4), uvec3(7, 3, 0), uvec3(0, 4, 7),
 
-	uvec3(6, 2, 1),
-	uvec3(2, 6, 5),
-	uvec3(0, 2, 5),
+                     uvec3(6, 2, 1), uvec3(2, 6, 5), uvec3(0, 2, 5),
 
-	uvec3(5, 4, 0),
-	uvec3(3, 6, 1),
-	uvec3(6, 3, 7)
-};
+                     uvec3(5, 4, 0), uvec3(3, 6, 1), uvec3(6, 3, 7)};
 
 layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
-	vec4 color0;
-	vec4 color1;
+  vec4 color0;
+  vec4 color1;
 
-	uint camera_index;
-	uint segments_size;
-	uint color_mode;
-	float multiplier;
-	float factor;
-	float length_multiplier;
+  uint camera_index;
+  uint segments_size;
+  uint color_mode;
+  float multiplier;
+  float factor;
+  float length_multiplier;
 };
 
 taskPayloadSharedEXT Task ts_in;
@@ -83,109 +66,116 @@ taskPayloadSharedEXT Task ts_in;
 uint segment_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
 uint laneID = gl_LocalInvocationID.x;
 
+void main() {
+  if (segment_id >= segments_size)
+    return;
 
-void main(){
-	if(segment_id >= segments_size) return;
+  SetMeshOutputsEXT(SEGMENT_VERTICES_SIZE, SEGMENT_TRIANGLE_SIZE);
 
-	SetMeshOutputsEXT(SEGMENT_VERTICES_SIZE, SEGMENT_TRIANGLE_SIZE);
-	
-	Segment segment = segments[segment_id];
+  Segment segment = segments[segment_id];
 
-	Particle particle0 = segment.particle0;
-	Particle particle1 = segment.particle1;
+  Particle particle0 = segment.particle0;
+  Particle particle1 = segment.particle1;
 
-	vec3 start_position = particle0.x;
-	vec3 end_position = particle1.x;
+  vec3 start_position = particle0.x;
+  vec3 end_position = particle1.x;
 
-	vec3 center_position = (start_position + end_position) * 0.5f;
-	float center_thickness = segment.radius * 2.0f * multiplier;
-	
-	//vec4 rotation = segment.q;
+  vec3 center_position = (start_position + end_position) * 0.5f;
+  float center_thickness = segment.radius * 2.0f * multiplier;
 
-	vec3 front = normalize(end_position - start_position);
-	vec4 rotation = quatLookAt(front, vec3(front.y, front.z, front.x));
+  // vec4 rotation = segment.q;
 
-	float length = length_multiplier * distance(start_position, end_position);
+  vec3 front = normalize(end_position - start_position);
+  vec4 rotation = quatLookAt(front, vec3(front.y, front.z, front.x));
 
-	mat4 instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, length));
-	
-	mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
-	
-	vec4 color;
-	if(color_mode == 0){
-		color = color0;
-	}else if(color_mode == 1){
-		color = segments[segment.node_handle].color;
-	}else if(color_mode == 2){
-		color = segment.group_index == 0 ? vec4(0.6, 0.3, 0.0, 1.0) : segments[segment.group_index].color;
-	}else if(color_mode == 3){
-		color = mix(color0, color1, clamp(mod(segment.boundary_distance, factor) / factor, 0.0, 1.0));
-	}else if(color_mode == 4){
-		color = mix(color0, color1, clamp(segment.strength, 0.0f, 1.0f));
-	}else if(color_mode == 5){
-		color = mix(color0, color1, clamp(abs(segment.shear_stretch_strain) / segment.shear_stretch_strain_limit, 0.0, 1.0));
-	}else if(color_mode == 6){
-		color = mix(color0, color1, clamp(segment.shear_stretch_strain_limit / factor, 0.0, 1.0));
-	}else if(color_mode == 7){
-		color = segments[segment_id].color;
-	}else if(color_mode == 8){
-		color = segments[segment.strand_handle].color; // TODO: Is this correct?
-	}else if(color_mode == 9){ // fungus density
-		//color = vec4(mix(vec3(1.0), vec3(0.26, 0.13, 0.0), clamp(segments[segment_id].fungus_density / 8.0, 0.0, 1.0)), 1.0);
-		color = vec4(mix(vec3(1.0), vec3(0.26, 0.13, 0.0), clamp(segments[segment_id].RW, 0.0, 1.0)), 1.0);
-	}
-	
-	float highlight1_ratio = 0.0f;
-	float highlight2_ratio = 0.0f;
-	float selected_ratio = 0.0f;
+  float length = length_multiplier * distance(start_position, end_position);
 
-	if(particle0.highlighted == 1){
-		highlight1_ratio += 0.4f;
-	}
-	if(particle0.highlighted == 2){
-		highlight2_ratio += 0.4f;
-	}
-	if(particle0.selected == 1){
-		selected_ratio += 0.4f;
-	}
-	if(particle1.highlighted == 1){
-		highlight1_ratio += 0.4f;
-	}
-	if(particle1.highlighted == 2){
-		highlight2_ratio += 0.4f;
-	}
-	if(particle1.selected == 1){
-		selected_ratio += 0.4f;
-	}
+  mat4 instance_matrix =
+      translate(center_position) * mat4_cast(rotation) * scale(vec3(center_thickness, center_thickness, length));
 
-	if(highlight2_ratio != 0.f){
-		color = mix(color, vec4(1, 0, 1, 1), highlight2_ratio);
-	}else if(selected_ratio != 0.f){
-		color = mix(color, vec4(1, 0, 0, 1), selected_ratio);
-	}else if(highlight1_ratio != 0.f){
-		color = mix(color, vec4(0, 0, 1, 1), highlight1_ratio);
-	} 
+  mat4 transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
 
-	[[unroll]]
-	for (uint i = 0; i < uint(SEGMENT_VERTEX_ITERATIONS); ++i)
-	{
-		uint vertex_index = laneID + i * WORKGROUP_SIZE;
-		if (vertex_index > SEGMENT_VERTICES_SIZE) break;
-		vec3 vertex_position = positions[vertex_index];
+  vec4 color;
+  if (color_mode == 0) {
+    color = color0;
+  } else if (color_mode == 1) {
+    color = segments[segment.node_handle].color;
+  } else if (color_mode == 2) {
+    color = segment.group_index == 0 ? vec4(0.6, 0.3, 0.0, 1.0) : segments[segment.group_index].color;
+  } else if (color_mode == 3) {
+    color = mix(color0, color1, clamp(mod(segment.boundary_distance, factor) / factor, 0.0, 1.0));
+  } else if (color_mode == 4) {
+    color = mix(color0, color1, clamp(segment.strength, 0.0f, 1.0f));
+  } else if (color_mode == 5) {
+    color =
+        mix(color0, color1, clamp(abs(segment.shear_stretch_strain) / segment.shear_stretch_strain_limit, 0.0, 1.0));
+  } else if (color_mode == 6) {
+    color = mix(color0, color1, clamp(segment.shear_stretch_strain_limit / factor, 0.0, 1.0));
+  } else if (color_mode == 7) {
+    color = segments[segment_id].color;
+  } else if (color_mode == 8) {
+    color = segments[segment.strand_handle].color;
+  } else if (color_mode == 9) {  // fungus density
+    color =
+        vec4(mix(vec3(1.0), vec3(0.26, 0.13, 0.0), clamp(segments[segment_id].fungus_density / 8.0, 0.0, 1.0)), 1.0);
+  } else if (color_mode == 10) {  // screen depth
+    if (segments[segment_id].screen_depth > 0.0f) {
+      color = vec4(mix(vec3(1.0), vec3(1.0, 0.0, 0.0), clamp(segments[segment_id].screen_depth, 0.0, 1.0)), 1.0);
+    } else {
+      color = vec4(mix(vec3(1.0), vec3(0.0, 0.0, 1.0), 1.0 - clamp(segments[segment_id].screen_depth, 0.0, 1.0)), 1.0);
+    }
+  }
 
-		ms_v_out[vertex_index].frag_pos = vec4(instance_matrix * vec4(vertex_position, 1.0)).xyz;
-		ms_v_out[vertex_index].normal = vec3(0, 1, 0);
-		ms_v_out[vertex_index].tangent = vec3(0, 0, 1);
-		ms_v_out[vertex_index].color = color;
-		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
-	}
+  float highlight1_ratio = 0.0f;
+  float highlight2_ratio = 0.0f;
+  float selected_ratio = 0.0f;
 
-	[[unroll]]
-	for (uint i = 0; i < uint(SEGMENT_PRIMITIVE_ITERATIONS); ++i)
-	{
-		uint triangle_index = laneID + i * WORKGROUP_SIZE;
-		if(triangle_index <= SEGMENT_TRIANGLE_SIZE){
-			gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
-		}
-	}
+  if (particle0.highlighted == 1) {
+    highlight1_ratio += 0.4f;
+  }
+  if (particle0.highlighted == 2) {
+    highlight2_ratio += 0.4f;
+  }
+  if (particle0.selected == 1) {
+    selected_ratio += 0.4f;
+  }
+  if (particle1.highlighted == 1) {
+    highlight1_ratio += 0.4f;
+  }
+  if (particle1.highlighted == 2) {
+    highlight2_ratio += 0.4f;
+  }
+  if (particle1.selected == 1) {
+    selected_ratio += 0.4f;
+  }
+
+  if (highlight2_ratio != 0.f) {
+    color = mix(color, vec4(1, 0, 1, 1), highlight2_ratio);
+  } else if (selected_ratio != 0.f) {
+    color = mix(color, vec4(1, 0, 0, 1), selected_ratio);
+  } else if (highlight1_ratio != 0.f) {
+    color = mix(color, vec4(0, 0, 1, 1), highlight1_ratio);
+  }
+
+  [[unroll]]
+  for (uint i = 0; i < uint(SEGMENT_VERTEX_ITERATIONS); ++i) {
+    uint vertex_index = laneID + i * WORKGROUP_SIZE;
+    if (vertex_index > SEGMENT_VERTICES_SIZE)
+      break;
+    vec3 vertex_position = positions[vertex_index];
+
+    ms_v_out[vertex_index].frag_pos = vec4(instance_matrix * vec4(vertex_position, 1.0)).xyz;
+    ms_v_out[vertex_index].normal = vec3(0, 1, 0);
+    ms_v_out[vertex_index].tangent = vec3(0, 0, 1);
+    ms_v_out[vertex_index].color = color;
+    gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
+  }
+
+  [[unroll]]
+  for (uint i = 0; i < uint(SEGMENT_PRIMITIVE_ITERATIONS); ++i) {
+    uint triangle_index = laneID + i * WORKGROUP_SIZE;
+    if (triangle_index <= SEGMENT_TRIANGLE_SIZE) {
+      gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
+    }
+  }
 }
