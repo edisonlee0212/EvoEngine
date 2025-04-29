@@ -14,6 +14,10 @@
 
 #define INFINITY uintBitsToFloat(0x7F800000)
 
+// Rot type bitmask
+const uint WHITE_ROT = 1 << 0;
+const uint BROWN_ROT = 1 << 1;
+
 const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
 const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
@@ -42,6 +46,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
   uint segment_size;
   float point_size;
   float injection_amount;
+  uint fungus_type;
 };
 
 void main() {
@@ -58,7 +63,15 @@ void main() {
       // useful for debugging, but not needed
       // global_index_of_min = segment_index;
 
-      segment.fungus_density = segment.fungus_density + injection_amount;
+      if ((fungus_type & WHITE_ROT) != 0) {
+        segment.RW = segment.RW + injection_amount;
+        segment.RW_pre = segment.RW;
+      }
+
+      if ((fungus_type & BROWN_ROT) != 0) {
+        segment.RB = segment.RB + injection_amount;
+        segment.RB_pre = segment.RB;
+      }
     }
     segments[segment_index] = segment;
   }

@@ -346,6 +346,7 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
                   dts->fungus_injection_operator->Update(
                       strands_operator_mouse_current, glm::vec2(canvas_size.x, canvas_size.y),
                       dynamic_strands_settings_.point_cut_thickness, dynamic_strands_settings_.fungus_injection_amount,
+                      dynamic_strands_settings_.fungus_white_rot, dynamic_strands_settings_.fungus_brown_rot,
                       camera_projection_view);
                 });
                 break;
@@ -498,8 +499,10 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
       case OperatorMode::FungusInjection: {
         ImGui::DragFloat("Injection thickness", &point_cut_thickness, 1.f, 1.0f, 100.0f);
         ImGui::DragFloat("Fungus injection amount", &fungus_injection_amount, 0.1f, 0.0f, 100.0f);
-        // TODO: Selector to choose between brown and white rot fungus
-        ImGui::Text("Fungus types are not implemented yet.");
+        // Check boxes for each rot type
+        ImGui::Text("Rot types:");
+        ImGui::Checkbox("White rot", &fungus_white_rot);
+        ImGui::Checkbox("Brown rot", &fungus_brown_rot);
         break;
       }
     }

@@ -231,6 +231,8 @@ class EcoSysLabLayer : public ILayer {
     float drag_multiplier = 1.f;                                         ///< The multiplier for drag forces.
     float point_cut_thickness = 2.f;                                     ///< The thickness for point cuts.
     float fungus_injection_amount = 1.0f;                                ///< The amount of fungus injected.
+    bool fungus_white_rot = true;                                        ///< Flag for white rot fungus type.
+    bool fungus_brown_rot = false;                                       ///< Flag for brown rot fungus type.
 
     /**
      * @enum TransformMode

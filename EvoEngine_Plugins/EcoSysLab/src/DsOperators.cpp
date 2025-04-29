@@ -787,7 +787,7 @@ DsFungusInjection::DsFungusInjection() {
     buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    buffer_create_info.size = sizeof(GpuMinDistance);  // NOT SURE
+    buffer_create_info.size = sizeof(GpuMinDistance);
     VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
     buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     min_distance_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
@@ -803,12 +803,28 @@ DsFungusInjection::DsFungusInjection() {
 }
 
 void DsFungusInjection::Update(const glm::vec2& point, const glm::vec2& screen_size, float point_size,
-                               float injection_amount, const glm::mat4& projection_view) {
+                               float injection_amount, bool white_rot, bool brown_rot,
+                               const glm::mat4& projection_view) {
   push_constant.point = point;
   push_constant.screen_size = screen_size;
   push_constant.point_size = point_size;
   push_constant.injection_amount = injection_amount;
   push_constant.projection_view = projection_view;
+
+  constexpr unsigned int WHITE_ROT = 1 << 0;
+  constexpr unsigned int BROWN_ROT = 1 << 1;
+
+  if (white_rot) {
+    push_constant.fungus_type |= WHITE_ROT;
+  } else {
+    push_constant.fungus_type &= ~WHITE_ROT;
+  }
+
+  if (brown_rot) {
+    push_constant.fungus_type |= BROWN_ROT;
+  } else {
+    push_constant.fungus_type &= ~BROWN_ROT;
+  }
 }
 
 void DsFungusInjection::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {

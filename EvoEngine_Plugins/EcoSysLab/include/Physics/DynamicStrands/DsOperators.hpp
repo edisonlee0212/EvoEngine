@@ -582,9 +582,10 @@ class DsFungusInjection : public IDsOperator {
     glm::vec2 point;            ///< Screen-space position for injection.
     glm::vec2 screen_size;      ///< Screen resolution.
 
-    uint32_t segment_size;   ///< Number of segment pairs affected by the injection.
-    float point_size;        ///< Size of the point affecting the injection.
-    float injection_amount;  ///< Amount of fungus injected.
+    uint32_t segment_size;     ///< Number of segment pairs affected by the injection.
+    float point_size;          ///< Size of the point affecting the injection.
+    float injection_amount;    ///< Amount of fungus injected.
+    unsigned int fungus_type;  ///< Bitmask for type of fungus being injected.
   };
 
   inline static std::shared_ptr<ComputePipeline>
@@ -610,7 +611,7 @@ class DsFungusInjection : public IDsOperator {
    * @param projection_view The projection-view matrix.
    */
   void Update(const glm::vec2& point, const glm::vec2& screen_size, float point_size, float injection_amount,
-              const glm::mat4& projection_view);
+              bool white_rot, bool brown_rot, const glm::mat4& projection_view);
 
   /**
    * @brief Executes the fungus injection operation on the strands.
