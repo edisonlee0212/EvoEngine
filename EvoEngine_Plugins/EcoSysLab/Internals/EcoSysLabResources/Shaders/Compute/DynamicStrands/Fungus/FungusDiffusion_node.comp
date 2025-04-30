@@ -12,21 +12,6 @@ const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
 const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-//const float dt = 0.0001f;
-//const float aw = 5.0f;
-//const float ab = 5.0f;
-//const float bw = 3.0f;
-//const float bb = 3.0f;
-//const float ycw = 1.0f;
-//const float ycb = 1.0f;
-//const float ylw = 2.0f;
-//const float pc = 0.2f;
-//const float pl = 0.1f;
-//const float k = 0.2f;
-//const float delta = 0.05f;
-//const float ll = 0.5f;
-//const float lc = 0.5f;
-
 uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
 uint laneID = gl_LocalInvocationID.x;
 
@@ -52,6 +37,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
     float delta;
     float ll;
     float lc;
+    float bo;
 };
 
 
@@ -65,7 +51,7 @@ void main(){
 		if(segment_index >= segment_size) break;
 
 		// Calculate K based on boundary distance
-        segments[segment_index].K = 1.0 / (8.0 * segments[segment_index].boundary_distance + 0.5);
+        segments[segment_index].K = (1.0 + bo) / (16.0 * bo * segments[segment_index].boundary_distance + 1.0);
         //segments[segment_index].K = 0.2;
         
         // Get diffusion values from the segment
@@ -75,7 +61,7 @@ void main(){
         
         // Update chemical protection (C)
         segments[segment_index].C = segments[segment_index].C_pre + 
-                         dt * (0.001 * diffusion_c + 
+                         dt * (0.1 * diffusion_c + 
                                     segments[segment_index].K * (1.0 - segments[segment_index].C_pre) * 
                                     (segments[segment_index].RW_pre + segments[segment_index].RB_pre) * 
                                     segments[segment_index].HC_pre - 
@@ -135,5 +121,6 @@ void main(){
         segments[segment_index].diffusion_c = 0.0;
         segments[segment_index].diffusion_w = 0.0;
         segments[segment_index].diffusion_b = 0.0;
+        segments[segment_index].pairs_count = 0;
 	}
 }

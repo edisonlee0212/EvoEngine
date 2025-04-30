@@ -44,6 +44,8 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       changed = true;
     if (ImGui::DragFloat("Segment length multiplier", &segment_length_multiplier, 0.05f, 0.2f, 1.0f))
       changed = true;
+    if (ImGui::DragFloat("General factor", &general_factor, 0.5f, 1.0f, 20.0f))
+      changed = true;
   }
 
   if (ImGui::Checkbox("Segment Pair", &render_segment_pairs))
@@ -372,7 +374,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
       break;
     }
     default: {
-      segment_push_constant.factor = 1.f;
+      segment_push_constant.factor = visualization_parameters.general_factor;
       break;
     }
   }

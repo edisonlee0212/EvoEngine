@@ -22,7 +22,9 @@ class DsFungus {
    */
   struct FungusDiffusionEdgePushConstant {
     uint32_t pair_size = 0;  ///< Number of segment pairs.
-    uint32_t _pad0[3];
+    float be = 2.0f;
+    float lignin_threshold = -1.0f;
+    uint32_t _pad;
     glm::mat4 matrixAw4;
     glm::mat4 matrixAb4;
     glm::mat4 matrixAc4;
@@ -34,11 +36,11 @@ class DsFungus {
    */
   struct FungusDiffusionNodePushConstant {
     uint32_t segment_size = 0;  ///< Number of segments.
-    float dt = 0.0001f;
+    float dt = 0.0005f;
     float aw = 5.0f;
     float ab = 5.0f;
-    float bw = 3.0f;
-    float bb = 3.0f;
+    float bw = 2.0f;
+    float bb = 2.0f;
     float ycw = 1.0f;
     float ycb = 1.0f;
     float ylw = 2.0f;
@@ -48,6 +50,7 @@ class DsFungus {
     float delta = 0.05f;
     float ll = 0.5f;
     float lc = 0.5f;
+    float bo = 1.0f;
   };
 
   inline static std::shared_ptr<ComputePipeline>
