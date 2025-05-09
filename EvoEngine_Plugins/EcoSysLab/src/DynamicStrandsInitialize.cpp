@@ -280,7 +280,7 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
                                                1.f / initialize_parameters.wood_transition, distance_to_boundary) *
                    segment.rest_length);
     segment.extra_mass = 0.f;
-    segment.snow_amount = segment.fungus_density = segment.fungus_density_prev = 0.f;
+    segment.snow_amount = 0.f;
 
     segment.C = 0.2f;
     segment.HC = 1.0f;
@@ -319,6 +319,7 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
                                    initialize_parameters.damage_scale_factor));
     segment.boundary_distance = distance_to_boundary;
     segment.profile_position = target_strand_segment_data.profile_position;
+
     segment.profile_polar_coordinate = target_strand_segment_data.profile_polar_coordinate;
 
     segment.shear_stretch_alpha = 1.f / (segment.max_young_modulus * area / segment.rest_length);

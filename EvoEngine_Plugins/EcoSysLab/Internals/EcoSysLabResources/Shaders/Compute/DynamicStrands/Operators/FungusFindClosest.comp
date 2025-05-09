@@ -60,9 +60,10 @@ void main() {
       break;
 
     segments[segment_index].screen_depth = INFINITY;
-    // only allow injection if there is no fungus already
-    // we set threshold to injection amount so small diffusions will not prohibit injection
-    if (segments[segment_index].RW >= injection_amount)
+    // only allow injection if there is no fungus already.
+    // we set threshold to 0.5 * injection amount so small diffusions to surrounding segments will not prohibit injection
+    // but the most recently injected segments are avoided.
+    if (segments[segment_index].RW >= 0.5 * injection_amount)
       continue;
 
     Segment segment = segments[segment_index];

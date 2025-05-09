@@ -438,13 +438,8 @@ class DynamicStrands {
 
     float extra_mass = 0.f;
     float snow_amount = 0.f;
-    float fungus_density = 0.f;
-    float fungus_density_prev = 0.f;
-
     float screen_depth = 0.0f;
     float padding0;
-    float padding1;
-    float padding2;
 
     float C = 0.2f;
     float HC = 1.0f;

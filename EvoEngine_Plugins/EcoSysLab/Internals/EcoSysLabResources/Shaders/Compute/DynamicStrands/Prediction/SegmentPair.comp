@@ -38,13 +38,22 @@ void main() {
     uint pair_index = baseID + local_index;
     if (pair_index >= pair_size)
       break;
-    // Modify limit here.
-    vec3 bending_twist_bundle_strain_limit = segment_pairs[pair_index].max_bending_twist_bundle_strain;
-    float connectivity_strain_limit = segment_pairs[pair_index].max_connectivity_strain;
 
     int segment0_handle = segment_pairs[pair_index].segment0_handle;
     int segment1_handle = segment_pairs[pair_index].segment1_handle;
 
+    // carbon health will affect the strain limits for connectivity and bending twist
+    float carbon_health0 = segments[segment0_handle].HC;
+    float carbon_health1 = segments[segment1_handle].HC;
+    float connection_health = min(carbon_health0, carbon_health1);
+
+    // we need to amplify decay somehow or no effect is visible
+    connection_health = 2.0 * connection_health - 1.0;
+
+    // Modify limit here.
+    vec3 bending_twist_bundle_strain_limit =
+        segment_pairs[pair_index].max_bending_twist_bundle_strain * connection_health;
+    float connectivity_strain_limit = segment_pairs[pair_index].max_connectivity_strain * connection_health;
 
     float strength = (segments[segment0_handle].strength + segments[segment1_handle].strength) * .5f;
 
