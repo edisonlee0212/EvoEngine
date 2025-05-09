@@ -255,15 +255,6 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       ImGui::TreePop();
     }
 
-    if (ImGui::TreeNodeEx("Fungus Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if (ImGui::DragFloat("Fungus growth rate", &dynamic_strands_settings_.physics_parameters.fungus_growth_rate,
-                           0.01f, 0.0f, 1.0f)) {
-        // need_full_flow_update = true;
-        // TODO: do we need to set a variable here?
-      }
-      ImGui::TreePop();
-    }
-
     if (ImGui::TreeNodeEx("Soil visualization settings")) {
       soil_visualization_settings_.OnInspect(editor_layer);
       ImGui::TreePop();

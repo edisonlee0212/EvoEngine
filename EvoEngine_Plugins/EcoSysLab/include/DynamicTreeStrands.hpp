@@ -184,6 +184,8 @@ class DynamicTreeStrands : public IPrivateComponent {
     bool fungus_test = true;
     float t_cut_width = 0.7f;  ///< Width of the T-cut.
 
+    glm::vec3 strength_anisotropy_factors = glm::vec3(2.0f, 0.5f, 1.0f);  ///< Anisotropy factors for strength.
+
     /**
      * @brief Inspects log experiment settings in the editor.
      * @param editor_layer Shared pointer to editor layer.

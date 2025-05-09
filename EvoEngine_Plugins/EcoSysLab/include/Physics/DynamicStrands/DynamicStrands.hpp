@@ -168,7 +168,9 @@ class DynamicStrands {
     bool dynamic_grouping = false;
     int grouping_iteration = 128;
     glm::vec3 gravity = glm::vec3(0, -9.81f, 0);
-    float fungus_growth_rate = 0.1f;  ///< The growth rate of the fungus.
+    float fungus_growth_rate = 0.1f;        ///< The growth rate of the fungus.
+    float health_zero_threshold = 0.1f;     ///< The threshold below which the health is considered zero.
+    float relative_volume_when_dry = 0.5f;  ///< The relative volume when totally dried compared to the initial state
 
     bool enable_fungus = true;
 
@@ -432,7 +434,7 @@ class DynamicStrands {
     glm::mat4 inv_inertia_w;
 
     float shear_stretch_strain = 0.0f;
-    int32_t node_handle = 0.0f;
+    int32_t node_handle = 0;
     float original_mass = 0.0f;
     int32_t group_index = 0;
 

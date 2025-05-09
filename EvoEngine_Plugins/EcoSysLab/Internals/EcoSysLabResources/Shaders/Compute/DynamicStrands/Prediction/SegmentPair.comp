@@ -29,6 +29,8 @@ layout(push_constant) uniform PUSH_CONSTANTS {
   float time_step;
   float inv_time_step;
   float fungus_growth_rate;
+  float health_zero_threshold;
+  float relative_volume_when_dry;
 };
 
 void main() {
@@ -42,18 +44,17 @@ void main() {
     int segment0_handle = segment_pairs[pair_index].segment0_handle;
     int segment1_handle = segment_pairs[pair_index].segment1_handle;
 
-    // carbon health will affect the strain limits for connectivity and bending twist
-    float carbon_health0 = segments[segment0_handle].HC;
-    float carbon_health1 = segments[segment1_handle].HC;
-    float connection_health = min(carbon_health0, carbon_health1);
+    // cellulose health will affect the strain limits for connectivity and bending twist
+    float cellulose_health0 = segments[segment0_handle].HC;
+    float cellulose_health1 = segments[segment1_handle].HC;
+    float connection_health = min(cellulose_health0, cellulose_health1);
 
     // we need to amplify decay somehow or no effect is visible
-    connection_health = 2.0 * connection_health - 1.0;
+    float durability = (connection_health - health_zero_threshold) / (1.0 - health_zero_threshold);
 
     // Modify limit here.
-    vec3 bending_twist_bundle_strain_limit =
-        segment_pairs[pair_index].max_bending_twist_bundle_strain * connection_health;
-    float connectivity_strain_limit = segment_pairs[pair_index].max_connectivity_strain * connection_health;
+    vec3 bending_twist_bundle_strain_limit = segment_pairs[pair_index].max_bending_twist_bundle_strain * durability;
+    float connectivity_strain_limit = segment_pairs[pair_index].max_connectivity_strain * durability;
 
     float strength = (segments[segment0_handle].strength + segments[segment1_handle].strength) * .5f;
 
@@ -71,8 +72,17 @@ void main() {
         (segments[segment0_handle].particle0.x0 + segments[segment0_handle].particle1.x0) * .5f;
     vec3 orginal_segment1_center_position =
         (segments[segment1_handle].particle0.x0 + segments[segment1_handle].particle1.x0) * .5f;
-    float orginal_distance = distance(orginal_segment0_center_position, orginal_segment1_center_position);
-    float bundle_strain = (current_distance - orginal_distance) / (l0 + l1) * 2.0f;
+
+    // shrink equilibrium distance according to connection health to simulate water loss
+    // map connection health = 1 to 1.0f, connection health = 0 to relative_volume_when_dry
+    float remaining_volume_factor = connection_health * (1.0f - relative_volume_when_dry) + relative_volume_when_dry;
+    // volume scales cubically with width, so we need to take the cube root
+    // note that this operation is only safe because we are guaranteed to have a positive volume
+    float remaining_width_factor = pow(remaining_volume_factor, 1.0 / 3.0);
+    float equilibrium_distance =
+        distance(orginal_segment0_center_position, orginal_segment1_center_position) * remaining_width_factor;
+    // TODO: why do we not buffer the original distance? Then we would not have to recompute it in every frame
+    float bundle_strain = (current_distance - equilibrium_distance) / (l0 + l1) * 2.0f;
 
     vec2 bend_twist_strain = bend_twist_strain(segments[segment0_handle].q, segments[segment1_handle].q,
                                                segment_pairs[pair_index].rest_darboux_vector);

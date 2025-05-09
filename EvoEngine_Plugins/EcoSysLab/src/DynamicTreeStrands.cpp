@@ -354,6 +354,7 @@ bool DynamicTreeStrands::LogExperimentSetupSettings::OnInspect(const std::shared
 
   ImGui::DragFloat3("Initial velocity", &initial_velocity.x, 0.01f, 0.0f, 1.0f);
   ImGui::DragFloat3("Initial angular velocity", &initial_angular_velocity.x, 0.01f, 0.0f, 1.0f);
+  ImGui::DragFloat3("Strength anisotropy factors", &strength_anisotropy_factors.x, 0.01f, 0.0f, 10.0f);
   return false;
 }
 
@@ -729,10 +730,10 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
 
   if (settings.fungus_test) {
     auto& segment = dynamic_strands->segments[0];
-    segment.RW = 1.0f;
-    segment.RB = 1.0f;
-    segment.RW_pre = 1.0f;
-    segment.RB_pre = 1.0f;
+    // segment.RW = 1.0f;
+    // segment.RB = 1.0f;
+    // segment.RW_pre = 1.0f;
+    // segment.RB_pre = 1.0f;
   }
   if (settings.lock_upper) {
     Jobs::RunParallelFor(dynamic_strands->segment_pairs.size(), [&](const auto i) {
@@ -775,6 +776,54 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       }
     });
   }
+
+  float anisotropic_upward_factor = settings.strength_anisotropy_factors.x;
+  float anisotropic_outward_factor = settings.strength_anisotropy_factors.y;
+  float anisotropic_circular_factor = settings.strength_anisotropy_factors.z;
+
+  // introduce anisotropy for bend twist bundle and connectivity integrity using polar coordinates
+  Jobs::RunParallelFor(dynamic_strands->segment_pairs.size(), [&](const auto i) {
+    DynamicStrands::GpuSegmentPair& segment_pair = dynamic_strands->segment_pairs[i];
+    DynamicStrands::GpuSegment& segment0 = dynamic_strands->segments[segment_pair.segment0_handle];
+    DynamicStrands::GpuSegment& segment1 = dynamic_strands->segments[segment_pair.segment1_handle];
+
+    // first check if the segments are in the same strand
+    if (segment0.strand_handle == segment1.strand_handle) {
+      segment_pair.bending_twist_bundle_strain_limit *= anisotropic_upward_factor;
+      segment_pair.connectivity_strain_limit *= anisotropic_upward_factor;
+    } else {
+      glm::vec2 polarDir = segment1.profile_polar_coordinate - segment0.profile_polar_coordinate;
+      float boundary_distance = 0.5f * (segment0.boundary_distance + segment1.boundary_distance);
+
+      float outward_distance = polarDir.x;
+      float circular_distance = polarDir.y * outward_distance;
+      glm::vec2 normalizedFactors =
+          glm::vec2(outward_distance, circular_distance) / (outward_distance + circular_distance);
+
+      // piecewise linear periodic function alternating between 0 and 1
+      // the sign of value_at_zero specifies the direction (i.e. falling or rising) of the function
+      static std::function<float(float, float, float)> function_family = [](float x, float period,
+                                                                            float value_at_zero) {
+        float retVal = 2.0f * glm::mod(x + value_at_zero * period * 0.5f, period) / period;
+        if (retVal > 1.0f) {
+          retVal = 2.0f - retVal;
+        }
+        return retVal;
+      };
+
+      std::function<float(float)> f = [&](float x) {
+        float period = 0.002f;
+        float value_at_zero = 0.0f;
+        return function_family(x, period, value_at_zero);
+      };
+
+      // TODO: maybe a geometric mean works better
+      segment_pair.bending_twist_bundle_strain_limit *=
+          outward_distance * anisotropic_outward_factor * f(boundary_distance) +
+          circular_distance * anisotropic_circular_factor;
+    }
+  });
+
   dynamic_strands->Upload();
   dynamic_strands->InitializeMesh(initialize_parameters);
   initialize_parameters.trunk_additional_strength = trunk;

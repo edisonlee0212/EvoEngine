@@ -22,6 +22,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	uint strand_size;
 	float inv_time_step;
 	uint frame_index;
+  float health_zero_threshold;
 };
 
 #define DYNAMIC_STRANDS_SET 0
@@ -47,7 +48,7 @@ void main(){
 				project_bend_twist_constraint(inv_time_step, prev_segment_pair_handle);
 			}
 			if(front_propagate_handle != -1) {
-				project_shear_stretch_constraint(inv_time_step, front_propagate_handle);
+        project_shear_stretch_constraint(inv_time_step, front_propagate_handle, health_zero_threshold);
 				front_propagate_handle = segments[front_propagate_handle].next_handle;
 				if(front_propagate_handle != -1) front_propagate_handle = segments[front_propagate_handle].next_handle;
 			}
@@ -57,7 +58,7 @@ void main(){
 				project_bend_twist_constraint(inv_time_step, next_segment_pair_handle);
 			}
 			if(back_propagate_handle != -1) {
-				project_shear_stretch_constraint(inv_time_step, back_propagate_handle);
+        project_shear_stretch_constraint(inv_time_step, back_propagate_handle, health_zero_threshold);
 				back_propagate_handle = segments[back_propagate_handle].prev_handle;
 				if(back_propagate_handle != -1) back_propagate_handle = segments[back_propagate_handle].prev_handle;
 			}

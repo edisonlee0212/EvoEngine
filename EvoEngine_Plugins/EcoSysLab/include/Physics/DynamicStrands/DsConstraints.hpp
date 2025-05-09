@@ -144,6 +144,7 @@ class DsStiffRod final : public IDsConstraint {
     uint32_t strand_size = 0;
     float inv_time_step;
     uint32_t frame_index;
+    float health_zero_threshold = 0.25f;
   };
 
   int sub_iteration = 1;
@@ -163,6 +164,7 @@ class DsBundle : public IDsConstraint {
     uint32_t skip_size = 1;
     uint32_t segment_size = 0;
     float inv_time_step = 0.0f;
+    float health_zero_threshold = 0.25f;
   };
 
   struct RandomBundleConstant {

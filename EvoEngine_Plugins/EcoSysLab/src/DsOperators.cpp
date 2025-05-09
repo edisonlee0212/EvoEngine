@@ -346,7 +346,6 @@ DsPointCut::DsPointCut() {
 
 void DsPointCut::Update(const glm::vec2& point, const glm::vec2& screen_size, const float point_size,
                         const glm::mat4& projection_view, const unsigned cut_mode) {
-  EVOENGINE_LOG("Cut mode: " << cut_mode);
   push_constant.point = point;
   push_constant.screen_size = screen_size;
   push_constant.point_size = point_size;

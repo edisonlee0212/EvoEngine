@@ -197,6 +197,8 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
         }
         segment_data.initial_distance_to_boundary = Strands::CubicInterpolation(d0, d1, d2, d3, segment_t);
         segment_data.profile_position = Strands::CubicInterpolation(p0, p1, p2, p3, segment_t);
+
+        // Calculate the polar coordinates of the profile position where x is the radius and y the angle
         const auto calculate_polar_coordinates = [](const glm::vec2& profile_position) {
           const auto r = glm::length(profile_position);
           if (r <= glm::epsilon<float>()) {

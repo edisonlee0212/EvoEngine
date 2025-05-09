@@ -226,8 +226,8 @@ void FungusTest::Initialize() {
   std::fill(HL.begin(), HL.end(), 1.0f);
 
   // Set initial resources at root node
-  RW[0] = 1.0f;
-  RB[0] = 1.0f;
+  // RW[0] = 1.0f;
+  // RB[0] = 1.0f;
 
   // Extract positions from your nodes
   for (int i = 0; i < num_nodes; ++i) {

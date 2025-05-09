@@ -256,6 +256,8 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   segment_pair_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   segment_pair_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
   segment_pair_push_constant.fungus_growth_rate = physics_parameters.fungus_growth_rate;
+  segment_pair_push_constant.health_zero_threshold = physics_parameters.health_zero_threshold;
+  segment_pair_push_constant.relative_volume_when_dry = physics_parameters.relative_volume_when_dry;
 
   LeafPredictionPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();

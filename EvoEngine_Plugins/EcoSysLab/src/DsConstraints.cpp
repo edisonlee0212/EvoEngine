@@ -352,6 +352,7 @@ void DsStiffRod::ProjectPositionConstraint(const DynamicStrands::PhysicsParamete
   stretch_shear_constraint_constant.strand_size = target_dynamic_strands.strands.size();
   stretch_shear_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   stretch_shear_constraint_constant.frame_index = target_dynamic_strands.GetFrameIndex();
+  stretch_shear_constraint_constant.health_zero_threshold = physics_parameters.health_zero_threshold;
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {
@@ -546,6 +547,7 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
   stretch_shear_constraint_constant.segment_size =
       static_cast<uint32_t>(target_dynamic_strands.segment_data_list.size());
   stretch_shear_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
+  stretch_shear_constraint_constant.health_zero_threshold = physics_parameters.health_zero_threshold;
 
   RandomBundleApplySegmentsConstant constraint_apply_segments_constant;
   constraint_apply_segments_constant.skip_size = skip_size;

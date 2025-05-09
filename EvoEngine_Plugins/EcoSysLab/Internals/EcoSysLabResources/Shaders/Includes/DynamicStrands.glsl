@@ -58,23 +58,23 @@ struct Segment {
   vec3 torque;
   float rest_length;
 
-  float max_young_modulus;
-  float shear_stretch_alpha;
-  float strength;
+  float max_young_modulus; ///< $E_max$
+  float shear_stretch_alpha;  ///< Some kind of inverse of $E$?
+  float strength; ///< $M$
   float boundary_distance;
 
   vec2 profile_position;
   vec2 profile_polar_coordinate;
 
   vec3 inertia_tensor;
-  float max_shear_stretch_strain;
+  float max_shear_stretch_strain; ///< original $\gamma_max / \epsilon_max$
   vec3 inv_inertia_tensor;
-  float shear_stretch_strain_limit;
+  float shear_stretch_strain_limit; ///< current $\gamma_max / \epsilon_max$
 
   mat4 inertia_w;
   mat4 inv_inertia_w;
 
-  float shear_stretch_strain;
+  float shear_stretch_strain;  ///< $\gamma / \epsilon$
   int node_handle;
   float original_mass;
   int group_index;
@@ -112,8 +112,8 @@ struct Segment {
 struct SegmentPair {
   int segment0_handle;
   int segment1_handle;
-  float bend_twist_bundle_integrity;
-  float connectivity_integrity;
+  float bend_twist_bundle_integrity;  ///< $c_b, c_t$ -- 0.0f = broken, 1.0f = intact
+  float connectivity_integrity;  ///< $c_c$ -- 0.0f = broken, 1.0f = intact
 
   float bending_alpha;
   float twisting_alpha;
@@ -125,11 +125,16 @@ struct SegmentPair {
 
   vec4 rest_darboux_vector;
 
-  vec3 bending_twist_bundle_strain;
-  float connectivity_strain;
-  vec3 max_bending_twist_bundle_strain;
+  // strain values:
+  vec3 bending_twist_bundle_strain; ///< $s_b, s_t, ?$
+  float connectivity_strain; ///< $?$
+
+  // fixed maximum values
+  vec3 max_bending_twist_bundle_strain;  
   float max_connectivity_strain;
-  vec3 bending_twist_bundle_strain_limit;
+
+  // actual limits dependent on strenght
+  vec3 bending_twist_bundle_strain_limit; ///< $B_b, B_t, ?$
   float connectivity_strain_limit;
 
   int tensile_lock;

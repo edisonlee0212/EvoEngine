@@ -231,6 +231,7 @@ class EcoSysLabLayer : public ILayer {
     float drag_multiplier = 1.f;                                         ///< The multiplier for drag forces.
     float point_cut_thickness = 2.f;                                     ///< The thickness for point cuts.
     float fungus_injection_amount = 1.0f;                                ///< The amount of fungus injected.
+    float fungus_injection_thickness = 2.f;                              ///< The thickness for fungus injection.
     bool fungus_white_rot = true;                                        ///< Flag for white rot fungus type.
     bool fungus_brown_rot = false;                                       ///< Flag for brown rot fungus type.
 
@@ -245,8 +246,8 @@ class EcoSysLabLayer : public ILayer {
      * @enum OperatorMode
      * @brief Defines different operator modes for strand manipulation.
      */
-    enum class OperatorMode { Drag, Saw, LineCut, PointCut, FungusInjection };
-    unsigned operator_mode = static_cast<unsigned>(OperatorMode::FungusInjection);  ///< Current operator mode.
+    enum class OperatorMode { Drag, Saw, LineCut, PointCut };
+    unsigned operator_mode = static_cast<unsigned>(OperatorMode::Drag);  ///< Current operator mode.
 
     bool cut_bend_twist_bundle_only = false;  ///< Flag to restrict cutting to bend/twist bundles only.
     bool enable_visualization = true;         ///< Enables or disables strand visualization.

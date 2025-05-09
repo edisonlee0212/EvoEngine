@@ -3,12 +3,13 @@
 #include "Math.glsl"
 
 // Constraint Solvers Decl
-void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle);
+void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle, in float health_zero_threshold);
 void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle, out vec3 x0_correction,
-                                      out vec3 x1_correction, out vec4 q_correction);
+                                      out vec3 x1_correction, out vec4 q_correction, in float health_zero_threshold);
 void project_shear_stretch_constraint(in float inv_time_step, in vec3 p0, in vec3 p1, in vec4 q, in float inv_mass_p0,
                                       in float inv_mass_p1, in float inv_mass_q, in vec3 alpha, in float rest_length,
-                                      out vec3 x0_correction, out vec3 x1_correction, out vec4 q_correction);
+                                      out vec3 x0_correction, out vec3 x1_correction, out vec4 q_correction,
+                                      in float health_zero_threshold);
 
 void project_bend_twist_constraint(in float inv_time_step, in int segment_pair_handle);
 void project_bend_twist_constraint(in float inv_time_step, in int segment_pair_handle, out vec4 q0_correction,
@@ -22,12 +23,12 @@ void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in fl
 void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in float over_relaxation);
 void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step);
 
-float AdaptAlphaToLigninHealth(in float lignin_health, in float alpha) {
-  return alpha / clamp(2.0 * lignin_health - 1.0, 0.001, 1.0);
+float AdaptAlphaToLigninHealth(in float lignin_health, in float alpha, in float zero_threshold) {
+  return alpha / clamp((lignin_health - zero_threshold) / (1.0 - zero_threshold), 0.001, 1.0);
 }
 
 // Constraint Solvers Impl
-void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle) {
+void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle, in float health_zero_threshold) {
   vec3 x0_correction, x1_correction;
   vec4 q_correction;
 
@@ -42,11 +43,12 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   float inv_mass_p1 = next_handle != -1 ? segments[next_handle].inv_mass : inv_mass_q;
 
   vec4 q = segments[segment_handle].q;
-  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha));
+  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha,
+                                             health_zero_threshold));
   float rest_length = segments[segment_handle].rest_length;
 
   project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
-                                   x0_correction, x1_correction, q_correction);
+                                   x0_correction, x1_correction, q_correction, health_zero_threshold);
 
   vec3 particle0_new_position = p0 + x0_correction;
   vec3 particle1_new_position = p1 + x1_correction;
@@ -74,7 +76,7 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
 }
 
 void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle, out vec3 x0_correction,
-                                      out vec3 x1_correction, out vec4 q_correction) {
+                                      out vec3 x1_correction, out vec4 q_correction, in float health_zero_threshold) {
   vec3 p0 = segments[segment_handle].particle0.x;
   vec3 p1 = segments[segment_handle].particle1.x;
 
@@ -86,16 +88,18 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   float inv_mass_p1 = next_handle != -1 ? segments[next_handle].inv_mass : inv_mass_q;
 
   vec4 q = segments[segment_handle].q;
-  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha));
+  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha,
+                                             health_zero_threshold));
   float rest_length = segments[segment_handle].rest_length;
 
   project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
-                                   x0_correction, x1_correction, q_correction);
+                                   x0_correction, x1_correction, q_correction, health_zero_threshold);
 }
 
 void project_shear_stretch_constraint(in float inv_time_step, in vec3 p0, in vec3 p1, in vec4 q, in float inv_mass_p0,
                                       in float inv_mass_p1, in float inv_mass_q, in vec3 alpha, in float rest_length,
-                                      out vec3 x0_correction, out vec3 x1_correction, out vec4 q_correction) {
+                                      out vec3 x0_correction, out vec3 x1_correction, out vec4 q_correction,
+                                      in float health_zero_threshold) {
   vec3 d3;
   d3[0] = -2.0f * (q.x * q.z + q.w * q.y);
   d3[1] = -2.0f * (q.y * q.z - q.w * q.x);
@@ -421,7 +425,7 @@ void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in f
           .q_correction = sum != 0 ? q_correction : vec4(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
-void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
+void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step, in float health_zero_threshold) {
   vec3 x0_correction, x1_correction;
   vec4 q_correction;
 
@@ -437,12 +441,13 @@ void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
 
   vec4 q = segments[segment_handle].q;
 
-  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha));
+  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha,
+                                             health_zero_threshold));
 
   float rest_length = segments[segment_handle].rest_length;
 
   project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
-                                   x0_correction, x1_correction, q_correction);
+                                   x0_correction, x1_correction, q_correction, health_zero_threshold);
 
   segment_data_list[segment_handle].particle0_position_correction.xyz = x0_correction;
   segment_data_list[segment_handle].particle1_position_correction.xyz = x1_correction;

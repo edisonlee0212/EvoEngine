@@ -214,6 +214,7 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
       }
       static bool is_box_selection_previously = false;
       static bool is_operating_previously = false;
+      static bool is_fungus_injection_previously = false;
       bool mouse_drag = false;
       if (window_focused && editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold &&
           editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Press) {
@@ -231,7 +232,7 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
         const glm::vec3 camera_up = camera_rotation * glm::vec3(0, 1, 0);
         const glm::vec3 camera_right = camera_rotation * glm::vec3(1, 0, 0);
 
-        if (mouse_drag && !is_operating_previously && !is_box_selection_previously) {
+        if (mouse_drag && !is_fungus_injection_previously && !is_operating_previously && !is_box_selection_previously) {
           strands_operator_mouse_start = mouse_valid_position;
           strand_operator_mouse_points.clear();
         }
@@ -246,6 +247,7 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
           });
           is_operating_previously = false;
           is_box_selection_previously = false;
+          is_fungus_injection_previously = false;
         } else if (mouse_drag) {
           strands_operator_mouse_current = mouse_valid_position;
           if (strand_operator_mouse_points.empty() ||
@@ -337,23 +339,23 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
                 });
                 break;
               }
-              case DynamicStrandsSettings::OperatorMode::FungusInjection: {
-                draw_list->AddCircleFilled(
-                    canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_current.y),
-                    dynamic_strands_settings_.point_cut_thickness, IM_COL32(255, 0, 0, 255));
-                for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-                  dts->fungus_injection_operator->enabled = true;
-                  dts->fungus_injection_operator->Update(
-                      strands_operator_mouse_current, glm::vec2(canvas_size.x, canvas_size.y),
-                      dynamic_strands_settings_.point_cut_thickness, dynamic_strands_settings_.fungus_injection_amount,
-                      dynamic_strands_settings_.fungus_white_rot, dynamic_strands_settings_.fungus_brown_rot,
-                      camera_projection_view);
-                });
-                break;
-              }
               default:
                 break;
             }
+          } else if (editor_layer->GetKey(GLFW_KEY_F) == Input::KeyActionType::Hold || is_fungus_injection_previously) {
+            is_fungus_injection_previously = true;
+
+            draw_list->AddCircleFilled(
+                canvas_p0 + ImVec2(strands_operator_mouse_current.x, strands_operator_mouse_current.y),
+                dynamic_strands_settings_.fungus_injection_thickness, IM_COL32(255, 0, 0, 255));
+            for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+              dts->fungus_injection_operator->enabled = true;
+              dts->fungus_injection_operator->Update(
+                  strands_operator_mouse_current, glm::vec2(canvas_size.x, canvas_size.y),
+                  dynamic_strands_settings_.fungus_injection_thickness,
+                  dynamic_strands_settings_.fungus_injection_amount, dynamic_strands_settings_.fungus_white_rot,
+                  dynamic_strands_settings_.fungus_brown_rot, camera_projection_view);
+            });
           }
         } else {
           if (is_box_selection_previously) {
@@ -398,6 +400,7 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
       }
       is_operating_previously = mouse_drag && is_operating_previously;
       is_box_selection_previously = mouse_drag && is_box_selection_previously;
+      is_fungus_injection_previously = mouse_drag && is_fungus_injection_previously;
     }
     draw_list->PopClipRect();
   };
@@ -481,7 +484,7 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
 void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Operators")) {
     ImGui::Combo("Transform Mode", {"None", "Translate", "Rotate"}, transform_mode);
-    ImGui::Combo("Operator Mode", {"Drag", "Saw", "Line Cut", "Point Cut", "Fungus Injection"}, operator_mode);
+    ImGui::Combo("Operator Mode", {"Drag", "Saw", "Line Cut", "Point Cut"}, operator_mode);
     switch (static_cast<OperatorMode>(operator_mode)) {
       case OperatorMode::Drag: {
         ImGui::DragFloat("Drag acceleration multiplier", &drag_multiplier, 0.001f, 0.0f, 1.0f);
@@ -496,15 +499,15 @@ void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<Edi
         ImGui::DragFloat("Cutter thickness", &point_cut_thickness, 1.f, 1.0f, 100.0f);
         break;
       }
-      case OperatorMode::FungusInjection: {
-        ImGui::DragFloat("Injection thickness", &point_cut_thickness, 1.f, 1.0f, 100.0f);
-        ImGui::DragFloat("Fungus injection amount", &fungus_injection_amount, 0.1f, 0.0f, 100.0f);
-        // Check boxes for each rot type
-        ImGui::Text("Rot types:");
-        ImGui::Checkbox("White rot", &fungus_white_rot);
-        ImGui::Checkbox("Brown rot", &fungus_brown_rot);
-        break;
-      }
+    }
+    if (ImGui::TreeNodeEx("Fungus injection settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+      ImGui::DragFloat("Injection thickness", &fungus_injection_thickness, 1.f, 1.0f, 100.0f);
+      ImGui::DragFloat("injection amount", &fungus_injection_amount, 0.1f, 0.0f, 100.0f);
+      // Check boxes for each rot type
+      ImGui::Text("Rot types:");
+      ImGui::Checkbox("White rot", &fungus_white_rot);
+      ImGui::Checkbox("Brown rot", &fungus_brown_rot);
+      ImGui::TreePop();
     }
     ImGui::TreePop();
   }

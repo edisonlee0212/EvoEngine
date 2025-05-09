@@ -391,6 +391,16 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
       if (ImGui::InputFloat3("matrixAc col2", pAc + 6, "%.2f")) {
         changed = true;
       }
+
+      if (ImGui::DragFloat("Health zero threshold", &health_zero_threshold, 0.01f, 0.0f, 1.0f)) {
+        changed = true;
+      }
+      if (ImGui::DragFloat("Fungus growth rate", &fungus_growth_rate, 0.01f, 0.0f, 1.0f)) {
+        changed = true;
+      }
+      if (ImGui::DragFloat("Relative dry volume", &relative_volume_when_dry, 0.01f, 0.0f, 1.0f)) {
+        changed = true;
+      }
       ImGui::TreePop();
     }
   }
