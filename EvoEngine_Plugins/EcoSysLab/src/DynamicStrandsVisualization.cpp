@@ -7,11 +7,11 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
   if (ImGui::Checkbox("Segments", &render_segments))
     changed = true;
   if (render_segments) {
-    if (ImGui::Combo(
-            "Segment mode",
-            {"Default", "Node color", "Group index", "Boundary distance", "Strength", "Shear/Strain strain",
-             "Shear/Stretch limit", "Segment color", "Strand color", "Fungus density", "Health", "Screen depth"},
-            segment_render_mode))
+    if (ImGui::Combo("Segment mode",
+                     {"Default", "Node color", "Group index", "Boundary distance", "Strength", "Shear/Strain strain",
+                      "Shear/Stretch limit", "Segment color", "Strand color", "Fungus density", "Health", "Moisture",
+                      "Screen depth"},
+                     segment_render_mode))
       changed = true;
 
     switch (segment_render_mode) {
@@ -73,7 +73,8 @@ bool DynamicStrands::VisualizationParameters::OnInspect(const std::shared_ptr<Ed
       case 6:
       case 7:
       case 8:
-      case 9: {
+      case 9:
+      case 10: {
         if (ImGui::ColorEdit4("Segment pair min color", &segment_pair_color_min.x))
           changed = true;
         if (ImGui::ColorEdit4("Segment pair max color", &segment_pair_color_max.x))

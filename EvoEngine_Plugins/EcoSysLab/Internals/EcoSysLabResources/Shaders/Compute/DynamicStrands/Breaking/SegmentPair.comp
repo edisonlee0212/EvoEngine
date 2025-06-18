@@ -56,7 +56,7 @@ void main(){
 
 		bool is_connection = segment_pairs[pair_index].connectivity_integrity != 0.f && (segments[segment0_handle].next_handle == segment1_handle || segments[segment1_handle].next_handle == segment0_handle);
 		
-		if(allow_disconnection == 1){
+		if (allow_disconnection == 1) {
 			if(((tensile_disconnection == 1 && segment_pairs[pair_index].tensile_lock == 0) && connectivity_strain > connectivity_strain_limit)
 				|| ((compression_disconnection == 1 && segment_pairs[pair_index].compression_lock == 0) && connectivity_strain < -connectivity_strain_limit * compression_strength_factor)
 				){

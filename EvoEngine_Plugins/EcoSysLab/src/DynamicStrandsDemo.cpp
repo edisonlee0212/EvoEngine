@@ -115,6 +115,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.center_damage = 0.95f;
     log_experiment_setup_settings.center_distance_offset = 0.01f;
     log_experiment_setup_settings.center_damage_transition = 0.02f;
+    log_experiment_setup_settings.fungus_test = false;
 
     // TODO
     dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
@@ -130,7 +131,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
 
-  if (ImGui::Button("Fungus")) {
+  if (ImGui::Button("Fungus [Internal]")) {
     ResetEnvironment(editor_layer);
     camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
     camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
@@ -138,15 +139,64 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     demo_type = DemoType::Fungus;
     demo_status = DemoStatus::Simulation;
     log_experiment_setup_settings.rod_segment_count = 10;
+    log_experiment_setup_settings.rod_segment_count = 20;
     log_experiment_setup_settings.rod_size = 3200;
+    log_experiment_setup_settings.segment_length = 0.025f;
+    log_experiment_setup_settings.fungus_test = true;
+    log_experiment_setup_settings.internal_pattern = true;
+    log_experiment_setup_settings.cube_pattern = false;
+    physics_parameters.enable_fungus = true;
 
-    // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
-    // noise.type = static_cast<unsigned>(NoiseType::Perlin);
-    /*dts->initialize_parameters.shear_stretch_strength = glm::vec2(500.f);
-    dts->initialize_parameters.bending_strength = glm::vec2(500.f);
-    dts->initialize_parameters.twisting_strength = glm::vec2(500.f);
-    dts->initialize_parameters.bundle_strength = glm::vec2(500.f);
-    dts->initialize_parameters.connectivity_strength = glm::vec2(500.f);*/
+    dts->LogExperimentSetup(log_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+  }
+
+  if (ImGui::Button("Fungus [Cubical]")) {
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
+    target_factor0 = 1.5f;
+    demo_type = DemoType::Fungus;
+    demo_status = DemoStatus::Simulation;
+    log_experiment_setup_settings.rod_segment_count = 10;
+    log_experiment_setup_settings.rod_segment_count = 20;
+    log_experiment_setup_settings.rod_size = 3200;
+    log_experiment_setup_settings.segment_length = 0.025f;
+    log_experiment_setup_settings.fungus_test = true;
+    log_experiment_setup_settings.cube_pattern = true;
+    log_experiment_setup_settings.internal_pattern = false;
+    physics_parameters.enable_fungus = true;
+    physics_parameters.bo = 0.0f;
+    physics_parameters.be = 0.0f;
+    physics_parameters.matrixAw = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
+    physics_parameters.matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
+
+    dts->LogExperimentSetup(log_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+  }
+
+  if (ImGui::Button("Fungus [Non-Cubical]")) {
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
+    target_factor0 = 1.5f;
+    demo_type = DemoType::Fungus;
+    demo_status = DemoStatus::Simulation;
+    log_experiment_setup_settings.rod_segment_count = 10;
+    log_experiment_setup_settings.rod_segment_count = 20;
+    log_experiment_setup_settings.rod_size = 3200;
+    log_experiment_setup_settings.segment_length = 0.025f;
+    log_experiment_setup_settings.fungus_test = true;
+    log_experiment_setup_settings.cube_pattern = false;
+    log_experiment_setup_settings.internal_pattern = false;
+    physics_parameters.enable_fungus = true;
+    physics_parameters.bo = 0.0f;
+    physics_parameters.be = 0.0f;
+    physics_parameters.matrixAw = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
+    physics_parameters.matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
+
     dts->LogExperimentSetup(log_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -160,6 +210,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.center_damage = 1.f;
     log_experiment_setup_settings.center_distance_offset = 0.01f;
     log_experiment_setup_settings.center_damage_transition = 0.02f;
+    log_experiment_setup_settings.fungus_test = false;
 
     dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
     dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
@@ -183,6 +234,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.center_damage = 0.95f;
     log_experiment_setup_settings.center_distance_offset = 0.01f;
     log_experiment_setup_settings.center_damage_transition = 0.02f;
+    log_experiment_setup_settings.fungus_test = false;
 
     dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
     dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
@@ -338,6 +390,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     demo_status = DemoStatus::Simulation;
     log_experiment_setup_settings.rod_segment_count = 10;
     log_experiment_setup_settings.rod_size = 3200;
+    log_experiment_setup_settings.fungus_test = false;
 
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
@@ -360,6 +413,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     demo_status = DemoStatus::Simulation;
     log_experiment_setup_settings.rod_segment_count = 10;
     log_experiment_setup_settings.rod_size = 3200;
+    log_experiment_setup_settings.fungus_test = false;
 
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);
@@ -381,6 +435,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     demo_status = DemoStatus::Simulation;
     log_experiment_setup_settings.rod_segment_count = 10;
     log_experiment_setup_settings.rod_size = 3200;
+    log_experiment_setup_settings.fungus_test = false;
 
     // auto& noise = dts->initialize_parameters.damage_graph.noise_descriptors.emplace_back();
     // noise.type = static_cast<unsigned>(NoiseType::Perlin);

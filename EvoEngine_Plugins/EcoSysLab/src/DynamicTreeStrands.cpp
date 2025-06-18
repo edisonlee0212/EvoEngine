@@ -1,6 +1,5 @@
 
 #include "DynamicTreeStrands.hpp"
-
 #include "BasicBarkDescriptor.hpp"
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"
@@ -36,6 +35,8 @@ void DynamicTreeStrands::UpdateDynamicStrands(DtsStrandGroup& randomly_subdivide
   const auto owner = GetOwner();
   const auto scene = GetScene();
   initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
+  //initialize_parameters.min_segment_length = 0.005f;
+  //initialize_parameters.max_segment_length = 0.01f;
 
   dynamic_strands->InitializeData(random_engine, initialize_parameters, strand_model.strand_model_skeleton,
                                   strand_model_strand_group, randomly_subdivided_strand_group,
@@ -706,6 +707,10 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   initialize_parameters.trunk_additional_strength = false;
   DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
   initialized_from_tree = false;
+  if (settings.fungus_test) {
+    initialize_parameters.min_segment_length = 0.005f;
+    initialize_parameters.max_segment_length = 0.01f;
+  }
   UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
 
   const auto& target_strand_segment_data_list = randomly_subdivided_strand_group.PeekStrandSegmentDataList();
@@ -733,6 +738,79 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     segment.RB = 1.0f;
     segment.RW_pre = 1.0f;
     segment.RB_pre = 1.0f;
+    if (false) {  // Uniformly subdivided strand groups
+      Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+        auto& segment = dynamic_strands->segments[i];
+        const float angleStep = 0.2f;
+        const float radiusStep = 5.0f;
+        const float xStep = 0.04f;
+
+        const float maxRadius = 100.f;
+        const float xMin = -1.0f;
+        const float xMax = 1.0f;
+
+        int ai = int((segment.profile_polar_coordinate[1] + glm::pi<float>()) / angleStep);
+        int ri = int(segment.profile_polar_coordinate[0] / radiusStep);
+        int xi = int((segment.particle0.x[0] - xMin) / xStep);
+
+        ai = std::max(ai, 0);
+        ri = std::max(ri, 0);
+        xi = std::max(xi, 0);
+
+        int maxAi = int(std::ceil((2.0f * glm::pi<float>()) / angleStep));
+        int maxRi = int(std::ceil(maxRadius / radiusStep));
+        int maxXi = int(std::ceil((xMax - xMin) / xStep));
+        ai = std::min(ai, maxAi - 1);
+        ri = std::min(ri, maxRi - 1);
+        xi = std::min(xi, maxXi - 1);
+
+        std::size_t gid = (std::size_t(ai) * 73856093u) ^ (std::size_t(ri) * 19349663u) ^ (std::size_t(xi) * 83492791u);
+
+        std::mt19937_64 rng(gid);
+        std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+        segment.color = glm::vec4(dist(rng), dist(rng), dist(rng), 1.0f);
+      });
+    } else {
+      Region INIT{0.0f, 100.0f, -glm::pi<float>(), glm::pi<float>(), 0.0f, 1.0f};
+      std::vector<Region> regions;
+      // Node* root = build_bsp(INIT,
+      //                        /*N=*/3200,
+      //                        /*p_half=*/0.1f,
+      //                        /*max_ratio=*/2.0f,
+      //                        /*max_tries=*/10, regions);
+
+      Node_tilt* root = build_bsp_tilt(INIT, /*N=*/12800, 0.1f, 1.8f, 10,
+                                       /*tilt_eps=*/0.2f, /*enable_tilt=*/true, regions);
+
+      std::mt19937 rng(std::random_device{}());
+      int K = (int)regions.size();
+      std::uniform_real_distribution<float> dc(0.0f, 1.0f);
+      std::vector<glm::vec4> region_colors(K);
+      for (int i = 0; i < K; ++i) {
+        region_colors[i] = glm::vec4(dc(rng), dc(rng), dc(rng), 1.0f);
+      }
+      Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+        auto& segment = dynamic_strands->segments[i];
+        std::array<float, 3> pt = {segment.profile_polar_coordinate[0], segment.profile_polar_coordinate[1],
+                                   segment.particle0.x[0]};
+        // int id = classify_point(pt, root);
+        // int id = classify_point_tilt(pt, root);
+        int id = classify_point_jitter_axis(pt, root, 0.002f, 0xA53A5F1Bu);
+        segment.color = region_colors[id];
+      });
+    }
+    if (settings.internal_pattern) {
+          Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+                auto& segment = dynamic_strands->segments[i];
+                segment.internal_pattern = 1;
+          });
+    }
+    if (settings.cube_pattern) {
+      Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+        auto& segment = dynamic_strands->segments[i];
+        segment.cube_pattern = 1;
+      });
+    }
   }
   if (settings.lock_upper) {
     Jobs::RunParallelFor(dynamic_strands->segment_pairs.size(), [&](const auto i) {
@@ -1360,4 +1438,312 @@ void DynamicTreeStrands::RegisterSegmentPairRenderInstance(
       }
     }
   }
+}
+
+void DynamicTreeStrands::split_one(const Region& c, float p_min, float p_max, float max_ratio, int max_tries,
+                                   Region& c1, Region& c2, Axis3& out_axis, float& out_coord) {
+  float dr = (c.r_max - c.r_min) / 150.f;
+  float dp = (c.phi_max - c.phi_min) * c.r_max / 300.f;
+  float dx = c.x_max - c.x_min;
+  float rr = dr / std::max(dp, dx);
+  float rp = dp / std::max(dr, dx);
+  float rx = dx / std::max(dr, dp);
+  if (rr > max_ratio)
+    out_axis = AX_R;
+  else if (rp > max_ratio)
+    out_axis = AX_PHI;
+  else if (rx > max_ratio)
+    out_axis = AX_X;
+  else {
+    if (dr >= dp && dr >= dx)
+      out_axis = AX_R;
+    else if (dp >= dr && dp >= dx)
+      out_axis = AX_PHI;
+    else
+      out_axis = AX_X;
+  }
+
+  std::mt19937 rng(std::random_device{}());
+  std::uniform_real_distribution<float> dist(p_min, p_max);
+
+  for (int i = 0; i < max_tries; ++i) {
+    float p = dist(rng), mid;
+    if (out_axis == AX_R) {
+      mid = c.r_min + dr * p * 150.f;
+      c1 = {c.r_min, mid, c.phi_min, c.phi_max, c.x_min, c.x_max};
+      c2 = {mid, c.r_max, c.phi_min, c.phi_max, c.x_min, c.x_max};
+    } else if (out_axis == AX_PHI) {
+      mid = c.phi_min + dp * p * 300.f / c.r_max;
+      c1 = {c.r_min, c.r_max, c.phi_min, mid, c.x_min, c.x_max};
+      c2 = {c.r_min, c.r_max, mid, c.phi_max, c.x_min, c.x_max};
+    } else {  // AX_X
+      mid = c.x_min + dx * p;
+      c1 = {c.r_min, c.r_max, c.phi_min, c.phi_max, c.x_min, mid};
+      c2 = {c.r_min, c.r_max, c.phi_min, c.phi_max, mid, c.x_max};
+    }
+    out_coord = mid;
+
+    auto good = [&](const Region& R) {
+      float e[3] = {(R.r_max - R.r_min) / 150.f, (R.phi_max - R.phi_min) * R.r_max / 300.f, R.x_max - R.x_min};
+      std::sort(e, e + 3);
+      return (e[2] / e[1] <= max_ratio) && (e[1] / e[0] <= max_ratio);
+    };
+    if (good(c1) && good(c2))
+      return;
+  }
+
+  float mid;
+  if (out_axis == AX_R) {
+    mid = 0.5f * (c.r_min + c.r_max);
+    out_coord = mid;
+    c1 = {c.r_min, mid, c.phi_min, c.phi_max, c.x_min, c.x_max};
+    c2 = {mid, c.r_max, c.phi_min, c.phi_max, c.x_min, c.x_max};
+  } else if (out_axis == AX_PHI) {
+    mid = 0.5f * (c.phi_min + c.phi_max);
+    out_coord = mid;
+    c1 = {c.r_min, c.r_max, c.phi_min, mid, c.x_min, c.x_max};
+    c2 = {c.r_min, c.r_max, mid, c.phi_max, c.x_min, c.x_max};
+  } else {
+    mid = 0.5f * (c.x_min + c.x_max);
+    out_coord = mid;
+    c1 = {c.r_min, c.r_max, c.phi_min, c.phi_max, c.x_min, mid};
+    c2 = {c.r_min, c.r_max, c.phi_min, c.phi_max, mid, c.x_max};
+  }
+}
+
+DynamicTreeStrands::Node* DynamicTreeStrands::build_bsp(const Region& init, int N, float p_half, float max_ratio,
+                                                        int max_tries, std::vector<Region>& out_regions) {
+  float p_min = 0.5f - p_half, p_max = 0.5f + p_half;
+  Node* root = new Node(0);
+  std::map<int, Region> leaves;
+  leaves[0] = init;
+  int next_id = 1;
+
+  while ((int)leaves.size() < N) {
+    int pick = -1;
+    float best = -1.0f;
+    for (auto& kv : leaves) {
+      const Region& R = kv.second;
+      float vol = (R.r_max - R.r_min) * (R.phi_max - R.phi_min) * (R.x_max - R.x_min);
+      if (vol > best) {
+        best = vol;
+        pick = kv.first;
+      }
+    }
+    Region cur = leaves[pick];
+    leaves.erase(pick);
+
+    Region c1, c2;
+    Axis3 axis;
+    float coord;
+    split_one(cur, p_min, p_max, max_ratio, max_tries, c1, c2, axis, coord);
+
+    std::function<bool(Node*)> ins = [&](Node* n) -> bool {
+      if (n->leaf_id == pick) {
+        n->axis = axis;
+        n->coord = coord;
+        n->leaf_id = -1;
+        n->left = new Node(pick);
+        n->right = new Node(next_id);
+        return true;
+      }
+      return (n->left && ins(n->left)) || (n->right && ins(n->right));
+    };
+    ins(root);
+
+    leaves[pick] = c1;
+    leaves[next_id] = c2;
+    ++next_id;
+  }
+
+  out_regions.resize(leaves.size());
+  for (auto& kv : leaves) {
+    out_regions[kv.first] = kv.second;
+  }
+  return root;
+}
+
+int DynamicTreeStrands::classify_point(const std::array<float, 3>& pt, Node* node) {
+  if (node->leaf_id >= 0)
+    return node->leaf_id;
+  float v = (node->axis == AX_R ? pt[0] : node->axis == AX_PHI ? pt[1] : pt[2]);
+  return classify_point(pt, v < node->coord ? node->left : node->right);
+}
+
+glm::vec3 normalize_param(float r, float phi, float x) {
+  float rn = (r) / (100.f);
+  float phin = (phi + glm::pi<float>()) / (2 * glm::pi<float>());
+  float xn = (x) / (1.f);
+  return {rn, phin, xn};
+}
+
+float DynamicTreeStrands::normalize_coord(Axis3 axis, float coord) {
+  if (axis == AX_R)
+    return (coord) / (100.f);
+  if (axis == AX_PHI)
+    return (coord + glm::pi<float>()) / (2 * glm::pi<float>());
+  /* AX_X */ return (coord) / (1.f);
+}
+
+inline float wrap01(float v) {
+  return v - std::floor(v);
+}
+
+inline uint32_t wang_hash(uint32_t x) {
+  x = (x ^ 61u) ^ (x >> 16);
+  x += (x << 3);
+  x ^= (x >> 4);
+  x *= 0x27d4eb2du;
+  x ^= (x >> 15);
+  return x;
+}
+
+inline float hash_to_symmetric01(uint32_t& state) {
+  state = wang_hash(state);
+  return (float(state) / 4294967295.0f) * 2.0f - 1.0f;
+}
+
+inline uint32_t seed_from_point(const std::array<float, 3>& pt, uint32_t base = 0x9E3779B9u) {
+  auto pack = [](float f) -> uint32_t {
+    return (uint32_t)std::floor(f * 65536.0f);
+  };
+  uint32_t x = pack(pt[0]);
+  uint32_t y = pack(pt[1]);
+  uint32_t z = pack(pt[2]);
+  uint32_t s = base;
+  s ^= x * 73856093u;
+  s ^= y * 19349663u;
+  s ^= z * 83492791u;
+  return wang_hash(s);
+}
+
+DynamicTreeStrands::Node_tilt* DynamicTreeStrands::build_bsp_tilt(const Region& init, int N, float p_half,
+                                                                  float max_ratio, int max_tries, float tilt_eps,
+                                                                  bool enable_tilt, std::vector<Region>& out_regions) {
+  float p_min = 0.5f - p_half, p_max = 0.5f + p_half;
+
+  Node_tilt* root = new Node_tilt(0);
+  std::map<int, Region> leaves;
+  leaves[0] = init;
+  int next_id = 1;
+
+  std::function<bool(Node_tilt*, int, Axis3, float, const Region&)> attach =
+      [&](Node_tilt* n, int target, Axis3 axis, float coord, const Region& cur) -> bool {
+    if (n->leaf_id == target) {
+      n->axis = axis;
+      n->coord = coord;
+      n->leaf_id = -1;
+      n->left = new Node_tilt(target);
+      n->right = new Node_tilt(next_id);
+
+      if (enable_tilt) {
+        float rc = 0.5f * (cur.r_min + cur.r_max);
+        float phic = 0.5f * (cur.phi_min + cur.phi_max);
+        float xc = 0.5f * (cur.x_min + cur.x_max);
+        if (axis == AX_R)
+          rc = coord;
+        else if (axis == AX_PHI)
+          phic = coord;
+        else
+          xc = coord;
+        n->p0_n = normalize_param(rc, phic, xc);
+
+        glm::vec3 base = (axis == AX_R)     ? glm::vec3(1, 0, 0)
+                         : (axis == AX_PHI) ? glm::vec3(0, 1, 0)
+                                            : glm::vec3(0, 0, 1);
+        std::uniform_real_distribution<float> d(-tilt_eps, tilt_eps);
+        glm::vec3 nn = base;
+        std::mt19937 g_rng(std::random_device{}());
+        if (axis == AX_R) {
+          // nn += glm::vec3(0, d(g_rng), d(g_rng));
+        } else if (axis == AX_PHI)
+          nn += glm::vec3(d(g_rng), 0, d(g_rng));
+        else
+          nn += glm::vec3(d(g_rng), d(g_rng), 0);
+        n->n_tilt = glm::normalize(nn);
+        n->has_tilt = true;
+      }
+      return true;
+    }
+    return (n->left && attach(n->left, target, axis, coord, cur)) ||
+           (n->right && attach(n->right, target, axis, coord, cur));
+  };
+
+  while ((int)leaves.size() < N) {
+    int pick = -1;
+    float bestV = -1.0f;
+    for (auto& kv : leaves) {
+      const Region& R = kv.second;
+      float v = (R.r_max - R.r_min) * (R.phi_max - R.phi_min) * (R.x_max - R.x_min);
+      if (v > bestV) {
+        bestV = v;
+        pick = kv.first;
+      }
+    }
+    Region cur = leaves[pick];
+    leaves.erase(pick);
+
+    Region c1, c2;
+    Axis3 axis;
+    float coord;
+    split_one(cur, p_min, p_max, max_ratio, max_tries, c1, c2, axis, coord);
+
+    attach(root, pick, axis, coord, cur);
+    leaves[pick] = c1;
+    leaves[next_id] = c2;
+    ++next_id;
+  }
+
+  out_regions.resize(leaves.size());
+  for (auto& kv : leaves)
+    out_regions[kv.first] = kv.second;
+  return root;
+}
+
+int DynamicTreeStrands::classify_point_tilt(const std::array<float, 3>& pt, const Node_tilt* node) {
+  if (node->leaf_id >= 0)
+    return node->leaf_id;
+
+  if (!node->has_tilt) {
+    float v = (node->axis == AX_R ? pt[0] : node->axis == AX_PHI ? pt[1] : pt[2]);
+    return classify_point_tilt(pt, (v < node->coord) ? node->left : node->right);
+  }
+  glm::vec3 p_n = normalize_param(pt[0], pt[1], pt[2]);
+  float side = glm::dot(node->n_tilt, p_n - node->p0_n);
+  return classify_point_tilt(pt, (side < 0.0f) ? node->left : node->right);
+}
+
+void DynamicTreeStrands::delete_tree(Node_tilt* n) {
+  if (!n)
+    return;
+  delete_tree(n->left);
+  delete_tree(n->right);
+  delete n;
+}
+
+int DynamicTreeStrands::classify_point_jitter_axis(const std::array<float, 3>& pt, const Node_tilt* node,
+                                                   float eps_norm, uint32_t base_seed) {
+  glm::vec3 pn = normalize_param(pt[0], pt[1], pt[2]);
+
+  const Node_tilt* n = node;
+  while (n->leaf_id < 0) {
+    float v_n = (n->axis == AX_R ? pn.x : n->axis == AX_PHI ? pn.y : pn.z);
+    float coord_n = normalize_coord(n->axis, n->coord);
+
+    uint32_t salt = (uint32_t)((uintptr_t)n & 0xFFFFFFFFu);
+    uint32_t state = seed_from_point(pt, base_seed ^ salt);
+
+    float j = hash_to_symmetric01(state) * eps_norm;
+
+    float vj = v_n + j;
+    if (n->axis == AX_PHI)
+      vj = wrap01(vj);
+    if (n->axis == AX_R)
+      vj = glm::clamp(vj, 0.0f, 1.0f);
+    if (n->axis == AX_X)
+      vj = glm::clamp(vj, 0.0f, 1.0f);
+
+    n = (vj < coord_n) ? n->left : n->right;
+  }
+  return n->leaf_id;
 }

@@ -181,7 +181,9 @@ class DynamicTreeStrands : public IPrivateComponent {
     glm::vec3 initial_angular_velocity = glm::vec3(0.f);  ///< Initial angular velocity of the structure.
     bool lock_upper = false;                              ///< Flag to lock the upper part.
     bool t_cut = false;                                   ///< Flag to enable T-cut operation.
-    bool fungus_test = true;
+    bool fungus_test = false;
+    bool cube_pattern = false;
+    bool internal_pattern = false;
     float t_cut_width = 0.7f;  ///< Width of the T-cut.
 
     /**
@@ -272,6 +274,59 @@ class DynamicTreeStrands : public IPrivateComponent {
    * @param render_parameters Parameters for segment pair rendering.
    */
   void RegisterSegmentPairRenderInstance(const DynamicStrands::SegmentPairsRenderParameters& render_parameters);
+
+  struct Region {
+    float r_min, r_max;
+    float phi_min, phi_max;
+    float x_min, x_max;
+  };
+
+  enum Axis3 { AX_R, AX_PHI, AX_X, AX_NONE };
+
+  struct Node {
+    Axis3 axis;
+    float coord;
+    Node* left;
+    Node* right;
+    int leaf_id;
+    Node(int id) : axis(AX_NONE), coord(0.0f), left(nullptr), right(nullptr), leaf_id(id) {
+    }
+  };
+
+  void split_one(const Region& c, float p_min, float p_max, float max_ratio, int max_tries, Region& c1, Region& c2,
+                 Axis3& out_axis, float& out_coord);
+
+  Node* build_bsp(const Region& init, int N, float p_half, float max_ratio, int max_tries,
+                  std::vector<Region>& out_regions);
+
+  int classify_point(const std::array<float, 3>& pt, Node* node);
+
+  struct Node_tilt {
+    Axis3 axis = AX_NONE;
+    float coord = 0.0f;
+    Node_tilt* left = nullptr;
+    Node_tilt* right = nullptr;
+    int leaf_id = -1;
+    glm::vec3 p0_n = glm::vec3(0.0f);
+    glm::vec3 n_tilt = glm::vec3(0.0f);
+    bool has_tilt = false;
+
+    Node_tilt() = default;
+    explicit Node_tilt(int id) : leaf_id(id) {
+    }
+  };
+
+  Node_tilt* build_bsp_tilt(const Region& init, int N, float p_half, float max_ratio, int max_tries, float tilt_eps,
+                            bool enable_tilt, std::vector<Region>& out_regions);
+
+  int classify_point_tilt(const std::array<float, 3>& pt, const Node_tilt* node);
+
+  void delete_tree(Node_tilt* n);
+
+  int classify_point_jitter_axis(const std::array<float, 3>& pt, const Node_tilt* node, float eps_norm,
+                                 uint32_t base_seed);
+
+  float normalize_coord(Axis3 axis, float coord);
 };
 
 }  // namespace eco_sys_lab_plugin

@@ -101,9 +101,13 @@ struct Segment {
 
   float diffusion_w;
   float diffusion_b;
-
   int pairs_count;
-  float property_2;
+  float moisture;
+
+  float moisture_pre;
+  float diffusion_m;
+  int internal_pattern;
+  int cube_pattern;
 
   Particle particle0;
   Particle particle1;

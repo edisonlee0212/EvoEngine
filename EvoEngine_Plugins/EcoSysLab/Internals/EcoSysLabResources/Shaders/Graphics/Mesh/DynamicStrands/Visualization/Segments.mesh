@@ -119,7 +119,14 @@ void main() {
     color = vec4(0.0, clamp(segments[segment_id].RW, 0.0, 1.0), clamp(segments[segment_id].RB, 0.0, 1.0), 1.0);
   } else if (color_mode == 10) {  // health
     color = vec4(clamp(segments[segment_id].HC, 0.0, 1.0), clamp(segments[segment_id].HL, 0.0, 1.0), 0.0, 1.0);
-  } else if (color_mode == 11) {  // screen depth
+  } else if (color_mode == 11) {  // fungus moisture
+    color =
+        vec4(mix(vec3(1.00, 0.90, 0.20), vec3(0.00, 0.45, 0.80), clamp(segments[segment_id].moisture, 0.0, 1.0)), 1.0);
+    if (segments[segment_id].profile_position[1] > 0.0) {
+      instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(vec3(0.0, 0.0, 0.0));
+      transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
+    }
+  } else if (color_mode == 12) {  // screen depth
     if (segments[segment_id].screen_depth > 0.0f) {
       color = vec4(mix(vec3(1.0), vec3(1.0, 0.0, 0.0), clamp(segments[segment_id].screen_depth, 0.0, 1.0)), 1.0);
     } else {

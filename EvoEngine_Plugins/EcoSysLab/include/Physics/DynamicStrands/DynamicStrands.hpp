@@ -170,7 +170,7 @@ class DynamicStrands {
     glm::vec3 gravity = glm::vec3(0, -9.81f, 0);
     float fungus_growth_rate = 0.1f;  ///< The growth rate of the fungus.
 
-    bool enable_fungus = true;
+    bool enable_fungus = false;
 
     float dt = 0.0005f;
     float aw = 5.0f;
@@ -460,7 +460,12 @@ class DynamicStrands {
     float diffusion_b = 0.f;
 
     int32_t pairs_count = 0;
-    float property_2 = 0.f;
+    float moisture = 1.0f;
+
+    float moisture_pre = 1.0f;
+    float diffusion_m = 0.f;
+    int32_t internal_pattern = 0;
+    int32_t cube_pattern = 0;
 
     GpuParticle particle0{};
     GpuParticle particle1{};
