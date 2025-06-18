@@ -298,7 +298,18 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     segment.diffusion_b = 0.f;
 
     segment.pairs_count = 0;
-    segment.property_2 = 0.f;
+    segment.moisture = 1.f;
+
+    segment.moisture_pre = 1.f;
+    segment.diffusion_m = 0.f;
+    segment.cube_pattern = 0;
+    segment.internal_pattern = 0;
+    segment.reach_ground = 0;
+
+    segment.prev_inside = 1;
+    segment.ground_damping = 1.0f;
+    segment.quasi_stable = 0;
+    segment.quasi_damping = 1.0f;
 
     segment.inertia_tensor = ComputeInertiaTensorRod(segment.original_mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
@@ -313,10 +324,10 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
                                              1.f / initialize_parameters.wood_transition, distance_to_boundary)) *
         1e9f;
     segment.strength =
-        glm::max(1e-9f, 1.0f - initialize_parameters.damage_graph.GetValue(
-                                   glm::vec3(target_strand_segment_data.profile_position * segment.radius * 2.f,
-                                             target_strand_segment_data.end_root_distance) /
-                                   initialize_parameters.damage_scale_factor));
+        2.0f * glm::max(1e-9f, 1.0f - initialize_parameters.damage_graph.GetValue(
+                                          glm::vec3(target_strand_segment_data.profile_position * segment.radius * 2.f,
+                                                    target_strand_segment_data.end_root_distance) /
+                                          initialize_parameters.damage_scale_factor));  // Zhanyu: temp scale factor:2.f
     segment.boundary_distance = distance_to_boundary;
     segment.profile_position = target_strand_segment_data.profile_position;
 
@@ -337,7 +348,7 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
                                                                     initialize_parameters.sapwood_offset,
                                                                     1.f / initialize_parameters.wood_transition,
                                                                     distance_to_boundary));
-    segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain = max_shear_stretch_strain;
+    segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain = max_shear_stretch_strain;  // 0.0001f
 
     const auto& strand_segment = randomly_subdivided_strand_group.PeekStrandSegment(static_cast<int>(segment_handle));
     const auto& strand_segment_data =
@@ -353,12 +364,14 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
 
     particle0.acceleration = particle1.acceleration = glm::vec3(0.0);
     particle0.node_handle = particle1.node_handle = strand_segment_data.node_handle;
+    particle0.dmin_external = particle1.dmin_external = 1e30f;
+    particle0.user_bound = particle1.user_bound = 1e30f;
+    particle0.root_distance = particle1.root_distance = root_distance;
   });
 
   strand_model_strand_group.UniformlySubdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
       uniformly_subdivided_strand_group, initialize_parameters.uniform_subdivision,
       [&](const StrandHandle src_handle, DtsStrandData& strand_data) {
-
       },
       [&](const float start_root_distance, const float end_root_distance, const StrandSegmentHandle src_handle,
           const uint32_t original_segment_index, const float segment_t, DtsStrandSegmentData& segment_data,
@@ -385,7 +398,6 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
 
           p1 = p2;
           p0 = p1 * 2.0f - p2;
-
         } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
           const auto& prev_segment_data =
               strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
@@ -394,7 +406,6 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
 
           p0 = p2;
           p1 = prev_segment_data.profile_position;
-
         } else {
           const auto& prev_segment = strand_model_strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
           const auto& prev_segment_data =
@@ -411,7 +422,6 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
           d3 = d2 * 2.0f - d1;
 
           p3 = p2 * 2.0f - p1;
-
         } else {
           const auto& next_segment_data =
               strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetNextHandle());
@@ -980,8 +990,8 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
                                                                     1.f / initialize_parameters.wood_transition,
                                                                     distance_to_boundary));
     segment_pair.max_bending_twist_bundle_strain = segment_pair.bending_twist_bundle_strain_limit =
-        glm::vec3(max_bending_strain, max_twisting_strain, max_bundle_strain);
-    segment_pair.max_connectivity_strain = segment_pair.connectivity_strain_limit = max_connectivity_strain;
+        glm::vec3(max_bending_strain, max_twisting_strain, max_bundle_strain);                                // 0.01f
+    segment_pair.max_connectivity_strain = segment_pair.connectivity_strain_limit = max_connectivity_strain;  // 0.0001f
 
     segment_pair.compression_lock = segment_pair.positional_lock = segment_pair.rotational_lock =
         segment_pair.tensile_lock = 0;
@@ -1004,6 +1014,11 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
 
   hashed_grid_elements.resize(segments.size());
   hashed_grid_cell_starts.resize(HASH_GRID_CELL_SIZE);
+
+  Jobs::RunParallelFor(HASH_GRID_CELL_SIZE, [&](const auto pair_index) {
+    hashed_grid_cell_starts[pair_index].start_index = segments.size() - 1;
+    hashed_grid_cell_starts[pair_index].end_index = 0;
+  });
 
   // Create foliage here.
   auto initialize_parameters_copy = initialize_parameters;

@@ -6,6 +6,9 @@
 #include "StrandGroup.hpp"
 #include "StrandModelData.hpp"
 namespace eco_sys_lab_plugin {
+class DsSegmentCollisionPostStep;
+}
+namespace eco_sys_lab_plugin {
 class DsSegmentCollision;
 class DsDynamicHashedGrid;
 }  // namespace eco_sys_lab_plugin
@@ -169,22 +172,30 @@ class DynamicStrands {
     glm::vec3 gravity = glm::vec3(0, -9.81f, 0);
     float fungus_growth_rate = 0.1f;  ///< The growth rate of the fungus.
 
-    bool enable_fungus = true;
+    bool enable_fungus = false;
+
+    float a_geom = 0.03f;     
+    float b_vel = 0.5f;     
+    float c_bias = 0.f;       
+    float s_min = 1e-5f;
+    float s_max_ratio = 0.2f;  
+    float eta = 0.75f;          
+    float bmax_far = 10.0f * s_min;    
 
     float dt = 0.0005f;
-    float aw = 5.0f;
+    float aw = 5.0f; //growth rate
     float ab = 5.0f;
-    float bw = 2.0f;
+    float bw = 2.0f; //chemical defense
     float bb = 2.0f;
-    float ycw = 1.0f;
-    float ycb = 1.0f;
-    float ylw = 2.0f;
-    float pc = 0.2f;
-    float pl = 0.1f;
-    float k = 0.2f;
-    float delta = 0.05f;
-    float ll = 0.5f;
-    float lc = 0.5f;
+    float ycw = 1.0f; //carbon tissue damage (w)
+    float ycb = 1.0f; //carbon tissue damage (b)
+    float ylw = 2.0f; //lignin tissue damage (w)
+    float pc = 0.2f;  //carbon regeneration
+    float pl = 0.1f;  //lignin regeneration
+    float k = 0.2f;  //defense rate
+    float delta = 0.05f; //defense decay rate
+    float ll = 0.5f; //lignin weight for w
+    float lc = 0.5f; //carbon weight for w
     float bo = 1.0f;
     float be = 2.0f;
     float lignin_threshold = -1.0f;
@@ -344,6 +355,7 @@ class DynamicStrands {
   std::shared_ptr<DsVelocityUpdate> velocity_update;
   std::shared_ptr<DsDynamicHashedGrid> dynamic_hashed_grid;
   std::shared_ptr<DsSegmentCollision> segment_collision;
+  std::shared_ptr<DsSegmentCollisionPostStep> collision_post_step;
   std::vector<std::shared_ptr<IDsConstraint>> constraints;
 
   void UpdateBindings() const;
@@ -391,6 +403,11 @@ class DynamicStrands {
 
     glm::vec3 acceleration = glm::vec3(0.f);
     int node_handle = -1;
+
+    float dmin_external = 1e30;
+    float user_bound = 1e30;
+    float root_distance = 0.f;
+    int padding2 = 0;
   };
 
   struct GpuSegment {
@@ -438,7 +455,7 @@ class DynamicStrands {
     float extra_mass = 0.f;
     float snow_amount = 0.f;
     float screen_depth = 0.0f;
-    float padding0;
+    int reach_ground;
 
     float C = 0.2f;
     float HC = 1.0f;
@@ -459,7 +476,17 @@ class DynamicStrands {
     float diffusion_b = 0.f;
 
     int32_t pairs_count = 0;
-    float property_2 = 0.f;
+    float moisture = 1.0f;
+
+    float moisture_pre = 1.0f;
+    float diffusion_m = 0.f;
+    int32_t internal_pattern = 0;
+    int32_t cube_pattern = 0;
+
+    int32_t prev_inside = 1;
+    float ground_damping = 1.0f;
+    int32_t quasi_stable = 0;
+    float quasi_damping = 1.0f;
 
     GpuParticle particle0{};
     GpuParticle particle1{};
@@ -612,7 +639,7 @@ class DynamicStrands {
 
   struct GpuHashedGridCellStart {
     uint32_t start_index = -1;
-    uint32_t padding0;
+    uint32_t end_index;
     uint32_t padding1;
     uint32_t padding2;
   };

@@ -699,7 +699,7 @@ DsSegmentCollision::DsSegmentCollision() {
     spherical_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
     auto& push_constant_range = spherical_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(SphericalPushConstant);
+    push_constant_range.size = sizeof(CapsulePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
@@ -712,18 +712,66 @@ void DsSegmentCollision::Execute(const DynamicStrands::PhysicsParameters& physic
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
-  SphericalPushConstant spherical_push_constant;
-  spherical_push_constant.segment_size = target_dynamic_strands.segments.size();
-  spherical_push_constant.grid_cell_size = target_dynamic_strands.dynamic_hashed_grid->grid_cell_size;
+  CapsulePushConstant capsule_push_constant;
+  capsule_push_constant.segment_size = target_dynamic_strands.segments.size();
+  capsule_push_constant.grid_cell_size = target_dynamic_strands.dynamic_hashed_grid->grid_cell_size;
+  capsule_push_constant.dt = physics_parameters.time_step;
+  capsule_push_constant.a_geom = physics_parameters.a_geom;
+  capsule_push_constant.b_vel = physics_parameters.b_vel;
+  capsule_push_constant.c_bias = physics_parameters.c_bias;
+  capsule_push_constant.s_min = physics_parameters.s_min;
+  capsule_push_constant.s_max_ratio = physics_parameters.s_max_ratio;
+  capsule_push_constant.eta = physics_parameters.eta;
+  capsule_push_constant.bmax_far = physics_parameters.bmax_far;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     spherical_pipeline->Bind(vk_command_buffer);
     spherical_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
-    spherical_pipeline->PushConstant(vk_command_buffer, 0, spherical_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(spherical_push_constant.segment_size, work_group_invocations), 1,
-                  1);
+    spherical_pipeline->PushConstant(vk_command_buffer, 0, capsule_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(capsule_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+}
+
+DsSegmentCollisionPostStep::DsSegmentCollisionPostStep() {
+  if (!spherical_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/SegmentCollision/ApplyClamp.comp");
+
+    spherical_pipeline = std::make_shared<ComputePipeline>();
+    spherical_pipeline->compute_shader = shader;
+    spherical_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = spherical_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SphericalPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    spherical_pipeline->Initialize();
+  }
+}
+
+void DsSegmentCollisionPostStep::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                         const DynamicStrands& target_dynamic_strands) {
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+
+  SphericalPushConstant capsule_push_constant;
+  capsule_push_constant.segment_size = target_dynamic_strands.segments.size();
+  capsule_push_constant.dt = physics_parameters.time_step;
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    spherical_pipeline->Bind(vk_command_buffer);
+    spherical_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    spherical_pipeline->PushConstant(vk_command_buffer, 0, capsule_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(capsule_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }

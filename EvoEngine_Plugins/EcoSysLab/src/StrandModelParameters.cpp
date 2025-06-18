@@ -29,9 +29,9 @@ bool StrandModelParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor
   }
   if (ImGui::DragFloat("Overlap threshold", &overlap_threshold, 0.01f, 0.0f, 1.0f))
     changed = true;
-  if (ImGui::DragInt("Initial branch strand count", &strands_along_branch, 1, 1, 50))
+  if (ImGui::DragInt("Initial branch strand count", &strands_along_branch, 1, 0, 50))
     changed = true;
-  if (ImGui::DragInt("Initial end node strand count", &end_node_strands, 1, 1, 50))
+  if (ImGui::DragInt("Initial end node strand count", &end_node_strands, 10, 1, 2000))
     changed = true;
 
   if (ImGui::Checkbox("Pre-merge", &pre_merge))

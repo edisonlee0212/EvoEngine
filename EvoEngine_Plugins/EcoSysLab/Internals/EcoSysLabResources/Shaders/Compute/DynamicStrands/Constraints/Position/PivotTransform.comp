@@ -52,9 +52,16 @@ void main(){
 
 		if(global_index >= command_size) break;
 
+		//continue;
+
 		SegmentUpdate segment_update = segment_updates[global_index];
 		uint segment_index = segment_update.segment_index;
+                if (segment_index == 4294967295u)
+                        continue;
 		Segment segment = segments[segment_index];
+                if (segment.HC < 0.1 + max(0.3 - segment.boundary_distance,
+                                           0.0))  // Todo: Automatically align with fungus threshold
+			continue;
 		segment.q = segment.last_q = segment_update.new_rotation;
 		segment.torque = vec3(0, 0, 0);
 		segment.inv_mass = 0.0f;

@@ -14,7 +14,7 @@ namespace eco_sys_lab_plugin {
  */
 class DynamicStrandsDemo : public IPrivateComponent {
   /// @brief Target simulation time in seconds.
-  float target_simulation_time = 10.f;
+  float target_simulation_time = 100.f;
 
   /// @brief Currently simulated time in seconds.
   float simulated_time = 0.f;

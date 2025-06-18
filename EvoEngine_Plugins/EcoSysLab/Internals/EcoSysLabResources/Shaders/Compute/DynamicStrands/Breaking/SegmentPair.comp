@@ -17,78 +17,108 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint pair_size;
-	uint allow_disconnection;
-	uint allow_breaking;
-	float compression_strength_factor;
+  uint pair_size;
+  uint allow_disconnection;
+  uint allow_breaking;
+  float compression_strength_factor;
 
-    uint tensile_disconnection;
-    uint compression_disconnection;
-    uint positional_breaking;
-    uint rotational_breaking;
+  uint tensile_disconnection;
+  uint compression_disconnection;
+  uint positional_breaking;
+  uint rotational_breaking;
 };
 
-void main(){
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint pair_index = baseID + local_index;
+    if (pair_index >= pair_size)
+      break;
+    SegmentPair segment_pair = segment_pairs[pair_index];
+    float connectivity_integrity = segment_pairs[pair_index].connectivity_integrity;
+    float bend_twist_bundle_integrity = segment_pairs[pair_index].bend_twist_bundle_integrity;
+    vec3 bending_twist_bundle_strain_limit = segment_pair.bending_twist_bundle_strain_limit;
+    vec3 bending_twist_bundle_strain = segment_pairs[pair_index].bending_twist_bundle_strain;
 
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint pair_index = baseID + local_index;
-		if(pair_index >= pair_size) break;
-		SegmentPair segment_pair = segment_pairs[pair_index];
-		float connectivity_integrity = segment_pairs[pair_index].connectivity_integrity;
-		float bend_twist_bundle_integrity = segment_pairs[pair_index].bend_twist_bundle_integrity;
-		vec3 bending_twist_bundle_strain_limit = segment_pair.bending_twist_bundle_strain_limit;
-		vec3 bending_twist_bundle_strain = segment_pairs[pair_index].bending_twist_bundle_strain;
+    float connectivity_strain_limit = segment_pair.connectivity_strain_limit;
+    float connectivity_strain = segment_pairs[pair_index].connectivity_strain;
 
-		float connectivity_strain_limit = segment_pair.connectivity_strain_limit;
-		float connectivity_strain = segment_pairs[pair_index].connectivity_strain;
+    int segment0_handle = segment_pairs[pair_index].segment0_handle;
+    int segment1_handle = segment_pairs[pair_index].segment1_handle;
 
+    float shear_stretch_strain_limit_0 = segments[segment0_handle].shear_stretch_strain_limit;
+    float shear_stretch_strain_limit_1 = segments[segment1_handle].shear_stretch_strain_limit;
 
-		int segment0_handle = segment_pairs[pair_index].segment0_handle;
-		int segment1_handle = segment_pairs[pair_index].segment1_handle;
+    float scaling_factor = 1.0f; 
+    float moisture = (segments[segment0_handle].moisture + segments[segment1_handle].moisture) / 2.0;
+    scaling_factor = moisture * moisture * moisture * moisture * moisture * moisture;
+    scaling_factor = max(1.f, scaling_factor); //currently disabled, for tree: 0.0003f to 0.001f
 
-		bool is_connection = segment_pairs[pair_index].connectivity_integrity != 0.f && (segments[segment0_handle].next_handle == segment1_handle || segments[segment1_handle].next_handle == segment0_handle);
-		
-		if(allow_disconnection == 1){
-			if(((tensile_disconnection == 1 && segment_pairs[pair_index].tensile_lock == 0) && connectivity_strain > connectivity_strain_limit)
-				|| ((compression_disconnection == 1 && segment_pairs[pair_index].compression_lock == 0) && connectivity_strain < -connectivity_strain_limit * compression_strength_factor)
-				){
-				connectivity_integrity = 0.0f;
-			}
-		}
-		if(allow_breaking == 1){
-			if(is_connection){
-				if(((positional_breaking == 1 && segment_pairs[pair_index].positional_lock == 0) && (abs(segments[segment0_handle].shear_stretch_strain) > segments[segment0_handle].shear_stretch_strain_limit
-						|| abs(segments[segment1_handle].shear_stretch_strain) > segments[segment1_handle].shear_stretch_strain_limit))
+    if (segments[segment0_handle].reach_ground == 0) {
+      shear_stretch_strain_limit_0 *= 1.f * scaling_factor;
+    }
+    if (segments[segment1_handle].reach_ground == 0) {
+      shear_stretch_strain_limit_1 *= 1.f * scaling_factor;
+    }
+    if (segments[segment0_handle].reach_ground == 0 || segments[segment1_handle].reach_ground == 0)
+    {
+      //connectivity_strain_limit *= 0.4f * scaling_factor * 1.25;
+      //connectivity_strain_limit *= 0.0005f;
+      connectivity_strain_limit *= max(5.f * scaling_factor /6.f, 0.0005f);
+      bending_twist_bundle_strain_limit.x *= 0.4f * scaling_factor;
+      bending_twist_bundle_strain_limit.y *= 0.4f * scaling_factor;
+    }
 
-					|| ((rotational_breaking == 1 && segment_pairs[pair_index].rotational_lock == 0) && (abs(bending_twist_bundle_strain.x) > bending_twist_bundle_strain_limit.x
-						|| abs(bending_twist_bundle_strain.y) > bending_twist_bundle_strain_limit.y))
-					){
-					bend_twist_bundle_integrity = 0.0f;
-				}
-			}else{
-				bool bundle_breaking = false;
-				bundle_breaking = bundle_breaking || ((tensile_disconnection == 1 && segment_pairs[pair_index].tensile_lock == 0) && bending_twist_bundle_strain.z > bending_twist_bundle_strain_limit.z);
-				bundle_breaking = bundle_breaking || ((compression_disconnection == 1 && segment_pairs[pair_index].compression_lock == 0) && bending_twist_bundle_strain.z < -bending_twist_bundle_strain_limit.z * compression_strength_factor);
+    bool is_connection = segment_pairs[pair_index].connectivity_integrity != 0.f &&
+                         (segments[segment0_handle].next_handle == segment1_handle ||
+                          segments[segment1_handle].next_handle == segment0_handle);
 
-				if(((rotational_breaking == 1 && segment_pairs[pair_index].rotational_lock == 0) && (abs(bending_twist_bundle_strain.x) > bending_twist_bundle_strain_limit.x
-						|| abs(bending_twist_bundle_strain.y) > bending_twist_bundle_strain_limit.y))
-					|| ((positional_breaking == 1 && segment_pairs[pair_index].positional_lock == 0) && bundle_breaking)
-					){
-					bend_twist_bundle_integrity = 0.0f;
-				}
-			}
-			
-		}
+    if (allow_disconnection == 1) {
+      if (((tensile_disconnection == 1 && segment_pairs[pair_index].tensile_lock == 0) &&
+           connectivity_strain > connectivity_strain_limit) ||
+          ((compression_disconnection == 1 && segment_pairs[pair_index].compression_lock == 0) &&
+           connectivity_strain < -connectivity_strain_limit * compression_strength_factor)) {
+        connectivity_integrity = 0.0f;
+      }
+    }
+    if (allow_breaking == 1) {
+      if (is_connection) {
+        if (((positional_breaking == 1 && segment_pairs[pair_index].positional_lock == 0) &&
+             (abs(segments[segment0_handle].shear_stretch_strain) > shear_stretch_strain_limit_0 ||
+              abs(segments[segment1_handle].shear_stretch_strain) > shear_stretch_strain_limit_1))
 
-		segment_pairs[pair_index].bend_twist_bundle_integrity = bend_twist_bundle_integrity;
-		segment_pairs[pair_index].connectivity_integrity = connectivity_integrity;
-	}
+            || ((rotational_breaking == 1 && segment_pairs[pair_index].rotational_lock == 0) &&
+                (abs(bending_twist_bundle_strain.x) > bending_twist_bundle_strain_limit.x ||
+                 abs(bending_twist_bundle_strain.y) > bending_twist_bundle_strain_limit.y))) {
+          bend_twist_bundle_integrity = 0.0f;
+          //connectivity_integrity = 0.0f;
+        }
+      } else {
+        bool bundle_breaking = false;
+        bundle_breaking =
+            bundle_breaking || ((tensile_disconnection == 1 && segment_pairs[pair_index].tensile_lock == 0) &&
+                                bending_twist_bundle_strain.z > bending_twist_bundle_strain_limit.z);
+        bundle_breaking =
+            bundle_breaking ||
+            ((compression_disconnection == 1 && segment_pairs[pair_index].compression_lock == 0) &&
+             bending_twist_bundle_strain.z < -bending_twist_bundle_strain_limit.z * compression_strength_factor);
+
+        if (((rotational_breaking == 1 && segment_pairs[pair_index].rotational_lock == 0) &&
+             (abs(bending_twist_bundle_strain.x) > bending_twist_bundle_strain_limit.x ||
+              abs(bending_twist_bundle_strain.y) > bending_twist_bundle_strain_limit.y)) ||
+            ((positional_breaking == 1 && segment_pairs[pair_index].positional_lock == 0) && bundle_breaking)) {
+          bend_twist_bundle_integrity = 0.0f;
+        }
+      }
+    }
+
+    segment_pairs[pair_index].bend_twist_bundle_integrity = bend_twist_bundle_integrity;
+    segment_pairs[pair_index].connectivity_integrity = connectivity_integrity;
+  }
 }

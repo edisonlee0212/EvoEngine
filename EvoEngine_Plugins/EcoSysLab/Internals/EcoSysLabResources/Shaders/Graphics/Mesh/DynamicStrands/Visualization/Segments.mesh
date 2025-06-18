@@ -108,7 +108,7 @@ void main() {
     color = mix(color0, color1, clamp(segment.strength, 0.0f, 1.0f));
   } else if (color_mode == 5) {
     color =
-        mix(color0, color1, clamp(abs(segment.shear_stretch_strain) / segment.shear_stretch_strain_limit, 0.0, 1.0));
+        mix(color0, color1, clamp(abs(segment.shear_stretch_strain) * 200.f / segment.shear_stretch_strain_limit, 0.0, 1.0));
   } else if (color_mode == 6) {
     color = mix(color0, color1, clamp(segment.shear_stretch_strain_limit / factor, 0.0, 1.0));
   } else if (color_mode == 7) {
@@ -116,10 +116,23 @@ void main() {
   } else if (color_mode == 8) {
     color = segments[segment.strand_handle].color;
   } else if (color_mode == 9) {  // fungus density
-    color = vec4(0.0, clamp(segments[segment_id].RW, 0.0, 1.0), clamp(segments[segment_id].RB, 0.0, 1.0), 1.0);
+    //color = vec4(clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0),
+    //             clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0),
+    //             clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0), 1.0);
+    color = vec4(0.0, clamp(segments[segment_id].RW, 0.0, 1.0), clamp(segments[segment_id].RW, 0.0, 1.0), 1.0);
+    //color = vec4(clamp(segments[segment_id].HL, 0.0, 1.0), clamp(segments[segment_id].HL, 0.0, 1.0), 0.0, 1.0);
+    //color = vec4(0.2, 0.2, 0.2, 1.0) * float(segments[segment_id].reach_ground);
   } else if (color_mode == 10) {  // health
-    color = vec4(clamp(segments[segment_id].HC, 0.0, 1.0), clamp(segments[segment_id].HL, 0.0, 1.0), 0.0, 1.0);
-  } else if (color_mode == 11) {  // screen depth
+    color = vec4(clamp(segments[segment_id].HC, 0.0, 1.0), clamp(segments[segment_id].HC, 0.0, 1.0), 0.0, 1.0);
+    /*color = vec4(0.2, 0.2, 0.2, 1.0) * float(segments[segment_id].reach_ground);*/
+  } else if (color_mode == 11) {  // fungus moisture
+    color =
+        vec4(mix(vec3(1.00, 0.90, 0.20), vec3(0.00, 0.45, 0.80), clamp(segments[segment_id].moisture, 0.0, 1.0)), 1.0);
+    if (segments[segment_id].profile_position[1] > 0.0) {
+      instance_matrix = translate(center_position) * mat4_cast(rotation) * scale(vec3(0.0, 0.0, 0.0));
+      transform = EE_CAMERAS[camera_index].projection_view * instance_matrix;
+    }
+  } else if (color_mode == 12) {  // screen depth
     if (segments[segment_id].screen_depth > 0.0f) {
       color = vec4(mix(vec3(1.0), vec3(1.0, 0.0, 0.0), clamp(segments[segment_id].screen_depth, 0.0, 1.0)), 1.0);
     } else {

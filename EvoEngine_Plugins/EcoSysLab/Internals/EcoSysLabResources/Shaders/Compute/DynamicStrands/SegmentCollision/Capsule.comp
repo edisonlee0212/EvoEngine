@@ -1,0 +1,194 @@
+
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrandsPhysics.glsl"
+
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint segment_size;
+  float cell_size;
+};
+
+ void closestPointsSegments(in vec3 A, in vec3 B, in vec3 C, in vec3 D, out float s, out float t, out vec3 P, out vec3 Q,
+                           out float dist) {
+  vec3 u = B - A, v = D - C, w = A - C;
+  float a = dot(u, u), b = dot(u, v), c = dot(v, v), d0 = dot(u, w), e = dot(v, w);
+  float Dden = a * c - b * b;
+  const float EPS = 1e-8;
+  if (Dden < EPS) {
+    s = clamp(-d0 / max(a, EPS), 0, 1);
+    t = clamp((b * s - e) / max(c, EPS), 0, 1);
+  } else {
+    s = clamp((b * e - c * d0) / Dden, 0, 1);
+    t = clamp((a * e - b * d0) / Dden, 0, 1);
+  }
+  P = A + s * u;
+  Q = C + t * v;
+  dist = length(P - Q);
+}
+
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint segment_handle = baseID + local_index;
+
+    if (segment_handle >= segment_size)
+      break;
+    SegmentData segment_data = segment_data_list[segment_handle];
+
+    Segment segment = segments[segment_handle];
+    float ground_damping = segment.ground_damping;
+    float quasi_damping = segment.quasi_damping;
+    if (segment.reach_ground == 1) {
+      segments[segment_handle].ground_damping *= 0.99;
+    }
+    if (segment.quasi_stable == 1) {
+      segments[segment_handle].quasi_damping *= 0.995;
+    }
+    Particle particle0 = segment.particle0;
+    Particle particle1 = segment.particle1;
+
+    int exert_fricton_0 = 0;
+    int exert_fricton_1 = 0;
+
+    vec3 p0 = particle0.x;
+    vec3 p1 = particle1.x;
+    vec4 color = segment.color;
+
+    vec3 segment_center_position = (p0 + p1) * 0.5f;
+
+    int apply_constraint = segment.prev_inside;
+
+    ivec3 coordinate;
+    coordinate.x = int(segment_center_position.x / cell_size);
+    coordinate.y = int(segment_center_position.y / cell_size);
+    coordinate.z = int(segment_center_position.z / cell_size);
+    int sum = 0;
+    uint begin = segment_size;
+    uint end = 0;
+    vec3 position_offset = vec3(0.0f, 0.0f, 0.0f);
+    int group_index = segment.group_index;
+    for (int x = -1; x <= 1; x++) {
+      for (int y = -1; y <= 1; y++) {
+        for (int z = -1; z <= 1; z++) {
+          ivec3 current_coordinate = coordinate + ivec3(x, y, z);
+          uint cell_id = hash_cell_coordinate(current_coordinate);
+          uint start_index = hashed_grid_cell_starts[cell_id].start_index;
+          uint end_index = hashed_grid_cell_starts[cell_id].end_index;
+          if (start_index < begin && start_index != 0xFFFFFFFF) {
+            begin = start_index;
+          }
+          if (end_index > end && end_index != 0xFFFFFFFF) {
+            end = end_index;
+          }
+        }
+      }
+    }
+    while (begin < end) {  
+      uint neighbor_segment_handle = hashed_grid_elements[begin].segment_handle;
+      Segment neighbor_segment = segments[neighbor_segment_handle];
+      if (neighbor_segment.group_index != group_index) {
+        Particle neighbor_particle0 = neighbor_segment.particle0;
+        Particle neighbor_particle1 = neighbor_segment.particle1;
+
+        vec4 neighbor_color = neighbor_segment.color;
+        vec3 neighbor_p0 = neighbor_particle0.x;
+        vec3 neighbor_p1 = neighbor_particle1.x;
+
+        vec3 neighbor_segment_center_position = (neighbor_p0 + neighbor_p1) * 0.5f;
+
+        float sP, tP, d;
+        vec3 Pi, Pj;
+
+        closestPointsSegments(p0, p1, neighbor_p0, neighbor_p1, sP, tP, Pi, Pj, d);
+        float diff_length = length(d);
+        vec3 diff = Pi - Pj;
+
+        vec3 diff0 = particle0.x - neighbor_segment_center_position;
+        vec3 diff1 = particle1.x - neighbor_segment_center_position;
+        float diff_length0 = length(diff0);
+        float diff_length1 = length(diff1);
+
+
+        vec3 direction = vec3(0, 0, 0);
+
+        if (diff_length < 0.01f && neighbor_segment.reach_ground == 1) {
+          segments[segment_handle].quasi_stable = 1;
+        }
+        if (diff_length < 0.0015f && neighbor_segment.quasi_stable == 1) {
+          segments[segment_handle].quasi_stable = 1;
+        }
+        if (uvec4(clamp(neighbor_color * 255.0, 0.0, 255.0)) != uvec4(clamp(color * 255.0, 0.0, 255.0))) {
+          if (diff_length > 0.f) {
+            direction = normalize(diff);
+          }
+
+          if (diff_length < 0.05) {
+            position_offset += direction * max(0.0f, 0.05 - diff_length);
+            if (diff_length < 0.02) {
+              segments[segment_handle].particle0.v =
+                  scaleAlongDirectional(segments[segment_handle].particle0.v, -direction, 50 * diff_length);
+              segments[segment_handle].particle1.v =
+                  scaleAlongDirectional(segments[segment_handle].particle1.v, -direction, 50 * diff_length);
+            }
+          }
+          if (diff_length0 < 0.02) {
+            if (segments[segment_handle].quasi_stable == 1 && neighbor_segment.quasi_stable == 1 &&
+                diff_length0 < 0.0015) {
+              exert_fricton_0 = 1;
+            }
+          }
+          if (diff_length1 < 0.02) {
+            if (segments[segment_handle].quasi_stable == 1 && neighbor_segment.quasi_stable == 1 &&
+                diff_length1 < 0.0015) {
+              exert_fricton_1 = 1;
+            } 
+          }
+          sum++;
+        }
+      }
+      begin++;
+    }
+    if (sum != 0) {
+      position_offset /= sum;
+      position_offset *= 10.f;
+      if (segments[segment_handle].quasi_stable == 1) {
+
+        vec3 up = vec3(0.0, 1.0, 0.0);
+
+        if (exert_fricton_0 == 1) {
+          float friction = 0.8 * 9.8;
+          segments[segment_handle].particle0.v = vec3(0.0);
+        }
+        if (exert_fricton_1 == 1) {
+          float friction = 0.8 * 9.8;
+          segments[segment_handle].particle1.v = vec3(0.0);
+        }
+
+      } else {
+        segments[segment_handle].particle0.v += position_offset * 30.f;  // 30.0f;
+        segments[segment_handle].particle1.v += position_offset * 30.f;
+      }
+    }
+  }
+}
