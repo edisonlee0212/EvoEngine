@@ -10,6 +10,11 @@ void project_shear_stretch_constraint(in float inv_time_step, in vec3 p0, in vec
                                       in float inv_mass_p1, in float inv_mass_q, in vec3 alpha, in float rest_length,
                                       out vec3 x0_correction, out vec3 x1_correction, out vec4 q_correction);
 
+void project_shear_stretch_constraint_pre_strain(in float inv_time_step, in float bd, in float HC, in vec3 p0,
+                                                 in vec3 p1, in vec4 q, in float inv_mass_p0, in float inv_mass_p1,
+                                                 in float inv_mass_q, in vec3 alpha, in float rest_length,
+                                                 out vec3 x0_correction, out vec3 x1_correction, out vec4 q_correction);
+
 void project_bend_twist_constraint(in float inv_time_step, in int segment_pair_handle);
 void project_bend_twist_constraint(in float inv_time_step, in int segment_pair_handle, out vec4 q0_correction,
                                    out vec4 q1_correction);
@@ -34,6 +39,9 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   vec3 p0 = segments[segment_handle].particle0.x;
   vec3 p1 = segments[segment_handle].particle1.x;
 
+  float bd = segments[segment_handle].boundary_distance;
+  float HC = segments[segment_handle].HC;
+
   int prev_handle = segments[segment_handle].prev_handle;
   int next_handle = segments[segment_handle].next_handle;
 
@@ -42,11 +50,11 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   float inv_mass_p1 = next_handle != -1 ? segments[next_handle].inv_mass : inv_mass_q;
 
   vec4 q = segments[segment_handle].q;
-  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha));
+  vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
   float rest_length = segments[segment_handle].rest_length;
 
-  project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
-                                   x0_correction, x1_correction, q_correction);
+  project_shear_stretch_constraint_pre_strain(inv_time_step, bd, HC, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q,
+                                              alpha, rest_length, x0_correction, x1_correction, q_correction);
 
   vec3 particle0_new_position = p0 + x0_correction;
   vec3 particle1_new_position = p1 + x1_correction;
@@ -78,6 +86,9 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   vec3 p0 = segments[segment_handle].particle0.x;
   vec3 p1 = segments[segment_handle].particle1.x;
 
+  float bd = segments[segment_handle].boundary_distance;
+  float HC = segments[segment_handle].HC;
+
   int prev_handle = segments[segment_handle].prev_handle;
   int next_handle = segments[segment_handle].next_handle;
 
@@ -86,11 +97,11 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   float inv_mass_p1 = next_handle != -1 ? segments[next_handle].inv_mass : inv_mass_q;
 
   vec4 q = segments[segment_handle].q;
-  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha));
+  vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
   float rest_length = segments[segment_handle].rest_length;
 
-  project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
-                                   x0_correction, x1_correction, q_correction);
+  project_shear_stretch_constraint_pre_strain(inv_time_step, bd, HC, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q,
+                                              alpha, rest_length, x0_correction, x1_correction, q_correction);
 }
 
 void project_shear_stretch_constraint(in float inv_time_step, in vec3 p0, in vec3 p1, in vec4 q, in float inv_mass_p0,
@@ -101,6 +112,45 @@ void project_shear_stretch_constraint(in float inv_time_step, in vec3 p0, in vec
   d3[1] = -2.0f * (q.y * q.z - q.w * q.x);
   d3[2] = -q.w * q.w + q.x * q.x + q.y * q.y - q.z * q.z;
 
+  // rest_length = rest_length * 0.5f;
+  vec3 lambda = p1 - p0 - d3 * rest_length;
+  mat3 r = mat3_cast(q);
+  lambda = transpose(r) * lambda;
+  float factor = max(1e-9f, inv_mass_p0 + inv_mass_p1 + 4.0f * inv_mass_q * rest_length * rest_length);
+
+  float t2 = inv_time_step * inv_time_step;
+  vec3 alpha_factor = vec3(t2 * alpha.x, t2 * alpha.y, t2 * alpha.z);
+  lambda.x /= factor + alpha_factor.x;
+  lambda.y /= factor + alpha_factor.y;
+  lambda.z /= factor + alpha_factor.z;
+
+  lambda = r * lambda;
+
+  x0_correction = inv_mass_p0 * lambda;
+  x1_correction = -inv_mass_p1 * lambda;
+
+  vec4 q_e_3_bar = vec4(q.y, -q.x, q.w, -q.z);
+  q_correction = quat_mul(vec4(lambda.x, lambda.y, lambda.z, 0.0f), q_e_3_bar);
+  q_correction *= 2.f * inv_mass_q * rest_length;  // From PositionBasedDynamics repo.
+  // q_correction *= inv_mass_q * rest_length; //Derived from original paper.
+}
+
+void project_shear_stretch_constraint_pre_strain(in float inv_time_step, in float bd, in float HC, in vec3 p0,
+                                                 in vec3 p1, in vec4 q, in float inv_mass_p0, in float inv_mass_p1,
+                                                 in float inv_mass_q, in vec3 alpha, in float rest_length,
+                                                 out vec3 x0_correction, out vec3 x1_correction,
+                                                 out vec4 q_correction) {
+  vec3 d3;
+  d3[0] = -2.0f * (q.x * q.z + q.w * q.y);
+  d3[1] = -2.0f * (q.y * q.z - q.w * q.x);
+  d3[2] = -q.w * q.w + q.x * q.x + q.y * q.y - q.z * q.z;
+
+  vec3 abs_dis = abs(p1 - p0);
+  float bd_factor = 6.0f * max(0.03f - bd, 0.0f) * (1.0f - HC);
+  bd_factor = 12.0f * max(0.03f - bd, 0.0f);
+  bd_factor = 0.0f;
+
+  rest_length = rest_length * (1.0f - bd_factor);
   vec3 lambda = p1 - p0 - d3 * rest_length;
   mat3 r = mat3_cast(q);
   lambda = transpose(r) * lambda;
@@ -208,7 +258,24 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
   vec3 segment0_particle1_position = segments[segment_handle].particle1.x;
   vec3 segment0_center_position = (segment0_particle0_position + segment0_particle1_position) * 0.5f;
 
+  float bd = segments[segment_handle].boundary_distance;
+  float HC = segments[segment_handle].HC;
+  float RW = segments[segment_handle].RW;
+  float moisture = segments[segment_handle].moisture;
+  int cube_pattern = segments[segment_handle].cube_pattern;
+  int internal_pattern = segments[segment_handle].internal_pattern;
+
+  vec2 tree_profile_position = segments[segment_handle].profile_position;
+  // tree_profile_position = vec2(segment0_center_position.z, segment0_center_position.y - 1.0f); //Previous
+  vec3 R_normal_world =
+      vec3(0.0, segments[segment_handle].profile_position /
+                    (length(segments[segment_handle].profile_position) + 0.000001));  // TODO: Rewrite for General Case
+  vec3 T_normal_world = vec3(0.0, mat2(0.0, -1.0, 1.0, 0.0) * segments[segment_handle].profile_position /
+                                      (length(segments[segment_handle].profile_position) + 0.000001));
+  vec3 L_normal_world = vec3(1.0, 0.0, 0.0);
+
   float t2 = inv_time_step * inv_time_step;
+
 
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
     int pair_handle = segment_data_list[segment_handle].pair_handles[i];
@@ -224,23 +291,29 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
     vec3 neighbor_segment_center_position =
         (neighbor_segment_particle0_position + neighbor_segment_particle1_position) * 0.5f;
 
-    
-    vec3 target_segment0_center_position =
-        neighbor_segment_center_position +
-        rotate_vec3(segments[neighbor_segment_handle].q, is_segment0 ? segment_pairs[pair_handle].segment0_offset.xyz
-                                                                     : segment_pairs[pair_handle].segment1_offset.xyz);
-    
-    /*
-    float current_distance = distance(segment0_center_position, neighbor_segment_center_position);
-    float target_distance = length(segment_pairs[pair_handle].segment0_offset);
-    vec3 target_segment0_center_position =
-        segment0_center_position + (target_distance - current_distance) * 0.5f *
-                                       normalize(segment0_center_position - neighbor_segment_center_position);
-    */
+    float bd_factor = 12.0f * max(0.03f - bd, 0.0f) * (1.0f - HC);
+
+    vec3 offset_local =
+        is_segment0 ? segment_pairs[pair_handle].segment0_offset.xyz : segment_pairs[pair_handle].segment1_offset.xyz;
+
+    bd_factor = min(max(bd, 0.0f), 0.1) * 2.0;
+    float moist_factor = 1.0f - moisture;
+    moist_factor = RW;  // For test only
+    if (internal_pattern == 0) {
+      moist_factor = 0.0f;
+    }
+    vec3 offset_world = rotate_vec3(segments[neighbor_segment_handle].q, offset_local);
+    vec3 scaled_offset_world = vec3(0.0f, 0.0f, 0.0f);
+
+    scaled_offset_world = scaleAlong(offset_world, R_normal_world, max(1.0 - 3.0 * bd_factor * moist_factor, 0.0));
+    scaled_offset_world =
+        scaleAlong(scaled_offset_world, T_normal_world, max(1.0 - 3.0 * bd_factor * moist_factor, 0.0));
+
+    vec3 target_segment0_center_position = neighbor_segment_center_position + scaled_offset_world;
     // Always enforce inf stiffness.
-    bundle_alpha_sum += 0.0f; // t2 * segment_pairs[pair_handle].bending_alpha;
+    bundle_alpha_sum += 0.0f;  // t2 * segment_pairs[pair_handle].bending_alpha;
     float lambda = max(1e-9f, segments[segment_handle].inv_mass + segments[neighbor_segment_handle].inv_mass);
-    
+
     float factor0 = segments[segment_handle].inv_mass / lambda;
 
     float segment_length = distance(segment0_particle0_position, segment0_particle1_position);
@@ -396,9 +469,9 @@ void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in f
                                            : conjugate(segment_pairs[pair_handle].rest_darboux_vector);
 
     vec4 q0_correction, q1_correction;
-    float bending_alpha = 0.0f; //segment_pairs[pair_handle].bending_alpha;
-    float twisting_alpha = 0.0f; // segment_pairs[pair_handle].twisting_alpha;
-    
+    float bending_alpha = 0.0f;   // segment_pairs[pair_handle].bending_alpha;
+    float twisting_alpha = 0.0f;  // segment_pairs[pair_handle].twisting_alpha;
+
     vec4 lambda = quat_mul(conjugate(q), neighbor_q);
     vec4 lambda_plus = lambda + rest_darboux_vector;
     lambda -= rest_darboux_vector;
@@ -417,8 +490,7 @@ void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in f
   }
 
   vec4 q_correction = q_correction_sum / sum;
-  segment_data_list[segment_handle]
-          .q_correction = sum != 0 ? q_correction : vec4(0.0f, 0.0f, 0.0f, 0.0f);
+  segment_data_list[segment_handle].q_correction = sum != 0 ? q_correction : vec4(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
@@ -431,18 +503,21 @@ void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
   vec3 p0 = segments[segment_handle].particle0.x;
   vec3 p1 = segments[segment_handle].particle1.x;
 
+  float bd = segments[segment_handle].boundary_distance;
+  float HC = segments[segment_handle].HC;
+
   float inv_mass_q = segments[segment_handle].inv_mass;
   float inv_mass_p0 = prev_handle != -1 ? segments[prev_handle].inv_mass : inv_mass_q;
   float inv_mass_p1 = next_handle != -1 ? segments[next_handle].inv_mass : inv_mass_q;
 
   vec4 q = segments[segment_handle].q;
 
-  vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL, segments[segment_handle].shear_stretch_alpha));
+  vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
 
   float rest_length = segments[segment_handle].rest_length;
 
-  project_shear_stretch_constraint(inv_time_step, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q, alpha, rest_length,
-                                   x0_correction, x1_correction, q_correction);
+  project_shear_stretch_constraint_pre_strain(inv_time_step, bd, HC, p0, p1, q, inv_mass_p0, inv_mass_p1, inv_mass_q,
+                                              alpha, rest_length, x0_correction, x1_correction, q_correction);
 
   segment_data_list[segment_handle].particle0_position_correction.xyz = x0_correction;
   segment_data_list[segment_handle].particle1_position_correction.xyz = x1_correction;

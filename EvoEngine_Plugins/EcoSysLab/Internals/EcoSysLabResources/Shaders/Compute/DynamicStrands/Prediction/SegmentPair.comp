@@ -51,9 +51,11 @@ void main() {
     connection_health = 2.0 * connection_health - 1.0;
 
     // Modify limit here.
-    vec3 bending_twist_bundle_strain_limit =
-        segment_pairs[pair_index].max_bending_twist_bundle_strain * connection_health;
-    float connectivity_strain_limit = segment_pairs[pair_index].max_connectivity_strain * connection_health;
+    // vec3 bending_twist_bundle_strain_limit =
+        // segment_pairs[pair_index].max_bending_twist_bundle_strain * connection_health;
+    // float connectivity_strain_limit = segment_pairs[pair_index].max_connectivity_strain * connection_health;
+    vec3 bending_twist_bundle_strain_limit = segment_pairs[pair_index].max_bending_twist_bundle_strain;
+    float connectivity_strain_limit = segment_pairs[pair_index].max_connectivity_strain;
 
     float strength = (segments[segment0_handle].strength + segments[segment1_handle].strength) * .5f;
 

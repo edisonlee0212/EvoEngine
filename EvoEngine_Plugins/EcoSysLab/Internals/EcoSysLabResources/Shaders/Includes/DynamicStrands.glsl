@@ -39,6 +39,11 @@ struct Particle {
 
   vec3 acceleration;
   int node_handle;
+
+  float dmin_external;
+  float user_bound;
+  float root_distance;
+  int padding2;
 };
 
 struct Segment {
@@ -82,7 +87,7 @@ struct Segment {
   float extra_mass;
   float snow_amount;
   float screen_depth;
-  int padding0;
+  int reach_ground;
 
   float C;   // Chemical defense
   float HC;  // Carbon health
@@ -101,9 +106,18 @@ struct Segment {
 
   float diffusion_w;
   float diffusion_b;
-
   int pairs_count;
-  float property_2;
+  float moisture;
+
+  float moisture_pre;
+  float diffusion_m;
+  int internal_pattern;
+  int cube_pattern;
+
+  int prev_inside;
+  float ground_damping;
+  int quasi_stable;
+  float quasi_damping;
 
   Particle particle0;
   Particle particle1;
@@ -201,7 +215,7 @@ struct HashedGridElement {
 
 struct HashedGridCellStart {
   uint start_index;
-  uint padding0;
+  uint end_index;
   uint padding1;
   uint padding2;
 };

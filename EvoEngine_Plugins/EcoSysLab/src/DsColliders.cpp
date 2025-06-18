@@ -33,7 +33,7 @@ DsBoxCollider::DsBoxCollider() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentBox.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentBoxGround.comp");
 
     segment_position_pipeline = std::make_shared<ComputePipeline>();
     segment_position_pipeline->compute_shader = shader;
@@ -290,7 +290,7 @@ DsCylinderCollider::DsCylinderCollider() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentCylinder.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentSurfaceCylinder.comp");
 
     segment_position_pipeline = std::make_shared<ComputePipeline>();
     segment_position_pipeline->compute_shader = shader;

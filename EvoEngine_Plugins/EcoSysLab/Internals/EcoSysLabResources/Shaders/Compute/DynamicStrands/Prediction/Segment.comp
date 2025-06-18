@@ -55,10 +55,20 @@ void main() {
     // Apply velocity
     segment.particle0.x += time_step * segment.particle0.v;
 
+    if (segment.quasi_stable == 1 && length(segment.particle0.v) < 5e-3)
+    {
+        segment.particle0.x = segment.particle0.last_x;
+    }
+
     // Shift position values
     segment.particle1.last_x = segment.particle1.x;
     // Apply velocity
     segment.particle1.x += time_step * segment.particle1.v;
+
+    if (segment.quasi_stable == 1 && length(segment.particle1.v) < 5e-3) //5e-3
+    {
+        segment.particle1.x = segment.particle1.last_x;
+    }
 
     float shear_stretch_strain =
         shear_stretch_strain(segment.particle0.x, segment.particle1.x, segment.q, segment.rest_length);
