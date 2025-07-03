@@ -53,7 +53,7 @@ void run_with_editor(const std::filesystem::path& project_path) {
   Application::PushLayer<SorghumLayer>("Sorghum Layer");
 #endif
 
-  ApplicationInfo application_info{};
+  ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
   const auto new_scene =
@@ -90,7 +90,7 @@ void run_windowless(const PointCloudCaptureSettings::CaptureMode capture_mode,
 #endif
       break;
   }
-  ApplicationInfo application_info{};
+  ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
   const auto new_scene =

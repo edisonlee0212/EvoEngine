@@ -50,11 +50,11 @@ void SorghumPanicleDescriptor::GenerateGeometry(const glm::vec3& stem_tip, std::
   int offset = 0;
   Vertex archetype = {};
   eco_sys_lab_plugin::SphericalVolume volume;
-  volume.m_radius = panicle_size;
+  volume.radius = panicle_size;
   for (int seed_index = 0; seed_index < seed_amount; seed_index++) {
     glm::vec3 position_offset = volume.GetRandomPoint();
     for (const auto position : icosahedron_vertices) {
-      archetype.position = position * seed_radius + glm::vec3(0, panicle_size.y, 0) + position_offset + stem_tip;
+      archetype.position = position * seed_radius + glm::vec3(0, panicle_size.y * .5f, 0) + position_offset + stem_tip;
       vertices.push_back(archetype);
     }
     for (const auto triangle : icosahedron_triangles) {
@@ -88,11 +88,11 @@ void SorghumPanicleDescriptor::GenerateGeometry(const glm::vec3& stem_tip, std::
   std::vector<ParticleInfo> infos;
   infos.resize(seed_amount);
   eco_sys_lab_plugin::SphericalVolume volume;
-  volume.m_radius = panicle_size;
+  volume.radius = panicle_size;
 
   for (int seed_index = 0; seed_index < seed_amount; seed_index++) {
     glm::vec3 position_offset = volume.GetRandomPoint();
-    glm::vec3 position = glm::vec3(0, panicle_size.y, 0) + position_offset + stem_tip;
+    glm::vec3 position = glm::vec3(0, panicle_size.y * .5f, 0) + position_offset + stem_tip;
     infos.at(seed_index).instance_matrix.value = glm::translate(position) * glm::scale(glm::vec3(seed_radius));
   }
 

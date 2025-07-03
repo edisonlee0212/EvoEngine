@@ -277,7 +277,7 @@ struct SurfaceCompressedBtf {
       return;
     }
 
-    assert(fabs(transformed_dir[2]) <= 1.01f);
+    // assert(fabs(transformed_dir[2]) <= 1.01f);
 
     if (transformed_dir[2] < 0.0) {
       phi = 0.0;

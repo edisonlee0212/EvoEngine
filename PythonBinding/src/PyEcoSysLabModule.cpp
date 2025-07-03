@@ -51,7 +51,7 @@ void engine_run_windowless(const std::filesystem::path& project_path) {
   }
   register_classes();
   push_layers(false, false);
-  ApplicationInfo application_info{};
+  ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
   const auto new_scene = std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset("./PlayGround.evescene"));
@@ -69,7 +69,7 @@ void engine_run(const std::filesystem::path& project_path) {
   }
   register_classes();
   push_layers(true, false);
-  ApplicationInfo application_info{};
+  ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
   Application::Start();
@@ -84,7 +84,7 @@ void engine_run_with_editor(const std::filesystem::path& project_path) {
   }
   register_classes();
   push_layers(true, true);
-  ApplicationInfo application_info{};
+  ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
   Application::Start();
@@ -228,11 +228,11 @@ void voxel_space_colonization_tree_data(
     EVOENGINE_ERROR("No project!");
     return;
   }
-  if (application_status == ApplicationStatus::OnDestroy) {
+  if (application_status == Application::ExecutionStatus::OnDestroy) {
     EVOENGINE_ERROR("Application is destroyed!");
     return;
   }
-  if (application_status == ApplicationStatus::Uninitialized) {
+  if (application_status == Application::ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Application not uninitialized!");
     return;
   }
@@ -331,11 +331,11 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
     EVOENGINE_ERROR("No project!");
     return;
   }
-  if (application_status == ApplicationStatus::OnDestroy) {
+  if (application_status == Application::ExecutionStatus::OnDestroy) {
     EVOENGINE_ERROR("Application is destroyed!");
     return;
   }
-  if (application_status == ApplicationStatus::Uninitialized) {
+  if (application_status == Application::ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Application not uninitialized!");
     return;
   }

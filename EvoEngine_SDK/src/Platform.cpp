@@ -18,7 +18,7 @@
 #endif
 
 using namespace evo_engine;
-void Platform::Initialize() {
+void Platform::Initialize(const ApplicationInitializationSettings& application_initialization_settings) {
   auto& graphics = GetInstance();
 #pragma region volk
   if (volkInitialize() != VK_SUCCESS) {
@@ -194,7 +194,8 @@ void Platform::Initialize() {
   Constants::mesh_subgroup_count = glm::max(mesh_subgroup_count, 1u);
   Constants::compute_subgroup_count = glm::max(compute_subgroup_count, 1u);
   graphics.shader_global_defines =
-      "\n#define MAX_DIRECTIONAL_LIGHT_SIZE " + std::to_string(Settings::max_directional_light_size) +
+      "\n#define MAX_DIRECTIONAL_LIGHT_SIZE " +
+      std::to_string(application_initialization_settings.graphics_settings.max_directional_light_size) +
       "\n#define MAX_KERNEL_AMOUNT " + std::to_string(Constants::max_kernel_amount) +
       "\n#define MESHLET_MAX_VERTICES_SIZE " + std::to_string(Constants::meshlet_max_vertices_size) +
       "\n#define MESHLET_MAX_TRIANGLES_SIZE " + std::to_string(Constants::meshlet_max_triangles_size) +
@@ -222,12 +223,14 @@ void Platform::Initialize() {
     RenderLayer::per_frame_layout->PushDescriptorBinding(
         9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, Settings::max_texture_2d_resource_size);
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+        application_initialization_settings.graphics_settings.max_texture_2d_resource_size);
     RenderLayer::per_frame_layout->PushDescriptorBinding(
         10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR |
             VK_SHADER_STAGE_MISS_BIT_KHR,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, Settings::max_cubemap_resource_size);
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+        application_initialization_settings.graphics_settings.max_cubemap_resource_size);
     RenderLayer::per_frame_layout->Initialize();
   }
   if (!RenderLayer::meshlet_layout) {
@@ -1743,6 +1746,16 @@ void Platform::LateUpdate() {
       Application::End();
     }
   }
+}
+
+bool Platform::RayTracingEnabled() {
+  const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+  return Constants::support_ray_tracing && graphics_settings.use_ray_tracing;
+}
+
+bool Platform::MeshShaderEnabled() {
+  const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+  return Constants::support_mesh_shader && graphics_settings.use_mesh_shader;
 }
 
 bool Platform::Initialized() {

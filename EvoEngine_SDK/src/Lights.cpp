@@ -298,12 +298,15 @@ void Lighting::Initialize() {
   directional_light_shadow_map_view_.reset();
   directional_light_shadow_map_.reset();
   directional_light_shadow_map_layered_views_.clear();
+
+  const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+
   {
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent.width = Platform::Settings::directional_light_shadow_map_resolution;
-    image_info.extent.height = Platform::Settings::directional_light_shadow_map_resolution;
+    image_info.extent.width = graphics_settings.directional_light_shadow_map_resolution;
+    image_info.extent.height = graphics_settings.directional_light_shadow_map_resolution;
     image_info.extent.depth = 1;
     image_info.mipLevels = 1;
     image_info.arrayLayers = 4;
@@ -361,8 +364,8 @@ void Lighting::Initialize() {
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent.width = Platform::Settings::point_light_shadow_map_resolution;
-    image_info.extent.height = Platform::Settings::point_light_shadow_map_resolution;
+    image_info.extent.width = graphics_settings.point_light_shadow_map_resolution;
+    image_info.extent.height = graphics_settings.point_light_shadow_map_resolution;
     image_info.extent.depth = 1;
     image_info.mipLevels = 1;
     image_info.arrayLayers = 6;
@@ -420,8 +423,8 @@ void Lighting::Initialize() {
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent.width = Platform::Settings::spot_light_shadow_map_resolution;
-    image_info.extent.height = Platform::Settings::spot_light_shadow_map_resolution;
+    image_info.extent.width = graphics_settings.spot_light_shadow_map_resolution;
+    image_info.extent.height = graphics_settings.spot_light_shadow_map_resolution;
     image_info.extent.depth = 1;
     image_info.mipLevels = 1;
     image_info.arrayLayers = 1;

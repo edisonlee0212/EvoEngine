@@ -1,48 +1,10 @@
 
 #pragma once
+#include "ApplicationInitializationSettings.hpp"
 #include "Console.hpp"
 #include "ILayer.hpp"
 #include "ISingleton.hpp"
-
 namespace evo_engine {
-
-/**
- * @brief Structure for storing information about the application.
- */
-struct ApplicationInfo {
-  std::filesystem::path project_path;            /**< The path to the application's project. */
-  std::string application_name = "Evo Engine";   /**< The name of the application. */
-  std::vector<std::filesystem::path> icon_paths; /**< Paths to application icons. */
-  glm::ivec2 default_window_size = {1280, 720};  /**< The default size of the application window. */
-  bool enable_docking = true;                    /**< Whether to enable docking in the application. */
-  bool enable_viewport = true;                   /**< Whether to enable the viewport feature. */
-  bool full_screen = false;                      /**< Whether the application starts in full-screen mode. */
-};
-
-/**
- * @brief Enum representing the various statuses of the application.
- */
-enum class ApplicationStatus {
-  Uninitialized, /**< The application has not been initialized. */
-
-  NotPlaying, /**< The application is not currently playing. */
-  Pause,      /**< The application is paused. */
-  Step,       /**< The application is stepping through updates. */
-  Playing,    /**< The application is currently playing. */
-
-  OnDestroy /**< The application is being destroyed. */
-};
-
-/**
- * @brief Enum representing the execution status of the application.
- */
-enum class ApplicationExecutionStatus {
-  NotPlaying, /**< The application is not in play mode. */
-  PreUpdate,  /**< Pre-update phase of the application. */
-  Update,     /**< Update phase of the application. */
-  LateUpdate  /**< Late update phase of the application. */
-};
-
 /**
  * @brief The main application class responsible for managing the entire engine lifecycle.
  */
@@ -50,8 +12,35 @@ class Application final {
   EVOENGINE_SINGLETON_INSTANCE(Application)
   friend class ProjectManager;
 
-  ApplicationInfo application_info_; /**< Information related to the application configuration. */
-  ApplicationStatus application_status_ = ApplicationStatus::Uninitialized; /**< Current status of the application. */
+ public:
+  /**
+   * @brief Enum representing the various statuses of the application.
+   */
+  enum class ExecutionStatus {
+    Uninitialized, /**< The application has not been initialized. */
+
+    NotPlaying, /**< The application is not currently playing. */
+    Pause,      /**< The application is paused. */
+    Step,       /**< The application is stepping through updates. */
+    Playing,    /**< The application is currently playing. */
+
+    OnDestroy /**< The application is being destroyed. */
+  };
+
+  /**
+   * @brief Enum representing the execution status of the application.
+   */
+  enum class ExecutionOrder {
+    NotPlaying, /**< The application is not in play mode. */
+    PreUpdate,  /**< Pre-update phase of the application. */
+    Update,     /**< Update phase of the application. */
+    LateUpdate  /**< Late update phase of the application. */
+  };
+
+ private:
+  ApplicationInitializationSettings
+      initialization_settings; /**< Information related to the application configuration. */
+  ExecutionStatus execution_status_ = ExecutionStatus::Uninitialized; /**< Current status of the application. */
 
   static void PreUpdateInternal();  /**< Perform internal pre-update tasks. */
   static void UpdateInternal();     /**< Perform internal update tasks. */
@@ -68,15 +57,14 @@ class Application final {
   std::vector<std::function<void(const std::shared_ptr<Scene>& new_scene)>>
       post_attach_scene_functions_; /**< Functions called after a scene is attached. */
 
-  ApplicationExecutionStatus application_execution_status_ =
-      ApplicationExecutionStatus::NotPlaying; /**< Current execution status of the application. */
+  ExecutionOrder execution_order = ExecutionOrder::NotPlaying; /**< Current execution status of the application. */
 
  public:
   /**
    * @brief Get the current execution status of the application.
    * @return The current ApplicationExecutionStatus.
    */
-  [[nodiscard]] static ApplicationExecutionStatus GetApplicationExecutionStatus();
+  [[nodiscard]] static ExecutionOrder GetApplicationExecutionStatus();
 
   /**
    * @brief Register a function to be called during the pre-update phase.
@@ -118,13 +106,13 @@ class Application final {
    * @brief Get the information about the application configuration.
    * @return A const reference to the ApplicationInfo structure.
    */
-  static const ApplicationInfo& GetApplicationInfo();
+  static const ApplicationInitializationSettings& GetApplicationInfo();
 
   /**
    * @brief Get the current status of the application.
    * @return A const reference to the ApplicationStatus enum.
    */
-  static const ApplicationStatus& GetApplicationStatus();
+  static const ExecutionStatus& GetApplicationStatus();
 
   /**
    * @brief Add a new layer to the application.
@@ -159,7 +147,7 @@ class Application final {
    * @brief Initialize the application with the specified configuration.
    * @param application_create_info The configuration to initialize the application with.
    */
-  static void Initialize(const ApplicationInfo& application_create_info);
+  static void Initialize(const ApplicationInitializationSettings& application_create_info);
 
   /**
    * @brief Start the application.
@@ -236,7 +224,7 @@ class Application final {
 template <typename T>
 std::shared_ptr<T> Application::PushLayer(const std::string& layer_name) {
   auto& application = GetInstance();
-  if (application.application_status_ != ApplicationStatus::Uninitialized) {
+  if (application.execution_status_ != ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Unable to push layer! Application already started!");
     return nullptr;
   }

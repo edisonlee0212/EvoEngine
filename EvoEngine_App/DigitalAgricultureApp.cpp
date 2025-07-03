@@ -84,7 +84,7 @@ int main() {
 #ifdef ECOSYSLAB_PLUGIN
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
 #endif
-  ApplicationInfo application_configs;
+  ApplicationInitializationSettings application_configs;
   application_configs.application_name = "DigitalAgriculture";
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test.eveproj");

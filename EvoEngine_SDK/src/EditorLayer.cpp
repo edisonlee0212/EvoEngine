@@ -234,7 +234,7 @@ void EditorLayer::PreUpdate() {
     }
     ImGui::Separator();
     switch (Application::GetApplicationStatus()) {
-      case ApplicationStatus::NotPlaying: {
+      case Application::ExecutionStatus::NotPlaying: {
         if (ImGui::ImageButton(editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
           Application::Play();
         }
@@ -243,7 +243,7 @@ void EditorLayer::PreUpdate() {
         }
         break;
       }
-      case ApplicationStatus::Playing: {
+      case Application::ExecutionStatus::Playing: {
         if (ImGui::ImageButton(editor_icons_["PauseButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
           Application::Pause();
         }
@@ -252,7 +252,7 @@ void EditorLayer::PreUpdate() {
         }
         break;
       }
-      case ApplicationStatus::Pause: {
+      case Application::ExecutionStatus::Pause: {
         if (ImGui::ImageButton(editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
           Application::Play();
         }
@@ -264,11 +264,11 @@ void EditorLayer::PreUpdate() {
         }
         break;
       }
-      case ApplicationStatus::Uninitialized:
+      case Application::ExecutionStatus::Uninitialized:
         break;
-      case ApplicationStatus::Step:
+      case Application::ExecutionStatus::Step:
         break;
-      case ApplicationStatus::OnDestroy:
+      case Application::ExecutionStatus::OnDestroy:
         break;
     }
     ImGui::EndMainMenuBar();

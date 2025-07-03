@@ -137,7 +137,8 @@ uint32_t RenderInstanceStorage::MeshRenderInstance::Render(
   const uint32_t task_work_group_invocations =
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
-  if (Platform::Settings::use_mesh_shader) {
+
+  if (Platform::MeshShaderEnabled()) {
     graphics_pipeline->states.ApplyAllStates(vk_command_buffer);
     const uint32_t count =
         (mesh->meshlet_range_->range + task_work_group_invocations - 1) / task_work_group_invocations;
@@ -781,8 +782,10 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
   const std::vector<Entity>* directional_light_entities =
       target_scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>();
   render_info_block.directional_light_size = 0;
+  const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+
   if (directional_light_entities && !directional_light_entities->empty()) {
-    directional_light_info_blocks_.resize(Platform::Settings::max_directional_light_size * cameras.size());
+    directional_light_info_blocks_.resize(graphics_settings.max_directional_light_size * cameras.size());
     for (const auto& light_entity : *directional_light_entities) {
       if (!target_scene->IsEntityEnabled(light_entity))
         continue;
@@ -793,11 +796,11 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
     }
     std::vector<glm::uvec3> viewport_results;
     Lighting::AllocateAtlas(render_info_block.directional_light_size,
-                            Platform::Settings::directional_light_shadow_map_resolution, viewport_results);
+                            graphics_settings.directional_light_shadow_map_resolution, viewport_results);
     for (const auto& [cameraGlobalTransform, camera] : cameras) {
       auto camera_index = GetCameraIndex(camera->GetHandle());
       for (int i = 0; i < render_info_block.directional_light_size; i++) {
-        const auto block_index = camera_index * Platform::Settings::max_directional_light_size + i;
+        const auto block_index = camera_index * graphics_settings.max_directional_light_size + i;
         auto& viewport = directional_light_info_blocks_[block_index].viewport;
         viewport.x = viewport_results[i].x;
         viewport.y = viewport_results[i].y;
@@ -821,8 +824,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
         glm::vec3 light_dir = glm::normalize(rotation * glm::vec3(0, 0, 1));
         float plane_distance = 0;
         glm::vec3 center;
-        const auto block_index =
-            camera_index * Platform::Settings::max_directional_light_size + directional_light_index;
+        const auto block_index = camera_index * graphics_settings.max_directional_light_size + directional_light_index;
         directional_light_info_blocks_[block_index].direction = glm::vec4(light_dir, 0.0f);
         directional_light_info_blocks_[block_index].diffuse =
             glm::vec4(dlc->diffuse * dlc->diffuse_brightness, dlc->cast_shadow);
@@ -992,7 +994,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
       render_info_block.point_light_size++;
     }
     std::vector<glm::uvec3> view_port_results;
-    Lighting::AllocateAtlas(render_info_block.point_light_size, Platform::Settings::point_light_shadow_map_resolution,
+    Lighting::AllocateAtlas(render_info_block.point_light_size, graphics_settings.point_light_shadow_map_resolution,
                             view_port_results);
     int allocation_index = 0;
     for (const auto& point_light_index : sorted_point_light_indices) {
@@ -1045,7 +1047,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
       render_info_block.spot_light_size++;
     }
     std::vector<glm::uvec3> view_port_results;
-    Lighting::AllocateAtlas(render_info_block.spot_light_size, Platform::Settings::spot_light_shadow_map_resolution,
+    Lighting::AllocateAtlas(render_info_block.spot_light_size, graphics_settings.spot_light_shadow_map_resolution,
                             view_port_results);
     int allocation_index = 0;
     for (const auto& spot_light_index : sorted_spot_light_indices) {
@@ -1117,16 +1119,18 @@ RenderInstanceStorage::RenderInstanceStorage() {
   buffer_create_info.size = sizeof(EnvironmentInfoBlock);
   environment_info_descriptor_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
+  const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+
   buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   buffer_create_info.size = sizeof(CameraInfoBlock) * Platform::Constants::initial_camera_size;
   camera_info_descriptor_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  buffer_create_info.size = sizeof(DirectionalLightInfoBlock) * Platform::Settings::max_directional_light_size *
+  buffer_create_info.size = sizeof(DirectionalLightInfoBlock) * graphics_settings.max_directional_light_size *
                             Platform::Constants::initial_camera_size;
   directional_light_info_descriptor_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  buffer_create_info.size = sizeof(PointLightInfoBlock) * Platform::Settings::max_point_light_size;
+  buffer_create_info.size = sizeof(PointLightInfoBlock) * graphics_settings.max_point_light_size;
   point_light_info_descriptor_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  buffer_create_info.size = sizeof(SpotLightInfoBlock) * Platform::Settings::max_spot_light_size;
+  buffer_create_info.size = sizeof(SpotLightInfoBlock) * graphics_settings.max_spot_light_size;
   spot_light_info_descriptor_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   buffer_create_info.size =
       glm::max(static_cast<size_t>(1), sizeof(MaterialInfoBlock) * Platform::Constants::initial_material_size);
@@ -1449,7 +1453,9 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
 }
 
 void RenderInstanceStorage::UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene) {
-  mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene, *this);
+  if (!deferred_render_instances->Empty()) {
+    mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene, *this);
+  }
 }
 
 bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,

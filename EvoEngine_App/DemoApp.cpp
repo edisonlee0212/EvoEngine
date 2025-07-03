@@ -74,7 +74,7 @@ Entity CreateSphere(const glm::vec3& color, const glm::vec3& position, const glm
 
 enum class DemoSetup { Empty, Rendering, Universe };
 Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name, bool add_spheres);
-void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info);
+void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& application_info);
 Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name);
 #pragma endregion
 
@@ -113,7 +113,7 @@ int main() {
 #ifdef GPR_PLUGIN
   AssetRegistration<Gpr>("Gpr", {".evegpr", ".gpr", ".GPR"});
 #endif
-  ApplicationInfo application_info;
+  ApplicationInitializationSettings application_info;
   SetupDemoScene(demo_setup, application_info);
 
   Application::Initialize(application_info);
@@ -251,7 +251,7 @@ Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_en
   return base_entity;
 }
 
-void SetupDemoScene(DemoSetup demo_setup, ApplicationInfo& application_info) {
+void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& application_info) {
   std::filesystem::path resource_folder_path("../../../../../Resources");
   if (!std::filesystem::exists(resource_folder_path)) {
     resource_folder_path = "../../../../Resources";
