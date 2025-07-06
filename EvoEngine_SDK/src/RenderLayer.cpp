@@ -736,7 +736,7 @@ void RenderLayer::OnCreate() {
 #endif
 #pragma endregion
 #pragma region Ray Tracing Pipelines
-  if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing && !ray_tracing_camera_pipeline) {
+  if (Platform::RayTracingEnabled() && !ray_tracing_camera_pipeline) {
     ray_tracing_camera_pipeline = std::make_shared<RayTracingPipeline>();
     ray_tracing_camera_pipeline->raygen_shader =
         Shader::CreateTemporary(ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
@@ -887,10 +887,10 @@ void RenderLayer::PrepareForRendering() {
 
   TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
   TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
-  if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
-    if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
-      current_render_instances->UpdateTopLevelAccelerationStructure(scene);
-    }
+
+  if (Platform::RayTracingEnabled()) {
+    current_render_instances->UpdateTopLevelAccelerationStructure(scene);
+
     if (current_render_instances->mesh_top_level_acceleration_structure) {
       ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
           0, GeometryStorage::GetVertexBuffer());
@@ -920,8 +920,7 @@ void RenderLayer::RenderAll() {
   deferred_rendering_external_functions.clear();
   forward_rendering_external_functions.clear();
 
-  if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing &&
-      current_render_instances->mesh_top_level_acceleration_structure) {
+  if (Platform::RayTracingEnabled() && current_render_instances->mesh_top_level_acceleration_structure) {
     for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
       if (camera->require_rendering_) {
         RenderToCameraRayTracing(cameraGlobalTransform, camera);
@@ -1083,8 +1082,8 @@ std::shared_ptr<RenderInstanceStorage> RenderLayer::GetPreviousRenderInstanceSto
 void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Count shadows drawcalls", &count_shadow_rendering_draw_calls);
   ImGui::Checkbox("Wireframe", &wire_frame);
-  if (Platform::Constants::support_mesh_shader)
-    ImGui::Checkbox("Meshlet", &Platform::Settings::use_mesh_shader);
+  if (Platform::MeshShaderEnabled())
+    ImGui::Checkbox("Meshlet", &enable_meshlet);
   ImGui::Checkbox("Indirect Rendering", &enable_indirect_rendering);
   render_settings.OnInspect(editor_layer);
 }
@@ -1126,7 +1125,7 @@ void RenderLayer::ApplyAnimators() const {
 
 void RenderLayer::PreparePointAndSpotLightShadowMap() const {
   const bool count_draw_calls = count_shadow_rendering_draw_calls;
-  const bool use_mesh_shader = Platform::Constants::support_mesh_shader && Platform::Settings::use_mesh_shader;
+  const bool use_mesh_shader = Platform::MeshShaderEnabled() && enable_meshlet;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto& point_light_shadow_pipeline =
       use_mesh_shader ? point_light_shadow_pipeline_mesh_shader : point_light_shadow_pipeline_normal;
@@ -1614,8 +1613,10 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
   const auto scene = Application::GetActiveScene();
   if (camera->camera_render_mode == Camera::CameraRenderMode::Rasterization) {
+    const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+
     const bool count_draw_calls = count_shadow_rendering_draw_calls;
-    const bool use_mesh_shader = Platform::Constants::support_mesh_shader && Platform::Settings::use_mesh_shader;
+    const bool use_mesh_shader = Platform::MeshShaderEnabled() && enable_meshlet;
 #pragma region Directional Light Shadows
     const auto& directional_light_shadow_pipeline =
         use_mesh_shader ? directional_light_shadow_pipeline_mesh_shader : directional_light_shadow_pipeline_normal;
@@ -1647,7 +1648,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           for (int i = 0; i < current_render_instances->render_info_block.directional_light_size; i++) {
             const auto& directional_light_info_block =
                 current_render_instances
-                    ->directional_light_info_blocks_[camera_index * Platform::Settings::max_directional_light_size + i];
+                    ->directional_light_info_blocks_[camera_index * graphics_settings.max_directional_light_size + i];
             const auto prepare_graphics_pipeline = [&](const std::shared_ptr<GraphicsPipeline>& target_pipeline) {
               target_pipeline->states.ResetAllStates(0);
               target_pipeline->Bind(vk_command_buffer);
@@ -1660,7 +1661,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
               prepare_graphics_pipeline(directional_light_shadow_pipeline);
               if (enable_indirect_rendering && !current_render_instances->deferred_render_instances->Empty()) {
                 RenderInstancePushConstant push_constant;
-                push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+                push_constant.camera_index = camera_index * graphics_settings.max_directional_light_size + i;
                 push_constant.light_split_index = split;
                 push_constant.instance_index = 0;
                 directional_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
@@ -1688,7 +1689,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                       if (!render_instance->cast_shadow)
                         return;
                       RenderInstancePushConstant push_constant;
-                      push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+                      push_constant.camera_index = camera_index * graphics_settings.max_directional_light_size + i;
                       push_constant.light_split_index = split;
                       push_constant.instance_index = render_instance->instance_index;
                       const auto prim_count =
@@ -1707,7 +1708,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                     if (!render_instance->cast_shadow)
                       return;
                     RenderInstancePushConstant push_constant;
-                    push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+                    push_constant.camera_index = camera_index * graphics_settings.max_directional_light_size + i;
                     push_constant.light_split_index = split;
                     push_constant.instance_index = render_instance->instance_index;
                     const auto prim_count = render_instance->Render(vk_command_buffer, push_constant,
@@ -1726,7 +1727,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                     if (!render_instance->cast_shadow)
                       return;
                     RenderInstancePushConstant push_constant;
-                    push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+                    push_constant.camera_index = camera_index * graphics_settings.max_directional_light_size + i;
                     push_constant.light_split_index = split;
                     push_constant.instance_index = render_instance->instance_index;
                     const auto prim_count = render_instance->Render(vk_command_buffer, push_constant,
@@ -1746,7 +1747,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                     if (!render_instance->cast_shadow)
                       return;
                     RenderInstancePushConstant push_constant;
-                    push_constant.camera_index = camera_index * Platform::Settings::max_directional_light_size + i;
+                    push_constant.camera_index = camera_index * graphics_settings.max_directional_light_size + i;
                     push_constant.light_split_index = split;
                     push_constant.instance_index = render_instance->instance_index;
                     const auto prim_count = render_instance->Render(vk_command_buffer, push_constant,

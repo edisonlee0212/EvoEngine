@@ -1,5 +1,6 @@
 
 #pragma once
+#include "ApplicationInitializationSettings.hpp"
 #include "ComputePipeline.hpp"
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
@@ -266,7 +267,7 @@ class Platform final {
   /**
    * @brief Initializes the platform and its Vulkan components.
    */
-  static void Initialize();
+  static void Initialize(const ApplicationInitializationSettings& application_initialization_settings);
 
   /**
    * @brief Destroys the platform and cleans up Vulkan resources.
@@ -313,6 +314,8 @@ class Platform final {
   std::string shader_global_defines = {};
 
  public:
+  static bool RayTracingEnabled();
+  static bool MeshShaderEnabled();
   /**
    * @brief Checks if the platform is initialized.
    *
@@ -379,42 +382,6 @@ class Platform final {
 
   /// List of draw calls for debugging purposes.
   std::vector<size_t> draw_call{};
-
-  /**
-   * @brief Utility class for platform-specific settings.
-   */
-  class Settings {
-   public:
-    /// Flag to indicate the use of mesh shaders.
-    inline static bool use_mesh_shader = true;
-
-    /// Flag to indicate the use of ray tracing.
-    inline static bool use_ray_tracing = true;
-
-    /// Resolution for directional light shadow maps.
-    inline static uint32_t directional_light_shadow_map_resolution = 2048;
-
-    /// Resolution for point light shadow maps.
-    inline static uint32_t point_light_shadow_map_resolution = 2048;
-
-    /// Resolution for spot light shadow maps.
-    inline static uint32_t spot_light_shadow_map_resolution = 2048;
-
-    /// Maximum 2D texture resource size.
-    inline static uint32_t max_texture_2d_resource_size = 2048;
-
-    /// Maximum cubemap texture resource size.
-    inline static uint32_t max_cubemap_resource_size = 256;
-
-    /// Maximum number of directional lights supported.
-    inline static uint32_t max_directional_light_size = 4;
-
-    /// Maximum number of point lights supported.
-    inline static uint32_t max_point_light_size = 16;
-
-    /// Maximum number of spotlights supported.
-    inline static uint32_t max_spot_light_size = 16;
-  };
 
   /**
    * @brief Constants used for internal configuration and limits.

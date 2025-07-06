@@ -47,14 +47,14 @@ void Application::PreUpdateInternal() {
   const std::chrono::duration<double> delta_time = now - Times::last_update_time_;
   Times::delta_time_ = delta_time.count();
   Times::last_update_time_ = std::chrono::system_clock::now();
-  if (application.application_status_ == ApplicationStatus::Uninitialized) {
+  if (application.execution_status_ == ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Application uninitialized!")
     return;
   }
-  if (application.application_status_ == ApplicationStatus::OnDestroy)
+  if (application.execution_status_ == ExecutionStatus::OnDestroy)
     return;
 
-  application.application_execution_status_ = ApplicationExecutionStatus::PreUpdate;
+  application.execution_order = ExecutionOrder::PreUpdate;
   Input::PreUpdate();
   if (const auto render_layer = GetLayer<RenderLayer>()) {
     Platform::PreUpdate();
@@ -64,8 +64,8 @@ void Application::PreUpdateInternal() {
     TransformGraph::CalculateTransformGraphs(application.active_scene_);
     for (const auto& i : application.external_pre_update_functions_)
       i();
-    if (application.application_status_ == ApplicationStatus::Playing ||
-        application.application_status_ == ApplicationStatus::Step) {
+    if (application.execution_status_ == ExecutionStatus::Playing ||
+        application.execution_status_ == ExecutionStatus::Step) {
       application.active_scene_->Start();
     }
   }
@@ -86,8 +86,8 @@ void Application::PreUpdateInternal() {
     for (const auto& i : application.layers_) {
       i->FixedUpdate();
     }
-    if (application.application_status_ == ApplicationStatus::Playing ||
-        application.application_status_ == ApplicationStatus::Step) {
+    if (application.execution_status_ == ExecutionStatus::Playing ||
+        application.execution_status_ == ExecutionStatus::Step) {
       application.active_scene_->FixedUpdate();
     }
     duration = std::chrono::system_clock::now() - last_fixed_update_time;
@@ -105,17 +105,17 @@ void Application::PreUpdateInternal() {
 
 void Application::UpdateInternal() {
   auto& application = GetInstance();
-  if (application.application_status_ == ApplicationStatus::Uninitialized) {
+  if (application.execution_status_ == ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Application uninitialized!")
     return;
   }
-  if (application.application_status_ == ApplicationStatus::OnDestroy)
+  if (application.execution_status_ == ExecutionStatus::OnDestroy)
     return;
 
-  application.application_execution_status_ = ApplicationExecutionStatus::Update;
+  application.execution_order = ExecutionOrder::Update;
   if (application.active_scene_) {
-    if (application.application_status_ == ApplicationStatus::Playing ||
-        application.application_status_ == ApplicationStatus::Step) {
+    if (application.execution_status_ == ExecutionStatus::Playing ||
+        application.execution_status_ == ExecutionStatus::Step) {
       application.active_scene_->Update();
     }
   }
@@ -135,11 +135,11 @@ void Application::UpdateInternal() {
 
 void Application::LateUpdateInternal() {
   auto& application = GetInstance();
-  if (application.application_status_ == ApplicationStatus::Uninitialized) {
+  if (application.execution_status_ == ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Application uninitialized!")
     return;
   }
-  if (application.application_status_ == ApplicationStatus::OnDestroy)
+  if (application.execution_status_ == ExecutionStatus::OnDestroy)
     return;
   for (const auto& i : application.external_late_update_functions_)
     i();
@@ -152,10 +152,10 @@ void Application::LateUpdateInternal() {
   const auto window_layer = GetLayer<WindowLayer>();
 
   if (application.active_scene_) {
-    application.application_execution_status_ = ApplicationExecutionStatus::LateUpdate;
+    application.execution_order = ExecutionOrder::LateUpdate;
 
-    if (application.application_status_ == ApplicationStatus::Playing ||
-        application.application_status_ == ApplicationStatus::Step) {
+    if (application.execution_status_ == ExecutionStatus::Playing ||
+        application.execution_status_ == ExecutionStatus::Step) {
       application.active_scene_->LateUpdate();
     }
 
@@ -171,18 +171,18 @@ void Application::LateUpdateInternal() {
   if (render_layer) {
     Platform::LateUpdate();
   }
-  if (application.application_status_ == ApplicationStatus::Step)
-    application.application_status_ = ApplicationStatus::Pause;
+  if (application.execution_status_ == ExecutionStatus::Step)
+    application.execution_status_ = ExecutionStatus::Pause;
 }
 
-const ApplicationInfo& Application::GetApplicationInfo() {
+const ApplicationInitializationSettings& Application::GetApplicationInfo() {
   auto& application = GetInstance();
-  return application.application_info_;
+  return application.initialization_settings;
 }
 
-const ApplicationStatus& Application::GetApplicationStatus() {
+const Application::ExecutionStatus& Application::GetApplicationStatus() {
   const auto& application = GetInstance();
-  return application.application_status_;
+  return application.execution_status_;
 }
 
 std::shared_ptr<Scene> Application::GetActiveScene() {
@@ -192,11 +192,11 @@ std::shared_ptr<Scene> Application::GetActiveScene() {
 
 void Application::Reset() {
   auto& application = GetInstance();
-  application.application_status_ = ApplicationStatus::NotPlaying;
+  application.execution_status_ = ExecutionStatus::NotPlaying;
   Times::steps_ = Times::frames_ = 0;
 }
 
-void Application::Initialize(const ApplicationInfo& application_create_info) {
+void Application::Initialize(const ApplicationInitializationSettings& application_create_info) {
 #pragma region Reflection
   DataComponentRegistration<Transform> transform_registry("Transform");
   DataComponentRegistration<GlobalTransform> global_transform_registry("GlobalTransform");
@@ -255,16 +255,16 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
 
   auto& application = GetInstance();
 
-  if (application.application_status_ != ApplicationStatus::Uninitialized) {
+  if (application.execution_status_ != ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Application is not uninitialzed!")
     return;
   }
-  application.application_info_ = application_create_info;
+  application.initialization_settings = application_create_info;
   const auto render_layer = GetLayer<RenderLayer>();
   const auto window_layer = GetLayer<WindowLayer>();
   const auto editor_layer = GetLayer<EditorLayer>();
-  if (!application.application_info_.project_path.empty()) {
-    if (application.application_info_.project_path.extension().string() != ".eveproj") {
+  if (!application.initialization_settings.project_path.empty()) {
+    if (application.initialization_settings.project_path.extension().string() != ".eveproj") {
       EVOENGINE_ERROR("Project file extension is not eveproj!")
       return;
     }
@@ -280,16 +280,16 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
   FileManager::Initialize();
   ProjectManager::Initialize();
   if (render_layer) {
-    Platform::Initialize();
+    Platform::Initialize(application.initialization_settings);
   }
   Resources::Initialize();
   for (const auto& layer : application.layers_) {
     layer->OnCreate();
   }
   if (window_layer) {
-    window_layer->ResizeWindow(application.application_info_.default_window_size.x,
-                               application.application_info_.default_window_size.y);
-    if (application.application_info_.icon_paths.empty()) {
+    window_layer->ResizeWindow(application.initialization_settings.default_window_size.x,
+                               application.initialization_settings.default_window_size.y);
+    if (application.initialization_settings.icon_paths.empty()) {
       GLFWimage images[4];
       images[0].pixels =
           stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine16.png").string().c_str(),
@@ -310,7 +310,7 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
       stbi_image_free(images[3].pixels);
     } else {
       std::vector<GLFWimage> images;
-      for (const auto& i : application.application_info_.icon_paths) {
+      for (const auto& i : application.initialization_settings.icon_paths) {
         if (std::filesystem::exists(i)) {
           auto& image = images.emplace_back();
           image.pixels = stbi_load(std::filesystem::absolute(i).string().c_str(), &image.width, &image.height, nullptr,
@@ -323,10 +323,10 @@ void Application::Initialize(const ApplicationInfo& application_create_info) {
       }
     }
   }
-  application.application_status_ = ApplicationStatus::NotPlaying;
+  application.execution_status_ = ExecutionStatus::NotPlaying;
 
-  if (!application.application_info_.project_path.empty()) {
-    ProjectManager::GetOrCreateProject(application.application_info_.project_path);
+  if (!application.initialization_settings.project_path.empty()) {
+    ProjectManager::GetOrCreateProject(application.initialization_settings.project_path);
   }
 }
 
@@ -344,7 +344,7 @@ void Application::Run() {
 
 bool Application::Loop() {
   const auto& application = GetInstance();
-  if (application.application_status_ != ApplicationStatus::OnDestroy) {
+  if (application.execution_status_ != ExecutionStatus::OnDestroy) {
     PreUpdateInternal();
     UpdateInternal();
     LateUpdateInternal();
@@ -355,7 +355,7 @@ bool Application::Loop() {
 
 void Application::End() {
   auto& application = GetInstance();
-  application.application_status_ = ApplicationStatus::OnDestroy;
+  application.execution_status_ = ExecutionStatus::OnDestroy;
 }
 
 void Application::Terminate() {
@@ -380,7 +380,7 @@ void Application::Terminate() {
 
   Serialization::OnDestroy();
 
-  application.application_status_ = ApplicationStatus::Uninitialized;
+  application.execution_status_ = ExecutionStatus::Uninitialized;
 }
 
 const std::vector<std::shared_ptr<ILayer>>& Application::GetLayers() {
@@ -390,7 +390,7 @@ const std::vector<std::shared_ptr<ILayer>>& Application::GetLayers() {
 
 void Application::Attach(const std::shared_ptr<Scene>& scene) {
   auto& application = GetInstance();
-  if (application.application_status_ == ApplicationStatus::Playing) {
+  if (application.execution_status_ == ExecutionStatus::Playing) {
     EVOENGINE_ERROR("Stop Application to attach scene")
   }
 
@@ -405,52 +405,52 @@ void Application::Attach(const std::shared_ptr<Scene>& scene) {
 
 void Application::Play() {
   auto& application = GetInstance();
-  if (!application.active_scene_ || application.application_status_ == ApplicationStatus::OnDestroy)
+  if (!application.active_scene_ || application.execution_status_ == ExecutionStatus::OnDestroy)
     return;
-  if (application.application_status_ != ApplicationStatus::Pause &&
-      application.application_status_ != ApplicationStatus::NotPlaying)
+  if (application.execution_status_ != ExecutionStatus::Pause &&
+      application.execution_status_ != ExecutionStatus::NotPlaying)
     return;
-  if (application.application_status_ == ApplicationStatus::NotPlaying) {
+  if (application.execution_status_ == ExecutionStatus::NotPlaying) {
     const auto copied_scene = AssetManager::CreateTemporaryAsset<Scene>();
     Scene::Clone(ProjectManager::GetStartScene().lock(), copied_scene);
     Attach(copied_scene);
   }
-  application.application_status_ = ApplicationStatus::Playing;
+  application.execution_status_ = ExecutionStatus::Playing;
 }
 void Application::Stop() {
   auto& application = GetInstance();
-  if (!application.active_scene_ || application.application_status_ == ApplicationStatus::OnDestroy)
+  if (!application.active_scene_ || application.execution_status_ == ExecutionStatus::OnDestroy)
     return;
-  if (application.application_status_ == ApplicationStatus::NotPlaying)
+  if (application.execution_status_ == ExecutionStatus::NotPlaying)
     return;
-  application.application_status_ = ApplicationStatus::NotPlaying;
+  application.execution_status_ = ExecutionStatus::NotPlaying;
   Attach(ProjectManager::GetStartScene().lock());
 }
 void Application::Pause() {
   auto& application = GetInstance();
-  if (!application.active_scene_ || application.application_status_ == ApplicationStatus::OnDestroy)
+  if (!application.active_scene_ || application.execution_status_ == ExecutionStatus::OnDestroy)
     return;
-  if (application.application_status_ != ApplicationStatus::Playing)
+  if (application.execution_status_ != ExecutionStatus::Playing)
     return;
-  application.application_status_ = ApplicationStatus::Pause;
+  application.execution_status_ = ExecutionStatus::Pause;
 }
 
 void Application::Step() {
   auto& application = GetInstance();
-  if (application.application_status_ != ApplicationStatus::Pause &&
-      application.application_status_ != ApplicationStatus::NotPlaying)
+  if (application.execution_status_ != ExecutionStatus::Pause &&
+      application.execution_status_ != ExecutionStatus::NotPlaying)
     return;
-  if (application.application_status_ == ApplicationStatus::NotPlaying) {
+  if (application.execution_status_ == ExecutionStatus::NotPlaying) {
     const auto copied_scene = AssetManager::CreateTemporaryAsset<Scene>();
     Scene::Clone(ProjectManager::GetStartScene().lock(), copied_scene);
     Attach(copied_scene);
   }
-  application.application_status_ = ApplicationStatus::Step;
+  application.execution_status_ = ExecutionStatus::Step;
 }
 
-ApplicationExecutionStatus Application::GetApplicationExecutionStatus() {
+Application::ExecutionOrder Application::GetApplicationExecutionStatus() {
   const auto& application = GetInstance();
-  return application.application_execution_status_;
+  return application.execution_order;
 }
 
 void Application::RegisterPreUpdateFunction(const std::function<void()>& func) {
@@ -480,5 +480,5 @@ void Application::RegisterPostAttachSceneFunction(
 
 bool Application::IsPlaying() {
   const auto& application = GetInstance();
-  return application.application_status_ == ApplicationStatus::Playing;
+  return application.execution_status_ == ExecutionStatus::Playing;
 }

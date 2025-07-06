@@ -235,14 +235,14 @@ class Mesh final : public IAsset, public IGeometry {
    *
    * @return The number of vertices.
    */
-  [[nodiscard]] size_t GetVerticesAmount() const;
+  [[nodiscard]] uint32_t GetVerticesAmount() const;
 
   /**
    * @brief Retrieves the number of triangles in the mesh.
    *
    * @return The number of triangles.
    */
-  [[nodiscard]] size_t GetTriangleAmount() const;
+  [[nodiscard]] uint32_t GetTriangleAmount() const;
 
   /**
    * @brief Recalculates the normals for the mesh.

@@ -42,6 +42,9 @@ class RenderLayer final : public ILayer {
   /// Specifies whether shadow-rendering draw calls should be counted.
   bool count_shadow_rendering_draw_calls = true;
 
+  /// Specifies whether meshlet rendering is enabled.
+  bool enable_meshlet = true;
+
   /// Specifies whether indirect rendering is enabled.
   bool enable_indirect_rendering = true;
 

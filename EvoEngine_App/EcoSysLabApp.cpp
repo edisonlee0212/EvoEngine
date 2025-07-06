@@ -99,7 +99,7 @@ int main() {
   PrivateComponentRegistration<TextureBaking>("TextureBaking");
 #endif
 
-  ApplicationInfo application_configs;
+  ApplicationInitializationSettings application_configs;
   application_configs.application_name = "EcoSysLab";
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "EcoSysLabProject" / "test.eveproj");

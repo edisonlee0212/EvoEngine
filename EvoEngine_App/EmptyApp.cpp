@@ -17,7 +17,7 @@ int main() {
   Application::PushLayer<WindowLayer>("Window Layer");
   Application::PushLayer<EditorLayer>("Editor Layer");
 
-  ApplicationInfo application_info{};
+  ApplicationInitializationSettings application_info{};
   Application::Initialize(application_info);
 
   Application::Start();

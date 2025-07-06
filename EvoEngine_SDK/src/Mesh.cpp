@@ -208,8 +208,7 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   GeometryStorage::AllocateMesh(GetHandle(), v_c, t_c, meshlet_range_, triangle_range_);
 
   version_++;
-
-  if (Platform::Constants::support_ray_tracing && Platform::Settings::use_ray_tracing) {
+  if (Platform::RayTracingEnabled()) {
     blas_ = std::make_shared<BottomLevelAccelerationStructure>(v_c, t_c);
   }
 
@@ -247,11 +246,11 @@ void Mesh::MergeVertices() {
   }
 }
 
-size_t Mesh::GetVerticesAmount() const {
+uint32_t Mesh::GetVerticesAmount() const {
   return vertices_.size();
 }
 
-size_t Mesh::GetTriangleAmount() const {
+uint32_t Mesh::GetTriangleAmount() const {
   return triangles_.size();
 }
 

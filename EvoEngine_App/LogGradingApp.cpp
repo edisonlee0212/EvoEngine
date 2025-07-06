@@ -82,7 +82,7 @@ int main() {
 
   PrivateComponentRegistration<JoeScanScanner>("JoeScanScanner");
 #endif
-  ApplicationInfo application_configs;
+  ApplicationInitializationSettings application_configs;
   application_configs.application_name = "Log Grader";
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "LogGradingProject" / "Default.eveproj");

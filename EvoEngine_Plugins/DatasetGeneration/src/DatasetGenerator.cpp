@@ -18,11 +18,11 @@ bool CheckApplication() {
     EVOENGINE_ERROR("No project!");
     return false;
   }
-  if (application_status == ApplicationStatus::OnDestroy) {
+  if (application_status == Application::ExecutionStatus::OnDestroy) {
     EVOENGINE_ERROR("Application is destroyed!");
     return false;
   }
-  if (application_status == ApplicationStatus::Uninitialized) {
+  if (application_status == Application::ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Application not uninitialized!");
     return false;
   }

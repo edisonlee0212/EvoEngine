@@ -140,7 +140,7 @@ void GpuRayTracerCamera::Capture() {
      */
     aggregated_scene_descriptor_set_layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                                   VK_SHADER_STAGE_COMPUTE_BIT, 0);
-
+    const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
     /**
      * This corresponds to EE_TEXTURE_2DS_BINDING in RayTracerCamera.comp, you can find the resource in
      * .../Includes/Textures.glsl It contains all 2d textures within the framework. Material contains index for choosing
@@ -148,14 +148,14 @@ void GpuRayTracerCamera::Capture() {
      */
     aggregated_scene_descriptor_set_layout->PushDescriptorBinding(
         6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, Platform::Settings::max_texture_2d_resource_size);
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, graphics_settings.max_texture_2d_resource_size);
     /**
      * This corresponds to EE_CUBEMAPS_BINDING in RayTracerCamera.comp, you can find the resource in
      * .../Includes/Textures.glsl It contains all cubemaps within the framework.
      */
     aggregated_scene_descriptor_set_layout->PushDescriptorBinding(
         7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, Platform::Settings::max_cubemap_resource_size);
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, graphics_settings.max_cubemap_resource_size);
     /**
      * Once we nominate all descriptors(resources) we are going to use, we initialize the descriptor set layout.
      */

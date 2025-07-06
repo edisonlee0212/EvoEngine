@@ -66,7 +66,7 @@ void run_windowless(const std::filesystem::path& project_path) {
   }
   register_classes();
   push_layers(false, false);
-  ApplicationInfo application_info{};
+  ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
   const auto new_scene = std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset("./PlayGround.evescene"));

@@ -68,7 +68,7 @@ class IVolume : public IAsset {
 class SphericalVolume : public IVolume {
  public:
   /// The radius of the spherical volume.
-  glm::vec3 m_radius = glm::vec3(1.0f);
+  glm::vec3 radius = glm::vec3(1.0f);
 
   /**
    * @brief Retrieves a random point inside the spherical volume.

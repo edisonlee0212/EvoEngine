@@ -238,7 +238,7 @@ void PyEvoEngine::Run(const std::filesystem::path& project_path) {
     EVOENGINE_ERROR("Project path doesn't point to a EvoEngine project!");
     return;
   }
-  ApplicationInfo application_info{};
+  ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
   Application::Start();
