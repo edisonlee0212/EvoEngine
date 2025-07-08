@@ -349,6 +349,8 @@ void SorghumLayer::CalculateIllumination() {
 
   processing_entities.insert(processing_entities.begin(), owners->begin(), owners->end());
   processing_index = processing_entities.size();
+
+  processing = true;
   while (processing) {
     processing_index--;
     if (processing_index == -1) {
