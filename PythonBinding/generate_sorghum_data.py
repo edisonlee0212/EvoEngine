@@ -1,4 +1,5 @@
 import os
+import traceback, importlib
 
 #If you moved this python script, you should change following lines to make sure they points to the correct directory
 file_path = os.path.abspath(__file__)
@@ -8,11 +9,13 @@ root_dir = os.path.dirname(evoengine_directory)
 #You may modify output folder path here.
 output_root = os.path.dirname(root_dir) + "/SorghumData"
 
+
 #Capture current working directory to restore later
 current_directory = os.getcwd()
 
 #Redirect working directory to the binaries directory of the framework. This has to be done because we also have resource files copied to that folder after compilation of the framework
 library_directory = os.path.expanduser(evoengine_directory + "out/build/x64-Release/PythonBinding")
+
 os.chdir(library_directory)
 
 #==================================#
@@ -20,6 +23,7 @@ os.chdir(library_directory)
 #==================================#
 #Add directory that contains the python library to system path so we can import the library
 import sys
+
 sys.path.append(library_directory)
 
 #Import framework and start data generation``
@@ -35,12 +39,15 @@ if not os.path.isdir(output_root):
 #Enable GPU
 use_gpu = True
 
+
 #Start the framework without editor and window.
 if use_gpu:
 	sorghum_framework.PushRayTracerLayer()
+
 sorghum_framework.RegisterClasses()
 sorghum_framework.PushSorghumLayer()
 sorghum_framework.Run(project_path)
+
 
 #==================================#
 #         Configurations           #
@@ -123,6 +130,7 @@ sorghum_framework.GenerateDataForSorghum(
 )
 #Make sure you delete this entity afterwards.
 sorghum_framework.DeleteEntity(sorghum_entity)
+
 
 
 #Note: You don't need to restart the framework to generate another sorghum data.
