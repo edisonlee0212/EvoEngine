@@ -20,6 +20,11 @@ void GenerateDataForSorghum(const bool use_gpu, const Entity& sorghum_entity,
   DatasetGenerator::GenerateDataForSorghum(sorghum_entity, data_generation_parameters);
 }
 
+void InitiateSorghumEntity(
+    const Entity& sorghum_entity, const DatasetGenerator::SorghumDataGenerationParameters &data_generation_parameters) {
+  DatasetGenerator::GenerateDataForSorghum(sorghum_entity, data_generation_parameters);
+}
+
 void GenerateDataForAllSorghums(const bool use_gpu, const SorghumGantryCaptureSettings& capture_settings,
                                 DatasetGenerator::SorghumDataGenerationParameters data_generation_parameters) {
   const auto gantry_capture_settings = std::make_shared<SorghumGantryCaptureSettings>();
@@ -39,5 +44,7 @@ PYBIND11_MODULE(PyDigitalAgriculture, m) {
   m.def("GenerateDataForSorghum", &GenerateDataForSorghum, "Generate data point for single sorghum");
   m.def("GenerateDataForAllSorghums", &GenerateDataForAllSorghums,
         "Generate data point for all existing sorghum(s) in current scene");
+  m.def("InitiateSorghumEntity", &InitiateSorghumEntity,
+        "Initialize a sorghum entity with proper components set in the sorghum layer in the scene");
 }
 #endif

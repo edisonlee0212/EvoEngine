@@ -63,7 +63,24 @@ class PyDigitalAgriculture {
    * @param m The target python binding module to register functions and classes.
    */
   static void Initialize(pybind11::module& m);
+
+  static void EnableBTF();
+
+  static void SetCBTFGroup(const Handle& cbtf_group_handle);
+
+  static bool CheckBTFComponentsExist();
+
+  static void SetSkyDome();
+
+  static void PushRayTracerLayer();
+
+  static void SetSunDirection(glm::vec3 direction);
+
+  static void IlluminationEstimation(const Entity& sorghum_entity);
+
+  static void CheckTriangleEstimator(const Entity& sorghum_entity);
 };
+
 }  // namespace py_digital_agriculture_plugin
 
 #endif

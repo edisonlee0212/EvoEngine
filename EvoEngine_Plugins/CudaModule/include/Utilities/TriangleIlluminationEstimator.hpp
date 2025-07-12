@@ -21,6 +21,10 @@ class TriangleIlluminationEstimator : public IPrivateComponent {
   const LightProbeGroup& PeekProbes() const;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
+
+  LightProbeGroup GetLightProbeGroup() const{
+    return light_probe_group_;
+  }
 };
 
 }  // namespace evo_engine

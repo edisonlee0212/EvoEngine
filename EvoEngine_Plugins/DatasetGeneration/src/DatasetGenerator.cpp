@@ -670,7 +670,10 @@ void DatasetGenerator::GenerateDataForSorghum(const Entity& sorghum_entity,
     if (!CheckSoil(soil, data_generation_parameters.generate_ground_mesh))
       return;
   }
-  std::filesystem::create_directories(data_generation_parameters.output_folder);
+  if (!data_generation_parameters.output_folder.empty()) {
+    std::filesystem::create_directories(data_generation_parameters.output_folder);
+  }
+
 
   const auto scanner_entity = scene->CreateEntity("Scanner");
   const auto scanner = scene->GetOrSetPrivateComponent<SorghumPointCloudScanner>(scanner_entity).lock();
