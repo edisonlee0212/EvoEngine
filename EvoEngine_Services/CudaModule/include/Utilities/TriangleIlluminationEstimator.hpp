@@ -19,6 +19,12 @@ class TriangleIlluminationEstimator : public IPrivateComponent {
   glm::vec3 average_flux = glm::vec3(0.0f);
   bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   const LightProbeGroup& PeekProbes() const;
+  void Serialize(YAML::Emitter& out) const override;
+  void Deserialize(const YAML::Node& in) override;
+
+  LightProbeGroup GetLightProbeGroup() const{
+    return light_probe_group_;
+  }
 };
 
 }  // namespace evo_engine
