@@ -1,6 +1,13 @@
 #include "PyDigitalAgriculture.hpp"
 
-#ifdef DIGITAL_AGRICULTURE_PACKAGE
+#include "BtfMeshRenderer.hpp"
+#include "TriangleIlluminationEstimator.hpp"
+
+#ifdef DIGITAL_AGRICULTURE_PLUGIN
+namespace evo_engine {
+class TriangleIlluminationEstimator;
+}
+
 namespace py = pybind11;
 using namespace py_digital_agriculture_package;
 void PyDigitalAgriculture::PushSorghumLayer() {
@@ -55,6 +62,8 @@ void PyDigitalAgriculture::ApplySorghumGrid(const Handle& sorghum_field_handle, 
   const auto sorghum_generator = PyEvoEngine::GetAsset(sorghum_generator_handle);
   DatasetGenerator::ApplySorghumGrid(sorghum_field, sorghum_generator, sorghum_grid);
 }
+
+
 void PyDigitalAgriculture::Initialize(pybind11::module& m) {
   PyEvoEngine::Initialize(m);
   m.def("RegisterClasses", &RegisterClasses);
@@ -64,6 +73,14 @@ void PyDigitalAgriculture::Initialize(pybind11::module& m) {
   m.def("CreateEntityFromSorghumGenerator", &CreateEntityFromSorghumGenerator);
   m.def("CreateEntityFromSorghumField", &CreateEntityFromSorghumField);
   m.def("ApplySorghumGrid", &ApplySorghumGrid);
+  m.def("EnableBTF", &EnableBTF);
+  m.def("CheckBTFComponentsExist", &CheckBTFComponentsExist);
+  m.def("SetCBTFGroup", &SetCBTFGroup);
+  m.def("SetSkyDome", &SetSkyDome);
+  m.def("PushRayTracerLayer", &PushRayTracerLayer);
+  m.def("SetSunDirection", &SetSunDirection);
+  m.def("IlluminationEstimation", &IlluminationEstimation);
+  m.def("CheckTriangleEstimator", &CheckTriangleEstimator);
 
   py::class_<SorghumMeshGeneratorSettings>(m, "SorghumMeshGeneratorSettings")
       .def(py::init<>())
@@ -118,5 +135,82 @@ void PyDigitalAgriculture::Initialize(pybind11::module& m) {
       .def_readwrite("rotation_variance_y", &SorghumGrid::rotation_variance_y)
       .def_readwrite("grid_size", &SorghumGrid::grid_size);
 }
+
+void PyDigitalAgriculture::EnableBTF() {
+  auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  sorghum_layer->enable_compressed_btf = true;
+
+  EVOENGINE_LOG("Sorghum layer enabled: " << sorghum_layer->enable_compressed_btf)
+}
+
+void PyDigitalAgriculture::SetCBTFGroup(const Handle& cbtf_group_handle) {
+  const auto cbtf_group_asset = PyEvoEngine::GetAsset(cbtf_group_handle);
+  if (cbtf_group_asset->GetTypeName() != "CBTFGroup") {
+    EVOENGINE_ERROR("SetCBTFGroup failed: invalid asset type!")
+  }
+  auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  sorghum_layer->leaf_cbtf_group = cbtf_group_asset;
+
+  EVOENGINE_LOG("Sorghum layer set leaf cbtf group: " << sorghum_layer->leaf_cbtf_group.GetAssetHandle())
+}
+
+bool PyDigitalAgriculture::CheckBTFComponentsExist() {
+  const auto scene = Application::GetActiveScene();
+  EVOENGINE_LOG("!scene " << !scene )
+  const auto owners = scene->GetPrivateComponentOwnersList<BtfMeshRenderer>();
+
+  EVOENGINE_LOG("btf material count: " << owners.size())
+
+  return !owners.empty();
+
+}
+
+void PyDigitalAgriculture::SetSkyDome() {
+  auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
+  ray_tracer_layer->environment_properties.environmental_lighting_type = EnvironmentalLightingType::Skydome;
+
+  EVOENGINE_LOG("sky info: " << ray_tracer_layer->environment_properties.sun_direction.x << ","
+                             << ray_tracer_layer->environment_properties.sun_direction.y << ","
+                             << ray_tracer_layer->environment_properties.sun_direction.z )
+
+}
+
+
+void PyDigitalAgriculture::PushRayTracerLayer() {
+  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
+}
+
+void PyDigitalAgriculture::SetSunDirection(glm::vec3 direction) {
+  auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
+  ray_tracer_layer->environment_properties.sun_direction = direction;
+}
+
+void PyDigitalAgriculture::IlluminationEstimation(const Entity& sorghum_entity) {
+
+  auto scene = Application::GetActiveScene();
+  auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+
+  sorghum_layer->CalculateIllumination();
+
+  // get the TriangleIlluminationEstimator results
+  auto triangle_illumination_estimator =
+      scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(sorghum_entity).lock();
+  EVOENGINE_LOG("Illumination Estimation results: "
+                << std::to_string(glm::length(triangle_illumination_estimator->total_area)).c_str() << "\n"
+                << std::to_string(glm::length(triangle_illumination_estimator->total_flux)).c_str() << "\n"
+                << std::to_string(glm::length(triangle_illumination_estimator->average_flux)).c_str()
+                                                   )
+
+}
+
+void PyDigitalAgriculture::CheckTriangleEstimator(const Entity& sorghum_entity) {
+  auto scene = Application::GetActiveScene();
+  auto triangle_illumination_estimator =
+      scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(sorghum_entity).lock();
+
+  triangle_illumination_estimator->PrepareLightProbeGroup();
+  EVOENGINE_LOG("triangle illumination estimator info: " << triangle_illumination_estimator->GetLightProbeGroup().light_probes.size())
+}
+
 
 #endif
