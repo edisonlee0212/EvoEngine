@@ -209,7 +209,7 @@ void PyDigitalAgriculture::CheckTriangleEstimator(const Entity& sorghum_entity) 
       scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(sorghum_entity).lock();
 
   triangle_illumination_estimator->PrepareLightProbeGroup();
-  EVOENGINE_LOG("triangle illumination estimator info: " << triangle_illumination_estimator->GetLightProbeGroup().light_probes.size())
+  EVOENGINE_LOG("triangle illumination estimator total light probes: " << triangle_illumination_estimator->GetLightProbeGroup().light_probes.size())
 }
 
 
