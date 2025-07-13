@@ -682,6 +682,7 @@ void DatasetGenerator::GenerateDataForSorghum(const Entity& sorghum_entity,
 
   Application::GetLayer<SorghumLayer>()->GenerateMeshForAllSorghums(
       data_generation_parameters.sorghum_mesh_generator_settings);
+
   Application::Loop();
   Application::Loop();
   if (data_generation_parameters.export_mesh) {
