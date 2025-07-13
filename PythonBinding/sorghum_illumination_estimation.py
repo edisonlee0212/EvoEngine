@@ -44,19 +44,6 @@ sorghum_framework.PushSorghumLayer()
 sorghum_framework.PushRayTracerLayer()
 sorghum_framework.Run(project_path)
 
-# Sorghum Layer: Enable BTF
-sorghum_framework.EnableBTF() 
-
-# Sorghum layer: Set CBTFGroup
-cbtf_group_handle = sorghum_framework.GetAssetHandle("./BTFGroup.cbtfgroup")
-print("load cbtgroup with handle: ", cbtf_group_handle.GetValue())
-sorghum_framework.SetCBTFGroup(cbtf_group_handle)
-
-# Add sorghum to the scene
-seed = 0
-sorghum_state_handle = sorghum_framework.GetAssetHandle("./SorghumGenerator/Sample1.ss")
-sorghum_entity = sorghum_framework.CreateEntityFromSorghumState(sorghum_state_handle)
-
 # sorghum generation parameters
 data_generation_parameters = sorghum_framework.SorghumDataGenerationParameters()
 #Whether generate ground surface mesh
@@ -71,7 +58,7 @@ data_generation_parameters.sorghum_mesh_generator_settings.enable_stem = False
 #Should leaf geometry be generated
 data_generation_parameters.sorghum_mesh_generator_settings.enable_leaves = True
 #Should geometry of stem part of each leaf be generated
-data_generation_parameters.sorghum_mesh_generator_settings.enable_leaf_sheath = False
+data_generation_parameters.sorghum_mesh_generator_settings.enable_leaf_sheath = True
 #If -1, generate all leaves, otherwise generate specific leaf only
 data_generation_parameters.sorghum_mesh_generator_settings.single_leaf_index = -1
 #Should leaf mesh contain 2 faces
@@ -80,6 +67,24 @@ data_generation_parameters.sorghum_mesh_generator_settings.bottom_face = True
 data_generation_parameters.sorghum_mesh_generator_settings.leaf_separated = True
 #If bottom_face is ON, this sets the distance between top and bottom face of each leaf
 data_generation_parameters.sorghum_mesh_generator_settings.leaf_thickness = 0.001
+
+
+
+# Sorghum Layer: Enable BTF
+sorghum_framework.EnableBTF() 
+
+# Sorghum layer: Set CBTFGroup
+cbtf_group_handle = sorghum_framework.GetAssetHandle("./BTFGroup.cbtfgroup")
+print("load cbtgroup with handle: ", cbtf_group_handle.GetValue())
+sorghum_framework.SetCBTFGroup(cbtf_group_handle)
+
+# Add sorghum to the scene
+seed = 0
+sorghum_state_handle = sorghum_framework.GetAssetHandle("./SorghumGenerator/Sample1.sorghum")
+sorghum_entity = sorghum_framework.CreateEntityFromSorghumDescriptor(sorghum_state_handle)
+
+data_generation_parameters.output_file_name = "SD_Sample"
+
 
 
 sorghum_framework.InitiateSorghumEntity(
@@ -97,7 +102,7 @@ sorghum_framework.SetSkyDome()
 # todo: set samples and bonces of rays
 # run illumination estimation
 sorghum_framework.IlluminationEstimation(sorghum_entity)
-sorghum_framework.CheckTriangleEstimator(sorghum_entity)
+
 
 
 #==================================#
