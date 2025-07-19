@@ -3,6 +3,8 @@
 import PyDigitalAgriculture as sorghum_framework
 from pathlib import Path
 import os
+import numpy as np
+import pandas as pd
 
 def initialize_sorghum_app(evoengine_directory: str):
     # Point the framework to load the default project folder that contains 2 sample sorghum descriptors.
@@ -48,3 +50,16 @@ def initialize_illumination_estimation_mesh_parameters()->sorghum_framework.Sorg
     data_generation_parameters.sorghum_mesh_generator_settings.leaf_thickness = 0.001
     return data_generation_parameters
 
+def get_sun_light_direction_sequence(file_path:str, skip_rows: int, start_date:str, end_date:str)->pd.DataFrame:
+    df = pd.read_csv(file_path, skiprows=skip_rows)
+    
+    df['ts'] = pd.to_datetime(df[['Year','Month','Day','Hour','Minute']])
+    mask = (df['ts'] >= start_date) & (df['ts'] < end_date)
+    sub = df.loc[mask].copy()
+    sub[["Year","Month", "Day", "Hour", "Minute", "Solar Zenith Angle"]]
+    sub['datetime'] = pd.to_datetime(sub[['Year','Month','Day','Hour','Minute']])
+    result = pd.DataFrame({
+        'datetime': sub['datetime'],
+        'sun_direction': sub["Solar Zenith Angle"]
+    })
+    return result
