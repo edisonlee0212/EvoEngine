@@ -76,9 +76,16 @@ class PyDigitalAgriculture {
 
   static void SetSunDirection(glm::vec3 direction);
 
-  static void IlluminationEstimation(const Entity& sorghum_entity);
+  static void IlluminationEstimation();
 
   static void CheckTriangleEstimator(const Entity& sorghum_entity);
+
+  static Entity InstantiateSorghumField(const Handle& sorghum_field_handle, const Handle& sorghum_coordinates,
+                                       const int seed, const int index=200, const float radius=2.5f);
+
+  static std::vector<std::vector<glm::vec3>> GetAllIlluminationEstimationResults();
+
+
 };
 
 }  // namespace py_digital_agriculture_plugin

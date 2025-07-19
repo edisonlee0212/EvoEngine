@@ -101,7 +101,7 @@ sorghum_framework.SetSkyDome()
 
 # todo: set samples and bonces of rays
 # run illumination estimation
-sorghum_framework.IlluminationEstimation(sorghum_entity)
+sorghum_framework.IlluminationEstimation()
 
 
 
