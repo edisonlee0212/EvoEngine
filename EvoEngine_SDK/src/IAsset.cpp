@@ -49,7 +49,7 @@ bool IAsset::SaveInternal(const std::filesystem::path &path) const {
 }
 bool IAsset::LoadInternal(const std::filesystem::path &path) {
   if (!std::filesystem::exists(path)) {
-    EVOENGINE_ERROR("Not exist!")
+    EVOENGINE_ERROR("Not exist!" << std::filesystem::absolute(path))
     return false;
   }
   try {

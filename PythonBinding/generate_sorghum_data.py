@@ -29,6 +29,8 @@ sys.path.append(library_directory)
 #Import framework and start data generation``
 import PyDigitalAgriculture as sorghum_framework
 
+
+
 #Point the framework to load the default project folder that contains 2 sample sorghum descriptors.
 project_path = os.path.expanduser(evoengine_directory + "Resources/DigitalAgricultureProject/test.eveproj")
 
@@ -235,5 +237,3 @@ sorghum_framework.DeleteRuntimeAsset(sorghum_field_handle)
 #Close the framework after we finished data generation
 sorghum_framework.Terminate()
 
-#Change back to original working directory
-os.chdir(current_directory)

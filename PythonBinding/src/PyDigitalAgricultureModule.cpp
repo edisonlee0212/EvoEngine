@@ -4,6 +4,8 @@
 namespace py = pybind11;
 using namespace py_digital_agriculture_package;
 
+
+
 void GenerateDataForSorghum(const bool use_gpu, const Entity& sorghum_entity,
                             const SorghumGantryCaptureSettings& capture_settings,
                             DatasetGenerator::SorghumDataGenerationParameters data_generation_parameters) {
@@ -22,7 +24,13 @@ void GenerateDataForSorghum(const bool use_gpu, const Entity& sorghum_entity,
 
 void InitiateSorghumEntity(
     const Entity& sorghum_entity, const DatasetGenerator::SorghumDataGenerationParameters &data_generation_parameters) {
-  DatasetGenerator::GenerateDataForSorghum(sorghum_entity, data_generation_parameters);
+
+
+  Application::GetLayer<SorghumLayer>()->GenerateMeshForAllSorghums(
+      data_generation_parameters.sorghum_mesh_generator_settings);
+  Application::Loop();
+  Application::Loop();
+  
 }
 
 void GenerateDataForAllSorghums(const bool use_gpu, const SorghumGantryCaptureSettings& capture_settings,
