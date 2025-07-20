@@ -74,18 +74,23 @@ class PyDigitalAgriculture {
 
   static void PushRayTracerLayer();
 
-  static void SetSunDirection(glm::vec3 direction);
+  static void SetSunDirection(glm::vec3 angles);
 
-  static void IlluminationEstimation();
+  static void IlluminationEstimationOnSorghum();
 
   static void CheckTriangleEstimator(const Entity& sorghum_entity);
 
   static Entity InstantiateSorghumField(const Handle& sorghum_field_handle, const Handle& sorghum_coordinates,
                                        const int seed, const int index=200, const float radius=2.5f);
 
-  static std::vector<std::vector<glm::vec3>> GetAllIlluminationEstimationResults();
+  static std::vector<std::vector<glm::vec3>> GetAllIlluminationEstimationResultsOnSorghum();
 
+  static Handle SetPARSensors(const Entity& sorghum_field);
 
+  static void IlluminationEstimationOnSensors(const Handle& sensor_group_handle);
+
+  static std::vector<std::vector<glm::vec3>> GetAllIlluminationEstimationResultsFromSensors(
+      const Handle& sensor_group_handle);
 };
 
 }  // namespace py_digital_agriculture_plugin

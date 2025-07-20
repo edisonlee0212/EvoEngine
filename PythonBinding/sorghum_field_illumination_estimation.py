@@ -5,13 +5,14 @@ import argparse
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone, timedelta
+from tqdm import tqdm
 
-# todo: parameters
+# todo: parameters for specific sorghum generator, etc...
 parser = argparse.ArgumentParser(description="Sorghum Field Illumination Estimation")
 
 parser.add_argument(
     "--output-path",
-    default=r"E:\Computer Graphics\SorghumIlluminationEstimationResults",
+    default=r"D:\zhan5455\SorghumIlluminationEstimationResults",
     type=str,
     help="path to store the output",
 )
@@ -21,8 +22,12 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--use-sensors", action="store_true", help="whether to estimate illumination on sensors instead of on the plants"
+)
+
+parser.add_argument(
     "--sun-light-dir-source",
-    default=r"E:\Computer Graphics\SorghumData\524042_33.08_-111.97_2021.csv",
+    default=r"D:\zhan5455\SorghumData\524042_33.08_-111.97_2021.csv",
     type=str,
 )
 
@@ -57,6 +62,9 @@ import utils
 
 
 def main(args):
+    if not os.path.isdir(args.output_path):
+        os.mkdir(args.output_path)
+    
     utils.initialize_sorghum_app(evoengine_directory)
     mesh_generation_settings = (
         utils.initialize_illumination_estimation_mesh_parameters()
@@ -113,29 +121,54 @@ def main(args):
             args.end_date,
         )
     
-    # todo: loop through the sun directions and collect the results in a np array
+    # todo: api for setting up PAR sensors
     
-    sorghum_framework.SetSunDirection()
+    if args.use_sensors:
+        print("[Illumination Estimation]: use sensors")
+        sensor_asset_handle = sorghum_framework.SetPARSensors(sorghum_field_entity)
+    
+    # loop through the sun directions and collect the results in a np array
+    time = sun_light_directions['datetime'].to_numpy()
+    sun_direction = sun_light_directions['sun_direction'].to_numpy()
+    results = []
+    
+    pbar = tqdm(sun_direction, desc="Sun moving")
+    for i, x in enumerate(pbar):
+        dir = sorghum_framework.Vec3()
+        dir.x = 90 - x  
+        sorghum_framework.SetSunDirection(dir)
+        pbar.set_postfix(time=pd.to_datetime(time[i]).strftime('%Y-%m-%d %H:%M'), zenith=f"{x:.2f}")
+        # illumination estimation
+        if args.use_sensors:
+            sorghum_framework.IlluminationEstimationOnSensors(sensor_asset_handle)
 
-    # illumination estimation
-    sorghum_framework.IlluminationEstimation()
+            result = sorghum_framework.GetAllIlluminationEstimationResultsFromSensors(sensor_asset_handle)
+        
+        else:
+            sorghum_framework.IlluminationEstimationOnSorghum()
 
-    # get the result
-    results = sorghum_framework.GetAllIlluminationEstimationResults()
+            result = sorghum_framework.GetAllIlluminationEstimationResultsOnSorghum()
 
-    results_np = np.array(
-        [[(v.x, v.y, v.z) for v in row] for row in results], dtype=float
-    )
+        # N * C * 3 (glm::vec3)
+        result_np = np.array(
+            [[(v.x, v.y, v.z) for v in row] for row in result], dtype=float
+        )
+        results.append(result_np)
+    
+    results = np.array(results)
+    # todo: make all results into one numpy array
+    
+    print(os.path.join(args.output_path, "results.npy"))
+    np.save(os.path.join(args.output_path, "results.npy"), results)
+    np.save(os.path.join(args.output_path, "timestamps.npy"), time)
+    np.save(os.path.join(args.output_path, "sun_directions.npy"), sun_direction)
 
-    if not os.path.isdir(args.output_path):
-        os.mkdir(args.output_path)
-    np.save(os.path.join(args.output_path, "results.npy"), results_np)
-
+    if args.use_sensors:
+        sorghum_framework.DeleteRuntimeAsset(sensor_asset_handle)
     sorghum_framework.Terminate()
 
 
 if __name__ == "__main__":
-
     parsed_args = parser.parse_args()
     main(parsed_args)
 
