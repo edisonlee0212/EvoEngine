@@ -6,6 +6,7 @@
 #endif
 
 #include "BtfMeshRenderer.hpp"
+#include "PARSensorGroup.hpp"
 #include "SorghumCoordinates.hpp"
 #include "TriangleIlluminationEstimator.hpp"
 
@@ -102,9 +103,12 @@ void PyDigitalAgriculture::Initialize(pybind11::module& m) {
   m.def("SetSkyDome", &SetSkyDome);
   m.def("PushRayTracerLayer", &PushRayTracerLayer);
   m.def("SetSunDirection", &SetSunDirection);
-  m.def("IlluminationEstimation", &IlluminationEstimation);
+  m.def("SetPARSensors", &SetPARSensors);
+  m.def("IlluminationEstimationOnSensors", &IlluminationEstimationOnSensors);
+  m.def("GetAllIlluminationEstimationResultsFromSensors", &GetAllIlluminationEstimationResultsFromSensors);
+  m.def("IlluminationEstimationOnSorghum", &IlluminationEstimationOnSorghum);
   m.def("CheckTriangleEstimator", &CheckTriangleEstimator);
-  m.def("GetAllIlluminationEstimationResults", &GetAllIlluminationEstimationResults);
+  m.def("GetAllIlluminationEstimationResultsOnSorghum", &GetAllIlluminationEstimationResultsOnSorghum);
   m.def("InstantiateSorghumField", &InstantiateSorghumField, 
       py::arg("sorghum_field_handle"),
       py::arg("sorghum_coordinates"), 
@@ -210,12 +214,13 @@ void PyDigitalAgriculture::PushRayTracerLayer() {
   Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
 }
 
-void PyDigitalAgriculture::SetSunDirection(glm::vec3 direction) {
+void PyDigitalAgriculture::SetSunDirection(glm::vec3 angles) {
   auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
-  ray_tracer_layer->environment_properties.sun_direction = direction;
+  glm::vec3 sun_direction = glm::quat(glm::radians(angles)) * glm::vec3(0, 0, -1);
+  ray_tracer_layer->environment_properties.sun_direction = sun_direction;
 }
 
-void PyDigitalAgriculture::IlluminationEstimation() {
+void PyDigitalAgriculture::IlluminationEstimationOnSorghum() {
 
   auto scene = Application::GetActiveScene();
   auto sorghum_layer = Application::GetLayer<SorghumLayer>();
@@ -257,7 +262,7 @@ Entity PyDigitalAgriculture::InstantiateSorghumField(const Handle& sorghum_field
   return field_entity;
 }
 
-std::vector<std::vector<glm::vec3>> PyDigitalAgriculture::GetAllIlluminationEstimationResults() {
+std::vector<std::vector<glm::vec3>> PyDigitalAgriculture::GetAllIlluminationEstimationResultsOnSorghum() {
   auto scene = Application::GetActiveScene();
   auto sorghum_layer = Application::GetLayer<SorghumLayer>();
     const std::vector<Entity>* sorghum_entities =
@@ -272,16 +277,97 @@ std::vector<std::vector<glm::vec3>> PyDigitalAgriculture::GetAllIlluminationEsti
     auto transform = scene->GetDataComponent<Transform>(sorghum);
 
     std::vector<glm::vec3> result;
+    // sorghum position
     result.emplace_back(transform.GetPosition());
+    // sorghum rotation
     result.emplace_back(transform.GetEulerRotation());
+    // estimator area
     result.emplace_back(triangle_illumination_estimator->total_area);
+    // total flux
     result.emplace_back(triangle_illumination_estimator->total_flux);
+    // average flux
     result.emplace_back(triangle_illumination_estimator->average_flux);
 
     results.emplace_back(result);
 
   }
   return results;
+}
+
+// todo: given the sorghum field prepare the PARSensor group according to the sorghums
+// for now, it is just using a fixed grid
+Handle PyDigitalAgriculture::SetPARSensors(const Entity& sorghum_field) {
+  auto sensor_group_handle = PyEvoEngine::CreateRuntimeAsset("PARSensorGroup");
+  
+  auto sensor_group_asset = PyEvoEngine::GetAsset(sensor_group_handle);
+  const auto sensors = std::dynamic_pointer_cast<PARSensorGroup>(sensor_group_asset);
+
+  auto& samplers = sensors->samplers;
+
+
+  glm::vec3 max_range(2, 1.1, 2);
+  glm::vec3 min_range(-2, 0.5, -2);
+  float step = 0.3f;
+
+  const int sx = static_cast<int>((max_range.x - min_range.x + step) / step);
+  const int sy = static_cast<int>((max_range.y - min_range.y + step) / step);
+  const int sz = static_cast<int>((max_range.z - min_range.z + step) / step);
+  const auto voxel_size = sx * sy * sz;
+  samplers.resize(voxel_size);
+  Jobs::RunParallelFor(voxel_size, [&](unsigned i) {
+    float z = (i % sz) * step + min_range.z;
+    float y = ((i / sz) % sy) * step + min_range.y;
+    float x = ((i / sz / sy) % sx) * step + min_range.x;
+    glm::vec3 start = {x, y, z};
+    samplers[i].v_0.position = samplers[i].v_1.position = samplers[i].v_2.position = start;
+    samplers[i].front_face = true;
+    samplers[i].back_face = false;
+    samplers[i].v_0.normal = samplers[i].v_1.normal = samplers[i].v_2.normal = glm::vec3(0, 1, 0);
+  });
+  EVOENGINE_LOG("sensor counts: " << sensors->samplers.size())
+  return sensor_group_handle;
+}
+
+void PyDigitalAgriculture::IlluminationEstimationOnSensors(const Handle& sensor_group_handle) {
+
+  const auto sensor_group_asset = PyEvoEngine::GetAsset(sensor_group_handle);
+
+  const auto sensors = std::dynamic_pointer_cast<PARSensorGroup>(sensor_group_asset);
+
+  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  sensors->CalculateIllumination(sorghum_layer->ray_properties, sorghum_layer->m_seed, sorghum_layer->push_distance);
+}
+
+std::vector<std::vector<glm::vec3>> PyDigitalAgriculture::GetAllIlluminationEstimationResultsFromSensors(
+    const Handle& sensor_group_handle) {
+  const auto sensor_group_asset = PyEvoEngine::GetAsset(sensor_group_handle);
+
+  const auto sensors = std::dynamic_pointer_cast<PARSensorGroup>(sensor_group_asset);
+
+  auto& samplers = sensors->samplers;
+
+  std::vector<std::vector<glm::vec3>> results;
+
+  // todo: maybe need to bind the result to a specific sorghum
+
+  for (const auto& sampler : samplers) {
+
+
+    std::vector<glm::vec3> result;
+    // sampler position (3 vertices are at the same position for now)
+    result.emplace_back(sampler.v_0.position);
+
+    // energy
+    result.emplace_back(sampler.energy);
+
+    // energy dominant direction
+    result.emplace_back(sampler.direction);
+
+
+    results.emplace_back(result);
+  }
+  return results;
+
 }
 
 
