@@ -50,26 +50,178 @@ void TreeGrowthSettings::Load(const std::string& name, const YAML::Node& in) {
   }
 }
 
-void ReproductiveModule::Reset() {
+void ShootOrgan::Reset() {
   maturity = 0.0f;
   health = 1.0f;
-  transform = glm::mat4(0.0f);
+  status = OrganStatus::Inactive;
+  rotation = glm::vec3(0.0f);
+  scale = glm::vec3(0.0f);
+  position = glm::vec3(0.0f);
+}
+bool ShootOrgan::Recycled() const {
+  return recycled_;
 }
 
-void TreeModel::ResetReproductiveModule() {
-  const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
-  for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
-    auto& internode = shoot_skeleton_.RefNode(*it);
-    auto& internode_data = internode.data;
-    auto& buds = internode_data.buds;
-    for (auto& bud : buds) {
-      if (bud.type == BudType::Fruit || bud.type == BudType::Leaf) {
-        bud.status = BudStatus::Dormant;
-        bud.reproductive_module.Reset();
-      }
+bool Bud::Recycled() const {
+  return recycled_;
+}
+
+uint32_t ShootGrowthData::AllocateBud(const BudType bud_type) {
+  if (buds_pool.empty()) {
+    buds.emplace_back();
+    auto& bud = buds.back();
+    bud = {};
+    bud.type = bud_type;
+    return buds.size() - 1;
+  }
+  const auto bud_index = buds_pool.front();
+  buds[bud_index] = {};
+  buds[bud_index].type = bud_type;
+  buds_pool.pop();
+  return bud_index;
+}
+
+void ShootGrowthData::RecycleBud(const uint32_t bud_index) {
+  buds[bud_index].recycled_ = true;
+  buds_pool.push(bud_index);
+}
+Bud& ShootGrowthData::RefBud(const uint32_t bud_index) {
+  return buds[bud_index];
+}
+const Bud& ShootGrowthData::PeekBud(const uint32_t bud_index) const {
+  return buds[bud_index];
+}
+
+uint32_t ShootGrowthData::AllocateLeaf() {
+  if (leaves_pool.empty()) {
+    leaves.emplace_back();
+    auto& leaf = leaves.back();
+    leaf = {};
+    return leaves.size() - 1;
+  }
+  const auto leaf_index = leaves_pool.front();
+  leaves[leaf_index] = {};
+  leaves_pool.pop();
+  return leaf_index;
+}
+
+void ShootGrowthData::RecycleLeaf(const uint32_t leaf_index) {
+  leaves[leaf_index].recycled_ = true;
+  leaves_pool.push(leaf_index);
+}
+Leaf& ShootGrowthData::RefLeaf(const uint32_t leaf_index) {
+  return leaves[leaf_index];
+}
+const Leaf& ShootGrowthData::PeekLeaf(const uint32_t leaf_index) const {
+  return leaves[leaf_index];
+}
+
+uint32_t ShootGrowthData::AllocateFlower(const uint32_t fruit_index) {
+  if (flowers_pool.empty()) {
+    flowers.emplace_back();
+    auto& flower = flowers.back();
+    flower = {};
+    flower.fruit_index = fruit_index;
+    return flowers.size() - 1;
+  }
+  const auto flower_index = flowers_pool.front();
+  flowers[flower_index] = {};
+  flowers[flower_index].fruit_index = fruit_index;
+  flowers_pool.pop();
+  return flower_index;
+}
+
+void ShootGrowthData::RecycleFlower(const uint32_t flower_index) {
+  flowers[flower_index].recycled_ = true;
+  flowers_pool.push(flower_index);
+}
+Flower& ShootGrowthData::RefFlower(const uint32_t flower_index) {
+  return flowers[flower_index];
+}
+const Flower& ShootGrowthData::PeekFlower(const uint32_t flower_index) const {
+  return flowers[flower_index];
+}
+std::vector<Bud>& ShootGrowthData::RefBuds() {
+  return buds;
+}
+std::vector<Leaf>& ShootGrowthData::RefLeaves() {
+  return leaves;
+}
+std::vector<Flower>& ShootGrowthData::RefFlowers() {
+  return flowers;
+}
+std::vector<Fruit>& ShootGrowthData::RefFruits() {
+  return fruits;
+}
+const std::vector<Bud>& ShootGrowthData::PeekBuds() const {
+  return buds;
+}
+const std::vector<Leaf>& ShootGrowthData::PeekLeaves() const {
+  return leaves;
+}
+const std::vector<Flower>& ShootGrowthData::PeekFlowers() const {
+  return flowers;
+}
+const std::vector<Fruit>& ShootGrowthData::PeekFruits() const {
+  return fruits;
+}
+
+uint32_t ShootGrowthData::AllocateFruit() {
+  if (fruits_pool.empty()) {
+    fruits.emplace_back();
+    auto& fruit = fruits.back();
+    fruit = {};
+    return fruits.size() - 1;
+  }
+  const auto fruit_index = fruits_pool.front();
+  fruits[fruit_index] = {};
+  fruits_pool.pop();
+  return fruit_index;
+}
+
+void ShootGrowthData::RecycleFruit(const uint32_t fruit_index) {
+  fruits[fruit_index].recycled_ = true;
+  fruits_pool.push(fruit_index);
+}
+Fruit& ShootGrowthData::RefFruit(const uint32_t fruit_index) {
+  return fruits[fruit_index];
+}
+const Fruit& ShootGrowthData::PeekFruit(const uint32_t fruit_index) const {
+  return fruits[fruit_index];
+}
+
+void TreeModel::ResetOrgans() {
+  for (auto& i : shoot_skeleton_.data.RefLeaves()) {
+    if (!i.Recycled()) {
+      i.Reset();
     }
   }
-  fruit_count_ = leaf_count_ = 0;
+  for (auto& i : shoot_skeleton_.data.RefFlowers())
+    if (!i.Recycled()) {
+      i.Reset();
+    }
+  for (auto& i : shoot_skeleton_.data.RefFruits())
+    if (!i.Recycled()) {
+      i.Reset();
+    }
+}
+void TreeModel::CreateOrgansForInternode(SkeletonNode<InternodeGrowthData>& internode,
+                                         const FoliageController& foliage_controller,
+                                         const ReproductionController& reproduction_controller) {
+  const auto leaf_count = foliage_controller.leaf_count(random_engine_, shoot_skeleton_.data, internode);
+  for (uint32_t i = 0; i < leaf_count; i++) {
+    const auto leaf_index = shoot_skeleton_.data.AllocateLeaf();
+    internode.data.leaf_indices.emplace_back(leaf_index);
+  }
+
+  const auto reproductive_module_count =
+      reproduction_controller.module_count(random_engine_, shoot_skeleton_.data, internode);
+  for (uint32_t i = 0; i < reproductive_module_count; i++) {
+    const auto fruit_index = shoot_skeleton_.data.AllocateFruit();
+    internode.data.fruit_indices.emplace_back(fruit_index);
+    const auto flower_index = shoot_skeleton_.data.AllocateFlower(fruit_index);
+    internode.data.flower_indices.emplace_back(flower_index);
+  }
 }
 
 void TreeModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model) {
@@ -93,22 +245,17 @@ void TreeModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& c
   }
 }
 
-void TreeModel::HarvestFruits(const std::function<bool(const ReproductiveModule& fruit)>& harvest_function) {
+void TreeModel::HarvestFruits(const std::function<bool(const ShootOrgan& fruit)>& harvest_function) {
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
-  fruit_count_ = 0;
 
   for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
     auto& internode = shoot_skeleton_.RefNode(*it);
     auto& internode_data = internode.data;
-    auto& buds = internode_data.buds;
-    for (auto& bud : buds) {
-      if (bud.type != BudType::Fruit || bud.status != BudStatus::Died)
-        continue;
-
-      if (harvest_function(bud.reproductive_module)) {
-        bud.reproductive_module.Reset();
-      } else if (bud.reproductive_module.maturity > 0)
-        fruit_count_++;
+    for (const auto& fruit_index : internode_data.fruit_indices) {
+      auto& fruit = shoot_skeleton_.data.RefFruit(fruit_index);
+      if (harvest_function(fruit)) {
+        fruit.Reset();
+      }
     }
   }
 }
@@ -132,13 +279,14 @@ void TreeModel::ApplyTropism(const glm::vec3& target_dir, float tropism, glm::qu
 }
 
 bool TreeModel::Grow(const float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
-                     const ShootGrowthController& shoot_growth_controller,
+                     const ShootGrowthController& shoot_growth_controller, const FoliageController& foliage_controller,
+                     const ReproductionController& reproduction_controller,
                      const ShootPruningController& shoot_pruning_controller, const bool pruning) {
   current_delta_time_ = delta_time;
   shoot_skeleton_.data.age += current_delta_time_;
   bool tree_structure_changed = false;
   if (!initialized_) {
-    Initialize(shoot_growth_controller);
+    Initialize(shoot_growth_controller, foliage_controller, reproduction_controller);
     tree_structure_changed = true;
   }
   shoot_skeleton_.SortLists();
@@ -157,7 +305,8 @@ bool TreeModel::Grow(const float delta_time, const glm::mat4& global_transform, 
     bool any_branch_grown = false;
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
-      const bool graph_changed = GrowInternode(climate_model, *it, shoot_growth_controller);
+      const bool graph_changed =
+          GrowInternode(climate_model, *it, shoot_growth_controller, foliage_controller, reproduction_controller);
       any_branch_grown = any_branch_grown || graph_changed;
     }
     if (any_branch_grown) {
@@ -168,15 +317,23 @@ bool TreeModel::Grow(const float delta_time, const glm::mat4& global_transform, 
   {
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
-      if (GrowReproductiveModules(climate_model, *it, shoot_growth_controller)) {
+      if (GrowFoliage(current_delta_time_, climate_model, global_transform, *it, foliage_controller)) {
+        tree_structure_changed = true;
+      }
+      if (GrowReproductiveModules(current_delta_time_, climate_model, global_transform, *it, reproduction_controller)) {
         tree_structure_changed = true;
       }
     }
   }
-  const int year = climate_model.time;
+  const int year = climate_model.time / 365.f;
   if (year != age_in_year_) {
-    ResetReproductiveModule();
+    ResetOrgans();
     age_in_year_ = year;
+    const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
+    for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
+      FormulateFoliage(climate_model, global_transform, *it, foliage_controller);
+      FormulateReproductiveModules(climate_model, global_transform, *it, reproduction_controller);
+    }
     tree_structure_changed = true;
   }
   CalculateShootGrowthData(shoot_growth_controller);
@@ -187,13 +344,14 @@ bool TreeModel::Grow(const float delta_time, const glm::mat4& global_transform, 
 
 bool TreeModel::Grow(const float delta_time, const SkeletonNodeHandle base_internode_handle,
                      const glm::mat4& global_transform, ClimateModel& climate_model,
-                     const ShootGrowthController& shoot_growth_controller,
+                     const ShootGrowthController& shoot_growth_controller, const FoliageController& foliage_controller,
+                     const ReproductionController& reproduction_controller,
                      const ShootPruningController& shoot_pruning_controller, const bool pruning) {
   current_delta_time_ = delta_time;
   shoot_skeleton_.data.age += current_delta_time_;
   bool tree_structure_changed = false;
   if (!initialized_) {
-    Initialize(shoot_growth_controller);
+    Initialize(shoot_skeleton_);
     tree_structure_changed = true;
   }
   if (shoot_skeleton_.RefRawNodes().size() <= base_internode_handle)
@@ -214,7 +372,8 @@ bool TreeModel::Grow(const float delta_time, const SkeletonNodeHandle base_inter
 
   CalculateShootGrowthData(shoot_growth_controller);
   for (auto it = sorted_sub_tree_internode_list.rbegin(); it != sorted_sub_tree_internode_list.rend(); ++it) {
-    const bool graph_changed = GrowInternode(climate_model, *it, shoot_growth_controller);
+    const bool graph_changed =
+        GrowInternode(climate_model, *it, shoot_growth_controller, foliage_controller, reproduction_controller);
     any_branch_grown = any_branch_grown || graph_changed;
   }
   if (any_branch_grown) {
@@ -223,14 +382,22 @@ bool TreeModel::Grow(const float delta_time, const SkeletonNodeHandle base_inter
     tree_structure_changed = true;
   }
   for (auto it = sorted_sub_tree_internode_list.rbegin(); it != sorted_sub_tree_internode_list.rend(); ++it) {
-    if (GrowReproductiveModules(climate_model, *it, shoot_growth_controller)) {
+    if (GrowFoliage(current_delta_time_, climate_model, global_transform, *it, foliage_controller)) {
+      tree_structure_changed = true;
+    }
+    if (GrowReproductiveModules(current_delta_time_, climate_model, global_transform, *it, reproduction_controller)) {
       tree_structure_changed = true;
     }
   }
-  const int year = climate_model.time;
+  const int year = climate_model.time / 365.f;
   if (year != age_in_year_) {
-    ResetReproductiveModule();
+    ResetOrgans();
     age_in_year_ = year;
+    const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
+    for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
+      FormulateFoliage(climate_model, global_transform, *it, foliage_controller);
+      FormulateReproductiveModules(climate_model, global_transform, *it, reproduction_controller);
+    }
     tree_structure_changed = true;
   }
   CalculateShootGrowthData(shoot_growth_controller);
@@ -239,7 +406,9 @@ bool TreeModel::Grow(const float delta_time, const SkeletonNodeHandle base_inter
   return tree_structure_changed;
 }
 
-void TreeModel::Initialize(const ShootGrowthController& shoot_growth_controller) {
+void TreeModel::Initialize(const ShootGrowthController& shoot_growth_controller,
+                           const FoliageController& foliage_controller,
+                           const ReproductionController& reproduction_controller) {
   if (initialized_)
     Clear();
   random_engine_ = std::mt19937(static_cast<uint32_t>(seed));
@@ -251,12 +420,14 @@ void TreeModel::Initialize(const ShootGrowthController& shoot_growth_controller)
       node.data.internode_thickness = 1.f;
       node.info.thickness = shoot_growth_controller.base_thickness;
       node.data.internode_length = 0.0f;
-      node.data.buds.emplace_back();
-      auto& apical_bud = node.data.buds.back();
-      apical_bud.type = BudType::Apical;
-      apical_bud.status = BudStatus::Dormant;
+      const auto bud_index = shoot_skeleton_.data.AllocateBud(BudType::Apical);
+      node.data.bud_indices.emplace_back(bud_index);
+      auto& apical_bud = shoot_skeleton_.data.RefBud(bud_index);
+      apical_bud.status = OrganStatus::Flushed;
 
       apical_bud.local_rotation = glm::vec3(0, 0.0f, glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
+
+      CreateOrgansForInternode(node, foliage_controller, reproduction_controller);
     }
   }
 
@@ -295,13 +466,14 @@ void TreeModel::CalculateShootFlux(const glm::mat4& global_transform, const Clim
       }
     }
     auto& voxel_grid = tree_occupancy_grid.RefGrid();
+    for (auto& bud : shoot_data.RefBuds()) {
+      bud.marker_direction = glm::vec3(0.0f);
+      bud.marker_count = 0;
+    }
     for (const auto& internode_handle : sorted_internode_list) {
       auto& internode = shoot_skeleton_.RefNode(internode_handle);
       auto& internode_data = internode.data;
-      for (auto& bud : internode_data.buds) {
-        bud.marker_direction = glm::vec3(0.0f);
-        bud.marker_count = 0;
-      }
+
       internode_data.light_direction = glm::vec3(0.0f);
       const auto dot_min = glm::cos(glm::radians(tree_occupancy_grid.GetTheta()));
       voxel_grid.ForEach(internode_data.desired_global_position,
@@ -320,7 +492,8 @@ void TreeModel::CalculateShootFlux(const glm::mat4& global_transform, const Clim
                                                   shoot_growth_controller.base_internode_length) {
                                  marker.node_handle = internode_handle;
                                } else {
-                                 for (auto& bud : internode_data.buds) {
+                                 for (const auto& bud_index : internode_data.bud_indices) {
+                                   auto& bud = shoot_data.RefBud(bud_index);
                                    if (auto bud_direction = glm::normalize(internode.info.global_rotation *
                                                                            bud.local_rotation * glm::vec3(0, 0, -1));
                                        glm::dot(direction, bud_direction) > dot_min) {
@@ -342,7 +515,8 @@ void TreeModel::CalculateShootFlux(const glm::mat4& global_transform, const Clim
     internode_data.light_direction = -shoot_skeleton_.data.gravity_direction;
     bool sample_light_intensity = false;
 
-    for (const auto& bud : internode_data.buds) {
+    for (const auto& bud_index : internode_data.bud_indices) {
+      const auto& bud = shoot_data.RefBud(bud_index);
       sample_light_intensity = true;
       if (tree_growth_settings.use_space_colonization) {
         shoot_data.max_marker_count = glm::max(shoot_data.max_marker_count, bud.marker_count);
@@ -407,13 +581,32 @@ bool TreeModel::Reduce(const ShootGrowthController& shoot_growth_controller,
       if (const auto parent_handle = internode.GetParentHandle(); parent_handle != -1) {
         auto& parent = shoot_skeleton_.RefNode(parent_handle);
         parent.info.thickness = shoot_growth_controller.base_thickness;
-        parent.data.buds[internode.data.index_of_parent_bud].status = BudStatus::Dormant;
+        if (!parent.data.bud_indices.empty())
+          shoot_skeleton_.data.RefBud(parent.data.bud_indices[0]).status = OrganStatus::Flushed;
       }
+
       pruning_node_handles.emplace_back(*it);
       reduced = true;
     }
   }
-  shoot_skeleton_.RemoveNodes(pruning_node_handles);
+
+  for (const auto& node_handle : pruning_node_handles) {
+    auto& internode = shoot_skeleton_.RefNode(node_handle);
+    for (const auto& index : internode.data.bud_indices) {
+      shoot_skeleton_.data.RecycleBud(index);
+    }
+    for (const auto& index : internode.data.leaf_indices) {
+      shoot_skeleton_.data.RecycleLeaf(index);
+    }
+    for (const auto& index : internode.data.flower_indices) {
+      shoot_skeleton_.data.RecycleFlower(index);
+    }
+    for (const auto& index : internode.data.fruit_indices) {
+      shoot_skeleton_.data.RecycleFruit(index);
+    }
+  }
+
+  RemoveNodes(pruning_node_handles);
   CalculateShootGrowthData(shoot_growth_controller);
   return reduced;
 }
@@ -494,8 +687,10 @@ void TreeModel::CalculateTransform(const ShootGrowthController& shoot_growth_con
   }
 }
 
-bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle internode_handle,
-                                  const ShootGrowthController& shoot_growth_controller, float& collected_inhibitor) {
+bool TreeModel::ElongateInternode(const float extended_length, const SkeletonNodeHandle internode_handle,
+                                  const ShootGrowthController& shoot_growth_controller,
+                                  const FoliageController& foliage_controller,
+                                  const ReproductionController& reproduction_controller, float& collected_inhibitor) {
   bool graph_changed = false;
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
   const auto internode_length = shoot_growth_controller.base_internode_length;
@@ -504,65 +699,37 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
   internode_data.internode_length += extended_length;
   const float extra_length = internode_data.internode_length - internode_length;
   // If we need to add a new end node
-  assert(internode_data.buds.size() == 1);
+  assert(internode_data.bud_indices.size() == 1);
   if (extra_length >= 0) {
     graph_changed = true;
     internode_data.internode_length = internode_length;
-    auto desired_global_rotation = internode_info.global_rotation * internode_data.buds.front().local_rotation;
+    const auto apical_bud_index = internode_data.bud_indices.front();
+    auto& apical_bud = shoot_skeleton_.data.RefBud(apical_bud_index);
+    auto desired_global_rotation = internode_info.global_rotation * apical_bud.local_rotation;
     if (internode_handle != 0) {
       shoot_growth_controller.tropism(random_engine_, shoot_skeleton_.data, internode, desired_global_rotation);
     }
-    // First, remove only apical bud.
-    internode.data.buds.clear();
+    apical_bud.status = OrganStatus::Dormant;
+
     // Allocate Lateral bud for current internode
 
     const auto lateral_bud_count =
         shoot_growth_controller.lateral_bud_count(random_engine_, shoot_skeleton_.data, internode);
     for (int i = 0; i < lateral_bud_count; i++) {
-      internode_data.buds.emplace_back();
-      auto& new_lateral_bud = internode_data.buds.back();
-      new_lateral_bud.type = BudType::Lateral;
-      new_lateral_bud.status = BudStatus::Dormant;
+      const auto new_bud_index = shoot_skeleton_.data.AllocateBud(BudType::Lateral);
+      internode.data.bud_indices.emplace_back(new_bud_index);
+      auto& new_lateral_bud = shoot_skeleton_.data.RefBud(new_bud_index);
+      new_lateral_bud.status = OrganStatus::Flushed;
       new_lateral_bud.index = i + 1;
       new_lateral_bud.local_rotation =
           shoot_growth_controller.bud_rotation(random_engine_, shoot_skeleton_.data, internode, new_lateral_bud);
     }
-
-    // Allocate Fruit bud for current internode
-    {
-      constexpr auto fruit_bud_count = 1;
-      for (int i = 0; i < fruit_bud_count; i++) {
-        internode_data.buds.emplace_back();
-        auto& new_fruit_bud = internode_data.buds.back();
-        new_fruit_bud.type = BudType::Fruit;
-        new_fruit_bud.status = BudStatus::Dormant;
-        new_fruit_bud.index = i + 1;
-        new_fruit_bud.local_rotation =
-            shoot_growth_controller.bud_rotation(random_engine_, shoot_skeleton_.data, internode, new_fruit_bud);
-      }
-    }
-    // Allocate Leaf bud for current internode
-    {
-      constexpr auto leaf_bud_count = 1;
-      for (int i = 0; i < leaf_bud_count; i++) {
-        internode_data.buds.emplace_back();
-        auto& new_leaf_bud = internode_data.buds.back();
-        // Hack: Leaf bud will be given vigor for the first time.
-        new_leaf_bud.type = BudType::Leaf;
-        new_leaf_bud.status = BudStatus::Dormant;
-        new_leaf_bud.index = i + 1;
-        new_leaf_bud.local_rotation =
-            shoot_growth_controller.bud_rotation(random_engine_, shoot_skeleton_.data, internode, new_leaf_bud);
-      }
-    }
-
     // Create new internode
     const auto new_internode_handle = shoot_skeleton_.Extend(internode_handle, false);
     auto& old_internode = shoot_skeleton_.RefNode(internode_handle);
     auto& new_internode = shoot_skeleton_.RefNode(new_internode_handle);
 
     new_internode.data = {};
-    new_internode.data.index_of_parent_bud = 0;
     new_internode.data.light_intake = old_internode.data.light_intake;
     new_internode.data.light_direction = old_internode.data.light_direction;
     old_internode.data.finish_age = new_internode.data.start_age = shoot_skeleton_.data.age;
@@ -582,17 +749,20 @@ bool TreeModel::ElongateInternode(float extended_length, SkeletonNodeHandle inte
     if (shoot_growth_controller.bud_flushing_rate(random_engine_, shoot_skeleton_.data, old_internode) >=
         Random::Uniform(random_engine_, 0.f, 1.f)) {
       // Allocate apical bud for new internode
-      new_internode.data.buds.emplace_back();
-      auto& new_apical_bud = new_internode.data.buds.back();
-      new_apical_bud.type = BudType::Apical;
-      new_apical_bud.status = BudStatus::Dormant;
+      const auto new_bud_index = shoot_skeleton_.data.AllocateBud(BudType::Apical);
+      new_internode.data.bud_indices.emplace_back(new_bud_index);
+      auto& new_apical_bud = shoot_skeleton_.data.RefBud(new_bud_index);
+      new_apical_bud.status = OrganStatus::Flushed;
       new_apical_bud.index = 0;
       new_apical_bud.local_rotation =
           shoot_growth_controller.bud_rotation(random_engine_, shoot_skeleton_.data, old_internode, new_apical_bud);
+
+      CreateOrgansForInternode(new_internode, foliage_controller, reproduction_controller);
+
       if (extra_length > internode_length) {
         float child_inhibitor = 0.0f;
         ElongateInternode(extra_length - internode_length, new_internode_handle, shoot_growth_controller,
-                          child_inhibitor);
+                          foliage_controller, reproduction_controller, child_inhibitor);
         auto& current_new_internode = shoot_skeleton_.RefNode(new_internode_handle);
         current_new_internode.data.inhibitor_sink += glm::max(
             0.0f, child_inhibitor * glm::clamp(1.0f - shoot_growth_controller.growth_inhibitor_transport_reduction(
@@ -647,25 +817,25 @@ void TreeModel::CalculateShootGrowthData(const ShootGrowthController& shoot_grow
   }
 
   internode_order_counts.clear();
-  fruit_count_ = leaf_count_ = 0;
   internode_order_counts.resize(max_order + 1);
   std::fill(internode_order_counts.begin(), internode_order_counts.end(), 0);
   for (const auto& internode_handle : sorted_internode_list) {
     auto& internode = shoot_skeleton_.RefNode(internode_handle);
-    internode.info.leaves = shoot_growth_controller.leaf(random_engine_, shoot_skeleton_.data, internode);
+    // internode.info.leaves = shoot_growth_controller.leaf(random_engine_, shoot_skeleton_.data, internode);
     const auto order = shoot_skeleton_.RefFlow(internode.GetFlowHandle()).data.order;
     internode.data.order = order;
     internode_order_counts[order]++;
-
+    /*
     for (const auto& bud : internode.data.buds) {
-      if (bud.status != BudStatus::Died || bud.reproductive_module.maturity <= 0)
+
+      if (bud.status != OrganStatus::Dormant || bud.reproductive_module.maturity <= 0)
         continue;
-      if (bud.type == BudType::Fruit) {
+      if (bud.type == BudType::Floral) {
         fruit_count_++;
       } else if (bud.type == BudType::Leaf) {
         leaf_count_++;
       }
-    }
+    }*/
   }
 
   if (!tree_growth_settings.use_space_colonization) {
@@ -679,7 +849,9 @@ void TreeModel::CalculateShootGrowthData(const ShootGrowthController& shoot_grow
 }
 
 bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHandle internode_handle,
-                              const ShootGrowthController& shoot_growth_controller) {
+                              const ShootGrowthController& shoot_growth_controller,
+                              const FoliageController& foliage_controller,
+                              const ReproductionController& reproduction_controller) {
   bool graph_changed = false;
   {
     auto& internode = shoot_skeleton_.RefNode(internode_handle);
@@ -688,35 +860,40 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
     for (const auto& child_handle : internode.PeekChildHandles()) {
       auto& child_node = shoot_skeleton_.RefNode(child_handle);
       float child_node_inhibitor = 0.f;
-      if (!child_node.data.buds.empty() && child_node.data.buds[0].type == BudType::Apical) {
-        child_node_inhibitor =
-            shoot_growth_controller.growth_inhibitor(random_engine_, shoot_skeleton_.data, child_node);
+      if (!child_node.data.bud_indices.empty()) {
+        const auto& apical_bud_index = child_node.data.bud_indices[0];
+        const auto& apical_bud = shoot_skeleton_.data.RefBud(apical_bud_index);
+        if (apical_bud.type == BudType::Apical && apical_bud.status == OrganStatus::Flushed) {
+          child_node_inhibitor =
+              shoot_growth_controller.growth_inhibitor(random_engine_, shoot_skeleton_.data, child_node);
+        }
       }
+
       internode_data.inhibitor_sink +=
           glm::max(0.0f, (child_node_inhibitor + child_node.data.inhibitor_sink) *
                              glm::clamp(1.0f - shoot_growth_controller.growth_inhibitor_transport_reduction(
                                                    random_engine_, shoot_skeleton_.data, internode),
                                         0.0f, 1.0f));
     }
-    if (!internode.data.buds.empty()) {
-      const auto& bud = internode.data.buds[0];
-      if (bud.type == BudType::Apical) {
-        assert(internode.data.buds.size() == 1);
+    if (!internode.data.bud_indices.empty()) {
+      const auto& apical_bud = shoot_skeleton_.data.RefBud(internode.data.bud_indices[0]);
+      if (apical_bud.type == BudType::Apical && apical_bud.status == OrganStatus::Flushed) {
+        assert(internode.data.bud_indices.size() == 1);
         float elongate_length = 0.0f;
         if (tree_growth_settings.use_space_colonization) {
           if (shoot_skeleton_.data.max_marker_count > 0)
-            elongate_length = static_cast<float>(bud.marker_count) / shoot_skeleton_.data.max_marker_count *
+            elongate_length = static_cast<float>(apical_bud.marker_count) / shoot_skeleton_.data.max_marker_count *
                               shoot_growth_controller.base_internode_length;
         } else {
-          elongate_length = internode_data.growth_rate * current_delta_time_ *
+          elongate_length = internode_data.growth_rate * current_delta_time_ / 365.f *
                             shoot_growth_controller.base_internode_length *
                             shoot_growth_controller.internode_growth_rate;
         }
         // Use up the vigor stored in this bud.
         float collected_inhibitor = 0.0f;
-        graph_changed =
-            ElongateInternode(elongate_length, internode_handle, shoot_growth_controller, collected_inhibitor) ||
-            graph_changed;
+        graph_changed = ElongateInternode(elongate_length, internode_handle, shoot_growth_controller,
+                                          foliage_controller, reproduction_controller, collected_inhibitor) ||
+                        graph_changed;
         auto& current_internode = shoot_skeleton_.RefNode(internode_handle);
 
         current_internode.data.inhibitor_sink += glm::max(
@@ -727,39 +904,36 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
     }
   }
 
-  auto bud_size = shoot_skeleton_.RefNode(internode_handle).data.buds.size();
-  for (int bud_index = 0; bud_index < bud_size; bud_index++) {
+  const auto bud_size = shoot_skeleton_.RefNode(internode_handle).data.bud_indices.size();
+  for (uint32_t bud_i = 0; bud_i < bud_size; bud_i++) {
     auto& internode = shoot_skeleton_.RefNode(internode_handle);
-    auto& bud = internode.data.buds[bud_index];
+    const auto& bud_index = internode.data.bud_indices[bud_i];
+    auto& lateral_bud = shoot_skeleton_.data.RefBud(bud_index);
     const auto& internode_data = internode.data;
     const auto& internode_info = internode.info;
-    if (bud.type == BudType::Lateral && bud.status == BudStatus::Dormant) {
+    if (lateral_bud.type == BudType::Lateral && lateral_bud.status == OrganStatus::Flushed) {
       float flush_probability =
           shoot_growth_controller.bud_flushing_rate(random_engine_, shoot_skeleton_.data, internode);
       if (tree_growth_settings.use_space_colonization) {
         if (shoot_skeleton_.data.max_marker_count > 0)
-          flush_probability *= static_cast<float>(bud.marker_count) / shoot_skeleton_.data.max_marker_count;
+          flush_probability *= static_cast<float>(lateral_bud.marker_count) / shoot_skeleton_.data.max_marker_count;
       } else {
         flush_probability *=
-            internode_data.growth_rate * current_delta_time_ * shoot_growth_controller.internode_growth_rate;
+            internode_data.growth_rate * current_delta_time_ / 365.f * shoot_growth_controller.internode_growth_rate;
       }
       if (flush_probability >= Random::Uniform(random_engine_, 0.f, 1.f)) {
         graph_changed = true;
         // Prepare information for new internode
-        auto desired_global_rotation = internode_info.global_rotation * bud.local_rotation;
+        auto desired_global_rotation = internode_info.global_rotation * lateral_bud.local_rotation;
         shoot_growth_controller.tropism(random_engine_, shoot_skeleton_.data, internode, desired_global_rotation);
         // Remove current lateral bud.
-        internode.data.buds[bud_index] = internode.data.buds.back();
-        internode.data.buds.pop_back();
-        bud_index--;
-        bud_size--;
+        lateral_bud.status = OrganStatus::Dormant;
 
         // Create new internode
         const auto new_internode_handle = shoot_skeleton_.Extend(internode_handle, true);
         const auto& old_internode = shoot_skeleton_.PeekNode(internode_handle);
         auto& new_internode = shoot_skeleton_.RefNode(new_internode_handle);
         new_internode.data = {};
-        new_internode.data.index_of_parent_bud = 0;
         new_internode.data.start_age = shoot_skeleton_.data.age;
         new_internode.data.finish_age = 0.0f;
         new_internode.data.order = old_internode.data.order + 1;
@@ -769,12 +943,13 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
             glm::inverse(old_internode.info.global_rotation) * desired_global_rotation;
 
         // Allocate apical bud
-        new_internode.data.buds.emplace_back();
-        auto& apical_bud = new_internode.data.buds.back();
-        apical_bud.type = BudType::Apical;
-        apical_bud.status = BudStatus::Dormant;
-        apical_bud.local_rotation = glm::vec3(0.f);
+        const auto new_apical_bud_index = shoot_skeleton_.data.AllocateBud(BudType::Apical);
+        auto& apical_bud = shoot_skeleton_.data.RefBud(new_apical_bud_index);
+        new_internode.data.bud_indices.emplace_back(new_apical_bud_index);
 
+        apical_bud.status = OrganStatus::Flushed;
+        apical_bud.local_rotation = glm::vec3(0.f);
+        CreateOrgansForInternode(new_internode, foliage_controller, reproduction_controller);
         new_internode.data.internode_thickness = 1.f;
         new_internode.info.thickness = shoot_growth_controller.base_thickness;
       }
@@ -783,110 +958,104 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
   return graph_changed;
 }
 
-bool TreeModel::GrowReproductiveModules(ClimateModel& climate_model, const SkeletonNodeHandle internode_handle,
-                                        const ShootGrowthController& shoot_growth_controller) {
-  constexpr bool status_changed = false;
-  const auto bud_size = shoot_skeleton_.RefNode(internode_handle).data.buds.size();
-  for (int bud_index = 0; bud_index < bud_size; bud_index++) {
-    auto& internode = shoot_skeleton_.RefNode(internode_handle);
-    auto& bud = internode.data.buds[bud_index];
-    auto& internode_data = internode.data;
-    auto& internode_info = internode.info;
-    // Calculate vigor used for maintenance and development.
-    if (bud.type == BudType::Fruit) {
-      /*
-      if (!seasonality)
-      {
-              const float maxMaturityIncrease = availableDevelopmentVigor /
-      shoot_growth_controller.m_fruitVigorRequirement; const auto developmentVigor =
-      bud.m_vigorSink.SubtractVigor(maxMaturityIncrease * shoot_growth_controller.m_fruitVigorRequirement);
-      }
-      else if (bud.status == BudStatus::Dormant) {
-              const float flushProbability = current_delta_time_ *
-      shoot_growth_controller.m_fruitBudFlushingProbability(internode); if (flushProbability >=
-      glm::linear(0.0f, 1.0f))
-              {
-                      bud.status = BudStatus::Flushed;
-              }
-      }
-      else if (bud.status == BudStatus::Flushed)
-      {
-              //Make the fruit larger;
-              const float maxMaturityIncrease = availableDevelopmentVigor /
-      shoot_growth_controller.m_fruitVigorRequirement; const float maturityIncrease = glm::min(maxMaturityIncrease,
-      glm::min(current_delta_time_ * shoot_growth_controller.m_fruitGrowthRate, 1.0f -
-      bud.reproductive_module.maturity)); bud.reproductive_module.maturity += maturityIncrease; const auto
-      developmentVigor = bud.m_vigorSink.SubtractVigor(maturityIncrease *
-      shoot_growth_controller.m_fruitVigorRequirement); auto fruitSize = shoot_growth_controller.maxFruitSize *
-      glm::sqrt(bud.reproductive_module.maturity); float angle = glm::radians(glm::linear(0.0f, 360.0f));
-              glm::quat rotation = internode_data.desired_local_rotation * bud.local_rotation;
-              auto up = rotation * glm::vec3(0, 1, 0);
-              auto front = rotation * glm::vec3(0, 0, -1);
-              ApplyTropism(internode_data.light_direction, 0.3f, up, front);
-              rotation = glm::quatLookAt(front, up);
-              auto fruitPosition = internode_info.global_position + front * (fruitSize.z * 1.f);
-              bud.reproductive_module.transform = glm::translate(fruitPosition) *
-      glm::mat4_cast(glm::quat(glm::vec3(0.0f))) * glm::scale(fruitSize);
+bool TreeModel::GrowFoliage(float delta_time, ClimateModel& climate_model, const glm::mat4& global_transform,
+                            const SkeletonNodeHandle internode_handle, const FoliageController& foliage_controller) {
+  bool status_changed = false;
 
-              bud.reproductive_module.health -= current_delta_time_ * shoot_growth_controller.m_fruitDamage(internode);
-              bud.reproductive_module.health = glm::clamp(bud.reproductive_module.health, 0.0f, 1.0f);
-
-              //Handle fruit drop here.
-              if (bud.reproductive_module.maturity >= 0.95f || bud.reproductive_module.health <= 0.05f)
-              {
-                      auto dropProbability = current_delta_time_ *
-      shoot_growth_controller.fruit_fall_probability(internode); if (dropProbability >= glm::linear(0.0f, 1.0f))
-                      {
-                              bud.status = BudStatus::Died;
-                              shoot_skeleton_.data.m_droppedFruits.emplace_back(bud.reproductive_module);
-                              bud.reproductive_module.Reset();
-                      }
-              }
-
-      }*/
-    } else if (bud.type == BudType::Leaf) {
-      if (bud.status == BudStatus::Dormant) {
-        if (const float flush_probability = current_delta_time_ * 1.;
-            flush_probability >= Random::Uniform(random_engine_, 0.f, 1.f)) {
-          bud.status = BudStatus::Died;
+  const auto& internode = shoot_skeleton_.RefNode(internode_handle);
+  for (auto& leaf_index : internode.data.leaf_indices) {
+    auto& leaf = shoot_skeleton_.data.RefLeaf(leaf_index);
+    if (leaf.status != OrganStatus::Inactive) {
+      foliage_controller.leaf_growth(random_engine_, global_transform, delta_time, leaf, climate_model, shoot_skeleton_,
+                                     internode);
+      if (leaf.health == 0.f) {
+        leaf.hang_time -= delta_time;
+        if (leaf.hang_time <= 0.f) {
+          leaf.status = OrganStatus::Inactive;
+          shoot_skeleton_.data.dropped_leaves.emplace_back(leaf);
         }
-      } else if (bud.status == BudStatus::Died) {
-        // Make the leaf larger
-        // const float maxMaturityIncrease = availableDevelopmentVigor / shoot_growth_controller.m_leafVigorRequirement;
-        // const float maturityIncrease = glm::min(maxMaturityIncrease, glm::min(current_delta_time_ *
-        // shoot_growth_controller.m_leafGrowthRate, 1.0f - bud.reproductive_module.maturity));
-        // bud.reproductive_module.maturity += maturityIncrease;
-        // const auto developmentVigor = bud.m_vigorSink.SubtractVigor(maturityIncrease *
-        // shoot_growth_controller.m_leafVigorRequirement);
-        /*
-        auto leafSize = shoot_growth_controller.maxLeafSize * glm::sqrt(bud.reproductive_module.maturity);
-        glm::quat rotation = internode_data.desired_local_rotation * bud.local_rotation;
-        auto up = rotation * glm::vec3(0, 1, 0);
-        auto front = rotation * glm::vec3(0, 0, -1);
-        ApplyTropism(internode_data.light_direction, 0.3f, up, front);
-        rotation = glm::quatLookAt(front, up);
-        auto foliagePosition = internode_info.global_position + front * (leafSize.z);
-        bud.reproductive_module.transform = glm::translate(foliagePosition) * glm::mat4_cast(rotation) *
-        glm::scale(leafSize);
+      }
+    }
+  }
 
-        bud.reproductive_module.health -= current_delta_time_ * shoot_growth_controller.m_leafDamage(internode);
-        bud.reproductive_module.health = glm::clamp(bud.reproductive_module.health, 0.0f, 1.0f);
+  return status_changed;
+}
 
-        //Handle leaf drop here.
-        if (bud.reproductive_module.health <= 0.05f)
-        {
-                const auto dropProbability = current_delta_time_ *
-        shoot_growth_controller.leaf_fall_probability(internode); if (dropProbability >= glm::linear(0.0f, 1.0f))
-                {
-                        bud.status = BudStatus::Died;
-                        shoot_skeleton_.data.m_droppedLeaves.emplace_back(bud.reproductive_module);
-                        bud.reproductive_module.Reset();
-                }
-        }*/
+void TreeModel::FormulateFoliage(const ClimateModel& climate_model, const glm::mat4& global_transform,
+                                 SkeletonNodeHandle internode_handle, const FoliageController& foliage_controller) {
+  const auto& internode = shoot_skeleton_.RefNode(internode_handle);
+  for (auto& leaf_index : internode.data.leaf_indices) {
+    auto& leaf = shoot_skeleton_.data.RefLeaf(leaf_index);
+    if (leaf.status == OrganStatus::Inactive && leaf.maturity == 0.f) {
+      if (foliage_controller.leaf_formulation(random_engine_, global_transform, leaf, climate_model, shoot_skeleton_,
+                                              internode)) {
+        leaf.status = OrganStatus::Dormant;
+      }
+    }
+  }
+}
+
+bool TreeModel::GrowReproductiveModules(float delta_time, ClimateModel& climate_model,
+                                        const glm::mat4& global_transform, const SkeletonNodeHandle internode_handle,
+                                        const ReproductionController& reproduction_controller) {
+  bool status_changed = false;
+
+  const auto& internode = shoot_skeleton_.RefNode(internode_handle);
+  for (auto& flower_index : internode.data.flower_indices) {
+    auto& flower = shoot_skeleton_.data.RefFlower(flower_index);
+    if (flower.status != OrganStatus::Inactive) {
+      reproduction_controller.flower_growth(random_engine_, global_transform, delta_time, flower, climate_model,
+                                            shoot_skeleton_, internode);
+      if (flower.maturity == 1.f && flower.health > 0.f) {
+        flower.pollination_time -= delta_time;
+        flower.hang_time -= delta_time;
+        if (flower.pollination_time <= 0.f) {
+          auto& fruit = shoot_skeleton_.data.RefFruit(flower.fruit_index);
+          if (fruit.status == OrganStatus::Inactive && fruit.maturity == 0.f) {
+            if (reproduction_controller.fruit_formulation(random_engine_, global_transform, fruit, climate_model,
+                                                          shoot_skeleton_, internode)) {
+              fruit.status = OrganStatus::Dormant;
+            }
+          }
+          status_changed = true;
+        }
+        if (flower.hang_time <= 0.f) {
+          flower.status = OrganStatus::Inactive;
+          shoot_skeleton_.data.dropped_flowers.emplace_back(flower);
+          status_changed = true;
+        }
+      }
+    }
+  }
+  for (auto& fruit_index : internode.data.fruit_indices) {
+    auto& fruit = shoot_skeleton_.data.RefFruit(fruit_index);
+    if (fruit.status != OrganStatus::Inactive) {
+      reproduction_controller.fruit_growth(random_engine_, global_transform, delta_time, fruit, climate_model,
+                                           shoot_skeleton_, internode);
+      if (fruit.maturity >= 1.f) {
+        fruit.hang_time -= delta_time;
+        if (fruit.hang_time <= 0.f) {
+          fruit.status = OrganStatus::Inactive;
+          shoot_skeleton_.data.dropped_fruits.emplace_back(fruit);
+        }
       }
     }
   }
   return status_changed;
+}
+void TreeModel::FormulateReproductiveModules(ClimateModel& climate_model, const glm::mat4& global_transform,
+                                             SkeletonNodeHandle internode_handle,
+                                             const ReproductionController& reproduction_controller) {
+  const auto& internode = shoot_skeleton_.RefNode(internode_handle);
+  for (auto& flower_index : internode.data.flower_indices) {
+    auto& flower = shoot_skeleton_.data.RefFlower(flower_index);
+    if (flower.status == OrganStatus::Inactive && flower.maturity == 0.f) {
+      if (reproduction_controller.flower_formulation(random_engine_, global_transform, flower, climate_model,
+                                                     shoot_skeleton_, internode)) {
+        flower.status = OrganStatus::Dormant;
+      }
+    }
+  }
 }
 
 void TreeModel::CalculateLevel() {
@@ -1069,11 +1238,14 @@ void TreeModel::Clear() {
 }
 
 int TreeModel::GetLeafCount() const {
-  return leaf_count_;
+  return shoot_skeleton_.data.PeekLeaves().size();
+}
+int TreeModel::GetFlowerCount() const {
+  return shoot_skeleton_.data.PeekFlowers().size();
 }
 
 int TreeModel::GetFruitCount() const {
-  return fruit_count_;
+  return shoot_skeleton_.data.PeekFruits().size();
 }
 
 bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel& climate_model,
@@ -1111,7 +1283,7 @@ bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel&
       if (const float pruning_probability =
               shoot_pruning_controller.root_to_end_pruning_factor(random_engine_, global_transform, climate_model,
                                                                   shoot_skeleton_, internode) *
-              current_delta_time_;
+              current_delta_time_ / 365.f;
           !pruning && pruning_probability > Random::Uniform(random_engine_, 0.f, 1.f))
         pruning = true;
 
@@ -1120,7 +1292,24 @@ bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel&
         root_to_end_pruned = true;
       }
     }
-    shoot_skeleton_.RemoveNodes(pruning_node_handles);
+
+    for (const auto& node_handle : pruning_node_handles) {
+      auto& internode = shoot_skeleton_.RefNode(node_handle);
+      for (const auto& index : internode.data.bud_indices) {
+        shoot_skeleton_.data.RecycleBud(index);
+      }
+      for (const auto& index : internode.data.leaf_indices) {
+        shoot_skeleton_.data.RecycleLeaf(index);
+      }
+      for (const auto& index : internode.data.flower_indices) {
+        shoot_skeleton_.data.RecycleFlower(index);
+      }
+      for (const auto& index : internode.data.fruit_indices) {
+        shoot_skeleton_.data.RecycleFruit(index);
+      }
+    }
+
+    RemoveNodes(pruning_node_handles);
   }
 
   bool end_to_root_pruned = false;
@@ -1154,7 +1343,7 @@ bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel&
       if (const float pruning_probability =
               shoot_pruning_controller.end_to_root_pruning_factor(random_engine_, global_transform, climate_model,
                                                                   shoot_skeleton_, internode) *
-              current_delta_time_;
+              current_delta_time_ / 365.f;
           !pruning && pruning_probability > Random::Uniform(random_engine_, 0.f, 1.f))
         pruning = true;
       if (pruning) {
@@ -1162,11 +1351,30 @@ bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel&
         end_to_root_pruned = true;
       }
     }
-    shoot_skeleton_.RemoveNodes(pruning_node_handles);
+
+    RemoveNodes(pruning_node_handles);
   }
   shoot_skeleton_.CalculateDistance();
   CalculateLevel();
   return root_to_end_pruned || end_to_root_pruned;
+}
+void TreeModel::RemoveNodes(const std::vector<SkeletonNodeHandle>& pruning_node_handles) {
+  for (const auto& node_handle : pruning_node_handles) {
+    auto& internode = shoot_skeleton_.RefNode(node_handle);
+    for (const auto& index : internode.data.bud_indices) {
+      shoot_skeleton_.data.RecycleBud(index);
+    }
+    for (const auto& index : internode.data.leaf_indices) {
+      shoot_skeleton_.data.RecycleLeaf(index);
+    }
+    for (const auto& index : internode.data.flower_indices) {
+      shoot_skeleton_.data.RecycleFlower(index);
+    }
+    for (const auto& index : internode.data.fruit_indices) {
+      shoot_skeleton_.data.RecycleFruit(index);
+    }
+  }
+  shoot_skeleton_.RemoveNodes(pruning_node_handles);
 }
 
 void TreeModel::SampleTemperature(const glm::mat4& global_transform, ClimateModel& climate_model) {
@@ -1176,7 +1384,7 @@ void TreeModel::SampleTemperature(const glm::mat4& global_transform, ClimateMode
     auto& internode_data = internode.data;
     auto& internode_info = internode.info;
     internode_data.temperature =
-        climate_model.GetTemperature(global_transform * glm::translate(internode_info.global_position)[3]);
+        climate_model.GetHighTemp(global_transform * glm::translate(internode_info.global_position)[3]);
   }
 }
 
@@ -1226,6 +1434,7 @@ void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
           out, shoot_skeleton_,
           [&](YAML::Emitter& node_out, const InternodeGrowthData& node_data) {
             node_out << YAML::Key << "buds" << YAML::Value << YAML::BeginSeq;
+            /*
             for (const auto& bud : node_data.buds) {
               node_out << YAML::BeginMap;
               {
@@ -1235,14 +1444,16 @@ void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
                 node_out << YAML::Key << "LR" << YAML::Value << bud.local_rotation;
                 node_out << YAML::Key << "RM" << YAML::Value << YAML::BeginMap;
                 {
-                  node_out << YAML::Key << "M" << YAML::Value << bud.reproductive_module.maturity;
-                  node_out << YAML::Key << "H" << YAML::Value << bud.reproductive_module.health;
-                  node_out << YAML::Key << "T" << YAML::Value << bud.reproductive_module.transform;
+                  // TODO: Serialize reproduction module.
+                  // node_out << YAML::Key << "M" << YAML::Value << bud.reproductive_module.maturity;
+                  // node_out << YAML::Key << "H" << YAML::Value << bud.reproductive_module.health;
+                  // node_out << YAML::Key << "T" << YAML::Value << bud.reproductive_module.transform;
                 }
                 node_out << YAML::EndMap;
               }
               node_out << YAML::EndMap;
             }
+            */
             node_out << YAML::EndSeq;
           },
           [&](YAML::Emitter& flow_out, const ShootStemGrowthData& flow_data) {
@@ -1256,7 +1467,6 @@ void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
             const auto node_size = shoot_skeleton_.PeekRawNodes().size();
             auto internode_length = std::vector<float>(node_size);
             auto internode_thickness = std::vector<float>(node_size);
-            auto index_of_parent_bud = std::vector<int>(node_size);
             auto start_age = std::vector<float>(node_size);
             auto finish_age = std::vector<float>(node_size);
             auto desired_local_rotation = std::vector<glm::quat>(node_size);
@@ -1270,7 +1480,6 @@ void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
               const auto& node = shoot_skeleton_.PeekRawNodes().at(node_index);
               internode_length.at(node_index) = node.data.internode_length;
               internode_thickness.at(node_index) = node.data.internode_thickness;
-              index_of_parent_bud.at(node_index) = node.data.index_of_parent_bud;
               start_age.at(node_index) = node.data.start_age;
               finish_age.at(node_index) = node.data.finish_age;
               desired_local_rotation.at(node_index) = node.data.desired_local_rotation;
@@ -1287,9 +1496,6 @@ void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
               skeleton_out << YAML::Key << "node.data.internode_thickness" << YAML::Value
                            << YAML::Binary(reinterpret_cast<const unsigned char*>(internode_thickness.data()),
                                            internode_length.size() * sizeof(float));
-              skeleton_out << YAML::Key << "node.data.index_of_parent_bud" << YAML::Value
-                           << YAML::Binary(reinterpret_cast<const unsigned char*>(index_of_parent_bud.data()),
-                                           index_of_parent_bud.size() * sizeof(int));
               skeleton_out << YAML::Key << "node.data.start_age" << YAML::Value
                            << YAML::Binary(reinterpret_cast<const unsigned char*>(start_age.data()),
                                            start_age.size() * sizeof(float));
@@ -1320,160 +1526,153 @@ void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::EndMap;
 }
 void TreeModel::Load(const std::string& name, const YAML::Node& in) {
-  if (in[name]) {
-    if (const auto& in_tree_model = in[name]) {
-      const auto& in_shoot_skeleton = in_tree_model["shoot_skeleton"];
-      SkeletonSerializer<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>::Deserialize(
-          in_shoot_skeleton, shoot_skeleton_,
-          [&](const YAML::Node& node_in, InternodeGrowthData& node_data) {
-            node_data.buds.clear();
-            if (node_in["buds"]) {
-              const auto& in_buds = node_in["buds"];
-              for (const auto& in_bud : in_buds) {
-                node_data.buds.emplace_back();
-                auto& bud = node_data.buds.back();
-                if (in_bud["T"])
-                  bud.type = static_cast<BudType>(in_bud["T"].as<unsigned>());
-                if (in_bud["I"])
-                  bud.index = in_bud["I"].as<int>();
-                if (in_bud["S"])
-                  bud.status = static_cast<BudStatus>(in_bud["S"].as<unsigned>());
-                if (in_bud["LR"])
-                  bud.local_rotation = in_bud["LR"].as<glm::quat>();
-                if (in_bud["RM"]) {
-                  const auto& in_reproductive_module = in_bud["RM"];
-                  if (in_reproductive_module["M"])
-                    bud.reproductive_module.maturity = in_reproductive_module["M"].as<float>();
-                  if (in_reproductive_module["H"])
-                    bud.reproductive_module.health = in_reproductive_module["H"].as<float>();
-                  if (in_reproductive_module["T"])
-                    bud.reproductive_module.transform = in_reproductive_module["T"].as<glm::mat4>();
-                }
-              }
-            }
-          },
-          [&](const YAML::Node& flow_in, ShootStemGrowthData& flow_data) {
-            if (flow_in["data"])
-              flow_data.order = flow_in["data"].as<int>();
-          },
-          [&](const YAML::Node& skeleton_in, ShootGrowthData& skeleton_data) {
-            if (skeleton_in["desired_min"])
-              skeleton_data.desired_min = skeleton_in["desired_min"].as<glm::vec3>();
-            if (skeleton_in["desired_max"])
-              skeleton_data.desired_max = skeleton_in["desired_max"].as<glm::vec3>();
-            if (skeleton_in["age"])
-              skeleton_data.age = skeleton_in["age"].as<float>();
-            if (skeleton_in["gravity_direction"])
-              skeleton_data.gravity_direction = skeleton_in["gravity_direction"].as<glm::vec3>();
-            if (skeleton_in["node.data.internode_length"]) {
-              auto list = std::vector<float>();
-              const auto data = skeleton_in["node.data.internode_length"].as<YAML::Binary>();
-              list.resize(data.size() / sizeof(float));
-              std::memcpy(list.data(), data.data(), data.size());
-              for (size_t i = 0; i < list.size(); i++) {
-                auto& node = shoot_skeleton_.RefNode(i);
-                node.data.internode_length = list[i];
-              }
-            }
-            if (skeleton_in["node.data.internode_thickness"]) {
-              auto list = std::vector<float>();
-              const auto data = skeleton_in["node.data.internode_thickness"].as<YAML::Binary>();
-              list.resize(data.size() / sizeof(float));
-              std::memcpy(list.data(), data.data(), data.size());
-              for (size_t i = 0; i < list.size(); i++) {
-                auto& node = shoot_skeleton_.RefNode(i);
-                node.data.internode_thickness = list[i];
-              }
-            }
-            if (skeleton_in["node.data.index_of_parent_bud"]) {
-              auto list = std::vector<int>();
-              const auto data = skeleton_in["node.data.index_of_parent_bud"].as<YAML::Binary>();
-              list.resize(data.size() / sizeof(int));
-              std::memcpy(list.data(), data.data(), data.size());
-              for (size_t i = 0; i < list.size(); i++) {
-                auto& node = shoot_skeleton_.RefNode(i);
-                node.data.index_of_parent_bud = list[i];
-              }
-            }
+  if (in[name]) { /*
+     if (const auto& in_tree_model = in[name]) {
+       const auto& in_shoot_skeleton = in_tree_model["shoot_skeleton"];
+       SkeletonSerializer<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>::Deserialize(
+           in_shoot_skeleton, shoot_skeleton_,
+           [&](const YAML::Node& node_in, InternodeGrowthData& node_data) {
+             node_data.buds.clear();
+             if (node_in["buds"]) {
+               const auto& in_buds = node_in["buds"];
+               for (const auto& in_bud : in_buds) {
+                 node_data.buds.emplace_back();
+                 auto& bud = node_data.buds.back();
+                 if (in_bud["T"])
+                   bud.type = static_cast<BudType>(in_bud["T"].as<unsigned>());
+                 if (in_bud["I"])
+                   bud.index = in_bud["I"].as<int>();
+                 if (in_bud["S"])
+                   bud.status = static_cast<OrganStatus>(in_bud["S"].as<unsigned>());
+                 if (in_bud["LR"])
+                   bud.local_rotation = in_bud["LR"].as<glm::quat>();
 
-            if (skeleton_in["node.data.start_age"]) {
-              auto list = std::vector<float>();
-              const auto data = skeleton_in["node.data.start_age"].as<YAML::Binary>();
-              list.resize(data.size() / sizeof(float));
-              std::memcpy(list.data(), data.data(), data.size());
-              for (size_t i = 0; i < list.size(); i++) {
-                auto& node = shoot_skeleton_.RefNode(i);
-                node.data.start_age = list[i];
-              }
-            }
+                 if (in_bud["RM"]) {
+                   const auto& in_reproductive_module = in_bud["RM"];
+                   if (in_reproductive_module["M"])
+                     bud.reproductive_module.maturity = in_reproductive_module["M"].as<float>();
+                   if (in_reproductive_module["H"])
+                     bud.reproductive_module.health = in_reproductive_module["H"].as<float>();
+                   if (in_reproductive_module["T"])
+                     bud.reproductive_module.transform = in_reproductive_module["T"].as<glm::mat4>();
+                 }
+                 // TODO: Deserialize reproduction module.
+               }
+             }
+           },
+           [&](const YAML::Node& flow_in, ShootStemGrowthData& flow_data) {
+             if (flow_in["data"])
+               flow_data.order = flow_in["data"].as<int>();
+           },
+           [&](const YAML::Node& skeleton_in, ShootGrowthData& skeleton_data) {
+             if (skeleton_in["desired_min"])
+               skeleton_data.desired_min = skeleton_in["desired_min"].as<glm::vec3>();
+             if (skeleton_in["desired_max"])
+               skeleton_data.desired_max = skeleton_in["desired_max"].as<glm::vec3>();
+             if (skeleton_in["age"])
+               skeleton_data.age = skeleton_in["age"].as<float>();
+             if (skeleton_in["gravity_direction"])
+               skeleton_data.gravity_direction = skeleton_in["gravity_direction"].as<glm::vec3>();
+             if (skeleton_in["node.data.internode_length"]) {
+               auto list = std::vector<float>();
+               const auto data = skeleton_in["node.data.internode_length"].as<YAML::Binary>();
+               list.resize(data.size() / sizeof(float));
+               std::memcpy(list.data(), data.data(), data.size());
+               for (size_t i = 0; i < list.size(); i++) {
+                 auto& node = shoot_skeleton_.RefNode(i);
+                 node.data.internode_length = list[i];
+               }
+             }
+             if (skeleton_in["node.data.internode_thickness"]) {
+               auto list = std::vector<float>();
+               const auto data = skeleton_in["node.data.internode_thickness"].as<YAML::Binary>();
+               list.resize(data.size() / sizeof(float));
+               std::memcpy(list.data(), data.data(), data.size());
+               for (size_t i = 0; i < list.size(); i++) {
+                 auto& node = shoot_skeleton_.RefNode(i);
+                 node.data.internode_thickness = list[i];
+               }
+             }
 
-            if (skeleton_in["node.data.finish_age"]) {
-              auto list = std::vector<float>();
-              const auto data = skeleton_in["node.data.finish_age"].as<YAML::Binary>();
-              list.resize(data.size() / sizeof(float));
-              std::memcpy(list.data(), data.data(), data.size());
-              for (size_t i = 0; i < list.size(); i++) {
-                auto& node = shoot_skeleton_.RefNode(i);
-                node.data.finish_age = list[i];
-              }
-            }
+             if (skeleton_in["node.data.start_age"]) {
+               auto list = std::vector<float>();
+               const auto data = skeleton_in["node.data.start_age"].as<YAML::Binary>();
+               list.resize(data.size() / sizeof(float));
+               std::memcpy(list.data(), data.data(), data.size());
+               for (size_t i = 0; i < list.size(); i++) {
+                 auto& node = shoot_skeleton_.RefNode(i);
+                 node.data.start_age = list[i];
+               }
+             }
 
-            if (skeleton_in["node.data.desired_local_rotation"]) {
-              auto list = std::vector<glm::quat>();
-              const auto data = skeleton_in["node.data.desired_local_rotation"].as<YAML::Binary>();
-              list.resize(data.size() / sizeof(glm::quat));
-              std::memcpy(list.data(), data.data(), data.size());
-              for (size_t i = 0; i < list.size(); i++) {
-                auto& node = shoot_skeleton_.RefNode(i);
-                node.data.desired_local_rotation = list[i];
-              }
-            }
+             if (skeleton_in["node.data.finish_age"]) {
+               auto list = std::vector<float>();
+               const auto data = skeleton_in["node.data.finish_age"].as<YAML::Binary>();
+               list.resize(data.size() / sizeof(float));
+               std::memcpy(list.data(), data.data(), data.size());
+               for (size_t i = 0; i < list.size(); i++) {
+                 auto& node = shoot_skeleton_.RefNode(i);
+                 node.data.finish_age = list[i];
+               }
+             }
 
-            if (skeleton_in["node.data.desired_global_rotation"]) {
-              auto list = std::vector<glm::quat>();
-              const auto data = skeleton_in["node.data.desired_global_rotation"].as<YAML::Binary>();
-              list.resize(data.size() / sizeof(glm::quat));
-              std::memcpy(list.data(), data.data(), data.size());
-              for (size_t i = 0; i < list.size(); i++) {
-                auto& node = shoot_skeleton_.RefNode(i);
-                node.data.desired_global_rotation = list[i];
-              }
-            }
+             if (skeleton_in["node.data.desired_local_rotation"]) {
+               auto list = std::vector<glm::quat>();
+               const auto data = skeleton_in["node.data.desired_local_rotation"].as<YAML::Binary>();
+               list.resize(data.size() / sizeof(glm::quat));
+               std::memcpy(list.data(), data.data(), data.size());
+               for (size_t i = 0; i < list.size(); i++) {
+                 auto& node = shoot_skeleton_.RefNode(i);
+                 node.data.desired_local_rotation = list[i];
+               }
+             }
 
-            if (skeleton_in["node.data.desired_global_position"]) {
-              auto list = std::vector<glm::vec3>();
-              const auto data = skeleton_in["node.data.desired_global_position"].as<YAML::Binary>();
-              list.resize(data.size() / sizeof(glm::vec3));
-              std::memcpy(list.data(), data.data(), data.size());
-              for (size_t i = 0; i < list.size(); i++) {
-                auto& node = shoot_skeleton_.RefNode(i);
-                node.data.desired_global_position = list[i];
-              }
-            }
+             if (skeleton_in["node.data.desired_global_rotation"]) {
+               auto list = std::vector<glm::quat>();
+               const auto data = skeleton_in["node.data.desired_global_rotation"].as<YAML::Binary>();
+               list.resize(data.size() / sizeof(glm::quat));
+               std::memcpy(list.data(), data.data(), data.size());
+               for (size_t i = 0; i < list.size(); i++) {
+                 auto& node = shoot_skeleton_.RefNode(i);
+                 node.data.desired_global_rotation = list[i];
+               }
+             }
 
-            if (skeleton_in["node.data.extra_mass"]) {
-              auto list = std::vector<float>();
-              const auto data = skeleton_in["node.data.extra_mass"].as<YAML::Binary>();
-              list.resize(data.size() / sizeof(float));
-              std::memcpy(list.data(), data.data(), data.size());
-              for (size_t i = 0; i < list.size(); i++) {
-                auto& node = shoot_skeleton_.RefNode(i);
-                node.data.extra_mass = list[i];
-              }
-            }
+             if (skeleton_in["node.data.desired_global_position"]) {
+               auto list = std::vector<glm::vec3>();
+               const auto data = skeleton_in["node.data.desired_global_position"].as<YAML::Binary>();
+               list.resize(data.size() / sizeof(glm::vec3));
+               std::memcpy(list.data(), data.data(), data.size());
+               for (size_t i = 0; i < list.size(); i++) {
+                 auto& node = shoot_skeleton_.RefNode(i);
+                 node.data.desired_global_position = list[i];
+               }
+             }
 
-            if (skeleton_in["node.data.density"]) {
-              auto list = std::vector<float>();
-              const auto data = skeleton_in["node.data.density"].as<YAML::Binary>();
-              list.resize(data.size() / sizeof(float));
-              std::memcpy(list.data(), data.data(), data.size());
-              for (size_t i = 0; i < list.size(); i++) {
-                auto& node = shoot_skeleton_.RefNode(i);
-                node.data.density = list[i];
-              }
-            }
-          });
-      initialized_ = true;
-    }
+             if (skeleton_in["node.data.extra_mass"]) {
+               auto list = std::vector<float>();
+               const auto data = skeleton_in["node.data.extra_mass"].as<YAML::Binary>();
+               list.resize(data.size() / sizeof(float));
+               std::memcpy(list.data(), data.data(), data.size());
+               for (size_t i = 0; i < list.size(); i++) {
+                 auto& node = shoot_skeleton_.RefNode(i);
+                 node.data.extra_mass = list[i];
+               }
+             }
+
+             if (skeleton_in["node.data.density"]) {
+               auto list = std::vector<float>();
+               const auto data = skeleton_in["node.data.density"].as<YAML::Binary>();
+               list.resize(data.size() / sizeof(float));
+               std::memcpy(list.data(), data.data(), data.size());
+               for (size_t i = 0; i < list.size(); i++) {
+                 auto& node = shoot_skeleton_.RefNode(i);
+                 node.data.density = list[i];
+               }
+             }
+           });
+       initialized_ = true;
+     }
+ */
   }
 }

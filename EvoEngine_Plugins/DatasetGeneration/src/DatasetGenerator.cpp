@@ -64,8 +64,7 @@ std::shared_ptr<TreeDescriptor> DatasetGenerator::TreeDataGenerationParameters::
     actual_tree_descriptor->shoot_descriptor = tree_descriptor->shoot_descriptor;
     actual_tree_descriptor->foliage_descriptor = tree_descriptor->foliage_descriptor;
     actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
-    actual_tree_descriptor->fruit_descriptor = tree_descriptor->fruit_descriptor;
-    actual_tree_descriptor->flower_descriptor = tree_descriptor->flower_descriptor;
+    actual_tree_descriptor->reproduction_module_descriptor = tree_descriptor->reproduction_module_descriptor;
   } else {
     std::shared_ptr<TreeDescriptor> tree_descriptor;
     if (ProjectManager::IsInAssetsFolder(tree_descriptor_path)) {
@@ -78,8 +77,7 @@ std::shared_ptr<TreeDescriptor> DatasetGenerator::TreeDataGenerationParameters::
     actual_tree_descriptor->shoot_descriptor = tree_descriptor->shoot_descriptor;
     actual_tree_descriptor->foliage_descriptor = tree_descriptor->foliage_descriptor;
     actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
-    actual_tree_descriptor->fruit_descriptor = tree_descriptor->fruit_descriptor;
-    actual_tree_descriptor->flower_descriptor = tree_descriptor->flower_descriptor;
+    actual_tree_descriptor->reproduction_module_descriptor = tree_descriptor->reproduction_module_descriptor;
   }
 
   if (!foliage_descriptor_path.empty()) {

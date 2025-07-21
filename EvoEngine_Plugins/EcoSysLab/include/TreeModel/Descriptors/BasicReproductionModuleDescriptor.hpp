@@ -6,33 +6,57 @@ using namespace evo_engine;
 namespace eco_sys_lab_plugin {
 
 /**
- * @class BasicFruitDescriptor
+ * @class BasicReproductionModuleDescriptor
  * @brief Represents a descriptor for a fruit asset within the EcoSysLab plugin.
  *
  * This class provides functionality to generate a thumbnail texture
  * for visual representation of the fruit asset.
  */
-class BasicFruitDescriptor : public IFruitDescriptor {
+class BasicReproductionModuleDescriptor : public IReproductionModuleDescriptor {
  public:
-  /**
-   * \brief The minimum lighting required for fruit flushing.
-   */
-  float fruit_flushing_lighting_requirement = 0.1f;
+  float flower_size = 0.05f;
+  float fruit_size = 0.1f;
 
-  /**
-   * \brief Probability of fruit fall.
-   */
-  float fruit_fall_probability;
+  /// Number of flowers/fruit per internode.
+  int count_per_internode = 1;
 
-  /**
-   * \brief Maximum allowed distance between a fruit and the nearest branch end.
-   */
-  float fruit_distance_to_branch_end_limit;
+  /// Variance in leaf positioning.
+  SingleDistribution<float> stem_length = {0.01f, 0.0f};
+
+  /// Variance in leaf rotation.
+  float rotation_variance = 10.f;
+
+  /// Default branching angle in degrees.
+  SingleDistribution<float> branching_angle = {30.f, 0.0f};
+
+  /// Maximum thickness at a node.
+  float max_node_thickness = 1.0f;
+
+  /// Minimum distance for the root.
+  float min_root_distance = 0.0f;
+
+  /// Maximum distance to the end node.
+  float max_end_distance = 0.2f;
+
+  /// Phototropism effect for flower.
+  float phototropism = 0.9f;
+
+  /// Gravitropism effect for fruit.
+  float gravitropism = 0.9f;
+
+  SingleDistribution<float> flower_activation_temperature = {17.5f, 1.f};
+  SingleDistribution<float> flower_growth_rate = {0.15f, 0.01f};
+  SingleDistribution<float> flower_hang_time = {10.f, .5f};
+  SingleDistribution<float> pollination_time = {5.f, 1.f};
+  SingleDistribution<float> fruit_activation_temperature = {20.f, 1.f};
+  SingleDistribution<float> fruit_hang_time = {10.f, 1.f};
+  SingleDistribution<float> fruit_growth_rate = {0.01f, 0.01f};
+
   /**
    * \brief Prepares a ShootGrowthController using current growth parameters.
-   * \param shoot_growth_controller The controller to configure.
+   * \param reproduction_controller The controller to configure.
    */
-  void PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const;
+  void PrepareController(ReproductionController& reproduction_controller) const override;
 
   /**
    * @brief Generates fruit transformation matrices based on internode information.

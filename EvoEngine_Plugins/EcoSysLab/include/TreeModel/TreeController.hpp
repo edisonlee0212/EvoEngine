@@ -118,40 +118,67 @@ struct ShootGrowthController {
   std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
                       const SkeletonNode<InternodeGrowthData>& internode)>
       growth_inhibitor_transport_reduction;
+};
 
-#pragma endregion
+struct FoliageController {
+  /**
+   * \brief Calculate how many leaves for current node.
+   */
+  std::function<uint32_t(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+                         const SkeletonNode<InternodeGrowthData>& internode)>
+      leaf_count;
+  /**
+   * \brief Controls leaf formulation in internodes.
+   */
+  std::function<bool(std::mt19937& random_engine, const glm::mat4& global_transform, Leaf& leaf,
+                     const ClimateModel& climate_model, const ShootSkeleton& shoot_skeleton,
+                     const SkeletonNode<InternodeGrowthData>& internode)>
+      leaf_formulation;
 
-#pragma region Leaf
   /**
    * \brief Controls leaf growth in internodes.
    */
-  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                      const SkeletonNode<InternodeGrowthData>& internode)>
-      leaf;
+  std::function<bool(std::mt19937& random_engine, const glm::mat4& global_transform, float delta_time, Leaf& leaf,
+                     const ClimateModel& climate_model, const ShootSkeleton& shoot_skeleton,
+                     const SkeletonNode<InternodeGrowthData>& internode)>
+      leaf_growth;
+};
 
+struct ReproductionController {
   /**
-   * \brief The probability of a leaf falling when health reaches zero.
+   * \brief Calculate how many modules for current node.
    */
-  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                      const SkeletonNode<InternodeGrowthData>& internode)>
-      leaf_fall_probability;
-#pragma endregion
-
-#pragma region Fruit
+  std::function<uint32_t(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+                         const SkeletonNode<InternodeGrowthData>& internode)>
+      module_count;
+  /**
+   * \brief Controls flower formulation in internodes.
+   */
+  std::function<bool(std::mt19937& random_engine, const glm::mat4& global_transform, Flower& leaf,
+                     const ClimateModel& climate_model, const ShootSkeleton& shoot_skeleton,
+                     const SkeletonNode<InternodeGrowthData>& internode)>
+      flower_formulation;
+  /**
+   * \brief Controls flower growth in internodes.
+   */
+  std::function<bool(std::mt19937& random_engine, const glm::mat4& global_transform, float delta_time, Flower& flower,
+                     const ClimateModel& climate_model, const ShootSkeleton& shoot_skeleton,
+                     const SkeletonNode<InternodeGrowthData>& internode)>
+      flower_growth;
+  /**
+   * \brief Controls fruit formulation in internodes.
+   */
+  std::function<bool(std::mt19937& random_engine, const glm::mat4& global_transform, Fruit& fruit,
+                     const ClimateModel& climate_model, const ShootSkeleton& shoot_skeleton,
+                     const SkeletonNode<InternodeGrowthData>& internode)>
+      fruit_formulation;
   /**
    * \brief Controls fruit growth in internodes.
    */
-  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                      const SkeletonNode<InternodeGrowthData>& internode)>
-      fruit;
-
-  /**
-   * \brief The probability of a fruit falling when health reaches zero.
-   */
-  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                      const SkeletonNode<InternodeGrowthData>& internode)>
-      fruit_fall_probability;
-#pragma endregion
+  std::function<bool(std::mt19937& random_engine, const glm::mat4& global_transform, float delta_time, Fruit& fruit,
+                     const ClimateModel& climate_model, const ShootSkeleton& shoot_skeleton,
+                     const SkeletonNode<InternodeGrowthData>& internode)>
+      fruit_growth;
 };
 
 /**

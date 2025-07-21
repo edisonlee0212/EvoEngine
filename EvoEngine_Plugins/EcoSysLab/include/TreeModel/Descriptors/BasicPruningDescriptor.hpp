@@ -65,8 +65,8 @@ class BasicPruningDescriptor : public IPruningDescriptor {
    * \param simulation_settings Simulation settings.
    * \param shoot_pruning_controller The controller to configure.
    */
-  void PreparePruningController(const SimulationSettings& simulation_settings,
-                                ShootPruningController& shoot_pruning_controller) const override;
+  void PrepareController(const SimulationSettings& simulation_settings,
+                         ShootPruningController& shoot_pruning_controller) const override;
 
   /**
    * \brief Serializes the shoot descriptor to YAML format.

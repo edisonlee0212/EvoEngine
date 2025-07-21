@@ -33,7 +33,7 @@ class SimulationStats {
  */
 class SimulationSettings {
  public:
-  float delta_time = 0.0822f;               ///< The simulation time step.
+  float delta_time = 30.f;                  ///< The simulation time step.
   bool soil_simulation = false;             ///< Enables or disables soil simulation.
   bool auto_clear_fruit_and_leaves = true;  ///< Clears fruits and leaves automatically if enabled.
   float crown_shyness_distance = 0.15f;     ///< Distance threshold for crown shyness effect.

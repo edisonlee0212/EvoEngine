@@ -42,90 +42,90 @@ enum class RootVisualizerMode {
  * @brief Structure to hold tree visualizer color settings.
  */
 struct TreeVisualizerColorSettings {
-  int m_shootVisualizationMode =
+  int shoot_visualization_mode =
       static_cast<int>(ShootVisualizerMode::Default);  ///< The active shoot visualization mode.
-  float m_shootColorMultiplier = 1.0f;                 ///< Multiplier for shoot color intensity.
+  float shoot_color_multiplier = 1.0f;                 ///< Multiplier for shoot color intensity.
 };
 
 /**
  * @brief Class for visualizing tree structures and internodes.
  */
 class TreeVisualizer {
-  bool m_initialized = false;  ///< Flag to check if the visualizer is initialized.
+  bool initialized_ = false;  ///< Flag to check if the visualizer is initialized.
 
-  std::vector<glm::vec4> m_randomColors;  ///< Stores generated random colors.
+  std::vector<glm::vec4> random_colors_;  ///< Stores generated random colors.
 
-  std::shared_ptr<ParticleInfoList> m_internodeMatrices;  ///< Stores internode transformation matrices.
+  std::shared_ptr<ParticleInfoList> internode_matrices_;  ///< Stores internode transformation matrices.
 
   /**
    * @brief Draws the GUI for inspecting an internode.
-   * @param treeModel Reference to the tree model.
-   * @param internodeHandle Handle of the internode to inspect.
+   * @param tree_model Reference to the tree model.
+   * @param internode_handle Handle of the internode to inspect.
    * @param deleted Output flag indicating if the internode is deleted.
-   * @param hierarchyLevel The hierarchy level of the internode.
+   * @param hierarchy_level The hierarchy level of the internode.
    * @return True if the inspection was successful, otherwise false.
    */
-  bool DrawInternodeInspectionGui(TreeModel& treeModel, SkeletonNodeHandle internodeHandle, bool& deleted,
-                                  const unsigned& hierarchyLevel);
+  bool DrawInternodeInspectionGui(TreeModel& tree_model, SkeletonNodeHandle internode_handle, bool& deleted,
+                                  const unsigned& hierarchy_level);
 
   /**
    * @brief Displays GUI elements for inspecting a tree node.
    * @param skeleton Reference to the shoot skeleton.
-   * @param nodeHandle Handle of the node to inspect.
-   * @param hierarchyLevel The hierarchy level of the node.
+   * @param node_handle Handle of the node to inspect.
+   * @param hierarchy_level The hierarchy level of the node.
    */
-  void PeekNodeInspectionGui(const ShootSkeleton& skeleton, SkeletonNodeHandle nodeHandle,
-                             const unsigned& hierarchyLevel);
+  void PeekNodeInspectionGui(const ShootSkeleton& skeleton, SkeletonNodeHandle node_handle,
+                             const unsigned& hierarchy_level);
 
   /**
    * @brief Peeks at an internode without modifying it.
-   * @param shootSkeleton Reference to the shoot skeleton.
-   * @param internodeHandle Handle of the internode.
+   * @param shoot_skeleton Reference to the shoot skeleton.
+   * @param internode_handle Handle of the internode.
    */
-  void PeekInternode(const ShootSkeleton& shootSkeleton, SkeletonNodeHandle internodeHandle) const;
+  void PeekInternode(const ShootSkeleton& shoot_skeleton, SkeletonNodeHandle internode_handle) const;
 
   /**
    * @brief Inspects a specific internode.
-   * @param shootSkeleton Reference to the shoot skeleton.
-   * @param internodeHandle Handle of the internode to inspect.
+   * @param shoot_skeleton Reference to the shoot skeleton.
+   * @param internode_handle Handle of the internode to inspect.
    * @return True if inspection is successful, otherwise false.
    */
-  bool InspectInternode(ShootSkeleton& shootSkeleton, SkeletonNodeHandle internodeHandle);
+  bool InspectInternode(ShootSkeleton& shoot_skeleton, SkeletonNodeHandle internode_handle);
 
  public:
   /**
    * @brief Performs a ray-casting selection for an internode.
-   * @param cameraComponent Shared pointer to the camera component.
-   * @param mousePosition The mouse position in screen coordinates.
+   * @param camera_component Shared pointer to the camera component.
+   * @param mouse_position The mouse position in screen coordinates.
    * @param skeleton The shoot skeleton.
-   * @param globalTransform The global transformation matrix.
+   * @param global_transform The global transformation matrix.
    * @return True if an internode is selected, otherwise false.
    */
-  bool RayCastSelection(const std::shared_ptr<Camera>& cameraComponent, const glm::vec2& mousePosition,
-                        const ShootSkeleton& skeleton, const GlobalTransform& globalTransform);
+  bool RayCastSelection(const std::shared_ptr<Camera>& camera_component, const glm::vec2& mouse_position,
+                        const ShootSkeleton& skeleton, const GlobalTransform& global_transform);
 
   /**
    * @brief Handles selection of internodes along a screen-drawn curve.
    * @param handler Callback function executed on selected nodes.
-   * @param mousePositions List of mouse positions forming a curve.
+   * @param mouse_positions List of mouse positions forming a curve.
    * @param skeleton The shoot skeleton.
-   * @param globalTransform The global transformation matrix.
+   * @param global_transform The global transformation matrix.
    * @return True if selection is successful, otherwise false.
    */
   bool ScreenCurveSelection(const std::function<void(SkeletonNodeHandle)>& handler,
-                            std::vector<glm::vec2>& mousePositions, ShootSkeleton& skeleton,
-                            const GlobalTransform& globalTransform);
+                            std::vector<glm::vec2>& mouse_positions, ShootSkeleton& skeleton,
+                            const GlobalTransform& global_transform);
 
-  std::vector<SkeletonNodeHandle> m_selectedInternodeHierarchyList;  ///< List of selected internode hierarchy nodes.
-  SkeletonNodeHandle m_selectedInternodeHandle = -1;                 ///< Handle of the selected internode.
-  bool m_visualization = true;                                       ///< Flag to enable or disable visualization.
-  TreeVisualizerColorSettings m_settings;                            ///< Settings for visualization color.
-  float m_lineThickness = 0.f;                                       ///< Thickness of visualized lines.
-  bool m_profileGui = true;                                          ///< Flag to toggle profile GUI.
-  bool m_treeHierarchyGui = false;                                   ///< Flag to toggle tree hierarchy GUI.
-  float m_selectedInternodeLengthFactor = 0.0f;                      ///< Length factor for the selected internode.
-  int m_checkpointIteration = 0;                                     ///< Iteration count for checkpoints.
-  bool m_needUpdate = false;                                         ///< Flag indicating if an update is needed.
+  std::vector<SkeletonNodeHandle> selected_internode_hierarchy_list;  ///< List of selected internode hierarchy nodes.
+  SkeletonNodeHandle selected_internode_handle = -1;                  ///< Handle of the selected internode.
+  bool visualization = true;                                          ///< Flag to enable or disable visualization.
+  TreeVisualizerColorSettings tree_visualizer_color_settings;         ///< Settings for visualization color.
+  float line_thickness = 0.f;                                         ///< Thickness of visualized lines.
+  bool profile_gui = true;                                            ///< Flag to toggle profile GUI.
+  bool tree_hierarchy_gui = false;                                    ///< Flag to toggle tree hierarchy GUI.
+  float selected_internode_length_factor = 0.0f;                      ///< Length factor for the selected internode.
+  int checkpoint_iteration = 0;                                       ///< Iteration count for checkpoints.
+  bool need_update = false;                                           ///< Flag indicating if an update is needed.
 
   /**
    * @brief Checks if the visualizer is initialized.
@@ -146,44 +146,44 @@ class TreeVisualizer {
   /**
    * @brief Sets the selected node in the shoot skeleton.
    * @param skeleton Reference to the shoot skeleton.
-   * @param nodeHandle Handle of the node to select.
+   * @param node_handle Handle of the node to select.
    */
-  void SetSelectedNode(const ShootSkeleton& skeleton, SkeletonNodeHandle nodeHandle);
+  void SetSelectedNode(const ShootSkeleton& skeleton, SkeletonNodeHandle node_handle);
 
   /**
    * @brief Synchronizes transformation matrices between skeleton and internode list.
    * @param skeleton Reference to the shoot skeleton.
-   * @param particleInfoList Shared pointer to the list of particles.
-   * @param selectedNodeHandle Handle of the selected internode.
+   * @param particle_info_list Shared pointer to the list of particles.
+   * @param selected_node_handle Handle of the selected internode.
    */
-  void SyncMatrices(const ShootSkeleton& skeleton, const std::shared_ptr<ParticleInfoList>& particleInfoList,
-                    SkeletonNodeHandle selectedNodeHandle);
+  void SyncMatrices(const ShootSkeleton& skeleton, const std::shared_ptr<ParticleInfoList>& particle_info_list,
+                    SkeletonNodeHandle selected_node_handle);
 
   /**
    * @brief Handles inspection of the tree model.
-   * @param treeModel Reference to the tree model.
+   * @param tree_model Reference to the tree model.
    * @return True if contents remain unmodified, otherwise false.
    */
-  bool OnInspect(TreeModel& treeModel);
+  bool OnInspect(TreeModel& tree_model);
 
   /**
    * @brief Visualizes the given tree model.
-   * @param treeModel The tree model to visualize.
-   * @param globalTransform The global transformation matrix.
+   * @param tree_model The tree model to visualize.
+   * @param global_transform The global transformation matrix.
    */
-  void Visualize(const TreeModel& treeModel, const GlobalTransform& globalTransform);
+  void Visualize(const TreeModel& tree_model, const GlobalTransform& global_transform);
 
   /**
    * @brief Visualizes the given strand model.
-   * @param strandModel The strand model to visualize.
+   * @param strand_model The strand model to visualize.
    */
-  void Visualize(StrandModel& strandModel);
+  void Visualize(StrandModel& strand_model);
 
   /**
    * @brief Resets the visualization of a tree model.
-   * @param treeModel The tree model to reset.
+   * @param tree_model The tree model to reset.
    */
-  void Reset(TreeModel& treeModel);
+  void Reset(const TreeModel& tree_model);
 
   /**
    * @brief Clears all visualization and data.

@@ -10,142 +10,142 @@
 using namespace eco_sys_lab_plugin;
 
 bool TreeVisualizer::ScreenCurveSelection(const std::function<void(SkeletonNodeHandle)>& handler,
-                                          std::vector<glm::vec2>& mousePositions, ShootSkeleton& skeleton,
-                                          const GlobalTransform& globalTransform) {
-  auto editorLayer = Application::GetLayer<EditorLayer>();
-  auto ecoSysLabLayer = Application::GetLayer<EcoSysLabLayer>();
-  const auto cameraRotation = editorLayer->GetSceneCameraRotation();
-  const auto cameraPosition = editorLayer->GetSceneCameraPosition();
-  const glm::vec3 cameraFront = cameraRotation * glm::vec3(0, 0, -1);
-  const glm::vec3 cameraUp = cameraRotation * glm::vec3(0, 1, 0);
-  glm::mat4 projectionView = ecoSysLabLayer->visualization_camera_->GetProjection() *
-                             glm::lookAt(cameraPosition, cameraPosition + cameraFront, cameraUp);
+                                          std::vector<glm::vec2>& mouse_positions, ShootSkeleton& skeleton,
+                                          const GlobalTransform& global_transform) {
+  auto editor_layer = Application::GetLayer<EditorLayer>();
+  auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto camera_rotation = editor_layer->GetSceneCameraRotation();
+  const auto camera_position = editor_layer->GetSceneCameraPosition();
+  const glm::vec3 camera_front = camera_rotation * glm::vec3(0, 0, -1);
+  const glm::vec3 camera_up = camera_rotation * glm::vec3(0, 1, 0);
+  glm::mat4 projection_view = eco_sys_lab_layer->visualization_camera_->GetProjection() *
+                              glm::lookAt(camera_position, camera_position + camera_front, camera_up);
 
-  const auto& sortedInternodeList = skeleton.PeekSortedNodeList();
+  const auto& sorted_internode_list = skeleton.PeekSortedNodeList();
   bool changed = false;
-  for (const auto& internodeHandle : sortedInternodeList) {
-    if (internodeHandle == 0)
+  for (const auto& internode_handle : sorted_internode_list) {
+    if (internode_handle == 0)
       continue;
-    auto& internode = skeleton.RefNode(internodeHandle);
+    auto& internode = skeleton.RefNode(internode_handle);
     glm::vec3 position = internode.info.global_position;
     auto rotation = internode.info.global_rotation;
     const auto direction = glm::normalize(rotation * glm::vec3(0, 0, -1));
     auto position2 = position + internode.info.length * direction;
 
-    position = (globalTransform.value * glm::translate(position))[3];
-    position2 = (globalTransform.value * glm::translate(position2))[3];
-    const glm::vec4 internodeScreenStart4 = projectionView * glm::vec4(position, 1.0f);
-    const glm::vec4 internodeScreenEnd4 = projectionView * glm::vec4(position2, 1.0f);
-    glm::vec3 internodeScreenStart = internodeScreenStart4 / internodeScreenStart4.w;
-    glm::vec3 internodeScreenEnd = internodeScreenEnd4 / internodeScreenEnd4.w;
-    internodeScreenStart.x *= -1.0f;
-    internodeScreenEnd.x *= -1.0f;
-    if (internodeScreenStart.x < -1.0f || internodeScreenStart.x > 1.0f || internodeScreenStart.y < -1.0f ||
-        internodeScreenStart.y > 1.0f || internodeScreenStart.z < 0.0f)
+    position = (global_transform.value * glm::translate(position))[3];
+    position2 = (global_transform.value * glm::translate(position2))[3];
+    const glm::vec4 internode_screen_start4 = projection_view * glm::vec4(position, 1.0f);
+    const glm::vec4 internode_screen_end4 = projection_view * glm::vec4(position2, 1.0f);
+    glm::vec3 internode_screen_start = internode_screen_start4 / internode_screen_start4.w;
+    glm::vec3 internode_screen_end = internode_screen_end4 / internode_screen_end4.w;
+    internode_screen_start.x *= -1.0f;
+    internode_screen_end.x *= -1.0f;
+    if (internode_screen_start.x < -1.0f || internode_screen_start.x > 1.0f || internode_screen_start.y < -1.0f ||
+        internode_screen_start.y > 1.0f || internode_screen_start.z < 0.0f)
       continue;
-    if (internodeScreenEnd.x < -1.0f || internodeScreenEnd.x > 1.0f || internodeScreenEnd.y < -1.0f ||
-        internodeScreenEnd.y > 1.0f || internodeScreenEnd.z < 0.0f)
+    if (internode_screen_end.x < -1.0f || internode_screen_end.x > 1.0f || internode_screen_end.y < -1.0f ||
+        internode_screen_end.y > 1.0f || internode_screen_end.z < 0.0f)
       continue;
     bool intersect = false;
-    for (int i = 0; i < mousePositions.size() - 1; i++) {
-      auto& lineStart = mousePositions[i];
-      auto& lineEnd = mousePositions[i + 1];
-      float a1 = internodeScreenEnd.y - internodeScreenStart.y;
-      float b1 = internodeScreenStart.x - internodeScreenEnd.x;
-      float c1 = a1 * (internodeScreenStart.x) + b1 * (internodeScreenStart.y);
+    for (int i = 0; i < mouse_positions.size() - 1; i++) {
+      auto& line_start = mouse_positions[i];
+      auto& line_end = mouse_positions[i + 1];
+      float a1 = internode_screen_end.y - internode_screen_start.y;
+      float b1 = internode_screen_start.x - internode_screen_end.x;
+      float c1 = a1 * (internode_screen_start.x) + b1 * (internode_screen_start.y);
 
       // Line CD represented as a2x + b2y = c2
-      float a2 = lineEnd.y - lineStart.y;
-      float b2 = lineStart.x - lineEnd.x;
-      float c2 = a2 * (lineStart.x) + b2 * (lineStart.y);
+      float a2 = line_end.y - line_start.y;
+      float b2 = line_start.x - line_end.x;
+      float c2 = a2 * (line_start.x) + b2 * (line_start.y);
 
       float determinant = a1 * b2 - a2 * b1;
       if (determinant == 0.0f)
         continue;
       float x = (b2 * c1 - b1 * c2) / determinant;
       float y = (a1 * c2 - a2 * c1) / determinant;
-      if (x <= glm::max(internodeScreenStart.x, internodeScreenEnd.x) &&
-          x >= glm::min(internodeScreenStart.x, internodeScreenEnd.x) &&
-          y <= glm::max(internodeScreenStart.y, internodeScreenEnd.y) &&
-          y >= glm::min(internodeScreenStart.y, internodeScreenEnd.y) && x <= glm::max(lineStart.x, lineEnd.x) &&
-          x >= glm::min(lineStart.x, lineEnd.x) && y <= glm::max(lineStart.y, lineEnd.y) &&
-          y >= glm::min(lineStart.y, lineEnd.y)) {
+      if (x <= glm::max(internode_screen_start.x, internode_screen_end.x) &&
+          x >= glm::min(internode_screen_start.x, internode_screen_end.x) &&
+          y <= glm::max(internode_screen_start.y, internode_screen_end.y) &&
+          y >= glm::min(internode_screen_start.y, internode_screen_end.y) && x <= glm::max(line_start.x, line_end.x) &&
+          x >= glm::min(line_start.x, line_end.x) && y <= glm::max(line_start.y, line_end.y) &&
+          y >= glm::min(line_start.y, line_end.y)) {
         intersect = true;
         break;
       }
     }
     if (intersect) {
-      handler(internodeHandle);
+      handler(internode_handle);
       changed = true;
     }
   }
   if (changed) {
-    m_selectedInternodeHandle = -1;
-    m_selectedInternodeHierarchyList.clear();
+    selected_internode_handle = -1;
+    selected_internode_hierarchy_list.clear();
   }
   return changed;
 }
 
-bool TreeVisualizer::RayCastSelection(const std::shared_ptr<Camera>& cameraComponent, const glm::vec2& mousePosition,
-                                      const ShootSkeleton& skeleton, const GlobalTransform& globalTransform) {
-  const auto editorLayer = Application::GetLayer<EditorLayer>();
+bool TreeVisualizer::RayCastSelection(const std::shared_ptr<Camera>& camera_component, const glm::vec2& mouse_position,
+                                      const ShootSkeleton& skeleton, const GlobalTransform& global_transform) {
+  const auto editor_layer = Application::GetLayer<EditorLayer>();
   bool changed = false;
 #pragma region Ray selection
-  SkeletonNodeHandle currentFocusingNodeHandle = -1;
-  std::mutex writeMutex;
-  float minDistance = FLT_MAX;
-  GlobalTransform cameraLtw;
-  cameraLtw.value =
-      glm::translate(editorLayer->GetSceneCameraPosition()) * glm::mat4_cast(editorLayer->GetSceneCameraRotation());
-  const Ray cameraRay = cameraComponent->ScreenPointToRay(cameraLtw, mousePosition);
-  const auto& sortedNodeList = skeleton.PeekSortedNodeList();
-  Jobs::RunParallelFor(sortedNodeList.size(), [&](unsigned i) {
-    const auto nodeHandle = sortedNodeList[i];
-    SkeletonNodeHandle walker = nodeHandle;
-    bool subTree = false;
+  SkeletonNodeHandle current_focusing_node_handle = -1;
+  std::mutex write_mutex;
+  float min_distance = FLT_MAX;
+  GlobalTransform camera_ltw;
+  camera_ltw.value =
+      glm::translate(editor_layer->GetSceneCameraPosition()) * glm::mat4_cast(editor_layer->GetSceneCameraRotation());
+  const Ray camera_ray = camera_component->ScreenPointToRay(camera_ltw, mouse_position);
+  const auto& sorted_node_list = skeleton.PeekSortedNodeList();
+  Jobs::RunParallelFor(sorted_node_list.size(), [&](unsigned i) {
+    const auto node_handle = sorted_node_list[i];
+    SkeletonNodeHandle walker = node_handle;
+    bool sub_tree = false;
     while (walker != -1) {
-      if (walker == m_selectedInternodeHandle) {
-        subTree = true;
+      if (walker == selected_internode_handle) {
+        sub_tree = true;
         break;
       }
       walker = skeleton.PeekNode(walker).GetParentHandle();
     }
-    const auto& node = skeleton.PeekNode(nodeHandle);
-    auto rotation = globalTransform.GetRotation() * node.info.global_rotation;
-    glm::vec3 position = (globalTransform.value * glm::translate(node.info.global_position))[3];
+    const auto& node = skeleton.PeekNode(node_handle);
+    auto rotation = global_transform.GetRotation() * node.info.global_rotation;
+    glm::vec3 position = (global_transform.value * glm::translate(node.info.global_position))[3];
     const auto direction = glm::normalize(rotation * glm::vec3(0, 0, -1));
     const glm::vec3 position2 = position + node.info.length * direction;
     const auto center = (position + position2) / 2.0f;
     auto radius = node.info.thickness;
-    if (m_lineThickness != 0.0f) {
-      radius = m_lineThickness * (subTree ? 0.625f : 0.5f);
+    if (line_thickness != 0.0f) {
+      radius = line_thickness * (sub_tree ? 0.625f : 0.5f);
     }
     const auto height = glm::distance(position2, position);
     radius *= height / node.info.length;
-    if (!cameraRay.Intersect(center, height / 2.0f) && !cameraRay.Intersect(center, radius)) {
+    if (!camera_ray.Intersect(center, height / 2.0f) && !camera_ray.Intersect(center, radius)) {
       return;
     }
-    const auto& dir = -cameraRay.direction;
+    const auto& dir = -camera_ray.direction;
 #pragma region Line Line intersection
     /*
      * http://geomalgorithms.com/a07-_distance.html
      */
     glm::vec3 v = position - position2;
-    glm::vec3 w = (cameraRay.start + dir) - position2;
+    glm::vec3 w = (camera_ray.start + dir) - position2;
     const auto a = glm::dot(dir, dir);  // always >= 0
     const auto b = glm::dot(dir, v);
     const auto c = glm::dot(v, v);  // always >= 0
     const auto d = glm::dot(dir, w);
     const auto e = glm::dot(v, w);
-    const auto dotP = a * c - b * b;  // always >= 0
+    const auto dot_p = a * c - b * b;  // always >= 0
     float sc, tc;
     // compute the line parameters of the two closest points
-    if (dotP < 0.00001f) {  // the lines are almost parallel
+    if (dot_p < 0.00001f) {  // the lines are almost parallel
       sc = 0.0f;
       tc = (b > c ? d / b : e / c);  // use the largest denominator
     } else {
-      sc = (b * e - c * d) / dotP;
-      tc = (a * e - b * d) / dotP;
+      sc = (b * e - c * d) / dot_p;
+      tc = (a * e - b * d) / dot_p;
     }
     // get the difference of the two closest points
     glm::vec3 dP = w + sc * dir - tc * v;  // =  L1(sc) - L2(tc)
@@ -153,57 +153,57 @@ bool TreeVisualizer::RayCastSelection(const std::shared_ptr<Camera>& cameraCompo
       return;
 #pragma endregion
 
-    const auto distance = glm::distance(glm::vec3(cameraLtw.value[3]), glm::vec3(center));
-    std::lock_guard<std::mutex> lock(writeMutex);
-    if (distance < minDistance) {
-      minDistance = distance;
-      m_selectedInternodeLengthFactor = glm::clamp(1.0f - tc, 0.0f, 1.0f);
-      currentFocusingNodeHandle = sortedNodeList[i];
+    const auto distance = glm::distance(glm::vec3(camera_ltw.value[3]), glm::vec3(center));
+    std::lock_guard<std::mutex> lock(write_mutex);
+    if (distance < min_distance) {
+      min_distance = distance;
+      selected_internode_length_factor = glm::clamp(1.0f - tc, 0.0f, 1.0f);
+      current_focusing_node_handle = sorted_node_list[i];
     }
   });
-  if (currentFocusingNodeHandle != -1) {
-    SetSelectedNode(skeleton, currentFocusingNodeHandle);
+  if (current_focusing_node_handle != -1) {
+    SetSelectedNode(skeleton, current_focusing_node_handle);
     changed = true;
 #pragma endregion
   }
   return changed;
 }
 
-void TreeVisualizer::PeekNodeInspectionGui(const ShootSkeleton& skeleton, SkeletonNodeHandle nodeHandle,
-                                           const unsigned& hierarchyLevel) {
-  const int index = m_selectedInternodeHierarchyList.size() - hierarchyLevel - 1;
-  if (!m_selectedInternodeHierarchyList.empty() && index >= 0 && index < m_selectedInternodeHierarchyList.size() &&
-      m_selectedInternodeHierarchyList[index] == nodeHandle) {
+void TreeVisualizer::PeekNodeInspectionGui(const ShootSkeleton& skeleton, const SkeletonNodeHandle node_handle,
+                                           const unsigned& hierarchy_level) {
+  const int index = selected_internode_hierarchy_list.size() - hierarchy_level - 1;
+  if (!selected_internode_hierarchy_list.empty() && index >= 0 && index < selected_internode_hierarchy_list.size() &&
+      selected_internode_hierarchy_list[index] == node_handle) {
     ImGui::SetNextItemOpen(true);
   }
   const bool opened = ImGui::TreeNodeEx(
-      ("Handle: " + std::to_string(nodeHandle)).c_str(),
+      ("Handle: " + std::to_string(node_handle)).c_str(),
       ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_NoAutoOpenOnLog |
-          (m_selectedInternodeHandle == nodeHandle ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
+          (selected_internode_handle == node_handle ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
   if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-    SetSelectedNode(skeleton, nodeHandle);
+    SetSelectedNode(skeleton, node_handle);
   }
   if (opened) {
-    ImGui::TreePush(std::to_string(nodeHandle).c_str());
-    const auto& internode = skeleton.PeekNode(nodeHandle);
-    const auto& internodeChildren = internode.PeekChildHandles();
-    for (const auto& child : internodeChildren) {
-      PeekNodeInspectionGui(skeleton, child, hierarchyLevel + 1);
+    ImGui::TreePush(std::to_string(node_handle).c_str());
+    const auto& internode = skeleton.PeekNode(node_handle);
+    const auto& internode_children = internode.PeekChildHandles();
+    for (const auto& child : internode_children) {
+      PeekNodeInspectionGui(skeleton, child, hierarchy_level + 1);
     }
     ImGui::TreePop();
   }
 }
 
-void TreeVisualizer::SetSelectedNode(const ShootSkeleton& skeleton, const SkeletonNodeHandle nodeHandle) {
-  if (nodeHandle != m_selectedInternodeHandle) {
-    m_selectedInternodeHierarchyList.clear();
-    if (nodeHandle < 0) {
-      m_selectedInternodeHandle = -1;
+void TreeVisualizer::SetSelectedNode(const ShootSkeleton& skeleton, const SkeletonNodeHandle node_handle) {
+  if (node_handle != selected_internode_handle) {
+    selected_internode_hierarchy_list.clear();
+    if (node_handle < 0) {
+      selected_internode_handle = -1;
     } else {
-      m_selectedInternodeHandle = nodeHandle;
-      auto walker = nodeHandle;
+      selected_internode_handle = node_handle;
+      auto walker = node_handle;
       while (walker != -1) {
-        m_selectedInternodeHierarchyList.push_back(walker);
+        selected_internode_hierarchy_list.push_back(walker);
         const auto& internode = skeleton.PeekNode(walker);
         walker = internode.GetParentHandle();
       }
@@ -212,24 +212,24 @@ void TreeVisualizer::SetSelectedNode(const ShootSkeleton& skeleton, const Skelet
 }
 
 void TreeVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
-                                  const std::shared_ptr<ParticleInfoList>& particleInfoList,
-                                  SkeletonNodeHandle selectedNodeHandle) {
-  if (m_randomColors.empty()) {
+                                  const std::shared_ptr<ParticleInfoList>& particle_info_list,
+                                  SkeletonNodeHandle selected_node_handle) {
+  if (random_colors_.empty()) {
     for (int i = 0; i < 1000; i++) {
-      m_randomColors.emplace_back(glm::abs(glm::ballRand(1.0f)), 1.0f);
+      random_colors_.emplace_back(glm::abs(glm::ballRand(1.0f)), 1.0f);
     }
   }
-  const auto& sortedNodeList = skeleton.PeekSortedNodeList();
+  const auto& sorted_node_list = skeleton.PeekSortedNodeList();
   std::vector<ParticleInfo> matrices;
 
-  matrices.resize(sortedNodeList.size());
-  Jobs::RunParallelFor(sortedNodeList.size(), [&](unsigned i) {
-    const auto nodeHandle = sortedNodeList[i];
-    const auto& node = skeleton.PeekNode(nodeHandle);
+  matrices.resize(sorted_node_list.size());
+  Jobs::RunParallelFor(sorted_node_list.size(), [&](unsigned i) {
+    const auto node_handle = sorted_node_list[i];
+    const auto& node = skeleton.PeekNode(node_handle);
     bool subTree = false;
-    SkeletonNodeHandle walker = nodeHandle;
+    SkeletonNodeHandle walker = node_handle;
     while (walker != -1) {
-      if (walker == m_selectedInternodeHandle) {
+      if (walker == selected_internode_handle) {
         subTree = true;
         break;
       }
@@ -237,45 +237,47 @@ void TreeVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
     }
     auto rotation = node.info.global_rotation;
     rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
-    const glm::mat4 rotationTransform = glm::mat4_cast(rotation);
-    if (m_lineThickness != 0.0f) {
+    const glm::mat4 rotation_transform = glm::mat4_cast(rotation);
+    if (line_thickness != 0.0f) {
       matrices[i].instance_matrix.value =
           glm::translate(node.info.global_position + (node.info.length / 2.0f) * node.info.GetGlobalDirection()) *
-          rotationTransform *
-          glm::scale(glm::vec3(m_lineThickness * (subTree ? 1.25f : 1.0f), node.info.length,
-                               m_lineThickness * (subTree ? 1.25f : 1.0f)));
+          rotation_transform *
+          glm::scale(glm::vec3(line_thickness * (subTree ? 1.25f : 1.0f), node.info.length,
+                               line_thickness * (subTree ? 1.25f : 1.0f)));
     } else {
       matrices[i].instance_matrix.value =
           glm::translate(node.info.global_position + (node.info.length / 2.0f) * node.info.GetGlobalDirection()) *
-          rotationTransform * glm::scale(glm::vec3(node.info.thickness, node.info.length, node.info.thickness));
+          rotation_transform * glm::scale(glm::vec3(node.info.thickness, node.info.length, node.info.thickness));
     }
   });
-  Jobs::RunParallelFor(sortedNodeList.size(), [&](unsigned i) {
-    const auto nodeHandle = sortedNodeList[i];
-    const auto& node = skeleton.PeekNode(nodeHandle);
-    switch (static_cast<ShootVisualizerMode>(m_settings.m_shootVisualizationMode)) {
+  Jobs::RunParallelFor(sorted_node_list.size(), [&](unsigned i) {
+    const auto node_handle = sorted_node_list[i];
+    const auto& node = skeleton.PeekNode(node_handle);
+    switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.shoot_visualization_mode)) {
       case ShootVisualizerMode::Default:
-        matrices[i].instance_color = m_randomColors[nodeHandle % m_randomColors.size()];
+        matrices[i].instance_color = random_colors_[node_handle % random_colors_.size()];
         break;
       case ShootVisualizerMode::Order:
-        matrices[i].instance_color = m_randomColors[node.data.order];
+        matrices[i].instance_color = random_colors_[node.data.order];
         break;
       case ShootVisualizerMode::Locked:
         matrices[i].instance_color = node.info.locked ? glm::vec4(1, 0, 0, 1) : glm::vec4(0, 1, 0, 1);
         break;
       case ShootVisualizerMode::Level:
-        matrices[i].instance_color = m_randomColors[node.data.level];
+        matrices[i].instance_color = random_colors_[node.data.level];
         break;
       case ShootVisualizerMode::MaxDescendantLightIntensity:
         matrices[i].instance_color =
             glm::mix(glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
-                     glm::clamp(glm::pow(node.data.descendant_total_light_intake, m_settings.m_shootColorMultiplier),
+                     glm::clamp(glm::pow(node.data.descendant_total_light_intake,
+                                         tree_visualizer_color_settings.shoot_color_multiplier),
                                 0.0f, 1.f));
         break;
       case ShootVisualizerMode::LightIntensity:
         matrices[i].instance_color =
             glm::mix(glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
-                     glm::clamp(glm::pow(node.data.light_intake, m_settings.m_shootColorMultiplier), 0.0f, 1.f));
+                     glm::clamp(glm::pow(node.data.light_intake, tree_visualizer_color_settings.shoot_color_multiplier),
+                                0.0f, 1.f));
         break;
       case ShootVisualizerMode::LightDirection:
         matrices[i].instance_color = glm::vec4(glm::vec3(glm::clamp(node.data.light_direction, 0.0f, 1.f)), 1.0f);
@@ -284,54 +286,59 @@ void TreeVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
         matrices[i].instance_color = glm::vec4(glm::vec3(node.data.max_child ? 1.0f : 0.0f), 1.0f);
         break;
       case ShootVisualizerMode::DesiredGrowthRate:
-        matrices[i].instance_color =
-            glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-                     glm::clamp(glm::pow(node.data.desired_growth_rate, m_settings.m_shootColorMultiplier), 0.0f, 1.f));
+        matrices[i].instance_color = glm::mix(
+            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+            glm::clamp(glm::pow(node.data.desired_growth_rate, tree_visualizer_color_settings.shoot_color_multiplier),
+                       0.0f, 1.f));
         break;
       case ShootVisualizerMode::GrowthPotential:
-        matrices[i].instance_color =
-            glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-                     glm::clamp(glm::pow(node.data.growth_potential, m_settings.m_shootColorMultiplier), 0.0f, 1.f));
+        matrices[i].instance_color = glm::mix(
+            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+            glm::clamp(glm::pow(node.data.growth_potential, tree_visualizer_color_settings.shoot_color_multiplier),
+                       0.0f, 1.f));
         break;
       case ShootVisualizerMode::SaggingStress:
-        matrices[i].instance_color =
-            glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-                     glm::clamp(glm::pow(node.data.sagging_stress, m_settings.m_shootColorMultiplier), 0.0f, 1.f));
+        matrices[i].instance_color = glm::mix(
+            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+            glm::clamp(glm::pow(node.data.sagging_stress, tree_visualizer_color_settings.shoot_color_multiplier), 0.0f,
+                       1.f));
         break;
       case ShootVisualizerMode::GrowthRate:
         matrices[i].instance_color =
             glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-                     glm::clamp(glm::pow(node.data.growth_rate, m_settings.m_shootColorMultiplier), 0.0f, 1.f));
+                     glm::clamp(glm::pow(node.data.growth_rate, tree_visualizer_color_settings.shoot_color_multiplier),
+                                0.0f, 1.f));
         break;
       default:
-        matrices[i].instance_color = m_randomColors[node.data.order];
+        matrices[i].instance_color = random_colors_[node.data.order];
         break;
     }
     matrices[i].instance_color.a = 1.0f;
-    if (selectedNodeHandle != -1)
+    if (selected_node_handle != -1)
       matrices[i].instance_color.a = 1.0f;
   });
-  particleInfoList->SetParticleInfos(matrices);
+  particle_info_list->SetParticleInfos(matrices);
 }
 
-bool TreeVisualizer::DrawInternodeInspectionGui(TreeModel& treeModel, SkeletonNodeHandle internodeHandle, bool& deleted,
-                                                const unsigned& hierarchyLevel) {
-  auto& treeSkeleton = treeModel.RefShootSkeleton();
-  const int index = m_selectedInternodeHierarchyList.size() - hierarchyLevel - 1;
-  if (!m_selectedInternodeHierarchyList.empty() && index >= 0 && index < m_selectedInternodeHierarchyList.size() &&
-      m_selectedInternodeHierarchyList[index] == internodeHandle) {
+bool TreeVisualizer::DrawInternodeInspectionGui(TreeModel& tree_model, const SkeletonNodeHandle internode_handle,
+                                                bool& deleted, const unsigned& hierarchy_level) {
+  auto& treeSkeleton = tree_model.RefShootSkeleton();
+  const int index = selected_internode_hierarchy_list.size() - hierarchy_level - 1;
+  if (!selected_internode_hierarchy_list.empty() && index >= 0 && index < selected_internode_hierarchy_list.size() &&
+      selected_internode_hierarchy_list[index] == internode_handle) {
     ImGui::SetNextItemOpen(true);
   }
   const bool opened = ImGui::TreeNodeEx(
-      ("Handle: " + std::to_string(internodeHandle)).c_str(),
+      ("Handle: " + std::to_string(internode_handle)).c_str(),
       ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_NoAutoOpenOnLog |
-          (m_selectedInternodeHandle == internodeHandle ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
+          (selected_internode_handle == internode_handle ? ImGuiTreeNodeFlags_Framed
+                                                         : ImGuiTreeNodeFlags_FramePadding));
   if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-    SetSelectedNode(treeSkeleton, internodeHandle);
+    SetSelectedNode(treeSkeleton, internode_handle);
   }
 
-  if (ImGui::BeginPopupContextItem(std::to_string(internodeHandle).c_str())) {
-    ImGui::Text(("Handle: " + std::to_string(internodeHandle)).c_str());
+  if (ImGui::BeginPopupContextItem(std::to_string(internode_handle).c_str())) {
+    ImGui::Text(("Handle: " + std::to_string(internode_handle)).c_str());
     if (ImGui::Button("Delete")) {
       deleted = true;
     }
@@ -339,15 +346,15 @@ bool TreeVisualizer::DrawInternodeInspectionGui(TreeModel& treeModel, SkeletonNo
   }
   bool modified = deleted;
   if (opened && !deleted) {
-    ImGui::TreePush(std::to_string(internodeHandle).c_str());
-    const auto& internode_children = treeSkeleton.RefNode(internodeHandle).PeekChildHandles();
+    ImGui::TreePush(std::to_string(internode_handle).c_str());
+    const auto& internode_children = treeSkeleton.RefNode(internode_handle).PeekChildHandles();
     for (const auto& child : internode_children) {
       bool child_deleted = false;
-      DrawInternodeInspectionGui(treeModel, child, child_deleted, hierarchyLevel + 1);
+      DrawInternodeInspectionGui(tree_model, child, child_deleted, hierarchy_level + 1);
       if (child_deleted) {
-        treeModel.Step();
-        treeModel.RefShootSkeleton().RemoveNodes({child});
-        m_checkpointIteration = treeModel.CurrentIteration();
+        tree_model.Step();
+        tree_model.RemoveNodes({child});
+        checkpoint_iteration = tree_model.CurrentIteration();
         modified = true;
         break;
       }
@@ -357,89 +364,88 @@ bool TreeVisualizer::DrawInternodeInspectionGui(TreeModel& treeModel, SkeletonNo
   return modified;
 }
 void TreeVisualizer::ClearSelections() {
-  m_selectedInternodeHandle = -1;
+  selected_internode_handle = -1;
 }
-bool TreeVisualizer::OnInspect(TreeModel& treeModel) {
+bool TreeVisualizer::OnInspect(TreeModel& tree_model) {
   bool updated = false;
   if (ImGui::Combo("Visualizer mode",
                    {"Default", "Order", "Level", "Max descendant light intensity", "Light intensity", "Light direction",
                     "Desired growth rate", "Growth potential", "Growth rate", "Is max child", "Allocated vigor",
                     "Sagging stress", "Locked"},
-                   m_settings.m_shootVisualizationMode)) {
-    m_needUpdate = true;
+                   tree_visualizer_color_settings.shoot_visualization_mode)) {
+    need_update = true;
   }
   if (ImGui::TreeNodeEx("Checkpoints")) {
-    if (ImGui::SliderInt("Current checkpoint", &m_checkpointIteration, 0, treeModel.CurrentIteration())) {
-      m_checkpointIteration = glm::clamp(m_checkpointIteration, 0, treeModel.CurrentIteration());
-      m_selectedInternodeHandle = -1;
-      m_selectedInternodeHierarchyList.clear();
-      m_needUpdate = true;
+    if (ImGui::SliderInt("Current checkpoint", &checkpoint_iteration, 0, tree_model.CurrentIteration())) {
+      checkpoint_iteration = glm::clamp(checkpoint_iteration, 0, tree_model.CurrentIteration());
+      selected_internode_handle = -1;
+      selected_internode_hierarchy_list.clear();
+      need_update = true;
     }
-    if (m_checkpointIteration != treeModel.CurrentIteration() && ImGui::Button("Reverse")) {
-      treeModel.Reverse(m_checkpointIteration);
-      m_needUpdate = true;
+    if (checkpoint_iteration != tree_model.CurrentIteration() && ImGui::Button("Reverse")) {
+      tree_model.Reverse(checkpoint_iteration);
+      need_update = true;
     }
     if (ImGui::Button("Clear checkpoints")) {
-      m_checkpointIteration = 0;
-      treeModel.ClearHistory();
+      checkpoint_iteration = 0;
+      tree_model.ClearHistory();
     }
     ImGui::TreePop();
   }
   if (ImGui::Button("Add Checkpoint")) {
-    treeModel.Step();
-    m_checkpointIteration = treeModel.CurrentIteration();
+    tree_model.Step();
+    checkpoint_iteration = tree_model.CurrentIteration();
   }
   if (ImGui::TreeNodeEx("Visualizer Settings")) {
-    ImGui::DragInt("History Limit", &treeModel.history_limit, 1, -1, 1024);
+    ImGui::DragInt("History Limit", &tree_model.history_limit, 1, -1, 1024);
 
     if (ImGui::TreeNode("Shoot Color settings")) {
-      if (ImGui::DragFloat("Multiplier", &m_settings.m_shootColorMultiplier, 0.001f)) {
-        m_needUpdate = true;
+      if (ImGui::DragFloat("Multiplier", &tree_visualizer_color_settings.shoot_color_multiplier, 0.001f)) {
+        need_update = true;
       }
-      switch (static_cast<ShootVisualizerMode>(m_settings.m_shootVisualizationMode)) {
+      switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.shoot_visualization_mode)) {
         default:
           break;
       }
       ImGui::TreePop();
     }
 
-    ImGui::Checkbox("Visualization", &m_visualization);
-    ImGui::Checkbox("Profile", &m_profileGui);
-    ImGui::Checkbox("Tree Hierarchy", &m_treeHierarchyGui);
+    ImGui::Checkbox("Visualization", &visualization);
+    ImGui::Checkbox("Profile", &profile_gui);
+    ImGui::Checkbox("Tree Hierarchy", &tree_hierarchy_gui);
 
-    if (m_visualization) {
-      const auto& treeSkeleton = treeModel.PeekShootSkeleton(m_checkpointIteration);
-      const auto editorLayer = Application::GetLayer<EditorLayer>();
-      const auto& sortedBranchList = treeSkeleton.PeekSortedFlowList();
-      const auto& sortedInternodeList = treeSkeleton.PeekSortedNodeList();
-      ImGui::Text("Internode count: %d", sortedInternodeList.size());
-      ImGui::Text("Shoot stem count: %d", sortedBranchList.size());
+    if (visualization) {
+      const auto& tree_skeleton = tree_model.PeekShootSkeleton(checkpoint_iteration);
+      const auto editor_layer = Application::GetLayer<EditorLayer>();
+      const auto& sorted_branch_list = tree_skeleton.PeekSortedFlowList();
+      const auto& sorted_internode_list = tree_skeleton.PeekSortedNodeList();
+      ImGui::Text("Internode count: %d", sorted_internode_list.size());
+      ImGui::Text("Shoot stem count: %d", sorted_branch_list.size());
     }
 
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Inspection")) {
-    if (m_selectedInternodeHandle >= 0) {
-      if (m_checkpointIteration == treeModel.CurrentIteration()) {
-        InspectInternode(treeModel.RefShootSkeleton(), m_selectedInternodeHandle);
+    if (selected_internode_handle >= 0) {
+      if (checkpoint_iteration == tree_model.CurrentIteration()) {
+        InspectInternode(tree_model.RefShootSkeleton(), selected_internode_handle);
       } else {
-        PeekInternode(treeModel.PeekShootSkeleton(m_checkpointIteration), m_selectedInternodeHandle);
+        PeekInternode(tree_model.PeekShootSkeleton(checkpoint_iteration), selected_internode_handle);
       }
     }
 
-    if (m_treeHierarchyGui) {
+    if (tree_hierarchy_gui) {
       if (ImGui::TreeNodeEx("Tree Hierarchy")) {
         bool deleted = false;
-        auto tempSelection = m_selectedInternodeHandle;
-        if (m_checkpointIteration == treeModel.CurrentIteration()) {
-          if (DrawInternodeInspectionGui(treeModel, 0, deleted, 0)) {
-            m_needUpdate = true;
+        if (checkpoint_iteration == tree_model.CurrentIteration()) {
+          if (DrawInternodeInspectionGui(tree_model, 0, deleted, 0)) {
+            need_update = true;
             updated = true;
           }
         } else
-          PeekNodeInspectionGui(treeModel.PeekShootSkeleton(m_checkpointIteration), 0, 0);
-        m_selectedInternodeHierarchyList.clear();
+          PeekNodeInspectionGui(tree_model.PeekShootSkeleton(checkpoint_iteration), 0, 0);
+        selected_internode_hierarchy_list.clear();
         ImGui::TreePop();
       }
     }
@@ -448,55 +454,56 @@ bool TreeVisualizer::OnInspect(TreeModel& treeModel) {
   return updated;
 }
 
-void TreeVisualizer::Visualize(const TreeModel& treeModel, const GlobalTransform& globalTransform) {
-  const auto& treeSkeleton = treeModel.PeekShootSkeleton(m_checkpointIteration);
-  if (m_visualization) {
-    const auto editorLayer = Application::GetLayer<EditorLayer>();
-    const auto ecoSysLabLayer = Application::GetLayer<EcoSysLabLayer>();
-    if (m_needUpdate) {
-      SyncMatrices(treeSkeleton, m_internodeMatrices, m_selectedInternodeHandle);
-      m_needUpdate = false;
+void TreeVisualizer::Visualize(const TreeModel& tree_model, const GlobalTransform& global_transform) {
+  const auto& tree_skeleton = tree_model.PeekShootSkeleton(checkpoint_iteration);
+  if (visualization) {
+    const auto editor_layer = Application::GetLayer<EditorLayer>();
+    const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+    if (need_update) {
+      SyncMatrices(tree_skeleton, internode_matrices_, selected_internode_handle);
+      need_update = false;
     }
-    GizmoSettings gizmoSettings;
-    gizmoSettings.draw_settings.blending = true;
-    gizmoSettings.depth_test = true;
-    gizmoSettings.depth_write = true;
-    if (!m_internodeMatrices->PeekParticleInfoList().empty()) {
-      editorLayer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder, ecoSysLabLayer->visualization_camera_,
-                                                 m_internodeMatrices, globalTransform.value, 1.0f, gizmoSettings);
-      if (m_selectedInternodeHandle != -1) {
-        const auto& node = treeSkeleton.PeekNode(m_selectedInternodeHandle);
+    GizmoSettings gizmo_settings;
+    gizmo_settings.draw_settings.blending = true;
+    gizmo_settings.depth_test = true;
+    gizmo_settings.depth_write = true;
+    if (!internode_matrices_->PeekParticleInfoList().empty()) {
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder,
+                                                  eco_sys_lab_layer->visualization_camera_, internode_matrices_,
+                                                  global_transform.value, 1.0f, gizmo_settings);
+      if (selected_internode_handle != -1) {
+        const auto& node = tree_skeleton.PeekNode(selected_internode_handle);
         auto rotation = node.info.global_rotation;
         rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
-        const glm::mat4 rotationTransform = glm::mat4_cast(rotation);
-        const glm::vec3 selectedCenter = node.info.global_position + node.info.length *
-                                                                         m_selectedInternodeLengthFactor *
-                                                                         node.info.GetGlobalDirection();
-        const auto matrix = globalTransform.value * glm::translate(selectedCenter) * rotationTransform *
+        const glm::mat4 rotation_transform = glm::mat4_cast(rotation);
+        const glm::vec3 selected_center = node.info.global_position + node.info.length *
+                                                                          selected_internode_length_factor *
+                                                                          node.info.GetGlobalDirection();
+        const auto matrix = global_transform.value * glm::translate(selected_center) * rotation_transform *
                             glm::scale(glm::vec3(2.0f * node.info.thickness + 0.01f, node.info.length / 5.0f,
                                                  2.0f * node.info.thickness + 0.01f));
-        const auto color = glm::vec4(1.0f);
-        editorLayer->DrawGizmoMesh(Resources::Primitives::cylinder, ecoSysLabLayer->visualization_camera_, color,
-                                   matrix, 1, gizmoSettings);
+        constexpr auto color = glm::vec4(1.0f);
+        editor_layer->DrawGizmoMesh(Resources::Primitives::cylinder, eco_sys_lab_layer->visualization_camera_, color,
+                                    matrix, 1, gizmo_settings);
       }
     }
   }
 }
 
-void TreeVisualizer::Visualize(StrandModel& strandModel) {
-  if (m_visualization) {
-    auto& skeleton = strandModel.strand_model_skeleton;
-    static bool showGrid = false;
-    if (m_profileGui) {
+void TreeVisualizer::Visualize(StrandModel& strand_model) {
+  if (visualization) {
+    auto& skeleton = strand_model.strand_model_skeleton;
+    static bool show_grid = false;
+    if (profile_gui) {
       const std::string tag = "Profile";
       if (ImGui::Begin(tag.c_str())) {
-        if (m_selectedInternodeHandle != -1 && m_selectedInternodeHandle < skeleton.RefRawNodes().size()) {
-          auto& node = skeleton.RefNode(m_selectedInternodeHandle);
-          glm::vec2 mousePosition{};
-          static bool lastFrameClicked = false;
-          bool mouseDown = false;
-          static bool addAttractor = false;
-          ImGui::Checkbox("Attractor", &addAttractor);
+        if (selected_internode_handle != -1 && selected_internode_handle < skeleton.RefRawNodes().size()) {
+          auto& node = skeleton.RefNode(selected_internode_handle);
+          glm::vec2 mouse_position{};
+          static bool last_frame_clicked = false;
+          bool mouse_down = false;
+          static bool add_attractor = false;
+          ImGui::Checkbox("Attractor", &add_attractor);
           if (ImGui::Button("Clear boundaries")) {
             node.data.profile_constraints.boundaries.clear();
             node.data.boundaries_updated = true;
@@ -507,90 +514,91 @@ void TreeVisualizer::Visualize(StrandModel& strandModel) {
             node.data.boundaries_updated = true;
           }
           ImGui::SameLine();
-          ImGui::Checkbox("Show Grid", &showGrid);
+          ImGui::Checkbox("Show Grid", &show_grid);
           if (node.GetParentHandle() != -1) {
             if (ImGui::Button("Copy from root")) {
-              std::vector<SkeletonNodeHandle> parentNodeToRootChain;
-              parentNodeToRootChain.emplace_back(m_selectedInternodeHandle);
+              std::vector<SkeletonNodeHandle> parent_node_to_root_chain;
+              parent_node_to_root_chain.emplace_back(selected_internode_handle);
               SkeletonNodeHandle walker = node.GetParentHandle();
               while (walker != -1) {
-                parentNodeToRootChain.emplace_back(walker);
+                parent_node_to_root_chain.emplace_back(walker);
                 walker = skeleton.PeekNode(walker).GetParentHandle();
               }
-              for (auto it = parentNodeToRootChain.rbegin() + 1; it != parentNodeToRootChain.rend(); ++it) {
-                const auto& fromNode = skeleton.PeekNode(*(it - 1));
-                auto& toNode = skeleton.RefNode(*it);
-                toNode.data.profile_constraints = fromNode.data.profile_constraints;
-                toNode.data.boundaries_updated = true;
+              for (auto it = parent_node_to_root_chain.rbegin() + 1; it != parent_node_to_root_chain.rend(); ++it) {
+                const auto& from_node = skeleton.PeekNode(*(it - 1));
+                auto& to_node = skeleton.RefNode(*it);
+                to_node.data.profile_constraints = from_node.data.profile_constraints;
+                to_node.data.boundaries_updated = true;
               }
             }
-            const auto& parentNode = skeleton.RefNode(node.GetParentHandle());
-            if (!parentNode.data.profile_constraints.boundaries.empty() ||
-                !parentNode.data.profile_constraints.attractors.empty()) {
+            const auto& parent_node = skeleton.RefNode(node.GetParentHandle());
+            if (!parent_node.data.profile_constraints.boundaries.empty() ||
+                !parent_node.data.profile_constraints.attractors.empty()) {
               ImGui::SameLine();
               if (ImGui::Button("Copy parent settings")) {
-                node.data.profile_constraints = parentNode.data.profile_constraints;
+                node.data.profile_constraints = parent_node.data.profile_constraints;
                 node.data.boundaries_updated = true;
               }
             }
           }
           node.data.profile.OnInspect(
               [&](const glm::vec2 position) {
-                mouseDown = true;
-                mousePosition = position;
+                mouse_down = true;
+                mouse_position = position;
               },
-              [&](const ImVec2 origin, const float zoomFactor, ImDrawList* drawList) {
-                node.data.profile.RenderEdges(origin, zoomFactor, drawList, IM_COL32(0.0f, 0.0f, 128.0f, 128.0f), 1.0f);
-                node.data.profile.RenderBoundary(origin, zoomFactor, drawList, IM_COL32(255.f, 255.f, 255.0f, 255.0f),
+              [&](const ImVec2 origin, const float zoom_factor, ImDrawList* draw_list) {
+                node.data.profile.RenderEdges(origin, zoom_factor, draw_list, IM_COL32(0.0f, 0.0f, 128.0f, 128.0f),
+                                              1.0f);
+                node.data.profile.RenderBoundary(origin, zoom_factor, draw_list, IM_COL32(255.f, 255.f, 255.0f, 255.0f),
                                                  4.0f);
 
                 if (node.GetParentHandle() != -1) {
-                  const auto& parentNode = skeleton.RefNode(node.GetParentHandle());
-                  if (!parentNode.data.profile_constraints.boundaries.empty()) {
-                    for (const auto& parentBoundary : parentNode.data.profile_constraints.boundaries) {
-                      parentBoundary.RenderBoundary(origin, zoomFactor, drawList, IM_COL32(128.0f, 0.0f, 0, 128.0f),
-                                                    4.0f);
+                  if (const auto& parent_node = skeleton.RefNode(node.GetParentHandle());
+                      !parent_node.data.profile_constraints.boundaries.empty()) {
+                    for (const auto& parent_boundary : parent_node.data.profile_constraints.boundaries) {
+                      parent_boundary.RenderBoundary(origin, zoom_factor, draw_list, IM_COL32(128.0f, 0.0f, 0, 128.0f),
+                                                     4.0f);
                     }
-                    for (const auto& parentAttractor : parentNode.data.profile_constraints.attractors) {
-                      parentAttractor.RenderAttractor(origin, zoomFactor, drawList, IM_COL32(0.0f, 128.0f, 0, 128.0f),
-                                                      4.0f);
+                    for (const auto& parent_attractor : parent_node.data.profile_constraints.attractors) {
+                      parent_attractor.RenderAttractor(origin, zoom_factor, draw_list,
+                                                       IM_COL32(0.0f, 128.0f, 0, 128.0f), 4.0f);
                     }
                   }
                 }
                 for (const auto& boundary : node.data.profile_constraints.boundaries) {
-                  boundary.RenderBoundary(origin, zoomFactor, drawList, IM_COL32(255.0f, 0.0f, 0, 255.0f), 2.0f);
+                  boundary.RenderBoundary(origin, zoom_factor, draw_list, IM_COL32(255.0f, 0.0f, 0, 255.0f), 2.0f);
                 }
 
                 for (const auto& attractor : node.data.profile_constraints.attractors) {
-                  attractor.RenderAttractor(origin, zoomFactor, drawList, IM_COL32(0.0f, 255.0f, 0, 255.0f), 2.0f);
+                  attractor.RenderAttractor(origin, zoom_factor, draw_list, IM_COL32(0.0f, 255.0f, 0, 255.0f), 2.0f);
                 }
               },
-              showGrid);
-          auto& profileBoundaries = node.data.profile_constraints;
-          static glm::vec2 attractorStartMousePosition;
-          if (lastFrameClicked) {
-            if (mouseDown) {
-              if (!addAttractor) {
+              show_grid);
+          auto& profile_boundaries = node.data.profile_constraints;
+          static glm::vec2 attractor_start_mouse_position;
+          if (last_frame_clicked) {
+            if (mouse_down) {
+              if (!add_attractor) {
                 // Continue recording.
-                if (glm::distance(mousePosition, profileBoundaries.boundaries.back().points.back()) > 1.0f)
-                  profileBoundaries.boundaries.back().points.emplace_back(mousePosition);
+                if (glm::distance(mouse_position, profile_boundaries.boundaries.back().points.back()) > 1.0f)
+                  profile_boundaries.boundaries.back().points.emplace_back(mouse_position);
               } else {
-                auto& attractorPoints = profileBoundaries.attractors.back().attractor_points;
-                if (attractorPoints.empty()) {
-                  if (glm::distance(attractorStartMousePosition, mousePosition) > 1.0f) {
-                    attractorPoints.emplace_back(attractorStartMousePosition, mousePosition);
+                if (auto& attractor_points = profile_boundaries.attractors.back().attractor_points;
+                    attractor_points.empty()) {
+                  if (glm::distance(attractor_start_mouse_position, mouse_position) > 1.0f) {
+                    attractor_points.emplace_back(attractor_start_mouse_position, mouse_position);
                   }
-                } else if (glm::distance(mousePosition, attractorPoints.back().second) > 1.0f) {
-                  attractorPoints.emplace_back(attractorPoints.back().second, mousePosition);
+                } else if (glm::distance(mouse_position, attractor_points.back().second) > 1.0f) {
+                  attractor_points.emplace_back(attractor_points.back().second, mouse_position);
                 }
               }
-            } else if (!profileBoundaries.boundaries.empty()) {
-              if (!addAttractor) {
+            } else if (!profile_boundaries.boundaries.empty()) {
+              if (!add_attractor) {
                 // Stop and check boundary.
-                if (!profileBoundaries.Valid(profileBoundaries.boundaries.size() - 1)) {
-                  profileBoundaries.boundaries.pop_back();
+                if (!profile_boundaries.Valid(profile_boundaries.boundaries.size() - 1)) {
+                  profile_boundaries.boundaries.pop_back();
                 } else {
-                  profileBoundaries.boundaries.back().CalculateCenter();
+                  profile_boundaries.boundaries.back().CalculateCenter();
                   node.data.boundaries_updated = true;
                 }
               } else {
@@ -598,17 +606,17 @@ void TreeVisualizer::Visualize(StrandModel& strandModel) {
                 node.data.boundaries_updated = true;
               }
             }
-          } else if (mouseDown) {
+          } else if (mouse_down) {
             // Start recording.
-            if (!addAttractor) {
+            if (!add_attractor) {
               node.data.profile_constraints.boundaries.emplace_back();
-              node.data.profile_constraints.boundaries.back().points.push_back(mousePosition);
+              node.data.profile_constraints.boundaries.back().points.push_back(mouse_position);
             } else {
               node.data.profile_constraints.attractors.emplace_back();
-              attractorStartMousePosition = mousePosition;
+              attractor_start_mouse_position = mouse_position;
             }
           }
-          lastFrameClicked = mouseDown;
+          last_frame_clicked = mouse_down;
         } else {
           ImGui::Text("Select an internode to show its profile!");
         }
@@ -618,61 +626,62 @@ void TreeVisualizer::Visualize(StrandModel& strandModel) {
   }
 }
 
-bool TreeVisualizer::InspectInternode(ShootSkeleton& shootSkeleton, SkeletonNodeHandle internodeHandle) {
+bool TreeVisualizer::InspectInternode(ShootSkeleton& shoot_skeleton, SkeletonNodeHandle internode_handle) {
   bool changed = false;
 
-  auto& internode = shootSkeleton.RefNode(internodeHandle);
+  auto& internode = shoot_skeleton.RefNode(internode_handle);
   if (internode.info.locked && ImGui::Button("Unlock")) {
-    const auto subTree = shootSkeleton.GetSubTree(internodeHandle);
-    for (const auto& handle : subTree) {
-      shootSkeleton.RefNode(handle).info.locked = false;
+    const auto sub_tree = shoot_skeleton.GetSubTree(internode_handle);
+    for (const auto& handle : sub_tree) {
+      shoot_skeleton.RefNode(handle).info.locked = false;
     }
-    m_needUpdate = true;
+    need_update = true;
   }
   if (!internode.info.locked && ImGui::Button("Lock")) {
-    const auto chainToRoot = shootSkeleton.GetChainToRoot(internodeHandle);
-    for (const auto& handle : chainToRoot) {
-      shootSkeleton.RefNode(handle).info.locked = true;
+    const auto chain_to_root = shoot_skeleton.GetChainToRoot(internode_handle);
+    for (const auto& handle : chain_to_root) {
+      shoot_skeleton.RefNode(handle).info.locked = true;
     }
-    m_needUpdate = true;
+    need_update = true;
   }
   if (ImGui::TreeNode("Internode info")) {
     ImGui::Checkbox("Is max child", &internode.data.max_child);
     ImGui::Text("Thickness: %.3f", internode.info.thickness);
     ImGui::Text("Length: %.3f", internode.info.length);
     ImGui::InputFloat3("Position", &internode.info.global_position.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    auto globalRotationAngle = glm::eulerAngles(internode.info.global_rotation);
-    ImGui::InputFloat3("Global rotation", &globalRotationAngle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    auto localRotationAngle = glm::eulerAngles(internode.data.desired_local_rotation);
-    ImGui::InputFloat3("Local rotation", &localRotationAngle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    auto& internodeData = internode.data;
-    ImGui::InputFloat("Start Age", &internodeData.start_age, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    auto global_rotation_angle = glm::eulerAngles(internode.info.global_rotation);
+    ImGui::InputFloat3("Global rotation", &global_rotation_angle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    auto local_rotation_angle = glm::eulerAngles(internode.data.desired_local_rotation);
+    ImGui::InputFloat3("Local rotation", &local_rotation_angle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    auto& internode_data = internode.data;
+    ImGui::InputFloat("Start Age", &internode_data.start_age, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
     ImGui::InputFloat("Distance to end", &internode.info.end_distance, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat("Descendent biomass", &internodeData.descendant_total_biomass, 1, 100, "%.3f",
+    ImGui::InputFloat("Descendent biomass", &internode_data.descendant_total_biomass, 1, 100, "%.3f",
                       ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat("Biomass", &internodeData.biomass, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    ImGui::InputFloat("Biomass", &internode_data.biomass, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
 
     ImGui::InputFloat("Root distance", &internode.info.root_distance, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
 
-    ImGui::InputFloat("Light Intensity", &internodeData.light_intake, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat3("Light direction", &internodeData.light_direction.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    ImGui::InputFloat("Light Intensity", &internode_data.light_intake, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    ImGui::InputFloat3("Light direction", &internode_data.light_direction.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
 
-    ImGui::InputFloat("Growth rate control", &internodeData.growth_potential, 1, 100, "%.3f",
+    ImGui::InputFloat("Growth rate control", &internode_data.growth_potential, 1, 100, "%.3f",
                       ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat("Desired growth rate", &internodeData.desired_growth_rate, 1, 100, "%.3f",
+    ImGui::InputFloat("Desired growth rate", &internode_data.desired_growth_rate, 1, 100, "%.3f",
                       ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat("Growth rate", &internodeData.growth_rate, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat("Sagging Stress", &internodeData.sagging_stress, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    if (ImGui::DragFloat("Sagging", &internodeData.sagging)) {
+    ImGui::InputFloat("Growth rate", &internode_data.growth_rate, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    ImGui::InputFloat("Sagging Stress", &internode_data.sagging_stress, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    if (ImGui::DragFloat("Sagging", &internode_data.sagging)) {
       changed = true;
     }
-    if (ImGui::DragFloat("Extra mass", &internodeData.extra_mass)) {
+    if (ImGui::DragFloat("Extra mass", &internode_data.extra_mass)) {
       changed = true;
     }
 
     if (ImGui::TreeNodeEx("Buds")) {
       int index = 1;
-      for (auto& bud : internodeData.buds) {
+      for (const auto& bud_index : internode_data.bud_indices) {
+        auto& bud = shoot_skeleton.data.RefBud(bud_index);
         if (ImGui::TreeNode(("Bud " + std::to_string(index)).c_str())) {
           switch (bud.type) {
             case BudType::Apical:
@@ -681,25 +690,19 @@ bool TreeVisualizer::InspectInternode(ShootSkeleton& shootSkeleton, SkeletonNode
             case BudType::Lateral:
               ImGui::Text("Lateral");
               break;
-            case BudType::Leaf:
-              ImGui::Text("Leaf");
-              break;
-            case BudType::Fruit:
-              ImGui::Text("Fruit");
-              break;
           }
           switch (bud.status) {
-            case BudStatus::Dormant:
-              ImGui::Text("Dormant");
+            case OrganStatus::Flushed:
+              ImGui::Text("Flushed");
               break;
 
-            case BudStatus::Died:
-              ImGui::Text("Died");
+            case OrganStatus::Dormant:
+              ImGui::Text("Dormant");
               break;
           }
 
-          auto budRotationAngle = glm::eulerAngles(bud.local_rotation);
-          ImGui::InputFloat3("Rotation", &budRotationAngle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
+          auto bud_rotation_angle = glm::eulerAngles(bud.local_rotation);
+          ImGui::InputFloat3("Rotation", &bud_rotation_angle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
           /*
           ImGui::InputFloat("Base resource requirement", (float *) &bud.m_maintenanceVigorRequirementWeight, 1, 100,
                                                   "%.3f", ImGuiInputTextFlags_ReadOnly);
@@ -713,13 +716,13 @@ bool TreeVisualizer::InspectInternode(ShootSkeleton& shootSkeleton, SkeletonNode
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Flow info")) {
-    const auto& flow = shootSkeleton.PeekFlow(internode.GetFlowHandle());
+    const auto& flow = shoot_skeleton.PeekFlow(internode.GetFlowHandle());
     ImGui::Text("Child flow size: %d", flow.PeekChildHandles().size());
     ImGui::Text("Internode size: %d", flow.PeekNodeHandles().size());
     if (ImGui::TreeNode("Internodes")) {
       int i = 0;
-      for (const auto& chainedInternodeHandle : flow.PeekNodeHandles()) {
-        ImGui::Text("No.%d: Handle: %d", i, chainedInternodeHandle);
+      for (const auto& chained_internode_handle : flow.PeekNodeHandles()) {
+        ImGui::Text("No.%d: Handle: %d", i, chained_internode_handle);
         i++;
       }
       ImGui::TreePop();
@@ -729,34 +732,36 @@ bool TreeVisualizer::InspectInternode(ShootSkeleton& shootSkeleton, SkeletonNode
   return changed;
 }
 
-void TreeVisualizer::PeekInternode(const ShootSkeleton& shootSkeleton, SkeletonNodeHandle internodeHandle) const {
-  const auto& internode = shootSkeleton.PeekNode(internodeHandle);
+void TreeVisualizer::PeekInternode(const ShootSkeleton& shoot_skeleton,
+                                   const SkeletonNodeHandle internode_handle) const {
+  const auto& internode = shoot_skeleton.PeekNode(internode_handle);
   if (ImGui::TreeNode("Internode info")) {
     ImGui::Checkbox("Is max child", (bool*)&internode.data.max_child);
     ImGui::Text("Thickness: %.3f", internode.info.thickness);
     ImGui::Text("Length: %.3f", internode.info.length);
     ImGui::InputFloat3("Position", (float*)&internode.info.global_position.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    auto globalRotationAngle = glm::eulerAngles(internode.info.global_rotation);
-    ImGui::InputFloat3("Global rotation", (float*)&globalRotationAngle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    auto localRotationAngle = glm::eulerAngles(internode.data.desired_local_rotation);
-    ImGui::InputFloat3("Local rotation", (float*)&localRotationAngle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    auto& internodeData = internode.data;
-    ImGui::InputInt("Start Age", (int*)&internodeData.start_age, 1, 100, ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat("Sagging", (float*)&internodeData.sagging, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    auto global_rotation_angle = glm::eulerAngles(internode.info.global_rotation);
+    ImGui::InputFloat3("Global rotation", (float*)&global_rotation_angle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    auto local_rotation_angle = glm::eulerAngles(internode.data.desired_local_rotation);
+    ImGui::InputFloat3("Local rotation", (float*)&local_rotation_angle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    auto& internode_data = internode.data;
+    ImGui::InputInt("Start Age", (int*)&internode_data.start_age, 1, 100, ImGuiInputTextFlags_ReadOnly);
+    ImGui::InputFloat("Sagging", (float*)&internode_data.sagging, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
     ImGui::InputFloat("Distance to end", (float*)&internode.info.end_distance, 1, 100, "%.3f",
                       ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat("Descendent biomass", (float*)&internodeData.descendant_total_biomass, 1, 100, "%.3f",
+    ImGui::InputFloat("Descendent biomass", (float*)&internode_data.descendant_total_biomass, 1, 100, "%.3f",
                       ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat("Biomass", (float*)&internodeData.biomass, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    ImGui::InputFloat("Biomass", (float*)&internode_data.biomass, 1, 100, "%.3f", ImGuiInputTextFlags_ReadOnly);
     ImGui::InputFloat("Root distance", (float*)&internode.info.root_distance, 1, 100, "%.3f",
                       ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat3("Light dir", (float*)&internodeData.light_direction.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
-    ImGui::InputFloat("Growth Potential", (float*)&internodeData.light_intake, 1, 100, "%.3f",
+    ImGui::InputFloat3("Light dir", (float*)&internode_data.light_direction.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
+    ImGui::InputFloat("Growth Potential", (float*)&internode_data.light_intake, 1, 100, "%.3f",
                       ImGuiInputTextFlags_ReadOnly);
 
     if (ImGui::TreeNodeEx("Buds")) {
       int index = 1;
-      for (auto& bud : internodeData.buds) {
+      for (const auto& bud_index : internode_data.bud_indices) {
+        auto& bud = shoot_skeleton.data.PeekBud(bud_index);
         if (ImGui::TreeNode(("Bud " + std::to_string(index)).c_str())) {
           switch (bud.type) {
             case BudType::Apical:
@@ -765,25 +770,19 @@ void TreeVisualizer::PeekInternode(const ShootSkeleton& shootSkeleton, SkeletonN
             case BudType::Lateral:
               ImGui::Text("Lateral");
               break;
-            case BudType::Leaf:
-              ImGui::Text("Leaf");
-              break;
-            case BudType::Fruit:
-              ImGui::Text("Fruit");
-              break;
           }
           switch (bud.status) {
-            case BudStatus::Dormant:
-              ImGui::Text("Dormant");
+            case OrganStatus::Flushed:
+              ImGui::Text("Flushed");
               break;
 
-            case BudStatus::Died:
-              ImGui::Text("Died");
+            case OrganStatus::Dormant:
+              ImGui::Text("Dormant");
               break;
           }
 
-          auto budRotationAngle = glm::eulerAngles(bud.local_rotation);
-          ImGui::InputFloat3("Rotation", &budRotationAngle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
+          auto bud_rotation_angle = glm::eulerAngles(bud.local_rotation);
+          ImGui::InputFloat3("Rotation", &bud_rotation_angle.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
           /*
           ImGui::InputFloat("Base resource requirement", (float *) &bud.m_maintenanceVigorRequirementWeight, 1, 100,
                                                   "%.3f", ImGuiInputTextFlags_ReadOnly);
@@ -797,13 +796,13 @@ void TreeVisualizer::PeekInternode(const ShootSkeleton& shootSkeleton, SkeletonN
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Stem info", ImGuiTreeNodeFlags_DefaultOpen)) {
-    const auto& flow = shootSkeleton.PeekFlow(internode.GetFlowHandle());
+    const auto& flow = shoot_skeleton.PeekFlow(internode.GetFlowHandle());
     ImGui::Text("Child stem size: %d", flow.PeekChildHandles().size());
     ImGui::Text("Internode size: %d", flow.PeekNodeHandles().size());
     if (ImGui::TreeNode("Internodes")) {
       int i = 0;
-      for (const auto& chainedInternodeHandle : flow.PeekNodeHandles()) {
-        ImGui::Text("No.%d: Handle: %d", i, chainedInternodeHandle);
+      for (const auto& chained_internode_handle : flow.PeekNodeHandles()) {
+        ImGui::Text("No.%d: Handle: %d", i, chained_internode_handle);
         i++;
       }
       ImGui::TreePop();
@@ -812,26 +811,26 @@ void TreeVisualizer::PeekInternode(const ShootSkeleton& shootSkeleton, SkeletonN
   }
 }
 
-void TreeVisualizer::Reset(TreeModel& treeModel) {
-  m_selectedInternodeHandle = -1;
-  m_selectedInternodeHierarchyList.clear();
-  m_checkpointIteration = treeModel.CurrentIteration();
-  m_internodeMatrices->SetParticleInfos({});
-  m_needUpdate = true;
+void TreeVisualizer::Reset(const TreeModel& tree_model) {
+  selected_internode_handle = -1;
+  selected_internode_hierarchy_list.clear();
+  checkpoint_iteration = tree_model.CurrentIteration();
+  internode_matrices_->SetParticleInfos({});
+  need_update = true;
 }
 
 void TreeVisualizer::Clear() {
-  m_selectedInternodeHandle = -1;
-  m_selectedInternodeHierarchyList.clear();
-  m_checkpointIteration = 0;
-  m_internodeMatrices->SetParticleInfos({});
+  selected_internode_handle = -1;
+  selected_internode_hierarchy_list.clear();
+  checkpoint_iteration = 0;
+  internode_matrices_->SetParticleInfos({});
 }
 
 bool TreeVisualizer::Initialized() const {
-  return m_initialized;
+  return initialized_;
 }
 
 void TreeVisualizer::Initialize() {
-  m_settings = {};
-  m_internodeMatrices = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  tree_visualizer_color_settings = {};
+  internode_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
 }

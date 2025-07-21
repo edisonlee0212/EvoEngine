@@ -214,7 +214,7 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
         });
       } break;
     }
-    ground_fruit_matrices_->SetParticleInfos(particle_infos);
+    soil_matrices_->SetParticleInfos(particle_infos);
   }
   soil_visualization_settings_.update_scalar_matrices = false;
   const auto editor_layer = Application::GetLayer<EditorLayer>();
@@ -283,7 +283,7 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
       particle_infos[i].instance_color = soil_visualization_settings_.vector_base_color;
     });
 
-    ground_fruit_matrices_->SetParticleInfos(particle_infos);
+    soil_matrices_->SetParticleInfos(particle_infos);
     soil_visualization_settings_.update_vector_matrices = false;
   }
 

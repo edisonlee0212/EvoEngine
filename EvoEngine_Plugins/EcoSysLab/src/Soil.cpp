@@ -366,7 +366,7 @@ bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
 
     // auto soilDescriptor = soil_descriptor_ref.Get<SoilDescriptor>();
-    // if (!soil_model.m_initialized) soil_model.Initialize(soilDescriptor->soil_parameters);
+    // if (!soil_model.initialized_) soil_model.Initialize(soilDescriptor->soil_parameters);
     assert(soil_model.m_initialized);
     if (ImGui::Button("Initialize")) {
       InitializeSoilModel();

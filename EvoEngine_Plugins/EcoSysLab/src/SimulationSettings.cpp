@@ -63,17 +63,22 @@ bool SimulationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (ImGui::DragInt("Max flow count", &max_flow_count, 500, 0, INT_MAX)) {
     changed = true;
   }
+  if (ImGui::Button("Grow daily")) {
+    delta_time = 1.f;
+    changed = true;
+  }
+  ImGui::SameLine();
   if (ImGui::Button("Grow weekly")) {
-    delta_time = 0.01918f;
+    delta_time = 7.f;
     changed = true;
   }
   ImGui::SameLine();
   if (ImGui::Button("Grow monthly")) {
-    delta_time = 0.0822f;
+    delta_time = 30.f;
     changed = true;
   }
-  ImGui::SameLine();
-  if (ImGui::DragFloat("Delta time", &delta_time, 0.00001f, 0, 1, "%.5f"))
+
+  if (ImGui::DragFloat("Delta time", &delta_time, 0.1f, 0, 30, "%.1f"))
     changed = true;
   if (ImGui::Checkbox("Auto clear fruit and leaves", &auto_clear_fruit_and_leaves))
     changed = true;

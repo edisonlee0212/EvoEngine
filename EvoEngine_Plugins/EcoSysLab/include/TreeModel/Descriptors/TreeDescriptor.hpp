@@ -13,7 +13,7 @@ class IShootDescriptor : public IAsset {
    * \brief Prepares a ShootGrowthController using current growth parameters.
    * \param shoot_growth_controller The controller to configure.
    */
-  virtual void PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const = 0;
+  virtual void PrepareController(ShootGrowthController& shoot_growth_controller) const = 0;
   /**
    * \brief Generates a thumbnail texture representing the shoot descriptor.
    * \return A shared pointer to the generated Texture2D.
@@ -31,8 +31,8 @@ class IPruningDescriptor : public IAsset {
    * \param simulation_settings Simulation settings.
    * \param shoot_pruning_controller The controller to configure.
    */
-  virtual void PreparePruningController(const SimulationSettings& simulation_settings,
-                                        ShootPruningController& shoot_pruning_controller) const = 0;
+  virtual void PrepareController(const SimulationSettings& simulation_settings,
+                                 ShootPruningController& shoot_pruning_controller) const = 0;
   /**
    * \brief Generates a thumbnail texture representing the shoot descriptor.
    * \return A shared pointer to the generated Texture2D.
@@ -47,9 +47,9 @@ class IFoliageDescriptor : public IAsset {
  public:
   /**
    * \brief Prepares a ShootGrowthController using current growth parameters.
-   * \param shoot_growth_controller The controller to configure.
+   * \param foliage_controller The controller to configure.
    */
-  virtual void PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const = 0;
+  virtual void PrepareController(FoliageController& foliage_controller) const = 0;
   /**
    * @brief Generates foliage transformation matrices based on internode information.
    * @param[out] matrices Vector to store the transformation matrices.
@@ -65,16 +65,16 @@ class IFoliageDescriptor : public IAsset {
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 };
 /**
- * \class IFruitDescriptor
+ * \class IReproductionModuleDescriptor
  * \brief Represents the parameters controlling fruit generation.
  */
-class IFruitDescriptor : public IAsset {
+class IReproductionModuleDescriptor : public IAsset {
  public:
   /**
    * \brief Prepares a ShootGrowthController using current growth parameters.
-   * \param shoot_growth_controller The controller to configure.
+   * \param reproduction_controller The controller to configure.
    */
-  virtual void PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const = 0;
+  virtual void PrepareController(ReproductionController& reproduction_controller) const = 0;
   /**
    * @brief Generates fruit transformation matrices based on internode information.
    * @param[out] matrices Vector to store the transformation matrices.
@@ -145,12 +145,7 @@ class TreeDescriptor : public IAsset {
   /**
    * @brief Reference to the fruit descriptor asset.
    */
-  AssetRef fruit_descriptor;
-
-  /**
-   * @brief Reference to the flower descriptor asset.
-   */
-  AssetRef flower_descriptor;
+  AssetRef reproduction_module_descriptor;
 
   /**
    * @brief Reference to the bark descriptor asset.
