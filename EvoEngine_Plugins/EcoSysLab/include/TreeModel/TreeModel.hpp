@@ -109,31 +109,59 @@ class TreeModel {
    * @param climate_model The model representing environmental conditions.
    * @param internode_handle Handle to the internode being grown.
    * @param shoot_growth_controller The controller that regulates shoot growth.
+   * @param foliage_controller The controller that regulates foliage growth.
+   * @param reproduction_controller The controller that control growth of flowers and fruits.
    * @return Whether the internode grew successfully.
    */
   bool GrowInternode(ClimateModel& climate_model, SkeletonNodeHandle internode_handle,
-                     const ShootGrowthController& shoot_growth_controller);
+                     const ShootGrowthController& shoot_growth_controller, const FoliageController& foliage_controller,
+                     const ReproductionController& reproduction_controller);
 
   /**
    * @brief Grows reproductive modules such as flowers and fruits.
+   * @param delta_time Time elapsed this iteration.
    * @param climate_model The model representing environmental conditions.
+   * @param global_transform The global transform of tree.
    * @param internode_handle Handle to the internode where reproductive modules grow.
-   * @param shoot_growth_controller The controller that regulates shoot growth.
+   * @param foliage_controller The controller that regulates foliage growth.
    * @return Whether the reproductive modules were successfully grown.
    */
-  bool GrowReproductiveModules(ClimateModel& climate_model, SkeletonNodeHandle internode_handle,
-                               const ShootGrowthController& shoot_growth_controller);
+  bool GrowFoliage(float delta_time, ClimateModel& climate_model, const glm::mat4& global_transform,
+                   SkeletonNodeHandle internode_handle, const FoliageController& foliage_controller);
+
+  void FormulateFoliage(const ClimateModel& climate_model, const glm::mat4& global_transform,
+                        SkeletonNodeHandle internode_handle, const FoliageController& foliage_controller);
+
+  /**
+   * @brief Grows reproductive modules such as flowers and fruits.
+   * @param delta_time Time elapsed this iteration.
+   * @param climate_model The model representing environmental conditions.
+   * @param global_transform The global transform of tree.
+   * @param internode_handle Handle to the internode where reproductive modules grow.
+   * @param reproduction_controller The controller that controls reproduction units.
+   * @return Whether the reproductive modules were successfully grown.
+   */
+  bool GrowReproductiveModules(float delta_time, ClimateModel& climate_model, const glm::mat4& global_transform,
+                               SkeletonNodeHandle internode_handle,
+                               const ReproductionController& reproduction_controller);
+  void FormulateReproductiveModules(ClimateModel& climate_model, const glm::mat4& global_transform,
+                                    SkeletonNodeHandle internode_handle,
+                                    const ReproductionController& reproduction_controller);
 
   /**
    * @brief Extends the length of an internode during growth.
    * @param extended_length The desired additional length.
    * @param internode_handle Handle to the internode being elongated.
    * @param shoot_growth_controller The controller that regulates shoot growth.
+   * @param foliage_controller The controller that regulates foliage growth.
+   * @param reproduction_controller The controller for flowers and fruits.
    * @param collected_inhibitor The collected growth inhibitor value.
    * @return Whether the internode elongated successfully.
    */
   bool ElongateInternode(float extended_length, SkeletonNodeHandle internode_handle,
-                         const ShootGrowthController& shoot_growth_controller, float& collected_inhibitor);
+                         const ShootGrowthController& shoot_growth_controller,
+                         const FoliageController& foliage_controller,
+                         const ReproductionController& reproduction_controller, float& collected_inhibitor);
 
   /**
    * @brief Performs pre-processing computations after shoot growth.
@@ -150,9 +178,6 @@ class TreeModel {
 
   std::deque<ShootSkeleton> history_;  ///< History of previous shoot skeleton states.
 
-  int leaf_count_ = 0;   ///< Number of leaves present in the tree.
-  int fruit_count_ = 0;  ///< Number of fruits present in the tree.
-
   int age_in_year_ = 0;              ///< Integer representation of the tree's age in years.
   float current_delta_time_ = 1.0f;  ///< Time step used for growth calculations.
 
@@ -161,18 +186,27 @@ class TreeModel {
   /**
    * @brief Resets the reproductive modules in the tree.
    */
-  void ResetReproductiveModule();
+  void ResetOrgans();
+
+  void CreateOrgansForInternode(SkeletonNode<InternodeGrowthData>& internode,
+                                const FoliageController& foliage_controller,
+                                const ReproductionController& reproduction_controller);
 
   std::mt19937 random_engine_;  ///< Random number generator engine.
 
   int iteration_ = 0;  ///< The current growth iteration of the tree.
 
  public:
+  void RemoveNodes(const std::vector<SkeletonNodeHandle>& pruning_node_handles);
+
   /**
    * @brief Initializes the tree model with the given shoot growth controller.
    * @param shoot_growth_controller The controller that regulates shoot growth.
+   * @param foliage_controller The controller that control foliage generation and growth.
+   * @param reproduction_controller The controller that control growth of flower and fruit.
    */
-  void Initialize(const ShootGrowthController& shoot_growth_controller);
+  void Initialize(const ShootGrowthController& shoot_growth_controller, const FoliageController& foliage_controller,
+                  const ReproductionController& reproduction_controller);
 
   /**
    * @brief Initializes the tree model by cloning data from an existing skeleton.
@@ -232,7 +266,7 @@ class TreeModel {
    * @brief Harvests fruits based on a user-defined selection function.
    * @param harvest_function A function that returns true if the fruit should be harvested.
    */
-  void HarvestFruits(const std::function<bool(const ReproductiveModule& fruit)>& harvest_function);
+  void HarvestFruits(const std::function<bool(const ShootOrgan& fruit)>& harvest_function);
 
   /**
    * @brief Applies tropism effects to a directional vector.
@@ -267,6 +301,12 @@ class TreeModel {
   [[nodiscard]] int GetLeafCount() const;
 
   /**
+   * @brief Returns the current number of flowers in the tree.
+   * @return The flower count.
+   */
+  [[nodiscard]] int GetFlowerCount() const;
+
+  /**
    * @brief Returns the current number of fruits in the tree.
    * @return The fruit count.
    */
@@ -278,13 +318,16 @@ class TreeModel {
    * @param global_transform The global transformation matrix of the tree.
    * @param climate_model The climate influencing the tree.
    * @param shoot_growth_controller Procedural parameters for branch growth.
+   * @param foliage_controller Procedural parameters for foliage growth.
+   * @param reproduction_controller Procedural parameters for reproduction units.
    * @param shoot_pruning_controller Procedural parameters for branch pruning.
    * @param pruning Whether pruning should be applied automatically.
    * @return Whether structural changes occurred during growth.
    */
-  bool Grow(float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
-            const ShootGrowthController& shoot_growth_controller,
-            const ShootPruningController& shoot_pruning_controller, bool pruning = true);
+  bool Grow(const float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
+            const ShootGrowthController& shoot_growth_controller, const FoliageController& foliage_controller,
+            const ReproductionController& reproduction_controller,
+            const ShootPruningController& shoot_pruning_controller, const bool pruning = true);
 
   /**
    * @brief Simulates one growth iteration for a subtree.
@@ -293,12 +336,15 @@ class TreeModel {
    * @param global_transform The global transformation matrix of the tree.
    * @param climate_model The climate influencing the tree.
    * @param shoot_growth_controller Procedural parameters for branch growth.
+   * @param foliage_controller Procedural parameters for foliage growth.
+   * @param reproduction_controller Procedural parameters for reproduction units.
    * @param shoot_pruning_controller Procedural parameters for branch pruning.
    * @param pruning Whether pruning should be applied automatically.
    * @return Whether structural changes occurred during growth.
    */
   bool Grow(float delta_time, SkeletonNodeHandle base_internode_handle, const glm::mat4& global_transform,
             ClimateModel& climate_model, const ShootGrowthController& shoot_growth_controller,
+            const FoliageController& foliage_controller, const ReproductionController& reproduction_controller,
             const ShootPruningController& shoot_pruning_controller, bool pruning = true);
 
   int history_limit = -1;  ///< The limit for stored history states.

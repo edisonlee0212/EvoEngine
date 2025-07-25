@@ -39,6 +39,8 @@ class Tree : public IPrivateComponent {
   void PrepareController(const SimulationSettings& simulation_settings);
 
   ShootGrowthController shoot_growth_controller_{};
+  FoliageController foliage_controller_{};
+  ReproductionController reproduction_controller_{};
   ShootPruningController shoot_pruning_controller_{};
   /**
    * @brief Generates tree parts based on mesh generation settings.

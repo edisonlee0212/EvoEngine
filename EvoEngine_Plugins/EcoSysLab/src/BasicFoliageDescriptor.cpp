@@ -4,33 +4,27 @@ using namespace eco_sys_lab_plugin;
 
 void BasicFoliageDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "leaf_size" << YAML::Value << leaf_size;
-  out << YAML::Key << "leaf_count_per_internode" << YAML::Value << leaf_count_per_internode;
-  out << YAML::Key << "position_variance" << YAML::Value << position_variance;
+  out << YAML::Key << "leaf_count" << YAML::Value << leaf_count;
+  stem_length.Save("stem_length", out);
+  branching_angle.Save("branching_angle", out);
   out << YAML::Key << "rotation_variance" << YAML::Value << rotation_variance;
-  out << YAML::Key << "branching_angle" << YAML::Value << branching_angle;
   out << YAML::Key << "max_node_thickness" << YAML::Value << max_node_thickness;
   out << YAML::Key << "min_root_distance" << YAML::Value << min_root_distance;
   out << YAML::Key << "max_end_distance" << YAML::Value << max_end_distance;
   out << YAML::Key << "horizontal_tropism" << YAML::Value << horizontal_tropism;
   out << YAML::Key << "gravitropism" << YAML::Value << gravitropism;
   leaf_material_ref.Save("leaf_material_ref", out);
-
-  out << YAML::Key << "leaf_flushing_lighting_requirement" << YAML::Value << leaf_flushing_lighting_requirement;
-  out << YAML::Key << "leaf_fall_probability" << YAML::Value << leaf_fall_probability;
-  out << YAML::Key << "leaf_distance_to_branch_end_limit" << YAML::Value << leaf_distance_to_branch_end_limit;
 }
 
 void BasicFoliageDescriptor::Deserialize(const YAML::Node& in) {
   if (in["leaf_size"])
     leaf_size = in["leaf_size"].as<glm::vec2>();
-  if (in["leaf_count_per_internode"])
-    leaf_count_per_internode = in["leaf_count_per_internode"].as<int>();
-  if (in["position_variance"])
-    position_variance = in["position_variance"].as<float>();
+  if (in["leaf_count"])
+    leaf_count = in["leaf_count"].as<int>();
+  stem_length.Load("stem_length", in);
   if (in["rotation_variance"])
     rotation_variance = in["rotation_variance"].as<float>();
-  if (in["branching_angle"])
-    branching_angle = in["branching_angle"].as<float>();
+  branching_angle.Load("branching_angle", in);
   if (in["max_node_thickness"])
     max_node_thickness = in["max_node_thickness"].as<float>();
   if (in["min_root_distance"])
@@ -42,34 +36,26 @@ void BasicFoliageDescriptor::Deserialize(const YAML::Node& in) {
   if (in["gravitropism"])
     gravitropism = in["gravitropism"].as<float>();
   leaf_material_ref.Load("leaf_material_ref", in);
-
-  if (in["leaf_flushing_lighting_requirement"])
-    leaf_flushing_lighting_requirement = in["leaf_flushing_lighting_requirement"].as<float>();
-  if (in["leaf_fall_probability"])
-    leaf_fall_probability = in["leaf_fall_probability"].as<float>();
-  if (in["leaf_distance_to_branch_end_limit"])
-    leaf_distance_to_branch_end_limit = in["leaf_distance_to_branch_end_limit"].as<float>();
 }
 
 bool BasicFoliageDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  if (ImGui::TreeNodeEx("Leaf bud")) {
-    changed =
-        ImGui::DragFloat("Lighting requirement", &leaf_flushing_lighting_requirement, 0.01f, 0.0f, 1.0f) || changed;
-    changed = ImGui::DragFloat("Drop prob", &leaf_fall_probability, 0.01f) || changed;
-    changed = ImGui::DragFloat("Distance To End Limit", &leaf_distance_to_branch_end_limit, 0.01f) || changed;
-    ImGui::TreePop();
-  }
+
+  changed = activation_temperature.OnInspect("Activation temperature") | changed;
+  changed = activation_light_intensity.OnInspect("Activation light intensity") | changed;
+  changed = growth_rate.OnInspect("Growth rate") | changed;
+  changed = damage_temperature.OnInspect("Damage temperature") | changed;
+  changed = damage_rate.OnInspect("Damage rate") | changed;
+  changed = hang_time.OnInspect("Hang time") | changed;
+
   if (ImGui::DragFloat2("Leaf size", &leaf_size.x, 0.001f, 0.0f, 1.0f))
     changed = true;
-  if (ImGui::DragInt("Leaf per node", &leaf_count_per_internode, 1, 0, 50))
+  if (ImGui::DragInt("Leaf per node", &leaf_count, 1, 0, 50))
     changed = true;
-  if (ImGui::DragFloat("Position variance", &position_variance, 0.01f, 0.0f, 1.0f))
-    changed = true;
+  changed = stem_length.OnInspect("Stem length") | changed;
   if (ImGui::DragFloat("Rotation variance", &rotation_variance, 0.01f, 0.0f, 1.0f))
     changed = true;
-  if (ImGui::DragFloat("Branching angle", &branching_angle, 0.01f, 0.0f, 1.0f))
-    changed = true;
+  changed = branching_angle.OnInspect("Branching angle") | changed;
   if (ImGui::DragFloat("Max node thickness", &max_node_thickness, 0.001f, 0.0f, 5.0f))
     changed = true;
   if (ImGui::DragFloat("Min root distance", &min_root_distance, 0.01f, 0.0f, 10.0f))
@@ -89,16 +75,84 @@ void BasicFoliageDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
     list.push_back(leaf_material_ref);
 }
 
-void BasicFoliageDescriptor::PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const {
-  shoot_growth_controller.leaf = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                                     const SkeletonNode<InternodeGrowthData>& internode) {
-    return internode.data.light_intake > leaf_flushing_lighting_requirement;
+void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_controller) const {
+  foliage_controller.leaf_count = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+                                      const SkeletonNode<InternodeGrowthData>& internode) {
+    return leaf_count;
   };
 
-  shoot_growth_controller.leaf_fall_probability = [&](std::mt19937& random_engine,
-                                                      const ShootGrowthData& shoot_growth_data,
-                                                      const SkeletonNode<InternodeGrowthData>& internode) {
-    return leaf_fall_probability;
+  foliage_controller.leaf_formulation = [&](std::mt19937& random_engine, const glm::mat4& global_transform, Leaf& leaf,
+                                            const ClimateModel& climate_model, const ShootSkeleton& shoot_skeleton,
+                                            const SkeletonNode<InternodeGrowthData>& internode) {
+    const bool activation = internode.info.end_distance < max_end_distance &&
+                            internode.info.root_distance > min_root_distance &&
+                            internode.info.thickness < max_node_thickness;
+    if (activation) {
+      leaf.activation_temperature = activation_temperature.GetValue();
+      leaf.activation_light_intensity = activation_light_intensity.GetValue();
+      leaf.hang_time = hang_time.GetValue();
+      leaf.growth_rate = growth_rate.GetValue();
+
+      leaf.damage_temperature = damage_temperature.GetValue();
+      leaf.damage_rate = damage_rate.GetValue();
+
+      leaf.rotation = internode.info.global_rotation *
+                      glm::quat(glm::radians(glm::vec3(glm::gaussRand(0.0f, rotation_variance),
+                                                       branching_angle.GetValue(), glm::linearRand(0.0f, 360.0f))));
+      auto front = leaf.rotation * glm::vec3(0, 0, -1);
+      auto up = leaf.rotation * glm::vec3(0, 1, 0);
+      TreeModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
+      if (const auto horizontal_direction = glm::vec3(front.x, 0.0f, front.z);
+          glm::length(horizontal_direction) > glm::epsilon<float>()) {
+        TreeModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, front, up);
+      }
+      leaf.rotation = glm::quatLookAt(front, up);
+
+      leaf.position_offset =
+          glm::mix(glm::vec3(0.f), internode.info.GetGlobalEndPosition() - internode.info.global_position,
+                   glm::linearRand(0.f, 1.f));
+      leaf.leaf_stem_length = glm::abs(stem_length.GetValue());
+    }
+
+    return activation;
+  };
+  foliage_controller.leaf_growth = [&](std::mt19937& random_engine, const glm::mat4& global_transform,
+                                       const float delta_time, Leaf& leaf, const ClimateModel& climate_model,
+                                       const ShootSkeleton& shoot_skeleton,
+                                       const SkeletonNode<InternodeGrowthData>& internode) {
+    bool status_changed = false;
+    // If leaf is not active, try to activate in the first place.
+    const glm::vec3 position = glm::vec3(global_transform[3]) + internode.info.global_position;
+    const auto temperature = climate_model.GetHighTemp(position);
+    const auto light_intensity = internode.data.light_intake;
+    if (leaf.status == OrganStatus::Dormant) {
+      if (temperature >= leaf.activation_temperature && light_intensity >= leaf.activation_light_intensity) {
+        leaf.status = OrganStatus::Flushed;
+        leaf.maturity = 0.0f;
+        leaf.health = 1.f;
+
+        status_changed = true;
+      }
+    } else if (leaf.status == OrganStatus::Flushed) {
+      leaf.maturity = glm::clamp(leaf.growth_rate * delta_time + leaf.maturity, 0.0f, 1.0f);
+      if (climate_model.GetTimeInYear() > 0.75f && temperature < leaf.damage_temperature) {
+        leaf.health = glm::clamp(leaf.health - leaf.damage_rate * delta_time, 0.0f, 1.0f);
+      }
+    }
+
+    const auto current_leaf_size = leaf_size * leaf.maturity;
+    const auto front = leaf.rotation * glm::vec3(0, 0, -1);
+    const auto up = leaf.rotation * glm::vec3(0, 1, 0);
+
+    leaf.position = internode.info.global_position + leaf.position_offset +
+                    front * current_leaf_size.y * (1.f + leaf.leaf_stem_length);
+
+    leaf.scale = glm::vec3(current_leaf_size.x, 1.0f, current_leaf_size.y);
+    if (glm::any(glm::isnan(leaf.position)) || glm::any(glm::isnan(front)) || glm::any(glm::isnan(up))) {
+      leaf.position = glm::vec3(0.f);
+      leaf.scale = glm::vec3(0.f);
+    }
+    return status_changed;
   };
 }
 
@@ -107,11 +161,12 @@ void BasicFoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& mat
                                                      const float tree_size) const {
   if (internode_info.thickness <= max_node_thickness && internode_info.root_distance >= min_root_distance &&
       internode_info.end_distance <= max_end_distance) {
-    for (int i = 0; i < leaf_count_per_internode * internode_info.leaves; i++) {
+    for (int i = 0; i < leaf_count * internode_info.leaves; i++) {
       const auto current_leaf_size = leaf_size * tree_size * 0.1f;
-      glm::quat rotation = internode_info.global_rotation *
-                           glm::quat(glm::radians(glm::vec3(glm::gaussRand(0.0f, rotation_variance), branching_angle,
-                                                            glm::linearRand(0.0f, 360.0f))));
+      glm::quat rotation =
+          internode_info.global_rotation *
+          glm::quat(glm::radians(glm::vec3(glm::gaussRand(0.0f, rotation_variance), branching_angle.GetValue(),
+                                           glm::linearRand(0.0f, 360.0f))));
       auto front = rotation * glm::vec3(0, 0, -1);
       auto up = rotation * glm::vec3(0, 1, 0);
       TreeModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
@@ -121,7 +176,7 @@ void BasicFoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& mat
       }
       auto foliage_position =
           glm::mix(internode_info.global_position, internode_info.GetGlobalEndPosition(), glm::linearRand(0.f, 1.f)) +
-          front * (current_leaf_size.y + glm::linearRand(0.0f, position_variance) * 0.1f);
+          front * (current_leaf_size.y + stem_length.GetValue() * 0.1f);
       if (glm::any(glm::isnan(foliage_position)) || glm::any(glm::isnan(front)) || glm::any(glm::isnan(up)))
         continue;
       const auto leaf_transform = glm::translate(foliage_position) * glm::mat4_cast(glm::quatLookAt(front, up)) *

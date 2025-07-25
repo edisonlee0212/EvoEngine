@@ -1016,7 +1016,7 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
 
   VoxelGrid<std::vector<SegmentInfo>> voxel_grid;
   const auto current_leaf_size = fd->leaf_size * glm::length(tree_dim) * 0.1f;
-  const auto cell_size = 2.f * (current_leaf_size.y + fd->position_variance * glm::length(tree_dim) * 0.1f) +
+  const auto cell_size = 2.f * (current_leaf_size.y + fd->stem_length.GetValue() * glm::length(tree_dim) * 0.1f) +
                          initialize_parameters.max_segment_length;
 
   auto max_bound = glm::vec3(-FLT_MAX);

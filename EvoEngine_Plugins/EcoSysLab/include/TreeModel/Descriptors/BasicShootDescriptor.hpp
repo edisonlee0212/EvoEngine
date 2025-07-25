@@ -156,7 +156,7 @@ class BasicShootDescriptor : public IShootDescriptor {
    * \brief Prepares a ShootGrowthController using current growth parameters.
    * \param shoot_growth_controller The controller to configure.
    */
-  void PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const override;
+  void PrepareController(ShootGrowthController& shoot_growth_controller) const override;
 
   /**
    * \brief Serializes the shoot descriptor to YAML format.

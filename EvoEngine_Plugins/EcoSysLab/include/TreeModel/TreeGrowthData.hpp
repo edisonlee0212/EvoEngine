@@ -16,43 +16,83 @@ namespace eco_sys_lab_plugin {
 enum class BudType {
   Apical,   ///< Represents an apical bud.
   Lateral,  ///< Represents a lateral bud.
-  Leaf,     ///< Represents a leaf bud.
-  Fruit     ///< Represents a fruit bud.
 };
 
 /**
  * @brief Enumeration of bud statuses.
  */
-enum class BudStatus {
-  Dormant,  ///< The bud is dormant.
-  Died,     ///< The bud has died.
+enum class OrganStatus {
+  Dormant,  ///< The organ is inactive.
+  Flushed,  ///< The organ is active.
+  Inactive  ///< The organ is dead.
 };
 
 /**
  * @brief Represents a module responsible for reproductive processes in tree structures.
  */
-struct ReproductiveModule {
-  float maturity = 0.0f;                  ///< The maturity level of the module.
-  float health = 1.0f;                    ///< The health state of the module.
-  glm::mat4 transform = glm::mat4(0.0f);  ///< The transformation matrix.
+struct ShootOrgan {
+  float maturity = 0.0f;                 ///< The maturity level of the module.
+  float health = 1.0f;                   ///< The health state of the module.
+  glm::quat rotation = glm::vec3(0.0f);  ///< The transformation matrix.
+  glm::vec3 position = glm::vec3(0.0f);
+
+  glm::vec3 scale = glm::vec3(1.0f);
+  OrganStatus status = OrganStatus::Inactive;
 
   /**
    * @brief Resets the reproductive module to its initial state.
    */
-  void Reset();
+  virtual void Reset();
+  bool Recycled() const;
+
+ private:
+  friend class ShootGrowthData;
+  bool recycled_ = false;
+};
+
+struct Leaf : ShootOrgan {
+  float activation_temperature = 0;
+  float activation_light_intensity = 0;
+  float hang_time = 0;
+  float growth_rate = 0;
+  float leaf_stem_length = 0.f;
+  float damage_rate = 0;
+  float damage_temperature = 0;
+  glm::vec3 position_offset = glm::vec3(0.0f);
+};
+
+struct Flower : ShootOrgan {
+  float activation_temperature = 0;
+  float pollination_time = 0;
+  float hang_time = 0;
+  float growth_rate = 0;
+  uint32_t fruit_index;
+
+  float stem_length = 0.f;
+  glm::vec3 position_offset = glm::vec3(0.0f);
+};
+
+struct Fruit : ShootOrgan {
+  float activation_temperature = 0;
+  float growth_rate = 0;
+  float hang_time = 0;
+  float stem_length = 0.f;
+  glm::vec3 position_offset = glm::vec3(0.0f);
 };
 
 /**
  * @brief Represents a bud in a procedural tree simulation.
  */
 class Bud {
+  friend class ShootGrowthData;
+  bool recycled_ = false;
+
  public:
-  BudType type = BudType::Apical;         ///< Type of the bud.
-  BudStatus status = BudStatus::Dormant;  ///< Current status of the bud.
+  [[nodiscard]] bool Recycled() const;
+  BudType type = BudType::Apical;             ///< Type of the bud.
+  OrganStatus status = OrganStatus::Dormant;  ///< Current status of the bud.
   int index = 0;
   glm::quat local_rotation = glm::vec3(0.0f);  ///< Local rotation of the bud.
-
-  ReproductiveModule reproductive_module;  ///< Reproductive module associated with the bud.
 
   glm::vec3 marker_direction = glm::vec3(0.0f);  ///< Direction marker for growth simulation (not serialized).
   size_t marker_count = 0;                       ///< Marker count used for tracking growth (not serialized).
@@ -90,9 +130,8 @@ struct TreeVoxelData {
 struct InternodeGrowthData {
   float internode_length = 0.0f;  ///< Length of the internode.
   float internode_thickness = 0.0f;
-  int index_of_parent_bud = 0;  ///< Index of the parent bud.
-  float start_age = 0;          ///< Age at which growth starts.
-  float finish_age = 0.0f;      ///< Age at which growth finishes.
+  float start_age = 0;      ///< Age at which growth starts.
+  float finish_age = 0.0f;  ///< Age at which growth finishes.
 
   glm::quat desired_local_rotation = glm::vec3(0.0f);   ///< Desired local rotation.
   glm::quat desired_global_rotation = glm::vec3(0.0f);  ///< Desired global rotation.
@@ -106,15 +145,17 @@ struct InternodeGrowthData {
   float density = 1.0f;        ///< Density of the internode.
   float strength = 1.0f;       ///< Strength parameter.
   float shadow_size = 0.0f;    ///< How much shadow does this internode casts.
+
   /**
    * @brief List of buds associated with this internode.
    *
    * The first bud in the list will always be the apical bud pointing forward.
    */
-  std::vector<Bud> buds;
+  std::vector<uint32_t> bud_indices;
 
-  std::vector<glm::mat4> leaves;  ///< List storing leaf transformations.
-  std::vector<glm::mat4> fruits;  ///< List storing fruit transformations.
+  std::vector<uint32_t> leaf_indices;
+  std::vector<uint32_t> flower_indices;
+  std::vector<uint32_t> fruit_indices;
 
   int level = 0;                       ///< Hierarchical level.
   bool max_child = false;              ///< Boolean flag for maximum children.
@@ -148,11 +189,11 @@ struct ShootStemGrowthData {
  */
 struct ShootGrowthData {
   Octree<TreeVoxelData> octree = {};  ///< Octree structure for voxel data.
+  size_t max_marker_count = 0;        ///< Maximum marker count tracked.
 
-  size_t max_marker_count = 0;  ///< Maximum marker count tracked.
-
-  std::vector<ReproductiveModule> dropped_leaves;  ///< List of dropped leaves.
-  std::vector<ReproductiveModule> dropped_fruits;  ///< List of dropped fruits.
+  std::vector<Leaf> dropped_leaves;     ///< List of dropped leaves.
+  std::vector<Flower> dropped_flowers;  ///< List of dropped fruits.
+  std::vector<Fruit> dropped_fruits;    ///< List of dropped fruits.
 
   glm::vec3 desired_min = glm::vec3(FLT_MAX);  ///< Minimum desired bounds.
   glm::vec3 desired_max = glm::vec3(FLT_MIN);  ///< Maximum desired bounds.
@@ -163,6 +204,50 @@ struct ShootGrowthData {
   unsigned index = 0;                                 ///< Index used for identification.
   glm::vec3 gravity_direction = glm::vec3(0, -1, 0);  ///< Current direction of gravity;
   float age = 0;                                      ///< Age of the tree in years.
+
+  uint32_t AllocateBud(BudType bud_type);
+  void RecycleBud(uint32_t bud_index);
+  Bud& RefBud(uint32_t bud_index);
+  const Bud& PeekBud(uint32_t bud_index) const;
+
+  uint32_t AllocateLeaf();
+  void RecycleLeaf(uint32_t leaf_index);
+  Leaf& RefLeaf(uint32_t leaf_index);
+  const Leaf& PeekLeaf(uint32_t leaf_index) const;
+
+  uint32_t AllocateFruit();
+  void RecycleFruit(uint32_t fruit_index);
+  Fruit& RefFruit(uint32_t fruit_index);
+  const Fruit& PeekFruit(uint32_t fruit_index) const;
+
+  uint32_t AllocateFlower(uint32_t flower_index);
+  void RecycleFlower(uint32_t flower_index);
+  Flower& RefFlower(uint32_t flower_index);
+  const Flower& PeekFlower(uint32_t flower_index) const;
+
+  std::vector<Bud>& RefBuds();
+
+  std::vector<Leaf>& RefLeaves();
+  std::vector<Flower>& RefFlowers();
+  std::vector<Fruit>& RefFruits();
+
+  const std::vector<Bud>& PeekBuds() const;
+
+  const std::vector<Leaf>& PeekLeaves() const;
+  const std::vector<Flower>& PeekFlowers() const;
+  const std::vector<Fruit>& PeekFruits() const;
+
+ private:
+  std::vector<Bud> buds;
+
+  std::vector<Leaf> leaves;
+  std::vector<Flower> flowers;
+  std::vector<Fruit> fruits;
+
+  std::queue<uint32_t> buds_pool;
+  std::queue<uint32_t> leaves_pool;
+  std::queue<uint32_t> flowers_pool;
+  std::queue<uint32_t> fruits_pool;
 };
 
 /**

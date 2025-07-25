@@ -2,8 +2,8 @@
 
 using namespace eco_sys_lab_plugin;
 
-void BasicPruningDescriptor::PreparePruningController(const SimulationSettings& simulation_settings,
-                                                      ShootPruningController& shoot_pruning_controller) const {
+void BasicPruningDescriptor::PrepareController(const SimulationSettings& simulation_settings,
+                                               ShootPruningController& shoot_pruning_controller) const {
   shoot_pruning_controller.breaking_force = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
                                                 const SkeletonNode<InternodeGrowthData>& internode) {
     if (branch_strength != 0.f && !internode.IsEndNode() && internode.info.thickness != 0.f &&

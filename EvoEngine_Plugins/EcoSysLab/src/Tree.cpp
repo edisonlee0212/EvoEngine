@@ -92,7 +92,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
               return strength;
             };
             tree_model.CalculateTransform(shoot_growth_controller_, true);
-            tree_visualizer.m_needUpdate = true;
+            tree_visualizer.need_update = true;
           }
         }
         if (tree_model.tree_growth_settings.OnInspect(editor_layer))
@@ -160,7 +160,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
     if (tree_model.tree_growth_settings.use_space_colonization) {
       bool need_grid_update = false;
-      if (tree_visualizer.m_needUpdate) {
+      if (tree_visualizer.need_update) {
         need_grid_update = true;
       }
       if (ImGui::Button("Update grids"))
@@ -316,7 +316,7 @@ void Tree::Update() {
 
 void Tree::OnCreate() {
   tree_visualizer.Initialize();
-  tree_visualizer.m_needUpdate = true;
+  tree_visualizer.need_update = true;
   strand_model_parameters.branch_twist_distribution.mean = {-60.0f, 60.0f};
   strand_model_parameters.branch_twist_distribution.deviation = {0.0f, 1.0f, {0, 0}};
 
@@ -407,13 +407,13 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, bool pruning) 
     return false;
   }
   const auto owner = GetOwner();
-  const bool grown =
-      tree_model.Grow(simulation_settings.delta_time, scene->GetDataComponent<GlobalTransform>(owner).value,
-                      c->climate_model, shoot_growth_controller_, shoot_pruning_controller_, pruning);
+  const bool grown = tree_model.Grow(
+      simulation_settings.delta_time, scene->GetDataComponent<GlobalTransform>(owner).value, c->climate_model,
+      shoot_growth_controller_, foliage_controller_, reproduction_controller_, shoot_pruning_controller_, pruning);
   if (grown) {
     if (pruning)
       tree_visualizer.ClearSelections();
-    tree_visualizer.m_needUpdate = true;
+    tree_visualizer.need_update = true;
   }
   if (enable_history && tree_model.iteration_ % history_iteration == 0)
     tree_model.Step();
@@ -454,13 +454,14 @@ bool Tree::TryGrowSubTree(const SimulationSettings& simulation_settings, const S
   }
   const auto owner = GetOwner();
 
-  const bool grown = tree_model.Grow(simulation_settings.delta_time, base_internode_handle,
-                                     scene->GetDataComponent<GlobalTransform>(owner).value, c->climate_model,
-                                     shoot_growth_controller_, shoot_pruning_controller_, pruning);
+  const bool grown =
+      tree_model.Grow(simulation_settings.delta_time, base_internode_handle,
+                      scene->GetDataComponent<GlobalTransform>(owner).value, c->climate_model, shoot_growth_controller_,
+                      foliage_controller_, reproduction_controller_, shoot_pruning_controller_, pruning);
   if (grown) {
     if (pruning)
       tree_visualizer.ClearSelections();
-    tree_visualizer.m_needUpdate = true;
+    tree_visualizer.need_update = true;
   }
   if (enable_history && tree_model.iteration_ % history_iteration == 0)
     tree_model.Step();
@@ -534,20 +535,12 @@ void Tree::PrepareController(const SimulationSettings& simulation_settings) {
   if (!foliage_descriptor) {
     throw std::runtime_error("Foliage Descriptor Missing!");
   }
-  if (const auto fruit_descriptor = td->fruit_descriptor.Get<IFruitDescriptor>()) {
-    fruit_descriptor->PrepareGrowthController(shoot_growth_controller_);
-  } else {
-    shoot_growth_controller_.fruit = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                                         const SkeletonNode<InternodeGrowthData>& internode) {
-      return 0.0f;
-    };
-    shoot_growth_controller_.fruit_fall_probability = [&](std::mt19937& random_engine,
-                                                          const ShootGrowthData& shoot_growth_data,
-                                                          const SkeletonNode<InternodeGrowthData>& internode) {
-      return 0.0f;
-    };
+  const auto reproduction_module_descriptor = td->reproduction_module_descriptor.Get<IReproductionModuleDescriptor>();
+  if (!reproduction_module_descriptor) {
+    throw std::runtime_error("Reproduction Module Descriptor Missing!");
   }
-  shoot_descriptor->PrepareGrowthController(shoot_growth_controller_);
-  foliage_descriptor->PrepareGrowthController(shoot_growth_controller_);
-  pruning_descriptor->PreparePruningController(simulation_settings, shoot_pruning_controller_);
+  shoot_descriptor->PrepareController(shoot_growth_controller_);
+  foliage_descriptor->PrepareController(foliage_controller_);
+  reproduction_module_descriptor->PrepareController(reproduction_controller_);
+  pruning_descriptor->PrepareController(simulation_settings, shoot_pruning_controller_);
 }

@@ -2260,14 +2260,14 @@ std::vector<std::shared_ptr<Mesh>> TreeStructor::GenerateFoliageMeshes() {
         if (internode_info.thickness < foliage_descriptor->max_node_thickness &&
             internode_info.root_distance > foliage_descriptor->min_root_distance &&
             internode_info.end_distance < foliage_descriptor->max_end_distance) {
-          for (int i = 0; i < foliage_descriptor->leaf_count_per_internode; i++) {
+          for (int i = 0; i < foliage_descriptor->leaf_count; i++) {
             auto leaf_size = foliage_descriptor->leaf_size;
             glm::quat rotation = internode_info.GetGlobalDirection() *
                                  glm::quat(glm::radians(glm::linearRand(glm::vec3(0.0f), glm::vec3(360.0f))));
             auto front = rotation * glm::vec3(0, 0, -1);
             auto foliage_position =
                 internode_info.global_position + front * (leaf_size.y * 1.5f) +
-                glm::sphericalRand(1.0f) * glm::linearRand(0.0f, foliage_descriptor->position_variance);
+                glm::sphericalRand(1.0f) * glm::linearRand(0.0f, foliage_descriptor->stem_length.GetValue());
             auto leaf_transform = glm::translate(foliage_position) * glm::mat4_cast(rotation) *
                                   glm::scale(glm::vec3(leaf_size.x, 1.0f, leaf_size.y));
 

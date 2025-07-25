@@ -4,7 +4,7 @@
 
 using namespace eco_sys_lab_plugin;
 
-void BasicShootDescriptor::PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const {
+void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_controller) const {
   shoot_growth_controller.root_internode_count = base_internode_count;
 
   shoot_growth_controller.sagging = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
@@ -248,13 +248,13 @@ bool BasicShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_
     ImGui::Checkbox("Show roll angle graph", &show_roll_angle_graph);
     ImGui::Checkbox("Show apical angle graph", &show_apical_angle_graph);
     if (show_branching_angle_graph) {
-      changed = branching_angle_graph.ShowGraph("Branching Angle Graph", editor_layer) | changed;
+      changed = branching_angle_graph.ShowGraph("Branching Angle Graph", editor_layer) || changed;
     }
     if (show_roll_angle_graph) {
-      changed = roll_angle_graph.ShowGraph("Roll Angle Graph", editor_layer) | changed;
+      changed = roll_angle_graph.ShowGraph("Roll Angle Graph", editor_layer) || changed;
     }
     if (show_apical_angle_graph) {
-      changed = apical_angle_graph.ShowGraph("Apical Angle Graph", editor_layer) | changed;
+      changed = apical_angle_graph.ShowGraph("Apical Angle Graph", editor_layer) || changed;
     }
 
     changed = ImGui::DragFloat("Internode length", &internode_length, 0.001f) || changed;

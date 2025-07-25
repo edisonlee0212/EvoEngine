@@ -177,7 +177,15 @@ class EcoSysLabLayer : public ILayer {
     float leaf_maturity = 0.0f;        ///< The maturity level of the leaf.
     float leaf_health = 1.0f;          ///< The health level of the leaf.
   };
-
+  /**
+   * @struct Leaf
+   * @brief Represents a leaf with its transformation and properties.
+   */
+  struct Flower {
+    GlobalTransform global_transform;  ///< The global transform of the leaf.
+    float flower_maturity = 0.0f;      ///< The maturity level of the leaf.
+    float flower_health = 1.0f;        ///< The health level of the leaf.
+  };
   /**
    * @enum TreeOperatorMode
    * @brief Defines different operational modes for tree manipulation.
@@ -193,15 +201,16 @@ class EcoSysLabLayer : public ILayer {
   struct TreeVisualizationSettings {
     bool enable = true;  ///< Enables or disables tree visualization.
 
-    bool display_shoot_stem = true;     ///< Toggles the display of shoot stems.
-    bool display_foliage = true;        ///< Toggles the display of foliage.
-    bool display_fruit = true;          ///< Toggles the display of fruit.
-    bool display_bounding_box = false;  ///< Toggles the display of bounding boxes.
-
-    bool display_ground_fruit = true;   ///< Toggles the display of fallen fruit.
-    bool display_ground_leaves = true;  ///< Toggles the display of fallen leaves.
-    bool show_shadow_grid = false;      ///< Toggles the display of the shadow grid.
-    bool show_lighting_grid = false;    ///< Toggles the display of the lighting grid.
+    bool display_shoot_stem = true;      ///< Toggles the display of shoot stems.
+    bool display_foliage = true;         ///< Toggles the display of foliage.
+    bool display_flowers = true;         ///< Toggles the display of flowers.
+    bool display_fruits = true;          ///< Toggles the display of fruit.
+    bool display_bounding_box = false;   ///< Toggles the display of bounding boxes.
+    bool display_ground_flowers = true;  ///< Toggles the display of fallen flowers.
+    bool display_ground_fruits = true;   ///< Toggles the display of fallen fruit.
+    bool display_ground_leaves = true;   ///< Toggles the display of fallen leaves.
+    bool show_shadow_grid = false;       ///< Toggles the display of the shadow grid.
+    bool show_lighting_grid = false;     ///< Toggles the display of the lighting grid.
 
     /**
      * @brief Handles the inspection of tree visualization settings in the editor.
@@ -303,9 +312,15 @@ class EcoSysLabLayer : public ILayer {
 
   AssetRef shoot_stem_strands_;  ///< Reference to shoot stem strands.
 
+  std::shared_ptr<ParticleInfoList> soil_matrices_;
+
   std::shared_ptr<ParticleInfoList> bounding_box_matrices_;  ///< Stores bounding box particle matrices.
   std::shared_ptr<ParticleInfoList> foliage_matrices_;       ///< Stores foliage particle matrices.
-  std::shared_ptr<ParticleInfoList> fruit_matrices_;         ///< Stores fruit particle matrices.
+  std::shared_ptr<ParticleInfoList> flower_matrices_;        ///< Stores flower particle matrices.
+
+  std::shared_ptr<ParticleInfoList> fruit_matrices_;  ///< Stores fruit particle matrices.
+
+  std::shared_ptr<ParticleInfoList> ground_flower_matrices_;  ///< Stores ground fruit particle matrices.
 
   std::shared_ptr<ParticleInfoList> ground_fruit_matrices_;  ///< Stores ground fruit particle matrices.
   std::shared_ptr<ParticleInfoList> ground_leaf_matrices_;   ///< Stores ground leaf particle matrices.
@@ -368,9 +383,10 @@ class EcoSysLabLayer : public ILayer {
   std::shared_ptr<ParticleInfoList> shadow_grid_particle_info_list_;    ///< Stores data for shadow grid rendering.
   std::shared_ptr<ParticleInfoList> lighting_grid_particle_info_list_;  ///< Stores data for lighting grid rendering.
 
-  float simulated_time_;       ///< The current simulated time.
-  std::vector<Fruit> fruits_;  ///< Stores fruit entities.
-  std::vector<Leaf> leaves_;   ///< Stores leaf entities.
+  float simulated_time_;         ///< The current simulated time.
+  std::vector<Fruit> fruits_;    ///< Stores fruit entities.
+  std::vector<Leaf> leaves_;     ///< Stores leaf entities.
+  std::vector<Flower> flowers_;  ///< Stores leaf entities.
 
   std::shared_ptr<Camera> visualization_camera_;  ///< Camera used for visualization.
 

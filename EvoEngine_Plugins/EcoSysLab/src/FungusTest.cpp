@@ -144,7 +144,9 @@ void FungusTest::OnCreate() {
 
   std::ifstream infile("graph3d_float.txt");
   if (!infile) {
-    std::cerr << "Cannot open " << "graph3d_float.txt" << " for reading！" << std::endl;
+    std::cerr << "Cannot open "
+              << "graph3d_float.txt"
+              << " for reading！" << std::endl;
   }
 
   std::string line;

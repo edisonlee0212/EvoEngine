@@ -19,16 +19,16 @@ class BasicFoliageDescriptor : public IFoliageDescriptor {
   glm::vec2 leaf_size = glm::vec2(0.04f, 0.08f);
 
   /// Number of leaves per internode.
-  int leaf_count_per_internode = 5;
+  int leaf_count = 2;
 
   /// Variance in leaf positioning.
-  float position_variance = 0.175f;
+  SingleDistribution<float> stem_length = {0.01f, 0.0f};
 
   /// Variance in leaf rotation.
   float rotation_variance = 10.f;
 
   /// Default branching angle in degrees.
-  float branching_angle = 30.f;
+  SingleDistribution<float> branching_angle = {30.f, 0.0f};
 
   /// Maximum thickness at a node.
   float max_node_thickness = 1.0f;
@@ -43,22 +43,14 @@ class BasicFoliageDescriptor : public IFoliageDescriptor {
   float horizontal_tropism = 0.f;
 
   /// Gravitropism effect.
-  float gravitropism = 0.f;
+  float gravitropism = 0.1f;
 
-  /**
-   * \brief The minimum lighting required for leaf flushing.
-   */
-  float leaf_flushing_lighting_requirement = 0.1f;
-
-  /**
-   * \brief Probability of leaf fall.
-   */
-  float leaf_fall_probability = 3;
-
-  /**
-   * \brief Maximum allowed distance between a leaf and the nearest branch end.
-   */
-  float leaf_distance_to_branch_end_limit = 10;
+  SingleDistribution<float> activation_temperature = {7.5f, .5f};
+  SingleDistribution<float> activation_light_intensity = {0.0f, 0.0f};
+  SingleDistribution<float> growth_rate = {0.07f, 0.01f};
+  SingleDistribution<float> damage_temperature = {10.f, 0.5f};
+  SingleDistribution<float> damage_rate = {0.07f, 0.01f};
+  SingleDistribution<float> hang_time = {10.f, 1.f};
 
   /// Reference to the leaf material asset.
   AssetRef leaf_material_ref;
@@ -89,10 +81,10 @@ class BasicFoliageDescriptor : public IFoliageDescriptor {
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 
   /**
-   * \brief Prepares a ShootGrowthController using current growth parameters.
-   * \param shoot_growth_controller The controller to configure.
+   * \brief Prepares a FoliageController using current growth parameters.
+   * \param foliage_controller The controller to configure.
    */
-  void PrepareGrowthController(ShootGrowthController& shoot_growth_controller) const override;
+  void PrepareController(FoliageController& foliage_controller) const override;
   /**
    * @brief Generates foliage transformation matrices based on internode information.
    * @param[out] matrices Vector to store the transformation matrices.

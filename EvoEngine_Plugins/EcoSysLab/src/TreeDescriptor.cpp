@@ -20,9 +20,8 @@
 #include "TreeMeshGenerator.hpp"
 
 #include "BasicBarkDescriptor.hpp"
-#include "BasicFlowerDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
-#include "BasicFruitDescriptor.hpp"
+#include "BasicReproductionModuleDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
 #include "DynamicTreeSkeleton.hpp"
 using namespace eco_sys_lab_plugin;
@@ -54,7 +53,7 @@ std::shared_ptr<Texture2D> IFoliageDescriptor::GenerateThumbnailTexture() {
   }
   return thumbnail;
 }
-std::shared_ptr<Texture2D> IFruitDescriptor::GenerateThumbnailTexture() {
+std::shared_ptr<Texture2D> IReproductionModuleDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
     thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
@@ -106,10 +105,10 @@ bool TreeDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     changed = true;
   if (editor_layer->DragAndDropButton<IFoliageDescriptor>(foliage_descriptor, "Foliage Descriptor"))
     changed = true;
-  if (editor_layer->DragAndDropButton<IFruitDescriptor>(fruit_descriptor, "Fruit Descriptor"))
+  if (editor_layer->DragAndDropButton<IReproductionModuleDescriptor>(reproduction_module_descriptor,
+                                                                     "Reproduction Descriptor"))
     changed = true;
-  if (editor_layer->DragAndDropButton<IFlowerDescriptor>(flower_descriptor, "Flower Descriptor"))
-    changed = true;
+
   if (editor_layer->DragAndDropButton<IBarkDescriptor>(bark_descriptor, "Bark Descriptor"))
     changed = true;
   return changed;
@@ -122,10 +121,8 @@ void TreeDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
     list.push_back(pruning_descriptor);
   if (foliage_descriptor.Get<BasicFoliageDescriptor>())
     list.push_back(foliage_descriptor);
-  if (fruit_descriptor.Get<BasicFruitDescriptor>())
-    list.push_back(fruit_descriptor);
-  if (flower_descriptor.Get<BasicFlowerDescriptor>())
-    list.push_back(flower_descriptor);
+  if (reproduction_module_descriptor.Get<BasicReproductionModuleDescriptor>())
+    list.push_back(reproduction_module_descriptor);
 
   if (bark_descriptor.Get<BasicBarkDescriptor>())
     list.push_back(bark_descriptor);
@@ -164,8 +161,7 @@ void TreeDescriptor::Serialize(YAML::Emitter& out) const {
   foliage_descriptor.Save("foliage_descriptor", out);
   bark_descriptor.Save("bark_descriptor", out);
 
-  fruit_descriptor.Save("fruit_descriptor", out);
-  flower_descriptor.Save("flower_descriptor", out);
+  reproduction_module_descriptor.Save("reproduction_module_descriptor", out);
 }
 
 std::shared_ptr<Texture2D> TreeDescriptor::GenerateThumbnailTexture() {
@@ -184,6 +180,5 @@ void TreeDescriptor::Deserialize(const YAML::Node& in) {
   foliage_descriptor.Load("foliage_descriptor", in);
   bark_descriptor.Load("bark_descriptor", in);
 
-  fruit_descriptor.Load("fruit_descriptor", in);
-  flower_descriptor.Load("flower_descriptor", in);
+  reproduction_module_descriptor.Load("reproduction_module_descriptor", in);
 }
