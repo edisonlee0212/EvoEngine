@@ -425,6 +425,7 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
     } break;
   }
   std::vector<glm::vec3> points;
+  std::vector<glm::vec3> normals;
 
   std::vector<int> internode_index;
   std::vector<int> branch_index;
@@ -457,6 +458,8 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
                                              glm::gaussRand(0.0f, point_settings.variance),
                                              glm::gaussRand(0.0f, point_settings.variance)) +
                         ball_rand);
+
+    normals.emplace_back(sample.hit_info.normal);
 
     if (point_settings.internode_index) {
       internode_index.emplace_back(static_cast<int>(sample.hit_info.data.x + 0.1f));
@@ -506,6 +509,9 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
   tinyply::PlyFile cube_file;
   cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, tinyply::Type::FLOAT32, points.size(),
                                       reinterpret_cast<uint8_t*>(points.data()), tinyply::Type::INVALID, 0);
+
+  cube_file.add_properties_to_element("normal", {"dx", "dy", "dz"}, tinyply::Type::FLOAT32, points.size(),
+                                      reinterpret_cast<uint8_t*>(normals.data()), tinyply::Type::INVALID, 0);
 
   if (point_settings.type_index)
     cube_file.add_properties_to_element("type_index", {"type_index"}, tinyply::Type::INT32, type_index.size(),

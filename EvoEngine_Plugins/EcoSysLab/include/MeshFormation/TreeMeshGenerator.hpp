@@ -102,9 +102,9 @@ struct TreeMeshGeneratorSettings {
   PresentationOverrideSettings presentation_override_settings = {};  ///< Presentation override settings.
   bool stitch_all_children = false;                                  ///< Enables stitching of all child nodes.
   float trunk_thickness = 0.1f;                                      ///< Thickness of the trunk.
-  float x_subdivision = 0.01f;                                       ///< X-axis subdivision step.
-  float trunk_y_subdivision = 0.01f;                                 ///< Y-axis subdivision step for the trunk.
-  float branch_y_subdivision = 0.01f;                                ///< Y-axis subdivision step for branches.
+  float x_subdivision = 0.5f;                                       ///< X-axis subdivision step.
+  float trunk_y_subdivision = 0.5f;                                 ///< Y-axis subdivision step for the trunk.
+  float branch_y_subdivision = 0.5f;                                ///< Y-axis subdivision step for branches.
 
   float radius_multiplier = 1.f;            ///< Multiplier for radius computation.
   bool override_radius = false;             ///< Enables radius override.
