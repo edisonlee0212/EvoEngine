@@ -680,8 +680,7 @@ bool TreeVisualizer::InspectInternode(ShootSkeleton& shoot_skeleton, SkeletonNod
 
     if (ImGui::TreeNodeEx("Buds")) {
       int index = 1;
-      for (const auto& bud_index : internode_data.bud_indices) {
-        auto& bud = shoot_skeleton.data.RefBud(bud_index);
+      for (const auto& bud : internode_data.buds) {
         if (ImGui::TreeNode(("Bud " + std::to_string(index)).c_str())) {
           switch (bud.type) {
             case BudType::Apical:
@@ -760,8 +759,7 @@ void TreeVisualizer::PeekInternode(const ShootSkeleton& shoot_skeleton,
 
     if (ImGui::TreeNodeEx("Buds")) {
       int index = 1;
-      for (const auto& bud_index : internode_data.bud_indices) {
-        auto& bud = shoot_skeleton.data.PeekBud(bud_index);
+      for (const auto& bud : internode_data.buds) {
         if (ImGui::TreeNode(("Bud " + std::to_string(index)).c_str())) {
           switch (bud.type) {
             case BudType::Apical:

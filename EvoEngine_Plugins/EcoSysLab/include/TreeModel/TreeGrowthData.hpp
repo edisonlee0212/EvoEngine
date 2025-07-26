@@ -43,11 +43,6 @@ struct ShootOrgan {
    * @brief Resets the reproductive module to its initial state.
    */
   virtual void Reset();
-  bool Recycled() const;
-
- private:
-  friend class ShootGrowthData;
-  bool recycled_ = false;
 };
 
 struct Leaf : ShootOrgan {
@@ -84,11 +79,7 @@ struct Fruit : ShootOrgan {
  * @brief Represents a bud in a procedural tree simulation.
  */
 class Bud {
-  friend class ShootGrowthData;
-  bool recycled_ = false;
-
  public:
-  [[nodiscard]] bool Recycled() const;
   BudType type = BudType::Apical;             ///< Type of the bud.
   OrganStatus status = OrganStatus::Dormant;  ///< Current status of the bud.
   int index = 0;
@@ -151,11 +142,11 @@ struct InternodeGrowthData {
    *
    * The first bud in the list will always be the apical bud pointing forward.
    */
-  std::vector<uint32_t> bud_indices;
+  std::vector<Bud> buds;
 
-  std::vector<uint32_t> leaf_indices;
-  std::vector<uint32_t> flower_indices;
-  std::vector<uint32_t> fruit_indices;
+  std::vector<Leaf> leaves;
+  std::vector<Flower> flowers;
+  std::vector<Fruit> fruits;
 
   int level = 0;                       ///< Hierarchical level.
   bool max_child = false;              ///< Boolean flag for maximum children.
@@ -204,50 +195,6 @@ struct ShootGrowthData {
   unsigned index = 0;                                 ///< Index used for identification.
   glm::vec3 gravity_direction = glm::vec3(0, -1, 0);  ///< Current direction of gravity;
   float age = 0;                                      ///< Age of the tree in years.
-
-  uint32_t AllocateBud(BudType bud_type);
-  void RecycleBud(uint32_t bud_index);
-  Bud& RefBud(uint32_t bud_index);
-  const Bud& PeekBud(uint32_t bud_index) const;
-
-  uint32_t AllocateLeaf();
-  void RecycleLeaf(uint32_t leaf_index);
-  Leaf& RefLeaf(uint32_t leaf_index);
-  const Leaf& PeekLeaf(uint32_t leaf_index) const;
-
-  uint32_t AllocateFruit();
-  void RecycleFruit(uint32_t fruit_index);
-  Fruit& RefFruit(uint32_t fruit_index);
-  const Fruit& PeekFruit(uint32_t fruit_index) const;
-
-  uint32_t AllocateFlower(uint32_t flower_index);
-  void RecycleFlower(uint32_t flower_index);
-  Flower& RefFlower(uint32_t flower_index);
-  const Flower& PeekFlower(uint32_t flower_index) const;
-
-  std::vector<Bud>& RefBuds();
-
-  std::vector<Leaf>& RefLeaves();
-  std::vector<Flower>& RefFlowers();
-  std::vector<Fruit>& RefFruits();
-
-  const std::vector<Bud>& PeekBuds() const;
-
-  const std::vector<Leaf>& PeekLeaves() const;
-  const std::vector<Flower>& PeekFlowers() const;
-  const std::vector<Fruit>& PeekFruits() const;
-
- private:
-  std::vector<Bud> buds;
-
-  std::vector<Leaf> leaves;
-  std::vector<Flower> flowers;
-  std::vector<Fruit> fruits;
-
-  std::queue<uint32_t> buds_pool;
-  std::queue<uint32_t> leaves_pool;
-  std::queue<uint32_t> flowers_pool;
-  std::queue<uint32_t> fruits_pool;
 };
 
 /**

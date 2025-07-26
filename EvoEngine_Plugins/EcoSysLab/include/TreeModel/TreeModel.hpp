@@ -144,7 +144,7 @@ class TreeModel {
   bool GrowReproductiveModules(float delta_time, ClimateModel& climate_model, const glm::mat4& global_transform,
                                SkeletonNodeHandle internode_handle,
                                const ReproductionController& reproduction_controller);
-  void FormulateReproductiveModules(ClimateModel& climate_model, const glm::mat4& global_transform,
+  void FormulateReproductiveModules(const ClimateModel& climate_model, const glm::mat4& global_transform,
                                     SkeletonNodeHandle internode_handle,
                                     const ReproductionController& reproduction_controller);
 
@@ -195,6 +195,11 @@ class TreeModel {
   std::mt19937 random_engine_;  ///< Random number generator engine.
 
   int iteration_ = 0;  ///< The current growth iteration of the tree.
+
+  uint32_t bud_count = 0;
+  uint32_t leaf_count_ = 0;
+  uint32_t flower_count_ = 0;
+  uint32_t fruit_count_ = 0;
 
  public:
   void RemoveNodes(const std::vector<SkeletonNodeHandle>& pruning_node_handles);
@@ -324,7 +329,7 @@ class TreeModel {
    * @param pruning Whether pruning should be applied automatically.
    * @return Whether structural changes occurred during growth.
    */
-  bool Grow(const float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
+  bool Grow(float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
             const ShootGrowthController& shoot_growth_controller, const FoliageController& foliage_controller,
             const ReproductionController& reproduction_controller,
             const ShootPruningController& shoot_pruning_controller, const bool pruning = true);
