@@ -99,6 +99,8 @@ Here are the features that already exist in the EvoEngine.
      - [[SIGGRAPH 2024] Latent L-systems: Transformer-based Tree Generator](https://dl.acm.org/doi/pdf/10.1145/3627101)
      - [[ECCV 2024] Tree-D Fusion: Simulation-Ready Tree Dataset from Single Images with Diffusion Priors](https://link.springer.com/chapter/10.1007/978-3-031-72940-9_25)
      - [[SIGGRAPH 2024] Interactive Invigoration: Volumetric Modeling of Trees with Strands](https://storage.googleapis.com/pirk.io/projects/invigoration/index.html)
+     - [[TGRS 2025] TreeStructor: Forest Reconstruction With Neural Ranking](https://lewkesy.github.io/treestructor/)
+     - [[SIGGRAPH 2025] Stressful Tree Modeling: Breaking Branches with Strands](https://dl.acm.org/doi/10.1145/3721238.3730745)
   - Interactive framework: ![TreeFrameworkDemo](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/TreeFrameworkDemo.png)
   - Tree Fracture: ![TreeFracture](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/TreeFracture.png)
   - Visualization: ![StrandVisualization](https://raw.githubusercontent.com/edisonlee0212/EvoEngine/refs/heads/dev/Resources/GitHub/StrandVisualization.png)

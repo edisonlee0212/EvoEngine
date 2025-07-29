@@ -155,10 +155,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                   pruning_internode.data.internode_length *= tree_visualizer.selected_internode_length_factor;
                   tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
                   tree_visualizer.selected_internode_length_factor = 1.0f;
-                  for (const auto& i : pruning_internode.data.bud_indices) {
-                    tree_model.RefShootSkeleton().data.RecycleBud(i);
-                  }
-                  pruning_internode.data.bud_indices.clear();
+                  pruning_internode.data.buds.clear();
                   tree_visualizer.checkpoint_iteration = tree_model.CurrentIteration();
                   tree_visualizer.need_update = true;
                   if (auto_generate_mesh_after_editing_) {

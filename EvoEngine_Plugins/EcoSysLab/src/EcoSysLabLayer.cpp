@@ -530,60 +530,52 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
         int leaf_index = 0;
         int fruit_index = 0;
         int flower_index = 0;
-        for (const auto& leaf : branch_skeleton.data.PeekLeaves()) {
-          if (!leaf.Recycled() && leaf.status == OrganStatus::Flushed) {
-            glm::mat4 leaf_transform =
-                glm::translate(leaf.position) * glm::mat4_cast(leaf.rotation) * glm::scale(leaf.scale * .5f);
-            foliage_matrices[leaf_start_index + leaf_index].instance_matrix.value =
-                entity_global_transform.value * leaf_transform;
-            foliage_matrices[leaf_start_index + leaf_index].instance_color =
-                glm::vec4(glm::mix(glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f),
-                                   glm::vec3(159 / 255.0f, 100 / 255.0f, 66 / 255.0f), 1.0f - leaf.health),
-                          0.5f);
-          } else {
-            foliage_matrices[leaf_start_index + leaf_index].instance_matrix.value =
-                glm::translate(leaf.position) * glm::mat4_cast(leaf.rotation) * glm::scale(glm::vec3(0.f));
-            foliage_matrices[leaf_start_index + leaf_index].instance_color = glm::vec4(0.0f);
-          }
-          leaf_index++;
-        }
 
-        for (const auto& flower : branch_skeleton.data.PeekFlowers()) {
-          if (!flower.Recycled() && flower.status == OrganStatus::Flushed) {
-            glm::mat4 flower_transform =
-                glm::translate(flower.position) * glm::mat4_cast(flower.rotation) * glm::scale(flower.scale);
-            flower_matrices[flower_start_index + flower_index].instance_matrix.value =
-                entity_global_transform.value * flower_transform;
-            flower_matrices[flower_start_index + flower_index].instance_color =
-                glm::vec4(glm::mix(glm::vec3(255 / 255.0f, 255 / 255.0f, 255 / 255.0f),
-                                   glm::vec3(255 / 255.0f, 192 / 255.0f, 203 / 255.0f), flower.maturity),
-                          0.75f);
-          } else {
-            flower_matrices[flower_start_index + flower_index].instance_matrix.value =
-                glm::translate(flower.position) * glm::mat4_cast(flower.rotation) * glm::scale(glm::vec3(0.f));
-            flower_matrices[flower_start_index + flower_index].instance_color = glm::vec4(0.0f);
+        const auto& sorted_internode_list = branch_skeleton.PeekSortedNodeList();
+        for (const auto& internode_handle : sorted_internode_list) {
+          const auto& internode_data = branch_skeleton.PeekNode(internode_handle).data;
+          for (const auto& leaf : internode_data.leaves) {
+            if (leaf.status != OrganStatus::Inactive) {
+              glm::mat4 leaf_transform =
+                  glm::translate(leaf.position) * glm::mat4_cast(leaf.rotation) * glm::scale(leaf.scale * .5f);
+              foliage_matrices[leaf_start_index + leaf_index].instance_matrix.value =
+                  entity_global_transform.value * leaf_transform;
+              foliage_matrices[leaf_start_index + leaf_index].instance_color =
+                  glm::vec4(glm::mix(glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f),
+                                     glm::vec3(159 / 255.0f, 100 / 255.0f, 66 / 255.0f), 1.0f - leaf.health),
+                            0.5f);
+              leaf_index++;
+            }
           }
-          flower_index++;
-        }
 
-        for (const auto& fruit : branch_skeleton.data.PeekFruits()) {
-          if (!fruit.Recycled() && fruit.status == OrganStatus::Flushed) {
-            glm::mat4 fruit_transform =
-                glm::translate(fruit.position) * glm::mat4_cast(fruit.rotation) * glm::scale(fruit.scale * .25f);
-            fruit_matrices[fruit_start_index + fruit_index].instance_matrix.value =
-                entity_global_transform.value * fruit_transform;
-            fruit_matrices[fruit_start_index + fruit_index].instance_color =
-                glm::vec4(glm::mix(glm::vec3(152 / 255.0f, 255 / 255.0f, 152 / 255.0f),
-                                   glm::vec3(255 / 255.0f, 165 / 255.0f, 0 / 255.0f), fruit.maturity),
-                          0.75f);
-          } else {
-            fruit_matrices[fruit_start_index + fruit_index].instance_matrix.value =
-                glm::translate(fruit.position) * glm::mat4_cast(fruit.rotation) * glm::scale(glm::vec3(0.f));
-            fruit_matrices[fruit_start_index + fruit_index].instance_color = glm::vec4(0.0f);
+          for (const auto& flower : internode_data.flowers) {
+            if (flower.status != OrganStatus::Inactive) {
+              glm::mat4 flower_transform =
+                  glm::translate(flower.position) * glm::mat4_cast(flower.rotation) * glm::scale(flower.scale);
+              flower_matrices[flower_start_index + flower_index].instance_matrix.value =
+                  entity_global_transform.value * flower_transform;
+              flower_matrices[flower_start_index + flower_index].instance_color =
+                  glm::vec4(glm::mix(glm::vec3(255 / 255.0f, 255 / 255.0f, 255 / 255.0f),
+                                     glm::vec3(255 / 255.0f, 192 / 255.0f, 203 / 255.0f), flower.maturity),
+                            0.75f);
+              flower_index++;
+            }
           }
-          fruit_index++;
-        }
 
+          for (const auto& fruit : internode_data.fruits) {
+            if (fruit.status != OrganStatus::Inactive) {
+              glm::mat4 fruit_transform =
+                  glm::translate(fruit.position) * glm::mat4_cast(fruit.rotation) * glm::scale(fruit.scale * .25f);
+              fruit_matrices[fruit_start_index + fruit_index].instance_matrix.value =
+                  entity_global_transform.value * fruit_transform;
+              fruit_matrices[fruit_start_index + fruit_index].instance_color =
+                  glm::vec4(glm::mix(glm::vec3(152 / 255.0f, 255 / 255.0f, 152 / 255.0f),
+                                     glm::vec3(255 / 255.0f, 165 / 255.0f, 0 / 255.0f), fruit.maturity),
+                            0.75f);
+              fruit_index++;
+            }
+          }
+        }
         if (tree_entity == selected_tree)
           return;
         for (int i = 0; i < branch_flow_list.size(); i++) {
