@@ -45,7 +45,7 @@ def initialize_illumination_estimation_mesh_parameters()->sorghum_framework.Sorg
     #Should leaf mesh contain 2 faces
     data_generation_parameters.sorghum_mesh_generator_settings.bottom_face = True
     #Should all leaves be generated in separated meshes or combined as one single mesh, if set to false, you will not get leaf index in point cloud.
-    data_generation_parameters.sorghum_mesh_generator_settings.leaf_separated = True
+    data_generation_parameters.sorghum_mesh_generator_settings.leaf_separated = False
     #If bottom_face is ON, this sets the distance between top and bottom face of each leaf
     data_generation_parameters.sorghum_mesh_generator_settings.leaf_thickness = 0.001
     return data_generation_parameters

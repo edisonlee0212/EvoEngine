@@ -93,7 +93,7 @@ void PyDigitalAgriculture::Initialize(pybind11::module& m) {
       py::arg("sorghum_coordinates"), 
       py::arg("seed"), 
       py::arg("index") = 200, 
-      py::arg("radius") = 2.5f);
+      py::arg("radius") = 2000.0f);
 
   py::class_<SorghumMeshGeneratorSettings>(m, "SorghumMeshGeneratorSettings")
       .def(py::init<>())
@@ -225,7 +225,7 @@ Entity PyDigitalAgriculture::InstantiateSorghumField(const Handle& sorghum_field
 
   const auto field_asset = PyEvoEngine::GetAsset(sorghum_field_handle);
   if (field_asset->GetTypeName() != "SorghumField") {
-    EVOENGINE_ERROR("InstantiateSorghumField failed: invalid asset type!")
+    EVOENGINE_ERROR("Instantiate SorghumField failed: invalid asset type!")
     return {};
   }
   const auto coordinates_data = PyEvoEngine::GetAsset(sorghum_coordinates);
@@ -234,9 +234,18 @@ Entity PyDigitalAgriculture::InstantiateSorghumField(const Handle& sorghum_field
 
   const auto coordinates = std::dynamic_pointer_cast<SorghumCoordinates>(coordinates_data);
   glm::dvec2 offset;
+
+  
   coordinates->Apply(sorghum_field, offset, index, radius);
 
+  EVOENGINE_LOG("Instantiate SorghumField:" << sorghum_field->matrices.size())
+
   auto field_entity = DatasetGenerator::CreateSorghumEntity(field_asset, seed);
+
+  auto scene = Application::GetActiveScene();
+  const std::vector<Entity>* leaf_mesh_list = scene->UnsafeGetPrivateComponentOwnersList<BtfMeshRenderer>();
+
+  EVOENGINE_LOG("btfMeshRenderer count : " << leaf_mesh_list->size())
 
   return field_entity;
 }
@@ -273,8 +282,9 @@ std::vector<std::vector<glm::vec3>> PyDigitalAgriculture::GetAllIlluminationEsti
   return results;
 }
 
-// todo: given the sorghum field prepare the PARSensor group according to the sorghums
-// for now, it is just using a fixed grid
+// todo: the height is fixed now
+// todo: need to rotate?
+// given the sorghum field prepare the PARSensor group according to the sorghums / bounding boxes
 Handle PyDigitalAgriculture::SetPARSensors(const Entity& sorghum_field) {
   auto sensor_group_handle = PyEvoEngine::CreateRuntimeAsset("PARSensorGroup");
   
@@ -284,18 +294,55 @@ Handle PyDigitalAgriculture::SetPARSensors(const Entity& sorghum_field) {
   auto& samplers = sensors->samplers;
 
 
-  glm::vec3 max_range(2, 1.1, 2);
-  glm::vec3 min_range(-2, 0.5, -2);
-  float step = 0.3f;
+  auto scene = Application::GetActiveScene();
+  const std::vector<Entity>* leaf_mesh_list =
+      scene->UnsafeGetPrivateComponentOwnersList<BtfMeshRenderer>();
 
+  EVOENGINE_LOG("btfMeshRenderer count : " << leaf_mesh_list->size())
+
+  Bound overall_bound;
+  for (const auto& btf_mesh_renderer_entity : *leaf_mesh_list) {
+
+    const auto transform = scene->GetDataComponent<GlobalTransform>(btf_mesh_renderer_entity).value;
+    auto btf_mesh_renderer = scene->GetOrSetPrivateComponent<BtfMeshRenderer>(btf_mesh_renderer_entity).lock();
+    auto bound = btf_mesh_renderer->mesh.Get<Mesh>()->GetBound();
+
+    glm::vec3 T = glm::vec3(transform[3]);  // glm::column(transform, 3)
+
+    glm::vec3 wmin = bound.min + T;
+    glm::vec3 wmax = bound.max + T;
+
+    overall_bound.min = glm::min(overall_bound.min, wmin);
+    overall_bound.max = glm::max(overall_bound.max, wmax);
+ 
+  }
+
+  // directly clean offset caused by float numbers
+  overall_bound.min.y = 0;
+
+  EVOENGINE_LOG("overall_bound: " << overall_bound.min.x << "," << overall_bound.min.y << "," << overall_bound.min.z
+                                  << ";" << overall_bound.max.x << "," << overall_bound.max.y << ","
+                                  << overall_bound.max.z)
+
+
+  // not to include boundaries of the bounding box
+  float step = 0.8f;
+  glm::vec3 max_range(overall_bound.max - glm::vec3(step, 0, step));
+  glm::vec3 min_range(overall_bound.min + glm::vec3(step, 0, step));
+
+  constexpr float above_canopy_height = 2.4f;
+  constexpr float at_canopy_height = 0.8f;
+  constexpr float below_canopy_height = 0.4f;
+
+  // step y is set to 0.3 for now
   const int sx = static_cast<int>((max_range.x - min_range.x + step) / step);
-  const int sy = static_cast<int>((max_range.y - min_range.y + step) / step);
+  const int sy = static_cast<int>((2.4f - min_range.y + 0.4) / 0.4);
   const int sz = static_cast<int>((max_range.z - min_range.z + step) / step);
   const auto voxel_size = sx * sy * sz;
   samplers.resize(voxel_size);
   Jobs::RunParallelFor(voxel_size, [&](unsigned i) {
     float z = (i % sz) * step + min_range.z;
-    float y = ((i / sz) % sy) * step + min_range.y;
+    float y = ((i / sz) % sy) * 0.4f + min_range.y;
     float x = ((i / sz / sy) % sx) * step + min_range.x;
     glm::vec3 start = {x, y, z};
     samplers[i].v_0.position = samplers[i].v_1.position = samplers[i].v_2.position = start;

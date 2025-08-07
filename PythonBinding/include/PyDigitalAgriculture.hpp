@@ -79,7 +79,7 @@ class PyDigitalAgriculture {
   static void CheckTriangleEstimator(const Entity& sorghum_entity);
 
   static Entity InstantiateSorghumField(const Handle& sorghum_field_handle, const Handle& sorghum_coordinates,
-                                       const int seed, const int index=200, const float radius=2.5f);
+                                       const int seed, const int index=200, const float radius=2000.0f);
 
   static std::vector<std::vector<glm::vec3>> GetAllIlluminationEstimationResultsOnSorghum();
 
