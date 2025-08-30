@@ -236,9 +236,10 @@ if __name__ == "__main__":
     
     # root = "/media/dummy1/zhou1178/PointCloudTreePart"
     os.makedirs(os.path.join(root, "skeleton"), exist_ok=True)
-    # os.makedirs(os.path.join(root, "pointcloud"), exist_ok=True)
-    # os.makedirs(os.path.join(root, "paper_cut"), exist_ok=True)
-    os.makedirs(os.path.join(root, dst), exist_ok=True)
+    os.makedirs(os.path.join(root, "pointcloud"), exist_ok=True)
+    os.makedirs(os.path.join(root, "paper_cut"), exist_ok=True)
+    os.makedirs(os.path.join(root, "paper_cut_meshes"), exist_ok=True)
+    os.makedirs(os.path.join(root, "low_res_meshes"), exist_ok=True)
     
     data_list = os.listdir(os.path.join(data_root, 'graph'))
     data_list.sort()
