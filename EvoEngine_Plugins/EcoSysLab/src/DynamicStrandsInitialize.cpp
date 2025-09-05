@@ -363,7 +363,6 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
   strand_model_strand_group.UniformlySubdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
       uniformly_subdivided_strand_group, initialize_parameters.uniform_subdivision,
       [&](const StrandHandle src_handle, DtsStrandData& strand_data) {
-
       },
       [&](const float start_root_distance, const float end_root_distance, const StrandSegmentHandle src_handle,
           const uint32_t original_segment_index, const float segment_t, DtsStrandSegmentData& segment_data,
@@ -390,7 +389,6 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
 
           p1 = p2;
           p0 = p1 * 2.0f - p2;
-
         } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
           const auto& prev_segment_data =
               strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
@@ -399,7 +397,6 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
 
           p0 = p2;
           p1 = prev_segment_data.profile_position;
-
         } else {
           const auto& prev_segment = strand_model_strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
           const auto& prev_segment_data =
@@ -416,7 +413,6 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
           d3 = d2 * 2.0f - d1;
 
           p3 = p2 * 2.0f - p1;
-
         } else {
           const auto& next_segment_data =
               strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetNextHandle());

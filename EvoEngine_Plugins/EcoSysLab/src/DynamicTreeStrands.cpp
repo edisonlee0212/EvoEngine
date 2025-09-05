@@ -1,4 +1,3 @@
-
 #include "DynamicTreeStrands.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "DsConstraints.hpp"
@@ -35,8 +34,8 @@ void DynamicTreeStrands::UpdateDynamicStrands(DtsStrandGroup& randomly_subdivide
   const auto owner = GetOwner();
   const auto scene = GetScene();
   initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
-  //initialize_parameters.min_segment_length = 0.005f;
-  //initialize_parameters.max_segment_length = 0.01f;
+  // initialize_parameters.min_segment_length = 0.005f;
+  // initialize_parameters.max_segment_length = 0.01f;
 
   dynamic_strands->InitializeData(random_engine, initialize_parameters, strand_model.strand_model_skeleton,
                                   strand_model_strand_group, randomly_subdivided_strand_group,
@@ -738,7 +737,8 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     segment.RB = 1.0f;
     segment.RW_pre = 1.0f;
     segment.RB_pre = 1.0f;
-    if (false) {  // Uniformly subdivided strand groups
+    if (false) {
+      // Uniformly subdivided strand groups
       Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
         auto& segment = dynamic_strands->segments[i];
         const float angleStep = 0.2f;
@@ -800,10 +800,10 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       });
     }
     if (settings.internal_pattern) {
-          Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
-                auto& segment = dynamic_strands->segments[i];
-                segment.internal_pattern = 1;
-          });
+      Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+        auto& segment = dynamic_strands->segments[i];
+        segment.internal_pattern = 1;
+      });
     }
     if (settings.cube_pattern) {
       Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
@@ -1169,6 +1169,7 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
     });
   }
 }
+
 void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
                                        const DynamicStrands::VisualizationParameters& visualization_parameters) const {
   if (!dynamic_strands->segments.empty()) {
@@ -1476,7 +1477,8 @@ void DynamicTreeStrands::split_one(const Region& c, float p_min, float p_max, fl
       mid = c.phi_min + dp * p * 300.f / c.r_max;
       c1 = {c.r_min, c.r_max, c.phi_min, mid, c.x_min, c.x_max};
       c2 = {c.r_min, c.r_max, mid, c.phi_max, c.x_min, c.x_max};
-    } else {  // AX_X
+    } else {
+      // AX_X
       mid = c.x_min + dx * p;
       c1 = {c.r_min, c.r_max, c.phi_min, c.phi_max, c.x_min, mid};
       c2 = {c.r_min, c.r_max, c.phi_min, c.phi_max, mid, c.x_max};
@@ -1582,7 +1584,8 @@ float DynamicTreeStrands::normalize_coord(Axis3 axis, float coord) {
     return (coord) / (100.f);
   if (axis == AX_PHI)
     return (coord + glm::pi<float>()) / (2 * glm::pi<float>());
-  /* AX_X */ return (coord) / (1.f);
+  /* AX_X */
+  return (coord) / (1.f);
 }
 
 inline float wrap01(float v) {
