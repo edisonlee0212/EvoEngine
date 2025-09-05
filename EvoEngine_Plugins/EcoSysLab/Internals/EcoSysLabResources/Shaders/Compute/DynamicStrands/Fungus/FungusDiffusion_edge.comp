@@ -20,152 +20,155 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint pair_size;
-    float be;
-    float lignin_threshold;
-	mat4  matrixAw4;      // offset = 16
-    mat4  matrixAb4;      // offset = 80
-    mat4  matrixAc4;      // offset = 144
+  uint pair_size;
+  float be;
+  float lignin_threshold;
+  mat4 matrixAw4;  // offset = 16
+  mat4 matrixAb4;  // offset = 80
+  mat4 matrixAc4;  // offset = 144
 };
 
-void computeDiffusionWeights(vec3 source_pos, vec3 target_pos, float source_distance, float target_distance, 
-                           out float dc_weight, out float dw_weight, out float db_weight, out float dm_weight) 
-{
-    vec3 edge_dir = source_pos - target_pos;  //TODO: General space for the tree
-    float d = length(edge_dir);
-    
-    if (d < 0.000001) {
-        dc_weight = 0.0;
-        dw_weight = 0.0;
-        db_weight = 0.0;
-        dm_weight = 0.0;
-        return;
-    }
-    
-    edge_dir /= d;
-    
-    mat3 matrixAw = mat3(matrixAw4);
-    mat3 matrixAb = mat3(matrixAb4);
-    mat3 matrixAc = mat3(matrixAc4);
-    mat3 matrixAm = mat3(2.0, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.1);
+void computeDiffusionWeights(vec3 source_pos, vec3 target_pos, float source_distance, float target_distance,
+                             out float dc_weight, out float dw_weight, out float db_weight, out float dm_weight) {
+  vec3 edge_dir = source_pos - target_pos;  // TODO: General space for the tree
+  float d = length(edge_dir);
 
-    // Calculate quadratic forms using matrix multiplication
-    float kw = max(dot(edge_dir * matrixAw, edge_dir), 0.0);
-    float kb = max(dot(edge_dir * matrixAb, edge_dir), 0.0);
-    float kc = max(dot(edge_dir * matrixAc, edge_dir), 0.0);
-    float km = max(dot(edge_dir * matrixAm, edge_dir), 0.0);
-    
-    float coef = min(source_distance, target_distance);
-    if(be < 0.001)
-    {
-        coef = 1.0;
-    }
-    else
-    {
-        coef = pow(4.0 * (coef + 0.01), be);
-      //coef = 1.0;
-    }
-    
-    dw_weight = kw / d * coef;
-    db_weight = kb / d * coef;
-    dc_weight = kc / d;
-    dm_weight = km / d * coef;
+  if (d < 0.000001) {
+    dc_weight = 0.0;
+    dw_weight = 0.0;
+    db_weight = 0.0;
+    dm_weight = 0.0;
+    return;
+  }
+
+  edge_dir /= d;
+
+  mat3 matrixAw = mat3(matrixAw4);
+  mat3 matrixAb = mat3(matrixAb4);
+  mat3 matrixAc = mat3(matrixAc4);
+  mat3 matrixAm = mat3(2.0, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.1);
+
+  // Calculate quadratic forms using matrix multiplication
+  float kw = max(dot(edge_dir * matrixAw, edge_dir), 0.0);
+  float kb = max(dot(edge_dir * matrixAb, edge_dir), 0.0);
+  float kc = max(dot(edge_dir * matrixAc, edge_dir), 0.0);
+  float km = max(dot(edge_dir * matrixAm, edge_dir), 0.0);
+
+  float coef = min(source_distance, target_distance);
+  if (be < 0.001) {
+    coef = 1.0;
+  } else {
+    coef = pow(4.0 * (coef + 0.01), be);
+    // coef = 1.0;
+  }
+
+  dw_weight = kw / d * coef;
+  db_weight = kb / d * coef;
+  dc_weight = kc / d;
+  dm_weight = km / d * coef;
 }
 
-void main(){
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint pair_index = baseID + local_index;
+    if (pair_index >= pair_size)
+      break;
 
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint pair_index = baseID + local_index;
-		if(pair_index >= pair_size) break;
+    int segment0_handle = segment_pairs[pair_index].segment0_handle;
+    int segment1_handle = segment_pairs[pair_index].segment1_handle;
 
-		int segment0_handle = segment_pairs[pair_index].segment0_handle;
-		int segment1_handle = segment_pairs[pair_index].segment1_handle;
+    atomicAdd(segments[segment0_handle].pairs_count, 1);
+    atomicAdd(segments[segment1_handle].pairs_count, 1);
 
-        atomicAdd(segments[segment0_handle].pairs_count, 1);
-        atomicAdd(segments[segment1_handle].pairs_count, 1);
+    // Get segment positions and boundary distances
+    vec3 segment0_pos = (segments[segment0_handle].particle0.x + segments[segment0_handle].particle1.x) / 2;
+    vec3 segment1_pos = (segments[segment1_handle].particle0.x + segments[segment1_handle].particle1.x) / 2;
+    float segment0_distance = segments[segment0_handle].boundary_distance;
+    float segment1_distance = segments[segment1_handle].boundary_distance;
 
-		// Get segment positions and boundary distances
-        vec3 segment0_pos = (segments[segment0_handle].particle0.x + segments[segment0_handle].particle1.x) / 2;
-        vec3 segment1_pos = (segments[segment1_handle].particle0.x + segments[segment1_handle].particle1.x) / 2;
-        float segment0_distance = segments[segment0_handle].boundary_distance;
-        float segment1_distance = segments[segment1_handle].boundary_distance;
-        
-        // Calculate diffusion weights
-        float dc_weight, dw_weight, db_weight, dm_weight;
-        computeDiffusionWeights(segment0_pos, segment1_pos, segment0_distance, segment1_distance, 
-                              dc_weight, dw_weight, db_weight, dm_weight);
-        
-        // Accumulate diffusion contribution from neighbors
-        atomicAdd(segments[segment0_handle].diffusion_c, dc_weight * segments[segment1_handle].C_pre);
-        atomicAdd(segments[segment0_handle].diffusion_w, dw_weight * segments[segment1_handle].RW_pre);
-        atomicAdd(segments[segment0_handle].diffusion_b, db_weight * segments[segment1_handle].RB_pre);
-        atomicAdd(segments[segment0_handle].diffusion_m, dm_weight * segments[segment1_handle].moisture_pre);
-        
-        // Add reverse direction contributions (undirected graph)
-        atomicAdd(segments[segment1_handle].diffusion_c, dc_weight * segments[segment0_handle].C_pre);
-        atomicAdd(segments[segment1_handle].diffusion_w, dw_weight * segments[segment0_handle].RW_pre);
-        atomicAdd(segments[segment1_handle].diffusion_b, db_weight * segments[segment0_handle].RB_pre);
-        atomicAdd(segments[segment1_handle].diffusion_m, dm_weight * segments[segment0_handle].moisture_pre);
-        
-        // Add diagonal terms (self-interactions with negative values for conservation)
-        atomicAdd(segments[segment0_handle].diffusion_c, -dc_weight * segments[segment0_handle].C_pre);
-        atomicAdd(segments[segment0_handle].diffusion_w, -dw_weight * segments[segment0_handle].RW_pre);
-        atomicAdd(segments[segment0_handle].diffusion_b, -db_weight * segments[segment0_handle].RB_pre);
-        atomicAdd(segments[segment0_handle].diffusion_m, -dm_weight * segments[segment0_handle].moisture_pre);
-        
-        atomicAdd(segments[segment1_handle].diffusion_c, -dc_weight * segments[segment1_handle].C_pre);
-        atomicAdd(segments[segment1_handle].diffusion_w, -dw_weight * segments[segment1_handle].RW_pre);
-        atomicAdd(segments[segment1_handle].diffusion_b, -db_weight * segments[segment1_handle].RB_pre);
-        atomicAdd(segments[segment1_handle].diffusion_m, -dm_weight * segments[segment1_handle].moisture_pre);
+    // Calculate diffusion weights
+    float dc_weight, dw_weight, db_weight, dm_weight;
+    computeDiffusionWeights(segment0_pos, segment1_pos, segment0_distance, segment1_distance, dc_weight, dw_weight,
+                            db_weight, dm_weight);
 
-        if(segments[segment1_handle].HL<lignin_threshold || segments[segment0_handle].HL<lignin_threshold)
-        {
+    // Accumulate diffusion contribution from neighbors
+    atomicAdd(segments[segment0_handle].diffusion_c, dc_weight * segments[segment1_handle].C_pre);
+    atomicAdd(segments[segment0_handle].diffusion_w, dw_weight * segments[segment1_handle].RW_pre);
+    atomicAdd(segments[segment0_handle].diffusion_b, db_weight * segments[segment1_handle].RB_pre);
+    atomicAdd(segments[segment0_handle].diffusion_m, dm_weight * segments[segment1_handle].moisture_pre);
+
+    // Add reverse direction contributions (undirected graph)
+    atomicAdd(segments[segment1_handle].diffusion_c, dc_weight * segments[segment0_handle].C_pre);
+    atomicAdd(segments[segment1_handle].diffusion_w, dw_weight * segments[segment0_handle].RW_pre);
+    atomicAdd(segments[segment1_handle].diffusion_b, db_weight * segments[segment0_handle].RB_pre);
+    atomicAdd(segments[segment1_handle].diffusion_m, dm_weight * segments[segment0_handle].moisture_pre);
+
+    // Add diagonal terms (self-interactions with negative values for conservation)
+    atomicAdd(segments[segment0_handle].diffusion_c, -dc_weight * segments[segment0_handle].C_pre);
+    atomicAdd(segments[segment0_handle].diffusion_w, -dw_weight * segments[segment0_handle].RW_pre);
+    atomicAdd(segments[segment0_handle].diffusion_b, -db_weight * segments[segment0_handle].RB_pre);
+    atomicAdd(segments[segment0_handle].diffusion_m, -dm_weight * segments[segment0_handle].moisture_pre);
+
+    atomicAdd(segments[segment1_handle].diffusion_c, -dc_weight * segments[segment1_handle].C_pre);
+    atomicAdd(segments[segment1_handle].diffusion_w, -dw_weight * segments[segment1_handle].RW_pre);
+    atomicAdd(segments[segment1_handle].diffusion_b, -db_weight * segments[segment1_handle].RB_pre);
+    atomicAdd(segments[segment1_handle].diffusion_m, -dm_weight * segments[segment1_handle].moisture_pre);
+
+    if (segments[segment1_handle].HL < lignin_threshold || segments[segment0_handle].HL < lignin_threshold) {
+      segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
+      segment_pairs[pair_index].connectivity_integrity = 0.0;
+    }
+
+    if (segments[segment0_handle].internal_pattern * segments[segment1_handle].internal_pattern == 0) {
+      if (segments[segment0_handle].cube_pattern * segments[segment1_handle].cube_pattern == 1) {
+        if (segments[segment1_handle].color != segments[segment0_handle].color) {
+          float temp_boundary_limit = 0.3;
+          float temp_health_limit = 0.1;
+          // if (segments[segment1_handle].boundary_distance < temp_boundary_limit &&
+          //     segments[segment0_handle].boundary_distance < temp_boundary_limit)
+          if (segments[segment1_handle].HL <
+                  temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0) ||
+              segments[segment0_handle].HL <
+                  temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0))  // Surface case
+
+          // if (segments[segment1_handle].HL <
+          //           temp_health_limit + min(segments[segment1_handle].boundary_distance, 0.2) ||
+          //       segments[segment0_handle].HL <
+          //           temp_health_limit + min(segments[segment1_handle].boundary_distance, 0.2))
+          {
             segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
             segment_pairs[pair_index].connectivity_integrity = 0.0;
+            segment_pairs[pair_index].connectivity_integrity = 0.0;
+          }
         }
+      } else {
+        float temp_boundary_limit = 0.3;
+        float temp_health_limit = 0.1;
+        // if (segments[segment1_handle].boundary_distance < temp_boundary_limit &&
+        //     segments[segment0_handle].boundary_distance < temp_boundary_limit)
+        if (segments[segment1_handle].HL <
+                temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0) ||
+            segments[segment0_handle].HL <
+                temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0))
 
-        if (segments[segment0_handle].internal_pattern * segments[segment1_handle].internal_pattern == 0)
+        // if (segments[segment1_handle].HL < 0.2 || segments[segment0_handle].HL < 0.2)
+
+        // if (segments[segment1_handle].HL <
+        //           temp_health_limit + min(segments[segment1_handle].boundary_distance, 0.2) ||
+        //       segments[segment0_handle].HL <
+        //           temp_health_limit + min(segments[segment1_handle].boundary_distance, 0.2))
         {
-            if (segments[segment0_handle].cube_pattern * segments[segment1_handle].cube_pattern == 1)
-            {
-                if (segments[segment1_handle].color != segments[segment0_handle].color)
-                {
-                float temp_boundary_limit = 0.3;
-                float temp_health_limit = 0.1;
-                if (segments[segment1_handle].HL <
-                        temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0) ||
-                    segments[segment0_handle].HL <
-                        temp_health_limit +
-                            max(0.3 - segments[segment1_handle].boundary_distance, 0.0))  // Surface case
-                {
-                  segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
-                  segment_pairs[pair_index].connectivity_integrity = 0.0;
-                  segment_pairs[pair_index].connectivity_integrity = 0.0;
-                }
-                }
-            }
-            else
-            {
-              float temp_boundary_limit = 0.3;
-              float temp_health_limit = 0.1;
-              if (segments[segment1_handle].HL <
-                      temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0) ||
-                  segments[segment0_handle].HL <
-                      temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0))
-              {
-                segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
-                segment_pairs[pair_index].connectivity_integrity = 0.0;
-              }
-            }
+          segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
+          segment_pairs[pair_index].connectivity_integrity = 0.0;
         }
-
-	}
+      }
+    }
+  }
 }

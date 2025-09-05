@@ -50,6 +50,8 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   float inv_mass_p1 = next_handle != -1 ? segments[next_handle].inv_mass : inv_mass_q;
 
   vec4 q = segments[segment_handle].q;
+  // vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL,
+  // segments[segment_handle].shear_stretch_alpha));
   vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
   float rest_length = segments[segment_handle].rest_length;
 
@@ -97,6 +99,8 @@ void project_shear_stretch_constraint(in float inv_time_step, in int segment_han
   float inv_mass_p1 = next_handle != -1 ? segments[next_handle].inv_mass : inv_mass_q;
 
   vec4 q = segments[segment_handle].q;
+  // vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL,
+  // segments[segment_handle].shear_stretch_alpha));
   vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
   float rest_length = segments[segment_handle].rest_length;
 
@@ -275,7 +279,11 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
   vec3 L_normal_world = vec3(1.0, 0.0, 0.0);
 
   float t2 = inv_time_step * inv_time_step;
-
+  /*segments[segment_handle].color =
+      vec4(vec3(clamp(abs(segments[segment_handle].profile_position.y) / 50.0, 0.0, 1.0)), 1.0);*/
+  /*segments[segment_handle].color =
+      vec4(vec3(clamp(bd / 0.3, 0.0, 1.0)), 1.0);*/
+  /*segments[segment_handle].color = vec4(vec3(clamp(segments[segment_handle].particle0.x[0] * 2, 0.0, 1.0)), 1.0);*/
 
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
     int pair_handle = segment_data_list[segment_handle].pair_handles[i];
@@ -291,10 +299,29 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
     vec3 neighbor_segment_center_position =
         (neighbor_segment_particle0_position + neighbor_segment_particle1_position) * 0.5f;
 
+    /*float alpha = 0.0f;
+    float beta = 1.0f;
+    float x_square = tree_profile_position.x * tree_profile_position.x;
+    float y_square = tree_profile_position.y * tree_profile_position.y;
+
+    float x_factor = 0.0f, y_factor = 0.0f;
+    if (x_square + y_square > 0.f)
+    {
+      x_factor = ((1.f - alpha) * x_square + (1.f - beta) * y_square) / (x_square + y_square);
+      y_factor = ((1.f - alpha) * y_square + (1.f - beta) * x_square) / (x_square + y_square);
+    }*/ //Previous
+
     float bd_factor = 12.0f * max(0.03f - bd, 0.0f) * (1.0f - HC);
+    // bd_factor = 8.0f * max(0.05f - bd, 0.0f);//Outer
+
+    // bd_factor = 5.0f * max(bd, 0.0f) * max(bd, 0.0f);//Inner Previous
+    // vec3 scale = vec3(1.0f - 2.0f * bd_factor * x_factor, 1.0f - 2.0f * bd_factor * y_factor, 1.0f - 0.0f *
+    // bd_factor);
 
     vec3 offset_local =
         is_segment0 ? segment_pairs[pair_handle].segment0_offset.xyz : segment_pairs[pair_handle].segment1_offset.xyz;
+
+    // vec3 scaled_offset = offset_local * scale;
 
     bd_factor = min(max(bd, 0.0f), 0.1) * 2.0;
     float moist_factor = 1.0f - moisture;
@@ -308,8 +335,23 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
     scaled_offset_world = scaleAlong(offset_world, R_normal_world, max(1.0 - 3.0 * bd_factor * moist_factor, 0.0));
     scaled_offset_world =
         scaleAlong(scaled_offset_world, T_normal_world, max(1.0 - 3.0 * bd_factor * moist_factor, 0.0));
+    // if (bd > 0.09 && bd < 0.13) {
+    //   scaled_offset_world = scaleAlong(offset_world, R_normal_world, max(1.0 - 0.5 * bd_factor * moist_factor, 0.0));
+    //   scaled_offset_world = scaleAlong(scaled_offset_world, T_normal_world, 1.0 - 3.0 * bd_factor * moist_factor);
+    // } else {
+    //   scaled_offset_world = scaleAlong(offset_world, R_normal_world, 1.0 - 0.5 * bd_factor * moist_factor);
+    //   scaled_offset_world = scaleAlong(scaled_offset_world, T_normal_world, 1.0 - 3.0 * bd_factor * moist_factor);
+    //  }     //Test for anisotropy
 
     vec3 target_segment0_center_position = neighbor_segment_center_position + scaled_offset_world;
+
+    /*
+    float current_distance = distance(segment0_center_position, neighbor_segment_center_position);
+    float target_distance = length(segment_pairs[pair_handle].segment0_offset);
+    vec3 target_segment0_center_position =
+        segment0_center_position + (target_distance - current_distance) * 0.5f *
+                                       normalize(segment0_center_position - neighbor_segment_center_position);
+    */
     // Always enforce inf stiffness.
     bundle_alpha_sum += 0.0f;  // t2 * segment_pairs[pair_handle].bending_alpha;
     float lambda = max(1e-9f, segments[segment_handle].inv_mass + segments[neighbor_segment_handle].inv_mass);
@@ -512,6 +554,8 @@ void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
 
   vec4 q = segments[segment_handle].q;
 
+  // vec3 alpha = vec3(AdaptAlphaToLigninHealth(segments[segment_handle].HL,
+  // segments[segment_handle].shear_stretch_alpha));
   vec3 alpha = vec3(segments[segment_handle].shear_stretch_alpha);
 
   float rest_length = segments[segment_handle].rest_length;
