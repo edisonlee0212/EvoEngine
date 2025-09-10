@@ -284,6 +284,8 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
   /*segments[segment_handle].color =
       vec4(vec3(clamp(bd / 0.3, 0.0, 1.0)), 1.0);*/
   /*segments[segment_handle].color = vec4(vec3(clamp(segments[segment_handle].particle0.x[0] * 2, 0.0, 1.0)), 1.0);*/
+  /*segments[segment_handle].color =
+      vec4(vec3(clamp((segments[segment_handle].profile_polar_coordinate.y + 3.14159) / 6.3, 0.0, 1.0)), 1.0);*/
 
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
     int pair_handle = segment_data_list[segment_handle].pair_handles[i];

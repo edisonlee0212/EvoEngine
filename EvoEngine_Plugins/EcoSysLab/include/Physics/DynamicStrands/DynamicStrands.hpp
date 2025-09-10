@@ -39,6 +39,7 @@ class IDsPhysicsOperator;
 class IDsConstraint;
 class DsPrediction;
 class DsFungus;
+class DsCylinderSurfaceCollider;
 class DsStructuralDamage;
 class DsVelocityUpdate;
 struct DtsStrandGroupData {};
@@ -339,6 +340,7 @@ class DynamicStrands {
   };
 
   std::shared_ptr<DsFungus> fungus;
+  std::shared_ptr<DsCylinderSurfaceCollider> cylinderSurfaceCollider;
   std::shared_ptr<DsPreStep> pre_step;
   std::shared_ptr<DsPrediction> prediction;
   std::shared_ptr<DsStructuralDamage> structural_damage;
@@ -439,7 +441,7 @@ class DynamicStrands {
     float extra_mass = 0.f;
     float snow_amount = 0.f;
     float screen_depth = 0.0f;
-    float padding0;
+    int32_t prev_inside = 1;
 
     float C = 0.2f;
     float HC = 1.0f;
@@ -466,6 +468,7 @@ class DynamicStrands {
     float diffusion_m = 0.f;
     int32_t internal_pattern = 0;
     int32_t cube_pattern = 0;
+
 
     GpuParticle particle0{};
     GpuParticle particle1{};

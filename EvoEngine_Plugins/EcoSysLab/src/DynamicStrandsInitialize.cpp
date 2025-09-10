@@ -305,6 +305,8 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     segment.cube_pattern = 0;
     segment.internal_pattern = 0;
 
+    segment.prev_inside = 1;
+
     segment.inertia_tensor = ComputeInertiaTensorRod(segment.original_mass, segment.radius, segment.rest_length);
     segment.inv_inertia_tensor = 1.f / segment.inertia_tensor;
     const float area = glm::pi<float>() * segment.radius * segment.radius;

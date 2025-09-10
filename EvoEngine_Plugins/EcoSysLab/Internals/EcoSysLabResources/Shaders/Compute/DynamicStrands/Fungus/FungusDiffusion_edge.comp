@@ -98,6 +98,18 @@ void main() {
     computeDiffusionWeights(segment0_pos, segment1_pos, segment0_distance, segment1_distance, dc_weight, dw_weight,
                             db_weight, dm_weight);
 
+    float polar = segments[segment0_handle].profile_polar_coordinate.y;
+    float pi = 3.1415926;
+    if (polar > -5.0 * pi / 6.0 && polar < -2.0 * pi / 3.0)
+    {
+      dw_weight = dw_weight * 0.1;
+      db_weight = db_weight * 0.1;
+    }
+    if (polar > 1.0 * pi / 3.0 && polar < 2.0 * pi / 3.0) {
+      dw_weight = dw_weight * 0.1;
+      db_weight = db_weight * 0.1;
+    }
+
     // Accumulate diffusion contribution from neighbors
     atomicAdd(segments[segment0_handle].diffusion_c, dc_weight * segments[segment1_handle].C_pre);
     atomicAdd(segments[segment0_handle].diffusion_w, dw_weight * segments[segment1_handle].RW_pre);
@@ -133,18 +145,17 @@ void main() {
           float temp_health_limit = 0.1;
           // if (segments[segment1_handle].boundary_distance < temp_boundary_limit &&
           //     segments[segment0_handle].boundary_distance < temp_boundary_limit)
-          if (segments[segment1_handle].HL <
-                  temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0) ||
-              segments[segment0_handle].HL <
-                  temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0))  // Surface case
+          //if (segments[segment1_handle].HL <
+          //        temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0) ||
+           //   segments[segment0_handle].HL <
+           //       temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0))  // Surface case
 
-          // if (segments[segment1_handle].HL <
-          //           temp_health_limit + min(segments[segment1_handle].boundary_distance, 0.2) ||
-          //       segments[segment0_handle].HL <
-          //           temp_health_limit + min(segments[segment1_handle].boundary_distance, 0.2))
+           if (segments[segment1_handle].HL <
+                     0.1 * temp_health_limit + 1.2 * min(segments[segment1_handle].boundary_distance, 0.2) ||
+                 segments[segment0_handle].HL <
+                     0.1 * temp_health_limit + 1.2 * min(segments[segment1_handle].boundary_distance, 0.2))
           {
             segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
-            segment_pairs[pair_index].connectivity_integrity = 0.0;
             segment_pairs[pair_index].connectivity_integrity = 0.0;
           }
         }

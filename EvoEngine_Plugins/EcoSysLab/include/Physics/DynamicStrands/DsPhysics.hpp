@@ -74,6 +74,47 @@ class DsFungus {
                const DynamicStrands& target_dynamic_strands);
 };
 
+
+class DsCylinderSurfaceCollider{
+ public:
+  struct SegmentPushConstant {
+    glm::quat obb_rotation;
+    glm::vec3 obb_center;
+    float padding;
+    float radius;
+    float height;
+    float softness = 1.0f;
+    uint32_t segment_size;
+  };
+
+  struct LeafPushConstant {
+    glm::quat obb_rotation;
+    glm::vec3 obb_center;
+    float padding;
+    float radius;
+    float height;
+    float softness = 1.0f;
+    uint32_t leaf_size;
+  };
+  float radius = .51f;
+  float height = .51f;
+
+  float softness = 1.f;
+  glm::vec4 bound_color = glm::vec4(1, 0, 1, 0.1f);
+  glm::vec3 scale = glm::vec3(0.2f, 1.0f, 0.2f);
+  glm::quat obb_rotation = glm::quat(1, 0, 0, 0);
+  glm::vec3 obb_center = glm::vec3(0, 0, 0);
+
+  void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Camera>& editor_camera,
+                   const glm::vec4& color);
+  inline static std::shared_ptr<ComputePipeline> segment_position_pipeline;
+  inline static std::shared_ptr<ComputePipeline> leaf_position_pipeline;
+  DsCylinderSurfaceCollider();
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                 const DynamicStrands& target_dynamic_strands);
+};
+
 /**
  * @class DsPreStep
  * @brief Handles the pre-step calculations for dynamic strands in GPU simulation.

@@ -31,6 +31,15 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	uint segment_size;
 };
 
+bool is_inside(in vec3 p, in float offset) {
+  vec3 q = p - obb_center.xyz;
+  q = rotate_vec3(conjugate(obb_rotation), q);
+  if (abs(q.y) > height - offset)
+    return false;
+  float r2 = q.x * q.x + q.z * q.z;
+  return r2 < (radius - offset) * (radius - offset);
+}
+
 vec3 process_point(in vec3 p){
 	vec3 projected_p = p - obb_center.xyz;
 	projected_p = rotate_vec3(conjugate(obb_rotation), projected_p);
@@ -70,10 +79,33 @@ void main(){
 		vec3 p0 = particle0.x;
 		vec3 p1 = particle1.x;
 
-		p0 = process_point(p0);
-		p1 = process_point(p1);
+		bool in0 = is_inside(p0, 0.0);
+                bool in1 = is_inside(p1, 0.0);
 
+		bool in0_hard = is_inside(p0, 0.0);
+                bool in1_hard = is_inside(p1, 0.0);
+
+		int prev = segment.prev_inside;
+		
+		if (prev == 0 && in0)
+		{
+                  p0 = process_point(p0);
+                  in0_hard = false;
+		}
+		if (prev == 0 && in1)
+		{
+                  p1 = process_point(p1);
+                  in1_hard = false;
+		}
 		segments[segment_index].particle0.x = p0;
 		segments[segment_index].particle1.x = p1;
+		if (in0_hard && in1_hard)
+		{
+		  segments[segment_index].prev_inside = 1;
+		}
+		else
+		{
+		  segments[segment_index].prev_inside = 0;
+                }
 	}
 }

@@ -59,6 +59,16 @@ void main(){
         float diffusion_w = segments[segment_index].diffusion_w;
         float diffusion_b = segments[segment_index].diffusion_b;
         float diffusion_m = segments[segment_index].diffusion_m;
+
+        float polar_scale = 1.0;
+        float polar = segments[segment_index].profile_polar_coordinate.y;
+        float pi = 3.1415926;
+        if (polar > -5.0 * pi / 6.0 && polar < -2.0 * pi / 3.0) {
+          polar_scale = 0.1;
+        }
+        if (polar > 1.0 * pi / 3.0 && polar < 2.0 * pi / 3.0) {
+          polar_scale = 0.1;
+        }
         
         // Update chemical protection (C)
         segments[segment_index].C = segments[segment_index].C_pre + 
@@ -92,7 +102,7 @@ void main(){
         
         // Update white rot (RW)
         segments[segment_index].RW = segments[segment_index].RW_pre + 
-                          dt * (aw * segments[segment_index].RW_pre * 
+                          dt * (polar_scale * aw * segments[segment_index].RW_pre * 
                                       (1.0 - segments[segment_index].RW_pre) * 
                                       (ll * segments[segment_index].HL_pre + 
                                        lc * segments[segment_index].HC_pre) - 
@@ -104,7 +114,7 @@ void main(){
         
         // Update brown rot (RB)
         segments[segment_index].RB = segments[segment_index].RB_pre + 
-                          dt * (ab * segments[segment_index].RB_pre * 
+                          dt * (polar_scale * ab * segments[segment_index].RB_pre * 
                                       (1.0 - segments[segment_index].RB_pre) * 
                                       segments[segment_index].HC_pre - 
                                       bb * segments[segment_index].C_pre * 

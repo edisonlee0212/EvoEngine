@@ -29,6 +29,9 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
           c->ProjectPositionConstraint(physics_parameters, *this);
       }
     }
+    if (fungus && physics_parameters.enable_fungus && cylinderSurfaceCollider) {
+
+    }
     const auto scene = Application::GetActiveScene();
     const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
     const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();

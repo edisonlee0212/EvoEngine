@@ -727,3 +727,132 @@ void DsSegmentCollision::Execute(const DynamicStrands::PhysicsParameters& physic
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
+
+void DsCylinderSurfaceCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer,
+                                            const std::shared_ptr<Camera>& editor_camera, const glm::vec4& color) {
+
+  auto size = glm::vec2(radius * glm::max(scale.x, scale.z), height * scale.y) * 2.f;
+  if (size.x < 0.001f)
+    size.x = 0.001f;
+  if (size.y < 0.001f)
+    size.y = 0.001f;
+  GizmoSettings gizmo_settings;
+  gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
+  gizmo_settings.draw_settings.blending = true;
+  gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_FILL;
+  gizmo_settings.draw_settings.line_width = 1.0f;
+  gizmo_settings.depth_test = true;
+  editor_layer->DrawGizmoMesh(Resources::Primitives::cylinder, editor_camera, color,
+                              glm::translate(obb_center) *
+                                  glm::mat4_cast(obb_rotation) *
+                                  glm::scale(glm::vec3(size.x, size.y, size.x)),
+                              1, gizmo_settings);
+}
+
+DsCylinderSurfaceCollider::DsCylinderSurfaceCollider() {
+  if (!segment_position_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentCylinderSurface.comp");
+
+    segment_position_pipeline = std::make_shared<ComputePipeline>();
+    segment_position_pipeline->compute_shader = shader;
+    segment_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = segment_position_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(SegmentPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    segment_position_pipeline->Initialize();
+  }
+
+  if (!leaf_position_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafCylinder.comp");
+
+    leaf_position_pipeline = std::make_shared<ComputePipeline>();
+    leaf_position_pipeline->compute_shader = shader;
+    leaf_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = leaf_position_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(LeafPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    leaf_position_pipeline->Initialize();
+  }
+}
+
+bool DsCylinderSurfaceCollider::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  bool changed = false;
+
+  if (ImGui::DragFloat("Radius", &radius, 0.01f, 0.0f, 10.0f)) {
+    changed = true;
+  }
+  if (ImGui::DragFloat("Height", &height, 0.01f, 0.0f, 10.0f)) {
+    changed = true;
+  }
+  if (ImGui::DragFloat("Softness", &softness, 0.01f, 0.0f, 1.0f)) {
+    changed = true;
+  }
+  ImGui::ColorEdit4("Bound Color:##DsBoxCollider", (float*)(void*)&bound_color);
+  static bool display_bound = true;
+  ImGui::Checkbox("Display bounds##DsBoxCollider", &display_bound);
+  if (display_bound) {
+    RenderBound(editor_layer, editor_layer->GetSceneCamera(), bound_color);
+  }
+  return changed;
+}
+
+void DsCylinderSurfaceCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                                          const DynamicStrands& target_dynamic_strands) {
+
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  auto size = glm::vec2(radius * glm::max(scale.x, scale.z), height * scale.y);
+  if (size.x < 0.001f)
+    size.x = 0.001f;
+  if (size.y < 0.001f)
+    size.y = 0.001f;
+  SegmentPushConstant segment_push_constant;
+  segment_push_constant.obb_center = obb_center;
+  segment_push_constant.radius = size.x;
+  segment_push_constant.height = size.y;
+  segment_push_constant.obb_rotation = obb_rotation;
+  segment_push_constant.segment_size = target_dynamic_strands.segments.size();
+  segment_push_constant.softness = softness;
+
+  LeafPushConstant leaf_push_constant;
+  leaf_push_constant.obb_center = obb_center;
+  leaf_push_constant.radius = size.x;
+  leaf_push_constant.height = size.y;
+  leaf_push_constant.obb_rotation = obb_rotation;
+  leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  leaf_push_constant.softness = softness;
+
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    segment_position_pipeline->Bind(vk_command_buffer);
+    segment_position_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    segment_position_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    leaf_position_pipeline->Bind(vk_command_buffer);
+    leaf_position_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0,
+        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+
+    leaf_position_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+}
