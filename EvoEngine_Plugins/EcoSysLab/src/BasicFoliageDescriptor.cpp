@@ -1,5 +1,5 @@
 #include "BasicFoliageDescriptor.hpp"
-#include "TreeModel.hpp"
+#include "ShootModel.hpp"
 using namespace eco_sys_lab_plugin;
 
 void BasicFoliageDescriptor::Serialize(YAML::Emitter& out) const {
@@ -101,10 +101,10 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
                                                        branching_angle.GetValue(), glm::linearRand(0.0f, 360.0f))));
       auto front = leaf.rotation * glm::vec3(0, 0, -1);
       auto up = leaf.rotation * glm::vec3(0, 1, 0);
-      TreeModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
+      ShootModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
       if (const auto horizontal_direction = glm::vec3(front.x, 0.0f, front.z);
           glm::length(horizontal_direction) > glm::epsilon<float>()) {
-        TreeModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, front, up);
+        ShootModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, front, up);
       }
       leaf.rotation = glm::quatLookAt(front, up);
 
@@ -169,10 +169,10 @@ void BasicFoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& mat
                                            glm::linearRand(0.0f, 360.0f))));
       auto front = rotation * glm::vec3(0, 0, -1);
       auto up = rotation * glm::vec3(0, 1, 0);
-      TreeModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
+      ShootModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
       if (const auto horizontal_direction = glm::vec3(front.x, 0.0f, front.z);
           glm::length(horizontal_direction) > glm::epsilon<float>()) {
-        TreeModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, front, up);
+        ShootModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, front, up);
       }
       auto foliage_position =
           glm::mix(internode_info.global_position, internode_info.GetGlobalEndPosition(), glm::linearRand(0.f, 1.f)) +

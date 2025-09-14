@@ -7,15 +7,12 @@ using namespace billboard_clouds_plugin;
 #endif
 #include "BasicFoliageDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
-#include "Climate.hpp"
-#include "LSystemString.hpp"
 #include "RadialBoundingVolume.hpp"
 #include "SkeletalGraphSettings.hpp"
 #include "Soil.hpp"
 #include "StrandModelMeshGenerator.hpp"
-#include "TreeController.hpp"
+#include "TreeControllers.hpp"
 #include "TreeDescriptor.hpp"
-#include "TreeGraph.hpp"
 #include "TreeIOTree.hpp"
 #include "TreeMeshGenerator.hpp"
 #include "TreePart.hpp"
@@ -39,6 +36,7 @@ class Tree : public IPrivateComponent {
   void PrepareController(const SimulationSettings& simulation_settings);
 
   ShootGrowthController shoot_growth_controller_{};
+  RootGrowthController root_growth_controller_{};
   FoliageController foliage_controller_{};
   ReproductionController reproduction_controller_{};
   ShootPruningController shoot_pruning_controller_{};
@@ -225,7 +223,7 @@ class Tree : public IPrivateComponent {
                              const std::shared_ptr<Mesh>& point_mesh_sample,
                              const std::shared_ptr<Mesh>& line_mesh_sample) const;
 
-  TreeModel tree_model{};      ///< The procedural tree model instance.
+  ShootModel tree_model{};     ///< The procedural tree model instance.
   StrandModel strand_model{};  ///< The strand-based model representation.
 
   /**
@@ -307,9 +305,6 @@ class Tree : public IPrivateComponent {
 
   /**
    * @brief Imports a tree model from a skeleton structure.
-   * @tparam SrcSkeletonData Data type for the source skeleton.
-   * @tparam SrcFlowData Data type for the skeleton flow.
-   * @tparam SrcNodeData Data type for the skeleton nodes.
    * @param src_skeleton The source skeleton to import from.
    */
   template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
@@ -408,9 +403,6 @@ class Tree : public IPrivateComponent {
 };
 /**
  * @brief Imports a tree model from a skeleton structure.
- * @tparam SrcSkeletonData Data type for source skeleton representation.
- * @tparam SrcFlowData Data type for flow in the skeleton.
- * @tparam SrcNodeData Data type for nodes in the skeleton.
  * @param src_skeleton The source skeleton to import from.
  */
 template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>

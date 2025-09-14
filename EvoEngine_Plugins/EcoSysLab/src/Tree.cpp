@@ -527,6 +527,10 @@ void Tree::PrepareController(const SimulationSettings& simulation_settings) {
   if (!shoot_descriptor) {
     throw std::runtime_error("Shoot Descriptor Missing!");
   }
+  const auto root_descriptor = td->root_descriptor.Get<IRootDescriptor>();
+  if (!root_descriptor) {
+    throw std::runtime_error("Root Descriptor Missing!");
+  }
   const auto pruning_descriptor = td->pruning_descriptor.Get<IPruningDescriptor>();
   if (!pruning_descriptor) {
     throw std::runtime_error("Pruning Descriptor Missing!");
@@ -540,6 +544,7 @@ void Tree::PrepareController(const SimulationSettings& simulation_settings) {
     throw std::runtime_error("Reproduction Module Descriptor Missing!");
   }
   shoot_descriptor->PrepareController(shoot_growth_controller_);
+  root_descriptor->PrepareController(root_growth_controller_);
   foliage_descriptor->PrepareController(foliage_controller_);
   reproduction_module_descriptor->PrepareController(reproduction_controller_);
   pruning_descriptor->PrepareController(simulation_settings, shoot_pruning_controller_);

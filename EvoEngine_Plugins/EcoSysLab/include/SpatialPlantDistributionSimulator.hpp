@@ -1,7 +1,7 @@
 
 #pragma once
+#include "ShootModel.hpp"
 #include "SpatialPlantDistribution.hpp"
-#include "TreeModel.hpp"
 
 using namespace evo_engine;
 

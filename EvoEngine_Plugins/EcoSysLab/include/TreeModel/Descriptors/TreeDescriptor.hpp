@@ -1,5 +1,5 @@
 #pragma once
-#include "TreeController.hpp"
+#include "TreeControllers.hpp"
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
@@ -20,6 +20,24 @@ class IShootDescriptor : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 };
+/**
+ * \class IRootDescriptor
+ * \brief Represents the parameters controlling procedural tree growth.
+ */
+class IRootDescriptor : public IAsset {
+ public:
+  /**
+   * \brief Prepares a RootGrowthController using current growth parameters.
+   * \param root_growth_controller The controller to configure.
+   */
+  virtual void PrepareController(RootGrowthController& root_growth_controller) const = 0;
+  /**
+   * \brief Generates a thumbnail texture representing the root descriptor.
+   * \return A shared pointer to the generated Texture2D.
+   */
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+};
+
 /**
  * \class IPruningDescriptor
  * \brief Represents the parameters controlling procedural tree pruning.
@@ -133,6 +151,11 @@ class TreeDescriptor : public IAsset {
    * @brief Reference to the shoot descriptor asset.
    */
   AssetRef shoot_descriptor;
+  /**
+   * @brief Reference to the root descriptor asset.
+   */
+  AssetRef root_descriptor;
+
   /**
    * @brief Reference to the pruning descriptor asset.
    */

@@ -2,7 +2,7 @@
 #include "Curve.hpp"
 #include "Jobs.hpp"
 #include "Octree.hpp"
-#include "TreeModel.hpp"
+#include "ShootModel.hpp"
 #include "Vertex.hpp"
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {

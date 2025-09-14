@@ -3,9 +3,9 @@
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"
 #include "DynamicStrands.hpp"
+#include "ShootGrowthData.hpp"
 #include "StrandModelData.hpp"
 #include "Tree.hpp"
-#include "TreeGrowthData.hpp"
 
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {

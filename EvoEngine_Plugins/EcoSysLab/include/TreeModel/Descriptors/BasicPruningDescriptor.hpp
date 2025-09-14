@@ -1,7 +1,7 @@
 #pragma once
+#include "ShootModel.hpp"
 #include "SimulationSettings.hpp"
 #include "TreeDescriptor.hpp"
-#include "TreeModel.hpp"
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {

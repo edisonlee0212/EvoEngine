@@ -5,8 +5,8 @@
 #include "EditorLayer.hpp"
 #include "Jobs.hpp"
 #include "Platform.hpp"
+#include "ShootModel.hpp"
 #include "StrandModel.hpp"
-#include "TreeModel.hpp"
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
@@ -65,7 +65,7 @@ class TreeVisualizer {
    * @param hierarchy_level The hierarchy level of the internode.
    * @return True if the inspection was successful, otherwise false.
    */
-  bool DrawInternodeInspectionGui(TreeModel& tree_model, SkeletonNodeHandle internode_handle, bool& deleted,
+  bool DrawInternodeInspectionGui(ShootModel& tree_model, SkeletonNodeHandle internode_handle, bool& deleted,
                                   const unsigned& hierarchy_level);
 
   /**
@@ -164,14 +164,14 @@ class TreeVisualizer {
    * @param tree_model Reference to the tree model.
    * @return True if contents remain unmodified, otherwise false.
    */
-  bool OnInspect(TreeModel& tree_model);
+  bool OnInspect(ShootModel& tree_model);
 
   /**
    * @brief Visualizes the given tree model.
    * @param tree_model The tree model to visualize.
    * @param global_transform The global transformation matrix.
    */
-  void Visualize(const TreeModel& tree_model, const GlobalTransform& global_transform);
+  void Visualize(const ShootModel& tree_model, const GlobalTransform& global_transform);
 
   /**
    * @brief Visualizes the given strand model.
@@ -183,7 +183,7 @@ class TreeVisualizer {
    * @brief Resets the visualization of a tree model.
    * @param tree_model The tree model to reset.
    */
-  void Reset(const TreeModel& tree_model);
+  void Reset(const ShootModel& tree_model);
 
   /**
    * @brief Clears all visualization and data.

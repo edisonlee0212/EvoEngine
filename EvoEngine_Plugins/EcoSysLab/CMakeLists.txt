@@ -15,6 +15,8 @@ set(ECOSYSLAB_INCLUDES
 	${ECOSYSLAB_DIRECTORY}/include/ClimateModel
 	${ECOSYSLAB_DIRECTORY}/include/SoilModel
 	${ECOSYSLAB_DIRECTORY}/include/TreeModel/StrandModel
+	${ECOSYSLAB_DIRECTORY}/include/TreeModel/ShootModel
+	${ECOSYSLAB_DIRECTORY}/include/TreeModel/RootModel
 	${ECOSYSLAB_DIRECTORY}/include/TreeModel/DynamicTreeStrandGraph
 	${ECOSYSLAB_DIRECTORY}/include/TreeModel
 	${ECOSYSLAB_DIRECTORY}/include/Utilities

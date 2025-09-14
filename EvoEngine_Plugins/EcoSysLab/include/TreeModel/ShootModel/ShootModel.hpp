@@ -3,7 +3,7 @@
 // #include "VoxelSoilModel.hpp"
 #include "ClimateModel.hpp"
 #include "Octree.hpp"
-#include "TreeController.hpp"
+#include "TreeControllers.hpp"
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
@@ -44,7 +44,7 @@ struct TreeGrowthSettings {
 /**
  * @brief Represents the procedural structure and behavior of a tree model.
  */
-class TreeModel {
+class ShootModel {
 #pragma region Tree Growth
   /**
    * @brief Collects the shoot flux of the tree based on its internode list.
@@ -167,21 +167,18 @@ class TreeModel {
    * @brief Performs pre-processing computations after shoot growth.
    * @param shoot_growth_controller The controller that regulates shoot growth.
    */
-  void CalculateShootGrowthData(const ShootGrowthController& shoot_growth_controller);
+  void CalculateGrowthData(const ShootGrowthController& shoot_growth_controller);
 
   friend class Tree;
 #pragma endregion
 
   bool initialized_ = false;  ///< Tracks whether the model has been initialized.
 
-  ShootSkeleton shoot_skeleton_;  ///< The skeletal structure representing the tree.
-
-  std::deque<ShootSkeleton> history_;  ///< History of previous shoot skeleton states.
+  ShootSkeleton shoot_skeleton_;             ///< The skeletal structure representing the shoot.
+  std::deque<ShootSkeleton> shoot_history_;  ///< History of previous shoot skeleton states.
 
   int age_in_year_ = 0;              ///< Integer representation of the tree's age in years.
   float current_delta_time_ = 1.0f;  ///< Time step used for growth calculations.
-
-  bool enable_shoot_ = true;  ///< Enables or disables shoot growth.
 
   /**
    * @brief Resets the reproductive modules in the tree.
@@ -215,9 +212,6 @@ class TreeModel {
 
   /**
    * @brief Initializes the tree model by cloning data from an existing skeleton.
-   * @tparam SrcSkeletonData Type of the source skeleton data.
-   * @tparam SrcFlowData Type of the source flow data.
-   * @tparam SrcNodeData Type of the source node data.
    * @param src_skeleton The source skeleton used for initialization.
    */
   template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
@@ -332,7 +326,7 @@ class TreeModel {
   bool Grow(float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
             const ShootGrowthController& shoot_growth_controller, const FoliageController& foliage_controller,
             const ReproductionController& reproduction_controller,
-            const ShootPruningController& shoot_pruning_controller, const bool pruning = true);
+            const ShootPruningController& shoot_pruning_controller, bool pruning = true);
 
   /**
    * @brief Simulates one growth iteration for a subtree.
@@ -424,7 +418,7 @@ template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
  * @tparam SrcNodeData Type of the source node data.
  * @param src_skeleton The source skeleton used for initialization.
  */
-void TreeModel::Initialize(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& src_skeleton) {
+void ShootModel::Initialize(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& src_skeleton) {
   if (initialized_)
     Clear();
   random_engine_ = std::mt19937(static_cast<uint32_t>(seed));

@@ -2,7 +2,7 @@
 // Created by lllll on 10/21/2022.
 //
 
-#include "TreeModel.hpp"
+#include "ShootModel.hpp"
 
 #include "SkeletonSerializer.hpp"
 
@@ -59,7 +59,7 @@ void ShootOrgan::Reset() {
   position = glm::vec3(0.0f);
 }
 
-void TreeModel::ResetOrgans() {
+void ShootModel::ResetOrgans() {
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
     auto& internode = shoot_skeleton_.RefNode(*it);
@@ -74,9 +74,9 @@ void TreeModel::ResetOrgans() {
     }
   }
 }
-void TreeModel::CreateOrgansForInternode(SkeletonNode<InternodeGrowthData>& internode,
-                                         const FoliageController& foliage_controller,
-                                         const ReproductionController& reproduction_controller) {
+void ShootModel::CreateOrgansForInternode(SkeletonNode<InternodeGrowthData>& internode,
+                                          const FoliageController& foliage_controller,
+                                          const ReproductionController& reproduction_controller) {
   const auto leaf_count = foliage_controller.leaf_count(random_engine_, shoot_skeleton_.data, internode);
   for (uint32_t i = 0; i < leaf_count; i++) {
     internode.data.leaves.emplace_back();
@@ -91,7 +91,7 @@ void TreeModel::CreateOrgansForInternode(SkeletonNode<InternodeGrowthData>& inte
   }
 }
 
-void TreeModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model) {
+void ShootModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model) {
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   auto& environment_grid = climate_model.environment_grid;
   for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
@@ -112,7 +112,7 @@ void TreeModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& c
   }
 }
 
-void TreeModel::HarvestFruits(const std::function<bool(const ShootOrgan& fruit)>& harvest_function) {
+void ShootModel::HarvestFruits(const std::function<bool(const ShootOrgan& fruit)>& harvest_function) {
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
 
   for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
@@ -126,7 +126,7 @@ void TreeModel::HarvestFruits(const std::function<bool(const ShootOrgan& fruit)>
   }
 }
 
-void TreeModel::ApplyTropism(const glm::vec3& target_dir, float tropism, glm::vec3& front, glm::vec3& up) {
+void ShootModel::ApplyTropism(const glm::vec3& target_dir, float tropism, glm::vec3& front, glm::vec3& up) {
   const glm::vec3 dir = glm::normalize(target_dir);
   if (const float dot_p = glm::abs(glm::dot(front, dir)); dot_p < 0.99f && dot_p > -0.99f) {
     const glm::vec3 left = glm::cross(front, dir);
@@ -137,17 +137,17 @@ void TreeModel::ApplyTropism(const glm::vec3& target_dir, float tropism, glm::ve
   }
 }
 
-void TreeModel::ApplyTropism(const glm::vec3& target_dir, float tropism, glm::quat& rotation) {
+void ShootModel::ApplyTropism(const glm::vec3& target_dir, float tropism, glm::quat& rotation) {
   auto front = rotation * glm::vec3(0, 0, -1);
   auto up = rotation * glm::vec3(0, 1, 0);
   ApplyTropism(target_dir, tropism, front, up);
   rotation = glm::quatLookAt(front, up);
 }
 
-bool TreeModel::Grow(const float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
-                     const ShootGrowthController& shoot_growth_controller, const FoliageController& foliage_controller,
-                     const ReproductionController& reproduction_controller,
-                     const ShootPruningController& shoot_pruning_controller, const bool pruning) {
+bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform, ClimateModel& climate_model,
+                      const ShootGrowthController& shoot_growth_controller, const FoliageController& foliage_controller,
+                      const ReproductionController& reproduction_controller,
+                      const ShootPruningController& shoot_pruning_controller, const bool pruning) {
   current_delta_time_ = delta_time;
   shoot_skeleton_.data.age += current_delta_time_;
   bool tree_structure_changed = false;
@@ -160,13 +160,13 @@ bool TreeModel::Grow(const float delta_time, const glm::mat4& global_transform, 
   SampleTemperature(global_transform, climate_model);
 
   if (pruning) {
-    CalculateShootGrowthData(shoot_growth_controller);
+    CalculateGrowthData(shoot_growth_controller);
     if (PruneInternodes(global_transform, climate_model, shoot_growth_controller, shoot_pruning_controller)) {
       shoot_skeleton_.SortLists();
       tree_structure_changed = true;
     }
   }
-  CalculateShootGrowthData(shoot_growth_controller);
+  CalculateGrowthData(shoot_growth_controller);
   {
     bool any_branch_grown = false;
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
@@ -202,17 +202,17 @@ bool TreeModel::Grow(const float delta_time, const glm::mat4& global_transform, 
     }
     tree_structure_changed = true;
   }
-  CalculateShootGrowthData(shoot_growth_controller);
+  CalculateGrowthData(shoot_growth_controller);
 
   iteration_++;
   return tree_structure_changed;
 }
 
-bool TreeModel::Grow(const float delta_time, const SkeletonNodeHandle base_internode_handle,
-                     const glm::mat4& global_transform, ClimateModel& climate_model,
-                     const ShootGrowthController& shoot_growth_controller, const FoliageController& foliage_controller,
-                     const ReproductionController& reproduction_controller,
-                     const ShootPruningController& shoot_pruning_controller, const bool pruning) {
+bool ShootModel::Grow(const float delta_time, const SkeletonNodeHandle base_internode_handle,
+                      const glm::mat4& global_transform, ClimateModel& climate_model,
+                      const ShootGrowthController& shoot_growth_controller, const FoliageController& foliage_controller,
+                      const ReproductionController& reproduction_controller,
+                      const ShootPruningController& shoot_pruning_controller, const bool pruning) {
   current_delta_time_ = delta_time;
   shoot_skeleton_.data.age += current_delta_time_;
   bool tree_structure_changed = false;
@@ -227,7 +227,7 @@ bool TreeModel::Grow(const float delta_time, const SkeletonNodeHandle base_inter
   CalculateShootFlux(global_transform, climate_model, shoot_growth_controller);
   SampleTemperature(global_transform, climate_model);
   if (pruning) {
-    CalculateShootGrowthData(shoot_growth_controller);
+    CalculateGrowthData(shoot_growth_controller);
     if (PruneInternodes(global_transform, climate_model, shoot_growth_controller, shoot_pruning_controller)) {
       shoot_skeleton_.SortLists();
       tree_structure_changed = true;
@@ -236,7 +236,7 @@ bool TreeModel::Grow(const float delta_time, const SkeletonNodeHandle base_inter
   bool any_branch_grown = false;
   auto sorted_sub_tree_internode_list = shoot_skeleton_.GetSubTree(base_internode_handle);
 
-  CalculateShootGrowthData(shoot_growth_controller);
+  CalculateGrowthData(shoot_growth_controller);
   for (auto it = sorted_sub_tree_internode_list.rbegin(); it != sorted_sub_tree_internode_list.rend(); ++it) {
     const bool graph_changed =
         GrowInternode(climate_model, *it, shoot_growth_controller, foliage_controller, reproduction_controller);
@@ -266,15 +266,15 @@ bool TreeModel::Grow(const float delta_time, const SkeletonNodeHandle base_inter
     }
     tree_structure_changed = true;
   }
-  CalculateShootGrowthData(shoot_growth_controller);
+  CalculateGrowthData(shoot_growth_controller);
   iteration_++;
 
   return tree_structure_changed;
 }
 
-void TreeModel::Initialize(const ShootGrowthController& shoot_growth_controller,
-                           const FoliageController& foliage_controller,
-                           const ReproductionController& reproduction_controller) {
+void ShootModel::Initialize(const ShootGrowthController& shoot_growth_controller,
+                            const FoliageController& foliage_controller,
+                            const ReproductionController& reproduction_controller) {
   if (initialized_)
     Clear();
   random_engine_ = std::mt19937(static_cast<uint32_t>(seed));
@@ -310,8 +310,8 @@ void TreeModel::Initialize(const ShootGrowthController& shoot_growth_controller,
   initialized_ = true;
 }
 
-void TreeModel::CalculateShootFlux(const glm::mat4& global_transform, const ClimateModel& climate_model,
-                                   const ShootGrowthController& shoot_growth_controller) {
+void ShootModel::CalculateShootFlux(const glm::mat4& global_transform, const ClimateModel& climate_model,
+                                    const ShootGrowthController& shoot_growth_controller) {
   auto& shoot_data = shoot_skeleton_.data;
   shoot_data.max_marker_count = 0;
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
@@ -398,7 +398,7 @@ void TreeModel::CalculateShootFlux(const glm::mat4& global_transform, const Clim
   }
 }
 
-ShootFlux TreeModel::CollectShootFlux() {
+ShootFlux ShootModel::CollectShootFlux() {
   ShootFlux total_shoot_flux;
   total_shoot_flux.value = 0.0f;
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
@@ -421,7 +421,7 @@ ShootFlux TreeModel::CollectShootFlux() {
   return total_shoot_flux;
 }
 
-float TreeModel::GetSubTreeMaxAge(const SkeletonNodeHandle base_internode_handle) const {
+float ShootModel::GetSubTreeMaxAge(const SkeletonNodeHandle base_internode_handle) const {
   const auto sorted_sub_tree_internode_list = shoot_skeleton_.GetSubTree(base_internode_handle);
   float max_age = 0.0f;
 
@@ -432,8 +432,8 @@ float TreeModel::GetSubTreeMaxAge(const SkeletonNodeHandle base_internode_handle
   return max_age;
 }
 
-bool TreeModel::Reduce(const ShootGrowthController& shoot_growth_controller,
-                       const SkeletonNodeHandle base_internode_handle, float target_age) {
+bool ShootModel::Reduce(const ShootGrowthController& shoot_growth_controller,
+                        const SkeletonNodeHandle base_internode_handle, float target_age) {
   const auto sorted_sub_tree_internode_list = shoot_skeleton_.GetSubTree(base_internode_handle);
   if (sorted_sub_tree_internode_list.size() == 1)
     return false;
@@ -455,11 +455,11 @@ bool TreeModel::Reduce(const ShootGrowthController& shoot_growth_controller,
   }
 
   RemoveNodes(pruning_node_handles);
-  CalculateShootGrowthData(shoot_growth_controller);
+  CalculateGrowthData(shoot_growth_controller);
   return reduced;
 }
 
-void TreeModel::CalculateTransform(const ShootGrowthController& shoot_growth_controller, bool sagging) {
+void ShootModel::CalculateTransform(const ShootGrowthController& shoot_growth_controller, bool sagging) {
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   for (const auto& internode_handle : sorted_internode_list) {
     auto& internode = shoot_skeleton_.RefNode(internode_handle);
@@ -535,10 +535,10 @@ void TreeModel::CalculateTransform(const ShootGrowthController& shoot_growth_con
   }
 }
 
-bool TreeModel::ElongateInternode(const float extended_length, const SkeletonNodeHandle internode_handle,
-                                  const ShootGrowthController& shoot_growth_controller,
-                                  const FoliageController& foliage_controller,
-                                  const ReproductionController& reproduction_controller, float& collected_inhibitor) {
+bool ShootModel::ElongateInternode(const float extended_length, const SkeletonNodeHandle internode_handle,
+                                   const ShootGrowthController& shoot_growth_controller,
+                                   const FoliageController& foliage_controller,
+                                   const ReproductionController& reproduction_controller, float& collected_inhibitor) {
   bool graph_changed = false;
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
   const auto internode_length = shoot_growth_controller.base_internode_length;
@@ -628,7 +628,7 @@ bool TreeModel::ElongateInternode(const float extended_length, const SkeletonNod
   }
   return graph_changed;
 }
-void TreeModel::CalculateShootGrowthData(const ShootGrowthController& shoot_growth_controller) {
+void ShootModel::CalculateGrowthData(const ShootGrowthController& shoot_growth_controller) {
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   int max_order = 0;
   const auto& sorted_flow_list = shoot_skeleton_.PeekSortedFlowList();
@@ -710,10 +710,10 @@ void TreeModel::CalculateShootGrowthData(const ShootGrowthController& shoot_grow
   }
 }
 
-bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHandle internode_handle,
-                              const ShootGrowthController& shoot_growth_controller,
-                              const FoliageController& foliage_controller,
-                              const ReproductionController& reproduction_controller) {
+bool ShootModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHandle internode_handle,
+                               const ShootGrowthController& shoot_growth_controller,
+                               const FoliageController& foliage_controller,
+                               const ReproductionController& reproduction_controller) {
   bool graph_changed = false;
   {
     auto& internode = shoot_skeleton_.RefNode(internode_handle);
@@ -818,8 +818,8 @@ bool TreeModel::GrowInternode(ClimateModel& climate_model, const SkeletonNodeHan
   return graph_changed;
 }
 
-bool TreeModel::GrowFoliage(float delta_time, ClimateModel& climate_model, const glm::mat4& global_transform,
-                            const SkeletonNodeHandle internode_handle, const FoliageController& foliage_controller) {
+bool ShootModel::GrowFoliage(float delta_time, ClimateModel& climate_model, const glm::mat4& global_transform,
+                             const SkeletonNodeHandle internode_handle, const FoliageController& foliage_controller) {
   bool status_changed = false;
 
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
@@ -840,8 +840,8 @@ bool TreeModel::GrowFoliage(float delta_time, ClimateModel& climate_model, const
   return status_changed;
 }
 
-void TreeModel::FormulateFoliage(const ClimateModel& climate_model, const glm::mat4& global_transform,
-                                 SkeletonNodeHandle internode_handle, const FoliageController& foliage_controller) {
+void ShootModel::FormulateFoliage(const ClimateModel& climate_model, const glm::mat4& global_transform,
+                                  SkeletonNodeHandle internode_handle, const FoliageController& foliage_controller) {
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
   for (auto& leaf : internode.data.leaves) {
     if (leaf.status == OrganStatus::Inactive && leaf.maturity == 0.f) {
@@ -853,9 +853,9 @@ void TreeModel::FormulateFoliage(const ClimateModel& climate_model, const glm::m
   }
 }
 
-bool TreeModel::GrowReproductiveModules(float delta_time, ClimateModel& climate_model,
-                                        const glm::mat4& global_transform, const SkeletonNodeHandle internode_handle,
-                                        const ReproductionController& reproduction_controller) {
+bool ShootModel::GrowReproductiveModules(float delta_time, ClimateModel& climate_model,
+                                         const glm::mat4& global_transform, const SkeletonNodeHandle internode_handle,
+                                         const ReproductionController& reproduction_controller) {
   bool status_changed = false;
 
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
@@ -899,9 +899,9 @@ bool TreeModel::GrowReproductiveModules(float delta_time, ClimateModel& climate_
   }
   return status_changed;
 }
-void TreeModel::FormulateReproductiveModules(const ClimateModel& climate_model, const glm::mat4& global_transform,
-                                             SkeletonNodeHandle internode_handle,
-                                             const ReproductionController& reproduction_controller) {
+void ShootModel::FormulateReproductiveModules(const ClimateModel& climate_model, const glm::mat4& global_transform,
+                                              SkeletonNodeHandle internode_handle,
+                                              const ReproductionController& reproduction_controller) {
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
   for (auto& flower : internode.data.flowers) {
     if (flower.status == OrganStatus::Inactive && flower.maturity == 0.f) {
@@ -913,7 +913,7 @@ void TreeModel::FormulateReproductiveModules(const ClimateModel& climate_model, 
   }
 }
 
-void TreeModel::CalculateLevel() {
+void ShootModel::CalculateLevel() {
   auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   for (const auto& internode_handle : sorted_internode_list) {
     auto& node = shoot_skeleton_.RefNode(internode_handle);
@@ -946,7 +946,7 @@ void TreeModel::CalculateLevel() {
   }
 }
 
-void TreeModel::CalculateGrowthRate(const std::vector<SkeletonNodeHandle>& sorted_internode_list, const float factor) {
+void ShootModel::CalculateGrowthRate(const std::vector<SkeletonNodeHandle>& sorted_internode_list, const float factor) {
   const float clamped_factor = glm::clamp(factor, 0.0f, 1.0f);
   for (const auto& internode_handle : sorted_internode_list) {
     auto& node = shoot_skeleton_.RefNode(internode_handle);
@@ -955,7 +955,7 @@ void TreeModel::CalculateGrowthRate(const std::vector<SkeletonNodeHandle>& sorte
   }
 }
 
-float TreeModel::CalculateGrowthPotential(const ShootGrowthController& shoot_growth_controller) {
+float ShootModel::CalculateGrowthPotential(const ShootGrowthController& shoot_growth_controller) {
   float max_grow_potential = 0.0f;
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   for (const auto& internode_handle : sorted_internode_list) {
@@ -975,7 +975,7 @@ float TreeModel::CalculateGrowthPotential(const ShootGrowthController& shoot_gro
   return total_desired_growth_rate;
 }
 
-void TreeModel::CalculateThickness(const ShootGrowthController& shoot_growth_controller) {
+void ShootModel::CalculateThickness(const ShootGrowthController& shoot_growth_controller) {
   auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
     const auto internode_handle = *it;
@@ -1003,8 +1003,8 @@ void TreeModel::CalculateThickness(const ShootGrowthController& shoot_growth_con
     internode_info.thickness = internode_data.internode_thickness * shoot_growth_controller.base_thickness;
   }
 }
-void TreeModel::CalculateBiomass(SkeletonNodeHandle internode_handle,
-                                 const ShootGrowthController& shoot_growth_controller) {
+void ShootModel::CalculateBiomass(SkeletonNodeHandle internode_handle,
+                                  const ShootGrowthController& shoot_growth_controller) {
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
   auto& internode_data = internode.data;
   internode_data.descendant_total_biomass = internode_data.biomass = 0.0f;
@@ -1042,8 +1042,8 @@ void TreeModel::CalculateBiomass(SkeletonNodeHandle internode_handle,
   }
 }
 
-void TreeModel::CalculateSaggingStress(const SkeletonNodeHandle internode_handle,
-                                       const ShootPruningController& shoot_pruning_controller) {
+void ShootModel::CalculateSaggingStress(const SkeletonNodeHandle internode_handle,
+                                        const ShootPruningController& shoot_pruning_controller) {
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
   if (internode.IsEndNode() || internode.info.thickness == 0.f || internode.info.length == 0.f) {
     internode.data.sagging_force = 0.f;
@@ -1078,9 +1078,9 @@ void TreeModel::CalculateSaggingStress(const SkeletonNodeHandle internode_handle
   internode.data.sagging_stress = internode.data.sagging_force / breaking_force;
 }
 
-void TreeModel::Clear() {
+void ShootModel::Clear() {
   shoot_skeleton_ = {};
-  history_ = {};
+  shoot_history_ = {};
   initialized_ = false;
 
   if (tree_growth_settings.use_space_colonization && !tree_growth_settings.space_colonization_auto_resize) {
@@ -1095,20 +1095,20 @@ void TreeModel::Clear() {
   iteration_ = 0;
 }
 
-int TreeModel::GetLeafCount() const {
+int ShootModel::GetLeafCount() const {
   return leaf_count_;
 }
-int TreeModel::GetFlowerCount() const {
+int ShootModel::GetFlowerCount() const {
   return flower_count_;
 }
 
-int TreeModel::GetFruitCount() const {
+int ShootModel::GetFruitCount() const {
   return fruit_count_;
 }
 
-bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel& climate_model,
-                                const ShootGrowthController& shoot_growth_controller,
-                                const ShootPruningController& shoot_pruning_controller) {
+bool ShootModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel& climate_model,
+                                 const ShootGrowthController& shoot_growth_controller,
+                                 const ShootPruningController& shoot_pruning_controller) {
   bool root_to_end_pruned = false;
 
   {
@@ -1199,11 +1199,11 @@ bool TreeModel::PruneInternodes(const glm::mat4& global_transform, ClimateModel&
   CalculateLevel();
   return root_to_end_pruned || end_to_root_pruned;
 }
-void TreeModel::RemoveNodes(const std::vector<SkeletonNodeHandle>& pruning_node_handles) {
+void ShootModel::RemoveNodes(const std::vector<SkeletonNodeHandle>& pruning_node_handles) {
   shoot_skeleton_.RemoveNodes(pruning_node_handles);
 }
 
-void TreeModel::SampleTemperature(const glm::mat4& global_transform, ClimateModel& climate_model) {
+void ShootModel::SampleTemperature(const glm::mat4& global_transform, ClimateModel& climate_model) {
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
     auto& internode = shoot_skeleton_.RefNode(*it);
@@ -1214,44 +1214,44 @@ void TreeModel::SampleTemperature(const glm::mat4& global_transform, ClimateMode
   }
 }
 
-ShootSkeleton& TreeModel::RefShootSkeleton() {
+ShootSkeleton& ShootModel::RefShootSkeleton() {
   return shoot_skeleton_;
 }
 
-const ShootSkeleton& TreeModel::PeekShootSkeleton(const int iteration) const {
-  assert(iteration < 0 || iteration <= history_.size());
-  if (iteration == history_.size() || iteration < 0)
+const ShootSkeleton& ShootModel::PeekShootSkeleton(const int iteration) const {
+  assert(iteration < 0 || iteration <= shoot_history_.size());
+  if (iteration == shoot_history_.size() || iteration < 0)
     return shoot_skeleton_;
-  return history_.at(iteration);
+  return shoot_history_.at(iteration);
 }
 
-void TreeModel::ClearHistory() {
-  history_.clear();
+void ShootModel::ClearHistory() {
+  shoot_history_.clear();
 }
 
-void TreeModel::Step() {
-  history_.emplace_back(shoot_skeleton_);
+void ShootModel::Step() {
+  shoot_history_.emplace_back(shoot_skeleton_);
   if (history_limit > 0) {
-    while (history_.size() > history_limit) {
-      history_.pop_front();
+    while (shoot_history_.size() > history_limit) {
+      shoot_history_.pop_front();
     }
   }
 }
 
-void TreeModel::Pop() {
-  history_.pop_back();
+void ShootModel::Pop() {
+  shoot_history_.pop_back();
 }
 
-int TreeModel::CurrentIteration() const {
-  return history_.size();
+int ShootModel::CurrentIteration() const {
+  return shoot_history_.size();
 }
 
-void TreeModel::Reverse(int iteration) {
-  assert(iteration >= 0 && iteration < history_.size());
-  shoot_skeleton_ = history_[iteration];
-  history_.erase((history_.begin() + iteration), history_.end());
+void ShootModel::Reverse(int iteration) {
+  assert(iteration >= 0 && iteration < shoot_history_.size());
+  shoot_skeleton_ = shoot_history_[iteration];
+  shoot_history_.erase((shoot_history_.begin() + iteration), shoot_history_.end());
 }
-void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
+void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
   {
     out << YAML::Key << "shoot_skeleton" << YAML::Value << YAML::BeginMap;
@@ -1386,7 +1386,7 @@ void TreeModel::Save(const std::string& name, YAML::Emitter& out) const {
   }
   out << YAML::EndMap;
 }
-void TreeModel::Load(const std::string& name, const YAML::Node& in) {
+void ShootModel::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     if (const auto& in_tree_model = in[name]) {
       const auto& in_shoot_skeleton = in_tree_model["shoot_skeleton"];

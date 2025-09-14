@@ -320,7 +320,7 @@ void TreeVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
   particle_info_list->SetParticleInfos(matrices);
 }
 
-bool TreeVisualizer::DrawInternodeInspectionGui(TreeModel& tree_model, const SkeletonNodeHandle internode_handle,
+bool TreeVisualizer::DrawInternodeInspectionGui(ShootModel& tree_model, const SkeletonNodeHandle internode_handle,
                                                 bool& deleted, const unsigned& hierarchy_level) {
   auto& treeSkeleton = tree_model.RefShootSkeleton();
   const int index = selected_internode_hierarchy_list.size() - hierarchy_level - 1;
@@ -366,7 +366,7 @@ bool TreeVisualizer::DrawInternodeInspectionGui(TreeModel& tree_model, const Ske
 void TreeVisualizer::ClearSelections() {
   selected_internode_handle = -1;
 }
-bool TreeVisualizer::OnInspect(TreeModel& tree_model) {
+bool TreeVisualizer::OnInspect(ShootModel& tree_model) {
   bool updated = false;
   if (ImGui::Combo("Visualizer mode",
                    {"Default", "Order", "Level", "Max descendant light intensity", "Light intensity", "Light direction",
@@ -454,7 +454,7 @@ bool TreeVisualizer::OnInspect(TreeModel& tree_model) {
   return updated;
 }
 
-void TreeVisualizer::Visualize(const TreeModel& tree_model, const GlobalTransform& global_transform) {
+void TreeVisualizer::Visualize(const ShootModel& tree_model, const GlobalTransform& global_transform) {
   const auto& tree_skeleton = tree_model.PeekShootSkeleton(checkpoint_iteration);
   if (visualization) {
     const auto editor_layer = Application::GetLayer<EditorLayer>();
@@ -809,7 +809,7 @@ void TreeVisualizer::PeekInternode(const ShootSkeleton& shoot_skeleton,
   }
 }
 
-void TreeVisualizer::Reset(const TreeModel& tree_model) {
+void TreeVisualizer::Reset(const ShootModel& tree_model) {
   selected_internode_handle = -1;
   selected_internode_hierarchy_list.clear();
   checkpoint_iteration = tree_model.CurrentIteration();

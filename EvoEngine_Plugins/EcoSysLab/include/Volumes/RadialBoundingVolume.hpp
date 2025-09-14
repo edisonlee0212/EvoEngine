@@ -4,8 +4,8 @@
 #include <Mesh.hpp>
 
 #include "IVolume.hpp"
+#include "ShootModel.hpp"
 #include "Skeleton.hpp"
-#include "TreeModel.hpp"
 
 using namespace evo_engine;
 
