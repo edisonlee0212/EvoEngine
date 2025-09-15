@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(description="Sorghum Field Illumination Estimat
 
 parser.add_argument(
     "--output-path",
-    default=r"D:\zhan5455\SorghumIlluminationEstimationResults\Temp",
+    default=r"D:\zhan5455\SorghumIlluminationEstimationResults\experiment",
     type=str,
     help="path to store the output",
 )
@@ -33,9 +33,9 @@ parser.add_argument(
 
 parser.add_argument("--sun-light-dir-source-skip-row", default=2, type=int)
 
-parser.add_argument("--start-date", default="2021-06-29", type=str)
+parser.add_argument("--start-date", default="2021-01-29", type=str)
 
-parser.add_argument("--end-date", default="2021-07-17", type=str)
+parser.add_argument("--end-date", default="2021-10-17", type=str)
 
 
 # If you moved this python script, you should change following lines to make sure they points to the correct directory
