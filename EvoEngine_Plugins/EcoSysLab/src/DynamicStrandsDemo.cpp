@@ -553,7 +553,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     const auto tree_entity = scene->CreateEntity("Tree");
     tree_entity_ref = tree_entity;
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-    tree->tree_model.seed = 10;
+    tree->shoot_model.seed = 10;
     // tree.
     scene->SetDataComponent(tree_entity, tree_initial_pose);
     target_growth_time = 8.f;
@@ -575,7 +575,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     const auto tree_entity = scene->CreateEntity("Tree");
     tree_entity_ref = tree_entity;
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-    tree->tree_model.seed = 10;
+    tree->shoot_model.seed = 10;
     // tree.
     scene->SetDataComponent(tree_entity, tree_initial_pose);
     target_growth_time = 8.f;
@@ -644,7 +644,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
     tree_dts->enable_physics = false;
     target_factor0 = 0.03f;
-    tree->tree_model.seed = 8;
+    tree->shoot_model.seed = 8;
     const auto cylinder_entity = scene->CreateEntity("Cylinder");
     scene->GetOrSetPrivateComponent<DsCylinderCollider>(cylinder_entity);
     const auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(cylinder_entity).lock();
@@ -673,7 +673,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Demo.tree");
     const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
     tree_dts->enable_physics = false;
-    tree->tree_model.seed = 3;
+    tree->shoot_model.seed = 3;
     tree->strand_model_parameters.strand_radius_distribution.mean.min_value = 0.f;
     tree->strand_model_parameters.strand_radius_distribution.mean.max_value = 0.002f;
     auto& curve_values = tree->strand_model_parameters.strand_radius_distribution.mean.curve.UnsafeGetValues();

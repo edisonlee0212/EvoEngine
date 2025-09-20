@@ -2,7 +2,7 @@
 #include "ShootModel.hpp"
 using namespace eco_sys_lab_plugin;
 
-void BasicReproductionModuleDescriptor::PrepareController(ReproductionController& reproduction_controller) const {
+void BasicReproductionModuleDescriptor::PrepareController(ShootReproductionController& reproduction_controller) const {
   reproduction_controller.module_count = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
                                              const SkeletonNode<InternodeGrowthData>& internode) {
     return count_per_internode;

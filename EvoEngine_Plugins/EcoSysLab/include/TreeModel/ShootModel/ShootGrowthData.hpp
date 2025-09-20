@@ -93,14 +93,7 @@ class Bud {
 /**
  * @brief Structure representing shoot flux values.
  */
-struct ShootFlux {
-  float value = 0.0f;  ///< The flux value.
-};
-
-/**
- * @brief Structure representing root flux values.
- */
-struct RootFlux {
+struct Vigor {
   float value = 0.0f;  ///< The flux value.
 };
 

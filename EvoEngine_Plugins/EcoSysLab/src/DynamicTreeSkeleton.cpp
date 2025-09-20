@@ -19,7 +19,7 @@ bool DynamicTreeSkeleton::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
       const auto scene = GetScene();
       const auto owner = GetOwner();
       initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(owner);
-      dynamic_skeleton.Initialize(initialize_parameters, tree->tree_model.PeekShootSkeleton());
+      dynamic_skeleton.Initialize(initialize_parameters, tree->shoot_model.PeekShootSkeleton());
       dynamic_tree_skeleton_tree_ref.Clear();
     }
   }

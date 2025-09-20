@@ -58,7 +58,7 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
 
       scene->SetDataComponent(treeEntity, transform);
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
-      tree->tree_model.tree_growth_settings = tree_growth_settings;
+      tree->shoot_model.tree_growth_settings = tree_growth_settings;
       tree->tree_descriptor_ref = tree_descriptor.Get<TreeDescriptor>();
       if (i == 0 || j == 0 || i == gridSize.x - 1 || j == gridSize.y - 1) {
         scene->SetParent(treeEntity, boundary);
@@ -130,7 +130,7 @@ Entity ForestPatch::InstantiatePatch(
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
 
       const auto candidateIndex = glm::linearRand(0, static_cast<int>(candidates.size() - 1));
-      tree->tree_model.tree_growth_settings = candidates.at(candidateIndex).first;
+      tree->shoot_model.tree_growth_settings = candidates.at(candidateIndex).first;
       tree->tree_descriptor_ref = candidates.at(candidateIndex).second;  // tree_descriptor_ref.Get<TreeDescriptor>();
       if (i == 0 || j == 0 || i == gridSize.x - 1 || j == gridSize.y - 1) {
         scene->SetParent(treeEntity, boundary);
@@ -515,9 +515,9 @@ Entity ForestDescriptor::InstantiatePatch(const bool set_parent, const int seed)
     i++;
     scene->SetDataComponent(tree_entity, gt.global_transform);
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-    tree->tree_model.tree_growth_settings = tree_growth_settings;
+    tree->shoot_model.tree_growth_settings = tree_growth_settings;
     tree->tree_descriptor_ref = gt.tree_descriptor;
-    tree->tree_model.seed = seed * tree_infos.size();
+    tree->shoot_model.seed = seed * tree_infos.size();
     if (set_parent)
       scene->SetParent(tree_entity, parent);
   }

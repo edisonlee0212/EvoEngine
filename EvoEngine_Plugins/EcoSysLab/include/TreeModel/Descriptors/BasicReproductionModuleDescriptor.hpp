@@ -56,7 +56,7 @@ class BasicReproductionModuleDescriptor : public IReproductionModuleDescriptor {
    * \brief Prepares a ShootGrowthController using current growth parameters.
    * \param reproduction_controller The controller to configure.
    */
-  void PrepareController(ReproductionController& reproduction_controller) const override;
+  void PrepareController(ShootReproductionController& reproduction_controller) const override;
 
   /**
    * @brief Generates fruit transformation matrices based on internode information.

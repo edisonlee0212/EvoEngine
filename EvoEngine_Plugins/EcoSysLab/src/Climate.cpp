@@ -76,10 +76,11 @@ void Climate::PrepareForGrowth() {
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
     const auto global_transform = scene->GetDataComponent<GlobalTransform>(tree_entity).value;
 
-    tree->tree_model.RefShootSkeleton().CalculateMinMax();
-    const glm::vec3 current_min_bound = global_transform * glm::vec4(tree->tree_model.RefShootSkeleton().min, 1.0f);
+    tree->shoot_model.RefShootSkeleton().CalculateMinMax();
+    const glm::vec3 current_min_bound = global_transform * glm::vec4(tree->shoot_model.RefShootSkeleton().min, 1.0f);
 
-    if (const glm::vec3 current_max_bound = global_transform * glm::vec4(tree->tree_model.RefShootSkeleton().max, 1.0f);
+    if (const glm::vec3 current_max_bound =
+            global_transform * glm::vec4(tree->shoot_model.RefShootSkeleton().max, 1.0f);
         current_min_bound.x <= min_bound.x || current_min_bound.y <= min_bound.y ||
         current_min_bound.z <= min_bound.z || current_max_bound.x >= max_bound.x ||
         current_max_bound.y >= max_bound.y || current_max_bound.z >= max_bound.z) {

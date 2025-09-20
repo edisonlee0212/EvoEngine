@@ -52,7 +52,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
     for (int i = 0; i < tree_entities->size(); i++) {
       auto tree_entity = tree_entities->at(i);
       auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-      if (auto& tree_model = tree->tree_model; shoot_versions_[i] != tree_model.RefShootSkeleton().GetVersion()) {
+      if (auto& tree_model = tree->shoot_model; shoot_versions_[i] != tree_model.RefShootSkeleton().GetVersion()) {
         shoot_versions_[i] = tree_model.RefShootSkeleton().GetVersion();
         need_full_flow_update = true;
       }
@@ -127,7 +127,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
     gizmo_settings.depth_write = true;
     if (editor_layer && scene->IsEntityValid(selected_tree)) {
       const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
-      auto& tree_model = tree->tree_model;
+      auto& tree_model = tree->shoot_model;
       auto& tree_visualizer = tree->tree_visualizer;
       const auto global_transform = scene->GetDataComponent<GlobalTransform>(selected_tree);
 #ifdef CUDA_MODULE_PLUGIN
@@ -208,7 +208,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                                                          glm::mat4_cast(editor_layer->GetSceneCameraRotation()));
                     glm::mat4 camera_projection = visualization_camera_->GetProjection();
                     constexpr auto op = ImGuizmo::OPERATION::ROTATE;
-                    auto& current_skeleton = tree->tree_model.RefShootSkeleton();
+                    auto& current_skeleton = tree->shoot_model.RefShootSkeleton();
                     auto& internode = current_skeleton.RefNode(tree_visualizer.selected_internode_handle);
 
                     auto transform = glm::translate(internode.info.global_position) *
@@ -265,7 +265,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                                                          glm::mat4_cast(editor_layer->GetSceneCameraRotation()));
                     glm::mat4 camera_projection = visualization_camera_->GetProjection();
                     const auto op = ImGuizmo::OPERATION::ROTATE;
-                    auto& current_skeleton = tree->tree_model.RefShootSkeleton();
+                    auto& current_skeleton = tree->shoot_model.RefShootSkeleton();
                     auto& internode = current_skeleton.RefNode(tree_visualizer.selected_internode_handle);
 
                     auto transform = glm::translate(internode.info.global_position) *
@@ -404,7 +404,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                 const auto climate_candidate = FindClimate();
                 if (!climate_candidate.expired()) {
                   climate_candidate.lock()->PrepareForGrowth();
-                  if (tree->TryGrowSubTree(simulation_settings, tree_visualizer.selected_internode_handle, false)) {
+                  if (tree->TryGrow(simulation_settings, tree_visualizer.selected_internode_handle, false)) {
                     tree_visualizer.need_update = true;
                     may_need_geometry_generation = true;
                   }
@@ -430,13 +430,13 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                   tree_visualizer.checkpoint_iteration = tree_model.CurrentIteration();
                   tree_visualizer.need_update = true;
                   if (tree_visualizer.selected_internode_handle >= 0) {
-                    target_age = tree->tree_model.GetSubTreeMaxAge(tree_visualizer.selected_internode_handle);
+                    target_age = tree->shoot_model.GetSubTreeMaxAge(tree_visualizer.selected_internode_handle);
                   }
                 }
               } else if (tree_visualizer.selected_internode_handle >= 0 &&
                          editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
-                if (tree->tree_model.Reduce(tree->shoot_growth_controller_, tree_visualizer.selected_internode_handle,
-                                            target_age)) {
+                if (tree->shoot_model.Reduce(tree->shoot_growth_controller_, tree_visualizer.selected_internode_handle,
+                                             target_age)) {
                   tree_visualizer.need_update = true;
                   may_need_geometry_generation = true;
                 }
@@ -611,12 +611,12 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
       if (tree->start_time > simulated_time_)
         return;
       if (target_simulation_settings.max_node_count > 0 &&
-          tree->tree_model.RefShootSkeleton().PeekSortedNodeList().size() >= target_simulation_settings.max_node_count)
+          tree->shoot_model.RefShootSkeleton().PeekSortedNodeList().size() >= target_simulation_settings.max_node_count)
         return;
       if (target_simulation_settings.max_flow_count > 0 &&
-          tree->tree_model.RefShootSkeleton().PeekSortedFlowList().size() >= target_simulation_settings.max_flow_count)
+          tree->shoot_model.RefShootSkeleton().PeekSortedFlowList().size() >= target_simulation_settings.max_flow_count)
         return;
-      grown_stat[thread_index] = tree->TryGrow(target_simulation_settings, true);
+      grown_stat[thread_index] = tree->TryGrow(target_simulation_settings, -1, true);
     });
 
     auto height_field = soil->soil_descriptor_ref.Get<SoilDescriptor>()->height_field.Get<HeightField>();
@@ -629,7 +629,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
         continue;
       // Collect fruit and leaves here.
       if (!target_simulation_settings.auto_clear_fruit_and_leaves) {
-        for (const auto& flower : tree->tree_model.RefShootSkeleton().data.dropped_flowers) {
+        for (const auto& flower : tree->shoot_model.RefShootSkeleton().data.dropped_flowers) {
           Flower new_flower;
           Transform flower_transform;
           flower_transform.value =
@@ -649,7 +649,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
           flowers_.emplace_back(new_flower);
         }
 
-        for (const auto& fruit : tree->tree_model.RefShootSkeleton().data.dropped_fruits) {
+        for (const auto& fruit : tree->shoot_model.RefShootSkeleton().data.dropped_fruits) {
           Fruit new_fruit;
           Transform fruit_transform;
           fruit_transform.value =
@@ -669,7 +669,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
           fruits_.emplace_back(new_fruit);
         }
 
-        for (const auto& leaf : tree->tree_model.RefShootSkeleton().data.dropped_leaves) {
+        for (const auto& leaf : tree->shoot_model.RefShootSkeleton().data.dropped_leaves) {
           Leaf new_leaf;
           Transform leaf_transform;
           leaf_transform.value = glm::translate(leaf.position) * glm::mat4_cast(leaf.rotation) * glm::scale(leaf.scale);
@@ -689,9 +689,9 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
         }
         tree->tree_visualizer.need_update = true;
       }
-      tree->tree_model.RefShootSkeleton().data.dropped_fruits.clear();
-      tree->tree_model.RefShootSkeleton().data.dropped_flowers.clear();
-      tree->tree_model.RefShootSkeleton().data.dropped_leaves.clear();
+      tree->shoot_model.RefShootSkeleton().data.dropped_fruits.clear();
+      tree->shoot_model.RefShootSkeleton().data.dropped_flowers.clear();
+      tree->shoot_model.RefShootSkeleton().data.dropped_leaves.clear();
     }
     target_simulation_stats.last_used_time = Times::Now() - time;
     target_simulation_stats.total_time += target_simulation_stats.last_used_time;
@@ -712,7 +712,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
       int total_fruit_size = 0;
       for (auto tree_entity : *tree_entities) {
         auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-        auto& tree_model = tree->tree_model;
+        auto& tree_model = tree->shoot_model;
         total_internode_size += tree_model.RefShootSkeleton().PeekSortedNodeList().size();
         total_flow_size += tree_model.RefShootSkeleton().PeekSortedFlowList().size();
         total_leaf_size += tree_model.GetLeafCount();
@@ -731,7 +731,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
   }
   if (scene->IsEntityValid(selected_tree)) {
     auto tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
-    tree->tree_visualizer.checkpoint_iteration = tree->tree_model.CurrentIteration();
+    tree->tree_visualizer.checkpoint_iteration = tree->shoot_model.CurrentIteration();
     tree->tree_visualizer.need_update = true;
     if (auto_generate_skeletal_graph_every_frame_) {
       tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::Primitives::sphere,

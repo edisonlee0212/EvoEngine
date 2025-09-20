@@ -162,8 +162,8 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   }
 
   tree->tree_descriptor_ref = actual_tree_descriptor;
-  tree->tree_model.tree_growth_settings.use_space_colonization = false;
-  tree->tree_model.seed = data_generation_parameters.seed;
+  tree->shoot_model.tree_growth_settings.use_space_colonization = false;
+  tree->shoot_model.seed = data_generation_parameters.seed;
   Application::Loop();
   int max_iterations = 2048;
   if (data_generation_parameters.max_iteration > 0) {
