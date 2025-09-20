@@ -1,7 +1,8 @@
 
 #pragma once
 #include "ClimateModel.hpp"
-#include "TreeGrowthData.hpp"
+#include "RootGrowthData.hpp"
+#include "ShootGrowthData.hpp"
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {
 /**
@@ -83,7 +84,6 @@ struct ShootGrowthController {
       shadow_size;
 #pragma endregion
 
-#pragma region Bud
   /**
    * \brief The number of lateral buds an internode contains.
    */
@@ -119,6 +119,11 @@ struct ShootGrowthController {
                       const SkeletonNode<InternodeGrowthData>& internode)>
       growth_inhibitor_transport_reduction;
 };
+
+/**
+ * \brief Controls the growth parameters of a tree shoot.
+ */
+struct RootGrowthController {};
 
 struct FoliageController {
   /**

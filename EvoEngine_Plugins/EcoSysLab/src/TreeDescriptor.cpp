@@ -22,6 +22,7 @@
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
 #include "BasicReproductionModuleDescriptor.hpp"
+#include "BasicRootDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
 #include "DynamicTreeSkeleton.hpp"
 using namespace eco_sys_lab_plugin;
@@ -32,6 +33,15 @@ std::shared_ptr<Texture2D> IShootDescriptor::GenerateThumbnailTexture() {
     thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
     thumbnail->Import(
         std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ShootDescriptor.png"));
+  }
+  return thumbnail;
+}
+std::shared_ptr<Texture2D> IRootDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/RootDescriptor.png"));
   }
   return thumbnail;
 }
@@ -101,6 +111,8 @@ bool TreeDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   }
   if (editor_layer->DragAndDropButton<IShootDescriptor>(shoot_descriptor, "Shoot Descriptor"))
     changed = true;
+  if (editor_layer->DragAndDropButton<IRootDescriptor>(root_descriptor, "Root Descriptor"))
+    changed = true;
   if (editor_layer->DragAndDropButton<IPruningDescriptor>(pruning_descriptor, "Pruning Descriptor"))
     changed = true;
   if (editor_layer->DragAndDropButton<IFoliageDescriptor>(foliage_descriptor, "Foliage Descriptor"))
@@ -117,6 +129,8 @@ bool TreeDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
 void TreeDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
   if (shoot_descriptor.Get<BasicShootDescriptor>())
     list.push_back(shoot_descriptor);
+  if (root_descriptor.Get<BasicRootDescriptor>())
+    list.push_back(root_descriptor);
   if (pruning_descriptor.Get<BasicPruningDescriptor>())
     list.push_back(pruning_descriptor);
   if (foliage_descriptor.Get<BasicFoliageDescriptor>())
@@ -157,6 +171,7 @@ Entity TreeDescriptor::Instantiate() const {
 
 void TreeDescriptor::Serialize(YAML::Emitter& out) const {
   shoot_descriptor.Save("shoot_descriptor", out);
+  root_descriptor.Save("root_descriptor", out);
   pruning_descriptor.Save("pruning_descriptor", out);
   foliage_descriptor.Save("foliage_descriptor", out);
   bark_descriptor.Save("bark_descriptor", out);
@@ -176,6 +191,7 @@ std::shared_ptr<Texture2D> TreeDescriptor::GenerateThumbnailTexture() {
 
 void TreeDescriptor::Deserialize(const YAML::Node& in) {
   shoot_descriptor.Load("shoot_descriptor", in);
+  root_descriptor.Load("root_descriptor", in);
   pruning_descriptor.Load("pruning_descriptor", in);
   foliage_descriptor.Load("foliage_descriptor", in);
   bark_descriptor.Load("bark_descriptor", in);

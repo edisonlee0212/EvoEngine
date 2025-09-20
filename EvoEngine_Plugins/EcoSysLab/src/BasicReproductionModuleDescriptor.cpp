@@ -1,5 +1,5 @@
 #include "BasicReproductionModuleDescriptor.hpp"
-#include "TreeModel.hpp"
+#include "ShootModel.hpp"
 using namespace eco_sys_lab_plugin;
 
 void BasicReproductionModuleDescriptor::PrepareController(ReproductionController& reproduction_controller) const {
@@ -26,7 +26,7 @@ void BasicReproductionModuleDescriptor::PrepareController(ReproductionController
                                                          branching_angle.GetValue(), glm::linearRand(0.0f, 360.0f))));
       auto front = flower.rotation * glm::vec3(0, 0, -1);
       auto up = flower.rotation * glm::vec3(0, 1, 0);
-      TreeModel::ApplyTropism(glm::vec3(0, 1, 0), phototropism, front, up);
+      ShootModel::ApplyTropism(glm::vec3(0, 1, 0), phototropism, front, up);
 
       flower.rotation = glm::quatLookAt(front, up);
 
@@ -91,7 +91,7 @@ void BasicReproductionModuleDescriptor::PrepareController(ReproductionController
                                                         branching_angle.GetValue(), glm::linearRand(0.0f, 360.0f))));
       auto front = fruit.rotation * glm::vec3(0, 0, -1);
       auto up = fruit.rotation * glm::vec3(0, 1, 0);
-      TreeModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
+      ShootModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
 
       fruit.rotation = glm::quatLookAt(front, up);
 

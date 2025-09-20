@@ -2,9 +2,9 @@
 #pragma once
 #include "DynamicStrandsInitializationParameters.hpp"
 #include "RenderLayer.hpp"
+#include "ShootGrowthData.hpp"
 #include "StrandGroup.hpp"
 #include "StrandModelData.hpp"
-#include "TreeGrowthData.hpp"
 namespace eco_sys_lab_plugin {
 class DsSegmentCollision;
 class DsDynamicHashedGrid;

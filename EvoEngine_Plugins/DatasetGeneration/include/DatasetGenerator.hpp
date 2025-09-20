@@ -1,11 +1,11 @@
 #pragma once
 #include "ForestDescriptor.hpp"
+#include "ShootModel.hpp"
 #include "SorghumDescriptor.hpp"
 #include "SorghumField.hpp"
 #include "SorghumGenerator.hpp"
 #include "SorghumPointCloudScanner.hpp"
 #include "TreeMeshGenerator.hpp"
-#include "TreeModel.hpp"
 #include "TreePointCloudScanner.hpp"
 using namespace evo_engine;
 using namespace eco_sys_lab_plugin;

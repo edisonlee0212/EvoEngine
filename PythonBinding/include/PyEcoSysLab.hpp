@@ -41,9 +41,9 @@ using namespace dataset_generation_plugin;
 #  include "ParticlePhysics2DDemo.hpp"
 #  include "Physics2DDemo.hpp"
 #  include "RadialBoundingVolume.hpp"
+#  include "ShootModel.hpp"
 #  include "Soil.hpp"
 #  include "Tree.hpp"
-#  include "TreeModel.hpp"
 #  include "TreeStructor.hpp"
 
 #  include "PyEvoEngine.hpp"

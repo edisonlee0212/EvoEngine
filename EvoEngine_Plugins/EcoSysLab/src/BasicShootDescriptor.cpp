@@ -1,6 +1,6 @@
 #include "BasicShootDescriptor.hpp"
 
-#include "TreeModel.hpp"
+#include "ShootModel.hpp"
 
 using namespace eco_sys_lab_plugin;
 
@@ -37,13 +37,13 @@ void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth
                                         const SkeletonNode<InternodeGrowthData>& internode, glm::quat& rotation) {
     auto desired_global_front = rotation * glm::vec3(0, 0, -1);
     auto desired_global_up = rotation * glm::vec3(0, 1, 0);
-    TreeModel::ApplyTropism(-shoot_growth_data.gravity_direction, gravitropism, desired_global_front,
-                            desired_global_up);
-    TreeModel::ApplyTropism(internode.data.light_direction, phototropism, desired_global_front, desired_global_up);
+    ShootModel::ApplyTropism(-shoot_growth_data.gravity_direction, gravitropism, desired_global_front,
+                             desired_global_up);
+    ShootModel::ApplyTropism(internode.data.light_direction, phototropism, desired_global_front, desired_global_up);
     if (const auto horizontal_direction = glm::vec3(desired_global_front.x, 0.0f, desired_global_front.z);
         glm::length(horizontal_direction) > glm::epsilon<float>() && internode.data.order != 0) {
-      TreeModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, desired_global_front,
-                              desired_global_up);
+      ShootModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, desired_global_front,
+                               desired_global_up);
     }
     rotation = glm::quatLookAt(desired_global_front, desired_global_up);
   };
