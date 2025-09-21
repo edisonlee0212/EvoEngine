@@ -92,7 +92,7 @@ class IReproductionModuleDescriptor : public IAsset {
    * \brief Prepares a ShootGrowthController using current growth parameters.
    * \param reproduction_controller The controller to configure.
    */
-  virtual void PrepareController(ReproductionController& reproduction_controller) const = 0;
+  virtual void PrepareController(ShootReproductionController& reproduction_controller) const = 0;
   /**
    * @brief Generates fruit transformation matrices based on internode information.
    * @param[out] matrices Vector to store the transformation matrices.

@@ -38,7 +38,7 @@ class Tree : public IPrivateComponent {
   ShootGrowthController shoot_growth_controller_{};
   RootGrowthController root_growth_controller_{};
   FoliageController foliage_controller_{};
-  ReproductionController reproduction_controller_{};
+  ShootReproductionController shoot_reproduction_controller_{};
   ShootPruningController shoot_pruning_controller_{};
   /**
    * @brief Generates tree parts based on mesh generation settings.
@@ -165,22 +165,13 @@ class Tree : public IPrivateComponent {
   void ExportTrunkObj(const std::filesystem::path& path, const TreeMeshGeneratorSettings& mesh_generator_settings);
 
   /**
-   * @brief Attempts to grow the tree based on simulation parameters.
-   * @param simulation_settings Settings controlling simulation behavior.
-   * @param pruning Whether pruning is enabled during growth.
-   * @return True if the tree successfully grows, false otherwise.
-   */
-  bool TryGrow(const SimulationSettings& simulation_settings, bool pruning);
-
-  /**
    * @brief Attempts to grow a subtree from the base internode handle.
    * @param simulation_settings Settings controlling simulation behavior.
    * @param base_internode_handle Handle representing the root of the subtree.
    * @param pruning Whether pruning is enabled during growth.
    * @return True if the subtree successfully grows, false otherwise.
    */
-  bool TryGrowSubTree(const SimulationSettings& simulation_settings, SkeletonNodeHandle base_internode_handle,
-                      bool pruning);
+  bool TryGrow(const SimulationSettings& simulation_settings, SkeletonNodeHandle base_internode_handle, bool pruning);
 
   /**
    * @brief Parses a binvox file to generate a voxel grid.
@@ -223,7 +214,7 @@ class Tree : public IPrivateComponent {
                              const std::shared_ptr<Mesh>& point_mesh_sample,
                              const std::shared_ptr<Mesh>& line_mesh_sample) const;
 
-  ShootModel tree_model{};     ///< The procedural tree model instance.
+  ShootModel shoot_model{};    ///< The procedural tree model instance.
   StrandModel strand_model{};  ///< The strand-based model representation.
 
   /**
@@ -416,7 +407,7 @@ void Tree::FromSkeleton(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData
     const auto foliage_descriptor = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
     td->foliage_descriptor = foliage_descriptor;
   }
-  tree_model.Initialize(src_skeleton);
+  shoot_model.Initialize(src_skeleton);
   // TODO: Set up buds here.
 }
 

@@ -5,10 +5,18 @@
 #include "ShootGrowthData.hpp"
 using namespace evo_engine;
 namespace eco_sys_lab_plugin {
+struct ITreeController {
+  [[nodiscard]] bool Initialized() const;
+
+ private:
+  friend class Tree;
+  bool initialized_ = false;
+};
+
 /**
  * \brief Controls the growth parameters of a tree shoot.
  */
-struct ShootGrowthController {
+struct ShootGrowthController : ITreeController {
   /**
    * \brief Determines whether branches should push growth.
    */
@@ -123,9 +131,9 @@ struct ShootGrowthController {
 /**
  * \brief Controls the growth parameters of a tree shoot.
  */
-struct RootGrowthController {};
+struct RootGrowthController : ITreeController {};
 
-struct FoliageController {
+struct FoliageController : ITreeController {
   /**
    * \brief Calculate how many leaves for current node.
    */
@@ -149,7 +157,7 @@ struct FoliageController {
       leaf_growth;
 };
 
-struct ReproductionController {
+struct ShootReproductionController : ITreeController {
   /**
    * \brief Calculate how many modules for current node.
    */
@@ -189,7 +197,7 @@ struct ReproductionController {
 /**
  * \brief Controls the pruning parameters of a tree shoot.
  */
-struct ShootPruningController {
+struct ShootPruningController : ITreeController {
 #pragma region Pruning
   /**
    * \brief Strength of the internode which affects bud growth.

@@ -107,7 +107,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
         if (scene->IsEntityValid(selected_tree)) {
           const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
           auto& tree_visualizer = tree->tree_visualizer;
-          if (tree_visualizer.checkpoint_iteration == tree->tree_model.CurrentIteration()) {
+          if (tree_visualizer.checkpoint_iteration == tree->shoot_model.CurrentIteration()) {
             if (ImGui::TreeNodeEx("Tree Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
               if (ImGui::Combo("Mode", {"None", "Select", "Rotate", "Prune", "Invigorate", "Reduce"},
                                tree_operator_mode)) {
@@ -135,7 +135,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
           }
           ImGui::Separator();
           if (ImGui::TreeNodeEx("Tree Visualizer")) {
-            tree_visualizer.OnInspect(tree->tree_model);
+            tree_visualizer.OnInspect(tree->shoot_model);
             ImGui::TreePop();
           }
         } else {
@@ -472,7 +472,7 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
     for (int list_index = 0; list_index < tree_entities->size(); list_index++) {
       auto tree_entity = tree_entities->at(list_index);
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-      auto& tree_model = tree->tree_model;
+      auto& tree_model = tree->shoot_model;
       const auto& branch_skeleton = tree_model.RefShootSkeleton();
       const auto& branch_list = branch_skeleton.PeekSortedFlowList();
 
@@ -518,7 +518,7 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
       Jobs::RunParallelFor(tree_entities->size(), [&](unsigned tree_index) {
         auto tree_entity = tree_entities->at(tree_index);
         auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-        auto& tree_model = tree->tree_model;
+        auto& tree_model = tree->shoot_model;
         const auto& branch_skeleton = tree_model.RefShootSkeleton();
         const auto& branch_flow_list = branch_skeleton.PeekSortedFlowList();
         auto entity_global_transform = scene->GetDataComponent<GlobalTransform>(tree_entity);

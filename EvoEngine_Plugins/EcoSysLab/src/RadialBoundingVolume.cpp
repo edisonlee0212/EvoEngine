@@ -354,7 +354,7 @@ bool RadialBoundingVolume::OnInspect(const std::shared_ptr<EditorLayer>& editorL
   if (editorLayer->DragAndDropButton<Tree>(treeRef, "Apply tree volume")) {
     auto tree = treeRef.Get<Tree>();
     if (tree) {
-      // CopyVolume(tree->tree_model);
+      // CopyVolume(tree->shoot_model);
       treeRef.Clear();
       changed = true;
     }

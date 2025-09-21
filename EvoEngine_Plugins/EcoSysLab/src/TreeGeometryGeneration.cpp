@@ -41,7 +41,7 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
   std::vector<ParticleInfo> line_particle_infos;
   std::vector<ParticleInfo> point_particle_infos;
   const int node_size = strand_ready ? strand_model.strand_model_skeleton.PeekSortedNodeList().size()
-                                     : tree_model.PeekShootSkeleton().PeekSortedNodeList().size();
+                                     : shoot_model.PeekShootSkeleton().PeekSortedNodeList().size();
   if (strand_ready) {
     line_particle_infos.resize(node_size);
     point_particle_infos.resize(node_size);
@@ -101,11 +101,11 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
         }
       }
     } else {
-      const auto& sorted_internode_list = tree_model.PeekShootSkeleton().PeekSortedNodeList();
+      const auto& sorted_internode_list = shoot_model.PeekShootSkeleton().PeekSortedNodeList();
       const auto internode_handle = sorted_internode_list[internode_index];
       SkeletonNodeHandle walker = internode_handle;
       bool sub_tree = false;
-      const auto& skeleton = tree_model.PeekShootSkeleton();
+      const auto& skeleton = shoot_model.PeekShootSkeleton();
       const auto& node = skeleton.PeekNode(internode_handle);
 
       while (walker != -1) {
@@ -192,10 +192,10 @@ std::shared_ptr<ParticleInfoList> Tree::GenerateStrandParticles() const {
 
 void Tree::GenerateTrunkMeshes(const std::shared_ptr<Mesh>& trunk_mesh,
                                const TreeMeshGeneratorSettings& mesh_generator_settings) {
-  const auto& sorted_internode_list = tree_model.RefShootSkeleton().PeekSortedNodeList();
+  const auto& sorted_internode_list = shoot_model.RefShootSkeleton().PeekSortedNodeList();
   std::unordered_set<SkeletonNodeHandle> trunk_handles{};
   for (const auto& node_handle : sorted_internode_list) {
-    const auto& node = tree_model.RefShootSkeleton().PeekNode(node_handle);
+    const auto& node = shoot_model.RefShootSkeleton().PeekNode(node_handle);
     trunk_handles.insert(node_handle);
     if (node.PeekChildHandles().size() > 1)
       break;
@@ -209,7 +209,7 @@ void Tree::GenerateTrunkMeshes(const std::shared_ptr<Mesh>& trunk_mesh,
       bd = td->bark_descriptor.Get<BasicBarkDescriptor>();
     }
     CylindricalMeshGenerator<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>::GeneratePartially(
-        trunk_handles, tree_model.PeekShootSkeleton(), vertices, indices, mesh_generator_settings,
+        trunk_handles, shoot_model.PeekShootSkeleton(), vertices, indices, mesh_generator_settings,
         [&](glm::vec3& vertex_position, const glm::vec3& direction, const float x_factor, const float y_factor) {
           if (bd) {
             const float push_value = bd->GetValue(x_factor, y_factor);
@@ -236,7 +236,7 @@ std::shared_ptr<Mesh> Tree::GenerateBranchMesh(const TreeMeshGeneratorSettings& 
     }
     std::shared_ptr<BasicBarkDescriptor> bd{};
     bd = td->bark_descriptor.Get<BasicBarkDescriptor>();
-    if (strand_model.strand_model_skeleton.RefRawNodes().size() == tree_model.shoot_skeleton_.RefRawNodes().size()) {
+    if (strand_model.strand_model_skeleton.RefRawNodes().size() == shoot_model.shoot_skeleton_.RefRawNodes().size()) {
       CylindricalMeshGenerator<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData>::Generate(
           strand_model.strand_model_skeleton, vertices, indices, mesh_generator_settings,
           [&](glm::vec3& vertex_position, const glm::vec3& direction, const float x_factor, const float y_factor) {
@@ -249,7 +249,7 @@ std::shared_ptr<Mesh> Tree::GenerateBranchMesh(const TreeMeshGeneratorSettings& 
           });
     } else {
       CylindricalMeshGenerator<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>::Generate(
-          tree_model.PeekShootSkeleton(), vertices, indices, mesh_generator_settings,
+          shoot_model.PeekShootSkeleton(), vertices, indices, mesh_generator_settings,
           [&](glm::vec3& vertex_position, const glm::vec3& direction, const float x_factor, const float y_factor) {
             if (bd) {
               const float push_value = bd->GetValue(x_factor, y_factor);
@@ -267,7 +267,7 @@ std::shared_ptr<Mesh> Tree::GenerateBranchMesh(const TreeMeshGeneratorSettings& 
       td->foliage_descriptor = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
     }
     VoxelMeshGenerator<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>::Generate(
-        tree_model.PeekShootSkeleton(), vertices, indices, mesh_generator_settings);
+        shoot_model.PeekShootSkeleton(), vertices, indices, mesh_generator_settings);
   }
   auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   VertexAttributes attributes{};
@@ -294,11 +294,11 @@ std::shared_ptr<Mesh> Tree::GenerateFoliageMesh(const TreeMeshGeneratorSettings&
   auto fd = td->foliage_descriptor.Get<BasicFoliageDescriptor>();
   if (!fd)
     fd = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
-  const auto tree_dim = tree_model.PeekShootSkeleton().max - tree_model.PeekShootSkeleton().min;
+  const auto tree_dim = shoot_model.PeekShootSkeleton().max - shoot_model.PeekShootSkeleton().min;
 
-  const auto& node_list = tree_model.PeekShootSkeleton().PeekSortedNodeList();
+  const auto& node_list = shoot_model.PeekShootSkeleton().PeekSortedNodeList();
   for (const auto& internode_handle : node_list) {
-    const auto& internode_info = tree_model.PeekShootSkeleton().PeekNode(internode_handle).info;
+    const auto& internode_info = shoot_model.PeekShootSkeleton().PeekNode(internode_handle).info;
     std::vector<glm::mat4> leaf_matrices;
     fd->GenerateFoliageMatrices(leaf_matrices, internode_info, glm::length(tree_dim));
     Vertex archetype;
@@ -365,15 +365,15 @@ std::shared_ptr<ParticleInfoList> Tree::GenerateFoliageParticleInfoList(
   if (!fd)
     fd = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
   std::vector<ParticleInfo> particle_infos;
-  const auto& node_list = tree_model.PeekShootSkeleton().PeekSortedNodeList();
+  const auto& node_list = shoot_model.PeekShootSkeleton().PeekSortedNodeList();
   const bool sm =
-      strand_model.strand_model_skeleton.RefRawNodes().size() == tree_model.shoot_skeleton_.RefRawNodes().size();
+      strand_model.strand_model_skeleton.RefRawNodes().size() == shoot_model.shoot_skeleton_.RefRawNodes().size();
   const auto tree_dim = sm ? strand_model.strand_model_skeleton.max - strand_model.strand_model_skeleton.min
-                           : tree_model.PeekShootSkeleton().max - tree_model.PeekShootSkeleton().min;
+                           : shoot_model.PeekShootSkeleton().max - shoot_model.PeekShootSkeleton().min;
 
   for (const auto& internode_handle : node_list) {
     const auto& internode_info = sm ? strand_model.strand_model_skeleton.PeekNode(internode_handle).info
-                                    : tree_model.PeekShootSkeleton().PeekNode(internode_handle).info;
+                                    : shoot_model.PeekShootSkeleton().PeekNode(internode_handle).info;
 
     std::vector<glm::mat4> leaf_matrices{};
     fd->GenerateFoliageMatrices(leaf_matrices, internode_info, glm::length(tree_dim));
@@ -486,10 +486,10 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
   rag_doll = scene->CreateEntity("Rag Doll");
   scene->SetParent(rag_doll, self);
   auto actual_iteration = iteration;
-  if (actual_iteration < 0 || actual_iteration > tree_model.CurrentIteration()) {
-    actual_iteration = tree_model.CurrentIteration();
+  if (actual_iteration < 0 || actual_iteration > shoot_model.CurrentIteration()) {
+    actual_iteration = shoot_model.CurrentIteration();
   }
-  const auto& skeleton = tree_model.PeekShootSkeleton(actual_iteration);
+  const auto& skeleton = shoot_model.PeekShootSkeleton(actual_iteration);
   const auto& sorted_flow_list = skeleton.PeekSortedFlowList();
   std::vector<glm::mat4> offset_matrices;
   std::unordered_map<SkeletonFlowHandle, int> flow_bone_id_map;
@@ -565,7 +565,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     }
     std::shared_ptr<BasicBarkDescriptor> bark_descriptor{};
     bark_descriptor = td->bark_descriptor.Get<BasicBarkDescriptor>();
-    if (strand_model.strand_model_skeleton.RefRawNodes().size() == tree_model.shoot_skeleton_.RefRawNodes().size()) {
+    if (strand_model.strand_model_skeleton.RefRawNodes().size() == shoot_model.shoot_skeleton_.RefRawNodes().size()) {
       CylindricalSkinnedMeshGenerator<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData>::Generate(
           strand_model.strand_model_skeleton, skinned_vertices, indices, offset_matrices, mesh_generator_settings,
           [&](glm::vec3& vertex_position, const glm::vec3& direction, const float x_factor, const float y_factor) {
@@ -766,8 +766,8 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
   const auto children = scene->GetChildren(self);
   const auto tree_descriptor = tree_descriptor_ref.Get<TreeDescriptor>();
   ClearGeometryEntities();
-  if (auto actual_iteration = iteration; actual_iteration < 0 || actual_iteration > tree_model.CurrentIteration()) {
-    actual_iteration = tree_model.CurrentIteration();
+  if (auto actual_iteration = iteration; actual_iteration < 0 || actual_iteration > shoot_model.CurrentIteration()) {
+    actual_iteration = shoot_model.CurrentIteration();
   }
   if (mesh_generator_settings.enable_branch) {
     const Entity branch_entity = scene->CreateEntity("Branch Mesh");
@@ -939,7 +939,8 @@ void Tree::InitializeStrandParticles() {
   const auto owner = GetOwner();
 
   ClearStrandParticles();
-  if (strand_model.strand_model_skeleton.RefRawNodes().size() != tree_model.PeekShootSkeleton().PeekRawNodes().size()) {
+  if (strand_model.strand_model_skeleton.RefRawNodes().size() !=
+      shoot_model.PeekShootSkeleton().PeekRawNodes().size()) {
     BuildStrandModel();
   }
   const auto strands_entity = scene->CreateEntity("Branch Strand Particles");
@@ -991,7 +992,8 @@ void Tree::InitializeStrandRenderer() {
   const auto owner = GetOwner();
 
   ClearStrandRenderer();
-  if (strand_model.strand_model_skeleton.RefRawNodes().size() != tree_model.PeekShootSkeleton().PeekRawNodes().size()) {
+  if (strand_model.strand_model_skeleton.RefRawNodes().size() !=
+      shoot_model.PeekShootSkeleton().PeekRawNodes().size()) {
     BuildStrandModel();
   }
   const auto strands_entity = scene->CreateEntity("Branch Strands");
@@ -1030,7 +1032,8 @@ void Tree::InitializeStrandRenderer(const std::shared_ptr<Strands>& strands) con
 void Tree::InitializeStrandModelMeshRenderer(
     const StrandModelMeshGeneratorSettings& strand_model_mesh_generator_settings) {
   ClearStrandModelMeshRenderer();
-  if (strand_model.strand_model_skeleton.RefRawNodes().size() != tree_model.PeekShootSkeleton().PeekRawNodes().size()) {
+  if (strand_model.strand_model_skeleton.RefRawNodes().size() !=
+      shoot_model.PeekShootSkeleton().PeekRawNodes().size()) {
     BuildStrandModel();
   }
   const float time = Times::Now();

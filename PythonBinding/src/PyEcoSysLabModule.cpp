@@ -274,17 +274,17 @@ void voxel_space_colonization_tree_data(
     tree_descriptor = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
   }
   tree->tree_descriptor_ref = tree_descriptor;
-  auto& occupancy_grid = tree->tree_model.tree_occupancy_grid;
+  auto& occupancy_grid = tree->shoot_model.tree_occupancy_grid;
   VoxelGrid<TreeOccupancyGridBasicData> input_grid{};
   if (tree->ParseBinvox(binvox_path, input_grid, 1.f)) {
     occupancy_grid.Initialize(input_grid, glm::vec3(-radius, 0, -radius), glm::vec3(radius, 2.0f * radius, radius),
                               tree_descriptor->shoot_descriptor.Get<BasicShootDescriptor>()->internode_length,
-                              tree->tree_model.tree_growth_settings.space_colonization_removal_distance_factor,
-                              tree->tree_model.tree_growth_settings.space_colonization_theta,
-                              tree->tree_model.tree_growth_settings.space_colonization_detection_distance_factor);
+                              tree->shoot_model.tree_growth_settings.space_colonization_removal_distance_factor,
+                              tree->shoot_model.tree_growth_settings.space_colonization_theta,
+                              tree->shoot_model.tree_growth_settings.space_colonization_detection_distance_factor);
   }
-  tree->tree_model.tree_growth_settings.use_space_colonization = true;
-  tree->tree_model.tree_growth_settings.space_colonization_auto_resize = false;
+  tree->shoot_model.tree_growth_settings.use_space_colonization = true;
+  tree->shoot_model.tree_growth_settings.space_colonization_auto_resize = false;
 
   eco_sys_lab_layer->simulation_settings.delta_time = delta_time;
 
@@ -377,19 +377,19 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
     tree_descriptor = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
   }
   tree->tree_descriptor_ref = tree_descriptor;
-  auto& occupancy_grid = tree->tree_model.tree_occupancy_grid;
+  auto& occupancy_grid = tree->shoot_model.tree_occupancy_grid;
   const auto rbv = AssetManager::CreateTemporaryAsset<RadialBoundingVolume>();
   rbv->Import(rbv_path);
 
   occupancy_grid.Initialize(rbv, glm::vec3(-rbv->m_maxRadius, 0, -rbv->m_maxRadius),
                             glm::vec3(rbv->m_maxRadius, 2.0f * rbv->m_maxRadius, rbv->m_maxRadius),
                             tree_descriptor->shoot_descriptor.Get<BasicShootDescriptor>()->internode_length,
-                            tree->tree_model.tree_growth_settings.space_colonization_removal_distance_factor,
-                            tree->tree_model.tree_growth_settings.space_colonization_theta,
-                            tree->tree_model.tree_growth_settings.space_colonization_detection_distance_factor);
+                            tree->shoot_model.tree_growth_settings.space_colonization_removal_distance_factor,
+                            tree->shoot_model.tree_growth_settings.space_colonization_theta,
+                            tree->shoot_model.tree_growth_settings.space_colonization_detection_distance_factor);
 
-  tree->tree_model.tree_growth_settings.use_space_colonization = true;
-  tree->tree_model.tree_growth_settings.space_colonization_auto_resize = false;
+  tree->shoot_model.tree_growth_settings.use_space_colonization = true;
+  tree->shoot_model.tree_growth_settings.space_colonization_auto_resize = false;
   Application::Loop();
   eco_sys_lab_layer->simulation_settings.delta_time = delta_time;
   for (int i = 0; i < iterations; i++) {

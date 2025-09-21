@@ -16,11 +16,12 @@
 #include "Octree.hpp"
 #include "Soil.hpp"
 #include "StrandModelProfileSerializer.hpp"
+#include "assimp/contrib/zip/src/miniz.h"
 
 using namespace eco_sys_lab_plugin;
 TreeStatistics Tree::GetTreeStatistics() const {
   TreeStatistics ret_val{};
-  const auto& skeleton = tree_model.PeekShootSkeleton();
+  const auto& skeleton = shoot_model.PeekShootSkeleton();
   ret_val.Calculate(skeleton);
   return ret_val;
 }
@@ -31,10 +32,10 @@ void Tree::Reset() {
   ClearStrandModelMeshRenderer();
   ClearStrandRenderer();
   ClearAnimatedGeometryEntities();
-  tree_model.Clear();
+  shoot_model.Clear();
   strand_model = {};
-  tree_model.shoot_skeleton_.data.index = GetOwner().GetIndex();
-  tree_visualizer.Reset(tree_model);
+  shoot_model.shoot_skeleton_.data.index = GetOwner().GetIndex();
+  tree_visualizer.Reset(shoot_model);
 }
 
 bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -61,7 +62,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (const auto td = tree_descriptor_ref.Get<TreeDescriptor>()) {
     const auto sd = td->shoot_descriptor.Get<BasicShootDescriptor>();
     if (sd) {
-      ImGui::DragInt("TreeModel Seed", &tree_model.seed, 1, 0);
+      ImGui::DragInt("TreeModel Seed", &shoot_model.seed, 1, 0);
       ImGui::DragInt("StrandModel Seed", &strand_model.seed, 1, 0);
       if (ImGui::TreeNode("Tree settings")) {
         if (ImGui::DragFloat("Start time", &start_time, 0.01f, 0.0f, 100.f))
@@ -91,15 +92,15 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
               strength = sd->gravity_bending_max * (1.f - glm::exp(-glm::abs(strength)));
               return strength;
             };
-            tree_model.CalculateTransform(shoot_growth_controller_, true);
+            shoot_model.CalculateTransform(shoot_growth_controller_, true);
             tree_visualizer.need_update = true;
           }
         }
-        if (tree_model.tree_growth_settings.OnInspect(editor_layer))
+        if (shoot_model.tree_growth_settings.OnInspect(editor_layer))
           changed = true;
 
-        if (tree_model.tree_growth_settings.use_space_colonization &&
-            !tree_model.tree_growth_settings.space_colonization_auto_resize) {
+        if (shoot_model.tree_growth_settings.use_space_colonization &&
+            !shoot_model.tree_growth_settings.space_colonization_auto_resize) {
           static float radius = 1.5f;
           static int markers_per_voxel = 5;
           ImGui::DragFloat("Import radius", &radius, 0.01f, 0.01f, 10.0f);
@@ -107,13 +108,13 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           FileUtils::OpenFile(
               "Load Voxel Data", "Binvox", {".binvox"},
               [&](const std::filesystem::path& path) {
-                auto& occupancy_grid = tree_model.tree_occupancy_grid;
+                auto& occupancy_grid = shoot_model.tree_occupancy_grid;
                 if (VoxelGrid<TreeOccupancyGridBasicData> input_grid{}; ParseBinvox(path, input_grid, 1.f)) {
                   occupancy_grid.Initialize(
                       input_grid, glm::vec3(-radius, 0, -radius), glm::vec3(radius, 2.0f * radius, radius),
-                      sd->internode_length, tree_model.tree_growth_settings.space_colonization_removal_distance_factor,
-                      tree_model.tree_growth_settings.space_colonization_theta,
-                      tree_model.tree_growth_settings.space_colonization_detection_distance_factor, markers_per_voxel);
+                      sd->internode_length, shoot_model.tree_growth_settings.space_colonization_removal_distance_factor,
+                      shoot_model.tree_growth_settings.space_colonization_theta,
+                      shoot_model.tree_growth_settings.space_colonization_detection_distance_factor, markers_per_voxel);
                 }
               },
               false);
@@ -125,7 +126,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
               const auto cube_volume = AssetManager::CreateTemporaryAsset<CubeVolume>();
               cube_volume->ApplyMeshBounds(mmr->mesh.Get<Mesh>());
               const auto global_transform = scene->GetDataComponent<GlobalTransform>(mmr->GetOwner());
-              tree_model.tree_occupancy_grid.InsertObstacle(global_transform, cube_volume);
+              shoot_model.tree_occupancy_grid.InsertObstacle(global_transform, cube_volume);
               private_component_ref.Clear();
             }
           }
@@ -135,8 +136,8 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       }
       static int mesh_generate_iterations = 0;
       if (ImGui::TreeNode("Cylindrical Mesh generation settings")) {
-        ImGui::DragInt("Iterations", &mesh_generate_iterations, 1, 0, tree_model.CurrentIteration());
-        mesh_generate_iterations = glm::clamp(mesh_generate_iterations, 0, tree_model.CurrentIteration());
+        ImGui::DragInt("Iterations", &mesh_generate_iterations, 1, 0, shoot_model.CurrentIteration());
+        mesh_generate_iterations = glm::clamp(mesh_generate_iterations, 0, shoot_model.CurrentIteration());
         tree_mesh_generator_settings.OnInspect(editor_layer);
 
         ImGui::TreePop();
@@ -158,7 +159,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       }
     }
 
-    if (tree_model.tree_growth_settings.use_space_colonization) {
+    if (shoot_model.tree_growth_settings.use_space_colonization) {
       bool need_grid_update = false;
       if (tree_visualizer.need_update) {
         need_grid_update = true;
@@ -168,7 +169,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       ImGui::Checkbox("Show Space Colonization Grid", &show_space_colonization_grid);
       if (show_space_colonization_grid) {
         if (need_grid_update) {
-          auto& occupancy_grid = tree_model.tree_occupancy_grid;
+          auto& occupancy_grid = shoot_model.tree_occupancy_grid;
           auto& voxel_grid = occupancy_grid.RefGrid();
           const auto num_voxels = voxel_grid.GetVoxelCount();
           std::vector<ParticleInfo> scalar_matrices{};
@@ -302,7 +303,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 }
 void Tree::Update() {
   if (temporal_progression) {
-    if (temporal_progression_iteration <= tree_model.CurrentIteration()) {
+    if (temporal_progression_iteration <= shoot_model.CurrentIteration()) {
       GenerateGeometryEntities(tree_mesh_generator_settings, temporal_progression_iteration);
       temporal_progression_iteration++;
     } else {
@@ -331,7 +332,7 @@ void Tree::OnCreate() {
 }
 
 void Tree::OnDestroy() {
-  tree_model = {};
+  shoot_model = {};
   strand_model = {};
 
   tree_descriptor_ref.Clear();
@@ -351,7 +352,7 @@ void Tree::OnDestroy() {
 
 void Tree::CalculateProfiles() {
   const float time = Times::Now();
-  strand_model.strand_model_skeleton.Clone(tree_model.RefShootSkeleton());
+  strand_model.strand_model_skeleton.Clone(shoot_model.RefShootSkeleton());
   strand_model.ResetAllProfiles(strand_model_parameters);
   strand_model.InitializeProfiles(strand_model_parameters);
   const auto worker_handle = strand_model.CalculateProfiles(strand_model_parameters);
@@ -371,9 +372,9 @@ void Tree::BuildStrandModel() {
 
   CalculateProfiles();
   const float time = Times::Now();
-  for (const auto& node_handle : tree_model.PeekShootSkeleton().PeekSortedNodeList()) {
+  for (const auto& node_handle : shoot_model.PeekShootSkeleton().PeekSortedNodeList()) {
     strand_model.strand_model_skeleton.RefNode(node_handle).info =
-        tree_model.PeekShootSkeleton().PeekNode(node_handle).info;
+        shoot_model.PeekShootSkeleton().PeekNode(node_handle).info;
   }
   strand_model.CalculateStrandProfileAdjustedTransforms(strand_model_parameters);
   strand_model.ApplyProfiles(strand_model_parameters);
@@ -382,50 +383,8 @@ void Tree::BuildStrandModel() {
   EVOENGINE_LOG(output);
 }
 
-bool Tree::TryGrow(const SimulationSettings& simulation_settings, bool pruning) {
-  const auto scene = GetScene();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
-  if (const auto climate_candidate = EcoSysLabLayer::FindClimate(); !climate_candidate.expired())
-    climate = climate_candidate.lock();
-  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
-    soil = soil_candidate.lock();
-  const auto s = this->soil.Get<Soil>();
-  const auto c = this->climate.Get<Climate>();
-  if (!s) {
-    EVOENGINE_ERROR("No soil model!")
-    return false;
-  }
-  if (!c) {
-    EVOENGINE_ERROR("No climate model!")
-    return false;
-  }
-
-  try {
-    PrepareController(simulation_settings);
-  } catch (const std::exception& e) {
-    EVOENGINE_ERROR(e.what())
-    return false;
-  }
-  const auto owner = GetOwner();
-  const bool grown = tree_model.Grow(
-      simulation_settings.delta_time, scene->GetDataComponent<GlobalTransform>(owner).value, c->climate_model,
-      shoot_growth_controller_, foliage_controller_, reproduction_controller_, shoot_pruning_controller_, pruning);
-  if (grown) {
-    if (pruning)
-      tree_visualizer.ClearSelections();
-    tree_visualizer.need_update = true;
-  }
-  if (enable_history && tree_model.iteration_ % history_iteration == 0)
-    tree_model.Step();
-  if (record_biomass_history) {
-    const auto& base_shoot_node = tree_model.RefShootSkeleton().RefNode(0);
-    shoot_biomass_history.emplace_back(base_shoot_node.data.biomass + base_shoot_node.data.descendant_total_biomass);
-  }
-  return grown;
-}
-
-bool Tree::TryGrowSubTree(const SimulationSettings& simulation_settings, const SkeletonNodeHandle base_internode_handle,
-                          const bool pruning) {
+bool Tree::TryGrow(const SimulationSettings& simulation_settings, const SkeletonNodeHandle base_internode_handle,
+                   const bool pruning) {
   const auto scene = GetScene();
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
 
@@ -439,37 +398,53 @@ bool Tree::TryGrowSubTree(const SimulationSettings& simulation_settings, const S
   const auto c = climate.Get<Climate>();
 
   if (!s) {
-    EVOENGINE_ERROR("No soil model!");
+    EVOENGINE_ERROR("No soil model!")
     return false;
   }
   if (!c) {
-    EVOENGINE_ERROR("No climate model!");
+    EVOENGINE_ERROR("No climate model!")
     return false;
   }
+  bool shoot_grown = false;
   try {
     PrepareController(simulation_settings);
+    if (!shoot_model.initialized_) {
+      shoot_model.Initialize(shoot_growth_controller_, foliage_controller_, shoot_reproduction_controller_);
+      shoot_grown = true;
+    }
   } catch (const std::exception& e) {
     EVOENGINE_ERROR(e.what())
     return false;
   }
   const auto owner = GetOwner();
-
-  const bool grown =
-      tree_model.Grow(simulation_settings.delta_time, base_internode_handle,
-                      scene->GetDataComponent<GlobalTransform>(owner).value, c->climate_model, shoot_growth_controller_,
-                      foliage_controller_, reproduction_controller_, shoot_pruning_controller_, pruning);
-  if (grown) {
+  const auto global_transform = scene->GetDataComponent<GlobalTransform>(owner).value;
+  const auto shoot_vigor = shoot_model.SampleShootFlux(global_transform, c->climate_model, shoot_growth_controller_);
+  Vigor total_vigor;
+  total_vigor.value = shoot_vigor.value;
+  shoot_model.DistributeVigor(shoot_growth_controller_, total_vigor);
+  if (base_internode_handle != -1) {
+    shoot_grown = shoot_model.Grow(simulation_settings.delta_time, base_internode_handle, global_transform,
+                                   c->climate_model, shoot_growth_controller_, foliage_controller_,
+                                   shoot_reproduction_controller_, shoot_pruning_controller_, pruning) ||
+                  shoot_grown;
+  } else {
+    shoot_grown =
+        shoot_model.Grow(simulation_settings.delta_time, global_transform, c->climate_model, shoot_growth_controller_,
+                         foliage_controller_, shoot_reproduction_controller_, shoot_pruning_controller_, pruning) ||
+        shoot_grown;
+  }
+  if (shoot_grown) {
     if (pruning)
       tree_visualizer.ClearSelections();
     tree_visualizer.need_update = true;
   }
-  if (enable_history && tree_model.iteration_ % history_iteration == 0)
-    tree_model.Step();
+  if (enable_history && shoot_model.iteration_ % history_iteration == 0)
+    shoot_model.Step();
   if (record_biomass_history) {
-    const auto& base_shoot_node = tree_model.RefShootSkeleton().RefNode(0);
+    const auto& base_shoot_node = shoot_model.RefShootSkeleton().RefNode(0);
     shoot_biomass_history.emplace_back(base_shoot_node.data.biomass + base_shoot_node.data.descendant_total_biomass);
   }
-  return grown;
+  return shoot_grown;
 }
 
 void Tree::Serialize(YAML::Emitter& out) const {
@@ -478,7 +453,7 @@ void Tree::Serialize(YAML::Emitter& out) const {
   strand_model_parameters.Save("strand_model_parameters", out);
   tree_mesh_generator_settings.Save("tree_mesh_generator_settings", out);
   strand_model.Save("strand_model", out);
-  tree_model.Save("tree_model", out);
+  shoot_model.Save("shoot_model", out);
 }
 
 void Tree::Deserialize(const YAML::Node& in) {
@@ -488,21 +463,21 @@ void Tree::Deserialize(const YAML::Node& in) {
   tree_mesh_generator_settings.Load("tree_mesh_generator_settings", in);
 
   strand_model.Load("strand_model", in);
-  tree_model.Load("tree_model", in);
+  shoot_model.Load("shoot_model", in);
 }
 
 void Tree::RegisterVoxel() {
   const auto scene = GetScene();
   const auto owner = GetOwner();
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(owner).value;
-  tree_model.shoot_skeleton_.data.index = owner.GetIndex();
+  shoot_model.shoot_skeleton_.data.index = owner.GetIndex();
   const auto c = climate.Get<Climate>();
-  tree_model.RegisterVoxel(global_transform, c->climate_model);
+  shoot_model.RegisterVoxel(global_transform, c->climate_model);
 }
 
 void Tree::ExportRadialBoundingVolume(const std::shared_ptr<RadialBoundingVolume>& rbv) const {
-  const auto& sorted_internode_list = tree_model.shoot_skeleton_.PeekSortedNodeList();
-  const auto& skeleton = tree_model.shoot_skeleton_;
+  const auto& sorted_internode_list = shoot_model.shoot_skeleton_.PeekSortedNodeList();
+  const auto& skeleton = shoot_model.shoot_skeleton_;
   std::vector<glm::vec3> points;
   for (const auto& node_handle : sorted_internode_list) {
     const auto& node = skeleton.PeekNode(node_handle);
@@ -525,27 +500,42 @@ void Tree::PrepareController(const SimulationSettings& simulation_settings) {
   }
   const auto shoot_descriptor = td->shoot_descriptor.Get<IShootDescriptor>();
   if (!shoot_descriptor) {
-    throw std::runtime_error("Shoot Descriptor Missing!");
+    shoot_growth_controller_ = {};
+    shoot_growth_controller_.initialized_ = false;
+  } else {
+    shoot_growth_controller_.initialized_ = true;
+    shoot_descriptor->PrepareController(shoot_growth_controller_);
   }
   const auto root_descriptor = td->root_descriptor.Get<IRootDescriptor>();
   if (!root_descriptor) {
-    throw std::runtime_error("Root Descriptor Missing!");
+    root_growth_controller_ = {};
+    root_growth_controller_.initialized_ = false;
+  } else {
+    root_growth_controller_.initialized_ = true;
+    root_descriptor->PrepareController(root_growth_controller_);
   }
   const auto pruning_descriptor = td->pruning_descriptor.Get<IPruningDescriptor>();
   if (!pruning_descriptor) {
-    throw std::runtime_error("Pruning Descriptor Missing!");
+    shoot_pruning_controller_ = {};
+    shoot_pruning_controller_.initialized_ = false;
+  } else {
+    shoot_pruning_controller_.initialized_ = true;
+    pruning_descriptor->PrepareController(simulation_settings, shoot_pruning_controller_);
   }
   const auto foliage_descriptor = td->foliage_descriptor.Get<IFoliageDescriptor>();
   if (!foliage_descriptor) {
-    throw std::runtime_error("Foliage Descriptor Missing!");
+    foliage_controller_ = {};
+    foliage_controller_.initialized_ = false;
+  } else {
+    foliage_descriptor->PrepareController(foliage_controller_);
+    foliage_controller_.initialized_ = true;
   }
   const auto reproduction_module_descriptor = td->reproduction_module_descriptor.Get<IReproductionModuleDescriptor>();
   if (!reproduction_module_descriptor) {
-    throw std::runtime_error("Reproduction Module Descriptor Missing!");
+    shoot_reproduction_controller_ = {};
+    shoot_reproduction_controller_.initialized_ = false;
+  } else {
+    shoot_reproduction_controller_.initialized_ = true;
+    reproduction_module_descriptor->PrepareController(shoot_reproduction_controller_);
   }
-  shoot_descriptor->PrepareController(shoot_growth_controller_);
-  root_descriptor->PrepareController(root_growth_controller_);
-  foliage_descriptor->PrepareController(foliage_controller_);
-  reproduction_module_descriptor->PrepareController(reproduction_controller_);
-  pruning_descriptor->PrepareController(simulation_settings, shoot_pruning_controller_);
 }

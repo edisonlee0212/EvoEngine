@@ -214,7 +214,7 @@ void Tree::ExportStrandModelObj(const std::filesystem::path& path,
                                 const StrandModelMeshGeneratorSettings& mesh_generator_settings) {
   if (path.extension() == ".obj") {
     if (strand_model.strand_model_skeleton.RefRawNodes().size() !=
-        tree_model.PeekShootSkeleton().PeekRawNodes().size()) {
+        shoot_model.PeekShootSkeleton().PeekRawNodes().size()) {
       BuildStrandModel();
     }
     try {
@@ -395,7 +395,7 @@ void Tree::GenerateTreeParts(const TreeMeshGeneratorSettings& mesh_generator_set
   if (!fd)
     fd = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
 
-  const auto& skeleton = tree_model.RefShootSkeleton();
+  const auto& skeleton = shoot_model.RefShootSkeleton();
   const auto& sorted_internode_list = skeleton.PeekSortedNodeList();
 
   std::unordered_map<SkeletonNodeHandle, TreePartInfo> tree_part_infos{};
@@ -588,7 +588,7 @@ void Tree::GenerateTreeParts(const TreeMeshGeneratorSettings& mesh_generator_set
 
 void Tree::ExportFlowGraph(YAML::Emitter& out) const {
   out << YAML::Key << "Flows" << YAML::Value << YAML::BeginSeq;
-  const auto& skeleton = tree_model.PeekShootSkeleton();
+  const auto& skeleton = shoot_model.PeekShootSkeleton();
   for (const auto& flow_handle : skeleton.PeekSortedFlowList()) {
     const auto& flow = skeleton.PeekFlow(flow_handle);
     out << YAML::BeginMap;
@@ -622,7 +622,7 @@ void Tree::ExportFlowGraph(const std::filesystem::path& path) const {
 }
 void Tree::ExportNodeGraph(YAML::Emitter& out) const {
   out << YAML::Key << "Nodes" << YAML::Value << YAML::BeginSeq;
-  const auto& skeleton = tree_model.PeekShootSkeleton();
+  const auto& skeleton = shoot_model.PeekShootSkeleton();
   for (const auto& node_handle : skeleton.PeekSortedNodeList()) {
     const auto& node = skeleton.PeekNode(node_handle);
     out << YAML::BeginMap;
@@ -727,7 +727,7 @@ void Tree::ExportTreeParts(const TreeMeshGeneratorSettings& mesh_generator_setti
 bool Tree::ExportIoTree(const std::filesystem::path& path) const {
   treeio::ArrayTree tree{};
   using namespace treeio;
-  const auto& shoot_skeleton = tree_model.PeekShootSkeleton();
+  const auto& shoot_skeleton = shoot_model.PeekShootSkeleton();
   const auto& sorted_internode_list = shoot_skeleton.PeekSortedNodeList();
   if (sorted_internode_list.empty())
     return false;
