@@ -53,6 +53,11 @@ struct SkeletonNodeInfo {
 
   int cluster_index = 0;  ///< Index of the cluster this node belongs to.
 
+  float volume = 0;
+  float descendant_total_volume = 0;
+  int order = 0;           ///< Order value representing hierarchy in tree structure.
+  int level = 0;           ///< Hierarchical level.
+  bool max_child = false;  ///< Boolean flag for maximum children.
   /**
    * @brief Computes the global end position of the node.
    * @return The end position as a glm::vec3.
@@ -96,6 +101,8 @@ struct SkeletonFlowInfo {
    * @brief The length from the start of the first node to the end of the last node.
    */
   float flow_length = 0.0f;
+
+  int order = 0;  ///< Order of the shoot stem in the hierarchy.
 };
 #pragma endregion
 
@@ -333,8 +340,13 @@ class Skeleton {
    * @brief Refreshes the base node list.
    */
   void RefreshBaseNodeList();
+  int max_level_ = 0;  ///< Maximum level reached in the shoot.
+  int max_order_ = 0;  ///< Maximum order reached.
 
  public:
+  [[nodiscard]] int GetMaxLevel() const;
+  [[nodiscard]] int GetMaxOrder() const;
+
   /**
    * @brief Clones another skeleton into this one.
    * @tparam SrcSkeletonData The source skeleton data type.
@@ -362,7 +374,7 @@ class Skeleton {
   /**
    * @brief Calculates distances between nodes.
    */
-  void CalculateDistance();
+  void CalculateDistanceVolumeLevel();
 
   /**
    * @brief Calculates regulated global rotation for nodes.
@@ -962,6 +974,14 @@ void Skeleton<SkeletonData, FlowData, NodeData>::RefreshBaseNodeList() {
 }
 
 template <typename SkeletonData, typename FlowData, typename NodeData>
+int Skeleton<SkeletonData, FlowData, NodeData>::GetMaxLevel() const {
+  return max_level_;
+}
+template <typename SkeletonData, typename FlowData, typename NodeData>
+int Skeleton<SkeletonData, FlowData, NodeData>::GetMaxOrder() const {
+  return max_order_;
+}
+template <typename SkeletonData, typename FlowData, typename NodeData>
 template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
 void Skeleton<SkeletonData, FlowData, NodeData>::Clone(
     const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& src_skeleton) {
@@ -1010,10 +1030,11 @@ int Skeleton<SkeletonData, FlowData, NodeData>::GetMaxFlowIndex() const {
 }
 
 template <typename SkeletonData, typename FlowData, typename NodeData>
-void Skeleton<SkeletonData, FlowData, NodeData>::CalculateDistance() {
+void Skeleton<SkeletonData, FlowData, NodeData>::CalculateDistanceVolumeLevel() {
   for (const auto& node_handle : sorted_node_list_) {
     auto& node = nodes_[node_handle];
     auto& node_info = node.info;
+    node_info.volume = node_info.thickness * node_info.thickness * node_info.length;
     if (node.GetParentHandle() == -1) {
       node_info.root_distance = node_info.length;
       node_info.chain_index = 0;
@@ -1032,12 +1053,63 @@ void Skeleton<SkeletonData, FlowData, NodeData>::CalculateDistance() {
     auto& node = nodes_[*it];
     float max_distance_to_any_branch_end = 0;
     node.info.end_distance = 0;
+    node.info.descendant_total_volume = 0;
     for (const auto& i : node.PeekChildHandles()) {
       const auto& child_node = nodes_[i];
       const float child_max_distance_to_any_branch_end = child_node.info.end_distance + child_node.info.length;
       max_distance_to_any_branch_end = glm::max(max_distance_to_any_branch_end, child_max_distance_to_any_branch_end);
+      node.info.descendant_total_volume += child_node.info.volume + child_node.info.descendant_total_volume;
     }
     node.info.end_distance = max_distance_to_any_branch_end;
+  }
+  max_level_ = 0;
+  max_order_ = 0;
+
+  for (const auto& flow_handle : sorted_flow_list_) {
+    auto& flow = flows_[flow_handle];
+    auto& flow_info = flow.info;
+    if (flow.GetParentHandle() == -1) {
+      flow_info.order = 0;
+    } else {
+      const auto& parent_flow = flows_[flow.GetParentHandle()];
+      if (flow.IsApical())
+        flow_info.order = parent_flow.info.order;
+      else
+        flow_info.order = parent_flow.info.order + 1;
+    }
+    max_order_ = glm::max(max_order_, flow_info.order);
+  }
+
+  for (const auto& node_handle : sorted_node_list_) {
+    auto& node = nodes_[node_handle];
+    auto& node_info = node.info;
+    node_info.order = flows_[node.flow_handle_].info.order;
+    if (node.GetParentHandle() == -1) {
+      node_info.level = 0;
+    } else {
+      float max_score = 0.0f;
+      SkeletonNodeHandle max_child = -1;
+      for (const auto& child_handle : node.PeekChildHandles()) {
+        auto& child_node = nodes_[child_handle];
+        auto& child_info = child_node.info;
+        if (const auto child_score = child_info.descendant_total_volume + child_info.volume; child_score > max_score) {
+          max_score = child_score;
+          max_child = child_handle;
+        }
+      }
+      for (const auto& child_handle : node.PeekChildHandles()) {
+        auto& child_node = nodes_[child_handle];
+        auto& child_info = child_node.info;
+        if (child_handle == max_child) {
+          child_info.level = node_info.level;
+          child_info.max_child = true;
+        } else {
+          child_info.level = node_info.level + 1;
+          child_info.max_child = false;
+        }
+      }
+    }
+    max_level_ = glm::max(max_level_, node_info.level);
   }
 }
 
@@ -1060,6 +1132,28 @@ void Skeleton<SkeletonData, FlowData, NodeData>::CalculateRegulatedGlobalRotatio
       node_info.regulated_global_rotation = glm::quatLookAt(front, regulated_up);
     } else {
       node_info.regulated_global_rotation = node_info.global_rotation;
+    }
+  }
+}
+
+template <typename SkeletonData, typename FlowData, typename NodeData>
+void Skeleton<SkeletonData, FlowData, NodeData>::CalculateFlows() {
+  for (const auto& flow_handle : sorted_flow_list_) {
+    auto& flow = flows_[flow_handle];
+    auto& first_node = nodes_[flow.nodes_.front()];
+    auto& last_node = nodes_[flow.nodes_.back()];
+    flow.info.start_thickness = first_node.info.thickness;
+    flow.info.global_start_position = first_node.info.global_position;
+    flow.info.global_start_rotation = first_node.info.global_rotation;
+
+    flow.info.end_thickness = last_node.info.thickness;
+    flow.info.global_end_position =
+        last_node.info.global_position + last_node.info.length * (last_node.info.global_rotation * glm::vec3(0, 0, -1));
+    flow.info.global_end_rotation = last_node.info.global_rotation;
+
+    flow.info.flow_length = 0.0f;
+    for (const auto& node_handle : flow.nodes_) {
+      flow.info.flow_length += nodes_[node_handle].info.length;
     }
   }
 }
@@ -1145,28 +1239,6 @@ SkeletonNodeHandle Skeleton<SkeletonData, FlowData, NodeData>::AllocateNode() {
 template <typename SkeletonData, typename FlowData, typename NodeData>
 int Skeleton<SkeletonData, FlowData, NodeData>::GetVersion() const {
   return version_;
-}
-
-template <typename SkeletonData, typename FlowData, typename NodeData>
-void Skeleton<SkeletonData, FlowData, NodeData>::CalculateFlows() {
-  for (const auto& flow_handle : sorted_flow_list_) {
-    auto& flow = flows_[flow_handle];
-    auto& first_node = nodes_[flow.nodes_.front()];
-    auto& last_node = nodes_[flow.nodes_.back()];
-    flow.info.start_thickness = first_node.info.thickness;
-    flow.info.global_start_position = first_node.info.global_position;
-    flow.info.global_start_rotation = first_node.info.global_rotation;
-
-    flow.info.end_thickness = last_node.info.thickness;
-    flow.info.global_end_position =
-        last_node.info.global_position + last_node.info.length * (last_node.info.global_rotation * glm::vec3(0, 0, -1));
-    flow.info.global_end_rotation = last_node.info.global_rotation;
-
-    flow.info.flow_length = 0.0f;
-    for (const auto& node_handle : flow.nodes_) {
-      flow.info.flow_length += nodes_[node_handle].info.length;
-    }
-  }
 }
 
 template <typename SkeletonData, typename FlowData, typename NodeData>

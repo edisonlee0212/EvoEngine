@@ -469,7 +469,7 @@ void StrandModelMeshGenerator::CalculateUv(const StrandModel& strand_model, std:
       auto& vertex = vertices.at(vertex_index);
       float min_distance = FLT_MAX;
       StrandSegmentHandle closest_segment_handle = -1;
-      boundary_segments.ForEach(vertex.position, 0.05f, [&](const std::vector<StrandSegmentHandle>& segment_handles) {
+      boundary_segments.RefEach(vertex.position, 0.05f, [&](const std::vector<StrandSegmentHandle>& segment_handles) {
         for (const auto& segment_handle : segment_handles) {
           const auto& segment = strand_group.PeekStrandSegment(segment_handle);
           const auto segment_start = strand_group.GetStrandSegmentStart(segment_handle);

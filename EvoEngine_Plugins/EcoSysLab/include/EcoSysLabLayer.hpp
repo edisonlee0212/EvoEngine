@@ -300,7 +300,7 @@ class EcoSysLabLayer : public ILayer {
   bool auto_generate_strands_after_editing_ = false;       ///< Automatically generates strands after editing.
   bool auto_generate_strand_mesh_after_editing_ = false;   ///< Automatically generates strand meshes after editing.
 
-  friend class TreeVisualizer;
+  friend class ShootVisualizer;
   friend class Tree;
   friend class DynamicTreeSkeleton;
 

@@ -201,7 +201,7 @@ class VoxelGrid {
    * @param max_bound Maximum bounding box corner.
    * @param func Function to be applied on each voxel.
    */
-  void ForEach(const glm::vec3& min_bound, const glm::vec3& max_bound,
+  void RefEach(const glm::vec3& min_bound, const glm::vec3& max_bound,
                const std::function<void(VoxelData& data)>& func);
 
   /**
@@ -211,7 +211,7 @@ class VoxelGrid {
    * @param radius Sphere radius.
    * @param func Function to be applied on each voxel.
    */
-  void ForEach(const glm::vec3& center, float radius, const std::function<void(VoxelData& data)>& func);
+  void RefEach(const glm::vec3& center, float radius, const std::function<void(VoxelData& data)>& func);
 
   /**
    * @brief Iterates through voxels in a spherical shell.
@@ -221,8 +221,38 @@ class VoxelGrid {
    * @param max_radius Outer radius.
    * @param func Function to be applied on each voxel.
    */
-  void ForEach(const glm::vec3& center, float min_radius, float max_radius,
+  void RefEach(const glm::vec3& center, float min_radius, float max_radius,
                const std::function<void(VoxelData& data)>& func);
+
+  /**
+   * @brief Iterates through voxels in a bounding box.
+   *
+   * @param min_bound Minimum bounding box corner.
+   * @param max_bound Maximum bounding box corner.
+   * @param func Function to be applied on each voxel.
+   */
+  void PeekEach(const glm::vec3& min_bound, const glm::vec3& max_bound,
+                const std::function<void(const VoxelData& data)>& func) const;
+
+  /**
+   * @brief Iterates through voxels in a sphere.
+   *
+   * @param center Sphere center.
+   * @param radius Sphere radius.
+   * @param func Function to be applied on each voxel.
+   */
+  void PeekEach(const glm::vec3& center, float radius, const std::function<void(const VoxelData& data)>& func) const;
+
+  /**
+   * @brief Iterates through voxels in a spherical shell.
+   *
+   * @param center Sphere center.
+   * @param min_radius Inner radius.
+   * @param max_radius Outer radius.
+   * @param func Function to be applied on each voxel.
+   */
+  void PeekEach(const glm::vec3& center, float min_radius, float max_radius,
+                const std::function<void(const VoxelData& data)>& func) const;
 
   /**
    * @brief Checks if a given position is within the voxel grid.
@@ -376,7 +406,7 @@ glm::vec3 VoxelGrid<VoxelData>::GetPosition(const glm::ivec3& coordinate) const 
 }
 
 template <typename VoxelData>
-void VoxelGrid<VoxelData>::ForEach(const glm::vec3& min_bound, const glm::vec3& max_bound,
+void VoxelGrid<VoxelData>::RefEach(const glm::vec3& min_bound, const glm::vec3& max_bound,
                                    const std::function<void(VoxelData& data)>& func) {
   const auto actual_min_bound = min_bound - min_bound_;
   const auto actual_max_bound = max_bound - min_bound_;
@@ -395,7 +425,7 @@ void VoxelGrid<VoxelData>::ForEach(const glm::vec3& min_bound, const glm::vec3& 
 }
 
 template <typename VoxelData>
-void VoxelGrid<VoxelData>::ForEach(const glm::vec3& center, const float radius,
+void VoxelGrid<VoxelData>::RefEach(const glm::vec3& center, const float radius,
                                    const std::function<void(VoxelData& data)>& func) {
   const auto actual_center = center - min_bound_;
   const auto actual_min_bound = actual_center - glm::vec3(radius);
@@ -415,7 +445,7 @@ void VoxelGrid<VoxelData>::ForEach(const glm::vec3& center, const float radius,
 }
 
 template <typename VoxelData>
-void VoxelGrid<VoxelData>::ForEach(const glm::vec3& center, const float min_radius, const float max_radius,
+void VoxelGrid<VoxelData>::RefEach(const glm::vec3& center, const float min_radius, const float max_radius,
                                    const std::function<void(VoxelData& data)>& func) {
   const auto actual_center = center - min_bound_;
   const auto actual_min_bound = actual_center - glm::vec3(max_radius);
@@ -429,6 +459,62 @@ void VoxelGrid<VoxelData>::ForEach(const glm::vec3& center, const float min_radi
           continue;
         auto index = GetIndex(glm::ivec3(i, j, k));
         func(Ref(index));
+      }
+    }
+  }
+}
+template <typename VoxelData>
+void VoxelGrid<VoxelData>::PeekEach(const glm::vec3& min_bound, const glm::vec3& max_bound,
+                                    const std::function<void(const VoxelData& data)>& func) const {
+  const auto actual_min_bound = min_bound - min_bound_;
+  const auto actual_max_bound = max_bound - min_bound_;
+  const auto start = glm::ivec3(glm::floor(actual_min_bound / glm::vec3(voxel_size_)));
+  const auto end = glm::ivec3(glm::ceil(actual_max_bound / glm::vec3(voxel_size_)));
+  for (int i = start.x; i <= end.x; i++) {
+    for (int j = start.y; j <= end.y; j++) {
+      for (int k = start.z; k <= end.z; k++) {
+        if (i < 0 || i >= resolution_.x || j < 0 || j >= resolution_.y || k < 0 || k >= resolution_.z)
+          continue;
+        auto index = GetIndex(glm::ivec3(i, j, k));
+        func(Peek(index));
+      }
+    }
+  }
+}
+template <typename VoxelData>
+void VoxelGrid<VoxelData>::PeekEach(const glm::vec3& center, float radius,
+                                    const std::function<void(const VoxelData& data)>& func) const {
+  const auto actual_center = center - min_bound_;
+  const auto actual_min_bound = actual_center - glm::vec3(radius);
+  const auto actual_max_bound = actual_center + glm::vec3(radius);
+  const auto start = glm::ivec3(glm::floor(actual_min_bound / glm::vec3(voxel_size_)));
+  const auto end = glm::ivec3(glm::ceil(actual_max_bound / glm::vec3(voxel_size_)));
+  for (int i = start.x; i <= end.x; i++) {
+    for (int j = start.y; j <= end.y; j++) {
+      for (int k = start.z; k <= end.z; k++) {
+        if (i < 0 || i >= resolution_.x || j < 0 || j >= resolution_.y || k < 0 || k >= resolution_.z)
+          continue;
+        auto index = GetIndex(glm::ivec3(i, j, k));
+        func(Peek(index));
+      }
+    }
+  }
+}
+template <typename VoxelData>
+void VoxelGrid<VoxelData>::PeekEach(const glm::vec3& center, const float min_radius, const float max_radius,
+                                    const std::function<void(const VoxelData& data)>& func) const {
+  const auto actual_center = center - min_bound_;
+  const auto actual_min_bound = actual_center - glm::vec3(max_radius);
+  const auto actual_max_bound = actual_center + glm::vec3(max_radius);
+  const auto start = glm::ivec3(glm::floor(actual_min_bound / glm::vec3(voxel_size_)));
+  const auto end = glm::ivec3(glm::ceil(actual_max_bound / glm::vec3(voxel_size_)));
+  for (int i = start.x; i <= end.x; i++) {
+    for (int j = start.y; j <= end.y; j++) {
+      for (int k = start.z; k <= end.z; k++) {
+        if (i < 0 || i >= resolution_.x || j < 0 || j >= resolution_.y || k < 0 || k >= resolution_.z)
+          continue;
+        auto index = GetIndex(glm::ivec3(i, j, k));
+        func(Peek(index));
       }
     }
   }
