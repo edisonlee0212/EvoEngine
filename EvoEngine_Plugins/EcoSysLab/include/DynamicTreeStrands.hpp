@@ -1,8 +1,10 @@
 
 #pragma once
 #include "DsConstraints.hpp"
+#include "DsMaterials.hpp"
 #include "DsOperators.hpp"
 #include "DynamicStrands.hpp"
+#include "DynamicStrandsVisualizationParameters.hpp"
 #include "ShootGrowthData.hpp"
 #include "StrandModelData.hpp"
 #include "Tree.hpp"
@@ -15,9 +17,7 @@ using namespace evo_engine;
  * @brief Handles the dynamic strand physics simulation for tree models.
  */
 class DynamicTreeStrands : public IPrivateComponent {
-  Handle foliage_rendering_instance_handle;         ///< Handle for foliage rendering instance.
-  Handle small_segments_rendering_instance_handle;  ///< Handle for small segment rendering instance.
-  Handle mesh_wireframe_rendering_instance_handle;  ///< Handle for mesh wireframe rendering instance.
+  Handle foliage_rendering_instance_handle;  ///< Handle for foliage rendering instance.
 
  public:
   /**
@@ -32,15 +32,9 @@ class DynamicTreeStrands : public IPrivateComponent {
   DynamicStrandsInitializeParameters initialize_parameters{};  ///< Initialization parameters for DynamicStrands.
   bool enable_physics = true;                                  ///< Flag to enable or disable physics simulation.
   bool initialized_from_tree = false;
-  bool limit_strand_length = false;    ///< Flag to limit strand length.
-  float max_strand_length = 1.f;       ///< Maximum allowable strand length.
-  AssetRef bark_material_ref;          ///< Reference to bark material asset.
-  AssetRef inner_wood_material_ref;    ///< Reference to inner wood material asset.
-  AssetRef splinter_material_ref;      ///< Reference to splinter material asset.
-  AssetRef leaf_material_ref;          ///< Reference to leaf material asset.
-  AssetRef snow_material_ref;          ///< Reference to snow material asset.
-  AssetRef segment_pair_material_ref;  ///< Reference to segment pair material asset.
-  AssetRef wireframe_material_ref;     ///< Reference to wireframe material asset.
+  bool limit_strand_length = false;  ///< Flag to limit strand length.
+  float max_strand_length = 1.f;     ///< Maximum allowable strand length.
+  DsMaterials materials;
 
   std::shared_ptr<DynamicStrands> dynamic_strands{};  ///< Shared pointer to DynamicStrands instance.
 
@@ -234,46 +228,19 @@ class DynamicTreeStrands : public IPrivateComponent {
    * @param visualization_parameters Parameters for visualization rendering.
    */
   void Visualization(const std::shared_ptr<Camera>& target_camera,
-                     const DynamicStrands::VisualizationParameters& visualization_parameters) const;
-
-  /**
-   * @brief Registers rendering instance for branch visualization.
-   * @param render_parameters Parameters for branch rendering.
-   */
-  void RegisterBranchesRenderInstance(const DynamicStrands::BranchesRenderParameters& render_parameters);
-
-  /**
-   * @brief Registers rendering instance for branch wireframe visualization.
-   * @param render_parameters Parameters for branch wireframe rendering.
-   */
-  void RegisterBranchesWireframeRenderInstance(const DynamicStrands::BranchesRenderParameters& render_parameters);
-
-  /**
-   * @brief Registers rendering instance for small segment visualization.
-   * @param render_parameters Parameters for small segment rendering.
-   */
-  void RegisterSmallSegmentsRenderInstance(const DynamicStrands::SmallSegmentsRenderParameters& render_parameters);
-
-  /**
-   * @brief Registers visualization render instance for small segments.
-   * @param render_parameters Parameters for small segment rendering.
-   * @param visualization_render_parameters Parameters for small segment visualization.
-   */
-  void RegisterSmallSegmentsVisualizationRenderInstance(
-      const DynamicStrands::SmallSegmentsRenderParameters& render_parameters,
-      const DynamicStrands::SmallSegmentsVisualizationRenderParameters& visualization_render_parameters);
+                     const DynamicStrandsVisualizationParameters& visualization_parameters) const;
 
   /**
    * @brief Registers rendering instance for foliage visualization.
    * @param render_parameters Parameters for foliage rendering.
    */
-  void RegisterFoliageRenderInstance(const DynamicStrands::FoliageRenderParameters& render_parameters);
+  void RegisterFoliageRenderInstance(const FoliageRenderParameters& render_parameters);
 
   /**
    * @brief Registers rendering instance for segment pair visualization.
    * @param render_parameters Parameters for segment pair rendering.
    */
-  void RegisterSegmentPairRenderInstance(const DynamicStrands::SegmentPairsRenderParameters& render_parameters);
+  void RegisterSegmentPairRenderInstance(const SegmentPairsRenderParameters& render_parameters);
 
   struct Region {
     float r_min, r_max;

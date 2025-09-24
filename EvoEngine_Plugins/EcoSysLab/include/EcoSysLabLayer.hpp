@@ -4,6 +4,7 @@
 #include "Climate.hpp"
 #include "DynamicSkeleton.hpp"
 #include "DynamicStrands.hpp"
+#include "DynamicStrandsVisualizationParameters.hpp"
 #include "SimulationSettings.hpp"
 #include "Soil.hpp"
 #include "Strands.hpp"
@@ -225,23 +226,16 @@ class EcoSysLabLayer : public ILayer {
    * @brief Contains settings for dynamic strand rendering and physics.
    */
   struct DynamicStrandsSettings {
-    DynamicStrands::BranchesRenderParameters branches_render_parameters{};  ///< Rendering parameters for branches.
-    DynamicStrands::SmallSegmentsRenderParameters
-        small_segments_render_parameters{};  ///< Rendering parameters for small segments.
-    DynamicStrands::SmallSegmentsVisualizationRenderParameters
-        small_segments_visualization_render_parameters{};  ///< Visualization settings for small segments.
-    DynamicStrands::FoliageRenderParameters foliage_render_parameters{};  ///< Rendering parameters for foliage.
-    DynamicStrands::SegmentPairsRenderParameters
-        segment_pairs_render_parameters{};  ///< Rendering parameters for segment pairs.
+    FoliageRenderParameters foliage_render_parameters{};             ///< Rendering parameters for foliage.
+    SegmentPairsRenderParameters segment_pairs_render_parameters{};  ///< Rendering parameters for segment pairs.
 
-    DynamicStrands::PhysicsParameters physics_parameters{};              ///< Physics simulation parameters.
-    DynamicStrands::VisualizationParameters visualization_parameters{};  ///< Visualization settings.
-    bool visualization_rendering = false;                                ///< Flag to enable visualization rendering.
-    float drag_multiplier = 1.f;                                         ///< The multiplier for drag forces.
-    float point_cut_thickness = 2.f;                                     ///< The thickness for point cuts.
-    float fungus_injection_amount = 1.0f;                                ///< The amount of fungus injected.
-    bool fungus_white_rot = true;                                        ///< Flag for white rot fungus type.
-    bool fungus_brown_rot = false;                                       ///< Flag for brown rot fungus type.
+    DynamicStrands::PhysicsParameters physics_parameters{};            ///< Physics simulation parameters.
+    DynamicStrandsVisualizationParameters visualization_parameters{};  ///< Visualization settings.
+    float drag_multiplier = 1.f;                                       ///< The multiplier for drag forces.
+    float point_cut_thickness = 2.f;                                   ///< The thickness for point cuts.
+    float fungus_injection_amount = 1.0f;                              ///< The amount of fungus injected.
+    bool fungus_white_rot = true;                                      ///< Flag for white rot fungus type.
+    bool fungus_brown_rot = false;                                     ///< Flag for brown rot fungus type.
 
     /**
      * @enum TransformMode
@@ -263,12 +257,6 @@ class EcoSysLabLayer : public ILayer {
     bool enable_rendering = true;             ///< Enables or disables rendering of strands.
 
     int remaining_step = 0;  ///< Remaining simulation steps.
-
-    /**
-     * @brief Handles the inspection of dynamic strand settings in the editor.
-     * @param editor_layer The editor layer instance.
-     */
-    void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   TreeVisualizationSettings tree_visualization_settings_;  ///< Settings for tree visualization.
@@ -425,6 +413,12 @@ class EcoSysLabLayer : public ILayer {
    * @param editor_layer The editor layer instance.
    */
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+
+  /**
+   * @brief Handles the inspection of dynamic strand settings in the editor.
+   * @param editor_layer The editor layer instance.
+   */
+  void OnInspectDynamicStrandsSettings(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Updates fluid flow simulations for the given tree entities.

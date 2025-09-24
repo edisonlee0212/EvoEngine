@@ -5,10 +5,13 @@
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
 
+enum class MeshingType { AlphaShape, KineticVoronoi };
+
 /**
  * \brief Parameters used during the initialization of the dynamic strand model.
  */
 struct DynamicStrandsInitializeParameters {
+  static MeshingType meshing_type;                     ///< The type of meshing algorithm to use.
   float min_segment_length = 0.03f;                    ///< The minimum length of a segment.
   float max_segment_length = 0.06f;                    ///< The maximum length of a segment.
   int uniform_subdivision = 5;                         ///< The number of uniform subdivisions per segment for strands.

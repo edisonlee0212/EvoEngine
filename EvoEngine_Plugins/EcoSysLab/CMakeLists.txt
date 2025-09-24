@@ -22,6 +22,7 @@ set(ECOSYSLAB_INCLUDES
 	${ECOSYSLAB_DIRECTORY}/include/Utilities
 	${ECOSYSLAB_DIRECTORY}/include/Structures
 	${ECOSYSLAB_DIRECTORY}/include/Reconstruction
+	${ECOSYSLAB_DIRECTORY}/include/VoronoiMeshes
 	)
 set(ECOSYSLAB_INCLUDES ${ECOSYSLAB_INCLUDES} PARENT_SCOPE)
 file(GLOB_RECURSE ECOSYSLAB_HEADERS ${ECOSYSLAB_DIRECTORY}/include/*.hpp)
@@ -62,6 +63,9 @@ find_package(CGAL)
 if(CGAL_FOUND)
 	target_link_libraries(EcoSysLabPlugin CGAL::CGAL)
 	add_compile_definitions(USE_CGAL)
+	MESSAGE(STATUS "EcoSysLab Plugin: CGAL found and linked.")
+	else()
+	MESSAGE(WARNING "EcoSysLab Plugin: CGAL not found. Some features may be disabled.")
 endif()
 
 set(EVOENGINE_PLUGINS_INCLUDES ${EVOENGINE_PLUGINS_INCLUDES} ${ECOSYSLAB_INCLUDES} PARENT_SCOPE)

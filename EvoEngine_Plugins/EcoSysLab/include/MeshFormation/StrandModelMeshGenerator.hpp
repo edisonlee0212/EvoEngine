@@ -15,7 +15,8 @@ using namespace evo_engine;
 enum class StrandModelMeshGeneratorType {
   RecursiveSlicing,  ///< Uses recursive slicing for mesh generation.
   MarchingCube,      ///< Uses marching cubes for mesh generation.
-  AlphaShape         ///< Uses alpha shapes for mesh generation.
+  AlphaShape,        ///< Uses alpha shapes for mesh generation.
+  VoronoiMesh        ///< Uses kinetic Voronoi diagrams for mesh generation.
 };
 
 /**

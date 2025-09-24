@@ -317,14 +317,14 @@ std::vector<std::tuple<Slice, PipeCluster, std::vector<size_t>>> ComputeSlices(
       std::vector<size_t> merge_indices_vec;
       std::copy(merge_indices.begin(), merge_indices.end(), std::back_inserter(merge_indices_vec));
 
-      if (merge_indices_vec.size() > 1) {
+      /* if (merge_indices_vec.size() > 1) {
         std::cout << "Need to merge the following slices:\n";
 
         for (size_t index : merge_indices_vec) {
           std::cout << index << ", ";
         }
         std::cout << std::endl;
-      }
+      }*/
 
       merge_list.push_back(merge_indices_vec);
     } else {

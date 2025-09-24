@@ -98,11 +98,11 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
         ds->initialize_parameters.foliage_descriptor = td->foliage_descriptor;
         if (const auto fd = td->foliage_descriptor.Get<BasicFoliageDescriptor>()) {
           if (const auto mat = fd->leaf_material_ref.Get<Material>())
-            ds->leaf_material_ref = mat;
+            ds->materials.leaf_material_ref = mat;
         }
         if (const auto bd = td->bark_descriptor.Get<BasicBarkDescriptor>()) {
           if (const auto mat = bd->bark_material_ref.Get<Material>())
-            ds->bark_material_ref = mat;
+            ds->materials.bark_material_ref = mat;
         }
       }
 
@@ -475,108 +475,6 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
     ImGui::End();
     ImGui::PopStyleVar();
 #pragma endregion
-  }
-}
-
-void EcoSysLabLayer::DynamicStrandsSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  if (ImGui::TreeNode("Operators")) {
-    ImGui::Combo("Transform Mode", {"None", "Translate", "Rotate"}, transform_mode);
-    ImGui::Combo("Operator Mode", {"Drag", "Saw", "Line Cut", "Point Cut", "Fungus Injection"}, operator_mode);
-    switch (static_cast<OperatorMode>(operator_mode)) {
-      case OperatorMode::Drag: {
-        ImGui::DragFloat("Drag acceleration multiplier", &drag_multiplier, 0.001f, 0.0f, 1.0f);
-        break;
-      }
-      case OperatorMode::Saw:
-      case OperatorMode::LineCut: {
-        ImGui::Checkbox("Cut Bend/Twist/Bundle only", &cut_bend_twist_bundle_only);
-        break;
-      }
-      case OperatorMode::PointCut: {
-        ImGui::DragFloat("Cutter thickness", &point_cut_thickness, 1.f, 1.0f, 100.0f);
-        break;
-      }
-      case OperatorMode::FungusInjection: {
-        ImGui::DragFloat("Injection thickness", &point_cut_thickness, 1.f, 1.0f, 100.0f);
-        ImGui::DragFloat("Fungus injection amount", &fungus_injection_amount, 0.1f, 0.0f, 100.0f);
-        // Check boxes for each rot type
-        ImGui::Text("Rot types:");
-        ImGui::Checkbox("White rot", &fungus_white_rot);
-        ImGui::Checkbox("Brown rot", &fungus_brown_rot);
-        break;
-      }
-    }
-    ImGui::TreePop();
-  }
-
-  ImGui::Checkbox("Physics", &enable_physics);
-  if (!enable_physics && ImGui::Button("Physics step")) {
-    remaining_step++;
-  }
-  if (ImGui::TreeNode("Physics settings")) {
-    physics_parameters.OnInspect(editor_layer);
-    ImGui::TreePop();
-  }
-
-  ImGui::Checkbox("Rendering", &enable_rendering);
-  if (ImGui::TreeNode("Rendering settings")) {
-    ImGui::Checkbox("Render branches", &branches_render_parameters.enabled);
-    if (branches_render_parameters.enabled) {
-      if (ImGui::TreeNodeEx("Branch render settings")) {
-        if (ImGui::Button("Rebuild branches pipelines")) {
-          DynamicStrands::BuildBranchesRenderingPipelines();
-        }
-        branches_render_parameters.OnInspect(editor_layer);
-        ImGui::TreePop();
-      }
-    }
-    ImGui::Checkbox("Render Visualization", &visualization_rendering);
-    if (visualization_rendering) {
-      ImGui::Checkbox("Render strands", &small_segments_visualization_render_parameters.enabled);
-      if (small_segments_visualization_render_parameters.enabled) {
-        if (ImGui::TreeNodeEx("Strands render settings")) {
-          small_segments_visualization_render_parameters.OnInspect(editor_layer);
-          ImGui::TreePop();
-        }
-      }
-    } else {
-      ImGui::Checkbox("Render splinters", &small_segments_render_parameters.enabled);
-      if (small_segments_render_parameters.enabled) {
-        if (ImGui::TreeNodeEx("Splinter render settings")) {
-          small_segments_render_parameters.OnInspect(editor_layer);
-          ImGui::TreePop();
-        }
-      }
-    }
-    ImGui::Checkbox("Render foliage", &foliage_render_parameters.enabled);
-    if (foliage_render_parameters.enabled) {
-      if (ImGui::TreeNodeEx("Foliage render settings")) {
-        if (ImGui::Button("Rebuild foliage pipelines")) {
-          DynamicStrands::BuildFoliageRenderingPipelines();
-        }
-        foliage_render_parameters.OnInspect(editor_layer);
-        ImGui::TreePop();
-      }
-    }
-
-    ImGui::Checkbox("Render segment pairs", &segment_pairs_render_parameters.enabled);
-    if (segment_pairs_render_parameters.enabled) {
-      if (ImGui::TreeNodeEx("Segment pairs render settings")) {
-        if (ImGui::Button("Rebuild segment pairs pipelines")) {
-          DynamicStrands::BuildSegmentPairsRenderingPipeline();
-        }
-        segment_pairs_render_parameters.OnInspect(editor_layer);
-        ImGui::TreePop();
-      }
-    }
-
-    ImGui::TreePop();
-  }
-
-  ImGui::Checkbox("Visualization", &enable_visualization);
-  if (ImGui::TreeNode("Visualization settings")) {
-    visualization_parameters.OnInspect(editor_layer);
-    ImGui::TreePop();
   }
 }
 
