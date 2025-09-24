@@ -124,11 +124,11 @@ struct InternodeGrowthData {
   float sagging_stress = 0;    ///< Stress due to sagging.
   float sagging_force = 0.0f;  ///< Force influencing sagging.
   float sagging = 0;           ///< Degree of sagging.
-  int order = 0;               ///< Order value representing hierarchy in tree structure.
-  float extra_mass = 0.0f;     ///< Extra mass contribution.
-  float density = 1.0f;        ///< Density of the internode.
-  float strength = 1.0f;       ///< Strength parameter.
-  float shadow_size = 0.0f;    ///< How much shadow does this internode casts.
+
+  float extra_mass = 0.0f;   ///< Extra mass contribution.
+  float density = 1.0f;      ///< Density of the internode.
+  float strength = 1.0f;     ///< Strength parameter.
+  float shadow_size = 0.0f;  ///< How much shadow does this internode casts.
 
   /**
    * @brief List of buds associated with this internode.
@@ -141,10 +141,8 @@ struct InternodeGrowthData {
   std::vector<Flower> flowers;
   std::vector<Fruit> fruits;
 
-  int level = 0;                       ///< Hierarchical level.
-  bool max_child = false;              ///< Boolean flag for maximum children.
-  float descendant_total_biomass = 0;  ///< Total biomass of descendants.
-  float biomass = 0;                   ///< Biomass of this internode.
+  float descendant_total_biomass_factor = 0;  ///< Total biomass factor of descendants.
+  float biomass_factor = 0;                   ///< Biomass factor of this internode.
 
   glm::vec3 desired_descendant_weight_center = glm::vec3(0.0f);  ///< Desired weight center of descendants.
   glm::vec3 descendant_weight_center = glm::vec3(0.0f);          ///< Actual weight center of descendants.
@@ -164,9 +162,7 @@ struct InternodeGrowthData {
 /**
  * @brief Represents growth data for an individual shoot stem.
  */
-struct ShootStemGrowthData {
-  int order = 0;  ///< Order of the shoot stem in the hierarchy.
-};
+struct ShootStemGrowthData {};
 
 /**
  * @brief Contains growth data for a shoot.
@@ -182,10 +178,7 @@ struct ShootGrowthData {
   glm::vec3 desired_min = glm::vec3(FLT_MAX);  ///< Minimum desired bounds.
   glm::vec3 desired_max = glm::vec3(FLT_MIN);  ///< Maximum desired bounds.
 
-  int max_level = 0;  ///< Maximum level reached in the shoot.
-  int max_order = 0;  ///< Maximum order reached.
-
-  unsigned index = 0;                                 ///< Index used for identification.
+  unsigned entity_index = 0;                          ///< Index used for identification.
   glm::vec3 gravity_direction = glm::vec3(0, -1, 0);  ///< Current direction of gravity;
   float age = 0;                                      ///< Age of the tree in years.
 };

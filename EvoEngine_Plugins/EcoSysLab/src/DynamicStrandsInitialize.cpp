@@ -752,7 +752,7 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
 
     const auto center = calculate_regularized_segment_center(segment_handle);
     const auto strand_handle = randomly_subdivided_strand_group.PeekStrandSegment(segment_handle).GetStrandHandle();
-    projected_voxel_grid.ForEach(
+    projected_voxel_grid.RefEach(
         center,
         glm::max(initialize_parameters.neighbor_vertical_range, initialize_parameters.neighbor_horizontal_range),
         [&](const std::vector<SegmentInfo>& list) {
@@ -1071,7 +1071,7 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     float min_radius = 0.f;
     float max_radius = cell_size;
     while (!found) {
-      voxel_grid.ForEach(center, min_radius, max_radius, [&](const std::vector<SegmentInfo>& list) {
+      voxel_grid.RefEach(center, min_radius, max_radius, [&](const std::vector<SegmentInfo>& list) {
         for (const auto& i : list) {
           if (i.node_handle == leaf_info.node_handle) {
             if (const auto new_distance = glm::distance(center, i.center_position); new_distance < distance) {

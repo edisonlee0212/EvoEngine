@@ -24,30 +24,31 @@ void BasicPruningDescriptor::PrepareController(const SimulationSettings& simulat
                                                     const SkeletonNode<InternodeGrowthData>& internode) {
     return 1.f;
   };
-  shoot_pruning_controller.end_to_root_pruning_factor = [&](std::mt19937& random_engine, const glm::mat4&,
-                                                            ClimateModel&, const ShootSkeleton&,
-                                                            const SkeletonNode<InternodeGrowthData>& internode) {
-    if (trunk_protection && internode.data.order == 0) {
-      return 0.f;
-    }
-    float pruning_probability = 0.0f;
-    if (light_pruning_factor != 0.f) {
-      if (internode.IsEndNode()) {
-        if (internode.data.light_intake < light_pruning_factor) {
-          pruning_probability += 999.f;
+  shoot_pruning_controller.end_to_base_pruning_factor =
+      [&](std::mt19937& random_engine, const glm::mat4&, const ClimateModel&, const VoxelSoilModel&,
+          const ShootSkeleton&, const SkeletonNode<InternodeGrowthData>& internode) {
+        if (trunk_protection && internode.info.order == 0) {
+          return 0.f;
         }
-      }
-    }
-    if (internode.data.sagging_stress > 1.) {
-      pruning_probability +=
-          branch_breaking_multiplier * glm::pow(internode.data.sagging_stress, branch_breaking_multiplier);
-    }
-    return pruning_probability;
-  };
-  shoot_pruning_controller.root_to_end_pruning_factor =
-      [&](std::mt19937& random_engine, const glm::mat4& global_transform, ClimateModel& climate_model,
-          const ShootSkeleton& shoot_skeleton, const SkeletonNode<InternodeGrowthData>& internode) {
-        if (trunk_protection && internode.data.order == 0) {
+        float pruning_probability = 0.0f;
+        if (light_pruning_factor != 0.f) {
+          if (internode.IsEndNode()) {
+            if (internode.data.light_intake < light_pruning_factor) {
+              pruning_probability += 999.f;
+            }
+          }
+        }
+        if (internode.data.sagging_stress > 1.) {
+          pruning_probability +=
+              branch_breaking_multiplier * glm::pow(internode.data.sagging_stress, branch_breaking_multiplier);
+        }
+        return pruning_probability;
+      };
+  shoot_pruning_controller.base_to_end_pruning_factor =
+      [&](std::mt19937& random_engine, const glm::mat4& global_transform, const ClimateModel& climate_model,
+          const VoxelSoilModel& soil_model, const ShootSkeleton& shoot_skeleton,
+          const SkeletonNode<InternodeGrowthData>& internode) {
+        if (trunk_protection && internode.info.order == 0) {
           return 0.f;
         }
 
@@ -55,7 +56,7 @@ void BasicPruningDescriptor::PrepareController(const SimulationSettings& simulat
           return 999.f;
         }
         if (const auto max_distance = shoot_skeleton.PeekNode(0).info.end_distance;
-            max_distance > 1.f && internode.data.order > 0 &&
+            max_distance > 1.f && internode.info.order > 0 &&
             internode.info.root_distance / max_distance < low_branch_pruning) {
           if (const auto parent_handle = internode.GetParentHandle(); parent_handle != -1) {
             const auto& parent = shoot_skeleton.PeekNode(parent_handle);
@@ -67,12 +68,12 @@ void BasicPruningDescriptor::PrepareController(const SimulationSettings& simulat
         if (simulation_settings.crown_shyness_distance > 0.f && internode.IsEndNode()) {
           const glm::vec3 end_position = global_transform * glm::vec4(internode.info.GetGlobalEndPosition(), 1.0f);
           bool prune_by_crown_shyness = false;
-          climate_model.environment_grid.voxel_grid.ForEach(
+          climate_model.environment_grid.voxel_grid.PeekEach(
               end_position, simulation_settings.crown_shyness_distance * 2.0f, [&](const EnvironmentVoxel& data) {
                 if (prune_by_crown_shyness)
                   return;
                 for (const auto& i : data.internode_voxel_registrations) {
-                  if (i.tree_skeleton_index == shoot_skeleton.data.index)
+                  if (i.tree_skeleton_index == shoot_skeleton.data.entity_index)
                     continue;
                   if (glm::distance(end_position, i.position) < simulation_settings.crown_shyness_distance)
                     prune_by_crown_shyness = true;

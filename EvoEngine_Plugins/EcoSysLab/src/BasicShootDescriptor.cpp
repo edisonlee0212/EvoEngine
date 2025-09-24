@@ -5,7 +5,7 @@
 using namespace eco_sys_lab_plugin;
 
 void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_controller) const {
-  shoot_growth_controller.root_internode_count = base_internode_count;
+  shoot_growth_controller.base_internode_count = base_internode_count;
 
   shoot_growth_controller.sagging = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
                                         const SkeletonNode<InternodeGrowthData>& internode) {
@@ -23,7 +23,7 @@ void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth
       const float roll_angle =
           roll_angle_graph.GetValue(glm::vec4(internode.info.global_position, internode.info.root_distance));
       float apical_angle = 0.f;
-      if (straight_trunk == 0.f || internode.data.order != 0 || internode.info.root_distance >= straight_trunk) {
+      if (straight_trunk == 0.f || internode.info.order != 0 || internode.info.root_distance >= straight_trunk) {
         apical_angle =
             apical_angle_graph.GetValue(glm::vec4(internode.info.global_position, internode.info.root_distance));
       }
@@ -41,7 +41,7 @@ void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth
                              desired_global_up);
     ShootModel::ApplyTropism(internode.data.light_direction, phototropism, desired_global_front, desired_global_up);
     if (const auto horizontal_direction = glm::vec3(desired_global_front.x, 0.0f, desired_global_front.z);
-        glm::length(horizontal_direction) > glm::epsilon<float>() && internode.data.order != 0) {
+        glm::length(horizontal_direction) > glm::epsilon<float>() && internode.info.order != 0) {
       ShootModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, desired_global_front,
                                desired_global_up);
     }
@@ -76,7 +76,7 @@ void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth
 
   shoot_growth_controller.lateral_bud_count = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
                                                   const SkeletonNode<InternodeGrowthData>& internode) {
-    if (max_order == -1 || internode.data.order < max_order) {
+    if (max_order == -1 || internode.info.order < max_order) {
       return lateral_bud_count;
     }
     return 0;
@@ -94,11 +94,11 @@ void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth
     return flushing_rate;
   };
 
-  shoot_growth_controller.growth_potential = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+  shoot_growth_controller.growth_potential = [&](std::mt19937& random_engine, const ShootSkeleton& shoot_skeleton,
                                                  const SkeletonNode<InternodeGrowthData>& internode) {
     const float factor =
-        (apical_control < 0.f ? static_cast<float>(internode.data.level + 1) / (shoot_growth_data.max_level + 1)
-                              : static_cast<float>(internode.data.order + 1) / (shoot_growth_data.max_order + 1));
+        (apical_control < 0.f ? static_cast<float>(internode.info.level + 1) / (shoot_skeleton.GetMaxLevel() + 1)
+                              : static_cast<float>(internode.info.order + 1) / (shoot_skeleton.GetMaxOrder() + 1));
     /*const float local_apical_control =
         1.f / glm::pow(apical_control, shoot_growth_controller.use_level_for_apical_control ? internode.data.level
                                                                                             : internode.data.order);*/

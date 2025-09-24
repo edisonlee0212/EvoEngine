@@ -121,7 +121,7 @@ bool TreeStructor::DirectConnectionCheck(const BezierCurve& parent_curve, const 
 
 void TreeStructor::FindPoints(const glm::vec3& position, VoxelGrid<std::vector<PointData>>& point_voxel_grid,
                               const float radius, const std::function<void(const PointData& voxel)>& func) {
-  point_voxel_grid.ForEach(position, radius, [&](const std::vector<PointData>& voxels) {
+  point_voxel_grid.RefEach(position, radius, [&](const std::vector<PointData>& voxels) {
     for (const auto& voxel : voxels) {
       if (glm::distance(position, voxel.position) > radius)
         continue;
@@ -133,7 +133,7 @@ void TreeStructor::FindPoints(const glm::vec3& position, VoxelGrid<std::vector<P
 bool TreeStructor::HasPoints(const glm::vec3& position, VoxelGrid<std::vector<PointData>>& point_voxel_grid,
                              const float radius) {
   bool ret_val = false;
-  point_voxel_grid.ForEach(position, radius, [&](const std::vector<PointData>& voxels) {
+  point_voxel_grid.RefEach(position, radius, [&](const std::vector<PointData>& voxels) {
     if (ret_val)
       return;
     for (const auto& voxel : voxels) {
@@ -147,7 +147,7 @@ bool TreeStructor::HasPoints(const glm::vec3& position, VoxelGrid<std::vector<Po
 void TreeStructor::ForEachBranchEnd(const glm::vec3& position,
                                     VoxelGrid<std::vector<BranchEndData>>& branchEndsVoxelGrid, float radius,
                                     const std::function<void(const BranchEndData& voxel)>& func) {
-  branchEndsVoxelGrid.ForEach(position, radius, [&](const std::vector<BranchEndData>& branchEnds) {
+  branchEndsVoxelGrid.RefEach(position, radius, [&](const std::vector<BranchEndData>& branchEnds) {
     for (const auto& branchEnd : branchEnds) {
       if (glm::distance(position, branchEnd.position) > radius)
         continue;
@@ -1895,7 +1895,7 @@ void TreeStructor::SpaceColonization() {
         internode.data.marker_size = 0;
         internode.data.regrow_direction = glm::vec3(0.0f);
         const auto internode_end_position = internode.data.global_end_position;
-        space_colonization_voxel_grid.ForEach(internode_end_position, removal_distance,
+        space_colonization_voxel_grid.RefEach(internode_end_position, removal_distance,
                                               [&](std::vector<PointData>& voxels) {
                                                 for (int i = 0; i < voxels.size(); i++) {
                                                   auto& marker = voxels[i];
@@ -1918,7 +1918,7 @@ void TreeStructor::SpaceColonization() {
         point.handle = -1;
         point.index = -1;
         point.direction = glm::vec3(0.0f);
-        internode_end_grid.ForEach(point.position, detection_distance, [&](const std::vector<PointData>& voxels) {
+        internode_end_grid.RefEach(point.position, detection_distance, [&](const std::vector<PointData>& voxels) {
           for (const auto& internode_end : voxels) {
             const auto diff = point.position - internode_end.position;
             const auto distance = glm::length(diff);
@@ -1979,7 +1979,7 @@ void TreeStructor::SpaceColonization() {
     }
     for (auto& skeleton : skeletons) {
       skeleton.SortLists();
-      skeleton.CalculateDistance();
+      skeleton.CalculateDistanceVolumeLevel();
     }
   }
   CalculateSkeletonGraphs();
@@ -2062,7 +2062,7 @@ void TreeStructor::CalculateSkeletonGraphs() {
         node_data.draft_thickness *= multiplier_factor;
       }
     }
-    skeleton.CalculateDistance();
+    skeleton.CalculateDistanceVolumeLevel();
     for (auto i = sorted_node_list.rbegin(); i != sorted_node_list.rend(); ++i) {
       auto& node = skeleton.RefNode(*i);
       const auto& node_data = node.data;

@@ -128,7 +128,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
     if (editor_layer && scene->IsEntityValid(selected_tree)) {
       const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
       auto& tree_model = tree->shoot_model;
-      auto& tree_visualizer = tree->tree_visualizer;
+      auto& tree_visualizer = tree->shoot_visualizer;
       const auto global_transform = scene->GetDataComponent<GlobalTransform>(selected_tree);
 #ifdef CUDA_MODULE_PLUGIN
       const auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
@@ -137,7 +137,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
           tree_visualizer.checkpoint_iteration == tree_model.CurrentIteration()) {
         static bool may_need_geometry_generation = false;
         static std::vector<glm::vec2> mouse_positions{};
-        auto& tree_skeleton = tree_model.PeekShootSkeleton(tree->tree_visualizer.checkpoint_iteration);
+        auto& tree_skeleton = tree_model.PeekShootSkeleton(tree->shoot_visualizer.checkpoint_iteration);
         switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
           case TreeOperatorMode::Select: {
             if (visualization_camera_window_focused_) {
@@ -147,14 +147,13 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                   tree_visualizer.need_update = true;
                 }
               } else if (editor_layer->GetKey(GLFW_KEY_R) == Input::KeyActionType::Press) {
-                if (tree_visualizer.selected_internode_handle > 0) {
+                if (tree_visualizer.selected_node_handle > 0) {
                   tree_model.Step();
-                  auto& pruning_internode =
-                      tree_model.RefShootSkeleton().RefNode(tree_visualizer.selected_internode_handle);
-                  tree_model.RemoveNodes(pruning_internode.PeekChildHandles());
-                  pruning_internode.data.internode_length *= tree_visualizer.selected_internode_length_factor;
+                  auto& pruning_internode = tree_model.RefShootSkeleton().RefNode(tree_visualizer.selected_node_handle);
+                  tree_model.RefShootSkeleton().RemoveNodes(pruning_internode.PeekChildHandles());
+                  pruning_internode.data.internode_length *= tree_visualizer.selected_node_length_factor;
                   tree_model.CalculateTransform(tree->shoot_growth_controller_, true);
-                  tree_visualizer.selected_internode_length_factor = 1.0f;
+                  tree_visualizer.selected_node_length_factor = 1.0f;
                   pruning_internode.data.buds.clear();
                   tree_visualizer.checkpoint_iteration = tree_model.CurrentIteration();
                   tree_visualizer.need_update = true;
@@ -171,10 +170,10 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                   }
                 }
               } else if (editor_layer->GetKey(GLFW_KEY_T) == Input::KeyActionType::Press) {
-                if (tree_visualizer.selected_internode_handle > 0) {
+                if (tree_visualizer.selected_node_handle > 0) {
                   tree_model.Step();
-                  tree_model.RemoveNodes({tree_visualizer.selected_internode_handle});
-                  tree_visualizer.selected_internode_handle = -1;
+                  tree_model.RefShootSkeleton().RemoveNodes({tree_visualizer.selected_node_handle});
+                  tree_visualizer.selected_node_handle = -1;
                   tree_visualizer.checkpoint_iteration = tree_model.CurrentIteration();
                   tree_visualizer.need_update = true;
                   if (auto_generate_mesh_after_editing_) {
@@ -195,7 +194,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
             }
           } break;
           case TreeOperatorMode::Rotate: {
-            if (tree_visualizer.selected_internode_handle > 0) {
+            if (tree_visualizer.selected_node_handle > 0) {
               if (visualization_camera_window_focused_) {
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
                 if (ImGui::Begin("Plant Visual")) {
@@ -209,7 +208,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                     glm::mat4 camera_projection = visualization_camera_->GetProjection();
                     constexpr auto op = ImGuizmo::OPERATION::ROTATE;
                     auto& current_skeleton = tree->shoot_model.RefShootSkeleton();
-                    auto& internode = current_skeleton.RefNode(tree_visualizer.selected_internode_handle);
+                    auto& internode = current_skeleton.RefNode(tree_visualizer.selected_node_handle);
 
                     auto transform = glm::translate(internode.info.global_position) *
                                      glm::mat4_cast(internode.data.desired_global_rotation) *
@@ -266,7 +265,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                     glm::mat4 camera_projection = visualization_camera_->GetProjection();
                     const auto op = ImGuizmo::OPERATION::ROTATE;
                     auto& current_skeleton = tree->shoot_model.RefShootSkeleton();
-                    auto& internode = current_skeleton.RefNode(tree_visualizer.selected_internode_handle);
+                    auto& internode = current_skeleton.RefNode(tree_visualizer.selected_node_handle);
 
                     auto transform = glm::translate(internode.info.global_position) *
                                      glm::mat4_cast(internode.data.desired_global_rotation) *
@@ -312,17 +311,17 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
             }
             if (visualization_camera_window_focused_) {
               if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press) {
-                if (tree_visualizer.selected_internode_handle <= 0) {
+                if (tree_visualizer.selected_node_handle <= 0) {
                   if (tree_visualizer.RayCastSelection(visualization_camera_, visualization_camera_mouse_position,
                                                        tree_skeleton, global_transform)) {
                     tree_visualizer.need_update = true;
                   }
                 }
               } else if (editor_layer->GetKey(GLFW_KEY_T) == Input::KeyActionType::Press) {
-                if (tree_visualizer.selected_internode_handle > 0) {
+                if (tree_visualizer.selected_node_handle > 0) {
                   tree_model.Step();
-                  tree_model.RemoveNodes({tree_visualizer.selected_internode_handle});
-                  tree_visualizer.selected_internode_handle = -1;
+                  tree_model.RefShootSkeleton().RemoveNodes({tree_visualizer.selected_node_handle});
+                  tree_visualizer.selected_node_handle = -1;
                   tree_visualizer.checkpoint_iteration = tree_model.CurrentIteration();
                   tree_visualizer.need_update = true;
                   if (auto_generate_mesh_after_editing_) {
@@ -371,12 +370,19 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                   tree_model.Step();
                   auto& skeleton = tree_model.RefShootSkeleton();
                   std::vector<SkeletonNodeHandle> pruning_node_handles;
+                  const auto camera_rotation = editor_layer->GetSceneCameraRotation();
+                  const auto camera_position = editor_layer->GetSceneCameraPosition();
+                  const glm::vec3 camera_front = camera_rotation * glm::vec3(0, 0, -1);
+                  const glm::vec3 camera_up = camera_rotation * glm::vec3(0, 1, 0);
+                  const glm::mat4 projection_view =
+                      visualization_camera_->GetProjection() *
+                      glm::lookAt(camera_position, camera_position + camera_front, camera_up);
                   if (tree_visualizer.ScreenCurveSelection(
                           [&](const SkeletonNodeHandle node_handle) {
                             pruning_node_handles.emplace_back(node_handle);
                           },
-                          mouse_positions, skeleton, global_transform)) {
-                    tree_model.RemoveNodes(pruning_node_handles);
+                          mouse_positions, skeleton, global_transform, projection_view)) {
+                    tree_model.RefShootSkeleton().RemoveNodes(pruning_node_handles);
                     tree_visualizer.checkpoint_iteration = tree_model.CurrentIteration();
                     tree_visualizer.need_update = true;
                     may_need_geometry_generation = true;
@@ -399,12 +405,12 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                   tree_visualizer.checkpoint_iteration = tree_model.CurrentIteration();
                   tree_visualizer.need_update = true;
                 }
-              } else if (tree_visualizer.selected_internode_handle >= 0 &&
+              } else if (tree_visualizer.selected_node_handle >= 0 &&
                          editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
                 const auto climate_candidate = FindClimate();
                 if (!climate_candidate.expired()) {
                   climate_candidate.lock()->PrepareForGrowth();
-                  if (tree->TryGrow(simulation_settings, tree_visualizer.selected_internode_handle, false)) {
+                  if (tree->TryGrow(simulation_settings, tree_visualizer.selected_node_handle, false)) {
                     tree_visualizer.need_update = true;
                     may_need_geometry_generation = true;
                   }
@@ -429,13 +435,13 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                     tree_model.Step();
                   tree_visualizer.checkpoint_iteration = tree_model.CurrentIteration();
                   tree_visualizer.need_update = true;
-                  if (tree_visualizer.selected_internode_handle >= 0) {
-                    target_age = tree->shoot_model.GetSubTreeMaxAge(tree_visualizer.selected_internode_handle);
+                  if (tree_visualizer.selected_node_handle >= 0) {
+                    target_age = tree->shoot_model.GetSubTreeMaxAge(tree_visualizer.selected_node_handle);
                   }
                 }
-              } else if (tree_visualizer.selected_internode_handle >= 0 &&
+              } else if (tree_visualizer.selected_node_handle >= 0 &&
                          editor_layer->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold) {
-                if (tree->shoot_model.Reduce(tree->shoot_growth_controller_, tree_visualizer.selected_internode_handle,
+                if (tree->shoot_model.Reduce(tree->shoot_growth_controller_, tree_visualizer.selected_node_handle,
                                              target_age)) {
                   tree_visualizer.need_update = true;
                   may_need_geometry_generation = true;
@@ -468,7 +474,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
             }
           }
         } else if (tree_visualizer.need_update && auto_generate_skeletal_graph_every_frame_) {
-          tree->GenerateSkeletalGraph(skeletal_graph_settings, tree_visualizer.selected_internode_handle,
+          tree->GenerateSkeletalGraph(skeletal_graph_settings, tree_visualizer.selected_node_handle,
                                       Resources::Primitives::sphere, Resources::Primitives::cube);
         }
         may_need_geometry_generation = false;
@@ -687,7 +693,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
           new_leaf.leaf_health = leaf.health;
           leaves_.emplace_back(new_leaf);
         }
-        tree->tree_visualizer.need_update = true;
+        tree->shoot_visualizer.need_update = true;
       }
       tree->shoot_model.RefShootSkeleton().data.dropped_fruits.clear();
       tree->shoot_model.RefShootSkeleton().data.dropped_flowers.clear();
@@ -731,8 +737,8 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
   }
   if (scene->IsEntityValid(selected_tree)) {
     auto tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
-    tree->tree_visualizer.checkpoint_iteration = tree->shoot_model.CurrentIteration();
-    tree->tree_visualizer.need_update = true;
+    tree->shoot_visualizer.checkpoint_iteration = tree->shoot_model.CurrentIteration();
+    tree->shoot_visualizer.need_update = true;
     if (auto_generate_skeletal_graph_every_frame_) {
       tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::Primitives::sphere,
                                   Resources::Primitives::cube);

@@ -1,6 +1,7 @@
 
 #pragma once
 #include "BasicPruningDescriptor.hpp"
+#include "RootModel.hpp"
 #ifdef BILLBOARD_CLOUDS_PLUGIN
 #  include "BillboardCloud.hpp"
 using namespace billboard_clouds_plugin;
@@ -36,10 +37,15 @@ class Tree : public IPrivateComponent {
   void PrepareController(const SimulationSettings& simulation_settings);
 
   ShootGrowthController shoot_growth_controller_{};
-  RootGrowthController root_growth_controller_{};
   FoliageController foliage_controller_{};
   ShootReproductionController shoot_reproduction_controller_{};
   ShootPruningController shoot_pruning_controller_{};
+
+  RootGrowthController root_growth_controller_{};
+  FineRootController fine_root_controller_{};
+  RootReproductionController root_reproduction_controller_{};
+  RootPruningController root_pruning_controller_{};
+
   /**
    * @brief Generates tree parts based on mesh generation settings.
    * @param mesh_generator_settings Settings for generating meshes.
@@ -50,8 +56,8 @@ class Tree : public IPrivateComponent {
 
  public:
   StrandModelParameters strand_model_parameters{};  ///< Parameters defining strand-based growth modeling.
-  TreeVisualizer tree_visualizer{};                 ///< Visualizer used for debugging and display of the tree model.
-
+  ShootVisualizer shoot_visualizer{};               ///< Visualizer used for debugging and display of the tree model.
+  RootVisualizer root_visualizer{};
   bool split_root_test = true;         ///< Flag to enable or disable root split testing.
   bool record_biomass_history = true;  ///< Flag to enable or disable biomass history recording.
   float left_side_biomass;             ///< Recorded biomass for the left section of the tree.
@@ -214,7 +220,8 @@ class Tree : public IPrivateComponent {
                              const std::shared_ptr<Mesh>& point_mesh_sample,
                              const std::shared_ptr<Mesh>& line_mesh_sample) const;
 
-  ShootModel shoot_model{};    ///< The procedural tree model instance.
+  ShootModel shoot_model{};  ///< The procedural tree model instance.
+  RootModel root_model{};
   StrandModel strand_model{};  ///< The strand-based model representation.
 
   /**

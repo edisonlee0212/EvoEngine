@@ -32,7 +32,7 @@ struct EnvironmentVoxel {
   glm::vec3 light_direction = glm::vec3(0, 1, 0);  ///< Direction of the incoming light.
   float self_shadow = 0.0f;                        ///< Self-shadow factor of the voxel.
   float light_intensity = 1.0f;                    ///< Light intensity received by this voxel.
-  float total_biomass = 0.0f;                      ///< Total biomass accumulated in this voxel.
+  float total_biomass = 0.0f;                      ///< Total biomass_factor accumulated in this voxel.
 
   std::vector<InternodeVoxelRegistration>
       internode_voxel_registrations{};  ///< Registrations of internodes in this voxel.

@@ -33,9 +33,10 @@ void Tree::Reset() {
   ClearStrandRenderer();
   ClearAnimatedGeometryEntities();
   shoot_model.Clear();
+  root_model.Clear();
   strand_model = {};
-  shoot_model.shoot_skeleton_.data.index = GetOwner().GetIndex();
-  tree_visualizer.Reset(shoot_model);
+  shoot_model.shoot_skeleton_.data.entity_index = root_model.root_skeleton_.data.entity_index = GetOwner().GetIndex();
+  shoot_visualizer.Reset(shoot_model);
 }
 
 bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -93,7 +94,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
               return strength;
             };
             shoot_model.CalculateTransform(shoot_growth_controller_, true);
-            tree_visualizer.need_update = true;
+            shoot_visualizer.need_update = true;
           }
         }
         if (shoot_model.tree_growth_settings.OnInspect(editor_layer))
@@ -161,7 +162,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
     if (shoot_model.tree_growth_settings.use_space_colonization) {
       bool need_grid_update = false;
-      if (tree_visualizer.need_update) {
+      if (shoot_visualizer.need_update) {
         need_grid_update = true;
       }
       if (ImGui::Button("Update grids"))
@@ -272,7 +273,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ClearStrandModelMeshRenderer();
   }
 
-  tree_visualizer.Visualize(strand_model);
+  shoot_visualizer.Visualize(strand_model);
   if (ImGui::TreeNode("Skeletal graph settings")) {
     if (skeletal_graph_settings.OnInspect(editor_layer))
       changed = true;
@@ -316,8 +317,8 @@ void Tree::Update() {
 }
 
 void Tree::OnCreate() {
-  tree_visualizer.Initialize();
-  tree_visualizer.need_update = true;
+  shoot_visualizer.Initialize();
+  shoot_visualizer.need_update = true;
   strand_model_parameters.branch_twist_distribution.mean = {-60.0f, 60.0f};
   strand_model_parameters.branch_twist_distribution.deviation = {0.0f, 1.0f, {0, 0}};
 
@@ -333,6 +334,7 @@ void Tree::OnCreate() {
 
 void Tree::OnDestroy() {
   shoot_model = {};
+  root_model = {};
   strand_model = {};
 
   tree_descriptor_ref.Clear();
@@ -340,7 +342,7 @@ void Tree::OnDestroy() {
   climate.Clear();
   enable_history = false;
 
-  tree_visualizer.Clear();
+  shoot_visualizer.Clear();
 
   left_side_biomass = right_side_biomass = 0.0f;
   root_biomass_history.clear();
@@ -406,11 +408,16 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
     return false;
   }
   bool shoot_grown = false;
+  bool root_grown = false;
   try {
     PrepareController(simulation_settings);
     if (!shoot_model.initialized_) {
       shoot_model.Initialize(shoot_growth_controller_, foliage_controller_, shoot_reproduction_controller_);
       shoot_grown = true;
+    }
+    if (!root_model.initialized_) {
+      root_model.Initialize(root_growth_controller_);
+      root_grown = true;
     }
   } catch (const std::exception& e) {
     EVOENGINE_ERROR(e.what())
@@ -418,33 +425,63 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
   }
   const auto owner = GetOwner();
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(owner).value;
-  const auto shoot_vigor = shoot_model.SampleShootFlux(global_transform, c->climate_model, shoot_growth_controller_);
+  Vigor shoot_vigor;
+  shoot_vigor.value = FLT_MAX;
+  Vigor root_vigor;
+  root_vigor.value = FLT_MAX;
+  if (shoot_growth_controller_.Initialized()) {
+    shoot_vigor = shoot_model.SampleShootFlux(global_transform, c->climate_model, shoot_growth_controller_);
+  }
+  if (root_growth_controller_.Initialized()) {
+    root_vigor = root_model.SampleRootFlux(global_transform, s->soil_model, root_growth_controller_);
+  }
   Vigor total_vigor;
-  total_vigor.value = shoot_vigor.value;
-  shoot_model.DistributeVigor(shoot_growth_controller_, total_vigor);
-  if (base_internode_handle != -1) {
-    shoot_grown = shoot_model.Grow(simulation_settings.delta_time, base_internode_handle, global_transform,
-                                   c->climate_model, shoot_growth_controller_, foliage_controller_,
-                                   shoot_reproduction_controller_, shoot_pruning_controller_, pruning) ||
-                  shoot_grown;
-  } else {
-    shoot_grown =
-        shoot_model.Grow(simulation_settings.delta_time, global_transform, c->climate_model, shoot_growth_controller_,
-                         foliage_controller_, shoot_reproduction_controller_, shoot_pruning_controller_, pruning) ||
-        shoot_grown;
+  total_vigor.value = glm::min(shoot_vigor.value, root_vigor.value);
+
+  if (shoot_growth_controller_.Initialized()) {
+    shoot_model.DistributeVigor(shoot_growth_controller_, total_vigor);
+    if (base_internode_handle != -1) {
+      shoot_grown = shoot_model.Grow(simulation_settings.delta_time, base_internode_handle, global_transform,
+                                     c->climate_model, s->soil_model, shoot_growth_controller_, foliage_controller_,
+                                     shoot_reproduction_controller_, shoot_pruning_controller_, pruning) ||
+                    shoot_grown;
+    } else {
+      shoot_grown = shoot_model.Grow(simulation_settings.delta_time, global_transform, c->climate_model, s->soil_model,
+                                     shoot_growth_controller_, foliage_controller_, shoot_reproduction_controller_,
+                                     shoot_pruning_controller_, pruning) ||
+                    shoot_grown;
+    }
+    if (shoot_grown) {
+      if (pruning)
+        shoot_visualizer.ClearSelections();
+      shoot_visualizer.need_update = true;
+    }
   }
-  if (shoot_grown) {
-    if (pruning)
-      tree_visualizer.ClearSelections();
-    tree_visualizer.need_update = true;
+
+  if (root_growth_controller_.Initialized()) {
+    root_model.DistributeVigor(root_growth_controller_, total_vigor);
+    if (base_internode_handle == -1) {
+      root_grown = root_model.Grow(simulation_settings.delta_time, global_transform, c->climate_model, s->soil_model,
+                                   root_growth_controller_, fine_root_controller_, root_reproduction_controller_,
+                                   root_pruning_controller_, pruning) ||
+                   root_grown;
+    }
+    if (root_grown) {
+      if (pruning)
+        root_visualizer.ClearSelections();
+      root_visualizer.need_update = true;
+    }
   }
-  if (enable_history && shoot_model.iteration_ % history_iteration == 0)
+  if (enable_history && shoot_model.iteration_ % history_iteration == 0) {
     shoot_model.Step();
+    root_model.Step();
+  }
   if (record_biomass_history) {
     const auto& base_shoot_node = shoot_model.RefShootSkeleton().RefNode(0);
-    shoot_biomass_history.emplace_back(base_shoot_node.data.biomass + base_shoot_node.data.descendant_total_biomass);
+    shoot_biomass_history.emplace_back(base_shoot_node.data.biomass_factor +
+                                       base_shoot_node.data.descendant_total_biomass_factor);
   }
-  return shoot_grown;
+  return shoot_grown || root_grown;
 }
 
 void Tree::Serialize(YAML::Emitter& out) const {
@@ -470,7 +507,7 @@ void Tree::RegisterVoxel() {
   const auto scene = GetScene();
   const auto owner = GetOwner();
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(owner).value;
-  shoot_model.shoot_skeleton_.data.index = owner.GetIndex();
+  shoot_model.shoot_skeleton_.data.entity_index = owner.GetIndex();
   const auto c = climate.Get<Climate>();
   shoot_model.RegisterVoxel(global_transform, c->climate_model);
 }

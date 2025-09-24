@@ -106,13 +106,13 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       if (tree_entities && !tree_entities->empty()) {
         if (scene->IsEntityValid(selected_tree)) {
           const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
-          auto& tree_visualizer = tree->tree_visualizer;
+          auto& tree_visualizer = tree->shoot_visualizer;
           if (tree_visualizer.checkpoint_iteration == tree->shoot_model.CurrentIteration()) {
             if (ImGui::TreeNodeEx("Tree Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
               if (ImGui::Combo("Mode", {"None", "Select", "Rotate", "Prune", "Invigorate", "Reduce"},
                                tree_operator_mode)) {
-                tree_visualizer.selected_internode_handle = -1;
-                tree_visualizer.selected_internode_hierarchy_list.clear();
+                tree_visualizer.selected_node_handle = -1;
+                tree_visualizer.selected_node_hierarchy_list.clear();
               }
               switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
                 case TreeOperatorMode::Select:
@@ -422,9 +422,9 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     }
     if (scene->IsEntityValid(selected_tree)) {
       const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
-      auto& tree_visualizer = tree->tree_visualizer;
-      tree_visualizer.selected_internode_handle = -1;
-      tree_visualizer.selected_internode_hierarchy_list.clear();
+      auto& tree_visualizer = tree->shoot_visualizer;
+      tree_visualizer.selected_node_handle = -1;
+      tree_visualizer.selected_node_hierarchy_list.clear();
       tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::Select);
     }
   }
@@ -619,12 +619,12 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
           p0.thickness = 2.0f * p1.thickness - p2.thickness;
           p5.thickness = 2.0f * p4.thickness - p3.thickness;
 
-          p0.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
-          p1.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
-          p2.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
-          p3.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
-          p4.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
-          p5.color = glm::vec4(random_colors_[flow.data.order], 1.0f);
+          p0.color = glm::vec4(random_colors_[flow.info.order], 1.0f);
+          p1.color = glm::vec4(random_colors_[flow.info.order], 1.0f);
+          p2.color = glm::vec4(random_colors_[flow.info.order], 1.0f);
+          p3.color = glm::vec4(random_colors_[flow.info.order], 1.0f);
+          p4.color = glm::vec4(random_colors_[flow.info.order], 1.0f);
+          p5.color = glm::vec4(random_colors_[flow.info.order], 1.0f);
 
           shoot_stem_segments_[branch_start_index * 3 + i * 3] = branch_start_index * 6 + i * 6;
           shoot_stem_segments_[branch_start_index * 3 + i * 3 + 1] = branch_start_index * 6 + i * 6 + 1;

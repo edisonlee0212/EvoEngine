@@ -409,7 +409,7 @@ void SkeletonSerializer<SkeletonData, FlowData, NodeData>::Deserialize(
   }
   skeleton.SortLists();
 
-  skeleton.CalculateDistance();
+  skeleton.CalculateDistanceVolumeLevel();
   skeleton.CalculateFlows();
   skeleton.CalculateRegulatedGlobalRotation();
 
