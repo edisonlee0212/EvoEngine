@@ -78,7 +78,7 @@ void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
   segment_pair_material_ref.Save("segment_pair_material_ref", out);
   wireframe_material_ref.Save("wireframe_material_ref", out);
 
-  strand_model.Save("strand_model", out);
+  strand_model.Save("shoot_strand_model", out);
   initialize_parameters.Save("initialize_parameters", out);
 
   out << YAML::Key << "initialized_from_tree" << YAML::Value << initialized_from_tree;
@@ -105,7 +105,7 @@ void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
   segment_pair_material_ref.Load("segment_pair_material_ref", in);
   wireframe_material_ref.Load("wireframe_material_ref", in);
 
-  strand_model.Load("strand_model", in);
+  strand_model.Load("shoot_strand_model", in);
   initialize_parameters.Load("initialize_parameters", in);
 }
 
@@ -1031,7 +1031,7 @@ void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree) {
         bark_material_ref = mat;
     }
   }
-  strand_model = tree->strand_model;
+  strand_model = tree->shoot_strand_model;
   DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
   initialized_from_tree = true;
   UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);

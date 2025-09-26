@@ -301,6 +301,7 @@ class EcoSysLabLayer : public ILayer {
   bool auto_generate_strand_mesh_after_editing_ = false;   ///< Automatically generates strand meshes after editing.
 
   friend class ShootVisualizer;
+  friend class RootVisualizer;
   friend class Tree;
   friend class DynamicTreeSkeleton;
 

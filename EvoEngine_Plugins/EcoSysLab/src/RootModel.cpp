@@ -46,13 +46,14 @@ void RootModel::Initialize(const RootGrowthController& root_growth_controller) {
     Clear();
   random_engine_ = std::mt19937(static_cast<uint32_t>(seed));
   {
-    root_skeleton_ = RootSkeleton(root_growth_controller.base_internode_count);
+    root_skeleton_ = RootSkeleton(root_growth_controller.base_root_node_count);
     root_skeleton_.SortLists();
     for (const auto& node_handle : root_skeleton_.PeekSortedNodeList()) {
       auto& node = root_skeleton_.RefNode(node_handle);
       node.data.node_thickness = 1.f;
       node.info.thickness = root_growth_controller.base_thickness;
       node.data.node_length = 0.0f;
+      root_growth_controller.base_node_initialization(random_engine_, root_skeleton_.data, node);
     }
   }
   initialized_ = true;
@@ -61,16 +62,27 @@ void RootModel::Initialize(const RootGrowthController& root_growth_controller) {
 Vigor RootModel::SampleRootFlux(const glm::mat4& global_transform, const VoxelSoilModel& soil_model,
                                 const RootGrowthController& root_growth_controller) {
   root_skeleton_.SortLists();
+  Vigor total_shoot_flux;
+  total_shoot_flux.value = 0.0f;
   const auto& sorted_root_node_list = root_skeleton_.PeekSortedNodeList();
   for (const auto& node_handle : sorted_root_node_list) {
     auto& root_node = root_skeleton_.RefNode(node_handle);
     auto& root_node_info = root_node.info;
     const glm::vec3 position = global_transform * glm::vec4(root_node_info.global_position, 1.0f);
-    root_node.data.water = soil_model.IntegrateWater(position, 0.2f);
-    root_node.data.nutrient = soil_model.IntegrateNutrient(position, 0.2f);
+    // root_node.data.water = soil_model.IntegrateWater(position, 0.2f);
+    // root_node.data.nutrient = soil_model.IntegrateNutrient(position, 0.2f);
+    // root_node.data.soil_density = soil_model.GetDensity(position);
+    root_node.data.water = 1.f;
+    root_node.data.nutrient = 1.f;
+    if (position.y < 0.f) {
+      root_node.data.soil_density = 1.2f - position.y * 0.5f;
+    } else {
+      root_node.data.soil_density = 0.0f;
+    }
+    total_shoot_flux.value += root_node.data.water;
   }
   CalculateGrowthData(root_growth_controller);
-  return {};
+  return total_shoot_flux;
 }
 void RootModel::CalculateTransform(const RootGrowthController& root_growth_controller) {
   root_skeleton_.min = glm::vec3(FLT_MAX);
@@ -85,13 +97,7 @@ void RootModel::CalculateTransform(const RootGrowthController& root_growth_contr
 
     node_info.length = root_growth_controller.root_node_length(random_engine_, root_skeleton_.data, node);
 
-    if (node.GetParentHandle() == -1) {
-      node_info.global_position = node_data.desired_global_position = glm::vec3(0.0f);
-      node_data.desired_local_rotation = glm::vec3(0.0f);
-      node_info.global_rotation = node_info.regulated_global_rotation = node_data.desired_global_rotation =
-          glm::vec3(glm::radians(90.0f), 0.0f, 0.0f);
-      node_info.GetGlobalDirection() = glm::normalize(node_info.global_rotation * glm::vec3(0, 0, -1));
-    } else {
+    if (node.GetParentHandle() != -1) {
       auto& parent_internode = root_skeleton_.RefNode(node.GetParentHandle());
       auto parent_global_rotation = parent_internode.info.global_rotation;
       node_info.global_rotation = parent_global_rotation * node_data.desired_local_rotation;
@@ -143,7 +149,7 @@ void RootModel::DistributeVigor(const RootGrowthController& root_growth_controll
     node.data.desired_growth_rate = node.data.nutrient * node.data.growth_potential;
     total_desired_growth_rate += node.data.desired_growth_rate;
   }
-  const float clamped_factor = glm::clamp(vigor.value / total_desired_growth_rate, 0.0f, 1.0f);
+  const float clamped_factor = vigor.value / total_desired_growth_rate;
   for (const auto& node_handle : sorted_node_list) {
     auto& node = root_skeleton_.RefNode(node_handle);
     // You cannot give more than enough resources.
@@ -153,7 +159,7 @@ void RootModel::DistributeVigor(const RootGrowthController& root_growth_controll
 RootSkeleton& RootModel::RefRootSkeleton() {
   return root_skeleton_;
 }
-const RootSkeleton& RootModel::RefRootSkeleton(int iteration) const {
+const RootSkeleton& RootModel::PeekRootSkeleton(int iteration) const {
   assert(iteration < 0 || iteration <= root_history_.size());
   if (iteration == root_history_.size() || iteration < 0)
     return root_skeleton_;
@@ -214,7 +220,7 @@ bool RootModel::Grow(float delta_time, const glm::mat4& global_transform, const 
       root_skeleton_.SortLists();
     }
   }
-  if (pruning) {
+  if (pruning && root_pruning_controller.Initialized()) {
     CalculateGrowthData(root_growth_controller);
     if (PruneRootNodes(global_transform, climate_model, soil_model, root_growth_controller, root_pruning_controller)) {
       root_skeleton_.SortLists();
@@ -233,7 +239,6 @@ bool RootModel::GrowRootNode(SkeletonNodeHandle node_handle, const RootGrowthCon
   bool graph_changed = false;
   auto& node = root_skeleton_.RefNode(node_handle);
   auto& node_data = node.data;
-  const auto& node_info = node.info;
   node_data.inhibitor_sink = 0;
   for (const auto& child_handle : node.PeekChildHandles()) {
     auto& child_node = root_skeleton_.RefNode(child_handle);
@@ -242,16 +247,14 @@ bool RootModel::GrowRootNode(SkeletonNodeHandle node_handle, const RootGrowthCon
       child_node_inhibitor = root_growth_controller.growth_inhibitor(random_engine_, root_skeleton_.data, child_node);
     }
 
-    node_data.inhibitor_sink +=
-        glm::max(0.0f, (child_node_inhibitor + child_node.data.inhibitor_sink) *
-                           glm::clamp(1.0f - root_growth_controller.growth_inhibitor_transport_reduction(
-                                                 random_engine_, root_skeleton_.data, node),
-                                      0.0f, 1.0f));
+    node_data.inhibitor_sink += glm::max(
+        0.0f, root_growth_controller.growth_inhibitor_transport(
+                  random_engine_, root_skeleton_.data, child_node_inhibitor + child_node.data.inhibitor_sink, node));
   }
 
   if (node.PeekChildHandles().empty()) {
     const float elongate_length = node_data.growth_rate * current_delta_time_ / 365.f *
-                                  root_growth_controller.base_internode_length *
+                                  root_growth_controller.base_root_node_length *
                                   root_growth_controller.root_node_growth_rate;
 
     float collected_inhibitor = 0.0f;
@@ -260,10 +263,9 @@ bool RootModel::GrowRootNode(SkeletonNodeHandle node_handle, const RootGrowthCon
                     graph_changed;
     auto& current_internode = root_skeleton_.RefNode(node_handle);
 
-    current_internode.data.inhibitor_sink += glm::max(
-        0.0f, collected_inhibitor * glm::clamp(1.0f - root_growth_controller.growth_inhibitor_transport_reduction(
-                                                          random_engine_, root_skeleton_.data, current_internode),
-                                               0.0f, 1.0f));
+    current_internode.data.inhibitor_sink +=
+        glm::max(0.0f, root_growth_controller.growth_inhibitor_transport(random_engine_, root_skeleton_.data,
+                                                                         collected_inhibitor, current_internode));
   } else {
     const float flush_probability =
         root_growth_controller.lateral_node_flushing_rate(random_engine_, root_skeleton_.data, node);
@@ -274,16 +276,19 @@ bool RootModel::GrowRootNode(SkeletonNodeHandle node_handle, const RootGrowthCon
       const auto& old_internode = root_skeleton_.PeekNode(node_handle);
       auto& new_internode = root_skeleton_.RefNode(new_internode_handle);
       // Prepare information for new internode
-      auto desired_global_rotation =
-          node_info.global_rotation *
-          root_growth_controller.node_rotation(random_engine_, root_skeleton_.data, old_internode, new_internode);
-      root_growth_controller.tropism(random_engine_, root_skeleton_.data, old_internode, desired_global_rotation);
-      new_internode.data = {};
+
+      new_internode.data = old_internode.data;
       new_internode.data.start_age = root_skeleton_.data.age;
       new_internode.data.finish_age = 0.0f;
       new_internode.info.order = old_internode.info.order + 1;
       new_internode.data.node_length = 0.0f;
       new_internode.info.root_distance = old_internode.info.root_distance;
+
+      auto desired_global_rotation =
+          old_internode.info.global_rotation *
+          root_growth_controller.node_rotation(random_engine_, root_skeleton_.data, old_internode, new_internode);
+      root_growth_controller.tropism(random_engine_, root_skeleton_.data, old_internode, new_internode,
+                                     desired_global_rotation);
       new_internode.data.desired_local_rotation =
           glm::inverse(old_internode.info.global_rotation) * desired_global_rotation;
       new_internode.data.node_thickness = 1.f;
@@ -300,9 +305,8 @@ bool RootModel::ElongateRootNode(float extended_length, SkeletonNodeHandle inter
                                  float& collected_inhibitor) {
   bool graph_changed = false;
   auto& internode = root_skeleton_.RefNode(internode_handle);
-  const auto internode_length = root_growth_controller.base_internode_length;
+  const auto internode_length = root_growth_controller.base_root_node_length;
   auto& internode_data = internode.data;
-  const auto& internode_info = internode.info;
   internode_data.node_length += extended_length;
   const float extra_length = internode_data.node_length - internode_length;
   // If we need to add a new end node
@@ -315,14 +319,7 @@ bool RootModel::ElongateRootNode(float extended_length, SkeletonNodeHandle inter
     auto& old_internode = root_skeleton_.RefNode(internode_handle);
     auto& new_internode = root_skeleton_.RefNode(new_internode_handle);
 
-    auto desired_global_rotation =
-        internode_info.global_rotation *
-        root_growth_controller.node_rotation(random_engine_, root_skeleton_.data, old_internode, new_internode);
-    if (internode_handle != 0) {
-      root_growth_controller.tropism(random_engine_, root_skeleton_.data, old_internode, desired_global_rotation);
-    }
-
-    new_internode.data = {};
+    new_internode.data = old_internode.data;
     new_internode.data.water = old_internode.data.water;
     new_internode.data.nutrient = old_internode.data.nutrient;
     old_internode.data.finish_age = new_internode.data.start_age = root_skeleton_.data.age;
@@ -332,6 +329,13 @@ bool RootModel::ElongateRootNode(float extended_length, SkeletonNodeHandle inter
     new_internode.data.node_length = glm::clamp(extended_length, 0.0f, internode_length);
     new_internode.info.root_distance = old_internode.info.root_distance + new_internode.data.node_length;
 
+    auto desired_global_rotation =
+        old_internode.info.global_rotation *
+        root_growth_controller.node_rotation(random_engine_, root_skeleton_.data, old_internode, new_internode);
+    if (internode_handle != 0) {
+      root_growth_controller.tropism(random_engine_, root_skeleton_.data, old_internode, new_internode,
+                                     desired_global_rotation);
+    }
     new_internode.info.global_rotation = desired_global_rotation;
     new_internode.data.desired_local_rotation =
         glm::inverse(old_internode.info.global_rotation) * new_internode.info.global_rotation;
@@ -344,10 +348,9 @@ bool RootModel::ElongateRootNode(float extended_length, SkeletonNodeHandle inter
       ElongateRootNode(extra_length - internode_length, new_internode_handle, root_growth_controller,
                        fine_root_controller, reproduction_controller, child_inhibitor);
       auto& current_new_internode = root_skeleton_.RefNode(new_internode_handle);
-      current_new_internode.data.inhibitor_sink += glm::max(
-          0.0f, child_inhibitor * glm::clamp(1.0f - root_growth_controller.growth_inhibitor_transport_reduction(
-                                                        random_engine_, root_skeleton_.data, current_new_internode),
-                                             0.0f, 1.0f));
+      current_new_internode.data.inhibitor_sink +=
+          glm::max(0.0f, root_growth_controller.growth_inhibitor_transport(random_engine_, root_skeleton_.data,
+                                                                           child_inhibitor, current_new_internode));
       collected_inhibitor +=
           current_new_internode.data.inhibitor_sink +
           root_growth_controller.growth_inhibitor(random_engine_, root_skeleton_.data, current_new_internode);

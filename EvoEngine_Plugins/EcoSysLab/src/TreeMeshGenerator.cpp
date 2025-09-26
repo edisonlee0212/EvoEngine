@@ -86,8 +86,10 @@ void TreeMeshGeneratorSettings::Save(const std::string& name, YAML::Emitter& out
   out << YAML::Key << "branch_y_subdivision" << YAML::Value << branch_y_subdivision;
 
   out << YAML::Key << "enable_foliage" << YAML::Value << enable_foliage;
+  out << YAML::Key << "enable_fine_root" << YAML::Value << enable_fine_root;
   out << YAML::Key << "foliage_instancing" << YAML::Value << foliage_instancing;
-  out << YAML::Key << "enable_branch" << YAML::Value << enable_branch;
+  out << YAML::Key << "enable_shoot_branch" << YAML::Value << enable_shoot_branch;
+  out << YAML::Key << "enable_root_branch" << YAML::Value << enable_root_branch;
   out << YAML::Key << "enable_fruit" << YAML::Value << enable_fruit;
 
   out << YAML::Key << "stitch_all_children" << YAML::Value << stitch_all_children;
@@ -124,10 +126,14 @@ void TreeMeshGeneratorSettings::Load(const std::string& name, const YAML::Node& 
 
     if (ms["enable_foliage"])
       enable_foliage = ms["enable_foliage"].as<bool>();
+    if (ms["enable_fine_root"])
+      enable_fine_root = ms["enable_fine_root"].as<bool>();
     if (ms["foliage_instancing"])
       foliage_instancing = ms["foliage_instancing"].as<bool>();
-    if (ms["enable_branch"])
-      enable_branch = ms["enable_branch"].as<bool>();
+    if (ms["enable_shoot_branch"])
+      enable_shoot_branch = ms["enable_shoot_branch"].as<bool>();
+    if (ms["enable_root_branch"])
+      enable_root_branch = ms["enable_root_branch"].as<bool>();
     if (ms["enable_fruit"])
       enable_fruit = ms["enable_fruit"].as<bool>();
 
@@ -166,9 +172,11 @@ void TreeMeshGeneratorSettings::Load(const std::string& name, const YAML::Node& 
 
 void TreeMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNodeEx("Mesh Generator settings")) {
-    ImGui::Checkbox("Branch", &enable_branch);
+    ImGui::Checkbox("Shoot Branch", &enable_shoot_branch);
+    ImGui::Checkbox("Root Branch", &enable_root_branch);
     ImGui::Checkbox("Fruit", &enable_fruit);
     ImGui::Checkbox("Foliage", &enable_foliage);
+    ImGui::Checkbox("Fine root", &enable_fine_root);
     ImGui::Checkbox("Foliage instancing", &foliage_instancing);
     ImGui::Combo("Branch mesh mode", {"Cylindrical", "Marching cubes"}, branch_mesh_type);
 
@@ -205,7 +213,7 @@ void TreeMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLayer>& ed
         ImGui::Checkbox("Remove duplicate", &remove_duplicate);
       ImGui::TreePop();
     }
-    if (enable_branch && ImGui::TreeNode("Branch settings")) {
+    if (enable_shoot_branch && ImGui::TreeNode("Branch settings")) {
       ImGui::TreePop();
     }
     if (enable_foliage && ImGui::TreeNode("Foliage settings")) {

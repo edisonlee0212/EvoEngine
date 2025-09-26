@@ -37,7 +37,23 @@ class IRootDescriptor : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 };
-
+/**
+ * \class IRootDescriptor
+ * \brief Represents the parameters controlling procedural tree growth.
+ */
+class IFineRootDescriptor : public IAsset {
+ public:
+  /**
+   * \brief Prepares a FineRootDescriptor using current growth parameters.
+   * \param fine_root_controller The controller to configure.
+   */
+  virtual void PrepareController(FineRootController& fine_root_controller) const = 0;
+  /**
+   * \brief Generates a thumbnail texture representing the root descriptor.
+   * \return A shared pointer to the generated Texture2D.
+   */
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+};
 /**
  * \class IPruningDescriptor
  * \brief Represents the parameters controlling procedural tree pruning.
@@ -155,7 +171,10 @@ class TreeDescriptor : public IAsset {
    * @brief Reference to the root descriptor asset.
    */
   AssetRef root_descriptor;
-
+  /**
+   * @brief Reference to the root descriptor asset.
+   */
+  AssetRef fine_root_descriptor;
   /**
    * @brief Reference to the pruning descriptor asset.
    */

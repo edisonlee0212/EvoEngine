@@ -45,6 +45,15 @@ std::shared_ptr<Texture2D> IRootDescriptor::GenerateThumbnailTexture() {
   }
   return thumbnail;
 }
+std::shared_ptr<Texture2D> IFineRootDescriptor::GenerateThumbnailTexture() {
+  static std::shared_ptr<Texture2D> thumbnail;
+  if (!thumbnail) {
+    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
+    thumbnail->Import(
+        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/RootDescriptor.png"));
+  }
+  return thumbnail;
+}
 std::shared_ptr<Texture2D> IPruningDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {

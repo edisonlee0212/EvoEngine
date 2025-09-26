@@ -61,7 +61,7 @@ class RootModel : public PlantModel {
    * @param iteration The iteration index (-1 for the latest state).
    * @return A constant reference to the requested shoot skeleton.
    */
-  [[nodiscard]] const RootSkeleton& RefRootSkeleton(int iteration = -1) const;
+  [[nodiscard]] const RootSkeleton& PeekRootSkeleton(int iteration = -1) const;
   /**
    * @brief Erases all data related to the tree.
    */

@@ -34,9 +34,10 @@ void Tree::Reset() {
   ClearAnimatedGeometryEntities();
   shoot_model.Clear();
   root_model.Clear();
-  strand_model = {};
+  shoot_strand_model = {};
   shoot_model.shoot_skeleton_.data.entity_index = root_model.root_skeleton_.data.entity_index = GetOwner().GetIndex();
   shoot_visualizer.Reset(shoot_model);
+  root_visualizer.Reset(root_model);
 }
 
 bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -64,7 +65,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     const auto sd = td->shoot_descriptor.Get<BasicShootDescriptor>();
     if (sd) {
       ImGui::DragInt("TreeModel Seed", &shoot_model.seed, 1, 0);
-      ImGui::DragInt("StrandModel Seed", &strand_model.seed, 1, 0);
+      ImGui::DragInt("StrandModel Seed", &shoot_strand_model.seed, 1, 0);
       if (ImGui::TreeNode("Tree settings")) {
         if (ImGui::DragFloat("Start time", &start_time, 0.01f, 0.0f, 100.f))
           changed = true;
@@ -228,11 +229,12 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (strand_model_parameters.OnInspect(editor_layer))
       changed = true;
 
+    ImGui::Text(("Strand count: " +
+                 std::to_string(shoot_strand_model.strand_model_skeleton.data.strand_group.PeekStrands().size()))
+                    .c_str());
     ImGui::Text(
-        ("Strand count: " + std::to_string(strand_model.strand_model_skeleton.data.strand_group.PeekStrands().size()))
+        ("Total particle count: " + std::to_string(shoot_strand_model.strand_model_skeleton.data.num_of_particles))
             .c_str());
-    ImGui::Text(
-        ("Total particle count: " + std::to_string(strand_model.strand_model_skeleton.data.num_of_particles)).c_str());
 
     if (ImGui::Button("Rebuild Strand Model")) {
       BuildStrandModel();
@@ -240,7 +242,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
     ImGui::SameLine();
     if (ImGui::Button("Clear Strand Model")) {
-      strand_model = {};
+      shoot_strand_model = {};
     }
 
     if (ImGui::TreeNodeEx("Strand Model Mesh Generator Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -273,7 +275,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ClearStrandModelMeshRenderer();
   }
 
-  shoot_visualizer.Visualize(strand_model);
+  shoot_visualizer.Visualize(shoot_strand_model);
   if (ImGui::TreeNode("Skeletal graph settings")) {
     if (skeletal_graph_settings.OnInspect(editor_layer))
       changed = true;
@@ -319,6 +321,9 @@ void Tree::Update() {
 void Tree::OnCreate() {
   shoot_visualizer.Initialize();
   shoot_visualizer.need_update = true;
+  root_visualizer.Initialize();
+  root_visualizer.need_update = true;
+
   strand_model_parameters.branch_twist_distribution.mean = {-60.0f, 60.0f};
   strand_model_parameters.branch_twist_distribution.deviation = {0.0f, 1.0f, {0, 0}};
 
@@ -335,7 +340,7 @@ void Tree::OnCreate() {
 void Tree::OnDestroy() {
   shoot_model = {};
   root_model = {};
-  strand_model = {};
+  shoot_strand_model = {};
 
   tree_descriptor_ref.Clear();
   soil.Clear();
@@ -343,6 +348,7 @@ void Tree::OnDestroy() {
   enable_history = false;
 
   shoot_visualizer.Clear();
+  root_visualizer.Clear();
 
   left_side_biomass = right_side_biomass = 0.0f;
   root_biomass_history.clear();
@@ -354,17 +360,17 @@ void Tree::OnDestroy() {
 
 void Tree::CalculateProfiles() {
   const float time = Times::Now();
-  strand_model.strand_model_skeleton.Clone(shoot_model.RefShootSkeleton());
-  strand_model.ResetAllProfiles(strand_model_parameters);
-  strand_model.InitializeProfiles(strand_model_parameters);
-  const auto worker_handle = strand_model.CalculateProfiles(strand_model_parameters);
+  shoot_strand_model.strand_model_skeleton.Clone(shoot_model.RefShootSkeleton());
+  shoot_strand_model.ResetAllProfiles(strand_model_parameters);
+  shoot_strand_model.InitializeProfiles(strand_model_parameters);
+  const auto worker_handle = shoot_strand_model.CalculateProfiles(strand_model_parameters);
   Jobs::Wait(worker_handle);
   const float profile_calculation_time = Times::Now() - time;
   std::string output;
-  output += "\nProfile count: [" + std::to_string(strand_model.strand_model_skeleton.PeekSortedNodeList().size());
-  output +=
-      "], Strand count: [" + std::to_string(strand_model.strand_model_skeleton.data.strand_group.PeekStrands().size());
-  output += "], Particle count: [" + std::to_string(strand_model.strand_model_skeleton.data.num_of_particles);
+  output += "\nProfile count: [" + std::to_string(shoot_strand_model.strand_model_skeleton.PeekSortedNodeList().size());
+  output += "], Strand count: [" +
+            std::to_string(shoot_strand_model.strand_model_skeleton.data.strand_group.PeekStrands().size());
+  output += "], Particle count: [" + std::to_string(shoot_strand_model.strand_model_skeleton.data.num_of_particles);
   output += "]\nCalculate Profile Used time: " + std::to_string(profile_calculation_time) + "\n";
   EVOENGINE_LOG(output);
 }
@@ -375,11 +381,11 @@ void Tree::BuildStrandModel() {
   CalculateProfiles();
   const float time = Times::Now();
   for (const auto& node_handle : shoot_model.PeekShootSkeleton().PeekSortedNodeList()) {
-    strand_model.strand_model_skeleton.RefNode(node_handle).info =
+    shoot_strand_model.strand_model_skeleton.RefNode(node_handle).info =
         shoot_model.PeekShootSkeleton().PeekNode(node_handle).info;
   }
-  strand_model.CalculateStrandProfileAdjustedTransforms(strand_model_parameters);
-  strand_model.ApplyProfiles(strand_model_parameters);
+  shoot_strand_model.CalculateStrandProfileAdjustedTransforms(strand_model_parameters);
+  shoot_strand_model.ApplyProfiles(strand_model_parameters);
   const float strand_modeling_time = Times::Now() - time;
   output += "\nBuild Strand Model Used time: " + std::to_string(strand_modeling_time) + "\n";
   EVOENGINE_LOG(output);
@@ -411,11 +417,11 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
   bool root_grown = false;
   try {
     PrepareController(simulation_settings);
-    if (!shoot_model.initialized_) {
+    if (shoot_growth_controller_.Initialized() && !shoot_model.initialized_) {
       shoot_model.Initialize(shoot_growth_controller_, foliage_controller_, shoot_reproduction_controller_);
       shoot_grown = true;
     }
-    if (!root_model.initialized_) {
+    if (root_growth_controller_.Initialized() && !root_model.initialized_) {
       root_model.Initialize(root_growth_controller_);
       root_grown = true;
     }
@@ -426,14 +432,16 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
   const auto owner = GetOwner();
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(owner).value;
   Vigor shoot_vigor;
-  shoot_vigor.value = FLT_MAX;
   Vigor root_vigor;
-  root_vigor.value = FLT_MAX;
   if (shoot_growth_controller_.Initialized()) {
     shoot_vigor = shoot_model.SampleShootFlux(global_transform, c->climate_model, shoot_growth_controller_);
+  } else {
+    shoot_vigor.value = FLT_MAX;
   }
   if (root_growth_controller_.Initialized()) {
     root_vigor = root_model.SampleRootFlux(global_transform, s->soil_model, root_growth_controller_);
+  } else {
+    root_vigor.value = FLT_MAX;
   }
   Vigor total_vigor;
   total_vigor.value = glm::min(shoot_vigor.value, root_vigor.value);
@@ -489,7 +497,7 @@ void Tree::Serialize(YAML::Emitter& out) const {
 
   strand_model_parameters.Save("strand_model_parameters", out);
   tree_mesh_generator_settings.Save("tree_mesh_generator_settings", out);
-  strand_model.Save("strand_model", out);
+  shoot_strand_model.Save("shoot_strand_model", out);
   shoot_model.Save("shoot_model", out);
 }
 
@@ -499,7 +507,7 @@ void Tree::Deserialize(const YAML::Node& in) {
   strand_model_parameters.Load("strand_model_parameters", in);
   tree_mesh_generator_settings.Load("tree_mesh_generator_settings", in);
 
-  strand_model.Load("strand_model", in);
+  shoot_strand_model.Load("shoot_strand_model", in);
   shoot_model.Load("shoot_model", in);
 }
 

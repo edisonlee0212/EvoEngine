@@ -106,13 +106,13 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       if (tree_entities && !tree_entities->empty()) {
         if (scene->IsEntityValid(selected_tree)) {
           const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
-          auto& tree_visualizer = tree->shoot_visualizer;
-          if (tree_visualizer.checkpoint_iteration == tree->shoot_model.CurrentIteration()) {
+          auto& shoot_visualizer = tree->shoot_visualizer;
+          if (shoot_visualizer.checkpoint_iteration == tree->shoot_model.CurrentIteration()) {
             if (ImGui::TreeNodeEx("Tree Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
               if (ImGui::Combo("Mode", {"None", "Select", "Rotate", "Prune", "Invigorate", "Reduce"},
                                tree_operator_mode)) {
-                tree_visualizer.selected_node_handle = -1;
-                tree_visualizer.selected_node_hierarchy_list.clear();
+                shoot_visualizer.selected_node_handle = -1;
+                shoot_visualizer.selected_node_hierarchy_list.clear();
               }
               switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
                 case TreeOperatorMode::Select:
@@ -135,7 +135,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
           }
           ImGui::Separator();
           if (ImGui::TreeNodeEx("Tree Visualizer")) {
-            tree_visualizer.OnInspect(tree->shoot_model);
+            shoot_visualizer.OnInspect(tree->shoot_model);
             ImGui::TreePop();
           }
         } else {
@@ -422,9 +422,9 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     }
     if (scene->IsEntityValid(selected_tree)) {
       const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
-      auto& tree_visualizer = tree->shoot_visualizer;
-      tree_visualizer.selected_node_handle = -1;
-      tree_visualizer.selected_node_hierarchy_list.clear();
+      auto& shoot_visualizer = tree->shoot_visualizer;
+      shoot_visualizer.selected_node_handle = -1;
+      shoot_visualizer.selected_node_hierarchy_list.clear();
       tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::Select);
     }
   }

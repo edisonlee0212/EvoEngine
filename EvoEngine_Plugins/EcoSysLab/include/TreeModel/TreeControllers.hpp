@@ -33,7 +33,9 @@ struct ShootGrowthController : ITreeController {
    * \brief The expected elongation length for an internode for one year.
    */
   float internode_growth_rate;
-
+  std::function<void(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+                     SkeletonNode<InternodeGrowthData>& shoot_node)>
+      base_node_initialization;
   /**
    * \brief The initial rotation of the angle between the direction of a bud and its parent shoot.
    */
@@ -44,7 +46,8 @@ struct ShootGrowthController : ITreeController {
    * \brief The tropism factor affecting internode growth direction.
    */
   std::function<void(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                     const SkeletonNode<InternodeGrowthData>& internode, glm::quat& rotation)>
+                     const SkeletonNode<InternodeGrowthData>& old_internode,
+                     const SkeletonNode<InternodeGrowthData>& new_internode, glm::quat& rotation)>
       tropism;
 
   /**
@@ -124,9 +127,9 @@ struct ShootGrowthController : ITreeController {
   /**
    * \brief The amount of inhibitor lost when passing through a branch.
    */
-  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+  std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data, float growth_inhibitor,
                       const SkeletonNode<InternodeGrowthData>& internode)>
-      growth_inhibitor_transport_reduction;
+      growth_inhibitor_transport;
 };
 
 struct FoliageController : ITreeController {
@@ -237,7 +240,7 @@ struct RootGrowthController : ITreeController {
   /**
    * \brief The base count of root nodes.
    */
-  int base_internode_count = 1;
+  int base_root_node_count = 1;
   /**
    * \brief The base thickness of the root node.
    */
@@ -245,7 +248,12 @@ struct RootGrowthController : ITreeController {
   /**
    * \brief The base length of root nodes.
    */
-  float base_internode_length;
+  float base_root_node_length;
+
+  std::function<void(std::mt19937& random_engine, const RootGrowthData& root_growth_data,
+                     SkeletonNode<RootNodeGrowthData>& root_node)>
+      base_node_initialization;
+
   /**
    * \brief Current thickness.
    */
@@ -284,15 +292,16 @@ struct RootGrowthController : ITreeController {
   /**
    * \brief The amount of inhibitor lost when passing through a branch.
    */
-  std::function<float(std::mt19937& random_engine, const RootGrowthData& root_growth_data,
-                      const SkeletonNode<RootNodeGrowthData>& root_node)>
-      growth_inhibitor_transport_reduction;
+  std::function<float(std::mt19937& random_engine, const RootGrowthData& shoot_growth_data,
+                      const float growth_inhibitor, const SkeletonNode<RootNodeGrowthData>& internode)>
+      growth_inhibitor_transport;
 
   /**
    * \brief The tropism factor affecting root node growth direction.
    */
   std::function<void(std::mt19937& random_engine, const RootGrowthData& root_growth_data,
-                     const SkeletonNode<RootNodeGrowthData>& root_node, glm::quat& rotation)>
+                     const SkeletonNode<RootNodeGrowthData>& old_node, SkeletonNode<RootNodeGrowthData>& new_node,
+                     glm::quat& rotation)>
       tropism;
   /**
    * \brief The mean and variance of the angle between the direction of a node and its parent shoot.
@@ -306,7 +315,7 @@ struct RootGrowthController : ITreeController {
    * \brief Flushing rate of the lateral node.
    */
   std::function<float(std::mt19937& random_engine, const RootGrowthData& root_growth_data,
-                      const SkeletonNode<RootNodeGrowthData>& internode)>
+                      const SkeletonNode<RootNodeGrowthData>& root_node)>
       lateral_node_flushing_rate;
 };
 

@@ -1,4 +1,5 @@
 #include "BasicBarkDescriptor.hpp"
+#include "BasicFineRootDescriptor.hpp"
 #include "TransformGraph.hpp"
 #include "Tree.hpp"
 #include "TreeSkinnedMeshGenerator.hpp"
@@ -19,7 +20,7 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
   scene->SetParent(point_entity, self);
 
   bool strand_ready = false;
-  if (strand_model.strand_model_skeleton.PeekSortedNodeList().size() > 1) {
+  if (shoot_strand_model.strand_model_skeleton.PeekSortedNodeList().size() > 1) {
     strand_ready = true;
   }
 
@@ -40,7 +41,7 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
 
   std::vector<ParticleInfo> line_particle_infos;
   std::vector<ParticleInfo> point_particle_infos;
-  const int node_size = strand_ready ? strand_model.strand_model_skeleton.PeekSortedNodeList().size()
+  const int node_size = strand_ready ? shoot_strand_model.strand_model_skeleton.PeekSortedNodeList().size()
                                      : shoot_model.PeekShootSkeleton().PeekSortedNodeList().size();
   if (strand_ready) {
     line_particle_infos.resize(node_size);
@@ -51,11 +52,11 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
   }
   Jobs::RunParallelFor(node_size, [&](unsigned internode_index) {
     if (strand_ready) {
-      const auto& sorted_internode_list = strand_model.strand_model_skeleton.PeekSortedNodeList();
+      const auto& sorted_internode_list = shoot_strand_model.strand_model_skeleton.PeekSortedNodeList();
       const auto internode_handle = sorted_internode_list[internode_index];
       SkeletonNodeHandle walker = internode_handle;
       bool sub_tree = false;
-      const auto& skeleton = strand_model.strand_model_skeleton;
+      const auto& skeleton = shoot_strand_model.strand_model_skeleton;
       const auto& node = skeleton.PeekNode(internode_handle);
 
       while (walker != -1) {
@@ -173,7 +174,8 @@ std::shared_ptr<Strands> Tree::GenerateStrands() const {
   const auto& parameters = strand_model_parameters;
   std::vector<glm::uint> strands_list;
   std::vector<StrandPoint> points;
-  strand_model.strand_model_skeleton.data.strand_group.BuildStrands(strands_list, points, parameters.node_max_count);
+  shoot_strand_model.strand_model_skeleton.data.strand_group.BuildStrands(strands_list, points,
+                                                                          parameters.node_max_count);
   if (!points.empty())
     strands_list.emplace_back(points.size());
   StrandPointAttributes strand_point_attributes{};
@@ -185,7 +187,7 @@ std::shared_ptr<Strands> Tree::GenerateStrands() const {
 std::shared_ptr<ParticleInfoList> Tree::GenerateStrandParticles() const {
   const auto particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   std::vector<ParticleInfo> particle_infos;
-  strand_model.strand_model_skeleton.data.strand_group.BuildParticles(particle_infos);
+  shoot_strand_model.strand_model_skeleton.data.strand_group.BuildParticles(particle_infos);
   particle_info_list->SetParticleInfos(particle_infos);
   return particle_info_list;
 }
@@ -224,7 +226,7 @@ void Tree::GenerateTrunkMeshes(const std::shared_ptr<Mesh>& trunk_mesh,
   }
 }
 
-std::shared_ptr<Mesh> Tree::GenerateBranchMesh(const TreeMeshGeneratorSettings& mesh_generator_settings) {
+std::shared_ptr<Mesh> Tree::GenerateShootMesh(const TreeMeshGeneratorSettings& mesh_generator_settings) {
   std::vector<Vertex> vertices;
   std::vector<unsigned int> indices;
   if (mesh_generator_settings.branch_mesh_type == 0) {
@@ -232,13 +234,13 @@ std::shared_ptr<Mesh> Tree::GenerateBranchMesh(const TreeMeshGeneratorSettings& 
     if (!td) {
       EVOENGINE_WARNING("TreeDescriptor missing!");
       td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
-      td->foliage_descriptor = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
     }
     std::shared_ptr<BasicBarkDescriptor> bd{};
     bd = td->bark_descriptor.Get<BasicBarkDescriptor>();
-    if (strand_model.strand_model_skeleton.RefRawNodes().size() == shoot_model.shoot_skeleton_.RefRawNodes().size()) {
+    if (shoot_strand_model.strand_model_skeleton.RefRawNodes().size() ==
+        shoot_model.shoot_skeleton_.RefRawNodes().size()) {
       CylindricalMeshGenerator<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData>::Generate(
-          strand_model.strand_model_skeleton, vertices, indices, mesh_generator_settings,
+          shoot_strand_model.strand_model_skeleton, vertices, indices, mesh_generator_settings,
           [&](glm::vec3& vertex_position, const glm::vec3& direction, const float x_factor, const float y_factor) {
             if (bd) {
               const float push_value = bd->GetValue(x_factor, y_factor);
@@ -264,11 +266,57 @@ std::shared_ptr<Mesh> Tree::GenerateBranchMesh(const TreeMeshGeneratorSettings& 
     if (!td) {
       EVOENGINE_WARNING("TreeDescriptor missing!");
       td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
-      td->foliage_descriptor = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
     }
     VoxelMeshGenerator<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>::Generate(
         shoot_model.PeekShootSkeleton(), vertices, indices, mesh_generator_settings);
   }
+  auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  VertexAttributes attributes{};
+  attributes.tex_coord = true;
+  mesh->SetVertices(attributes, vertices, indices);
+  return mesh;
+}
+std::shared_ptr<Mesh> Tree::GenerateRootMesh(const TreeMeshGeneratorSettings& mesh_generator_settings) {
+  std::vector<Vertex> vertices;
+  std::vector<unsigned int> indices;
+  if (mesh_generator_settings.branch_mesh_type == 0) {
+    auto td = tree_descriptor_ref.Get<TreeDescriptor>();
+    if (!td) {
+      EVOENGINE_WARNING("TreeDescriptor missing!");
+      td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+    }
+    std::shared_ptr<BasicBarkDescriptor> bd{};
+    bd = td->bark_descriptor.Get<BasicBarkDescriptor>();
+    CylindricalMeshGenerator<RootGrowthData, RootStemGrowthData, RootNodeGrowthData>::Generate(
+        root_model.PeekRootSkeleton(), vertices, indices, mesh_generator_settings,
+        [&](glm::vec3& vertex_position, const glm::vec3& direction, const float x_factor, const float y_factor) {
+          if (bd) {
+            const float push_value = bd->GetValue(x_factor, y_factor);
+            vertex_position += push_value * direction;
+          }
+        },
+        [&](glm::vec2&, float, float) {
+        });
+
+  } else {
+    auto td = tree_descriptor_ref.Get<TreeDescriptor>();
+    if (!td) {
+      EVOENGINE_WARNING("TreeDescriptor missing!");
+      td = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+    }
+    VoxelMeshGenerator<RootGrowthData, RootStemGrowthData, RootNodeGrowthData>::Generate(
+        root_model.PeekRootSkeleton(), vertices, indices, mesh_generator_settings);
+  }
+  auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  VertexAttributes attributes{};
+  attributes.tex_coord = true;
+  mesh->SetVertices(attributes, vertices, indices);
+  return mesh;
+}
+
+std::shared_ptr<Mesh> Tree::GenerateFineRootMesh(const TreeMeshGeneratorSettings& mesh_generator_settings) {
+  std::vector<Vertex> vertices;
+  std::vector<unsigned int> indices;
   auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   VertexAttributes attributes{};
   attributes.tex_coord = true;
@@ -367,12 +415,12 @@ std::shared_ptr<ParticleInfoList> Tree::GenerateFoliageParticleInfoList(
   std::vector<ParticleInfo> particle_infos;
   const auto& node_list = shoot_model.PeekShootSkeleton().PeekSortedNodeList();
   const bool sm =
-      strand_model.strand_model_skeleton.RefRawNodes().size() == shoot_model.shoot_skeleton_.RefRawNodes().size();
-  const auto tree_dim = sm ? strand_model.strand_model_skeleton.max - strand_model.strand_model_skeleton.min
+      shoot_strand_model.strand_model_skeleton.RefRawNodes().size() == shoot_model.shoot_skeleton_.RefRawNodes().size();
+  const auto tree_dim = sm ? shoot_strand_model.strand_model_skeleton.max - shoot_strand_model.strand_model_skeleton.min
                            : shoot_model.PeekShootSkeleton().max - shoot_model.PeekShootSkeleton().min;
 
   for (const auto& internode_handle : node_list) {
-    const auto& internode_info = sm ? strand_model.strand_model_skeleton.PeekNode(internode_handle).info
+    const auto& internode_info = sm ? shoot_strand_model.strand_model_skeleton.PeekNode(internode_handle).info
                                     : shoot_model.PeekShootSkeleton().PeekNode(internode_handle).info;
 
     std::vector<glm::mat4> leaf_matrices{};
@@ -404,10 +452,10 @@ std::shared_ptr<Mesh> Tree::GenerateStrandModelFoliageMesh(
   auto fd = td->foliage_descriptor.Get<BasicFoliageDescriptor>();
   if (!fd)
     fd = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
-  const auto& node_list = strand_model.strand_model_skeleton.PeekSortedNodeList();
-  const auto tree_dim = strand_model.strand_model_skeleton.max - strand_model.strand_model_skeleton.min;
+  const auto& node_list = shoot_strand_model.strand_model_skeleton.PeekSortedNodeList();
+  const auto tree_dim = shoot_strand_model.strand_model_skeleton.max - shoot_strand_model.strand_model_skeleton.min;
   for (const auto& internode_handle : node_list) {
-    const auto& strand_model_node = strand_model.strand_model_skeleton.PeekNode(internode_handle);
+    const auto& strand_model_node = shoot_strand_model.strand_model_skeleton.PeekNode(internode_handle);
     std::vector<glm::mat4> leaf_matrices;
     fd->GenerateFoliageMatrices(leaf_matrices, strand_model_node.info, glm::length(tree_dim));
     Vertex archetype;
@@ -461,11 +509,11 @@ std::shared_ptr<Mesh> Tree::GenerateStrandModelFoliageMesh(
   return mesh;
 }
 
-std::shared_ptr<Mesh> Tree::GenerateStrandModelBranchMesh(
+std::shared_ptr<Mesh> Tree::GenerateStrandModelShootMesh(
     const StrandModelMeshGeneratorSettings& strand_model_mesh_generator_settings) const {
   std::vector<Vertex> vertices;
   std::vector<unsigned int> indices;
-  StrandModelMeshGenerator::Generate(strand_model, vertices, indices, strand_model_mesh_generator_settings);
+  StrandModelMeshGenerator::Generate(shoot_strand_model, vertices, indices, strand_model_mesh_generator_settings);
 
   auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   VertexAttributes attributes{};
@@ -528,7 +576,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
       scene->SetParent(corresponding_flow_handles[flow_handle], rag_doll);
     }
   }
-  if (mesh_generator_settings.enable_branch) {
+  if (mesh_generator_settings.enable_shoot_branch) {
     Entity branch_entity;
     branch_entity = scene->CreateEntity("Animated Branch Mesh");
     scene->SetParent(branch_entity, self);
@@ -565,9 +613,10 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     }
     std::shared_ptr<BasicBarkDescriptor> bark_descriptor{};
     bark_descriptor = td->bark_descriptor.Get<BasicBarkDescriptor>();
-    if (strand_model.strand_model_skeleton.RefRawNodes().size() == shoot_model.shoot_skeleton_.RefRawNodes().size()) {
+    if (shoot_strand_model.strand_model_skeleton.RefRawNodes().size() ==
+        shoot_model.shoot_skeleton_.RefRawNodes().size()) {
       CylindricalSkinnedMeshGenerator<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData>::Generate(
-          strand_model.strand_model_skeleton, skinned_vertices, indices, offset_matrices, mesh_generator_settings,
+          shoot_strand_model.strand_model_skeleton, skinned_vertices, indices, offset_matrices, mesh_generator_settings,
           [&](glm::vec3& vertex_position, const glm::vec3& direction, const float x_factor, const float y_factor) {
             if (bark_descriptor) {
               const float push_value = bark_descriptor->GetValue(x_factor, y_factor);
@@ -748,13 +797,15 @@ void Tree::ClearGeometryEntities() const {
   const auto children = scene->GetChildren(self);
   for (const auto& child : children) {
     auto name = scene->GetEntityName(child);
-    if (name == "Branch Mesh") {
+    if (name == "Shoot Branch Mesh") {
       scene->DeleteEntity(child);
-    } else if (name == "Root Mesh") {
+    } else if (name == "Root Branch Mesh") {
       scene->DeleteEntity(child);
     } else if (name == "Foliage Mesh") {
       scene->DeleteEntity(child);
     } else if (name == "Fruit Mesh") {
+      scene->DeleteEntity(child);
+    } else if (name == "Flower Mesh") {
       scene->DeleteEntity(child);
     }
   }
@@ -769,17 +820,72 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
   if (auto actual_iteration = iteration; actual_iteration < 0 || actual_iteration > shoot_model.CurrentIteration()) {
     actual_iteration = shoot_model.CurrentIteration();
   }
-  if (mesh_generator_settings.enable_branch) {
-    const Entity branch_entity = scene->CreateEntity("Branch Mesh");
+  if (mesh_generator_settings.enable_shoot_branch) {
+    const Entity branch_entity = scene->CreateEntity("Shoot Branch Mesh");
     scene->SetParent(branch_entity, self);
 
-    const auto mesh = GenerateBranchMesh(mesh_generator_settings);
+    const auto mesh = GenerateShootMesh(mesh_generator_settings);
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(branch_entity).lock();
     bool copied_material = false;
     if (tree_descriptor) {
       if (const auto bark_descriptor = tree_descriptor->bark_descriptor.Get<BasicBarkDescriptor>()) {
         if (const auto bark_material = bark_descriptor->bark_material_ref.Get<Material>()) {
+          material->SetAlbedoTexture(bark_material->GetAlbedoTexture());
+          material->SetNormalTexture(bark_material->GetNormalTexture());
+          material->SetRoughnessTexture(bark_material->GetRoughnessTexture());
+          material->SetMetallicTexture(bark_material->GetMetallicTexture());
+          material->material_properties = bark_material->material_properties;
+          copied_material = true;
+        }
+      }
+    }
+    if (!copied_material) {
+      material->material_properties.albedo_color = glm::vec3(109, 79, 75) / 255.0f;
+      material->material_properties.roughness = 1.0f;
+      material->material_properties.metallic = 0.0f;
+    }
+    mesh_renderer->mesh = mesh;
+    mesh_renderer->material = material;
+  }
+  if (mesh_generator_settings.enable_root_branch) {
+    const Entity branch_entity = scene->CreateEntity("Root Branch Mesh");
+    scene->SetParent(branch_entity, self);
+    const auto mesh = GenerateRootMesh(mesh_generator_settings);
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
+    const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(branch_entity).lock();
+    bool copied_material = false;
+    if (tree_descriptor) {
+      if (const auto bark_descriptor = tree_descriptor->bark_descriptor.Get<BasicBarkDescriptor>()) {
+        if (const auto bark_material = bark_descriptor->bark_material_ref.Get<Material>()) {
+          material->SetAlbedoTexture(bark_material->GetAlbedoTexture());
+          material->SetNormalTexture(bark_material->GetNormalTexture());
+          material->SetRoughnessTexture(bark_material->GetRoughnessTexture());
+          material->SetMetallicTexture(bark_material->GetMetallicTexture());
+          material->material_properties = bark_material->material_properties;
+          copied_material = true;
+        }
+      }
+    }
+    if (!copied_material) {
+      material->material_properties.albedo_color = glm::vec3(109, 79, 75) / 255.0f;
+      material->material_properties.roughness = 1.0f;
+      material->material_properties.metallic = 0.0f;
+    }
+    mesh_renderer->mesh = mesh;
+    mesh_renderer->material = material;
+  }
+
+  if (mesh_generator_settings.enable_fine_root) {
+    const Entity branch_entity = scene->CreateEntity("Fine Root Mesh");
+    scene->SetParent(branch_entity, self);
+    const auto mesh = GenerateFineRootMesh(mesh_generator_settings);
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
+    const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(branch_entity).lock();
+    bool copied_material = false;
+    if (tree_descriptor) {
+      if (const auto bark_descriptor = tree_descriptor->fine_root_descriptor.Get<BasicFineRootDescriptor>()) {
+        if (const auto bark_material = bark_descriptor->fine_root_material_ref.Get<Material>()) {
           material->SetAlbedoTexture(bark_material->GetAlbedoTexture());
           material->SetNormalTexture(bark_material->GetNormalTexture());
           material->SetRoughnessTexture(bark_material->GetRoughnessTexture());
@@ -939,7 +1045,7 @@ void Tree::InitializeStrandParticles() {
   const auto owner = GetOwner();
 
   ClearStrandParticles();
-  if (strand_model.strand_model_skeleton.RefRawNodes().size() !=
+  if (shoot_strand_model.strand_model_skeleton.RefRawNodes().size() !=
       shoot_model.PeekShootSkeleton().PeekRawNodes().size()) {
     BuildStrandModel();
   }
@@ -992,7 +1098,7 @@ void Tree::InitializeStrandRenderer() {
   const auto owner = GetOwner();
 
   ClearStrandRenderer();
-  if (strand_model.strand_model_skeleton.RefRawNodes().size() !=
+  if (shoot_strand_model.strand_model_skeleton.RefRawNodes().size() !=
       shoot_model.PeekShootSkeleton().PeekRawNodes().size()) {
     BuildStrandModel();
   }
@@ -1032,7 +1138,7 @@ void Tree::InitializeStrandRenderer(const std::shared_ptr<Strands>& strands) con
 void Tree::InitializeStrandModelMeshRenderer(
     const StrandModelMeshGeneratorSettings& strand_model_mesh_generator_settings) {
   ClearStrandModelMeshRenderer();
-  if (strand_model.strand_model_skeleton.RefRawNodes().size() !=
+  if (shoot_strand_model.strand_model_skeleton.RefRawNodes().size() !=
       shoot_model.PeekShootSkeleton().PeekRawNodes().size()) {
     BuildStrandModel();
   }
@@ -1044,7 +1150,7 @@ void Tree::InitializeStrandModelMeshRenderer(
     const auto foliage_entity = scene->CreateEntity("Strand Model Branch Mesh");
     scene->SetParent(foliage_entity, self);
 
-    const auto mesh = GenerateStrandModelBranchMesh(strand_model_mesh_generator_settings);
+    const auto mesh = GenerateStrandModelShootMesh(strand_model_mesh_generator_settings);
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(foliage_entity).lock();
     bool copied_material = false;
