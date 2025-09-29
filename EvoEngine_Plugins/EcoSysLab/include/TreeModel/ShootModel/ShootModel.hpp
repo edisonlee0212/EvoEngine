@@ -13,12 +13,6 @@ namespace eco_sys_lab_plugin {
 class ShootModel : public PlantModel {
 #pragma region Tree Growth
   /**
-   * @brief Collects the shoot flux of the tree based on its internode list.
-   * @return The computed shoot flux.
-   */
-  Vigor CollectShootFlux();
-
-  /**
    * @brief Prunes internodes that do not contribute positively to the tree's growth.
    * @param global_transform The global transformation matrix of the tree.
    * @param climate_model The model representing environmental conditions.

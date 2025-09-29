@@ -93,11 +93,12 @@ struct TreeMeshGeneratorSettings {
 
   unsigned vertex_color_mode = static_cast<unsigned>(VertexColorMode::InternodeColor);  ///< Vertex color mode.
 
-  bool enable_foliage = true;      ///< Enables foliage.
-  bool foliage_instancing = true;  ///< Enables foliage instancing.
-  bool enable_fruit = false;       ///< Enables fruit generation.
-  bool enable_branch = true;       ///< Enables branch generation.
-
+  bool enable_foliage = true;                                        ///< Enables foliage.
+  bool foliage_instancing = true;                                    ///< Enables foliage instancing.
+  bool enable_fruit = false;                                         ///< Enables fruit generation.
+  bool enable_shoot_branch = true;                                   ///< Enables shoot generation.
+  bool enable_root_branch = true;                                    ///< Enables root generation.
+  bool enable_fine_root = true;                                      ///< Enables fine root generation.
   bool presentation_override = false;                                ///< Enables overriding of presentation settings.
   PresentationOverrideSettings presentation_override_settings = {};  ///< Presentation override settings.
   bool stitch_all_children = false;                                  ///< Enables stitching of all child nodes.

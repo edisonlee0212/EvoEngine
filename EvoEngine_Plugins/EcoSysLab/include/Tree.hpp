@@ -111,11 +111,23 @@ class Tree : public IPrivateComponent {
                            const TreeMeshGeneratorSettings& mesh_generator_settings);
 
   /**
-   * @brief Generates a mesh for branches.
+   * @brief Generates a mesh for shoot branches.
    * @param mesh_generator_settings Settings for mesh generation.
    * @return A shared pointer to the generated branch mesh.
    */
-  std::shared_ptr<Mesh> GenerateBranchMesh(const TreeMeshGeneratorSettings& mesh_generator_settings);
+  std::shared_ptr<Mesh> GenerateShootMesh(const TreeMeshGeneratorSettings& mesh_generator_settings);
+  /**
+   * @brief Generates a mesh for root branches.
+   * @param mesh_generator_settings Settings for mesh generation.
+   * @return A shared pointer to the generated branch mesh.
+   */
+  std::shared_ptr<Mesh> GenerateRootMesh(const TreeMeshGeneratorSettings& mesh_generator_settings);
+  /**
+   * @brief Generates a mesh for fine roots.
+   * @param mesh_generator_settings Settings for mesh generation.
+   * @return A shared pointer to the generated branch mesh.
+   */
+  std::shared_ptr<Mesh> GenerateFineRootMesh(const TreeMeshGeneratorSettings& mesh_generator_settings);
 
   /**
    * @brief Generates a mesh for foliage.
@@ -137,7 +149,7 @@ class Tree : public IPrivateComponent {
    * @param strand_model_mesh_generator_settings Settings for strand model mesh generation.
    * @return A shared pointer to the generated mesh.
    */
-  std::shared_ptr<Mesh> GenerateStrandModelBranchMesh(
+  std::shared_ptr<Mesh> GenerateStrandModelShootMesh(
       const StrandModelMeshGeneratorSettings& strand_model_mesh_generator_settings) const;
 
   /**
@@ -222,7 +234,7 @@ class Tree : public IPrivateComponent {
 
   ShootModel shoot_model{};  ///< The procedural tree model instance.
   RootModel root_model{};
-  StrandModel strand_model{};  ///< The strand-based model representation.
+  StrandModel shoot_strand_model{};  ///< The strand-based model representation.
 
   /**
    * @brief Handles the inspection of tree properties in the editor.

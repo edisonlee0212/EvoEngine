@@ -106,7 +106,7 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
         }
       }
 
-      ds->strand_model = tree->strand_model;
+      ds->strand_model = tree->shoot_strand_model;
       DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
       ds->initialized_from_tree = true;
       ds->UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
@@ -147,7 +147,7 @@ void EcoSysLabLayer::GenerateDynamicSkeletonForAllTrees() const {
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity).lock();
       ds->initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(tree_entity);
-      ds->dynamic_skeleton.Initialize(ds->initialize_parameters, tree->strand_model.strand_model_skeleton);
+      ds->dynamic_skeleton.Initialize(ds->initialize_parameters, tree->shoot_strand_model.strand_model_skeleton);
     }
   }
 }

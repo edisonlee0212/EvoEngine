@@ -118,8 +118,8 @@ void Tree::ExportObj(const std::filesystem::path& path, const TreeMeshGeneratorS
         of.write(start.c_str(), start.size());
         of.flush();
         unsigned start_index = 1;
-        if (mesh_generator_settings.enable_branch) {
-          if (const auto branch_mesh = GenerateBranchMesh(mesh_generator_settings)) {
+        if (mesh_generator_settings.enable_shoot_branch) {
+          if (const auto branch_mesh = GenerateShootMesh(mesh_generator_settings)) {
             auto& vertices = branch_mesh->UnsafeGetVertices();
             auto& triangles = branch_mesh->UnsafeGetTriangles();
             if (!vertices.empty() && !triangles.empty()) {
@@ -213,7 +213,7 @@ void Tree::ExportObj(const std::filesystem::path& path, const TreeMeshGeneratorS
 void Tree::ExportStrandModelObj(const std::filesystem::path& path,
                                 const StrandModelMeshGeneratorSettings& mesh_generator_settings) {
   if (path.extension() == ".obj") {
-    if (strand_model.strand_model_skeleton.RefRawNodes().size() !=
+    if (shoot_strand_model.strand_model_skeleton.RefRawNodes().size() !=
         shoot_model.PeekShootSkeleton().PeekRawNodes().size()) {
       BuildStrandModel();
     }
@@ -231,7 +231,8 @@ void Tree::ExportStrandModelObj(const std::filesystem::path& path,
           std::vector<Vertex> vertices;
           std::vector<glm::vec2> tex_coords;
           std::vector<std::pair<unsigned int, unsigned int>> indices;
-          StrandModelMeshGenerator::Generate(strand_model, vertices, tex_coords, indices, mesh_generator_settings);
+          StrandModelMeshGenerator::Generate(shoot_strand_model, vertices, tex_coords, indices,
+                                             mesh_generator_settings);
           if (!vertices.empty() && !indices.empty()) {
             std::string header =
                 "#Vertices: " + std::to_string(vertices.size()) + ", tris: " + std::to_string(indices.size());
@@ -334,7 +335,7 @@ void Tree::ExportTrunkObj(const std::filesystem::path& path, const TreeMeshGener
       of.write(start.c_str(), start.size());
       of.flush();
       unsigned start_index = 1;
-      if (mesh_generator_settings.enable_branch) {
+      if (mesh_generator_settings.enable_shoot_branch) {
         std::shared_ptr<Mesh> trunk_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
         GenerateTrunkMeshes(trunk_mesh, mesh_generator_settings);
         if (trunk_mesh) {

@@ -14,6 +14,8 @@ struct RootGrowthData {
 
   unsigned entity_index = 0;  ///< Index used for identification.
   float age = 0;              ///< Age of the tree in years.
+
+  glm::vec3 gravity_direction = glm::vec3(0, -1, 0);
 };
 struct RootStemGrowthData {};
 struct RootNodeGrowthData {
@@ -28,11 +30,15 @@ struct RootNodeGrowthData {
 
   float water = 0.f;
   float nutrient = 0.f;
+  float soil_density = 0.f;
   float node_thickness = 0.f;
   float node_length = 0.f;
   float start_age = 0;          ///< Age at which growth starts.
   float finish_age = 0.0f;      ///< Age at which growth finishes.
   float inhibitor_sink = 0.0f;  ///< Inhibitor sink value (not serialized).
+
+  float horizontal_tropism;
+  float vertical_tropism;
 };
 /**
  * @brief A skeleton representing the structure of a root.

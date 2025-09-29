@@ -6,7 +6,28 @@ using namespace eco_sys_lab_plugin;
 
 void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_controller) const {
   shoot_growth_controller.base_internode_count = base_internode_count;
+  shoot_growth_controller.base_node_initialization = [&](std::mt19937& random_engine,
+                                                         const ShootGrowthData& shoot_growth_data,
+                                                         SkeletonNode<InternodeGrowthData>& shoot_node) {
+    auto& node_info = shoot_node.info;
+    auto& node_data = shoot_node.data;
 
+    node_data.internode_thickness = 1.f;
+    node_info.thickness = shoot_growth_controller.base_thickness;
+    node_data.internode_length = 0.0f;
+    node_data.buds.emplace_back();
+    auto& apical_bud = node_data.buds.back();
+    apical_bud.type = BudType::Apical;
+    apical_bud.status = OrganStatus::Flushed;
+
+    apical_bud.local_rotation = glm::vec3(0, 0.0f, glm::radians(Random::Uniform(random_engine, 0.f, 360.f)));
+
+    node_info.global_position = node_data.desired_global_position = glm::vec3(0.0f);
+    node_data.desired_local_rotation = glm::vec3(0.0f);
+    node_info.global_rotation = node_info.regulated_global_rotation = node_data.desired_global_rotation =
+        glm::vec3(glm::radians(90.0f), 0.0f, 0.0f);
+    node_info.GetGlobalDirection() = glm::normalize(node_info.global_rotation * glm::vec3(0, 0, -1));
+  };
   shoot_growth_controller.sagging = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
                                         const SkeletonNode<InternodeGrowthData>& internode) {
     float strength = end_node_thickness * internode.data.sagging_force * gravity_bending_strength /
@@ -34,16 +55,21 @@ void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth
     return glm::vec3(0.f, glm::radians(branching_angle), glm::radians((bud.index - 1) * 360.f / lateral_bud_count));
   };
   shoot_growth_controller.tropism = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
-                                        const SkeletonNode<InternodeGrowthData>& internode, glm::quat& rotation) {
+                                        const SkeletonNode<InternodeGrowthData>& old_internode,
+                                        const SkeletonNode<InternodeGrowthData>& new_internode, glm::quat& rotation) {
     auto desired_global_front = rotation * glm::vec3(0, 0, -1);
     auto desired_global_up = rotation * glm::vec3(0, 1, 0);
-    ShootModel::ApplyTropism(-shoot_growth_data.gravity_direction, gravitropism, desired_global_front,
-                             desired_global_up);
-    ShootModel::ApplyTropism(internode.data.light_direction, phototropism, desired_global_front, desired_global_up);
-    if (const auto horizontal_direction = glm::vec3(desired_global_front.x, 0.0f, desired_global_front.z);
-        glm::length(horizontal_direction) > glm::epsilon<float>() && internode.info.order != 0) {
-      ShootModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, desired_global_front,
+
+    if (straight_trunk == 0.f || old_internode.info.order != 0 || old_internode.info.root_distance >= straight_trunk) {
+      PlantModel::ApplyTropism(-shoot_growth_data.gravity_direction, gravitropism, desired_global_front,
                                desired_global_up);
+      PlantModel::ApplyTropism(old_internode.data.light_direction, phototropism, desired_global_front,
+                               desired_global_up);
+      if (const auto horizontal_direction = glm::vec3(desired_global_front.x, 0.0f, desired_global_front.z);
+          glm::length(horizontal_direction) > glm::epsilon<float>() && old_internode.info.order != 0) {
+        PlantModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, desired_global_front,
+                                 desired_global_up);
+      }
     }
     rotation = glm::quatLookAt(desired_global_front, desired_global_up);
   };
@@ -121,6 +147,7 @@ void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth
     } else {
       local_height_control = 1.f;
     }
+
     return local_apical_control * local_root_distance_control * local_height_control;
   };
 
@@ -129,10 +156,10 @@ void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth
     return apical_dominance * internode.data.light_intake;
   };
 
-  shoot_growth_controller.growth_inhibitor_transport_reduction =
-      [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+  shoot_growth_controller.growth_inhibitor_transport =
+      [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data, const float growth_inhibitor,
           const SkeletonNode<InternodeGrowthData>& internode) {
-        return apical_dominance_loss;
+        return growth_inhibitor * glm::clamp(1.f - apical_dominance_loss, 0.0f, 1.f);
       };
 }
 

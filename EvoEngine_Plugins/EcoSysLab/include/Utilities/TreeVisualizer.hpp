@@ -5,6 +5,7 @@
 #include "EditorLayer.hpp"
 #include "Jobs.hpp"
 #include "Platform.hpp"
+#include "RootModel.hpp"
 #include "ShootModel.hpp"
 #include "StrandModel.hpp"
 using namespace evo_engine;
@@ -29,24 +30,35 @@ enum class ShootVisualizerMode {
   SaggingStress,                ///< Visualize based on sagging stress.
   Locked                        ///< Locked visualization mode.
 };
-
 /**
  * @brief Enumeration for different root visualization modes.
  */
 enum class RootVisualizerMode {
-  Default,         ///< Default visualization mode.
-  AllocatedVigor,  ///< Visualize based on allocated vigor.
+  Default,            ///< Default visualization mode.
+  Order,              ///< Visualize by shoot order.
+  Level,              ///< Visualize by hierarchical level.
+  DesiredGrowthRate,  ///< Visualize based on desired growth rate.
+  GrowthPotential,    ///< Visualize based on growth potential.
+  GrowthRate,         ///< Visualize based on growth rate.
+  IsMaxChild,         ///< Visualize based on max child node property.
+  AllocatedVigor,     ///< Visualize based on allocated vigor.
+  Locked              ///< Locked visualization mode.
 };
 
 /**
  * @brief Structure to hold tree visualizer color settings.
  */
-struct TreeVisualizerColorSettings {
-  int shoot_visualization_mode =
-      static_cast<int>(ShootVisualizerMode::Default);  ///< The active shoot visualization mode.
-  float shoot_color_multiplier = 1.0f;                 ///< Multiplier for shoot color intensity.
+struct ShootVisualizerColorSettings {
+  int visualization_mode = static_cast<int>(ShootVisualizerMode::Default);  ///< The active shoot visualization mode.
+  float color_multiplier = 1.0f;                                            ///< Multiplier for shoot color intensity.
 };
-
+/**
+ * @brief Structure to hold tree visualizer color settings.
+ */
+struct RootVisualizerColorSettings {
+  int visualization_mode = static_cast<int>(RootVisualizerMode::Default);  ///< The active shoot visualization mode.
+  float color_multiplier = 1.0f;                                           ///< Multiplier for shoot color intensity.
+};
 class TreeVisualizer {
  protected:
   bool initialized_ = false;  ///< Flag to check if the visualizer is initialized.
@@ -54,11 +66,11 @@ class TreeVisualizer {
   std::vector<glm::vec4> random_colors_;  ///< Stores generated random colors.
 
   std::shared_ptr<ParticleInfoList> node_matrices_;  ///< Stores internode transformation matrices.
+
  public:
   std::vector<SkeletonNodeHandle> selected_node_hierarchy_list;  ///< List of selected internode hierarchy nodes.
   SkeletonNodeHandle selected_node_handle = -1;                  ///< Handle of the selected internode.
   bool visualization = true;                                     ///< Flag to enable or disable visualization.
-  TreeVisualizerColorSettings tree_visualizer_color_settings;    ///< Settings for visualization color.
   float line_thickness = 0.f;                                    ///< Thickness of visualized lines.
   bool profile_gui = true;                                       ///< Flag to toggle profile GUI.
   bool tree_hierarchy_gui = false;                               ///< Flag to toggle tree hierarchy GUI.
@@ -105,6 +117,7 @@ class TreeVisualizer {
    * @param mouse_positions List of mouse positions forming a curve.
    * @param skeleton The shoot skeleton.
    * @param global_transform The global transformation matrix.
+   * @param projection_view Projection View matrix
    * @return True if selection is successful, otherwise false.
    */
   template <typename SkeletonData, typename FlowData, typename NodeData>
@@ -120,15 +133,6 @@ class TreeVisualizer {
    */
   template <typename SkeletonData, typename FlowData, typename NodeData>
   void SetSelectedNode(const Skeleton<SkeletonData, FlowData, NodeData>& skeleton, SkeletonNodeHandle node_handle);
-
-  /**
-   * @brief Synchronizes transformation matrices between skeleton and internode list.
-   * @param skeleton Reference to the shoot skeleton.
-   * @param particle_info_list Shared pointer to the list of particles.
-   */
-  template <typename SkeletonData, typename FlowData, typename NodeData>
-  void SyncMatrices(const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
-                    const std::shared_ptr<ParticleInfoList>& particle_info_list);
 };
 template <typename SkeletonData, typename FlowData, typename NodeData>
 bool TreeVisualizer::RayCastSelection(const std::shared_ptr<Camera>& camera_component, const glm::vec2& mouse_position,
@@ -301,114 +305,6 @@ void TreeVisualizer::SetSelectedNode(const Skeleton<SkeletonData, FlowData, Node
     }
   }
 }
-template <typename SkeletonData, typename FlowData, typename NodeData>
-void TreeVisualizer::SyncMatrices(const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
-                                  const std::shared_ptr<ParticleInfoList>& particle_info_list) {
-  if (random_colors_.empty()) {
-    for (int i = 0; i < 1000; i++) {
-      random_colors_.emplace_back(glm::abs(glm::ballRand(1.0f)), 1.0f);
-    }
-  }
-  const auto& sorted_node_list = skeleton.PeekSortedNodeList();
-  std::vector<ParticleInfo> matrices;
-
-  matrices.resize(sorted_node_list.size());
-  Jobs::RunParallelFor(sorted_node_list.size(), [&](unsigned i) {
-    const auto node_handle = sorted_node_list[i];
-    const auto& node = skeleton.PeekNode(node_handle);
-    bool sub_tree = false;
-    SkeletonNodeHandle walker = node_handle;
-    while (walker != -1) {
-      if (walker == selected_node_handle) {
-        sub_tree = true;
-        break;
-      }
-      walker = skeleton.PeekNode(walker).GetParentHandle();
-    }
-    auto rotation = node.info.global_rotation;
-    rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
-    const glm::mat4 rotation_transform = glm::mat4_cast(rotation);
-    if (line_thickness != 0.0f) {
-      matrices[i].instance_matrix.value =
-          glm::translate(node.info.global_position + (node.info.length / 2.0f) * node.info.GetGlobalDirection()) *
-          rotation_transform *
-          glm::scale(glm::vec3(line_thickness * (sub_tree ? 1.25f : 1.0f), node.info.length,
-                               line_thickness * (sub_tree ? 1.25f : 1.0f)));
-    } else {
-      matrices[i].instance_matrix.value =
-          glm::translate(node.info.global_position + (node.info.length / 2.0f) * node.info.GetGlobalDirection()) *
-          rotation_transform * glm::scale(glm::vec3(node.info.thickness, node.info.length, node.info.thickness));
-    }
-  });
-  Jobs::RunParallelFor(sorted_node_list.size(), [&](unsigned i) {
-    const auto node_handle = sorted_node_list[i];
-    const auto& node = skeleton.PeekNode(node_handle);
-    switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.shoot_visualization_mode)) {
-      case ShootVisualizerMode::Default:
-        matrices[i].instance_color = random_colors_[node_handle % random_colors_.size()];
-        break;
-      case ShootVisualizerMode::Order:
-        matrices[i].instance_color = random_colors_[node.info.order];
-        break;
-      case ShootVisualizerMode::Locked:
-        matrices[i].instance_color = node.info.locked ? glm::vec4(1, 0, 0, 1) : glm::vec4(0, 1, 0, 1);
-        break;
-      case ShootVisualizerMode::Level:
-        matrices[i].instance_color = random_colors_[node.info.level];
-        break;
-      case ShootVisualizerMode::MaxDescendantLightIntensity:
-        matrices[i].instance_color =
-            glm::mix(glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
-                     glm::clamp(glm::pow(node.data.descendant_total_light_intake,
-                                         tree_visualizer_color_settings.shoot_color_multiplier),
-                                0.0f, 1.f));
-        break;
-      case ShootVisualizerMode::LightIntensity:
-        matrices[i].instance_color =
-            glm::mix(glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
-                     glm::clamp(glm::pow(node.data.light_intake, tree_visualizer_color_settings.shoot_color_multiplier),
-                                0.0f, 1.f));
-        break;
-      case ShootVisualizerMode::LightDirection:
-        matrices[i].instance_color = glm::vec4(glm::vec3(glm::clamp(node.data.light_direction, 0.0f, 1.f)), 1.0f);
-        break;
-      case ShootVisualizerMode::IsMaxChild:
-        matrices[i].instance_color = glm::vec4(glm::vec3(node.info.max_child ? 1.0f : 0.0f), 1.0f);
-        break;
-      case ShootVisualizerMode::DesiredGrowthRate:
-        matrices[i].instance_color = glm::mix(
-            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-            glm::clamp(glm::pow(node.data.desired_growth_rate, tree_visualizer_color_settings.shoot_color_multiplier),
-                       0.0f, 1.f));
-        break;
-      case ShootVisualizerMode::GrowthPotential:
-        matrices[i].instance_color = glm::mix(
-            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-            glm::clamp(glm::pow(node.data.growth_potential, tree_visualizer_color_settings.shoot_color_multiplier),
-                       0.0f, 1.f));
-        break;
-      case ShootVisualizerMode::SaggingStress:
-        matrices[i].instance_color = glm::mix(
-            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-            glm::clamp(glm::pow(node.data.sagging_stress, tree_visualizer_color_settings.shoot_color_multiplier), 0.0f,
-                       1.f));
-        break;
-      case ShootVisualizerMode::GrowthRate:
-        matrices[i].instance_color =
-            glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-                     glm::clamp(glm::pow(node.data.growth_rate, tree_visualizer_color_settings.shoot_color_multiplier),
-                                0.0f, 1.f));
-        break;
-      default:
-        matrices[i].instance_color = random_colors_[node.info.order];
-        break;
-    }
-    matrices[i].instance_color.a = 1.0f;
-    if (selected_node_handle != -1)
-      matrices[i].instance_color.a = 1.0f;
-  });
-  particle_info_list->SetParticleInfos(matrices);
-}
 
 /**
  * @brief Class for visualizing tree structures and internodes.
@@ -436,33 +332,35 @@ class ShootVisualizer : public TreeVisualizer {
 
   /**
    * @brief Peeks at an internode without modifying it.
-   * @param shoot_skeleton Reference to the shoot skeleton.
+   * @param skeleton Reference to the shoot skeleton.
    * @param internode_handle Handle of the internode.
    */
-  void PeekInternode(const ShootSkeleton& shoot_skeleton, SkeletonNodeHandle internode_handle) const;
+  void PeekInternode(const ShootSkeleton& skeleton, SkeletonNodeHandle internode_handle) const;
 
   /**
    * @brief Inspects a specific internode.
-   * @param shoot_skeleton Reference to the shoot skeleton.
+   * @param skeleton Reference to the shoot skeleton.
    * @param internode_handle Handle of the internode to inspect.
    * @return True if inspection is successful, otherwise false.
    */
-  bool InspectInternode(ShootSkeleton& shoot_skeleton, SkeletonNodeHandle internode_handle);
+  bool InspectInternode(ShootSkeleton& skeleton, SkeletonNodeHandle internode_handle);
 
  public:
+  ShootVisualizerColorSettings tree_visualizer_color_settings;  ///< Settings for visualization color.
+
   /**
    * @brief Handles inspection of the tree model.
-   * @param tree_model Reference to the tree model.
+   * @param model Reference to the tree model.
    * @return True if contents remain unmodified, otherwise false.
    */
-  bool OnInspect(ShootModel& tree_model);
+  bool OnInspect(ShootModel& model);
 
   /**
    * @brief Visualizes the given tree model.
-   * @param tree_model The tree model to visualize.
+   * @param model The tree model to visualize.
    * @param global_transform The global transformation matrix.
    */
-  void Visualize(const ShootModel& tree_model, const GlobalTransform& global_transform);
+  void Visualize(const ShootModel& model, const GlobalTransform& global_transform);
 
   /**
    * @brief Visualizes the given strand model.
@@ -472,11 +370,79 @@ class ShootVisualizer : public TreeVisualizer {
 
   /**
    * @brief Resets the visualization of a tree model.
-   * @param tree_model The tree model to reset.
+   * @param model The tree model to reset.
    */
-  void Reset(const ShootModel& tree_model);
+  void Reset(const ShootModel& model);
+
+  /**
+   * @brief Synchronizes transformation matrices between skeleton and internode list.
+   * @param skeleton Reference to the shoot skeleton.
+   * @param particle_info_list Shared pointer to the list of particles.
+   */
+  void SyncMatrices(const ShootSkeleton& skeleton, const std::shared_ptr<ParticleInfoList>& particle_info_list);
 };
 class RootVisualizer : public TreeVisualizer {
+  /**
+   * @brief Draws the GUI for inspecting an internode.
+   * @param root_model Reference to the tree model.
+   * @param node_handle Handle of the internode to inspect.
+   * @param deleted Output flag indicating if the internode is deleted.
+   * @param hierarchy_level The hierarchy level of the internode.
+   * @return True if the inspection was successful, otherwise false.
+   */
+  bool DrawNodeInspectionGui(RootModel& root_model, SkeletonNodeHandle node_handle, bool& deleted,
+                             const unsigned& hierarchy_level);
+
+  /**
+   * @brief Displays GUI elements for inspecting a tree node.
+   * @param skeleton Reference to the shoot skeleton.
+   * @param node_handle Handle of the node to inspect.
+   * @param hierarchy_level The hierarchy level of the node.
+   */
+  void PeekNodeInspectionGui(const RootSkeleton& skeleton, SkeletonNodeHandle node_handle,
+                             const unsigned& hierarchy_level);
+
+  /**
+   * @brief Peeks at an internode without modifying it.
+   * @param skeleton Reference to the shoot skeleton.
+   * @param node_handle Handle of the internode.
+   */
+  void PeekRootNode(const RootSkeleton& skeleton, SkeletonNodeHandle node_handle) const;
+
+  /**
+   * @brief Inspects a specific internode.
+   * @param skeleton Reference to the shoot skeleton.
+   * @param node_handle Handle of the internode to inspect.
+   * @return True if inspection is successful, otherwise false.
+   */
+  bool InspectRootNode(RootSkeleton& skeleton, SkeletonNodeHandle node_handle);
+
  public:
+  RootVisualizerColorSettings root_visualizer_color_settings;  ///< Settings for visualization color.
+
+  /**
+   * @brief Handles inspection of the tree model.
+   * @param model Reference to the tree model.
+   * @return True if contents remain unmodified, otherwise false.
+   */
+  bool OnInspect(RootModel& model);
+
+  /**
+   * @brief Visualizes the given tree model.
+   * @param model The tree model to visualize.
+   * @param global_transform The global transformation matrix.
+   */
+  void Visualize(const RootModel& model, const GlobalTransform& global_transform);
+  /**
+   * @brief Synchronizes transformation matrices between skeleton and internode list.
+   * @param skeleton Reference to the shoot skeleton.
+   * @param particle_info_list Shared pointer to the list of particles.
+   */
+  void SyncMatrices(const RootSkeleton& skeleton, const std::shared_ptr<ParticleInfoList>& particle_info_list);
+  /**
+   * @brief Resets the visualization of a tree model.
+   * @param root_model The tree model to reset.
+   */
+  void Reset(const RootModel& root_model);
 };
 }  // namespace eco_sys_lab_plugin

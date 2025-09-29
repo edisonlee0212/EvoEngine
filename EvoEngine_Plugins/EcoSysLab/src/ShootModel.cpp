@@ -33,17 +33,20 @@ void ShootModel::ResetOrgans() {
 void ShootModel::CreateOrgansForInternode(SkeletonNode<InternodeGrowthData>& internode,
                                           const FoliageController& foliage_controller,
                                           const ShootReproductionController& reproduction_controller) {
-  const auto leaf_count = foliage_controller.leaf_count(random_engine_, shoot_skeleton_.data, internode);
-  for (uint32_t i = 0; i < leaf_count; i++) {
-    internode.data.leaves.emplace_back();
+  if (foliage_controller.Initialized()) {
+    const auto leaf_count = foliage_controller.leaf_count(random_engine_, shoot_skeleton_.data, internode);
+    for (uint32_t i = 0; i < leaf_count; i++) {
+      internode.data.leaves.emplace_back();
+    }
   }
-
-  const auto reproductive_module_count =
-      reproduction_controller.module_count(random_engine_, shoot_skeleton_.data, internode);
-  for (uint32_t i = 0; i < reproductive_module_count; i++) {
-    internode.data.fruits.emplace_back();
-    internode.data.flowers.emplace_back();
-    internode.data.flowers.back().fruit_index = i;
+  if (reproduction_controller.Initialized()) {
+    const auto reproductive_module_count =
+        reproduction_controller.module_count(random_engine_, shoot_skeleton_.data, internode);
+    for (uint32_t i = 0; i < reproductive_module_count; i++) {
+      internode.data.fruits.emplace_back();
+      internode.data.flowers.emplace_back();
+      internode.data.flowers.back().fruit_index = i;
+    }
   }
 }
 
@@ -108,10 +111,12 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
   {
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
-      if (GrowFoliage(current_delta_time_, climate_model, global_transform, *it, foliage_controller)) {
+      if (foliage_controller.Initialized() &&
+          GrowFoliage(current_delta_time_, climate_model, global_transform, *it, foliage_controller)) {
         structure_changed = true;
       }
-      if (GrowReproductiveModules(current_delta_time_, climate_model, global_transform, *it, reproduction_controller)) {
+      if (reproduction_controller.Initialized() &&
+          GrowReproductiveModules(current_delta_time_, climate_model, global_transform, *it, reproduction_controller)) {
         structure_changed = true;
       }
     }
@@ -122,12 +127,16 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
     age_in_year_ = year;
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
-      FormulateFoliage(climate_model, global_transform, *it, foliage_controller);
-      FormulateReproductiveModules(climate_model, global_transform, *it, reproduction_controller);
+      if (foliage_controller.Initialized()) {
+        FormulateFoliage(climate_model, global_transform, *it, foliage_controller);
+      }
+      if (reproduction_controller.Initialized()) {
+        FormulateReproductiveModules(climate_model, global_transform, *it, reproduction_controller);
+      }
     }
     structure_changed = true;
   }
-  if (pruning) {
+  if (pruning && shoot_pruning_controller.Initialized()) {
     CalculateGrowthData(shoot_growth_controller);
     if (PruneInternodes(global_transform, climate_model, soil_model, shoot_growth_controller,
                         shoot_pruning_controller)) {
@@ -213,16 +222,7 @@ void ShootModel::Initialize(const ShootGrowthController& shoot_growth_controller
     shoot_skeleton_.SortLists();
     for (const auto& node_handle : shoot_skeleton_.PeekSortedNodeList()) {
       auto& node = shoot_skeleton_.RefNode(node_handle);
-      node.data.internode_thickness = 1.f;
-      node.info.thickness = shoot_growth_controller.base_thickness;
-      node.data.internode_length = 0.0f;
-      node.data.buds.emplace_back();
-      auto& apical_bud = node.data.buds.back();
-      apical_bud.type = BudType::Apical;
-      apical_bud.status = OrganStatus::Flushed;
-
-      apical_bud.local_rotation = glm::vec3(0, 0.0f, glm::radians(Random::Uniform(random_engine_, 0.f, 360.f)));
-
+      shoot_growth_controller.base_node_initialization(random_engine_, shoot_skeleton_.data, node);
       CreateOrgansForInternode(node, foliage_controller, reproduction_controller);
     }
   }
@@ -335,7 +335,26 @@ Vigor ShootModel::SampleShootFlux(const glm::mat4& global_transform, const Clima
         climate_model.GetHighTemp(global_transform * glm::translate(internode_info.global_position)[3]);
   }
   CalculateGrowthData(shoot_growth_controller);
-  return CollectShootFlux();
+
+  Vigor total_shoot_flux;
+  total_shoot_flux.value = 0.0f;
+  for (const auto& internode_handle : sorted_internode_list) {
+    auto& internode = shoot_skeleton_.RefNode(internode_handle);
+    const auto& internode_data = internode.data;
+    total_shoot_flux.value += internode_data.light_intake;
+  }
+
+  for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
+    auto& internode = shoot_skeleton_.RefNode(*it);
+    auto& internode_data = internode.data;
+    internode_data.descendant_total_light_intake = glm::clamp(internode_data.light_intake, 0.f, 1.f);
+    for (const auto& child_handle : internode.PeekChildHandles()) {
+      const auto& child_internode_data = shoot_skeleton_.RefNode(child_handle).data;
+      internode_data.descendant_total_light_intake +=
+          child_internode_data.light_intake + child_internode_data.descendant_total_light_intake;
+    }
+  }
+  return total_shoot_flux;
 }
 void ShootModel::DistributeVigor(const ShootGrowthController& shoot_growth_controller, const Vigor vigor) {
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
@@ -354,35 +373,12 @@ void ShootModel::DistributeVigor(const ShootGrowthController& shoot_growth_contr
     node.data.desired_growth_rate = node.data.light_intake * node.data.growth_potential;
     total_desired_growth_rate += node.data.desired_growth_rate;
   }
-  const float clamped_factor = glm::clamp(vigor.value / total_desired_growth_rate, 0.0f, 1.0f);
+  const float clamped_factor = vigor.value / total_desired_growth_rate;
   for (const auto& internode_handle : sorted_internode_list) {
     auto& node = shoot_skeleton_.RefNode(internode_handle);
     // You cannot give more than enough resources.
     node.data.growth_rate = clamped_factor * node.data.desired_growth_rate;
   }
-}
-
-Vigor ShootModel::CollectShootFlux() {
-  Vigor total_shoot_flux;
-  total_shoot_flux.value = 0.0f;
-  const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
-  for (const auto& internode_handle : sorted_internode_list) {
-    auto& internode = shoot_skeleton_.RefNode(internode_handle);
-    const auto& internode_data = internode.data;
-    total_shoot_flux.value += internode_data.light_intake;
-  }
-
-  for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
-    auto& internode = shoot_skeleton_.RefNode(*it);
-    auto& internode_data = internode.data;
-    internode_data.descendant_total_light_intake = glm::clamp(internode_data.light_intake, 0.f, 1.f);
-    for (const auto& child_handle : internode.PeekChildHandles()) {
-      const auto& child_internode_data = shoot_skeleton_.RefNode(child_handle).data;
-      internode_data.descendant_total_light_intake +=
-          child_internode_data.light_intake + child_internode_data.descendant_total_light_intake;
-    }
-  }
-  return total_shoot_flux;
 }
 
 float ShootModel::GetSubTreeMaxAge(const SkeletonNodeHandle base_internode_handle) const {
@@ -436,13 +432,7 @@ void ShootModel::CalculateTransform(const ShootGrowthController& shoot_growth_co
 
     internode_info.length = shoot_growth_controller.internode_length(random_engine_, shoot_skeleton_.data, internode);
 
-    if (internode.GetParentHandle() == -1) {
-      internode_info.global_position = internode_data.desired_global_position = glm::vec3(0.0f);
-      internode_data.desired_local_rotation = glm::vec3(0.0f);
-      internode_info.global_rotation = internode_info.regulated_global_rotation =
-          internode_data.desired_global_rotation = glm::vec3(glm::radians(90.0f), 0.0f, 0.0f);
-      internode_info.GetGlobalDirection() = glm::normalize(internode_info.global_rotation * glm::vec3(0, 0, -1));
-    } else {
+    if (internode.GetParentHandle() != -1) {
       auto& parent_internode = shoot_skeleton_.RefNode(internode.GetParentHandle());
       internode_data.sagging = shoot_growth_controller.sagging(random_engine_, shoot_skeleton_.data, internode);
       auto parent_global_rotation = parent_internode.info.global_rotation;
@@ -512,7 +502,6 @@ bool ShootModel::ElongateInternode(const float extended_length, const SkeletonNo
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
   const auto internode_length = shoot_growth_controller.base_internode_length;
   auto& internode_data = internode.data;
-  const auto& internode_info = internode.info;
   internode_data.internode_length += extended_length;
   const float extra_length = internode_data.internode_length - internode_length;
   // If we need to add a new end node
@@ -521,12 +510,9 @@ bool ShootModel::ElongateInternode(const float extended_length, const SkeletonNo
     graph_changed = true;
     internode_data.internode_length = internode_length;
     auto& apical_bud = internode.data.buds.front();
-    auto desired_global_rotation = internode_info.global_rotation * apical_bud.local_rotation;
-    if (internode_handle != 0) {
-      shoot_growth_controller.tropism(random_engine_, shoot_skeleton_.data, internode, desired_global_rotation);
-    }
-    apical_bud.status = OrganStatus::Dormant;
 
+    apical_bud.status = OrganStatus::Dormant;
+    auto desired_global_rotation = internode.info.global_rotation * apical_bud.local_rotation;
     // Allocate Lateral bud for current internode
 
     const auto lateral_bud_count =
@@ -555,6 +541,10 @@ bool ShootModel::ElongateInternode(const float extended_length, const SkeletonNo
     new_internode.data.internode_length = glm::clamp(extended_length, 0.0f, internode_length);
     new_internode.info.root_distance = old_internode.info.root_distance + new_internode.data.internode_length;
 
+    if (internode_handle != 0) {
+      shoot_growth_controller.tropism(random_engine_, shoot_skeleton_.data, old_internode, new_internode,
+                                      desired_global_rotation);
+    }
     new_internode.info.global_rotation = desired_global_rotation;
     new_internode.data.desired_local_rotation =
         glm::inverse(old_internode.info.global_rotation) * new_internode.info.global_rotation;
@@ -580,10 +570,9 @@ bool ShootModel::ElongateInternode(const float extended_length, const SkeletonNo
         ElongateInternode(extra_length - internode_length, new_internode_handle, shoot_growth_controller,
                           foliage_controller, reproduction_controller, child_inhibitor);
         auto& current_new_internode = shoot_skeleton_.RefNode(new_internode_handle);
-        current_new_internode.data.inhibitor_sink += glm::max(
-            0.0f, child_inhibitor * glm::clamp(1.0f - shoot_growth_controller.growth_inhibitor_transport_reduction(
-                                                          random_engine_, shoot_skeleton_.data, current_new_internode),
-                                               0.0f, 1.0f));
+        current_new_internode.data.inhibitor_sink +=
+            glm::max(0.0f, shoot_growth_controller.growth_inhibitor_transport(random_engine_, shoot_skeleton_.data,
+                                                                              child_inhibitor, current_new_internode));
         collected_inhibitor +=
             current_new_internode.data.inhibitor_sink +
             shoot_growth_controller.growth_inhibitor(random_engine_, shoot_skeleton_.data, current_new_internode);
@@ -668,11 +657,10 @@ bool ShootModel::GrowInternode(const SkeletonNodeHandle internode_handle,
         }
       }
 
-      internode_data.inhibitor_sink +=
-          glm::max(0.0f, (child_node_inhibitor + child_node.data.inhibitor_sink) *
-                             glm::clamp(1.0f - shoot_growth_controller.growth_inhibitor_transport_reduction(
-                                                   random_engine_, shoot_skeleton_.data, internode),
-                                        0.0f, 1.0f));
+      internode_data.inhibitor_sink += glm::max(
+          0.0f,
+          shoot_growth_controller.growth_inhibitor_transport(
+              random_engine_, shoot_skeleton_.data, child_node_inhibitor + child_node.data.inhibitor_sink, internode));
     }
     if (!internode.data.buds.empty()) {
       const auto& apical_bud = internode.data.buds[0];
@@ -695,10 +683,9 @@ bool ShootModel::GrowInternode(const SkeletonNodeHandle internode_handle,
                         graph_changed;
         auto& current_internode = shoot_skeleton_.RefNode(internode_handle);
 
-        current_internode.data.inhibitor_sink += glm::max(
-            0.0f, collected_inhibitor * glm::clamp(1.0f - shoot_growth_controller.growth_inhibitor_transport_reduction(
-                                                              random_engine_, shoot_skeleton_.data, current_internode),
-                                                   0.0f, 1.0f));
+        current_internode.data.inhibitor_sink +=
+            glm::max(0.0f, shoot_growth_controller.growth_inhibitor_transport(random_engine_, shoot_skeleton_.data,
+                                                                              collected_inhibitor, current_internode));
       }
     }
   }
@@ -708,7 +695,6 @@ bool ShootModel::GrowInternode(const SkeletonNodeHandle internode_handle,
     auto& internode = shoot_skeleton_.RefNode(internode_handle);
     auto& lateral_bud = internode.data.buds[bud_i];
     const auto& internode_data = internode.data;
-    const auto& internode_info = internode.info;
     if (lateral_bud.type == BudType::Lateral && lateral_bud.status == OrganStatus::Flushed) {
       float flush_probability =
           shoot_growth_controller.bud_flushing_rate(random_engine_, shoot_skeleton_.data, internode);
@@ -722,10 +708,9 @@ bool ShootModel::GrowInternode(const SkeletonNodeHandle internode_handle,
       if (flush_probability >= Random::Uniform(random_engine_, 0.f, 1.f)) {
         graph_changed = true;
         // Prepare information for new internode
-        auto desired_global_rotation = internode_info.global_rotation * lateral_bud.local_rotation;
-        shoot_growth_controller.tropism(random_engine_, shoot_skeleton_.data, internode, desired_global_rotation);
         // Remove current lateral bud.
         lateral_bud.status = OrganStatus::Dormant;
+        auto desired_global_rotation = internode.info.global_rotation * lateral_bud.local_rotation;
 
         // Create new internode
         const auto new_internode_handle = shoot_skeleton_.Extend(internode_handle, true);
@@ -737,6 +722,10 @@ bool ShootModel::GrowInternode(const SkeletonNodeHandle internode_handle,
         new_internode.info.order = old_internode.info.order + 1;
         new_internode.data.internode_length = 0.0f;
         new_internode.info.root_distance = old_internode.info.root_distance;
+
+        shoot_growth_controller.tropism(random_engine_, shoot_skeleton_.data, old_internode, new_internode,
+                                        desired_global_rotation);
+        new_internode.info.global_rotation = desired_global_rotation;
         new_internode.data.desired_local_rotation =
             glm::inverse(old_internode.info.global_rotation) * desired_global_rotation;
 
