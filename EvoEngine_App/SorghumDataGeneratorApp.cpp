@@ -4,6 +4,7 @@
 #include "EditorLayer.hpp"
 
 #include "RenderLayer.hpp"
+#include "Sorghum.hpp"
 
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
 
@@ -214,12 +215,43 @@ void sorghum_mesh_point_cloud(const uint32_t output_size, const bool avoid_occlu
   int index = 0;
   const auto scene = Application::GetActiveScene();
 
+  const bool save_temporary_sorghum_descriptors = true;
+
   for (int i = 0; i < output_size; i++) {
     std::string name = "Sorghum_" + std::to_string(i);
     const std::string prefix = "Sorghum_" + std::to_string(i);
     const auto sorghum_entity = DatasetGenerator::CreateSorghumEntity(sorghum_generator_path, i);
     data_generation_parameters.output_file_name = prefix;
     DatasetGenerator::GenerateDataForSorghum(sorghum_entity, data_generation_parameters);
+
+    if (save_temporary_sorghum_descriptors) {
+      // create an asset of sorghum descriptor in the asset folder
+      auto& project_manager = ProjectManager::GetInstance();
+      auto asset_folder = project_manager.GetAssetsFolder();
+      
+      std::filesystem::path asset_path = project_manager.GenerateNewAssetsRelativePath((asset_folder->GetAssetsRelativePath() / name).string(), ".sorghum");
+      auto  asset = asset_folder->GetOrCreateAsset(asset_path.stem().string(), asset_path.extension().string());
+
+      // load the content of the temporary asset to the saved asset
+      auto temporary_sorghum_descriptor = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock()->sorghum_descriptor.Get<SorghumDescriptor>();
+      YAML::Emitter out;
+      out << YAML::BeginMap;
+      temporary_sorghum_descriptor->Serialize(out);
+      out << YAML::EndMap;
+      const std::string content = out.c_str();
+      YAML::Node in = YAML::Load(content);
+
+      asset->Deserialize(in);
+      asset->Save();
+
+      // copy and paste the file to the target folder
+      asset->Export(data_generation_parameters.output_folder /
+                    (data_generation_parameters.output_file_name + ".sorghum"));
+
+
+      // delete the asset
+      asset_folder->RemoveFile(asset->GetHandle());
+    }
     scene->DeleteEntity(sorghum_entity);
     index++;
   }
@@ -252,8 +284,9 @@ int main() {
   run_windowless(capture_settings->capture_mode, project_path);
   const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Random.sg";
   const auto output_folder_path = std::filesystem::current_path() / "SorghumData";
-  sorghum_field_point_cloud(1, 8, 0.75f, 0, 0, capture_settings, sg_relative_path, output_folder_path);
-  sorghum_mesh_point_cloud(1, true, false, capture_settings, sg_relative_path, output_folder_path);
+  sorghum_field_point_cloud(3, 8, 0.75f, 0, 0, capture_settings, sg_relative_path, output_folder_path);
+  sorghum_mesh_point_cloud(3, true, false, capture_settings, sg_relative_path, output_folder_path);
+
 
   EVOENGINE_LOG("Generation Finished!")
 
