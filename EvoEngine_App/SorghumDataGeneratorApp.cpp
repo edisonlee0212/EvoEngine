@@ -225,32 +225,13 @@ void sorghum_mesh_point_cloud(const uint32_t output_size, const bool avoid_occlu
     DatasetGenerator::GenerateDataForSorghum(sorghum_entity, data_generation_parameters);
 
     if (save_temporary_sorghum_descriptors) {
-      // create an asset of sorghum descriptor in the asset folder
-      auto& project_manager = ProjectManager::GetInstance();
-      auto asset_folder = project_manager.GetAssetsFolder();
       
-      std::filesystem::path asset_path = project_manager.GenerateNewAssetsRelativePath((asset_folder->GetAssetsRelativePath() / name).string(), ".sorghum");
-      auto  asset = asset_folder->GetOrCreateAsset(asset_path.stem().string(), asset_path.extension().string());
 
-      // load the content of the temporary asset to the saved asset
+      // export the content of the temporary asset 
       auto temporary_sorghum_descriptor = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock()->sorghum_descriptor.Get<SorghumDescriptor>();
-      YAML::Emitter out;
-      out << YAML::BeginMap;
-      temporary_sorghum_descriptor->Serialize(out);
-      out << YAML::EndMap;
-      const std::string content = out.c_str();
-      YAML::Node in = YAML::Load(content);
 
-      asset->Deserialize(in);
-      asset->Save();
-
-      // copy and paste the file to the target folder
-      asset->Export(data_generation_parameters.output_folder /
-                    (data_generation_parameters.output_file_name + ".sorghum"));
-
-
-      // delete the asset
-      asset_folder->RemoveFile(asset->GetHandle());
+      temporary_sorghum_descriptor->Export(data_generation_parameters.output_folder /
+                                           (data_generation_parameters.output_file_name + ".sorghum"));
     }
     scene->DeleteEntity(sorghum_entity);
     index++;
