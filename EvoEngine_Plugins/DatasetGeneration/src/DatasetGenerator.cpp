@@ -8,6 +8,14 @@
 #include "Soil.hpp"
 #include "Sorghum.hpp"
 #include "SorghumLayer.hpp"
+
+#ifdef CUDA_MODULE_PLUGIN
+#  include <CUDAModule.hpp>
+#  include <OptiXRayTracer.hpp>
+#  include <RayTracerLayer.hpp>
+#  include "RayTracerCamera.hpp"
+#endif
+
 using namespace eco_sys_lab_plugin;
 using namespace dataset_generation_plugin;
 using namespace digital_agriculture_plugin;
@@ -45,6 +53,112 @@ bool CheckSoil(std::shared_ptr<Soil>& soil, bool generate_ground_mesh) {
   return true;
 }
 
+void DatasetGenerator::CaptureTreeData(const std::shared_ptr<Scene>& scene, int post_fix_index,
+                                       const std::shared_ptr<Tree>& tree,
+                                       const TreeDataGenerationParameters& data_generation_parameters,
+                                       const Entity& scanner_entity, const Entity& camera_entity) {
+  const std::string post_fix = post_fix_index == -1 ? "" : std::string("_") + std::to_string(post_fix_index);
+  tree->GenerateGeometryEntities(data_generation_parameters.tree_mesh_generator_settings);
+
+  Application::Loop();
+  Application::Loop();
+
+  if (data_generation_parameters.export_statistics) {
+    tree->GetTreeStatistics().Export(data_generation_parameters.output_folder /
+                                     (data_generation_parameters.output_file_name + "_stats" + post_fix + ".yml"));
+  }
+
+  if (data_generation_parameters.export_mesh) {
+    tree->ExportObj(
+        data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + post_fix + ".obj"),
+        data_generation_parameters.tree_mesh_generator_settings);
+  }
+  if (data_generation_parameters.export_point_cloud) {
+    const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
+    scanner->point_settings = data_generation_parameters.tree_point_cloud_point_settings;
+    scanner->Capture(
+        data_generation_parameters.tree_mesh_generator_settings,
+        data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + post_fix + ".ply"),
+        data_generation_parameters.point_cloud_capture_settings);
+  }
+  if (data_generation_parameters.export_flow_graph) {
+    tree->ExportFlowGraph(data_generation_parameters.output_folder /
+                          (data_generation_parameters.output_file_name + "_flows" + post_fix + ".yml"));
+  }
+  if (data_generation_parameters.export_node_graph) {
+    tree->ExportNodeGraph(data_generation_parameters.output_folder /
+                          (data_generation_parameters.output_file_name + "_nodes" + post_fix + ".yml"));
+  }
+  if (data_generation_parameters.export_rendering || data_generation_parameters.export_depth) {
+    const auto camera = scene->GetOrSetPrivateComponent<Camera>(camera_entity).lock();
+    for (int image_index = 0; image_index < data_generation_parameters.camera_capture_settings.size(); image_index++) {
+      const auto& camera_capture_settings = data_generation_parameters.camera_capture_settings[image_index];
+      camera->camera_settings = camera_capture_settings.camera_settings;
+      camera->post_processing_stack_ref.Get<PostProcessingStack>()->enable_bloom = false;
+      camera->Resize(camera_capture_settings.render_resolution);
+      camera->SetRequireRendering(true);
+      GlobalTransform camera_global_transform{};
+
+      const auto current_pivot_position =
+          camera_capture_settings.pivot_position +
+          camera_capture_settings.pivot_position_delta * static_cast<float>(post_fix_index);
+      const auto current_pivot_euler_rotation =
+          glm::radians(camera_capture_settings.pivot_euler_rotation +
+                       camera_capture_settings.pivot_euler_rotation_delta * static_cast<float>(post_fix_index));
+
+      camera_global_transform.SetPosition(
+          current_pivot_position +
+          glm::rotate(glm::quat(current_pivot_euler_rotation),
+                      camera_capture_settings.anchor_position +
+                          camera_capture_settings.anchor_position_delta * static_cast<float>(post_fix_index)));
+      camera_global_transform.SetRotation(
+          glm::quat(current_pivot_euler_rotation) *
+          glm::quat(glm::radians(camera_capture_settings.anchor_rotation +
+                                 camera_capture_settings.anchor_rotation_delta * static_cast<float>(post_fix_index))));
+      scene->SetDataComponent(camera_entity, camera_global_transform);
+      Application::Loop();
+      if (data_generation_parameters.export_rendering) {
+        camera->GetRenderTexture()->StoreToPng(
+            data_generation_parameters.output_folder /
+                (data_generation_parameters.output_file_name + post_fix + "_" + std::to_string(image_index) + ".png"),
+            camera_capture_settings.output_resolution.x, camera_capture_settings.output_resolution.y);
+      }
+      if (data_generation_parameters.export_depth) {
+        camera->GetRenderTexture()->StoreLinearDepthToPng(
+            data_generation_parameters.output_folder /
+                (data_generation_parameters.output_file_name + post_fix + "_" + std::to_string(image_index) + "_d.png"),
+            camera->camera_settings.near_distance, camera->camera_settings.far_distance,
+            data_generation_parameters.max_depth, camera_capture_settings.output_resolution.x,
+            camera_capture_settings.output_resolution.y);
+      }
+    }
+  }
+#ifdef CUDA_MODULE_PLUGIN
+  if (data_generation_parameters.export_ray_traced_rendering) {
+    const auto ray_tracer_camera = scene->GetOrSetPrivateComponent<RayTracerCamera>(camera_entity).lock();
+    for (int image_index = 0; image_index < data_generation_parameters.camera_capture_settings.size(); image_index++) {
+      const auto& camera_capture_settings = data_generation_parameters.camera_capture_settings[image_index];
+      ray_tracer_camera->ApplyCameraSettings(camera_capture_settings.camera_settings);
+      GlobalTransform camera_global_transform{};
+      camera_global_transform.SetPosition(camera_capture_settings.pivot_position +
+                                          camera_capture_settings.pivot_position_delta *
+                                              static_cast<float>(post_fix_index));
+      camera_global_transform.SetEulerRotation(
+          glm::radians(camera_capture_settings.pivot_euler_rotation +
+                       camera_capture_settings.pivot_euler_rotation_delta * static_cast<float>(post_fix_index)));
+      scene->SetDataComponent(camera_entity, camera_global_transform);
+      Application::Loop();
+
+      ray_tracer_camera->Render();
+      ray_tracer_camera->render_texture->StoreToPng(
+          data_generation_parameters.output_folder /
+              (data_generation_parameters.output_file_name + post_fix + "_" + std::to_string(image_index) + ".png"),
+          camera_capture_settings.output_resolution.x, camera_capture_settings.output_resolution.y);
+    }
+  }
+#endif
+}
+
 std::shared_ptr<TreeDescriptor> DatasetGenerator::TreeDataGenerationParameters::GetActualTreeDescriptor() const {
   std::shared_ptr<TreeDescriptor> actual_tree_descriptor = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
   if (tree_descriptor_path.empty() || !tree_descriptor_path.has_extension()) {
@@ -61,6 +175,7 @@ std::shared_ptr<TreeDescriptor> DatasetGenerator::TreeDataGenerationParameters::
       EVOENGINE_ERROR("Tree Descriptor doesn't exist!");
       return actual_tree_descriptor;
     }
+    actual_tree_descriptor->root_descriptor = tree_descriptor->root_descriptor;
     actual_tree_descriptor->shoot_descriptor = tree_descriptor->shoot_descriptor;
     actual_tree_descriptor->foliage_descriptor = tree_descriptor->foliage_descriptor;
     actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
@@ -74,6 +189,7 @@ std::shared_ptr<TreeDescriptor> DatasetGenerator::TreeDataGenerationParameters::
       EVOENGINE_ERROR("Tree Descriptor doesn't exist!");
       return actual_tree_descriptor;
     }
+    actual_tree_descriptor->root_descriptor = tree_descriptor->root_descriptor;
     actual_tree_descriptor->shoot_descriptor = tree_descriptor->shoot_descriptor;
     actual_tree_descriptor->foliage_descriptor = tree_descriptor->foliage_descriptor;
     actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
@@ -176,83 +292,20 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   }
   const auto scanner_entity = scene->CreateEntity("Scanner");
   const auto camera_entity = scene->CreateEntity("Capture Camera");
-  const auto capture_data = [&](const int post_fix_index) {
-    const std::string post_fix = post_fix_index == -1 ? "" : std::string("_") + std::to_string(post_fix_index);
-    tree->GenerateGeometryEntities(data_generation_parameters.tree_mesh_generator_settings);
 
-    Application::Loop();
-    Application::Loop();
-
-    if (data_generation_parameters.export_statistics) {
-      tree->GetTreeStatistics().Export(data_generation_parameters.output_folder /
-                                       (data_generation_parameters.output_file_name + "_stats" + post_fix + ".yml"));
-    }
-
-    if (data_generation_parameters.export_mesh) {
-      tree->ExportObj(
-          data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + post_fix + ".obj"),
-          data_generation_parameters.tree_mesh_generator_settings);
-    }
-    if (data_generation_parameters.export_point_cloud) {
-      const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
-      scanner->point_settings = data_generation_parameters.tree_point_cloud_point_settings;
-      scanner->Capture(
-          data_generation_parameters.tree_mesh_generator_settings,
-          data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + post_fix + ".ply"),
-          data_generation_parameters.point_cloud_capture_settings);
-    }
-    if (data_generation_parameters.export_flow_graph) {
-      tree->ExportFlowGraph(data_generation_parameters.output_folder /
-                            (data_generation_parameters.output_file_name + "_flows" + post_fix + ".yml"));
-    }
-    if (data_generation_parameters.export_node_graph) {
-      tree->ExportNodeGraph(data_generation_parameters.output_folder /
-                            (data_generation_parameters.output_file_name + "_nodes" + post_fix + ".yml"));
-    }
-    if (data_generation_parameters.export_rendering || data_generation_parameters.export_depth) {
-      const auto camera = scene->GetOrSetPrivateComponent<Camera>(camera_entity).lock();
-      for (int image_index = 0; image_index < data_generation_parameters.camera_capture_settings.size();
-           image_index++) {
-        const auto& camera_capture_settings = data_generation_parameters.camera_capture_settings[image_index];
-        camera->camera_settings = camera_capture_settings.camera_settings;
-        camera->post_processing_stack_ref.Get<PostProcessingStack>()->enable_bloom = false;
-        camera->Resize(camera_capture_settings.render_resolution);
-        camera->SetRequireRendering(true);
-        GlobalTransform camera_global_transform{};
-        camera_global_transform.SetPosition(camera_capture_settings.position);
-        camera_global_transform.SetEulerRotation(glm::radians(camera_capture_settings.euler_rotation));
-        scene->SetDataComponent(camera_entity, camera_global_transform);
-        Application::Loop();
-        if (data_generation_parameters.export_rendering) {
-          camera->GetRenderTexture()->StoreToPng(
-              data_generation_parameters.output_folder /
-                  (data_generation_parameters.output_file_name + post_fix + "_" + std::to_string(image_index) + ".png"),
-              camera_capture_settings.output_resolution.x, camera_capture_settings.output_resolution.y);
-        }
-        if (data_generation_parameters.export_depth) {
-          camera->GetRenderTexture()->StoreLinearDepthToPng(
-              data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + post_fix + "_" +
-                                                          std::to_string(image_index) + "_d.png"),
-              camera->camera_settings.near_distance, camera->camera_settings.far_distance,
-              data_generation_parameters.max_depth, camera_capture_settings.output_resolution.x,
-              camera_capture_settings.output_resolution.y);
-        }
-      }
-    }
-  };
   int post_fix = 0;
   for (int i = 0; i < max_iterations; i++) {
     eco_sys_lab_layer->Simulate(data_generation_parameters.simulation_settings, stats);
     if (!growth_capture_node_sizes.empty()) {
       if (data_generation_parameters.use_node_growth_capture) {
         if (const auto min_node_size = *growth_capture_node_sizes.begin(); stats.internode_size >= min_node_size) {
-          capture_data(post_fix);
+          CaptureTreeData(scene, post_fix, tree, data_generation_parameters, scanner_entity, camera_entity);
           post_fix++;
           growth_capture_node_sizes.erase(growth_capture_node_sizes.begin());
         }
       } else {
         if (const auto min_node_size = *growth_capture_node_sizes.begin(); stats.shoot_stem_size >= min_node_size) {
-          capture_data(post_fix);
+          CaptureTreeData(scene, post_fix, tree, data_generation_parameters, scanner_entity, camera_entity);
           post_fix++;
           growth_capture_node_sizes.erase(growth_capture_node_sizes.begin());
         }
@@ -260,9 +313,74 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
     }
   }
   if (data_generation_parameters.growth_capture.empty()) {
-    capture_data(-1);
+    CaptureTreeData(scene, -1, tree, data_generation_parameters, scanner_entity, camera_entity);
   } else {
-    capture_data(post_fix);
+    CaptureTreeData(scene, post_fix, tree, data_generation_parameters, scanner_entity, camera_entity);
+  }
+  scene->DeleteEntity(camera_entity);
+  scene->DeleteEntity(scanner_entity);
+  scene->DeleteEntity(tree_entity);
+
+  Application::Loop();
+}
+void DatasetGenerator::GenerateTreeGrowthData(const TreeDataGenerationParameters& data_generation_parameters) {
+  if (!CheckApplication()) {
+    return;
+  }
+  const auto scene = Application::GetActiveScene();
+  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  if (!eco_sys_lab_layer) {
+    EVOENGINE_ERROR("Application doesn't contain EcoSysLab layer!");
+    return;
+  }
+  std::shared_ptr<Soil> soil;
+  if (!CheckSoil(soil, data_generation_parameters.generate_ground_mesh))
+    return;
+  std::shared_ptr<SoilDescriptor> soil_descriptor;
+  if (soil) {
+    soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
+  }
+  std::shared_ptr<HeightField> height_field{};
+  if (soil_descriptor) {
+    height_field = soil_descriptor->height_field.Get<HeightField>();
+  }
+  const auto actual_tree_descriptor = data_generation_parameters.GetActualTreeDescriptor();
+
+  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      tree_entities && !tree_entities->empty()) {
+    for (const auto& tree_entity : *tree_entities) {
+      scene->DeleteEntity(tree_entity);
+    }
+  }
+  std::filesystem::create_directories(data_generation_parameters.output_folder);
+
+  const auto tree_entity = scene->CreateEntity("Tree");
+  const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+
+  if (height_field) {
+    auto tree_position = glm::vec3(0.0f);
+    tree_position.y = height_field->GetValue({tree_position.x, tree_position.z}) - 0.01f;
+    GlobalTransform gt{};
+    gt.SetPosition(tree_position);
+    scene->SetDataComponent(tree_entity, gt);
+  }
+
+  tree->tree_descriptor_ref = actual_tree_descriptor;
+  tree->shoot_model.tree_growth_settings.use_space_colonization = false;
+  tree->shoot_model.seed = data_generation_parameters.seed;
+  Application::Loop();
+  int max_iterations = 2048;
+  if (data_generation_parameters.max_iteration > 0) {
+    max_iterations = data_generation_parameters.max_iteration;
+  }
+  SimulationStats stats;
+  const auto scanner_entity = scene->CreateEntity("Scanner");
+  const auto camera_entity = scene->CreateEntity("Capture Camera");
+  int post_fix = 0;
+  for (int i = 0; i < max_iterations; i++) {
+    eco_sys_lab_layer->Simulate(data_generation_parameters.simulation_settings, stats);
+    CaptureTreeData(scene, post_fix, tree, data_generation_parameters, scanner_entity, camera_entity);
+    post_fix++;
   }
   scene->DeleteEntity(camera_entity);
   scene->DeleteEntity(scanner_entity);
@@ -349,8 +467,8 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
       camera->Resize(camera_capture_settings.render_resolution);
       camera->SetRequireRendering(true);
       GlobalTransform camera_global_transform{};
-      camera_global_transform.SetPosition(camera_capture_settings.position);
-      camera_global_transform.SetEulerRotation(glm::radians(camera_capture_settings.euler_rotation));
+      camera_global_transform.SetPosition(camera_capture_settings.pivot_position);
+      camera_global_transform.SetEulerRotation(glm::radians(camera_capture_settings.pivot_euler_rotation));
       scene->SetDataComponent(camera_entity, camera_global_transform);
       Application::Loop();
       if (data_generation_parameters.export_rendering) {

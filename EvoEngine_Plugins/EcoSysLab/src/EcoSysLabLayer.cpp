@@ -70,7 +70,7 @@ void EcoSysLabLayer::OnCreate() {
 
   visualization_camera_->OnCreate();
   visualization_camera_->camera_settings.use_clear_color = true;
-  visualization_camera_->camera_settings.clear_color = glm::vec3(0.5f, 0.5f, 0.5f);
+  visualization_camera_->camera_settings.clear_color = glm::vec4(0.5f, 0.5f, 0.5f, 1.f);
 #pragma endregion
 
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {

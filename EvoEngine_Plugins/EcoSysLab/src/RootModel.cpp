@@ -31,6 +31,17 @@ void RootModel::CalculateThickness(const RootGrowthController& root_growth_contr
     }
     node_info.thickness = node_data.node_thickness * root_growth_controller.base_thickness;
   }
+  // Scale thickness to match shoot model.
+  if (!sorted_node_list.empty()) {
+    const float scale_factor = shoot_skeleton_base_thickness / root_skeleton_.RefNode(0).info.thickness;
+    for (const auto& node_handle : sorted_node_list) {
+      auto& node = root_skeleton_.RefNode(node_handle);
+      auto& node_info = node.info;
+      auto& node_data = node.data;
+      node_info.thickness *= scale_factor;
+      node_data.node_thickness *= scale_factor;
+    }
+  }
 }
 
 void RootModel::CalculateGrowthData(const RootGrowthController& root_growth_controller) {

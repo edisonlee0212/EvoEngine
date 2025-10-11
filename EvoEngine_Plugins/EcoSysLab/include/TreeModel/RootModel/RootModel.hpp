@@ -26,6 +26,8 @@ class RootModel : public PlantModel {
   std::deque<RootSkeleton> root_history_;  ///< History of previous root skeleton states.
 
  public:
+  float shoot_skeleton_base_thickness = 0.0f;
+
   TreeGrowthSettings tree_growth_settings;  ///< Growth settings used for simulation.
   /**
    * @brief Initializes the tree model with the given root growth controller.

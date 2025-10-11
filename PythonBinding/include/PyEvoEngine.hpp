@@ -108,6 +108,14 @@ class PyEvoEngine {
    */
   static void Run(const std::filesystem::path& project_path);
   /**
+   * \brief Load a scene under the project.
+   * \param project_path The path to the target project to load.
+   * \param project_relative_path Path to scene asset relative to project path.
+   */
+  static void RunWithScene(const std::filesystem::path& project_path,
+                           const std::filesystem::path& project_relative_path);
+
+  /**
    * @brief Trigger main application loop.
    * @return Whether end application signal has been triggered.
    */

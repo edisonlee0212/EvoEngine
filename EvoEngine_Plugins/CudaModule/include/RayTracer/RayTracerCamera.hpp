@@ -5,6 +5,7 @@
 #include <RenderTexture.hpp>
 
 #include "CUDAModule.hpp"
+#include "CameraSettings.hpp"
 #include "Platform.hpp"
 
 namespace evo_engine {
@@ -33,6 +34,9 @@ class RayTracerCamera : public IPrivateComponent {
   void SetOutputType(OutputType value);
   void SetAccumulate(bool value);
   void SetGamma(float value);
+
+  void ApplyCameraSettings(const CameraSettings& camera_settings);
+
   [[nodiscard]] glm::mat4 GetProjection() const;
   void SetDenoiserStrength(float value);
   void OnCreate() override;

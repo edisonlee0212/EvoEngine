@@ -107,6 +107,18 @@ void CameraProperties::OnInspect() {
       output_type = static_cast<OutputType>(type);
       modified = true;
     }
+
+    const char *background_types[]{"Environment", "Skybox", "Color"};
+    int bg_type = static_cast<int>(background_type);
+    if (ImGui::Combo("Background Type", &bg_type, background_types, IM_ARRAYSIZE(background_types))) {
+      background_type = static_cast<BackgroundType>(bg_type);
+      modified = true;
+    }
+    if (background_type == BackgroundType::Color) {
+      if (ImGui::ColorEdit4("Background color", &background_color.x)) {
+        modified = true;
+      }
+    }
     if (ImGui::DragFloat("Max Distance", &max_distance, 0.1f, 0.1f, 10000.0f)) {
       SetMaxDistance(max_distance);
     }
@@ -143,6 +155,14 @@ void CameraProperties::SetOutputType(const OutputType value) {
   output_type = value;
 }
 
+void CameraProperties::SetBackgroundType(const BackgroundType background_type) {
+  modified = true;
+  this->background_type = background_type;
+}
+void CameraProperties::SetBackgroundColor(const glm::vec4 &background_color) {
+  modified = true;
+  this->background_color = background_color;
+}
 void CameraProperties::SetAperture(const float value) {
   modified = true;
   aperture = value;

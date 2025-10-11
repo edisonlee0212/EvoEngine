@@ -25,7 +25,7 @@
 
 namespace evo_engine {
 enum class OutputType { Color, Normal, Albedo, Depth };
-
+enum class BackgroundType { Environment, Skybox, Color };
 struct CameraProperties {
 #pragma region FrameBuffer
   /*! the color buffer we use during _rendering_, which is a bit
@@ -60,6 +60,8 @@ struct CameraProperties {
   float max_distance = 50.0f;
   std::shared_ptr<CudaImage> target_image;
   OutputType output_type = OutputType::Color;
+  glm::vec4 background_color = glm::vec4(1.0f);
+  BackgroundType background_type = BackgroundType::Environment;
   float gamma = 2.2f;
   struct {
     glm::vec4* color_buffer = nullptr;
@@ -76,7 +78,8 @@ struct CameraProperties {
   float focal_length = 1.0f;
 
   cudaTextureObject_t skybox;
-
+  void SetBackgroundType(BackgroundType background_type);
+  void SetBackgroundColor(const glm::vec4& background_color);
   void SetAperture(float value);
 
   void SetFocalLength(float value);

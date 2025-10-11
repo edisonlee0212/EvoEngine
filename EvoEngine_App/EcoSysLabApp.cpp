@@ -116,7 +116,7 @@ int main() {
   editor_layer->velocity = 2.f;
   auto& camera_settings = editor_layer->GetSceneCamera()->camera_settings;
   camera_settings.use_clear_color = true;
-  camera_settings.clear_color = glm::vec3(1.f);
+  camera_settings.clear_color = glm::vec4(1.f);
   camera_settings.background_intensity = 3.f;
   const auto post_processing_stack =
       editor_layer->GetSceneCamera()->post_processing_stack_ref.Get<PostProcessingStack>();
@@ -142,7 +142,7 @@ void EngineSetup() {
     if (const auto main_camera = Application::GetActiveScene()->main_camera.Get<Camera>()) {
       scene->SetDataComponent(main_camera->GetOwner(), transform);
       main_camera->camera_settings.use_clear_color = true;
-      main_camera->camera_settings.clear_color = glm::vec3(0.5f);
+      main_camera->camera_settings.clear_color = glm::vec4(0.5f, 0.5f, 0.5f, 1.f);
     }
 #pragma endregion
 #pragma endregion

@@ -267,17 +267,14 @@ void eco_sys_lab_plugin::ModulusGraph::SetOutput(NodeGraphNodeHandle output_node
 
   // Set node positions
   const auto editor_layer = Application::GetLayer<EditorLayer>();
-  ImNodesEditorContext* prev_editor_context = nullptr;
   if (editor_layer) {
+    ImNodesEditorContext* prev_editor_context = nullptr;
     prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&node_graph.RefImNodesEditorContext()));
-  }
+    ImVec2 pos = ImNodes::GetNodeScreenSpacePos(output_node.GetHandle());
+    ImNodes::SetNodeScreenSpacePos(min_node_handle, ImVec2(pos.x - 200, pos.y - 50));
+    ImNodes::SetNodeScreenSpacePos(max_node_handle, ImVec2(pos.x - 200, pos.y + 50));
 
-  ImVec2 pos = ImNodes::GetNodeScreenSpacePos(output_node.GetHandle());
-  ImNodes::SetNodeScreenSpacePos(min_node_handle, ImVec2(pos.x - 200, pos.y - 50));
-  ImNodes::SetNodeScreenSpacePos(max_node_handle, ImVec2(pos.x - 200, pos.y + 50));
-
-  if (editor_layer) {
     ImNodes::EditorContextSet(prev_editor_context);
   }
 }
@@ -564,17 +561,13 @@ void eco_sys_lab_plugin::StrengthGraph::SetOutput(NodeGraphNodeHandle output_nod
 
   // Set node positions
   const auto editor_layer = Application::GetLayer<EditorLayer>();
-  ImNodesEditorContext* prev_editor_context = nullptr;
   if (editor_layer) {
-    prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
+    ImNodesEditorContext* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&node_graph.RefImNodesEditorContext()));
-  }
+    ImVec2 pos = ImNodes::GetNodeScreenSpacePos(output_node.GetHandle());
+    ImNodes::SetNodeScreenSpacePos(min_node_handle, ImVec2(pos.x - 200, pos.y - 50));
+    ImNodes::SetNodeScreenSpacePos(max_node_handle, ImVec2(pos.x - 200, pos.y + 50));
 
-  ImVec2 pos = ImNodes::GetNodeScreenSpacePos(output_node.GetHandle());
-  ImNodes::SetNodeScreenSpacePos(min_node_handle, ImVec2(pos.x - 200, pos.y - 50));
-  ImNodes::SetNodeScreenSpacePos(max_node_handle, ImVec2(pos.x - 200, pos.y + 50));
-
-  if (editor_layer) {
     ImNodes::EditorContextSet(prev_editor_context);
   }
 }
@@ -732,18 +725,14 @@ void BiologicalPropertiesGraph::SetValues(const BiologicalPropertiesGraph::Outpu
   node_graph.AllocateLink(additional_strength_node.GetOutputPinHandles()[0], output_node.GetInputPinHandles()[2]);
 
   const auto editor_layer = Application::GetLayer<EditorLayer>();
-  ImNodesEditorContext* prev_editor_context = nullptr;
   if (editor_layer) {
-    prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
+    ImNodesEditorContext* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&node_graph.RefImNodesEditorContext()));
-  }
+    ImVec2 pos = ImNodes::GetNodeScreenSpacePos(output_node.GetHandle());
+    ImNodes::SetNodeScreenSpacePos(offset_node_handle, ImVec2(pos.x - 200, pos.y - 100));
+    ImNodes::SetNodeScreenSpacePos(transition_node_handle, ImVec2(pos.x - 200, pos.y));
+    ImNodes::SetNodeScreenSpacePos(additional_strength_node_handle, ImVec2(pos.x - 200, pos.y + 100));
 
-  ImVec2 pos = ImNodes::GetNodeScreenSpacePos(output_node.GetHandle());
-  ImNodes::SetNodeScreenSpacePos(offset_node_handle, ImVec2(pos.x - 200, pos.y - 100));
-  ImNodes::SetNodeScreenSpacePos(transition_node_handle, ImVec2(pos.x - 200, pos.y));
-  ImNodes::SetNodeScreenSpacePos(additional_strength_node_handle, ImVec2(pos.x - 200, pos.y + 100));
-
-  if (editor_layer) {
     ImNodes::EditorContextSet(prev_editor_context);
   }
 }

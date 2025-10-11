@@ -12,7 +12,6 @@ struct TreeGrowthSettings {
   float space_colonization_removal_distance_factor = 2;    ///< Distance factor for removing colonization nodes.
   float space_colonization_detection_distance_factor = 4;  ///< Distance factor for detecting colonization nodes.
   float space_colonization_theta = 90.0f;                  ///< The angle parameter used by space colonization.
-
   /**
    * @brief Inspects pruning settings in an editor.
    * @param editor_layer The editor layer managing inspection.

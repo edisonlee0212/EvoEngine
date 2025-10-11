@@ -197,6 +197,19 @@ void RayTracerCamera::SetGamma(float value) {
   camera_properties_.SetGamma(value);
 }
 
+void RayTracerCamera::ApplyCameraSettings(const CameraSettings &camera_settings) {
+  camera_properties_.SetGamma(camera_settings.gamma);
+  camera_properties_.SetFov(camera_settings.fov);
+
+  camera_properties_.SetBackgroundColor(camera_settings.clear_color);
+  if (camera_settings.use_clear_color) {
+    camera_properties_.SetBackgroundType(BackgroundType::Color);
+  }
+
+  ray_properties.bounces = camera_settings.bounce;
+  ray_properties.samples = camera_settings.sample_size;
+}
+
 void RayTracerCamera::SetOutputType(OutputType value) {
   camera_properties_.SetOutputType(value);
 }

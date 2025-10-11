@@ -14,10 +14,16 @@ namespace dataset_generation_plugin {
 class DatasetGenerator {
  public:
   struct CameraCaptureSettings {
-    glm::vec3 position;
-    glm::vec3 euler_rotation;
+    glm::vec3 pivot_position = {};
+    glm::vec3 pivot_euler_rotation = {};
+    glm::vec3 pivot_position_delta = {};
+    glm::vec3 pivot_euler_rotation_delta = {};
 
-    CameraSettings camera_settings{};
+    glm::vec3 anchor_position = {};
+    glm::vec3 anchor_rotation = {};
+    glm::vec3 anchor_position_delta = {};
+    glm::vec3 anchor_rotation_delta = {};
+    CameraSettings camera_settings = {};
     glm::uvec2 render_resolution = {2048, 2048};
     glm::uvec2 output_resolution = {1024, 1024};
   };
@@ -40,6 +46,7 @@ class DatasetGenerator {
     bool export_point_cloud = false;
     bool export_mesh = false;
     bool export_rendering = false;
+    bool export_ray_traced_rendering = false;
     bool export_depth = false;
     bool export_statistics = false;
     bool export_node_graph = false;
@@ -61,6 +68,8 @@ class DatasetGenerator {
   };
 
   static void GenerateDataForTree(const TreeDataGenerationParameters& data_generation_parameters);
+
+  static void GenerateTreeGrowthData(const TreeDataGenerationParameters& data_generation_parameters);
 
   static void GenerateDataForForest(int grid_size, float grid_distance, float random_shift,
                                     const TreeDataGenerationParameters& data_generation_parameters,
@@ -104,6 +113,12 @@ class DatasetGenerator {
                                      const SorghumDataGenerationParameters& data_generation_parameters);
 
   static void GenerateDataForAllSorghums(const SorghumDataGenerationParameters& data_generation_parameters);
+
+ private:
+  static void CaptureTreeData(const std::shared_ptr<Scene>& scene, int post_fix_index,
+                              const std::shared_ptr<Tree>& tree,
+                              const TreeDataGenerationParameters& data_generation_parameters,
+                              const Entity& scanner_entity, const Entity& camera_entity);
 };
 
 }  // namespace dataset_generation_plugin

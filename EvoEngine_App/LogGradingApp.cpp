@@ -95,7 +95,7 @@ int main() {
   // override default scene camera position etc.
   editor_layer->default_scene_camera_position = glm::vec3(0, 2.5, 6);
   editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
-  editor_layer->GetSceneCamera()->camera_settings.clear_color = glm::vec3(1.f);
+  editor_layer->GetSceneCamera()->camera_settings.clear_color = glm::vec4(1.f);
   const auto render_layer = Application::GetLayer<RenderLayer>();
 
 #pragma region Engine Loop
