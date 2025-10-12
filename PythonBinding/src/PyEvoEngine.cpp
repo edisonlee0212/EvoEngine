@@ -146,6 +146,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("PushRayTracerLayer", &PushRayTracerLayer);
 
   m.def("Run", &Run);
+  m.def("RunWithScene", &RunWithScene);
   m.def("Loop", &Loop);
   m.def("Terminate", &Terminate);
 
@@ -241,6 +242,20 @@ void PyEvoEngine::Run(const std::filesystem::path& project_path) {
   ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
   Application::Initialize(application_info);
+  Application::Start();
+}
+
+void PyEvoEngine::RunWithScene(const std::filesystem::path& project_path,
+                               const std::filesystem::path& project_relative_path) {
+  if (std::filesystem::path(project_path).extension().string() != ".eveproj") {
+    EVOENGINE_ERROR("Project path doesn't point to a EvoEngine project!");
+    return;
+  }
+  ApplicationInitializationSettings application_info{};
+  application_info.project_path = project_path;
+  Application::Initialize(application_info);
+  const auto new_scene = std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset(project_relative_path));
+  ProjectManager::SetStartScene(new_scene);
   Application::Start();
 }
 

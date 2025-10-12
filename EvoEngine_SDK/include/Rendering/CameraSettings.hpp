@@ -27,7 +27,7 @@ struct CameraSettings {
   bool use_clear_color = false;
 
   /** @brief The clear color used when rendering if use_clear_color is true. */
-  glm::vec3 clear_color = glm::vec3(0.0f);
+  glm::vec4 clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
   /** @brief The background intensity applied to the camera's view. */
   float background_intensity = 1.0f;

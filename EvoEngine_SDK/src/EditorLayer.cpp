@@ -171,7 +171,7 @@ void EditorLayer::OnCreate() {
                static_cast<void**>(static_cast<void*>(&mapped_entity_index_data_)));
 
   const auto scene_camera = Serialization::ProduceSerializable<Camera>();
-  scene_camera->camera_settings.clear_color = glm::vec3(59.0f / 255.0f, 85 / 255.0f, 143 / 255.f);
+  scene_camera->camera_settings.clear_color = glm::vec4(59.0f / 255.0f, 85 / 255.0f, 143 / 255.f, 1.f);
   scene_camera->camera_settings.use_clear_color = false;
   scene_camera->OnCreate();
   scene_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();

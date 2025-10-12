@@ -463,6 +463,8 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
       if (pruning)
         shoot_visualizer.ClearSelections();
       shoot_visualizer.need_update = true;
+      if (!shoot_model.PeekShootSkeleton().PeekSortedNodeList().empty())
+        root_model.shoot_skeleton_base_thickness = shoot_model.PeekShootSkeleton().PeekNode(0).info.thickness;
     }
   }
 

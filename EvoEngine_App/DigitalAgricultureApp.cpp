@@ -120,7 +120,7 @@ void EngineSetup() {
     if (const auto main_camera = Application::GetActiveScene()->main_camera.Get<Camera>()) {
       scene->SetDataComponent(main_camera->GetOwner(), transform);
       main_camera->camera_settings.use_clear_color = true;
-      main_camera->camera_settings.clear_color = glm::vec3(0.5f);
+      main_camera->camera_settings.clear_color = glm::vec4(0.5f, 0.5f, 0.5f, 1.f);
     }
 #pragma endregion
 #pragma endregion

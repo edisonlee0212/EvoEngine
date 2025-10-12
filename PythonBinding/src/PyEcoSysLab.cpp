@@ -169,12 +169,21 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
       .def_readwrite("fov", &CameraSettings::fov)
       .def_readwrite("use_clear_color", &CameraSettings::use_clear_color)
       .def_readwrite("clear_color", &CameraSettings::clear_color)
-      .def_readwrite("background_intensity", &CameraSettings::background_intensity);
+      .def_readwrite("background_intensity", &CameraSettings::background_intensity)
+      .def_readwrite("sample_size", &CameraSettings::sample_size)
+      .def_readwrite("bounce", &CameraSettings::bounce)
+      .def_readwrite("gamma", &CameraSettings::gamma);
 
   py::class_<DatasetGenerator::CameraCaptureSettings>(m, "CameraCaptureSettings")
       .def(py::init<>())
-      .def_readwrite("position", &DatasetGenerator::CameraCaptureSettings::position)
-      .def_readwrite("euler_rotation", &DatasetGenerator::CameraCaptureSettings::euler_rotation)
+      .def_readwrite("pivot_position", &DatasetGenerator::CameraCaptureSettings::pivot_position)
+      .def_readwrite("pivot_euler_rotation", &DatasetGenerator::CameraCaptureSettings::pivot_euler_rotation)
+      .def_readwrite("pivot_position_delta", &DatasetGenerator::CameraCaptureSettings::pivot_position_delta)
+      .def_readwrite("pivot_euler_rotation_delta", &DatasetGenerator::CameraCaptureSettings::pivot_euler_rotation_delta)
+      .def_readwrite("anchor_position", &DatasetGenerator::CameraCaptureSettings::anchor_position)
+      .def_readwrite("anchor_rotation", &DatasetGenerator::CameraCaptureSettings::anchor_rotation)
+      .def_readwrite("anchor_position_delta", &DatasetGenerator::CameraCaptureSettings::anchor_position_delta)
+      .def_readwrite("anchor_rotation_delta", &DatasetGenerator::CameraCaptureSettings::anchor_rotation_delta)
       .def_readwrite("camera_settings", &DatasetGenerator::CameraCaptureSettings::camera_settings)
       .def_readwrite("render_resolution", &DatasetGenerator::CameraCaptureSettings::render_resolution)
       .def_readwrite("output_resolution", &DatasetGenerator::CameraCaptureSettings::output_resolution);
@@ -197,6 +206,8 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
       .def_readwrite("export_point_cloud", &DatasetGenerator::TreeDataGenerationParameters::export_point_cloud)
       .def_readwrite("export_mesh", &DatasetGenerator::TreeDataGenerationParameters::export_mesh)
       .def_readwrite("export_rendering", &DatasetGenerator::TreeDataGenerationParameters::export_rendering)
+      .def_readwrite("export_ray_traced_rendering",
+                     &DatasetGenerator::TreeDataGenerationParameters::export_ray_traced_rendering)
       .def_readwrite("export_depth", &DatasetGenerator::TreeDataGenerationParameters::export_depth)
       .def_readwrite("export_statistics", &DatasetGenerator::TreeDataGenerationParameters::export_statistics)
       .def_readwrite("export_flow_graph", &DatasetGenerator::TreeDataGenerationParameters::export_flow_graph)

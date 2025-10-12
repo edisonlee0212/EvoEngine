@@ -131,7 +131,7 @@ void scene_capture(const float pos_x, const float pos_y, const float pos_z, cons
   const auto clear_color = main_camera->camera_settings.clear_color;
   if (white_background) {
     main_camera->camera_settings.use_clear_color = true;
-    main_camera->camera_settings.clear_color = glm::vec3(1, 1, 1);
+    main_camera->camera_settings.clear_color = glm::vec4(1, 1, 1, 1);
   }
   Application::Loop();
   main_camera->GetRenderTexture()->StoreToPng(output_path);
@@ -429,6 +429,13 @@ void generate_tree_data(const TreePointCloudCircularCaptureSettings& capture_set
   DatasetGenerator::GenerateDataForTree(data_generation_parameters);
 }
 
+void generate_tree_growth_data(const DatasetGenerator::CameraCaptureSettings& camera_capture_settings,
+                               DatasetGenerator::TreeDataGenerationParameters data_generation_parameters) {
+  data_generation_parameters.camera_capture_settings.resize(1);
+  data_generation_parameters.camera_capture_settings[0] = camera_capture_settings;
+  DatasetGenerator::GenerateTreeGrowthData(data_generation_parameters);
+}
+
 PYBIND11_MAKE_OPAQUE(std::vector<int>)
 
 PYBIND11_MODULE(PyEcoSysLab, m) {
@@ -443,6 +450,7 @@ PYBIND11_MODULE(PyEcoSysLab, m) {
   m.def("rbv_to_obj", &rbv_to_obj, "Convert RBV to 3D model (OBJ)");
 
   m.def("generate_tree_data", &generate_tree_data, "Generate data for single tree");
+  m.def("generate_tree_growth_data", &generate_tree_growth_data, "Generate data for single tree growth");
   m.def("scene_light_settings", &scene_light_settings, "Configure scene lighting");
 }
 #endif

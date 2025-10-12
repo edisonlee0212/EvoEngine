@@ -207,7 +207,8 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.inverse_projection = glm::inverse(camera_info_block.projection);
   camera_info_block.inverse_view = glm::inverse(camera_info_block.view);
   camera_info_block.inverse_projection_view = glm::inverse(camera_info_block.projection * camera_info_block.view);
-  camera_info_block.clear_color = glm::vec4(camera_settings.clear_color, camera_settings.background_intensity);
+  camera_info_block.clear_color =
+      glm::vec4(glm::vec3(camera_settings.clear_color), camera_settings.background_intensity);
   camera_info_block.resolution = size_;
   camera_info_block.fade_factor = camera_settings.fade_factor;
   camera_info_block.fade_ratio = camera_settings.fade_ratio;
@@ -474,7 +475,7 @@ void Camera::Deserialize(const YAML::Node& in) {
   if (in["use_clear_color"])
     camera_settings.use_clear_color = in["use_clear_color"].as<bool>();
   if (in["clear_color"])
-    camera_settings.clear_color = in["clear_color"].as<glm::vec3>();
+    camera_settings.clear_color = glm::vec4(in["clear_color"].as<glm::vec3>(), 1.0f);
   if (in["near_distance"])
     camera_settings.near_distance = in["near_distance"].as<float>();
   if (in["far_distance"])
@@ -572,7 +573,7 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       changed = true;
     }
     if (camera_settings.use_clear_color) {
-      if (ImGui::ColorEdit3("Clear Color", (float*)(void*)&camera_settings.clear_color)) {
+      if (ImGui::ColorEdit4("Clear Color", (float*)(void*)&camera_settings.clear_color)) {
         changed = true;
       }
     } else if (editor_layer->DragAndDropButton<Cubemap>(skybox, "Skybox")) {
