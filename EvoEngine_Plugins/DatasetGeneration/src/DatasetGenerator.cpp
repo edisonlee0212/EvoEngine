@@ -178,8 +178,10 @@ std::shared_ptr<TreeDescriptor> DatasetGenerator::TreeDataGenerationParameters::
     actual_tree_descriptor->root_descriptor = tree_descriptor->root_descriptor;
     actual_tree_descriptor->shoot_descriptor = tree_descriptor->shoot_descriptor;
     actual_tree_descriptor->foliage_descriptor = tree_descriptor->foliage_descriptor;
-    actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
+    actual_tree_descriptor->fine_root_descriptor = tree_descriptor->fine_root_descriptor;
+    actual_tree_descriptor->pruning_descriptor = tree_descriptor->pruning_descriptor;
     actual_tree_descriptor->reproduction_module_descriptor = tree_descriptor->reproduction_module_descriptor;
+    actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
   } else {
     std::shared_ptr<TreeDescriptor> tree_descriptor;
     if (ProjectManager::IsInAssetsFolder(tree_descriptor_path)) {
@@ -192,42 +194,138 @@ std::shared_ptr<TreeDescriptor> DatasetGenerator::TreeDataGenerationParameters::
     actual_tree_descriptor->root_descriptor = tree_descriptor->root_descriptor;
     actual_tree_descriptor->shoot_descriptor = tree_descriptor->shoot_descriptor;
     actual_tree_descriptor->foliage_descriptor = tree_descriptor->foliage_descriptor;
-    actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
+    actual_tree_descriptor->fine_root_descriptor = tree_descriptor->fine_root_descriptor;
+    actual_tree_descriptor->pruning_descriptor = tree_descriptor->pruning_descriptor;
     actual_tree_descriptor->reproduction_module_descriptor = tree_descriptor->reproduction_module_descriptor;
+    actual_tree_descriptor->bark_descriptor = tree_descriptor->bark_descriptor;
   }
 
-  if (!foliage_descriptor_path.empty()) {
-    if (foliage_descriptor_path.is_relative()) {
-      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / foliage_descriptor_path;
+  if (!overriding_shoot_descriptor_path.empty()) {
+    if (overriding_shoot_descriptor_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / overriding_shoot_descriptor_path;
       if (std::filesystem::exists(absolute_path)) {
-        actual_tree_descriptor->foliage_descriptor =
-            std::dynamic_pointer_cast<IFoliageDescriptor>(ProjectManager::GetOrCreateAsset(foliage_descriptor_path));
+        actual_tree_descriptor->shoot_descriptor = std::dynamic_pointer_cast<IShootDescriptor>(
+            ProjectManager::GetOrCreateAsset(overriding_shoot_descriptor_path));
+      } else {
+        EVOENGINE_ERROR("Shoot Descriptor doesn't exist!");
+      }
+    } else {
+      if (ProjectManager::IsInAssetsFolder(overriding_shoot_descriptor_path)) {
+        actual_tree_descriptor->shoot_descriptor = std::dynamic_pointer_cast<IShootDescriptor>(
+            ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(overriding_shoot_descriptor_path)));
+      } else {
+        EVOENGINE_ERROR("Shoot Descriptor doesn't exist!");
+      }
+    }
+  }
+  if (!overriding_root_descriptor_path.empty()) {
+    if (overriding_root_descriptor_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / overriding_root_descriptor_path;
+      if (std::filesystem::exists(absolute_path)) {
+        actual_tree_descriptor->root_descriptor = std::dynamic_pointer_cast<IRootDescriptor>(
+            ProjectManager::GetOrCreateAsset(overriding_root_descriptor_path));
+      } else {
+        EVOENGINE_ERROR("Root Descriptor doesn't exist!");
+      }
+    } else {
+      if (ProjectManager::IsInAssetsFolder(overriding_root_descriptor_path)) {
+        actual_tree_descriptor->root_descriptor = std::dynamic_pointer_cast<IRootDescriptor>(
+            ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(overriding_root_descriptor_path)));
+      } else {
+        EVOENGINE_ERROR("Root Descriptor doesn't exist!");
+      }
+    }
+  }
+  if (!overriding_fine_root_descriptor_path.empty()) {
+    if (overriding_fine_root_descriptor_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / overriding_fine_root_descriptor_path;
+      if (std::filesystem::exists(absolute_path)) {
+        actual_tree_descriptor->fine_root_descriptor = std::dynamic_pointer_cast<IFineRootDescriptor>(
+            ProjectManager::GetOrCreateAsset(overriding_fine_root_descriptor_path));
+      } else {
+        EVOENGINE_ERROR("Fine Root Descriptor doesn't exist!");
+      }
+    } else {
+      if (ProjectManager::IsInAssetsFolder(overriding_fine_root_descriptor_path)) {
+        actual_tree_descriptor->fine_root_descriptor =
+            std::dynamic_pointer_cast<IFineRootDescriptor>(ProjectManager::GetOrCreateAsset(
+                ProjectManager::GetAssetsRelativePath(overriding_fine_root_descriptor_path)));
+      } else {
+        EVOENGINE_ERROR("Fine Root Descriptor doesn't exist!");
+      }
+    }
+  }
+  if (!overriding_pruning_descriptor_path.empty()) {
+    if (overriding_pruning_descriptor_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / overriding_pruning_descriptor_path;
+      if (std::filesystem::exists(absolute_path)) {
+        actual_tree_descriptor->pruning_descriptor = std::dynamic_pointer_cast<IPruningDescriptor>(
+            ProjectManager::GetOrCreateAsset(overriding_pruning_descriptor_path));
+      } else {
+        EVOENGINE_ERROR("Pruning Descriptor doesn't exist!");
+      }
+    } else {
+      if (ProjectManager::IsInAssetsFolder(overriding_pruning_descriptor_path)) {
+        actual_tree_descriptor->pruning_descriptor =
+            std::dynamic_pointer_cast<IPruningDescriptor>(ProjectManager::GetOrCreateAsset(
+                ProjectManager::GetAssetsRelativePath(overriding_pruning_descriptor_path)));
+      } else {
+        EVOENGINE_ERROR("Pruning Descriptor doesn't exist!");
+      }
+    }
+  }
+  if (!overriding_foliage_descriptor_path.empty()) {
+    if (overriding_foliage_descriptor_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / overriding_foliage_descriptor_path;
+      if (std::filesystem::exists(absolute_path)) {
+        actual_tree_descriptor->foliage_descriptor = std::dynamic_pointer_cast<IFoliageDescriptor>(
+            ProjectManager::GetOrCreateAsset(overriding_foliage_descriptor_path));
       } else {
         EVOENGINE_ERROR("Foliage Descriptor doesn't exist!");
       }
     } else {
-      if (ProjectManager::IsInAssetsFolder(foliage_descriptor_path)) {
-        actual_tree_descriptor->foliage_descriptor = std::dynamic_pointer_cast<IFoliageDescriptor>(
-            ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(foliage_descriptor_path)));
+      if (ProjectManager::IsInAssetsFolder(overriding_foliage_descriptor_path)) {
+        actual_tree_descriptor->foliage_descriptor =
+            std::dynamic_pointer_cast<IFoliageDescriptor>(ProjectManager::GetOrCreateAsset(
+                ProjectManager::GetAssetsRelativePath(overriding_foliage_descriptor_path)));
       } else {
         EVOENGINE_ERROR("Foliage Descriptor doesn't exist!");
       }
     }
   }
-
-  if (!bark_descriptor_path.empty()) {
-    if (bark_descriptor_path.is_relative()) {
-      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / bark_descriptor_path;
+  if (!overriding_reproduction_module_descriptor_path.empty()) {
+    if (overriding_reproduction_module_descriptor_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / overriding_reproduction_module_descriptor_path;
       if (std::filesystem::exists(absolute_path)) {
-        actual_tree_descriptor->bark_descriptor =
-            std::dynamic_pointer_cast<IBarkDescriptor>(ProjectManager::GetOrCreateAsset(bark_descriptor_path));
+        actual_tree_descriptor->reproduction_module_descriptor =
+            std::dynamic_pointer_cast<IReproductionModuleDescriptor>(
+                ProjectManager::GetOrCreateAsset(overriding_reproduction_module_descriptor_path));
+      } else {
+        EVOENGINE_ERROR("Reproduction Descriptor doesn't exist!");
+      }
+    } else {
+      if (ProjectManager::IsInAssetsFolder(overriding_reproduction_module_descriptor_path)) {
+        actual_tree_descriptor->reproduction_module_descriptor =
+            std::dynamic_pointer_cast<IReproductionModuleDescriptor>(ProjectManager::GetOrCreateAsset(
+                ProjectManager::GetAssetsRelativePath(overriding_reproduction_module_descriptor_path)));
+      } else {
+        EVOENGINE_ERROR("Reproduction Descriptor doesn't exist!");
+      }
+    }
+  }
+  if (!overriding_bark_descriptor_path.empty()) {
+    if (overriding_bark_descriptor_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / overriding_bark_descriptor_path;
+      if (std::filesystem::exists(absolute_path)) {
+        actual_tree_descriptor->bark_descriptor = std::dynamic_pointer_cast<IBarkDescriptor>(
+            ProjectManager::GetOrCreateAsset(overriding_bark_descriptor_path));
       } else {
         EVOENGINE_ERROR("Bark Descriptor doesn't exist!");
       }
     } else {
-      if (ProjectManager::IsInAssetsFolder(bark_descriptor_path)) {
+      if (ProjectManager::IsInAssetsFolder(overriding_bark_descriptor_path)) {
         actual_tree_descriptor->bark_descriptor = std::dynamic_pointer_cast<IBarkDescriptor>(
-            ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(bark_descriptor_path)));
+            ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(overriding_bark_descriptor_path)));
       } else {
         EVOENGINE_ERROR("Bark Descriptor doesn't exist!");
       }

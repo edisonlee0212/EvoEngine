@@ -90,12 +90,17 @@ camera_capture_settings.output_resolution.y = 2048
 
 #This can be a relative path to the asset folder of the project, or an relative/absolute path outside the project
 data_generation_parameters.tree_descriptor_path = "./TreeDescriptors/Basic/RootSystemHeart.tree"
-#Note that you can overwrite foliage descriptor and bark descriptor
-#data_generation_parameters.foliage_descriptor_path = "./TreeStructor/TreeStructor.foliage"
-
+#Note that you can overwrite foliage descriptor and bark descriptor and etc.
+#data_generation_parameters.overriding_shoot_descriptor_path = ""
+#data_generation_parameters.overriding_root_descriptor_path = ""
+#data_generation_parameters.overriding_fine_root_descriptor_path = ""
+#data_generation_parameters.overriding_pruning_descriptor_path = ""
+#data_generation_parameters.overriding_foliage_descriptor_path = ""
+#data_generation_parameters.overriding_reproduction_module_descriptor_path = ""
+#data_generation_parameters.overriding_bark_descriptor_path = ""
 
 #Ambient light & directional light intensity
-tree_framework.scene_light_settings(0.3, 10)
+tree_framework.scene_light_settings(0.3, 7)
 
 #The seed for random tree generator. Same seed will result in same tree geometry.
 data_generation_parameters.seed = 0

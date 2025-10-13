@@ -31,8 +31,13 @@ class DatasetGenerator {
   struct TreeDataGenerationParameters {
     // Parameters
     std::filesystem::path tree_descriptor_path{};
-    std::filesystem::path foliage_descriptor_path{};
-    std::filesystem::path bark_descriptor_path{};
+    std::filesystem::path overriding_shoot_descriptor_path{};
+    std::filesystem::path overriding_root_descriptor_path{};
+    std::filesystem::path overriding_fine_root_descriptor_path{};
+    std::filesystem::path overriding_pruning_descriptor_path{};
+    std::filesystem::path overriding_foliage_descriptor_path{};
+    std::filesystem::path overriding_reproduction_module_descriptor_path{};
+    std::filesystem::path overriding_bark_descriptor_path{};
     // Growth control
     SimulationSettings simulation_settings{};
     TreeGrowthSettings tree_growth_settings{};
