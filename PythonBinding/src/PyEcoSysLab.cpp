@@ -191,9 +191,20 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
   py::class_<DatasetGenerator::TreeDataGenerationParameters>(m, "TreeDataGenerationParameters")
       .def(py::init<>())
       .def_readwrite("tree_descriptor_path", &DatasetGenerator::TreeDataGenerationParameters::tree_descriptor_path)
-      .def_readwrite("foliage_descriptor_path",
-                     &DatasetGenerator::TreeDataGenerationParameters::foliage_descriptor_path)
-      .def_readwrite("bark_descriptor_path", &DatasetGenerator::TreeDataGenerationParameters::bark_descriptor_path)
+      .def_readwrite("overriding_shoot_descriptor_path",
+                     &DatasetGenerator::TreeDataGenerationParameters::overriding_shoot_descriptor_path)
+      .def_readwrite("overriding_root_descriptor_path",
+                     &DatasetGenerator::TreeDataGenerationParameters::overriding_root_descriptor_path)
+      .def_readwrite("overriding_fine_root_descriptor_path",
+                     &DatasetGenerator::TreeDataGenerationParameters::overriding_fine_root_descriptor_path)
+      .def_readwrite("overriding_pruning_descriptor_path",
+                     &DatasetGenerator::TreeDataGenerationParameters::overriding_pruning_descriptor_path)
+      .def_readwrite("overriding_foliage_descriptor_path",
+                     &DatasetGenerator::TreeDataGenerationParameters::overriding_foliage_descriptor_path)
+      .def_readwrite("overriding_reproduction_module_descriptor_path",
+                     &DatasetGenerator::TreeDataGenerationParameters::overriding_reproduction_module_descriptor_path)
+      .def_readwrite("overriding_bark_descriptor_path",
+                     &DatasetGenerator::TreeDataGenerationParameters::overriding_bark_descriptor_path)
 
       .def_readwrite("simulation_settings", &DatasetGenerator::TreeDataGenerationParameters::simulation_settings)
       .def_readwrite("tree_growth_settings", &DatasetGenerator::TreeDataGenerationParameters::tree_growth_settings)
