@@ -6,9 +6,8 @@
 #include "TreeMeshGenerator.hpp"
 #include "Vertex.hpp"
 
-using namespace evo_engine;
-
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Enumeration for different strand model mesh generation techniques.

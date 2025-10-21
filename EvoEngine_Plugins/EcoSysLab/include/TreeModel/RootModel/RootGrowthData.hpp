@@ -2,8 +2,9 @@
 #include "EnvironmentGrid.hpp"
 #include "Octree.hpp"
 #include "Skeleton.hpp"
-using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief A skeleton representing the structure of a root.

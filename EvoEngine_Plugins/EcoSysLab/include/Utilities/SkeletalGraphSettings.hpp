@@ -1,6 +1,8 @@
 #pragma once
-using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 /**
  * @struct SkeletalGraphSettings
  * @brief Defines visualization settings for the skeletal graph of a tree.

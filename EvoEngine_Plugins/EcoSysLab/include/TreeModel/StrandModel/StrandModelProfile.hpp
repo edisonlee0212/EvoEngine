@@ -4,9 +4,9 @@
 #include "Particle2D.hpp"
 #include "ParticleGrid2D.hpp"
 #include "Times.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Structure that holds settings for particle physics simulation.

@@ -1,8 +1,7 @@
 #pragma once
 
-using namespace evo_engine;
-
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @class SimulationStats

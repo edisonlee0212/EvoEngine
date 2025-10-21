@@ -1,6 +1,7 @@
 #pragma once
-using namespace evo_engine;
+
 namespace log_grading_plugin {
+using namespace evo_engine;
 struct Vec4 {
   float v0 = 0;
   float v1 = 0;

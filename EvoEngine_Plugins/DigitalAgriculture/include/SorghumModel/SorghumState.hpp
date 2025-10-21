@@ -3,9 +3,9 @@
 #include "Curve.hpp"
 #include "Plot2D.hpp"
 #include "SorghumDescriptor.hpp"
-using namespace evo_engine;
 
 namespace digital_agriculture_plugin {
+using namespace evo_engine;
 #pragma region States
 
 /**

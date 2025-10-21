@@ -8,9 +8,9 @@
 #include "Soil.hpp"
 #include "Strands.hpp"
 #include "Tree.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @class EcoSysLabLayer

@@ -34,15 +34,18 @@
 #  if DATASET_GENERATION_PLUGIN
 #    include <SorghumPointCloudScanner.hpp>
 #    include "DatasetGenerator.hpp"
-using namespace dataset_generation_plugin;
 #  endif
 #  include "PyEvoEngine.hpp"
+
+namespace py_digital_agriculture_plugin {
+#  if DATASET_GENERATION_PLUGIN
+using namespace dataset_generation_plugin;
+#  endif
 
 using namespace evo_engine;
 using namespace py_evo_engine;
 using namespace digital_agriculture_plugin;
 
-namespace py_digital_agriculture_plugin {
 class PyDigitalAgriculture {
   EVOENGINE_SINGLETON_INSTANCE(PyDigitalAgriculture)
  public:

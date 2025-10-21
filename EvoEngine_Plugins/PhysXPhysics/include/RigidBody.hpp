@@ -1,8 +1,9 @@
 #pragma once
 #include "Collider.hpp"
 #include "Entities.hpp"
-using namespace physx;
+
 namespace evo_engine {
+using namespace physx;
 class RigidBody : public IPrivateComponent {
   glm::mat4 shape_transform_ =
       glm::translate(glm::vec3(0.0f)) * glm::mat4_cast(glm::quat(glm::vec3(0.0f))) * glm::scale(glm::vec3(1.0f));

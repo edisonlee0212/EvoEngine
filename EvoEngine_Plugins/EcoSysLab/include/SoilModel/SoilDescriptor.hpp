@@ -2,8 +2,10 @@
 
 #include "HeightField.hpp"
 #include "VoxelSoilModel.hpp"
-using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 /**
  * \brief Enum representing different types of soil materials.
  */

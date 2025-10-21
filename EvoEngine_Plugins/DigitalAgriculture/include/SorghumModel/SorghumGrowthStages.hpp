@@ -4,9 +4,8 @@
 #include "Plot2D.hpp"
 #include "SorghumState.hpp"
 
-using namespace evo_engine;
-
 namespace digital_agriculture_plugin {
+using namespace evo_engine;
 
 class SorghumDescriptor;
 

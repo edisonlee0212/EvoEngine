@@ -3,9 +3,11 @@
 
 #include "BasicBarkDescriptor.hpp"
 #include "LogWood.hpp"
+
+namespace log_grading_plugin {
 using namespace evo_engine;
 using namespace eco_sys_lab_plugin;
-namespace log_grading_plugin {
+
 struct LogWoodMeshGenerationSettings {
   float m_y_subdivision = 0.02f;
 };

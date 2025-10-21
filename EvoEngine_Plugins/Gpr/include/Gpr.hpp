@@ -1,8 +1,10 @@
 #pragma once
 
 #include "gpr.h"
-using namespace evo_engine;
+
 namespace gpr_plugin {
+using namespace evo_engine;
+
 class Gpr : public IAsset {
   gpr_allocator allocator_;
   gpr_parameters params_;

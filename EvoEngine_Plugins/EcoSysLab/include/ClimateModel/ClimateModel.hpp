@@ -2,8 +2,8 @@
 #pragma once
 #include "EnvironmentGrid.hpp"
 
-using namespace evo_engine;
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Struct representing parameters for configuring the climate model.

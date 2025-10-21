@@ -31,9 +31,8 @@ typedef CGAL::Delaunay_triangulation_3<K, Tds> Delaunay_CGAL;
 typedef K::Point_3 Point_CGAL;
 #endif
 
-using namespace evo_engine;
-
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 class DsPreStep;
 class IDsPhysicsOperator;
 class IDsConstraint;

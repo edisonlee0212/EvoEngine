@@ -2,8 +2,9 @@
 #include "RigidBody.hpp"
 
 #include "PrivateComponentRef.hpp"
-using namespace physx;
+
 namespace evo_engine {
+using namespace physx;
 enum class JointType {
   Fixed = 0,
   /*

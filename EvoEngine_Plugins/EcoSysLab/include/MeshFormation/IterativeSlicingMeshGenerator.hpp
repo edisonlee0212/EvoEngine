@@ -6,10 +6,8 @@
 #include "StrandModelMeshGenerator.hpp"
 #include "Vertex.hpp"
 
-// TODO: should this inherit from StrandModelMeshGenerator?
-using namespace evo_engine;
-
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @class IterativeSlicingMeshGenerator

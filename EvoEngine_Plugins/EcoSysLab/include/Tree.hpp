@@ -4,7 +4,6 @@
 #include "RootModel.hpp"
 #ifdef BILLBOARD_CLOUDS_PLUGIN
 #  include "BillboardCloud.hpp"
-using namespace billboard_clouds_plugin;
 #endif
 #include "BasicFoliageDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
@@ -19,9 +18,13 @@ using namespace billboard_clouds_plugin;
 #include "TreePart.hpp"
 #include "TreeStatistics.hpp"
 #include "TreeVisualizer.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+#ifdef BILLBOARD_CLOUDS_PLUGIN
+using namespace billboard_clouds_plugin;
+#endif
+using namespace evo_engine;
+
 /**
  * @class Tree
  * @brief Represents a procedural tree with various simulation and rendering capabilities.

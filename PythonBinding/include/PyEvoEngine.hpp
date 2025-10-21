@@ -15,8 +15,9 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/stl/filesystem.h"
 
-using namespace evo_engine;
 namespace py_evo_engine {
+using namespace evo_engine;
+
 class PyEvoEngine {
   EVOENGINE_SINGLETON_INSTANCE(PyEvoEngine)
  public:

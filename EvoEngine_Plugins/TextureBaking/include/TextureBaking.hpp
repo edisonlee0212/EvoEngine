@@ -1,8 +1,8 @@
 #pragma once
 
+namespace texture_baking_plugin {
 using namespace evo_engine;
 
-namespace texture_baking_plugin {
 class TextureBaking : public IPrivateComponent {
  public:
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;

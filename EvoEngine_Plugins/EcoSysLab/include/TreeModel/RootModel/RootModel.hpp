@@ -5,9 +5,10 @@
 #include "Octree.hpp"
 #include "TreeControllers.hpp"
 #include "TreeGrowthSettings.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 class RootModel : public PlantModel {
   /**
    * @brief Calculates the thickness of root nodes in the tree.

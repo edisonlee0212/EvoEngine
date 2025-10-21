@@ -2,9 +2,10 @@
 #include "ShootModel.hpp"
 #include "SimulationSettings.hpp"
 #include "TreeDescriptor.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 class Climate;
 
 /**

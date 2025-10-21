@@ -1,9 +1,9 @@
 
 #pragma once
 #include "RigidBody2D.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Handle type for referencing RigidBody2D instances.

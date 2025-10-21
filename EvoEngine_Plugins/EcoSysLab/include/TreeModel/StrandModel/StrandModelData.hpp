@@ -4,9 +4,9 @@
 #include "StrandGroup.hpp"
 
 #include "StrandModelProfile.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * \brief Represents data associated with a strand group in the strand model.

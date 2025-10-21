@@ -3,8 +3,9 @@
 #include "ParticleGrid2D.hpp"
 #include "Skeleton.hpp"
 #include "StrandGroup.hpp"
-using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @struct UpdateSettings

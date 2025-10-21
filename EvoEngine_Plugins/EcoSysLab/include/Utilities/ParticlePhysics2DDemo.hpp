@@ -2,9 +2,9 @@
 #pragma once
 #include "ProfileConstraints.hpp"
 #include "StrandModelProfile.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Structure to hold demo data for particle physics.

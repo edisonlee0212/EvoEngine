@@ -1,7 +1,8 @@
 #pragma once
 
-using namespace evo_engine;
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 /**
  * @struct JunctionLine
  * @brief Represents a line that connects junction points in the skeletal graph.

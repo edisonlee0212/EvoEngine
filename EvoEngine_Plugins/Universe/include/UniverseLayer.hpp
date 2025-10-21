@@ -2,8 +2,9 @@
 #include "PerlinNoiseStage.hpp"
 #include "PlanetTerrain.hpp"
 #include "TerrainChunk.hpp"
-using namespace evo_engine;
+
 namespace universe_plugin {
+using namespace evo_engine;
 /// <summary>
 /// The calculated precise position of the star.
 /// </summary>

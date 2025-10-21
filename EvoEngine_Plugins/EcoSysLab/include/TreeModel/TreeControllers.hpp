@@ -4,8 +4,10 @@
 #include "RootGrowthData.hpp"
 #include "ShootGrowthData.hpp"
 #include "VoxelSoilModel.hpp"
-using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 struct ITreeController {
   [[nodiscard]] bool Initialized() const;
 

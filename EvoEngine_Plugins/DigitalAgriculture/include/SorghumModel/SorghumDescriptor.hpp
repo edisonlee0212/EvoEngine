@@ -1,9 +1,9 @@
 
 #pragma once
 #include "SorghumSpline.hpp"
-using namespace evo_engine;
 
 namespace digital_agriculture_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Structure representing the settings for Sorghum mesh generation.

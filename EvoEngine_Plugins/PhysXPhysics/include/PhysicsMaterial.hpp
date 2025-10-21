@@ -2,8 +2,9 @@
 #include <PxPhysicsAPI.h>
 #include "Entities.hpp"
 #include "IAsset.hpp"
-using namespace physx;
+
 namespace evo_engine {
+using namespace physx;
 class PhysicsMaterial : public IAsset {
   friend class PhysicsLayer;
   friend class Collider;
