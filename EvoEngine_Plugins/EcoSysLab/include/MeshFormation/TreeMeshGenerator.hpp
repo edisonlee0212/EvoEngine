@@ -4,8 +4,10 @@
 #include "Octree.hpp"
 #include "ShootModel.hpp"
 #include "Vertex.hpp"
-using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 /**
  * @struct RingSegment
  * @brief Represents a cylindrical ring segment of a tree structure.

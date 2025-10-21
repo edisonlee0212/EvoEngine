@@ -1,8 +1,9 @@
 #pragma once
 #include "Application.hpp"
 #include "Mesh.hpp"
-using namespace evo_engine;
+
 namespace universe_plugin {
+using namespace evo_engine;
 enum class ChunkDirection { Root, UpperLeft, UpperRight, LowerLeft, LowerRight };
 class PlanetTerrain;
 class TerrainChunk {

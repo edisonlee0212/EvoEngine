@@ -7,9 +7,9 @@
 #include "PointCloud.hpp"
 #include "SorghumDescriptor.hpp"
 #include "SorghumField.hpp"
-using namespace evo_engine;
 
 namespace digital_agriculture_plugin {
+using namespace evo_engine;
 
 /**
  * @class SorghumLayer

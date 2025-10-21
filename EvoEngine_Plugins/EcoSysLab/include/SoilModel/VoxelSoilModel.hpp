@@ -8,9 +8,8 @@
 #include <valarray>
 #include <vector>
 
-using namespace evo_engine;
-
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Represents a field of floating-point values using std::valarray.

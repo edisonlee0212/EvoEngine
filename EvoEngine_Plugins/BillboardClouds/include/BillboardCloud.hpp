@@ -2,8 +2,8 @@
 
 #include "Material.hpp"
 #include "Mesh.hpp"
-using namespace evo_engine;
 namespace billboard_clouds_plugin {
+using namespace evo_engine;
 class BillboardCloud {
  public:
   template <typename T>

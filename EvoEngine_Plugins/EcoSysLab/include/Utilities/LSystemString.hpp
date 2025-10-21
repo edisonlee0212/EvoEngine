@@ -2,9 +2,9 @@
 #pragma once
 
 #include "Skeleton.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @enum LSystemCommandType

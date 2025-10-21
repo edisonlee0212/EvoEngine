@@ -4,9 +4,9 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include "ProceduralNoise.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Represents a height field generated using procedural noise.

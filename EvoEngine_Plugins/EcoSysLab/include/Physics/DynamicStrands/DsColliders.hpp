@@ -1,8 +1,9 @@
 #pragma once
 #include "DynamicStrands.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 class IDsCollider : public IPrivateComponent {
  public:
   glm::vec4 bound_color = glm::vec4(1, 0, 1, 0.1f);

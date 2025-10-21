@@ -2,8 +2,8 @@
 #pragma once
 #include "Physics2D.hpp"
 
-using namespace evo_engine;
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Struct representing the data associated with a Physics2D simulation demo.

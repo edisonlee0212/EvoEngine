@@ -4,9 +4,10 @@
 #include "PlantModel.hpp"
 #include "TreeControllers.hpp"
 #include "TreeGrowthSettings.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 /**
  * @brief Represents the procedural structure and behavior of a tree model.
  */

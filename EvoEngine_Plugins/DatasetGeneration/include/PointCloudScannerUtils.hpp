@@ -1,7 +1,8 @@
 #pragma once
 #include "PointCloudSample.hpp"
-using namespace evo_engine;
+
 namespace dataset_generation_plugin {
+using namespace evo_engine;
 class PointCloudCaptureSettings {
  public:
   bool output_spline_info = false;

@@ -14,6 +14,7 @@ using namespace eco_sys_lab_plugin;
 #ifdef LOG_SCANNING_PLUGIN
 #  include "JoeScanScanner.hpp"
 using namespace log_scanning_plugin;
+using namespace nlohmann;
 #endif
 #ifdef LOG_GRADING_PLUGIN
 #  include "LogGrader.hpp"

@@ -7,10 +7,11 @@
 #include "SorghumPointCloudScanner.hpp"
 #include "TreeMeshGenerator.hpp"
 #include "TreePointCloudScanner.hpp"
+
+namespace dataset_generation_plugin {
 using namespace evo_engine;
 using namespace eco_sys_lab_plugin;
 using namespace digital_agriculture_plugin;
-namespace dataset_generation_plugin {
 class DatasetGenerator {
  public:
   struct CameraCaptureSettings {

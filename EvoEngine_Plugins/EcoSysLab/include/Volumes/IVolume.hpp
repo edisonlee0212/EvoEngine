@@ -3,9 +3,8 @@
 
 #include <Transform.hpp>
 
-using namespace evo_engine;
-
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Interface representing a volume in 3D space.

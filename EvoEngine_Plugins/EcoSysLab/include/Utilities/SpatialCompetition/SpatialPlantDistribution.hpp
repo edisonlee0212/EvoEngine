@@ -1,8 +1,9 @@
 
 #pragma once
 #include "CellGrid.hpp"
-using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /// Represents a handle to a spatial plant parameter.
 typedef int SpatialPlantParameterHandle;

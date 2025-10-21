@@ -12,9 +12,9 @@
 #include <string>
 #include "joescan_pinchot.h"
 #include "nlohmann/json.hpp"
-using namespace nlohmann;
 
 namespace joescan {
+using namespace nlohmann;
 
 /// Internal function
 inline jsCamera _Str2Cam(std::string str) {

@@ -6,8 +6,10 @@
 #include "Skeleton.hpp"
 #include "StrandModelParameters.hpp"
 #include "TreeOccupancyGrid.hpp"
-using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 #pragma region Utilities
 
 /**

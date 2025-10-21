@@ -2,9 +2,9 @@
 #include "PointCloudScannerUtils.hpp"
 #include "Tree.hpp"
 
+namespace dataset_generation_plugin {
 using namespace evo_engine;
 using namespace eco_sys_lab_plugin;
-namespace dataset_generation_plugin {
 struct TreePointCloudPointSettings {
   float variance = 0.015f;
   float ball_rand_radius = 0.005f;

@@ -3,8 +3,10 @@
 #include "Json.hpp"
 #include "LogScan.hpp"
 #include "jsSetupConfigParser.hpp"
-using namespace evo_engine;
+
 namespace log_scanning_plugin {
+using namespace nlohmann;
+using namespace evo_engine;
 
 struct JoeScanScannerSettings {
   int step = 1;

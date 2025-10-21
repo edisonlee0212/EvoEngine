@@ -2,8 +2,9 @@
 
 #include "Json.hpp"
 #include "Prefab.hpp"
-using namespace evo_engine;
+
 namespace log_scanning_plugin {
+using namespace evo_engine;
 struct JoeScanConfig {
   struct ScanHead {
     int id = -1;

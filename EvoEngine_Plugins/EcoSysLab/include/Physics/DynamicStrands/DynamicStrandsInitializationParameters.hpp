@@ -1,8 +1,10 @@
 #pragma once
 #include "DynamicTreeStrandGraph.hpp"
 #include "Plot2D.hpp"
-using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 /**
  * \brief Parameters used during the initialization of the dynamic strand model.
  */

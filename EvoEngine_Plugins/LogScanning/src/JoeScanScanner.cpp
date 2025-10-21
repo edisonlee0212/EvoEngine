@@ -3,6 +3,7 @@
 #include "Prefab.hpp"
 #include "Scene.hpp"
 using namespace log_scanning_plugin;
+using namespace nlohmann;
 
 void logger(const jsError err, const std::string msg) {
   EVOENGINE_LOG(msg);

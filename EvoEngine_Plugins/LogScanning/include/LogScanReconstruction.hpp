@@ -1,8 +1,9 @@
 #pragma once
 #include "CellGrid.hpp"
 #include "LogScan.hpp"
-using namespace evo_engine;
+
 namespace log_scanning_plugin {
+using namespace evo_engine;
 class LogScanReconstruction {
  public:
   glm::vec2 profile_center{};

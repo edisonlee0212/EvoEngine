@@ -4,9 +4,8 @@
 #  include "BtfMaterial.hpp"
 #endif
 
-using namespace evo_engine;
 namespace digital_agriculture_plugin {
-
+using namespace evo_engine;
 /**
  * @class CBTFGroup
  * @brief Represents a collection of Compressed Bidirectional Texture Function (CBTF) assets.

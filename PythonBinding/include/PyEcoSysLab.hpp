@@ -29,7 +29,6 @@
 #  if DATASET_GENERATION_PLUGIN
 #    include <TreePointCloudScanner.hpp>
 #    include "DatasetGenerator.hpp"
-using namespace dataset_generation_plugin;
 #  endif
 
 #  include "Climate.hpp"
@@ -47,11 +46,15 @@ using namespace dataset_generation_plugin;
 #  include "TreeStructor.hpp"
 
 #  include "PyEvoEngine.hpp"
+
+namespace py_eco_sys_lab_plugin {
+#  if DATASET_GENERATION_PLUGIN
+using namespace dataset_generation_plugin;
+#  endif
 using namespace evo_engine;
 using namespace py_evo_engine;
 using namespace eco_sys_lab_plugin;
 
-namespace py_eco_sys_lab_plugin {
 class PyEcoSysLab {
   EVOENGINE_SINGLETON_INSTANCE(PyEcoSysLab)
  public:

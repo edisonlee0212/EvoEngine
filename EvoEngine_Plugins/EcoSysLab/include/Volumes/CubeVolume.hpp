@@ -2,9 +2,9 @@
 #pragma once
 #include "IVolume.hpp"
 #include "Mesh.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @class CubeVolume

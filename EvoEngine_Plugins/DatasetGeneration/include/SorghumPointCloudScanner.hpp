@@ -1,8 +1,9 @@
 #pragma once
 
 #include "PointCloudScannerUtils.hpp"
-using namespace evo_engine;
+
 namespace dataset_generation_plugin {
+using namespace evo_engine;
 struct SorghumPointCloudPointSettings {
   float variance = 0.015f;
   float ball_rand_radius = 0.01f;

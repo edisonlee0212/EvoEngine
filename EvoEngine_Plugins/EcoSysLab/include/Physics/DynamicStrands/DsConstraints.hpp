@@ -1,8 +1,9 @@
 #pragma once
 #include "DynamicStrands.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 class IDsConstraint {
  public:
   virtual void InitializeData(const DynamicStrandsInitializeParameters& initialize_parameters,

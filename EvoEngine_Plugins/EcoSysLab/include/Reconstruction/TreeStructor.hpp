@@ -6,8 +6,9 @@
 #include "TreeMeshGenerator.hpp"
 #include "VoxelGrid.hpp"
 
-using namespace evo_engine;
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 typedef int PointHandle;
 typedef int BranchHandle;
 typedef int TreePartHandle;

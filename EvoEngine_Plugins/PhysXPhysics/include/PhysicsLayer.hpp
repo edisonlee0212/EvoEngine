@@ -4,8 +4,9 @@
 #include <PhysicsMaterial.hpp>
 
 #include <Collider.hpp>
-using namespace physx;
+
 namespace YAML {
+using namespace physx;
 class Node;
 class Emitter;
 template <>

@@ -1,7 +1,9 @@
 #pragma once
 #include "Application.hpp"
-using namespace evo_engine;
+
 namespace universe_plugin {
+using namespace evo_engine;
+
 class TerrainConstructionStageBase {
  public:
   virtual ~TerrainConstructionStageBase() = default;

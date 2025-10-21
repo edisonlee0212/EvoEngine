@@ -3,8 +3,9 @@
 #include "IPrivateComponent.hpp"
 #include "TerrainChunk.hpp"
 #include "TerrainConstructionStageBase.hpp"
-using namespace evo_engine;
+
 namespace universe_plugin {
+using namespace evo_engine;
 struct PlanetInfo {
   unsigned max_lod_level;
   double lod_distance;

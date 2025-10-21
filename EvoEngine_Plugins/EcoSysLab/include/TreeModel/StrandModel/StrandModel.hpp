@@ -2,8 +2,8 @@
 #pragma once
 #include "ShootGrowthData.hpp"
 
-using namespace evo_engine;
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Class representing the strand model used for procedural tree generation.

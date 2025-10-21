@@ -1,8 +1,10 @@
 #pragma once
 
 #include "StrandGroup.hpp"
-using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 class StrandGroupSerializer {
  public:

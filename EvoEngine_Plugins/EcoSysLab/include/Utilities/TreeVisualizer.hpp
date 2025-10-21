@@ -8,9 +8,9 @@
 #include "RootModel.hpp"
 #include "ShootModel.hpp"
 #include "StrandModel.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
 
 /**
  * @brief Enumeration for different shoot visualization modes.

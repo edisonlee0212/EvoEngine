@@ -1,8 +1,9 @@
 #pragma once
 #include "TreeControllers.hpp"
-using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
+using namespace evo_engine;
+
 /**
  * \class IShootDescriptor
  * \brief Represents the parameters controlling procedural tree growth.

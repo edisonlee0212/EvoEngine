@@ -4,7 +4,10 @@
 #include "LogScanReconstruction.hpp"
 #include "Prefab.hpp"
 #include "Scene.hpp"
+using namespace evo_engine;
 using namespace log_scanning_plugin;
+using namespace nlohmann;
+
 void LogScan::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "profiles" << YAML::Value << YAML::BeginSeq;
   for (const auto& profile : profiles) {
