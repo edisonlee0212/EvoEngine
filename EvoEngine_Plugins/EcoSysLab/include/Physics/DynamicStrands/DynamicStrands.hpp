@@ -1,7 +1,13 @@
 
 #pragma once
+#include "Delaunay.hpp"
+#include "DsAlphaShapeMeshing.hpp"
+#include "DsKineticVoronoiMeshing.hpp"
+#include "DsMaterials.hpp"
+#include "DtsStrandGroup.hpp"
 #include "DynamicStrandsInitializationParameters.hpp"
 #include "RenderLayer.hpp"
+#include "RenderParameters.hpp"
 #include "ShootGrowthData.hpp"
 #include "StrandGroup.hpp"
 #include "StrandModelData.hpp"
@@ -18,24 +24,11 @@ class DsDynamicHashedGrid;
 static RENDERDOC_API_1_1_2* rdoc_api = NULL;
 #endif
 
-#ifdef USE_CGAL
-#  include <CGAL/Delaunay_triangulation_3.h>
-#  include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#  include <CGAL/Triangulation_vertex_base_with_info_3.h>
-#endif
-
-#include "Delaunay.hpp"
-
-#ifdef USE_CGAL
-typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
-typedef CGAL::Triangulation_vertex_base_with_info_3<unsigned int, K> Vb;
-typedef CGAL::Triangulation_data_structure_3<Vb> Tds;
-typedef CGAL::Delaunay_triangulation_3<K, Tds> Delaunay_CGAL;
-typedef K::Point_3 Point_CGAL;
-#endif
-
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
+
+class DsSegmentCollision;
+class DsDynamicHashedGrid;
 class DsPreStep;
 class IDsPhysicsOperator;
 class IDsConstraint;
@@ -43,47 +36,33 @@ class DsPrediction;
 class DsFungus;
 class DsStructuralDamage;
 class DsVelocityUpdate;
-struct DtsStrandGroupData {};
-
-struct DtsStrandData {};
 
 #define BUNDLE_MAX_CONNECTION 64
 #define HASH_GRID_CELL_SIZE 2 << 15
 
 /**
- * \brief Stores data related to a single strand segment.
- */
-struct DtsStrandSegmentData {
-  float start_root_distance = 0.0f;  ///< Distance from the strand root to the start of this segment.
-  float end_root_distance = 0.0f;    ///< Distance from the strand root to the end of this segment.
-  uint32_t original_segment_index;   ///< Index of the original segment this corresponds to.
-
-  /**
-   * \brief The handle of the internode this pipe segment belongs to.
-   * Pipe -> PipeSegment <-> Cell <- Profile <- Internode
-   */
-  SkeletonNodeHandle node_handle = -1;
-  StrandSegmentHandle original_segment_handle;
-
-  float original_segment_t;  ///< Parameterized position within the strand's original segmentation.
-  uint32_t segment_index;    ///< Index of the segment within the strand.
-
-  glm::vec2 profile_position;          ///< Position in the profile space.
-  glm::vec2 profile_polar_coordinate;  ///< Polar coordinate in the segment profile.
-  float initial_distance_to_boundary;  ///< Initial computed distance to the segment boundary.
-};
-
-typedef StrandGroup<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData> DtsStrandGroup;
-
-/**
  * \brief Class responsible for handling dynamic strands physics simulation.
  */
 class DynamicStrands {
+ private:
+  void OnCreate();
+
  public:
   /**
    * \brief Default constructor for DynamicStrands.
    */
-  DynamicStrands();
+  DynamicStrands(std::shared_ptr<DsAlphaShapeMeshing> meshing, DsMaterials& materials)
+      : materials(materials), meshing(meshing) {
+    OnCreate();
+  }
+
+  /**
+   * \brief Default constructor for DynamicStrands.
+   */
+  DynamicStrands(std::shared_ptr<DsKineticVoronoiMeshing> meshing, DsMaterials& materials)
+      : materials(materials), meshing(meshing) {
+    OnCreate();
+  }
 
   /**
    * \brief Gets the current frame index of the simulation.
@@ -206,148 +185,6 @@ class DynamicStrands {
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
-  struct VisualizationParameters {
-    enum class SegmentRenderMode {
-      Default,
-      NodeColor,
-      GroupIndex,
-      BoundaryDistance,
-      Strength,
-      ShearStretchStrain,
-      StretchShearLimit,
-      SegmentColor,
-      StrandColor,
-      Test
-    };
-
-    enum class UniformParticleRenderMode { Default, SegmentColor, SingleParticles };
-    enum class SegmentPairRenderMode {
-      Default,
-      BendingStrain,
-      TwistStrain,
-      BundleStrain,
-      BendingTwistingBundleStrain,
-      ConnectivityStrain,
-
-      BendingLimit,
-      TwistLimit,
-      BundleLimit,
-      ConnectivityLimit,
-      SegmentColor
-    };
-    bool render_segments = true;
-    bool render_segment_pairs = false;
-    bool render_uniform_particles = false;
-    bool render_foliage = false;
-
-    uint32_t segment_render_mode = 9;
-    uint32_t segment_pair_render_mode = 5;
-    uint32_t uniform_particle_render_mode = 2;
-    uint32_t foliage_render_mode = 0;
-
-    glm::vec4 segment_color_min = glm::vec4(0, 0, 1, 1);
-    glm::vec4 segment_color_max = glm::vec4(1, 0, 0, 1);
-    glm::vec4 segment_color_main = glm::vec4(0.3, 0.15, 0.0, 0.5);
-    float segment_radius_multiplier = 0.9f;
-    float segment_boundary_distance_modular = 0.03f;
-    float segment_length_multiplier = 1.0f;
-    float general_factor = 1.0f;
-
-    glm::vec4 segment_pair_color_min = glm::vec4(0, 0, 1, 1);
-    glm::vec4 segment_pair_color_max = glm::vec4(1, 0, 0, 1);
-    glm::vec4 segment_pair_color_main = glm::vec4(0, 1, 1, 0.2);
-    float segment_pair_radius_multiplier = 0.9f;
-
-    glm::vec4 uniform_particle_main = glm::vec4(1, 1, 1, 0.8f);
-    float uniform_particle_radius_multiplier = 2.f;
-
-    glm::vec4 foliage_color_min = glm::vec4(0, 0, 1, 1);
-    glm::vec4 foliage_color_max = glm::vec4(1, 0, 0, 1);
-
-    glm::vec4 foliage_color_main = glm::vec4(0, 1, 0, 1);
-
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
-  };
-
-  struct BranchesRenderParameters {
-    bool enabled = true;
-    bool render_complex = false;
-    bool use_cgal = false;
-    bool solid = true;
-    bool wireframe = false;
-    float alpha = 0.00005f;
-    float bifurcation_alpha = 0.00005f;
-    float max_dist_squared = 1.0f;
-    bool use_cubic_hermite_spline = true;
-    enum VertexColors {
-      Default,
-      Normals,
-      Tangents,
-      Groups,
-      Degree,
-      Bark,
-      NormalQuaternion,
-      Up,
-      InitUp,
-      Axis,
-      InitAxis,
-      InitAngle
-    };
-    VertexColors vertex_colors = Default;
-
-    float u_multiplier = 1;
-    float v_multiplier = 0.025;
-    float degen_triangle_threshold_logairthmic = 5.0f;
-    float global_extrusion_distance = 0.002f;
-    float break_threshold = 0.01f;
-
-    bool persistent_damage = false;
-    bool use_polar_coordinates_for_uv = true;
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
-  };
-
-  struct SmallSegmentsRenderParameters {
-    bool enabled = true;
-    bool cast_shadow = true;
-    bool wireframe = false;
-    float thickness_multiplier = 0.5f;
-    glm::vec3 position_scale = glm::vec3(1.f);
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
-  };
-
-  struct SmallSegmentsVisualizationRenderParameters {
-    bool enabled = true;
-    float thickness_multiplier = 0.5f;
-
-    glm::vec4 segment_color_min = glm::vec4(0, 0, 1, 1);
-    glm::vec4 segment_color_max = glm::vec4(1, 0, 0, 1);
-    glm::vec4 segment_color_main = glm::vec4(0.3, 0.15, 0.0, 0.5);
-    uint32_t segment_render_mode = 6;
-    float segment_boundary_distance_modular = 0.03f;
-    glm::vec3 position_scale = glm::vec3(1.f);
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
-  };
-
-  struct SegmentPairsRenderParameters {
-    bool enabled = false;
-    float thickness_multiplier = 0.5f;
-    uint32_t segment_pair_render_mode = 5;
-    glm::vec3 position_scale = glm::vec3(1.f);
-
-    glm::vec4 segment_pair_color_min = glm::vec4(0, 0, 1, 1);
-    glm::vec4 segment_pair_color_max = glm::vec4(1, 0, 0, 1);
-    glm::vec4 segment_pair_color_main = glm::vec4(0, 1, 1, 0.2);
-    float segment_pair_radius_multiplier = 0.9f;
-
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
-  };
-
-  struct FoliageRenderParameters {
-    bool enabled = true;
-    bool wireframe = false;
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
-  };
-
   std::shared_ptr<DsFungus> fungus;
   std::shared_ptr<DsPreStep> pre_step;
   std::shared_ptr<DsPrediction> prediction;
@@ -357,6 +194,7 @@ class DynamicStrands {
   std::shared_ptr<DsSegmentCollision> segment_collision;
   std::shared_ptr<DsSegmentCollisionPostStep> collision_post_step;
   std::vector<std::shared_ptr<IDsConstraint>> constraints;
+  std::shared_ptr<DsMeshing> meshing;
 
   void UpdateBindings() const;
 #pragma endregion
@@ -533,55 +371,6 @@ class DynamicStrands {
     int pair_handles[BUNDLE_MAX_CONNECTION];
   };
 
-  struct GpuUniformParticle {
-    glm::vec3 position;
-    float t;
-    glm::vec3 normal;
-    float deg;
-    glm::vec3 tangent;
-    int padding0;
-
-    glm::vec2 profile_position;
-    glm::vec2 profile_polar_coordinate;
-
-    glm::vec4 override_color = glm::vec4(0.f);
-
-    int segment_handle;
-    int node_index;
-    int segment_index;
-    float distance_to_boundary;
-    int next_particle_handle;
-    int prev_particle_handle;
-    int next_node_index;
-    int strand_index;
-
-    int is_single_strand_particle;
-    float local_extrusion_distance;
-    int is_on_surface;
-    int is_bark;
-    glm::vec3 initial_position;
-    int padding4;
-    glm::vec4 normal_q;
-  };
-
-  struct GpuDelaunayTetrahedron {
-    int indices[4];
-    int neighbor_tet_ids[4];
-    int render_neighbor[4];
-    int is_bark[4];
-    glm::vec4 color;  // for debugging
-    unsigned int task_looked_at = 0;
-    unsigned int mesh_looked_at = 0;
-    int inside = -1;
-    int triangles_accepted = 0;
-    float sidelengths[6];
-    int padding0;
-    int padding1;
-    int segment_pair_index[6];
-    int inside_at_init;
-    int padding2;
-  };
-
   struct GpuLeaf {
     glm::vec3 x0;
     int segment_handle;
@@ -650,8 +439,6 @@ class DynamicStrands {
   std::shared_ptr<Buffer> device_segments_buffer;
   std::shared_ptr<Buffer> device_segment_pairs_buffer;
   std::shared_ptr<Buffer> device_segment_data_list_buffer;
-  std::shared_ptr<Buffer> device_uniform_particles_buffer;
-  std::shared_ptr<Buffer> device_delaunay_tetrahedrons_buffer;
   std::shared_ptr<Buffer> device_hashed_grid_elements_buffer;
   std::shared_ptr<Buffer> device_hashed_grid_cell_starts_buffer;
   std::shared_ptr<Buffer> device_foliage_buffer;
@@ -660,8 +447,6 @@ class DynamicStrands {
   std::vector<GpuSegment> segments;
   std::vector<GpuSegmentPair> segment_pairs;
   std::vector<GpuSegmentData> segment_data_list;
-  std::vector<GpuUniformParticle> uniform_particles;
-  std::vector<GpuDelaunayTetrahedron> delaunay_tetrahedrons;
   std::vector<GpuHashedGridElement> hashed_grid_elements;
   std::vector<GpuHashedGridCellStart> hashed_grid_cell_starts;
   std::shared_ptr<Buffer> device_nodes_buffer;
@@ -676,20 +461,6 @@ class DynamicStrands {
   void Clear();
 
   std::vector<std::shared_ptr<DescriptorSet>> strands_descriptor_sets;
-  uint32_t RenderBranchesToPointLightShadowMap(const BranchesRenderParameters& render_parameters,
-                                               const VkCommandBuffer vk_command_buffer,
-                                               const RenderLayer::PointLightShadowMapView& view) const;
-  uint32_t RenderBranchesToSpotLightShadowMap(const BranchesRenderParameters& render_parameters,
-                                              VkCommandBuffer vk_command_buffer,
-                                              const RenderLayer::SpotLightShadowMapView& view) const;
-  uint32_t RenderBranchesToDirectionalLightShadowMap(const BranchesRenderParameters& render_parameters,
-                                                     VkCommandBuffer vk_command_buffer,
-                                                     const RenderLayer::DirectionalLightShadowMapView& view) const;
-  uint32_t RenderBranchesToCameraDeferred(
-      const Handle& renderer_handle, int inner_wood_material_index, int snow_material_index,
-      const BranchesRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
-      const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-      const RenderLayer::DeferredRenderingView& view, VkPolygonMode polygon_mode) const;
 
   uint32_t RenderFoliageToPointLightShadowMap(const FoliageRenderParameters& render_parameters,
                                               const VkCommandBuffer vk_command_buffer,
@@ -714,71 +485,25 @@ class DynamicStrands {
                                              const std::shared_ptr<Camera>& target_camera,
                                              const RenderLayer::ForwardRenderingView& view) const;
 
-  uint32_t RenderSmallSegmentsToPointLightShadowMap(const SmallSegmentsRenderParameters& render_parameters,
-                                                    const VkCommandBuffer vk_command_buffer,
-                                                    const RenderLayer::PointLightShadowMapView& view) const;
-  uint32_t RenderSmallSegmentsToSpotLightShadowMap(const SmallSegmentsRenderParameters& render_parameters,
-                                                   VkCommandBuffer vk_command_buffer,
-                                                   const RenderLayer::SpotLightShadowMapView& view) const;
-  uint32_t RenderSmallSegmentsToDirectionalLightShadowMap(const SmallSegmentsRenderParameters& render_parameters,
-                                                          VkCommandBuffer vk_command_buffer,
-                                                          const RenderLayer::DirectionalLightShadowMapView& view) const;
-  uint32_t RenderSmallSegmentsToCameraDeferred(
-      const Handle& renderer_handle, int splinter_material_index,
-      const SmallSegmentsRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
-      const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-      const RenderLayer::DeferredRenderingView& view) const;
-
-  uint32_t RenderSmallSegmentsVisualizationToCameraDeferred(
-      const Handle& renderer_handle, const DynamicStrandsInitializeParameters& initialize_parameters,
-      const SmallSegmentsVisualizationRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
-      const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-      const RenderLayer::DeferredRenderingView& view) const;
-
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const DynamicStrandsInitializeParameters& initialize_parameters,
-                 const VisualizationParameters& visualization_parameters) const;
+                 const DynamicStrandsVisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action);
-  void RenderCompute(const BranchesRenderParameters& branches_render_parameters,
-                     const SmallSegmentsRenderParameters& small_segments_render_parameters,
-                     const FoliageRenderParameters& foliage_render_parameters) const;
-  static void BuildRenderComputePipelines();
-  static void BuildBranchesRenderingPipelines();
+  void RenderCompute() const;
   static void BuildFoliageRenderingPipelines();
-  static void BuildSmallSegmentsRenderingPipelines();
   static void BuildSegmentPairsRenderingPipeline();
-  inline static std::shared_ptr<ComputePipeline> branches_uniform_particle_update_pipeline;
-  inline static std::shared_ptr<ComputePipeline> branches_tetrahedron_filtering_pipeline{};
-  inline static std::shared_ptr<ComputePipeline> branches_triangle_filtering_pipeline{};
-  inline static std::shared_ptr<GraphicsPipeline> branches_point_light_render_pipeline{};
-  inline static std::shared_ptr<GraphicsPipeline> branches_spot_light_render_pipeline{};
-  inline static std::shared_ptr<GraphicsPipeline> branches_directional_light_render_pipeline{};
-  inline static std::shared_ptr<GraphicsPipeline> branches_render_pipeline{};
 
   inline static std::shared_ptr<GraphicsPipeline> foliage_point_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_render_pipeline{};
 
-  inline static std::shared_ptr<GraphicsPipeline> small_segments_point_light_render_pipeline{};
-  inline static std::shared_ptr<GraphicsPipeline> small_segments_spot_light_render_pipeline{};
-  inline static std::shared_ptr<GraphicsPipeline> small_segments_directional_light_render_pipeline{};
-  inline static std::shared_ptr<GraphicsPipeline> small_segments_render_pipeline{};
-  inline static std::shared_ptr<GraphicsPipeline> small_segments_visualization_render_pipeline{};
-
   inline static std::shared_ptr<GraphicsPipeline> segment_pairs_visualization_render_pipeline{};
+
+  DsMaterials& materials;
 
  private:
   uint32_t frame_index = 0;
   float simulated_time = 0.f;
-#ifdef USE_CGAL
-  void CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned>>& points,
-                    std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
-#endif
-  void TetDelaunay(const std::vector<glm::vec3>& points, const std::vector<size_t>& particle_indices,
-                   std::vector<GpuDelaunayTetrahedron>& tetrahedrons);
-  void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
-  void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false,
-                       size_t min_bundle_size = 3);
 };
 }  // namespace eco_sys_lab_plugin

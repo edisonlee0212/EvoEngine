@@ -1,0 +1,220 @@
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shader_draw_parameters : enable
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_atomic_float : require
+
+#include "PerFrame.glsl"
+
+#define DYNAMIC_STRANDS_SET 1
+#include "DynamicStrands.glsl"
+
+#define ALPHA_SHAPE_MESHING_SET 1
+#include "AlphaShapeMeshing.glsl"
+
+const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const float PI = 3.1415926535897932384626433832795;
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+layout(triangles) out;
+
+#define TETRAHEDRON_VERTICES_SIZE 12 // individual vertices for each triangle
+#define TETRAHEDRON_TRIANGLE_SIZE 4
+
+layout(max_vertices = TETRAHEDRON_VERTICES_SIZE, max_primitives = TETRAHEDRON_TRIANGLE_SIZE) out;
+
+const uint TETRAHEDRON_VERTEX_ITERATIONS    = ((TETRAHEDRON_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint TETRAHEDRON_PRIMITIVE_ITERATIONS = ((TETRAHEDRON_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+layout(location = 0) out MS_V_OUT {
+	vec3 FragPos;
+	vec3 Normal;
+	vec3 Tangent;
+	vec2 TexCoord;
+	vec4 Color;
+} ms_v_out[];
+
+struct Task{
+	uint	baseID;
+	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
+};
+
+#define BARRIER() \
+	memoryBarrierShared(); \
+	barrier();
+
+taskPayloadSharedEXT Task ts_in;
+
+// gl_WorkGroupID.x runs from [0 .. parentTask.groupCountX - 1]
+uint tet_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
+uint laneID = gl_LocalInvocationID.x;
+
+#include "DynamicStrandsRenderingConstants.glsl"
+#include "AlphaShape.glsl"
+
+vec3 PseudoRandomColor(int seed) {
+    // Constants for the pseudo-random number generator
+    const int prime1 = 15731;
+    const int prime2 = 789221;
+    const int prime3 = 1376312589;
+
+    // Generate pseudo-random numbers
+    int n = (seed * prime1) ^ (seed * prime2) ^ (seed * prime3);
+    n = (n >> 13) ^ n;
+
+    // Normalize the values to be in the range [0, 1]
+    float r = fract(sin(float(n) * 12.9898) * 43758.5453);
+    float g = fract(sin(float(n + 1) * 12.9898) * 43758.5453);
+    float b = fract(sin(float(n + 2) * 12.9898) * 43758.5453);
+
+    // Return the color as a vec3
+    return vec3(r, g, b);
+}
+
+void SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in UniformParticle uniform_particle, int is_bark){
+	vec3 vertex_position = uniform_particle.position_t.xyz + vertex_normal * (global_extrusion_distance + uniform_particle.local_extrusion_distance);
+	mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
+
+	ms_v_out[vertex_index].FragPos = vertex_position;
+	ms_v_out[vertex_index].Normal = vertex_normal;
+	ms_v_out[vertex_index].Tangent = uniform_particle.tangent.xyz;
+
+	if(use_polar_coordinates_for_uv == 1){
+		float tex_x = mod(uniform_particle.profile_polar_coordinate.y * u_multiplier / 3.1415926f, 2.f);
+		if(tex_x > 1.f){
+			tex_x = 2.f - tex_x;
+		}
+		float tex_y = float(uniform_particle.segment_index) * v_multiplier;
+		ms_v_out[vertex_index].TexCoord = vec2(tex_x, tex_y);
+	} else {
+		float tex_x = (uniform_particle.initial_position.y + uniform_particle.initial_position.z) * u_multiplier;
+		float tex_y = uniform_particle.initial_position.x * v_multiplier;
+		ms_v_out[vertex_index].TexCoord = vec2(tex_x, tex_y);
+	}
+
+	vec4 color = vec4(0, 0, 0, 0);
+
+	int segment_handle = uniform_particle.segment_handle;
+
+	bool highlight1 = false;
+	bool highlight2 = false;
+	bool selected = false;
+
+	if(segments[segment_handle].particle0.highlighted == 1){
+		highlight1 = true;
+	}
+	if(segments[segment_handle].particle0.highlighted == 2){
+		highlight2 = true;
+	}
+	if(segments[segment_handle].particle0.selected == 1){
+		selected = true;
+	}
+	if(segments[segment_handle].particle1.highlighted == 1){
+		highlight1 = true;
+	}
+	if(segments[segment_handle].particle1.highlighted == 2){
+		highlight2 = true;
+	}
+	if(segments[segment_handle].particle1.selected == 1){
+		selected = true;
+	}
+
+	if(highlight2){
+		color = vec4(1, 0, 1, 1.0);
+	}else if(selected){
+		color = vec4(1, 0, 0, 1.0);
+	}else if(highlight1){
+		color = vec4(0, 0, 1, 1.0);
+	}
+
+	if(is_bark == 0){
+		color.a = 0.8f;
+	}
+	ms_v_out[vertex_index].Color = color;
+	
+	if(vertex_colors == 0){
+
+	} else if(vertex_colors == 1){
+		ms_v_out[vertex_index].Normal = abs(vertex_normal);
+	} else if(vertex_colors == 2){
+		ms_v_out[vertex_index].Normal = abs(uniform_particle.tangent.xyz);
+	} else if(vertex_colors == 3){
+		ms_v_out[vertex_index].Normal = PseudoRandomColor(segments[uniform_particle.segment_handle].group_index);
+	} else if(vertex_colors == 4){
+		ms_v_out[vertex_index].Normal = vec3(mod(floor(uniform_particle.normal_deg.w / 4.0f), 2.0f), mod(floor(uniform_particle.normal_deg.w / 2.0f), 2.0f), mod(uniform_particle.normal_deg.w, 2.0f));
+	} else if(vertex_colors == 5){
+		ms_v_out[vertex_index].Normal = vec3(1.0 - is_bark, 0.0, is_bark);
+	} else if(vertex_colors == 6){
+		ms_v_out[vertex_index].Normal = 0.5 * (vec3(1, 1, 1) + uniform_particle.normal_q.xyz); // normal quaternion
+	} else if(vertex_colors == 7){
+		Segment segment = segments[uniform_particle.segment_handle];
+		ms_v_out[vertex_index].Normal = abs(rotate_vec3(segment.q, vec3(0, 1, 0))); // up
+	} else if(vertex_colors == 8){
+		Segment segment = segments[uniform_particle.segment_handle];
+		ms_v_out[vertex_index].Normal = abs(rotate_vec3(segment.q0, vec3(0, 1, 0))); // initial up
+	} else if(vertex_colors == 9){
+		Segment segment = segments[uniform_particle.segment_handle];
+		vec3 up = rotate_vec3(segment.q, vec3(0, 1, 0));
+		ms_v_out[vertex_index].Normal = abs(rotate_vec3(segment.q, vec3(0, 0, 1))); // axis
+	} else if(vertex_colors == 10){
+		Segment segment = segments[uniform_particle.segment_handle];
+		vec3 up = rotate_vec3(segment.q0, vec3(0, 1, 0));
+		ms_v_out[vertex_index].Normal = abs(rotate_vec3(segment.q0, vec3(0, 0, 1))); // initial axis
+	} else if(vertex_colors == 11){
+		Segment segment = segments[uniform_particle.segment_handle];
+		vec3 up = rotate_vec3(segment.q0, vec3(0, 1, 0));
+		// Compute the angle between the two vectors
+		float angle = uniform_particle.normal_deg.w;
+		ms_v_out[vertex_index].Normal = vec3(angle/PI, -angle/PI, 0); // init angle
+	}
+
+	gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
+}
+
+void main(){
+
+	DelaunayTetrahedron tet = delaunay_tetrahedrons[tet_id];
+	// report amount of accepted triangles
+	SetMeshOutputsEXT(TETRAHEDRON_VERTICES_SIZE, tet.triangles_accepted);
+
+	// assign all accepted triangles
+	[[unroll]]
+	for (uint i = 0; i < uint(TETRAHEDRON_PRIMITIVE_ITERATIONS); ++i)
+	{
+		uint triangle_index = laneID + i * WORKGROUP_SIZE;
+		if(triangle_index < TETRAHEDRON_TRIANGLE_SIZE){
+
+			if(tet.render_neighbor[triangle_index] == 1){
+				
+				// count triangles downwards
+				int index = atomicAdd(delaunay_tetrahedrons[tet_id].triangles_accepted, -1);
+				gl_PrimitiveTriangleIndicesEXT[index - 1] = triangles[triangle_index];
+
+				[[unroll]]
+				for(int j = 0; j < 3; j++){
+					uint vertex_index = triangles[triangle_index][j];
+					uint particle_index = tet.indices[lookup[vertex_index]];
+					UniformParticle uniform_particle = uniform_particles[particle_index];
+
+					if(uniform_particle.is_on_surface == 1){
+						Segment segment = segments[uniform_particle.segment_handle];
+						// basis vectors of segment space
+						vec3 right = rotate_vec3(segment.q, vec3(1, 0, 0));
+						vec3 up = rotate_vec3(segment.q, vec3(0, 1, 0));
+						vec3 forward = rotate_vec3(segment.q, vec3(0, 0, 1));
+
+						// now do a basis transform from segment to world space
+						mat3 seg_to_world = mat3(right, up, forward);
+						vec3 normal = normalize(seg_to_world * uniform_particle.normal_deg.xyz);
+
+						SetUpTriangleVertex(vertex_index, normal, uniform_particle, tet.is_bark[triangle_index]);
+					} else {
+						SetUpTriangleVertex(vertex_index, normalize(uniform_particle.normal_deg.xyz), uniform_particle, tet.is_bark[triangle_index]);
+					}
+				}
+			}
+		}
+	}
+}

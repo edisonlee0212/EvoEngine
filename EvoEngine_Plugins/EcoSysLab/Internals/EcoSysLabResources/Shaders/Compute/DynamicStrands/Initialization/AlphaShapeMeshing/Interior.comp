@@ -1,0 +1,98 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+
+#define ALPHA_SHAPE_MESHING_SET 1
+#include "AlphaShapeMeshing.glsl"
+
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint tetrahedrons_size;
+  float alpha;
+  float bifurcation_alpha;
+  float max_dist_squared;
+};
+
+#include "AlphaShape.glsl"
+
+void main(){
+
+	float min_distance_squared;
+
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint delaunay_tetrahedron_index = baseID + local_index;
+
+		if(delaunay_tetrahedron_index >= tetrahedrons_size) break;
+
+		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[delaunay_tetrahedron_index];
+
+		// reset normals
+		[[unroll]]
+		for(uint j = 0; j < 4; j++){
+			uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg = vec4(0.0, 0.0, 0.0, 0.0);
+		}
+		
+		// Find all segment pairs
+		// This is probably very slow, but it is only at initialization, so whatever
+		[[unroll]]
+		for(uint e = 0; e < 6; e++){
+			uint j = tet_edges[e].x;
+			uint k = tet_edges[e].y;
+
+			delaunay_tetrahedron.segment_pair_index[e] = -1;
+			UniformParticle uniform_particle0 = uniform_particles[delaunay_tetrahedron.indices[j]];
+			uint segment_handle0 = uniform_particle0.segment_handle;
+
+			UniformParticle uniform_particle1 = uniform_particles[delaunay_tetrahedron.indices[k]];
+			uint segment_handle1 = uniform_particle1.segment_handle;
+
+			[[unroll]]
+			for(uint l = 0; l < BUNDLE_MAX_CONNECTION; l++){
+				int segment_pair_index0 = segment_data_list[segment_handle0].pair_handles[l];
+				if(segment_pair_index0 == -1 || delaunay_tetrahedron.segment_pair_index[e] != -1){
+					break;
+				}
+
+				[[unroll]]
+				for(uint m = 0; m < BUNDLE_MAX_CONNECTION; m++){
+					int segment_pair_index1 = segment_data_list[segment_handle1].pair_handles[m];
+					if(segment_pair_index1 == -1){
+						break;
+					}
+
+					if(segment_pair_index0 == segment_pair_index1){
+						delaunay_tetrahedron.segment_pair_index[e] = segment_pair_index0;
+						break;
+					}
+				}
+			}			
+		}
+
+		delaunay_tetrahedron.inside = int(InsideAlpha(delaunay_tetrahedron, min_distance_squared));
+		delaunay_tetrahedron.inside_at_init = delaunay_tetrahedrons[delaunay_tetrahedron_index].inside;
+
+		delaunay_tetrahedrons[delaunay_tetrahedron_index] = delaunay_tetrahedron;
+	}
+}

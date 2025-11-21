@@ -10,11 +10,12 @@
 #include "MeshGenUtils.hpp"
 #include "Octree.hpp"
 #include "TreeMeshGenerator.hpp"
+#include "VoronoiMeshGenerator.hpp"
 
 using namespace eco_sys_lab_plugin;
 
 void StrandModelMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Combo("Mode", {"Iterative Slicing", "Marching Cube", "Alpha Shape"}, generator_type);
+  ImGui::Combo("Mode", {"Iterative Slicing", "Marching Cube", "Alpha Shape", "Kinetic Voronoi"}, generator_type);
   if (generator_type == 0 && ImGui::TreeNode("Iterative Slicing settings")) {
     ImGui::DragInt("Steps per segment", &steps_per_segment, 1.0f, 1, 99);
 
@@ -75,6 +76,9 @@ void StrandModelMeshGenerator::Generate(const StrandModel& strand_model, std::ve
     case static_cast<unsigned>(StrandModelMeshGeneratorType::AlphaShape): {
       AlphaShapeMeshGenerator::Generate(strand_model, vertices, indices, settings);
     } break;
+    case static_cast<unsigned>(StrandModelMeshGeneratorType::VoronoiMesh): {
+      VoronoiMeshGenerator::Generate(strand_model, vertices, indices, settings);
+    } break;
   }
 
   if (settings.recalculate_uv ||
@@ -85,7 +89,10 @@ void StrandModelMeshGenerator::Generate(const StrandModel& strand_model, std::ve
   for (int i = 0; i < settings.smooth_iteration; i++) {
     MeshSmoothing(vertices, indices);
   }
-  CylindricalMeshing(strand_model, vertices, indices, settings);
+
+  if (settings.generator_type != static_cast<unsigned>(StrandModelMeshGeneratorType::VoronoiMesh)) {
+    CylindricalMeshing(strand_model, vertices, indices, settings);
+  }
 
   CalculateNormal(vertices, indices);
 }
@@ -103,6 +110,9 @@ void StrandModelMeshGenerator::Generate(const StrandModel& strand_model, std::ve
     } break;
     case static_cast<unsigned>(StrandModelMeshGeneratorType::AlphaShape): {
       AlphaShapeMeshGenerator::Generate(strand_model, vertices, tex_coords, index_pairs, settings);
+    } break;
+    case static_cast<unsigned>(StrandModelMeshGeneratorType::VoronoiMesh): {
+      VoronoiMeshGenerator::Generate(strand_model, vertices, tex_coords, index_pairs, settings);
     } break;
   }
 

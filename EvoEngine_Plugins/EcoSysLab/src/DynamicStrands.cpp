@@ -1,8 +1,9 @@
 #include "DynamicStrands.hpp"
+#include <functional>
+#include "DsAlphaShapeUtils.hpp"
 #include "DsColliders.hpp"
 #include "DsConstraints.hpp"
 #include "DsPhysics.hpp"
-#include "DynamicStrandUtils.hpp"
 #include "Shader.hpp"
 #include "UVMapUtils.hpp"
 #include "glm/gtx/quaternion.hpp"
@@ -100,25 +101,7 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
   frame_index++;
 }
 
-struct TetrahedronFilteringPushConstant {
-  uint32_t tetrahedrons_size = 0;
-  float alpha = 0.0f;
-  float bifurcation_alpha = 0.0f;
-  float max_dist_squared = 0.0f;
-  int render_complex = 0;
-  float degen_triangle_threshold = 0.0f;
-  float break_threshold = 0.02f;
-  int persistent_damage;
-};
-
-struct UniformParticlePredictionPushConstant {
-  uint32_t uniform_particle_size = 0;
-  float snow_factor = 50.f;
-  float snow_deduction = 0.1f;
-  int use_cubic_hermite_spline = 0;
-};
-
-DynamicStrands::DynamicStrands() {
+void DynamicStrands::OnCreate() {
 #ifdef USE_RENDERDOC
   if (rdoc_api == nullptr) {
     if (HMODULE mod = GetModuleHandleA("renderdoc.dll")) {
@@ -157,8 +140,9 @@ DynamicStrands::DynamicStrands() {
   device_segments_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_pairs_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_data_list_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  device_uniform_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  device_delaunay_tetrahedrons_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
+  meshing->InitBuffer(buffer_create_info, buffer_vma_allocation_create_info);
+
   device_hashed_grid_elements_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_hashed_grid_cell_starts_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
@@ -178,116 +162,14 @@ DynamicStrands::DynamicStrands() {
   structural_damage = std::make_shared<DsStructuralDamage>();
   fungus = std::make_shared<DsFungus>();
 
-  BuildRenderComputePipelines();
-  BuildBranchesRenderingPipelines();
-  BuildSmallSegmentsRenderingPipelines();
+  meshing->BuildRenderComputePipelines();
+  meshing->BuildRenderingPipelines();
   BuildFoliageRenderingPipelines();
   BuildSegmentPairsRenderingPipeline();
 }
 
-void DynamicStrands::BuildRenderComputePipelines() {
-  static std::shared_ptr<Shader> shader{};
-  shader = std::make_shared<Shader>();
-  shader->TryCompile(
-      ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Prediction/UniformParticle.comp");
-
-  branches_uniform_particle_update_pipeline = std::make_shared<ComputePipeline>();
-  branches_uniform_particle_update_pipeline->compute_shader = shader;
-  branches_uniform_particle_update_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-
-  auto& push_constant_range = branches_uniform_particle_update_pipeline->push_constant_ranges.emplace_back();
-  push_constant_range.size = sizeof(UniformParticlePredictionPushConstant);
-  push_constant_range.offset = 0;
-  push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-  branches_uniform_particle_update_pipeline->Initialize();
-
-  // Tetrahedrons
-  branches_tetrahedron_filtering_pipeline = std::make_shared<ComputePipeline>();
-  branches_tetrahedron_filtering_pipeline->compute_shader =
-      Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Compute/DynamicStrands/Rendering/TetrahedronFiltering.comp");
-  branches_tetrahedron_filtering_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-
-  auto& tetrahedron_filtering_push_constant_range =
-      branches_tetrahedron_filtering_pipeline->push_constant_ranges.emplace_back();
-  tetrahedron_filtering_push_constant_range.size = sizeof(TetrahedronFilteringPushConstant);
-  tetrahedron_filtering_push_constant_range.offset = 0;
-  tetrahedron_filtering_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-  branches_tetrahedron_filtering_pipeline->Initialize();
-
-  // Triangles
-  branches_triangle_filtering_pipeline = std::make_shared<ComputePipeline>();
-  branches_triangle_filtering_pipeline->compute_shader =
-      Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Compute/DynamicStrands/Rendering/TriangleFiltering.comp");
-  branches_triangle_filtering_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-
-  auto& triangle_filtering_push_constant_range =
-      branches_triangle_filtering_pipeline->push_constant_ranges.emplace_back();
-  triangle_filtering_push_constant_range.size = sizeof(TetrahedronFilteringPushConstant);
-  triangle_filtering_push_constant_range.offset = 0;
-  triangle_filtering_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-  branches_triangle_filtering_pipeline->Initialize();
-}
-
-void DynamicStrands::RenderCompute(const BranchesRenderParameters& branches_render_parameters,
-                                   const SmallSegmentsRenderParameters& small_segments_render_parameters,
-                                   const FoliageRenderParameters& foliage_render_parameters) const {
-  if (segments.empty())
-    return;
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
-  const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const float snow_factor = 100.f;
-  const float snow_deduction = 0.1f;
-
-  // Tetrahedrons
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    UniformParticlePredictionPushConstant uniform_particle_push_constant;
-    uniform_particle_push_constant.uniform_particle_size = uniform_particles.size();
-    uniform_particle_push_constant.snow_deduction = snow_deduction;
-    uniform_particle_push_constant.snow_factor = snow_factor;
-    uniform_particle_push_constant.use_cubic_hermite_spline =
-        branches_render_parameters.use_cubic_hermite_spline ? 1 : 0;
-    branches_uniform_particle_update_pipeline->Bind(vk_command_buffer);
-    branches_uniform_particle_update_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    branches_uniform_particle_update_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
-    vkCmdDispatch(vk_command_buffer,
-                  Platform::DivUp(uniform_particle_push_constant.uniform_particle_size, work_group_invocations), 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
-    TetrahedronFilteringPushConstant filtering_push_constant;
-    filtering_push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
-    filtering_push_constant.alpha = branches_render_parameters.alpha;
-    filtering_push_constant.bifurcation_alpha = branches_render_parameters.bifurcation_alpha;
-    filtering_push_constant.max_dist_squared = branches_render_parameters.max_dist_squared;
-    filtering_push_constant.render_complex = branches_render_parameters.render_complex ? 1 : 0;
-    filtering_push_constant.degen_triangle_threshold =
-        pow(10.0f, -branches_render_parameters.degen_triangle_threshold_logairthmic);
-    filtering_push_constant.break_threshold = branches_render_parameters.break_threshold;
-    filtering_push_constant.persistent_damage = branches_render_parameters.persistent_damage ? 1 : 0;
-
-    branches_tetrahedron_filtering_pipeline->Bind(vk_command_buffer);
-    branches_tetrahedron_filtering_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    branches_tetrahedron_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations),
-                  1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
-
-    branches_triangle_filtering_pipeline->Bind(vk_command_buffer);
-    branches_triangle_filtering_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    branches_triangle_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations),
-                  1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
-  });
+void DynamicStrands::RenderCompute() const {
+  meshing->RenderCompute();
 }
 
 uint32_t DynamicStrands::GetFrameIndex() const {
@@ -489,14 +371,12 @@ void DynamicStrands::UpdateBindings() const {
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(2, device_segments_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_segment_pairs_buffer, 0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(4, device_segment_data_list_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_hashed_grid_elements_buffer, 0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(6, device_hashed_grid_cell_starts_buffer,
+                                                                              0);
+  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_foliage_buffer, 0);
 
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_uniform_particles_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(6, device_delaunay_tetrahedrons_buffer,
-                                                                              0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_hashed_grid_elements_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(8, device_hashed_grid_cell_starts_buffer,
-                                                                              0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(9, device_foliage_buffer, 0);
+  meshing->UpdateBindings();
   for (const auto& c : constraints) {
     c->UpdateBindings();
   }
@@ -517,10 +397,9 @@ void DynamicStrands::Upload() {
   device_segment_pairs_buffer->SetDebugName("Segment Pairs Buffer");
   device_segment_data_list_buffer->UploadVector(segment_data_list);
   device_segment_data_list_buffer->SetDebugName("Segment Data List Buffer");
-  device_uniform_particles_buffer->UploadVector(uniform_particles);
-  device_uniform_particles_buffer->SetDebugName("Uniform Particles Buffer");
-  device_delaunay_tetrahedrons_buffer->UploadVector(delaunay_tetrahedrons);
-  device_delaunay_tetrahedrons_buffer->SetDebugName("Delaunay Tetrahedrons Buffer");
+
+  meshing->Upload();
+
   device_hashed_grid_elements_buffer->UploadVector(hashed_grid_elements);
   device_hashed_grid_elements_buffer->SetDebugName("Hashed Grid Elements Buffer");
   device_hashed_grid_cell_starts_buffer->UploadVector(hashed_grid_cell_starts);
@@ -545,10 +424,9 @@ void DynamicStrands::Download() {
     device_segment_pairs_buffer->DownloadVector(segment_pairs, segment_pairs.size());
   if (!segment_data_list.empty())
     device_segment_data_list_buffer->DownloadVector(segment_data_list, segment_data_list.size());
-  if (!uniform_particles.empty())
-    device_uniform_particles_buffer->DownloadVector(uniform_particles, uniform_particles.size());
-  if (!delaunay_tetrahedrons.empty())
-    device_delaunay_tetrahedrons_buffer->DownloadVector(delaunay_tetrahedrons, delaunay_tetrahedrons.size());
+
+  meshing->Download();
+
   if (!hashed_grid_elements.empty())
     device_hashed_grid_elements_buffer->DownloadVector(hashed_grid_elements, hashed_grid_elements.size());
   if (!hashed_grid_cell_starts.empty())
@@ -783,8 +661,9 @@ void DynamicStrands::Clear() {
   segments.clear();
   segment_pairs.clear();
   segment_data_list.clear();
-  uniform_particles.clear();
-  delaunay_tetrahedrons.clear();
+
+  meshing->Clear();
+
   hashed_grid_elements.clear();
   hashed_grid_cell_starts.clear();
   constraints.clear();
@@ -802,410 +681,4 @@ glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float 
 glm::vec3 DynamicStrands::ComputeInertiaTensorRod(const float mass, const float radius, const float length) {
   float factor = mass / 12.f * (3.f * radius * radius + length * length);
   return {factor, factor, mass / 2.f * radius * radius};
-}
-
-void DynamicStrands::ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal) {
-  int max_dist_from_root = 0;
-
-  for (int i = 0; i < uniform_particles.size(); i++) {
-    max_dist_from_root = std::max(max_dist_from_root, uniform_particles[i].segment_index);
-  }
-
-  std::vector<std::map<int, std::vector<size_t>>> bundle_maps(max_dist_from_root + 1);
-  std::vector<size_t> offsets(max_dist_from_root + 1, 0);
-  std::vector<std::vector<size_t>> particle_adjacent_tets(uniform_particles.size(), std::vector<size_t>{});
-
-  for (int i = 0; i < uniform_particles.size(); i++) {
-    auto& particle = uniform_particles[i];
-    auto& node_handle = particle.node_index;
-
-    if (bundle_maps[particle.segment_index].find(node_handle) == bundle_maps[particle.segment_index].end()) {
-      bundle_maps[particle.segment_index][node_handle] = std::vector<size_t>();
-    }
-
-    bundle_maps[particle.segment_index][node_handle].push_back(i);
-  }
-
-  // TODO: "squish" each bundle such that no internal degenerate tetrahedrons occur
-#ifdef USE_CGAL
-  // triangulate each bundle:
-  for (int d = 0; d < bundle_maps.size(); d++) {
-    offsets[d] = tetrahedrons.size();
-    auto& map = bundle_maps[d];
-    for (auto& kv_pair : map) {
-      auto& bundle = kv_pair.second;
-      std::vector<std::pair<Point_CGAL, unsigned>> points;
-
-      if (bundle.size() < 3) {
-        continue;
-      }
-
-      for (size_t i : bundle) {
-        auto& particle = uniform_particles[i];
-
-        if (particle.next_particle_handle == -1) {
-          continue;
-          // TODO: probably even means we can skip this bundle entirely
-        }
-
-        auto& next_particle = uniform_particles[particle.next_particle_handle];
-
-        float squish_weight = 0.0f;
-
-        glm::vec3 squished_position =
-            squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
-
-        Point_CGAL p0_cgal(particle.position[0], particle.position[1], particle.position[2]);
-        Point_CGAL p1_cgal(squished_position[0], squished_position[1], squished_position[2]);
-
-        points.emplace_back(p0_cgal, i);
-        points.emplace_back(p1_cgal, particle.next_particle_handle);
-      }
-
-      CGALDelaunay(points, tetrahedrons);
-    }
-  }
-#else
-  for (int d = 0; d < bundle_maps.size(); d++) {
-    offsets[d] = tetrahedrons.size();
-    auto& map = bundle_maps[d];
-    for (auto& kv_pair : map) {
-      auto& bundle = kv_pair.second;
-      std::vector<glm::vec3> points;
-      std::vector<size_t> indices;
-
-      if (bundle.size() < 3) {
-        continue;
-      }
-
-      int end_of_strand_count = 0;
-      for (size_t i : bundle) {
-        auto& particle = uniform_particles[i];
-
-        glm::vec3 p0(particle.position[0], particle.position[1], particle.position[2]);
-        points.emplace_back(p0);
-        indices.emplace_back(i);
-
-        if (particle.next_particle_handle == -1) {
-          end_of_strand_count++;
-        } else {
-          auto& next_particle = uniform_particles[particle.next_particle_handle];
-
-          float squish_weight = 0.0f;
-
-          glm::vec3 squished_position =
-              squish_weight * particle.position + (1.0f - squish_weight) * next_particle.position;
-
-          glm::vec3 p1(squished_position[0], squished_position[1], squished_position[2]);
-
-          points.emplace_back(p1);
-          indices.emplace_back(particle.next_particle_handle);
-        }
-      }
-
-      if (end_of_strand_count == bundle.size()) {
-        continue;
-      }
-
-      TetDelaunay(points, indices, tetrahedrons);
-    }
-  }
-#endif
-
-  std::mutex mtx;
-
-  Jobs::RunParallelFor(tetrahedrons.size(), [&](const size_t tet_index) {
-    auto& tet = tetrahedrons[tet_index];
-
-    for (size_t i = 0; i < 4; i++) {
-      if (tet.indices[i] == -1) {
-        continue;
-      }
-
-      if (tet.indices[i] >= particle_adjacent_tets.size()) {
-        EVOENGINE_ERROR("particle index out of range, skipping!");
-        continue;
-      }
-
-      mtx.lock();
-      particle_adjacent_tets[tet.indices[i]].emplace_back(tet_index);
-      mtx.unlock();
-    }
-  });
-
-  // now glue them back together
-  for (int particle_index = 0; particle_index < uniform_particles.size(); particle_index++) {
-    auto& adjacent_tets = particle_adjacent_tets[particle_index];
-
-    // can't be too many, brute force should work here;
-    for (size_t i = 0; i < adjacent_tets.size(); i++) {
-      for (size_t j = i + 1; j < adjacent_tets.size(); j++) {
-        auto& tet0 = tetrahedrons[adjacent_tets[i]];
-        auto& tet1 = tetrahedrons[adjacent_tets[j]];
-
-        // check if the two share a face
-        size_t occurs_in_both = 0;
-        size_t b_in_both = 0;
-
-        for (size_t i = 0; i < 4; i++) {
-          for (size_t j = 0; j < 4; j++) {
-            if (tet0.indices[i] == tet1.indices[j] && tet0.indices[i] != -1) {
-              occurs_in_both++;
-            }
-          }
-        }
-
-        if (occurs_in_both != 3) {
-          continue;
-        }
-        const auto mismatch_indices = DynamicStrandUtils::CompareIndices(tet0.indices, tet1.indices);
-
-        tet0.neighbor_tet_ids[mismatch_indices.first] = adjacent_tets[j];
-        tet1.neighbor_tet_ids[mismatch_indices.second] = adjacent_tets[i];
-      }
-    }
-  }
-}
-
-#ifdef USE_CGAL
-void DynamicStrands::CGALDelaunay(const std::vector<std::pair<Point_CGAL, unsigned>>& points,
-                                  std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
-  Delaunay_CGAL dt;
-  dt.insert(points.begin(), points.end());
-
-  // TODO: parallel for
-  for (auto cell_it = dt.all_cells_begin(); cell_it != dt.all_cells_end(); cell_it++) {
-    auto& cell = *cell_it;
-    auto& tetrahedron = dt.tetrahedron(cell_it);
-    int indices[4];
-    for (size_t i = 0; i < 4; i++) {
-      indices[i] = cell.vertex(i)->info();
-    }
-    if (!DynamicStrandUtils::IsValid(indices, uniform_particles.size())) {
-      continue;  // discard this tetrahedron
-    }
-
-    // only take tetrahedra that sit between two neighboring planes
-    if (!DynamicStrandUtils::IsBetweenPlanes(indices, uniform_particles)) {
-      continue;
-    }
-
-    GpuDelaunayTetrahedron gpu_tet;
-    for (size_t i = 0; i < 4; i++) {
-      gpu_tet.indices[i] = indices[i];
-      gpu_tet.neighbor_tet_ids[i] = -1;
-      gpu_tet.is_bark[i] = -1;
-    }
-    // set up debugging members
-    gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
-    for (int& i : gpu_tet.render_neighbor) {
-      i = -1;
-    }
-    gpu_tet.task_looked_at = 0;
-    gpu_tet.mesh_looked_at = 0;
-    gpu_tet.inside = 0;
-    gpu_tet.triangles_accepted = 0;
-
-    // check orientation of the tetrahedron
-    const float d = DynamicStrandUtils::PointPlaneDistance(
-        uniform_particles[gpu_tet.indices[3]].position, uniform_particles[gpu_tet.indices[0]].position,
-        uniform_particles[gpu_tet.indices[1]].position, uniform_particles[gpu_tet.indices[2]].position);
-
-    if (d > 0)  // point no. 3 is in front if the triangle 0 1 2, we need to correct this so the triangles face outwards
-    {
-      std::swap(gpu_tet.indices[1], gpu_tet.indices[2]);
-    }
-
-    // fill in neighbor indices
-    // TODO: need to figure out how to check if a neighbor is valid
-    for (size_t i = 0; i < 4; i++) {
-      auto& neighbor = *cell.neighbor(i);
-      int neighbor_indices[4];
-
-      for (size_t j = 0; j < 4; j++) {
-        neighbor_indices[j] = neighbor.vertex(j)->info();
-      }
-
-      if (!DynamicStrandUtils::IsValid(neighbor_indices, uniform_particles.size())) {
-        continue;
-      }
-
-      if (!DynamicStrandUtils::IsBetweenPlanes(neighbor_indices, uniform_particles)) {
-        continue;
-      }
-
-      const auto mismatch_indices = DynamicStrandUtils::CompareIndices(gpu_tet.indices, neighbor_indices);
-      // TODO: according to CGAL documentation, this is guaranteed anyway, so we do not need to match both sides
-      // store it such that the neighboring tetrahedron always consists of different indices
-      // e. g. for the triangle 1 2 4 we store the corresponding neighboring index at position 3
-      // gpu_tet.neighbor_tet_ids[mismatch_indices.first] = neighbor.index();
-      EVOENGINE_ERROR("CGAL does not provide neighbor indices");
-    }
-
-    tetrahedrons.emplace_back(gpu_tet);
-  }
-}
-#endif
-
-void DynamicStrands::TetDelaunay(const std::vector<glm::vec3>& points, const std::vector<size_t>& particle_indices,
-                                 std::vector<GpuDelaunayTetrahedron>& tetrahedrons) {
-  const auto tets = Delaunay3D::GenerateTetrahedrons(points);
-
-  std::vector<int> valid_index_map(tets.size(), -1);
-  int valid_neighbors = 0;
-  for (size_t orig_tet_index = 0; orig_tet_index < tets.size(); orig_tet_index++) {
-    auto& tet = tets[orig_tet_index];
-    int indices[4];
-    bool invalid = false;
-    for (size_t i = 0; i < 4; i++) {
-      if (tet.v[i] >= particle_indices.size() || tet.v[i] < 0) {
-        invalid = true;
-        EVOENGINE_LOG("Tetrahedron is invalid");
-        break;
-      }
-      indices[i] = particle_indices[tet.v[i]];
-    }
-    if (invalid) {
-      continue;  // discard this tetrahedron
-    }
-
-    // only take tetrahedra that sit between two neighboring planes
-    if (!DynamicStrandUtils::IsBetweenPlanes(indices, uniform_particles)) {
-      continue;
-    }
-
-    GpuDelaunayTetrahedron gpu_tet;
-    for (size_t i = 0; i < 4; i++) {
-      gpu_tet.indices[i] = indices[i];
-      gpu_tet.neighbor_tet_ids[i] = -1;
-      gpu_tet.is_bark[i] = -1;
-    }
-    // set up debugging members
-    gpu_tet.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
-    for (int& i : gpu_tet.render_neighbor) {
-      i = -1;
-    }
-    gpu_tet.task_looked_at = 0;
-    gpu_tet.mesh_looked_at = 0;
-    gpu_tet.inside = 0;
-    gpu_tet.triangles_accepted = 0;
-
-    // check orientation of the tetrahedron
-    const float d = DynamicStrandUtils::PointPlaneDistance(
-        uniform_particles[gpu_tet.indices[3]].position, uniform_particles[gpu_tet.indices[0]].position,
-        uniform_particles[gpu_tet.indices[1]].position, uniform_particles[gpu_tet.indices[2]].position);
-
-    if (d > 0)  // point no. 3 is in front if the triangle 0 1 2, we need to correct this so the triangles face outwards
-    {
-      std::swap(gpu_tet.indices[1], gpu_tet.indices[2]);
-    }
-
-    // fill in neighbor indices
-    for (size_t i = 0; i < 4; i++) {
-      // check if neighbor is valid
-      if (tet.neighbor_tet_indices[i] >= tets.size() || tet.neighbor_tet_indices[i] < 0) {
-        continue;
-      }
-
-      auto& neighbor = tets[tet.neighbor_tet_indices[i]];
-      int neighbor_indices[4];
-
-      bool invalid = false;
-      for (size_t j = 0; j < 4; j++) {
-        if (neighbor.v[j] >= particle_indices.size()) {
-          invalid = true;
-          break;
-        }
-
-        neighbor_indices[j] = particle_indices[neighbor.v[j]];
-      }
-
-      if (invalid) {
-        continue;
-      }
-
-      if (!DynamicStrandUtils::IsValid(neighbor_indices, uniform_particles.size())) {
-        continue;
-      }
-
-      if (!DynamicStrandUtils::IsBetweenPlanes(neighbor_indices, uniform_particles)) {
-        continue;
-      }
-
-      // TODO: probably not needed
-      const auto mismatch_indices = DynamicStrandUtils::CompareIndices(gpu_tet.indices, neighbor_indices);
-
-      gpu_tet.neighbor_tet_ids[mismatch_indices.first] = tet.neighbor_tet_indices[i];
-      valid_neighbors++;
-    }
-
-    valid_index_map[orig_tet_index] = tetrahedrons.size();
-    tetrahedrons.emplace_back(gpu_tet);
-  }
-
-  // correct neighbor indices
-  Jobs::RunParallelFor(tetrahedrons.size(), [&](const size_t tet_index) {
-    auto& tet = tetrahedrons[tet_index];
-    for (size_t i = 0; i < 4; i++) {
-      if (tet.neighbor_tet_ids[i] == -1) {
-        continue;
-      }
-      tet.neighbor_tet_ids[i] = valid_index_map[tet.neighbor_tet_ids[i]];
-    }
-  });
-
-  EVOENGINE_LOG("Found " << valid_neighbors << " valid neighbors");
-}
-
-void DynamicStrands::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal,
-                                     size_t min_bundle_size) {
-  auto bundle_maps = DynamicStrandUtils::ComputeBundleMaps(uniform_particles);
-
-// TODO: maybe we should scrap CGAL
-#ifdef USE_CGAL
-  if (use_cgal) {
-    std::vector<std::pair<Point_CGAL, unsigned>> points;
-    for (auto& map : bundle_maps) {
-      for (auto& kv_pair : map) {
-        auto& bundle = kv_pair.second;
-
-        if (bundle.size() < min_bundle_size) {
-          continue;
-        }
-
-        for (size_t i : bundle) {
-          auto& particle = uniform_particles[i];
-          glm::vec3& particle_pos = particle.position;
-          Point_CGAL p_cgal(particle_pos[0], particle_pos[1], particle_pos[2]);
-          points.emplace_back(p_cgal, i);
-        }
-      }
-    }
-
-    CGALDelaunay(points, tetrahedrons);
-  }
-#endif
-  if (!use_cgal) {
-    std::vector<glm::vec3> points;
-    std::vector<size_t> indices;
-
-    for (auto& map : bundle_maps) {
-      for (auto& kv_pair : map) {
-        auto& bundle = kv_pair.second;
-
-        if (bundle.size() < min_bundle_size) {
-          continue;
-        }
-
-        for (size_t i : bundle) {
-          auto& particle = uniform_particles[i];
-          glm::vec3& particle_pos = particle.position;
-          points.emplace_back(particle_pos);
-          indices.emplace_back(i);
-        }
-      }
-    }
-
-    TetDelaunay(points, indices, tetrahedrons);
-  }
 }

@@ -3,11 +3,12 @@
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"
 #include "DynamicTreeStrands.hpp"
+#include "RenderParameters.hpp"
 #include "Shader.hpp"
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
-bool DynamicStrands::FoliageRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool FoliageRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   if (ImGui::Checkbox("Wireframe", &wireframe)) {

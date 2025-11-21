@@ -14,6 +14,7 @@
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
 #include "DynamicStrandsDemo.hpp"
+#include "DynamicStrandsVisualizationParameters.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "ForestDescriptor.hpp"
@@ -280,7 +281,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     }
     if (const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
         dts_entities && !dts_entities->empty()) {
-      dynamic_strands_settings_.OnInspect(editor_layer);
+      OnInspectDynamicStrandsSettings(editor_layer);
     } else {
       ImGui::Text("No dynamic strands in the scene!");
     }
@@ -436,6 +437,95 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     SoilVisualization();
   }
 #pragma endregion
+}
+
+void EcoSysLabLayer::OnInspectDynamicStrandsSettings(const std::shared_ptr<EditorLayer>& editor_layer) {
+  if (ImGui::TreeNode("Operators")) {
+    ImGui::Combo("Transform Mode", {"None", "Translate", "Rotate"}, dynamic_strands_settings_.transform_mode);
+    ImGui::Combo("Operator Mode", {"Drag", "Saw", "Line Cut", "Point Cut", "Fungus Injection"},
+                 dynamic_strands_settings_.operator_mode);
+    switch (static_cast<DynamicStrandsSettings::OperatorMode>(dynamic_strands_settings_.operator_mode)) {
+      case DynamicStrandsSettings::OperatorMode::Drag: {
+        ImGui::DragFloat("Drag acceleration multiplier", &dynamic_strands_settings_.drag_multiplier, 0.001f, 0.0f,
+                         1.0f);
+        break;
+      }
+      case DynamicStrandsSettings::OperatorMode::Saw:
+      case DynamicStrandsSettings::OperatorMode::LineCut: {
+        ImGui::Checkbox("Cut Bend/Twist/Bundle only", &dynamic_strands_settings_.cut_bend_twist_bundle_only);
+        break;
+      }
+      case DynamicStrandsSettings::OperatorMode::PointCut: {
+        ImGui::DragFloat("Cutter thickness", &dynamic_strands_settings_.point_cut_thickness, 1.f, 1.0f, 100.0f);
+        break;
+      }
+      case DynamicStrandsSettings::OperatorMode::FungusInjection: {
+        ImGui::DragFloat("Injection thickness", &dynamic_strands_settings_.point_cut_thickness, 1.f, 1.0f, 100.0f);
+        ImGui::DragFloat("Fungus injection amount", &dynamic_strands_settings_.fungus_injection_amount, 0.1f, 0.0f,
+                         100.0f);
+        // Check boxes for each rot type
+        ImGui::Text("Rot types:");
+        ImGui::Checkbox("White rot", &dynamic_strands_settings_.fungus_white_rot);
+        ImGui::Checkbox("Brown rot", &dynamic_strands_settings_.fungus_brown_rot);
+        break;
+      }
+    }
+    ImGui::TreePop();
+  }
+
+  ImGui::Checkbox("Physics", &dynamic_strands_settings_.enable_physics);
+  if (!dynamic_strands_settings_.enable_physics && ImGui::Button("Physics step")) {
+    dynamic_strands_settings_.remaining_step++;
+  }
+  if (ImGui::TreeNode("Physics settings")) {
+    dynamic_strands_settings_.physics_parameters.OnInspect(editor_layer);
+    ImGui::TreePop();
+  }
+
+  ImGui::Checkbox("Rendering", &dynamic_strands_settings_.enable_rendering);
+  if (ImGui::TreeNode("Rendering settings")) {
+    switch (DynamicStrandsInitializeParameters::meshing_type) {
+      case MeshingType::AlphaShape:
+        DsAlphaShapeMeshing::OnInspectRenderSettings(editor_layer);
+        break;
+      case MeshingType::KineticVoronoi:
+        DsKineticVoronoiMeshing::OnInspectRenderSettings(editor_layer);
+        break;
+      default:
+        EVOENGINE_WARNING("No render settings were provided for this meshing type!");
+        break;
+    }
+
+    ImGui::Checkbox("Render foliage", &dynamic_strands_settings_.foliage_render_parameters.enabled);
+    if (dynamic_strands_settings_.foliage_render_parameters.enabled) {
+      if (ImGui::TreeNodeEx("Foliage render settings")) {
+        if (ImGui::Button("Rebuild foliage pipelines")) {
+          DynamicStrands::BuildFoliageRenderingPipelines();
+        }
+        dynamic_strands_settings_.foliage_render_parameters.OnInspect(editor_layer);
+        ImGui::TreePop();
+      }
+    }
+
+    ImGui::Checkbox("Render segment pairs", &dynamic_strands_settings_.segment_pairs_render_parameters.enabled);
+    if (dynamic_strands_settings_.segment_pairs_render_parameters.enabled) {
+      if (ImGui::TreeNodeEx("Segment pairs render settings")) {
+        if (ImGui::Button("Rebuild segment pairs pipelines")) {
+          DynamicStrands::BuildSegmentPairsRenderingPipeline();
+        }
+        dynamic_strands_settings_.segment_pairs_render_parameters.OnInspect(editor_layer);
+        ImGui::TreePop();
+      }
+    }
+
+    ImGui::TreePop();
+  }
+
+  ImGui::Checkbox("Visualization", &dynamic_strands_settings_.enable_visualization);
+  if (ImGui::TreeNode("Visualization settings")) {
+    dynamic_strands_settings_.visualization_parameters.OnInspect(editor_layer);
+    ImGui::TreePop();
+  }
 }
 
 void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* tree_entities,

@@ -1,10 +1,14 @@
 #include "DynamicTreeStrands.hpp"
 #include "BasicBarkDescriptor.hpp"
+#include "DsAlphaShapeMeshing.hpp"
 #include "DsConstraints.hpp"
+#include "DsKineticVoronoiMeshing.hpp"
+#include "DsMaterials.hpp"
 #include "DsOperators.hpp"
 #include "DsPhysics.hpp"
 #include "DynamicStrands.hpp"
 #include "Tree.hpp"
+#include "VoronoiMeshGenerator.hpp"
 using namespace eco_sys_lab_plugin;
 
 void DynamicTreeStrands::UpdateDynamicStrands(DtsStrandGroup& randomly_subdivided_strand_group,
@@ -70,13 +74,13 @@ void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "limit_strand_length" << YAML::Value << limit_strand_length;
   out << YAML::Key << "max_strand_length" << YAML::Value << max_strand_length;
 
-  bark_material_ref.Save("bark_material_ref", out);
-  inner_wood_material_ref.Save("inner_wood_material_ref", out);
-  splinter_material_ref.Save("splinter_material_ref", out);
-  leaf_material_ref.Save("leaf_material_ref", out);
-  snow_material_ref.Save("snow_material_ref", out);
-  segment_pair_material_ref.Save("segment_pair_material_ref", out);
-  wireframe_material_ref.Save("wireframe_material_ref", out);
+  materials.bark_material_ref.Save("bark_material_ref", out);
+  materials.inner_wood_material_ref.Save("inner_wood_material_ref", out);
+  materials.splinter_material_ref.Save("splinter_material_ref", out);
+  materials.leaf_material_ref.Save("leaf_material_ref", out);
+  materials.snow_material_ref.Save("snow_material_ref", out);
+  materials.segment_pair_material_ref.Save("segment_pair_material_ref", out);
+  materials.wireframe_material_ref.Save("wireframe_material_ref", out);
 
   strand_model.Save("shoot_strand_model", out);
   initialize_parameters.Save("initialize_parameters", out);
@@ -97,13 +101,13 @@ void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
   if (in["max_strand_length"])
     max_strand_length = in["max_strand_length"].as<float>();
 
-  bark_material_ref.Load("bark_material_ref", in);
-  inner_wood_material_ref.Load("inner_wood_material_ref", in);
-  splinter_material_ref.Load("splinter_material_ref", in);
-  leaf_material_ref.Load("leaf_material_ref", in);
-  snow_material_ref.Load("snow_material_ref", in);
-  segment_pair_material_ref.Load("segment_pair_material_ref", in);
-  wireframe_material_ref.Load("wireframe_material_ref", in);
+  materials.bark_material_ref.Load("bark_material_ref", in);
+  materials.inner_wood_material_ref.Load("inner_wood_material_ref", in);
+  materials.splinter_material_ref.Load("splinter_material_ref", in);
+  materials.leaf_material_ref.Load("leaf_material_ref", in);
+  materials.snow_material_ref.Load("snow_material_ref", in);
+  materials.segment_pair_material_ref.Load("segment_pair_material_ref", in);
+  materials.wireframe_material_ref.Load("wireframe_material_ref", in);
 
   strand_model.Load("shoot_strand_model", in);
   initialize_parameters.Load("initialize_parameters", in);
@@ -111,12 +115,12 @@ void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::DragInt("Seed", &seed, 1, 0, INT_MAX);
-  editor_layer->DragAndDropButton<Material>(bark_material_ref, "Bark Material");
-  editor_layer->DragAndDropButton<Material>(inner_wood_material_ref, "Inner wood Material");
-  editor_layer->DragAndDropButton<Material>(splinter_material_ref, "Splinter Material");
-  editor_layer->DragAndDropButton<Material>(leaf_material_ref, "Leaf Material");
-  editor_layer->DragAndDropButton<Material>(snow_material_ref, "Snow Material");
-  editor_layer->DragAndDropButton<Material>(wireframe_material_ref, "Wireframe Material");
+  editor_layer->DragAndDropButton<Material>(materials.bark_material_ref, "Bark Material");
+  editor_layer->DragAndDropButton<Material>(materials.inner_wood_material_ref, "Inner wood Material");
+  editor_layer->DragAndDropButton<Material>(materials.splinter_material_ref, "Splinter Material");
+  editor_layer->DragAndDropButton<Material>(materials.leaf_material_ref, "Leaf Material");
+  editor_layer->DragAndDropButton<Material>(materials.snow_material_ref, "Snow Material");
+  editor_layer->DragAndDropButton<Material>(materials.wireframe_material_ref, "Wireframe Material");
   if (ImGui::TreeNode("Initialization settings")) {
     initialize_parameters.OnInspect(editor_layer);
     if (ImGui::Button("Re-initialize mesh")) {
@@ -175,6 +179,20 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dynamic_strands->Upload();
     dynamic_strands->InitializeMesh(initialize_parameters);
   }
+  ImGui::SameLine();
+  if (ImGui::Button("Test Static Mesh")) {
+    // TODO: Pass the strands to the voronoi mesh generator to test creation of static meshes
+    StrandModelMeshGeneratorSettings settings;
+    std::vector<Vertex> vertices;
+    std::vector<glm::vec2> tex_coords;
+    std::vector<std::pair<unsigned int, unsigned int>> index_pairs;
+
+    DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
+    UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
+
+    VoronoiMeshGenerator::Generate(uniformly_subdivided_strand_group, strand_model, vertices, tex_coords, index_pairs,
+                                   settings);
+  }
   if (ImGui::TreeNodeEx("Experiments", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::TreeNode("Board Experiment")) {
       static BoardExperimentSetupSettings multiple_rod_experiment_setup_settings{};
@@ -202,11 +220,10 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     ImGui::Text((std::string("Subdivided strand count: ") + std::to_string(dynamic_strands->strands.size())).c_str());
     ImGui::Text((std::string("Segment count: ") + std::to_string(dynamic_strands->segments.size())).c_str());
     ImGui::Text((std::string("Segment pair count: ") + std::to_string(dynamic_strands->segment_pairs.size())).c_str());
-    ImGui::Text(
-        (std::string("Uniform particles count: ") + std::to_string(dynamic_strands->uniform_particles.size())).c_str());
-    ImGui::Text(
-        (std::string("Delaunay tetrahedrons count: ") + std::to_string(dynamic_strands->delaunay_tetrahedrons.size()))
-            .c_str());
+    if (ImGui::TreeNode("Meshing")) {
+      dynamic_strands->meshing->OnInspect(editor_layer);
+      ImGui::TreePop();
+    }
     ImGui::TreePop();
   }
 
@@ -269,7 +286,22 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 }
 
 void DynamicTreeStrands::OnCreate() {
-  dynamic_strands = std::make_shared<DynamicStrands>();
+  switch (DynamicStrandsInitializeParameters::meshing_type) {
+    case MeshingType::AlphaShape: {
+      auto meshing = std::make_shared<DsAlphaShapeMeshing>();
+      dynamic_strands = std::make_shared<DynamicStrands>(meshing, materials);
+      dynamic_strands->meshing->dynamic_strands = dynamic_strands;
+    } break;
+    case MeshingType::KineticVoronoi: {
+      auto meshing = std::make_shared<DsKineticVoronoiMeshing>();
+      dynamic_strands = std::make_shared<DynamicStrands>(meshing, materials);
+      dynamic_strands->meshing->dynamic_strands = dynamic_strands;
+    } break;
+    default:
+      throw std::runtime_error("Unsupported meshing type");
+      break;
+  }
+
   leaf_drop = std::make_shared<DsLeafDrop>();
   snow = std::make_shared<DsSnow>();
   wind = std::make_shared<DsWind>();
@@ -281,62 +313,60 @@ void DynamicTreeStrands::OnCreate() {
   stop_all = std::make_shared<DsStopAll>();
   fungus_injection_operator = std::make_shared<DsFungusInjection>();
   enable_physics = true;
-  if (!bark_material_ref.Get<Material>()) {
+  if (!materials.bark_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
-    bark_material_ref = material;
+    materials.bark_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.1f;
     material->material_properties.albedo_color = glm::vec3(0.4f, 0.3f, 0.2f);
   }
-  if (!inner_wood_material_ref.Get<Material>()) {
+  if (!materials.inner_wood_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
-    inner_wood_material_ref = material;
+    materials.inner_wood_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
     material->material_properties.albedo_color = glm::vec3(1.f, 0.6f, 0.3f);
   }
-  if (!splinter_material_ref.Get<Material>()) {
+  if (!materials.splinter_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
-    splinter_material_ref = material;
+    materials.splinter_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
     material->material_properties.albedo_color = glm::vec3(1.f, 0.6f, 0.3f);
   }
-  if (!leaf_material_ref.Get<Material>()) {
+  if (!materials.leaf_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
-    leaf_material_ref = material;
+    materials.leaf_material_ref = material;
     material->material_properties.roughness = 1.f;
     material->material_properties.metallic = 0.3f;
     material->material_properties.albedo_color = glm::vec3(0.2f, 0.5f, 0.05f);
   }
-  if (!snow_material_ref.Get<Material>()) {
+  if (!materials.snow_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
-    snow_material_ref = material;
+    materials.snow_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
     material->material_properties.albedo_color = glm::vec3(1.0f);
   }
 
-  if (!segment_pair_material_ref.Get<Material>()) {
+  if (!materials.segment_pair_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
-    segment_pair_material_ref = material;
+    materials.segment_pair_material_ref = material;
     material->material_properties.roughness = 0.5f;
     material->material_properties.metallic = 0.0f;
     material->material_properties.albedo_color = glm::vec3(1.0f);
     material->material_properties.transmission = 0.5f;
   }
 
-  if (!wireframe_material_ref.Get<Material>()) {
+  if (!materials.wireframe_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
-    wireframe_material_ref = material;
+    materials.wireframe_material_ref = material;
     material->material_properties.roughness = 0.0f;
     material->material_properties.metallic = 0.0f;
     material->material_properties.albedo_color = glm::vec3(0.0f);
     material->material_properties.transmission = 0.0f;
   }
   foliage_rendering_instance_handle = Handle();
-  small_segments_rendering_instance_handle = Handle();
-  mesh_wireframe_rendering_instance_handle = Handle();
 }
 
 void DynamicTreeStrands::OnDestroy() {
@@ -979,6 +1009,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
         segment_list[i].second.first = true;
         segment_list[i].second.second = false;
       });
+
       transform_operator.target_entity = operator_entity;
       transform_operator.ds_pivot_transform = std::make_shared<DsPivotTransform>();
       transform_operator.ds_pivot_transform->Initialize(initialize_parameters.root_transform, dynamic_strands,
@@ -1215,11 +1246,11 @@ void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree) {
     initialize_parameters.foliage_descriptor = td->foliage_descriptor;
     if (const auto fd = td->foliage_descriptor.Get<BasicFoliageDescriptor>()) {
       if (const auto mat = fd->leaf_material_ref.Get<Material>())
-        leaf_material_ref = mat;
+        materials.leaf_material_ref = mat;
     }
     if (const auto bd = td->bark_descriptor.Get<BasicBarkDescriptor>()) {
       if (const auto mat = bd->bark_material_ref.Get<Material>())
-        bark_material_ref = mat;
+        materials.bark_material_ref = mat;
     }
   }
   strand_model = tree->shoot_strand_model;
@@ -1284,211 +1315,19 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
 }
 
 void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_camera,
-                                       const DynamicStrands::VisualizationParameters& visualization_parameters) const {
+                                       const DynamicStrandsVisualizationParameters& visualization_parameters) const {
   if (!dynamic_strands->segments.empty()) {
     dynamic_strands->Visualize(target_camera, initialize_parameters, visualization_parameters);
   }
 }
 
-void DynamicTreeStrands::RegisterBranchesRenderInstance(
-    const DynamicStrands::BranchesRenderParameters& render_parameters) {
+void DynamicTreeStrands::RegisterFoliageRenderInstance(const FoliageRenderParameters& render_parameters) {
   const auto render_layer = Application::GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
   }
-  const auto inner_wood_material = inner_wood_material_ref.Get<Material>();
-  const auto snow_material = snow_material_ref.Get<Material>();
-  if (const auto bark_material = bark_material_ref.Get<Material>();
-      bark_material && inner_wood_material && snow_material) {
-    if (!dynamic_strands->segments.empty()) {
-      if (DynamicStrands::branches_point_light_render_pipeline &&
-          DynamicStrands::branches_point_light_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-          return dynamic_strands_copy->RenderBranchesToPointLightShadowMap(render_parameters, vk_command_buffer, view);
-        });
-      }
-      if (DynamicStrands::branches_spot_light_render_pipeline &&
-          DynamicStrands::branches_spot_light_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-          return dynamic_strands_copy->RenderBranchesToSpotLightShadowMap(render_parameters, vk_command_buffer, view);
-        });
-      }
-      if (DynamicStrands::branches_directional_light_render_pipeline &&
-          DynamicStrands::branches_directional_light_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-          return dynamic_strands_copy->RenderBranchesToDirectionalLightShadowMap(render_parameters, vk_command_buffer,
-                                                                                 view);
-        });
-      }
-      if (DynamicStrands::branches_render_pipeline && DynamicStrands::branches_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
-        const auto renderer_handle = GetHandle();
-        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, bark_material);
-        const auto inner_material_index = current_render_storage->RegisterMaterial(inner_wood_material);
-        const auto snow_material_index = current_render_storage->RegisterMaterial(snow_material);
-        render_layer->DeferredRenderingAllCameras(
-            [=](const VkCommandBuffer vk_command_buffer,
-                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                const RenderLayer::DeferredRenderingView& view) {
-              return dynamic_strands_copy->RenderBranchesToCameraDeferred(
-                  renderer_handle, inner_material_index, snow_material_index, render_parameters, vk_command_buffer,
-                  geometry_pass_color_attachment_infos, view, VK_POLYGON_MODE_FILL);
-            });
-      }
-    }
-  }
-}
-
-void eco_sys_lab_plugin::DynamicTreeStrands::RegisterBranchesWireframeRenderInstance(
-    const DynamicStrands::BranchesRenderParameters& render_parameters) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
-  if (!render_layer) {
-    EVOENGINE_LOG("Failed to render! RenderLayer not present!")
-    return;
-  }
-  const auto wireframe_material = wireframe_material_ref.Get<Material>();
-  if (const auto bark_material = bark_material_ref.Get<Material>(); bark_material && wireframe_material) {
-    if (!dynamic_strands->segments.empty()) {
-      if (DynamicStrands::branches_render_pipeline && DynamicStrands::branches_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
-        const auto renderer_handle = mesh_wireframe_rendering_instance_handle;
-        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, wireframe_material);
-        const auto wireframe_material_index = current_render_storage->RegisterMaterial(wireframe_material);
-        render_layer->DeferredRenderingAllCameras(
-            [=](const VkCommandBuffer vk_command_buffer,
-                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                const RenderLayer::DeferredRenderingView& view) {
-              return dynamic_strands_copy->RenderBranchesToCameraDeferred(
-                  renderer_handle, wireframe_material_index, wireframe_material_index, render_parameters,
-                  vk_command_buffer, geometry_pass_color_attachment_infos, view, VK_POLYGON_MODE_LINE);
-            });
-      }
-    }
-  }
-}
-
-void DynamicTreeStrands::RegisterSmallSegmentsRenderInstance(
-    const DynamicStrands::SmallSegmentsRenderParameters& render_parameters) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
-  if (!render_layer) {
-    EVOENGINE_LOG("Failed to render! RenderLayer not present!")
-    return;
-  }
-  const auto bark_material = bark_material_ref.Get<Material>();
-  if (const auto splinter_material = splinter_material_ref.Get<Material>(); bark_material && splinter_material) {
-    if (!dynamic_strands->segments.empty()) {
-      if (DynamicStrands::small_segments_point_light_render_pipeline &&
-          DynamicStrands::small_segments_point_light_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-          return dynamic_strands_copy->RenderSmallSegmentsToPointLightShadowMap(render_parameters, vk_command_buffer,
-                                                                                view);
-        });
-      }
-      if (DynamicStrands::small_segments_spot_light_render_pipeline &&
-          DynamicStrands::small_segments_spot_light_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-          return dynamic_strands_copy->RenderSmallSegmentsToSpotLightShadowMap(render_parameters, vk_command_buffer,
-                                                                               view);
-        });
-      }
-      if (DynamicStrands::small_segments_directional_light_render_pipeline &&
-          DynamicStrands::small_segments_directional_light_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-          return dynamic_strands_copy->RenderSmallSegmentsToDirectionalLightShadowMap(render_parameters,
-                                                                                      vk_command_buffer, view);
-        });
-      }
-
-      if (DynamicStrands::small_segments_render_pipeline &&
-          DynamicStrands::small_segments_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
-        const auto renderer_handle = small_segments_rendering_instance_handle;
-        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, bark_material);
-        const auto splinter_material_index = current_render_storage->RegisterMaterial(splinter_material);
-        render_layer->DeferredRenderingAllCameras(
-            [=](const VkCommandBuffer vk_command_buffer,
-                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                const RenderLayer::DeferredRenderingView& view) {
-              return dynamic_strands_copy->RenderSmallSegmentsToCameraDeferred(
-                  renderer_handle, splinter_material_index, render_parameters, vk_command_buffer,
-                  geometry_pass_color_attachment_infos, view);
-            });
-      }
-    }
-  }
-}
-
-void DynamicTreeStrands::RegisterSmallSegmentsVisualizationRenderInstance(
-    const DynamicStrands::SmallSegmentsRenderParameters& render_parameters,
-    const DynamicStrands::SmallSegmentsVisualizationRenderParameters& visualization_render_parameters) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
-  if (!render_layer) {
-    EVOENGINE_LOG("Failed to render! RenderLayer not present!")
-    return;
-  }
-  if (const auto material = splinter_material_ref.Get<Material>()) {
-    if (!dynamic_strands->segments.empty()) {
-      if (DynamicStrands::small_segments_point_light_render_pipeline &&
-          DynamicStrands::small_segments_point_light_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-          return dynamic_strands_copy->RenderSmallSegmentsToPointLightShadowMap(render_parameters, vk_command_buffer,
-                                                                                view);
-        });
-      }
-      if (DynamicStrands::small_segments_spot_light_render_pipeline &&
-          DynamicStrands::small_segments_spot_light_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-          return dynamic_strands_copy->RenderSmallSegmentsToSpotLightShadowMap(render_parameters, vk_command_buffer,
-                                                                               view);
-        });
-      }
-      if (DynamicStrands::small_segments_directional_light_render_pipeline &&
-          DynamicStrands::small_segments_directional_light_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
-          return dynamic_strands_copy->RenderSmallSegmentsToDirectionalLightShadowMap(render_parameters,
-                                                                                      vk_command_buffer, view);
-        });
-      }
-      if (DynamicStrands::small_segments_visualization_render_pipeline &&
-          DynamicStrands::small_segments_visualization_render_pipeline->Initialized()) {
-        const auto dynamic_strands_copy = dynamic_strands;
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
-        const auto renderer_handle = small_segments_rendering_instance_handle;
-        current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
-        render_layer->DeferredRenderingAllCameras(
-            [=](const VkCommandBuffer vk_command_buffer,
-                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                const RenderLayer::DeferredRenderingView& view) {
-              return dynamic_strands_copy->RenderSmallSegmentsVisualizationToCameraDeferred(
-                  renderer_handle, initialize_parameters, visualization_render_parameters, vk_command_buffer,
-                  geometry_pass_color_attachment_infos, view);
-            });
-      }
-    }
-  }
-}
-
-void DynamicTreeStrands::RegisterFoliageRenderInstance(
-    const DynamicStrands::FoliageRenderParameters& render_parameters) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
-  if (!render_layer) {
-    EVOENGINE_LOG("Failed to render! RenderLayer not present!")
-    return;
-  }
-  if (const auto material = leaf_material_ref.Get<Material>()) {
+  if (const auto material = materials.leaf_material_ref.Get<Material>()) {
     if (!dynamic_strands->foliage.empty()) {
       if (DynamicStrands::foliage_point_light_render_pipeline &&
           DynamicStrands::foliage_point_light_render_pipeline->Initialized()) {
@@ -1529,14 +1368,13 @@ void DynamicTreeStrands::RegisterFoliageRenderInstance(
   }
 }
 
-void DynamicTreeStrands::RegisterSegmentPairRenderInstance(
-    const DynamicStrands::SegmentPairsRenderParameters& render_parameters) {
+void DynamicTreeStrands::RegisterSegmentPairRenderInstance(const SegmentPairsRenderParameters& render_parameters) {
   const auto render_layer = Application::GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
   }
-  if (const auto material = segment_pair_material_ref.Get<Material>()) {
+  if (const auto material = materials.segment_pair_material_ref.Get<Material>()) {
     if (!dynamic_strands->segment_pairs.empty()) {
       if (DynamicStrands::segment_pairs_visualization_render_pipeline &&
           DynamicStrands::segment_pairs_visualization_render_pipeline->Initialized()) {

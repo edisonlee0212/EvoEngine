@@ -97,6 +97,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
             shoot_model.CalculateTransform(shoot_growth_controller_, true);
             shoot_visualizer.need_update = true;
           }
+          ImGui::TreePop();
         }
         if (shoot_model.tree_growth_settings.OnInspect(editor_layer))
           changed = true;
@@ -279,6 +280,8 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Skeletal graph settings")) {
     if (skeletal_graph_settings.OnInspect(editor_layer))
       changed = true;
+
+    ImGui::TreePop();
   }
   if (ImGui::Button("Build skeletal graph")) {
     GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::Primitives::sphere, Resources::Primitives::cube);

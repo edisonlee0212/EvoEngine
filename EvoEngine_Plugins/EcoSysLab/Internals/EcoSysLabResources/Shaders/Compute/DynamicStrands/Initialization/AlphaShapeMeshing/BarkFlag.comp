@@ -1,0 +1,130 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_shader_atomic_float : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+
+#define ALPHA_SHAPE_MESHING_SET 1
+#include "AlphaShapeMeshing.glsl"
+
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#define BARRIER() \
+memoryBarrierShared(); \
+barrier();
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint tetrahedrons_size;
+  float alpha;
+  float bifurcation_alpha;
+  float max_dist_squared;
+};
+
+#include "AlphaShape.glsl"
+
+void main(){
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint delaunay_tetrahedron_index = baseID + local_index;
+
+		if(delaunay_tetrahedron_index >= tetrahedrons_size) break;
+
+		DelaunayTetrahedron delaunay_tetrahedron = delaunay_tetrahedrons[delaunay_tetrahedron_index];
+
+		// check if end of strand
+		for (int j = 0; j < 4; j++){
+			UniformParticle uniform_particle = uniform_particles[delaunay_tetrahedron.indices[j]];
+			if((uniform_particle.position_t.w == 0.0 && segments[uniform_particle.segment_handle].prev_handle == -1)
+				|| (uniform_particle.position_t.w == 1.0 && segments[uniform_particle.segment_handle].next_handle == -1)){
+				uniform_particles[delaunay_tetrahedron.indices[j]].is_on_surface = 2; // temporary flag for normal stage
+			}
+		}
+
+		// Assign bark flags here
+		if(delaunay_tetrahedron.inside == 1){
+
+			[[unroll]]
+			for (uint j = 0; j < 4; ++j)
+			{
+				uniform_particles[delaunay_tetrahedron.indices[j]].is_bark = 0;
+			}
+
+			// determine which triangles need to be rendered, these must be the initial bark
+			[[unroll]]
+			for (int triangle_index = 0; triangle_index < 4; ++triangle_index)
+			{
+				if(delaunay_tetrahedron.neighbor_tet_ids[triangle_index] != -1){
+					DelaunayTetrahedron neighbor_tet = delaunay_tetrahedrons[delaunay_tetrahedron.neighbor_tet_ids[triangle_index]];
+					delaunay_tetrahedron.is_bark[triangle_index] = 1 - neighbor_tet.inside;
+				}
+				else{
+					delaunay_tetrahedron.is_bark[triangle_index] = 1;
+				}
+
+				// special case for end of strands
+				bool triangle_on_end = true;
+				[[unroll]]
+				for (int j = 0; j < 4; j++){
+					if(triangle_index == j) continue;
+
+					UniformParticle uniform_particle = uniform_particles[delaunay_tetrahedron.indices[j]];
+					triangle_on_end = triangle_on_end && (uniform_particle.is_on_surface == 2);
+				}
+
+				// compute normal and add to vertices
+				if(delaunay_tetrahedron.is_bark[triangle_index] == 1){
+					vec4 normal_deg = vec4(ComputeTetTriangleNormal(delaunay_tetrahedron, triangle_index), 1.0f);
+
+					// add normal to all triangle vertices, so we can later compute an average
+					[[unroll]]
+					for(int j = 0; j < 4; j++){
+						if(j != triangle_index){
+							atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.x, normal_deg.x);
+							atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.y, normal_deg.y);
+							atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.z, normal_deg.z);
+							// DEBUG: count how many normals are added, disabled for efficiency
+							//atomicAdd(uniform_particles[delaunay_tetrahedron.indices[j]].normal_deg.w, normal_deg.w);
+						}
+					}
+					delaunay_tetrahedron.is_bark[triangle_index] = triangle_on_end ? 0 : 1;
+				}
+			}
+
+			// get vertices
+			vec3 v[4];
+			[[unroll]]
+			for(int i = 0; i < 4; ++i){
+				v[i] = uniform_particles[delaunay_tetrahedron.indices[i]].initial_position.xyz;
+			}
+
+			// Initialize sidelenghts
+			[[unroll]]
+			for(int edge_index = 0; edge_index < 6; ++edge_index){
+				delaunay_tetrahedron.sidelengths[edge_index] = sqrt(DistSquared(v[tet_edges[edge_index].x], v[tet_edges[edge_index].y]));
+			}
+
+		} else {
+
+			[[unroll]]
+			for (int triangle_index = 0; triangle_index < 4; ++triangle_index)
+			{
+				delaunay_tetrahedron.is_bark[triangle_index] = 0;
+			}
+		}
+		delaunay_tetrahedrons[delaunay_tetrahedron_index] = delaunay_tetrahedron;
+	}
+}

@@ -3,6 +3,7 @@
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"
 #include "DynamicTreeStrands.hpp"
+#include "RenderParameters.hpp"
 #include "Shader.hpp"
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
@@ -51,7 +52,7 @@ void DynamicStrands::BuildSegmentPairsRenderingPipeline() {
   segment_pairs_visualization_render_pipeline->Initialize();
 }
 
-bool DynamicStrands::SegmentPairsRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SegmentPairsRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat3("Position scale", &position_scale.x, 0.1f, 0.1f, 100.f)) {
     changed = true;
@@ -90,8 +91,9 @@ uint32_t DynamicStrands::RenderSegmentPairsToCameraForward(
   StrengthGraph::Input strength_input;
   BiologicalPropertiesGraph::Input biological_properties_input;
 
-  switch (static_cast<VisualizationParameters::SegmentPairRenderMode>(render_parameters.segment_pair_render_mode)) {
-    case VisualizationParameters::SegmentPairRenderMode::BendingLimit: {
+  switch (static_cast<DynamicStrandsVisualizationParameters::SegmentPairRenderMode>(
+      render_parameters.segment_pair_render_mode)) {
+    case DynamicStrandsVisualizationParameters::SegmentPairRenderMode::BendingLimit: {
       glm::vec2 bending_strength = initialize_parameters.strength_graph.GetBendingStrength(strength_input);
       segment_pair_push_constant.factor =
           initialize_parameters.biological_properties_graph.GetValues(biological_properties_input)
@@ -99,7 +101,7 @@ uint32_t DynamicStrands::RenderSegmentPairsToCameraForward(
           glm::max(bending_strength.x, bending_strength.y);
       break;
     }
-    case VisualizationParameters::SegmentPairRenderMode::TwistLimit: {
+    case DynamicStrandsVisualizationParameters::SegmentPairRenderMode::TwistLimit: {
       glm::vec2 twisting_strength = initialize_parameters.strength_graph.GetTwistingStrength(strength_input);
       segment_pair_push_constant.factor =
           initialize_parameters.biological_properties_graph.GetValues(biological_properties_input)
@@ -107,7 +109,7 @@ uint32_t DynamicStrands::RenderSegmentPairsToCameraForward(
           glm::max(twisting_strength.x, twisting_strength.y);
       break;
     }
-    case VisualizationParameters::SegmentPairRenderMode::BundleLimit: {
+    case DynamicStrandsVisualizationParameters::SegmentPairRenderMode::BundleLimit: {
       glm::vec2 bundle_strength = initialize_parameters.strength_graph.GetBundleStrength(strength_input);
       segment_pair_push_constant.factor =
           initialize_parameters.biological_properties_graph.GetValues(biological_properties_input)
@@ -115,7 +117,7 @@ uint32_t DynamicStrands::RenderSegmentPairsToCameraForward(
           glm::max(bundle_strength.x, bundle_strength.y);
       break;
     }
-    case VisualizationParameters::SegmentPairRenderMode::ConnectivityLimit: {
+    case DynamicStrandsVisualizationParameters::SegmentPairRenderMode::ConnectivityLimit: {
       glm::vec2 connectivity_strength = initialize_parameters.strength_graph.GetConnectivityStrength(strength_input);
       segment_pair_push_constant.factor =
           initialize_parameters.biological_properties_graph.GetValues(biological_properties_input)

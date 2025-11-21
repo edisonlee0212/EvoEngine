@@ -4,6 +4,9 @@
 
 using namespace eco_sys_lab_plugin;
 
+MeshingType DynamicStrandsInitializeParameters::meshing_type = MeshingType::AlphaShape;
+// MeshingType DynamicStrandsInitializeParameters::meshing_type = MeshingType::KineticVoronoi;
+
 bool DynamicStrandsInitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Min segment length", &min_segment_length, 0.001f, 0.001f, max_segment_length))
@@ -22,7 +25,7 @@ bool DynamicStrandsInitializeParameters::OnInspect(const std::shared_ptr<EditorL
     static bool show_damage_graph = false;
     ImGui::Checkbox("Show damage graph", &show_damage_graph);
     if (show_damage_graph) {
-      changed = damage_graph.ShowGraph("Damage graph", editor_layer) | changed;
+      changed = damage_graph.ShowGraph("Damage graph", editor_layer) || changed;
     }
 
     if (ImGui::DragFloat3("Damage scale factor", &damage_scale_factor.x, 0.001f, 0.f, 1.f)) {
@@ -96,8 +99,9 @@ bool DynamicStrandsInitializeParameters::OnInspect(const std::shared_ptr<EditorL
     if (ImGui::Checkbox("Use cubic Hermite spline", &use_cubic_hermite_spline))
       changed = true;
     if (ImGui::DragInt("Min bundle size", &min_bundle_size, 1, 1, 100))
+      changed = true;
 
-      ImGui::TreePop();
+    ImGui::TreePop();
   }
 
   return changed;
