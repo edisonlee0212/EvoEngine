@@ -67,5 +67,41 @@ void main(){
 		segments[segment_index].angular_v = min(max_angular_velocity, angular_velocity);
 		segments[segment_index].particle0.v = min(max_velocity, p0_velocity);
 		segments[segment_index].particle1.v = min(max_velocity, p1_velocity);
+			
+	        vec3 up = vec3(0.0, 1.0, 0.0);
+                vec3 down = vec3(0.0, -1.0, 0.0);
+                float friction = 0.8 * 9.8;
+                if (segments[segment_index].reach_ground == 1) {  // Todo: Enhanced Friction Model
+                  segments[segment_index].particle0.v = scaleAlongDirectional(segments[segment_index].particle0.v, up, 0.1);
+                  segments[segment_index].particle1.v = scaleAlongDirectional(segments[segment_index].particle1.v, up, 0.1);
+
+		//if (segments[segment_index].particle0.padding1 == 0)
+	 //       {
+  //                  segments[segment_index].particle0.v =
+  //                      scaleAlongDirectional(segments[segment_index].particle0.v, up, 0.02);	
+		//    segments[segment_index].particle0.padding1 = 1;
+		//}
+  //              if (segments[segment_index].particle1.padding1 == 0)
+		//{
+		//    segments[segment_index].particle1.v =
+  //                    scaleAlongDirectional(segments[segment_index].particle1.v, up, 0.02);
+  //                  segments[segment_index].particle1.padding1 = 1;
+		//}
+                  segments[segment_index].particle1.acceleration -=
+                      length(vec3(segments[segment_index].particle1.v.x, segments[segment_index].particle1.v.y, 0.f)) >
+                              1e-9f
+                      ? normalize(segments[segment_index].particle1.v) * friction: vec3(0.0);
+                  segments[segment_index].particle0.acceleration -=
+                      length(vec3(segments[segment_index].particle0.v.x, segments[segment_index].particle0.v.y, 0.f)) >
+                              1e-9f
+                          ? normalize(segments[segment_index].particle0.v) * friction
+                          : vec3(0.0);
+                }
+                /*if (segments[segment_index].quasi_stable == 1) {  
+                  segments[segment_index].particle0.v =
+                      scaleAlongDirectional(segments[segment_index].particle0.v, down, 0.2);
+                  segments[segment_index].particle1.v =
+                      scaleAlongDirectional(segments[segment_index].particle1.v, down, 0.2);
+                }*/
 	}
 }

@@ -253,11 +253,13 @@ void DsPivotTransform::Initialize(const GlobalTransform& target_base_global_tran
     auto& command = commands[i];
 
     command.segment_index = segment_info.first;
-    command.new_rotation = segment.q0;
-    command.new_particle0_position = segment.particle0.x0;
-    command.fix_particle0 = segment_info.second.first ? 1 : 0;
-    command.new_particle1_position = segment.particle1.x0;
-    command.fix_particle1 = segment_info.second.second ? 1 : 0;
+    if (command.segment_index != UINT32_MAX) {
+      command.new_rotation = segment.q0;
+      command.new_particle0_position = segment.particle0.x0;
+      command.fix_particle0 = segment_info.second.first ? 1 : 0;
+      command.new_particle1_position = segment.particle1.x0;
+      command.fix_particle1 = segment_info.second.second ? 1 : 0;
+    }
   });
 }
 void DsPivotTransform::Update(const GlobalTransform& new_global_transform,
@@ -265,12 +267,14 @@ void DsPivotTransform::Update(const GlobalTransform& new_global_transform,
   const glm::quat rotation = new_global_transform.GetRotation() * inverse_base_global_transform.GetRotation();
   Jobs::RunParallelFor(commands.size(), [&](const size_t i) {
     auto& command = commands[i];
-    command.new_particle0_position = new_global_transform.TransformPoint(inverse_base_global_transform.TransformPoint(
-        target_dynamic_strands->segments[command.segment_index].particle0.x0));
-    command.new_particle1_position = new_global_transform.TransformPoint(inverse_base_global_transform.TransformPoint(
-        target_dynamic_strands->segments[command.segment_index].particle1.x0));
+    if (command.segment_index != UINT32_MAX) {
+      command.new_particle0_position = new_global_transform.TransformPoint(inverse_base_global_transform.TransformPoint(
+          target_dynamic_strands->segments[command.segment_index].particle0.x0));
+      command.new_particle1_position = new_global_transform.TransformPoint(inverse_base_global_transform.TransformPoint(
+          target_dynamic_strands->segments[command.segment_index].particle1.x0));
 
-    command.new_rotation = rotation * target_dynamic_strands->segments[command.segment_index].q0;
+      command.new_rotation = rotation * target_dynamic_strands->segments[command.segment_index].q0;
+    }
   });
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();

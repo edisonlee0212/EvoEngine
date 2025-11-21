@@ -87,7 +87,15 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
   if (physics_parameters.enable_segment_collision) {
     dynamic_hashed_grid->BuildGrid(physics_parameters, *this);
     segment_collision->Execute(physics_parameters, *this);
+    // collision_post_step->Execute(physics_parameters, *this);
   }
+
+  // for (const auto& c : constraints) {
+  //   if (c->enabled) {
+  //     c->ProjectPositionConstraint(physics_parameters, *this);
+  //     c->ProjectVelocityConstraint(physics_parameters, *this);
+  //   }
+  // }
 
   frame_index++;
 }
@@ -166,6 +174,7 @@ DynamicStrands::DynamicStrands() {
   velocity_update = std::make_shared<DsVelocityUpdate>();
   dynamic_hashed_grid = std::make_shared<DsDynamicHashedGrid>();
   segment_collision = std::make_shared<DsSegmentCollision>();
+  collision_post_step = std::make_shared<DsSegmentCollisionPostStep>();
   structural_damage = std::make_shared<DsStructuralDamage>();
   fungus = std::make_shared<DsFungus>();
 
@@ -297,6 +306,9 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     changed = true;
   }
   if (ImGui::Checkbox("Enable Fungus", &enable_fungus)) {
+    changed = true;
+  }
+  if (ImGui::Checkbox("Enable Collision", &enable_segment_collision)) {
     changed = true;
   }
   if (enable_fungus) {
@@ -452,10 +464,9 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     changed = true;
   if (ImGui::DragInt("Velocity constraint iteration", &velocity_constraint_iteration, 1, 1, 50))
     changed = true;
-  if (ImGui::DragFloat("Segment Velocity damping", &segment_velocity_damping, 0.0001f, 0.f, 1.f, "%.4f"))
+  if (ImGui::DragFloat("Segment Velocity damping", &segment_velocity_damping, 0.01f, 0.f, 5.f, "%.2f"))
     changed = true;
-  if (ImGui::DragFloat("Segment Angular velocity damping", &segment_angular_velocity_damping, 0.00001f, 0.f, 1.f,
-                       "%.5f"))
+  if (ImGui::DragFloat("Segment Angular velocity damping", &segment_angular_velocity_damping, 0.01f, 0.f, 5.f, "%.2f"))
     changed = true;
   if (ImGui::DragFloat("Leaf Velocity damping", &leaf_velocity_damping, 0.0001f, 0.f, 1.f, "%.4f"))
     changed = true;

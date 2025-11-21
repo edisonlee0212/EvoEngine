@@ -265,7 +265,7 @@ class DsDynamicHashedGrid {
   inline static std::shared_ptr<Shader> big_flip_shader;
   inline static std::shared_ptr<Shader> local_disperse_shader;
   inline static std::shared_ptr<Shader> global_disperse_shader;
-  float grid_cell_size = 0.1f;
+  float grid_cell_size = 0.05f;
 
   std::unique_ptr<ComputePipeline> local_merge_sort_pipeline;
   std::unique_ptr<ComputePipeline> big_flip_pipeline;
@@ -284,9 +284,35 @@ class DsSegmentCollision {
     uint32_t segment_size = 0;
     float grid_cell_size;
   };
+  struct CapsulePushConstant {
+    uint32_t segment_size = 0;
+    float grid_cell_size;
+    float dt;
+    float a_geom;
+    float b_vel;
+    float c_bias;
+    float s_min;
+    float s_max_ratio;
+    float eta;
+    float bmax_far;
+  };
   uint32_t collision_mode = static_cast<uint32_t>(CollisionMode::Spherical);
   inline static std::shared_ptr<ComputePipeline> spherical_pipeline;
   DsSegmentCollision();
+  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+               const DynamicStrands& target_dynamic_strands);
+};
+
+class DsSegmentCollisionPostStep {
+ public:
+  enum class CollisionMode { Spherical };
+  struct SphericalPushConstant {
+    uint32_t segment_size = 0;
+    float dt;
+  };
+  uint32_t collision_mode = static_cast<uint32_t>(CollisionMode::Spherical);
+  inline static std::shared_ptr<ComputePipeline> spherical_pipeline;
+  DsSegmentCollisionPostStep();
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };

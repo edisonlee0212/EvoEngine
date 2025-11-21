@@ -231,6 +231,22 @@ float DistSquared(in vec3 A, in vec3 B) {
   return dot(C, C);
 }
 
+vec3 scaleAlong(in vec3 v, in vec3 d, in float k) {
+  vec3 v_dir = dot(v, d) * d;
+  vec3 v_perp = v - v_dir;
+  return v_perp + k * v_dir;
+}
+
+vec3 scaleAlongDirectional(in vec3 v, in vec3 d, in float k) {
+  if (dot(v, d) < 0)
+  {
+    return v;
+  }
+  vec3 v_dir = dot(v, d) * d;
+  vec3 v_perp = v - v_dir;
+  return v_perp + k * v_dir;
+}
+
 vec3 ProjectOntoPlane(in vec3 vector, in vec3 normalizedPlaneNormal) {
   // Compute the dot product of the vector and the plane normal
   float dotProduct = dot(vector, normalizedPlaneNormal);

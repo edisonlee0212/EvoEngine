@@ -22,7 +22,7 @@ memoryBarrierShared(); \
 barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint segment_size;
+    uint segment_size;
     float dt;
     float aw;
     float ab;
@@ -51,13 +51,14 @@ void main(){
 		if(segment_index >= segment_size) break;
 
 		// Calculate K based on boundary distance
-        segments[segment_index].K = (1.0 + bo) / (16.0 * bo * segments[segment_index].boundary_distance + 1.0);
+        segments[segment_index].K = (0.2 + bo) / (16.0 * bo * segments[segment_index].boundary_distance + 1.0);
         //segments[segment_index].K = 0.2;
         
         // Get diffusion values from the segment
         float diffusion_c = segments[segment_index].diffusion_c;
         float diffusion_w = segments[segment_index].diffusion_w;
         float diffusion_b = segments[segment_index].diffusion_b;
+        float diffusion_m = segments[segment_index].diffusion_m;
         
         // Update chemical protection (C)
         segments[segment_index].C = segments[segment_index].C_pre + 
@@ -111,6 +112,40 @@ void main(){
                                       0.1 * diffusion_b);
                                   
         segments[segment_index].RB = clamp(segments[segment_index].RB, 0.0, 1.0);
+
+
+
+
+        segments[segment_index].moisture =
+            segments[segment_index].moisture_pre +
+            dt * (0.1 * diffusion_m);
+
+        if (segments[segment_index].boundary_distance < 0.01) {
+          segments[segment_index].moisture -=
+              dt * segments[segment_index].moisture_pre * 0.1 * 0.6;
+        } 
+        
+
+
+        //for log
+        //segments[segment_index].moisture =
+        //    segments[segment_index].moisture_pre +
+        //    dt * (0.1 * diffusion_m +
+        //          25.0 * (1.0 - segments[segment_index].moisture_pre) * max(0.25 - segments[segment_index].boundary_distance, 0.0) *
+        //              (segments[segment_index].HL_pre));
+
+
+        //if (segments[segment_index].boundary_distance < 0.03) {
+        //  segments[segment_index].moisture -= dt * segments[segment_index].moisture_pre * 0.1 *
+        //                                      (1.0 - segments[segment_index].HL_pre + 0.1);
+        //} 
+        //if (segments[segment_index].particle0.x[0] < 0.03 || segments[segment_index].particle0.x[0] > 0.47) {
+        //  segments[segment_index].moisture -= 50.0 * dt * (segments[segment_index].moisture_pre + 0.2) *
+        //                                      (1.0 - segments[segment_index].HL_pre + 0.05) *
+        //                                      (segments[segment_index].boundary_distance + 0.03);
+        //}
+        segments[segment_index].moisture = clamp(segments[segment_index].moisture, 0.0, 1.0);
+                    
         
         // Update previous values for next iteration
         segments[segment_index].C_pre = segments[segment_index].C;
@@ -118,9 +153,24 @@ void main(){
         segments[segment_index].HL_pre = segments[segment_index].HL;
         segments[segment_index].RW_pre = segments[segment_index].RW;
         segments[segment_index].RB_pre = segments[segment_index].RB;
+        segments[segment_index].moisture_pre = segments[segment_index].moisture;
         segments[segment_index].diffusion_c = 0.0;
         segments[segment_index].diffusion_w = 0.0;
         segments[segment_index].diffusion_b = 0.0;
+        segments[segment_index].diffusion_m = 0.0;
         segments[segment_index].pairs_count = 0;
+        //segments[segment_index].shear_stretch_alpha =
+        //    1.f / (segments[segment_index].max_young_modulus * 3.1415926535f * segments[segment_index].radius *
+        //           segments[segment_index].radius / segments[segment_index].rest_length) *
+        //    (1.0f - 0.5 * segments[segment_index].HC);
+
+        //segments[segment_index].moisture = 0.2 + 0.4 * float(segments[segment_index].reach_ground);
+        // 
+        //if (segments[segment_index].quasi_stable == 1)
+        //{
+        //  segments[segment_index].particle0.v = vec3(0.0);
+        //  segments[segment_index].particle1.v = vec3(0.0);
+        //}
+
 	}
 }
