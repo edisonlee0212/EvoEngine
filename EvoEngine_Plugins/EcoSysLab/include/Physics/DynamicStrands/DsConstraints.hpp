@@ -121,6 +121,7 @@ class DsPivotTransform final : public IDsConstraint {
 
   struct SegmentUpdatePushConstant {
     uint32_t commands_size = 0;
+    float ring_radius = 10.0f;
   };
 
   inline static std::shared_ptr<ComputePipeline> segment_update_pipeline;
@@ -170,8 +171,13 @@ class DsBundle : public IDsConstraint {
     uint32_t skip_index = 0;
     uint32_t skip_size = 1;
     uint32_t segment_size = 0;
+    uint32_t treespace = 1;
     float inv_time_step = 0.0f;
     float over_relaxation;
+    float crack_bd_shrinkage_offset = 0.0f;
+    float crack_R_scale = 1.0f;
+    float crack_T_scale = 1.0f;
+    uint32_t internal_pattern = 0;
   };
 
   struct RandomBundleBendTwistConstant {

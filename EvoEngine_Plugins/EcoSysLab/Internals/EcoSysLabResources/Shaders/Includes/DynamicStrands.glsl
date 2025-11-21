@@ -114,9 +114,16 @@ struct Segment {
   int internal_pattern;
   int cube_pattern;
 
+  vec3 Obstruction_w;
   int prev_inside;
+
+  vec3 Obstruction_b;
   float ground_damping;
+
+  vec3 Obstruction_c;
   int quasi_stable;
+
+  vec3 Obstruction_m;
   float quasi_damping;
 
   Particle particle0;

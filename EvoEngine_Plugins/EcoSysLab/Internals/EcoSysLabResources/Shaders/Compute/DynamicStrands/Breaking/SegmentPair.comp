@@ -31,6 +31,11 @@ layout(push_constant) uniform PUSH_CONSTANTS {
   uint compression_disconnection;
   uint positional_breaking;
   uint rotational_breaking;
+
+  float rod_strength_factor;
+  float bundle_strength_factor;
+  float boundary_strength_decay_factor;
+  uint moisture_breaking_rod;
 };
 
 void main() {
@@ -54,11 +59,18 @@ void main() {
 
     float shear_stretch_strain_limit_0 = segments[segment0_handle].shear_stretch_strain_limit;
     float shear_stretch_strain_limit_1 = segments[segment1_handle].shear_stretch_strain_limit;
+    float bd = (segments[segment0_handle].boundary_distance + segments[segment1_handle].boundary_distance) / 2.0f;
 
     float scaling_factor = 1.0f; 
     float moisture = (segments[segment0_handle].moisture + segments[segment1_handle].moisture) / 2.0;
-    scaling_factor = moisture * moisture * moisture * moisture * moisture * moisture;
-    scaling_factor = max(1.f, scaling_factor); //currently disabled, for tree: 0.0003f to 0.001f
+    scaling_factor = 1.0f;
+    if (moisture_breaking_rod == 1) {
+      scaling_factor = moisture * moisture * moisture * moisture * moisture * moisture;
+    }
+    //scaling_factor = 0.0004f + bd * 0.001; 
+    scaling_factor = max(0.0006f, scaling_factor); //currently disabled, for tree: 0.0003f to 0.001f elm: 0.0006f
+    //scaling_factor = 0.0006f; 
+    scaling_factor *= rod_strength_factor;
 
     if (segments[segment0_handle].reach_ground == 0) {
       shear_stretch_strain_limit_0 *= 1.f * scaling_factor;
@@ -70,9 +82,16 @@ void main() {
     {
       //connectivity_strain_limit *= 0.4f * scaling_factor * 1.25;
       //connectivity_strain_limit *= 0.0005f;
-      connectivity_strain_limit *= max(5.f * scaling_factor /6.f, 0.0005f);
+      connectivity_strain_limit *= max(5.f * scaling_factor /6.f, 0.0004f);
       bending_twist_bundle_strain_limit.x *= 0.4f * scaling_factor;
+      //if (segments[segment0_handle].particle0.x[1] > 0.1)
+      //{
+      //  bending_twist_bundle_strain_limit.x *= 0.45f;
+      //} //Disabled hacking for spruce case (0.25) and oak case (0.4 - 0.48)
       bending_twist_bundle_strain_limit.y *= 0.4f * scaling_factor;
+      bending_twist_bundle_strain_limit.z *= (1.0f - bd * boundary_strength_decay_factor) * bundle_strength_factor; //for log
+      //bending_twist_bundle_strain_limit.z *= bundle_strength_factor;
+      //bending_twist_bundle_strain_limit.z *= max((1.0f - bd * 6.0f), 0.1f) * bundle_strength_factor; //for trunk
     }
 
     bool is_connection = segment_pairs[pair_index].connectivity_integrity != 0.f &&

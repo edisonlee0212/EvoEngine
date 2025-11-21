@@ -145,7 +145,8 @@ class DynamicTreeStrands : public IPrivateComponent {
     float center_damage = 0.5f;                                              ///< Damage factor at the center.
     float center_distance_offset = 0.1f;                                     ///< Offset distance from the center.
     float center_damage_transition = 0.1f;                                   ///< Damage transition factor.
-    glm::vec3 initial_velocity = glm::vec3(0.f);                             ///< Initial velocity of the structure.
+    bool fungus_test = false;
+    glm::vec3 initial_velocity = glm::vec3(0.f);          ///< Initial velocity of the structure.
     glm::vec3 initial_angular_velocity = glm::vec3(0.f);  ///< Initial angular velocity of the structure.
 
     /**
@@ -292,7 +293,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   void delete_tree(Node_tilt* n);
 
   int classify_point_jitter_axis(const std::array<float, 3>& pt, const Node_tilt* node, float eps_norm,
-                                 uint32_t base_seed);
+                                 uint32_t base_seed, bool wrap = true);
 
   float normalize_coord(Axis3 axis, float coord);
 };

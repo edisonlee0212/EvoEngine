@@ -142,6 +142,10 @@ void main(){
                 segments[segment_index].reach_ground = segment.reach_ground;
                 if (segment.reach_ground == 1) {
                   segments[segment_index].quasi_stable = 1;
+                  segments[segment_index].particle0.last_x = segment.particle0.x;
+                  segments[segment_index].particle1.last_x = segment.particle1.x;
+                  //segments[segment_index].particle0.acceleration = vec3(0.0);
+                  //segments[segment_index].particle1.acceleration = vec3(0.0);
                 }
 	}
 }

@@ -147,6 +147,16 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.internal_pattern = true;
     log_experiment_setup_settings.cube_pattern = false;
     physics_parameters.enable_fungus = true;
+    physics_parameters.pivot_ring_radius = 0.05f;
+
+    log_experiment_setup_settings.right_pivot_type =
+        static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+    log_experiment_setup_settings.left_pivot_type =
+        static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+
+    physics_parameters.gravity = glm::vec3(0.f, 0.f, 0.f);
+    dts->initialize_parameters.max_segment_length = 0.01f;
+    dts->initialize_parameters.min_segment_length = 0.005f;
 
     dts->LogExperimentSetup(log_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
@@ -180,8 +190,10 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     physics_parameters.aw = 3.5f;
     physics_parameters.bw = 4.0f;
 
-    physics_parameters.matrixAw = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
-    physics_parameters.matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
+    // physics_parameters.matrixAw = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
+    // physics_parameters.matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
+    dts->initialize_parameters.max_segment_length = 0.01f;
+    dts->initialize_parameters.min_segment_length = 0.005f;
 
     dts->LogExperimentSetup(log_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
@@ -205,10 +217,45 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     physics_parameters.enable_fungus = true;
     physics_parameters.bo = 0.0f;
     physics_parameters.be = 0.0f;
-    physics_parameters.matrixAw = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
-    physics_parameters.matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
+    // physics_parameters.matrixAw = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
+    // physics_parameters.matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
+    dts->initialize_parameters.max_segment_length = 0.01f;
+    dts->initialize_parameters.min_segment_length = 0.005f;
 
     dts->LogExperimentSetup(log_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+  }
+
+  if (ImGui::Button("Board Fungus")) {
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(-0.5, 2.2, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-40, -45, 0)));
+    demo_type = DemoType::Fungus;
+    demo_status = DemoStatus::Simulation;
+
+    dts->initialize_parameters.strength_graph.SetShearStretchStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetBendingStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetTwistingStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetBundleStrength({100.f, 100.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({100.f, 100.f});
+
+    dts->initialize_parameters.max_segment_length = 0.03f;
+    dts->initialize_parameters.min_segment_length = 0.015f;
+
+    physics_parameters.enable_fungus = true;
+    physics_parameters.treespace = false;
+    physics_parameters.matrixAw = glm::mat3(200.0f, 0.0f, 0.0f, 0.0f, 200.0f, 0.0f, 0.0f, 0.0f, 200.0f);
+    // physics_parameters.matrixAb = glm::mat3(2.f, 0.0f, 0.0f, 0.0f, 1000.f, 0.0f, 0.0f, 0.0f, 0.2f);  // slow y
+    physics_parameters.matrixAb = glm::mat3(1000.f, 0.0f, 0.0f, 0.0f, 0.2f, 0.0f, 0.0f, 0.0f, 0.2f);  // slow x
+    physics_parameters.brb = 0.75f;
+    physics_parameters.pc = 0.05f;
+
+    board_experiment_setup_settings.center_damage = 0.7f;
+    board_experiment_setup_settings.rod_dimension = {160, 10, 20};
+    board_experiment_setup_settings.fungus_test = true;
+
+    dts->BoardExperimentSetup(board_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }

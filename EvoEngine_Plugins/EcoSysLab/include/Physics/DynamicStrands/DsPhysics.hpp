@@ -24,10 +24,15 @@ class DsFungus {
     uint32_t pair_size = 0;  ///< Number of segment pairs.
     float be = 2.0f;
     float lignin_threshold = -1.0f;
-    uint32_t _pad;
+    uint32_t global_parameter = 1;
+    float HC_threshold = 0.4f;
+    float HL_threshold = 0.4f;
+    uint32_t treespace = 1;
+    float padding1 = 0.0f;
     glm::mat4 matrixAw4;
     glm::mat4 matrixAb4;
     glm::mat4 matrixAc4;
+    glm::mat4 matrixAm4;
   };
 
   /**
@@ -51,6 +56,10 @@ class DsFungus {
     float ll = 0.5f;
     float lc = 0.5f;
     float bo = 1.0f;
+    float kc = 0.2f;
+    float brw = 0.5f;
+    float brb = 0.5f;
+    float msr = 0.15f;
   };
 
   inline static std::shared_ptr<ComputePipeline>
@@ -197,6 +206,11 @@ class DsStructuralDamage {
     uint32_t compression_disconnection;
     uint32_t positional_breaking;
     uint32_t rotational_breaking;
+
+    float rod_strength_factor;
+    float bundle_strength_factor;
+    float boundary_strength_decay_factor;
+    uint32_t moisture_breaking_rod;
   };
 
   struct LeafBreakingPushConstant {
