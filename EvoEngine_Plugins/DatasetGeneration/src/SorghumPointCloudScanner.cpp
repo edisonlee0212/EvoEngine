@@ -1,11 +1,8 @@
 #include "SorghumPointCloudScanner.hpp"
-#ifdef CUDA_MODULE_PLUGIN
-#  include <CUDAModule.hpp>
-#  include <OptiXRayTracer.hpp>
-#  include <RayTracerLayer.hpp>
-#endif
+
 #include "CpuRayTracer.hpp"
 #include "EcoSysLabLayer.hpp"
+#include "PointCloud.hpp"
 #include "Sorghum.hpp"
 #include "Tinyply.hpp"
 #include "TreePointCloudScanner.hpp"
@@ -193,13 +190,6 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
   capture_settings->GenerateSamples(pc_samples);
 
   switch (capture_settings->capture_mode) {
-    case PointCloudCaptureSettings::CaptureMode::OptiX: {
-#ifdef CUDA_MODULE_PLUGIN
-      CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
-#else
-      EVOENGINE_ERROR("Missing CudaModule plugin!")
-#endif
-    } break;
     case PointCloudCaptureSettings::CaptureMode::Cpu: {
       /**
        * You may take a look at render instances, to see what it contains. RenderLayer will prepare a RenderInstance
@@ -231,41 +221,8 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
           });
       cpu_ray_tracer.SamplePointCloud(pc_samples);
     } break;
-    case PointCloudCaptureSettings::CaptureMode::GpuCompute: {
-      std::shared_ptr<RenderInstanceStorage> render_instances{};
-      if (render_layer) {
-        render_instances = render_layer->GetCurrentRenderInstanceStorage();
-      }
-      if (!render_instances) {
-        render_instances = std::make_shared<RenderInstanceStorage>();
-        Bound world_bound;
-        render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
-      }
-      CpuRayTracer cpu_ray_tracer;
-      /**
-       * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS
-       * based on them.
-       */
-      cpu_ray_tracer.Initialize(
-          render_instances,
-          [&](uint32_t, const std::shared_ptr<Mesh>&) {
-
-          },
-          [&](const uint32_t node_index, const Entity& entity) {
-
-          });
-      /**
-       * The cpu_ray_tracer will aggregate and flatten TLAS and BLAS so from its hierarcal structure to vectors so we
-       * can use it on GPU.
-       */
-      auto aggregate_scene = cpu_ray_tracer.Aggregate();
-      /**
-       * Upload prepared data to GPU, these data will be linked to the compute pipeline via Descriptors (collectively
-       * DescriptorSet) so we can read them in shader. You may take a look at its implementation to see how easy to send
-       * data to GPU.
-       */
-      aggregate_scene.InitializeBuffers();
-      aggregate_scene.SamplePointCloudGpu(cpu_ray_tracer, pc_samples);
+    case PointCloudCaptureSettings::CaptureMode::Gpu: {
+      PointCloud::SampleCurrentScene(pc_samples);
     } break;
   }
 
@@ -273,7 +230,7 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
   glm::vec3 right_offset = glm::linearRand(-right_random_offset, right_random_offset);
   for (int sample_index = 0; sample_index < pc_samples.size(); sample_index++) {
     const auto& sample = pc_samples.at(sample_index);
-    if (!sample.hit)
+    if (sample.hit_count == 0)
       continue;
     if (!capture_settings->SampleFilter(sample))
       continue;
@@ -299,9 +256,6 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
 
     if (sorghum_point_cloud_point_settings.leaf_index) {
       switch (capture_settings->capture_mode) {
-        case PointCloudCaptureSettings::CaptureMode::OptiX: {
-          leaf_indices.emplace_back(glm::floatBitsToUint(sample.hit_info.data.x));
-        } break;
         case PointCloudCaptureSettings::CaptureMode::Cpu: {
           if (const auto search = leaf_mesh_renderer_handles.find(sample.handle);
               search != leaf_mesh_renderer_handles.end()) {
@@ -310,13 +264,8 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
             leaf_indices.emplace_back(0);
           }
         } break;
-        case PointCloudCaptureSettings::CaptureMode::GpuCompute: {
-          if (const auto search = leaf_mesh_renderer_handles.find(sample.handle);
-              search != leaf_mesh_renderer_handles.end()) {
-            leaf_indices.emplace_back(search->second.second);
-          } else {
-            leaf_indices.emplace_back(0);
-          }
+        case PointCloudCaptureSettings::CaptureMode::Gpu: {
+          leaf_indices.emplace_back(glm::floatBitsToUint(sample.hit_info.vertex_info1));
         } break;
       }
     }

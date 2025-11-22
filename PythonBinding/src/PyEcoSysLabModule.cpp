@@ -20,9 +20,6 @@ void push_layers(const bool enable_window_layer, const bool enable_editor_layer)
   if (enable_window_layer && enable_editor_layer)
     Application::PushLayer<EditorLayer>("Editor Layer");
   Application::PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
-#  ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
-#  endif
 }
 
 std::filesystem::path get_default_project_path() {

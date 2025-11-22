@@ -3,11 +3,6 @@
 //
 #include <Application.hpp>
 
-#ifdef CUDA_MODULE_PLUGIN
-#  include <CUDAModule.hpp>
-#  include <RayTracerLayer.hpp>
-#endif
-
 #include "PostProcessingStack.hpp"
 #include "Times.hpp"
 #ifdef ECOSYSLAB_PLUGIN
@@ -79,9 +74,6 @@ int main() {
   EngineSetup();
 
   Application::PushLayer<RenderLayer>("Render Layer");
-#ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
-#endif
   Application::PushLayer<WindowLayer>("Window Layer");
   Application::PushLayer<EditorLayer>("Editor Layer");
 
@@ -105,9 +97,6 @@ int main() {
       std::filesystem::absolute(resource_folder_path / "EcoSysLabProject" / "test.eveproj");
   Application::Initialize(application_configs);
 
-#ifdef CUDA_MODULE_PLUGIN
-  auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
-#endif
 #ifdef PHYSX_PHYSICS_PLUGIN
   Application::GetActiveScene()->GetOrCreateSystem<PhysicsSystem>(1);
 #endif

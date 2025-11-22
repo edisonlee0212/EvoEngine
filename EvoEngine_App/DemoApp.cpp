@@ -19,10 +19,6 @@ using namespace universe_plugin;
 
 #include "PostProcessingStack.hpp"
 #include "Resources.hpp"
-#ifdef CUDA_MODULE_PLUGIN
-#  include <CUDAModule.hpp>
-#  include <RayTracerLayer.hpp>
-#endif
 #ifdef PHYSX_PHYSICS_PLUGIN
 #  include "PhysicsLayer.hpp"
 #  include "RigidBody.hpp"
@@ -81,9 +77,6 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
 int main() {
   constexpr DemoSetup demo_setup = DemoSetup::Rendering;
   Application::PushLayer<RenderLayer>("Render Layer");
-#ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
-#endif
   Application::PushLayer<WindowLayer>("Window Layer");
   Application::PushLayer<EditorLayer>("Editor Layer");
 #ifdef UNIVERSE_PLUGIN
@@ -117,12 +110,6 @@ int main() {
   SetupDemoScene(demo_setup, application_info);
 
   Application::Initialize(application_info);
-
-#ifdef CUDA_MODULE_PLUGIN
-  const auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
-  ray_tracer_layer->show_camera_window = false;
-  ray_tracer_layer->show_scene_window = false;
-#endif
 
   Application::Start();
   Application::Run();

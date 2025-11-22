@@ -84,6 +84,8 @@ void RenderInstanceStorage::ExternalRenderInstance::Apply(InstanceInfoBlock& ins
   instance_info_block.meshlet_index_offset = 0;
   instance_info_block.meshlet_size = 0;
   instance_info_block.info_index = entity_selected ? 1 : 0;
+  instance_info_block.entity_index = owner.GetIndex();
+  instance_info_block.renderer_handle = renderer_handle;
 }
 
 uint32_t RenderInstanceStorage::ExternalRenderInstance::Render(
@@ -129,6 +131,8 @@ void RenderInstanceStorage::MeshRenderInstance::Apply(InstanceInfoBlock& instanc
   instance_info_block.triangle_offset = mesh->triangle_range_->offset;
   instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
   instance_info_block.meshlet_size = mesh->meshlet_range_->range;
+  instance_info_block.entity_index = owner.GetIndex();
+  instance_info_block.renderer_handle = renderer_handle;
 }
 
 uint32_t RenderInstanceStorage::MeshRenderInstance::Render(
@@ -190,6 +194,8 @@ void RenderInstanceStorage::SkinnedMeshRenderInstance::Apply(InstanceInfoBlock& 
   instance_info_block.triangle_offset = skinned_mesh->skinned_triangle_range_->offset;
   instance_info_block.meshlet_index_offset = skinned_mesh->skinned_meshlet_range_->offset;
   instance_info_block.meshlet_size = skinned_mesh->skinned_meshlet_range_->range;
+  instance_info_block.entity_index = owner.GetIndex();
+  instance_info_block.renderer_handle = renderer_handle;
 }
 
 uint32_t RenderInstanceStorage::SkinnedMeshRenderInstance::Render(
@@ -242,6 +248,8 @@ void RenderInstanceStorage::InstancedRenderInstance::Apply(InstanceInfoBlock& in
   instance_info_block.triangle_offset = mesh->triangle_range_->offset;
   instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
   instance_info_block.meshlet_size = mesh->meshlet_range_->range;
+  instance_info_block.entity_index = owner.GetIndex();
+  instance_info_block.renderer_handle = renderer_handle;
 }
 
 uint32_t RenderInstanceStorage::InstancedRenderInstance::Render(
@@ -292,6 +300,8 @@ void RenderInstanceStorage::StrandsRenderInstance::Apply(InstanceInfoBlock& inst
   instance_info_block.triangle_offset = strands->segment_range_->offset;
   instance_info_block.meshlet_index_offset = strands->strand_meshlet_range_->offset;
   instance_info_block.meshlet_size = strands->strand_meshlet_range_->range;
+  instance_info_block.entity_index = owner.GetIndex();
+  instance_info_block.renderer_handle = renderer_handle;
 }
 
 uint32_t RenderInstanceStorage::StrandsRenderInstance::Render(
@@ -520,6 +530,10 @@ bool RenderInstanceStorage::InstanceInfoBlock::operator!=(const InstanceInfoBloc
   if (meshlet_size != other.meshlet_size)
     return true;
   if (info_index != other.info_index)
+    return true;
+  if (entity_index != other.entity_index)
+    return true;
+  if (renderer_handle != other.renderer_handle)
     return true;
   return false;
 }
@@ -838,7 +852,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
             split_end = render_settings.max_shadow_distance * render_settings.shadow_cascade_split[split];
           render_info_block.split_distances[split] = split_end;
           glm::mat4 light_projection, light_view;
-          float max = 0;
+          float max_distance = 0;
           glm::vec3 light_pos;
           glm::vec3 corner_points[8];
           Camera::CalculateFrustumPoints(camera, split_start, split_end, main_camera_pos, main_camera_rot,
@@ -849,33 +863,41 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
           if (render_settings.stable_fit) {
             // Less detail but no shimmering when rotating the camera.
             // max = glm::distance(cornerPoints[4], cameraFrustumCenter);
-            max = split_end;
+            max_distance = split_end;
           } else {
             // More detail but cause shimmering when rotating camera.
-            max = (glm::max)(
-                max, glm::distance(corner_points[0], Ray::ClosestPointOnLine(corner_points[0], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[1], Ray::ClosestPointOnLine(corner_points[1], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[2], Ray::ClosestPointOnLine(corner_points[2], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[3], Ray::ClosestPointOnLine(corner_points[3], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[4], Ray::ClosestPointOnLine(corner_points[4], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[5], Ray::ClosestPointOnLine(corner_points[5], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[6], Ray::ClosestPointOnLine(corner_points[6], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
-            max = (glm::max)(
-                max, glm::distance(corner_points[7], Ray::ClosestPointOnLine(corner_points[7], camera_frustum_center,
-                                                                             camera_frustum_center - light_dir)));
+            max_distance = glm::max(
+                max_distance,
+                glm::distance(corner_points[0], Ray::ClosestPointOnLine(corner_points[0], camera_frustum_center,
+                                                                        camera_frustum_center - light_dir)));
+            max_distance = glm::max(
+                max_distance,
+                glm::distance(corner_points[1], Ray::ClosestPointOnLine(corner_points[1], camera_frustum_center,
+                                                                        camera_frustum_center - light_dir)));
+            max_distance = glm::max(
+                max_distance,
+                glm::distance(corner_points[2], Ray::ClosestPointOnLine(corner_points[2], camera_frustum_center,
+                                                                        camera_frustum_center - light_dir)));
+            max_distance = glm::max(
+                max_distance,
+                glm::distance(corner_points[3], Ray::ClosestPointOnLine(corner_points[3], camera_frustum_center,
+                                                                        camera_frustum_center - light_dir)));
+            max_distance = glm::max(
+                max_distance,
+                glm::distance(corner_points[4], Ray::ClosestPointOnLine(corner_points[4], camera_frustum_center,
+                                                                        camera_frustum_center - light_dir)));
+            max_distance = glm::max(
+                max_distance,
+                glm::distance(corner_points[5], Ray::ClosestPointOnLine(corner_points[5], camera_frustum_center,
+                                                                        camera_frustum_center - light_dir)));
+            max_distance = glm::max(
+                max_distance,
+                glm::distance(corner_points[6], Ray::ClosestPointOnLine(corner_points[6], camera_frustum_center,
+                                                                        camera_frustum_center - light_dir)));
+            max_distance = glm::max(
+                max_distance,
+                glm::distance(corner_points[7], Ray::ClosestPointOnLine(corner_points[7], camera_frustum_center,
+                                                                        camera_frustum_center - light_dir)));
           }
 
           glm::vec3 p0 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, max_bound.y, max_bound.z),
@@ -908,10 +930,11 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
 
           center =
               Ray::ClosestPointOnLine(world_bound.Center(), camera_frustum_center, camera_frustum_center + light_dir);
-          plane_distance = (glm::max)((glm::max)(d0, d1), (glm::max)(d2, d3));
+          plane_distance = glm::max(glm::max(d0, d1), glm::max(d2, d3));
           light_pos = center - light_dir * plane_distance;
           light_view = glm::lookAt(light_pos, light_pos + light_dir, glm::normalize(rotation * glm::vec3(0, 1, 0)));
-          light_projection = glm::ortho(-max, max, -max, max, 0.0f, plane_distance * 2.0f);
+          light_projection =
+              glm::ortho(-max_distance, max_distance, -max_distance, max_distance, 0.0f, plane_distance * 2.0f);
 #pragma region Fix Shimmering due to the movement of the camera
           glm::mat4 shadow_matrix = light_projection * light_view;
           glm::vec4 shadow_origin = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -929,7 +952,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
           light_projection = shadow_proj;
 #pragma endregion
           directional_light_info_blocks_[block_index].light_space_matrix[split] = light_projection * light_view;
-          directional_light_info_blocks_[block_index].light_frustum_width[split] = max;
+          directional_light_info_blocks_[block_index].light_frustum_width[split] = max_distance;
           directional_light_info_blocks_[block_index].light_frustum_distance[split] = plane_distance;
           if (split == 4 - 1)
             directional_light_info_blocks_[block_index].reserved_parameters =
@@ -1475,8 +1498,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   glm::vec3 size = mesh_bound.Size();
   min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
                         (glm::min)(min_bound.z, center.z - size.z));
-  max_bound = glm::vec3((glm::max)(max_bound.x, center.x + size.x), (glm::max)(max_bound.y, center.y + size.y),
-                        (glm::max)(max_bound.z, center.z + size.z));
+  max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
+                        glm::max(max_bound.z, center.z + size.z));
 
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
@@ -1526,8 +1549,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   glm::vec3 size = mesh_bound.Size();
   min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
                         (glm::min)(min_bound.z, center.z - size.z));
-  max_bound = glm::vec3((glm::max)(max_bound.x, center.x + size.x), (glm::max)(max_bound.y, center.y + size.y),
-                        (glm::max)(max_bound.z, center.z + size.z));
+  max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
+                        glm::max(max_bound.z, center.z + size.z));
 
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
@@ -1599,8 +1622,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   glm::vec3 size = mesh_bound.Size();
   min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
                         (glm::min)(min_bound.z, center.z - size.z));
-  max_bound = glm::vec3((glm::max)(max_bound.x, center.x + size.x), (glm::max)(max_bound.y, center.y + size.y),
-                        (glm::max)(max_bound.z, center.z + size.z));
+  max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
+                        glm::max(max_bound.z, center.z + size.z));
 
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
@@ -1654,8 +1677,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
                         (glm::min)(min_bound.z, center.z - size.z));
 
-  max_bound = glm::vec3((glm::max)(max_bound.x, center.x + size.x), (glm::max)(max_bound.y, center.y + size.y),
-                        (glm::max)(max_bound.z, center.z + size.z));
+  max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
+                        glm::max(max_bound.z, center.z + size.z));
 
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);

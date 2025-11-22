@@ -45,9 +45,20 @@ struct RenderInstancePushConstant {
 /**
  * @brief Struct containing push constants for ray tracing.
  */
-struct RayTracingPushConstant {
+struct RayTracingCameraPushConstant {
   uint32_t camera_index = 0;  ///< Index of the camera for ray tracing.
   uint32_t frame_id = 0;      ///< Frame ID for the current ray tracing operation.
+};
+
+/**
+ * @brief Struct containing push constants for ray tracing.
+ */
+struct RayTracingPointCloudPushConstant {
+  uint32_t bounce = 0;  ///< Current bounce count for ray tracing.
+  uint32_t envIndex;
+  uint32_t skybox_tex_index;
+  uint32_t use_clear_color;
+  glm::vec4 clear_color;
 };
 
 /**
@@ -126,10 +137,9 @@ class RenderInstanceStorage {
     int32_t meshlet_index_offset = 0;  ///< Offset for meshlet indices.
     int32_t meshlet_size = 0;          ///< Size of the meshlet.
 
-    int32_t info_index = 0;  ///< Index for additional instance information.
-    int32_t padding0 = 0;    ///< Padding for alignment.
-    int32_t padding1 = 0;    ///< Padding for alignment.
-    int32_t padding2 = 0;    ///< Padding for alignment.
+    int32_t info_index = 0;      ///< Index for additional instance information.
+    uint32_t entity_index = 0;   ///< Entity index associated with the instance.
+    Handle renderer_handle = 0;  ///< Handle for the renderer.
 
     /**
      * @brief Compares two InstanceInfoBlock objects for inequality.

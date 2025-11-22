@@ -136,16 +136,22 @@ struct TriangularMesh {
     auto z = 1.f - triangle_barycentrics.x - triangle_barycentrics.y;
     if (triangle_barycentrics.x > z && triangle_barycentrics.x > triangle_barycentrics.y) {
       hit_info.color = vy.color;
-      hit_info.data = glm::vec3(vy.vertex_info1, vy.vertex_info2, vy.vertex_info3);
-      hit_info.data2 = vy.vertex_info4;
+      hit_info.vertex_info1 = vy.vertex_info1;
+      hit_info.vertex_info2 = vy.vertex_info2;
+      hit_info.vertex_info3 = vy.vertex_info3;
+      hit_info.vertex_info4 = vy.vertex_info4;
     } else if (triangle_barycentrics.y > z) {
       hit_info.color = vz.color;
-      hit_info.data = glm::vec3(vz.vertex_info1, vz.vertex_info2, vz.vertex_info3);
-      hit_info.data2 = vz.vertex_info4;
+      hit_info.vertex_info1 = vz.vertex_info1;
+      hit_info.vertex_info2 = vz.vertex_info2;
+      hit_info.vertex_info3 = vz.vertex_info3;
+      hit_info.vertex_info4 = vz.vertex_info4;
     } else {
       hit_info.color = vx.color;
-      hit_info.data = glm::vec3(vx.vertex_info1, vx.vertex_info2, vx.vertex_info3);
-      hit_info.data2 = vx.vertex_info4;
+      hit_info.vertex_info1 = vx.vertex_info1;
+      hit_info.vertex_info2 = vx.vertex_info2;
+      hit_info.vertex_info3 = vx.vertex_info3;
+      hit_info.vertex_info4 = vx.vertex_info4;
     }
     return hit_info;
   }

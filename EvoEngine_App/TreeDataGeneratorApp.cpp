@@ -11,10 +11,6 @@
 using namespace digital_agriculture_plugin;
 #endif
 #include "WindowLayer.hpp"
-#ifdef CUDA_MODULE_PLUGIN
-#  include <CUDAModule.hpp>
-#  include <RayTracerLayer.hpp>
-#endif
 
 #ifdef DATASET_GENERATION_PLUGIN
 #  include <SorghumPointCloudScanner.hpp>
@@ -46,9 +42,6 @@ void register_classes() {
 
 void push_layers(bool enable_window_layer, bool enable_editor_layer) {
   Application::PushLayer<RenderLayer>("Render Layer");
-#ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
-#endif
   if (enable_window_layer)
     Application::PushLayer<WindowLayer>("Window Layer");
   if (enable_window_layer && enable_editor_layer)

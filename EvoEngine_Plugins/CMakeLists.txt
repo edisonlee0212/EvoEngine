@@ -43,7 +43,7 @@ function(register_evoengine_plugin plugin_name default_enable)
   set(EVOENGINE_PLUGINS_RESOURCES ${EVOENGINE_PLUGINS_RESOURCES} PARENT_SCOPE)
 endfunction()
 
-register_evoengine_plugin(CudaModule ON)
+#register_evoengine_plugin(CudaModule ON)
 if (WIN32)
 	register_evoengine_plugin(MeshRepair ON)
 	register_evoengine_plugin(TextureBaking ON)

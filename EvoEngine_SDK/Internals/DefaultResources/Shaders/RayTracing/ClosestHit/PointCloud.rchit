@@ -2,9 +2,9 @@
 #extension GL_EXT_ray_tracing : require
 
 #include "RayTracingBasic.glsl"
-#include "CameraRayTracingPayload.glsl"
+#include "PointCloudRayTracingPayload.glsl"
 #include "Random.glsl"
-layout(location = 0) rayPayloadInEXT CameraRayTracingPayload hit_value;
+layout(location = 0) rayPayloadInEXT PointCloudRayTracingPayload hit_value;
 
 hitAttributeEXT vec2 attribs;
 
@@ -12,17 +12,18 @@ vec3 Reflect(in vec3 incident, in vec3 normal) {
   return incident - 2.0f * dot(incident, normal) * normal;
 }
 
-layout(push_constant) uniform EE_CAMERA_CONSTANTS {
-  uint EE_CAMERA_INDEX;
-  uint EE_FRAME_ID;
+layout(push_constant) uniform EE_POINT_CLOUD_CONSTANTS {
+  uint bounce;
+  uint envIndex;
+  uint skybox_tex_index;
+  uint use_clear_color;
+  vec4 clear_color;
 };
 
-
 vec3 EE_SKY_COLOR(vec3 direction) {
-	Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
-	return camera.use_clear_color == 1 ?
-		camera.clear_color.xyz * camera.clear_color.w
-		: pow(texture(EE_CUBEMAPS[camera.skybox_tex_index], normalize(direction)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
+	return use_clear_color == 1 ?
+		clear_color.xyz * clear_color.w
+		: pow(texture(EE_CUBEMAPS[skybox_tex_index], normalize(direction)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * clear_color.w;
 }
 
 mat3 GetTangentSpace(in vec3 normal) {
@@ -55,8 +56,8 @@ void main()
 {
 	const int instance_index = int(gl_InstanceCustomIndexEXT);
 	const MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[EE_INSTANCES[instance_index].material_index];
-
-	const int triangle_offset = EE_INSTANCES[instance_index].triangle_offset + gl_PrimitiveID;
+	Instance instance = EE_INSTANCES[instance_index];
+	const int triangle_offset = instance.triangle_offset + gl_PrimitiveID;
 
 	// Vertex of the triangle
 	const Vertex v0 = EE_VERTICES[EE_INDICES[triangle_offset * 3]];
@@ -88,21 +89,40 @@ void main()
 	}
 
 	hit_value.hit_count += 1;
-	hit_value.position = worldPosition;
-	hit_value.normal = worldNormal;
-	const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
-	
+
 	vec3 combined_color = vec3(0.0f, 0.0f, 0.0f);
-	if(hit_value.hit_count <= camera.bounce){
+	if(hit_value.hit_count <= bounce){
 		const vec3 sample_direction = BRDF(metallic, hit_value.seed, gl_WorldRayDirectionEXT, worldNormal);
 		traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, worldPosition, 1e-3f, sample_direction, 1e20f, 0);
-		const vec3 received_color = hit_value.color;
+		const vec3 received_color = hit_value.hit_info.color.xyz;
 		combined_color = albedo.xyz * clamp(abs(dot(worldNormal, sample_direction)) * roughness + (1.f - roughness) * f, 0.0f, 1.0f) * received_color;
 	}else{
 		combined_color = EE_SKY_COLOR(worldNormal) * 1e-3f;
 	}
-	hit_value.color = combined_color + emission * albedo.xyz;
+	hit_value.hit_info.color = vec4(combined_color + emission * albedo.xyz, 1.0f);
 
-	hit_value.initial_normal = worldNormal;
-	hit_value.initial_position = worldPosition;
+	hit_value.hit_info.position = worldPosition;
+	hit_value.hit_info.normal = worldNormal;
+	hit_value.hit_info.tangent = worldTangent;
+	hit_value.hit_info.tex_coord = tex_coord;
+	hit_value.handle = instance.renderer_handle;
+
+	// Interpolate vertex info
+	if (barycentrics.x > barycentrics.z && barycentrics.x > barycentrics.y) {
+      hit_value.hit_info.vertex_info1 = v1.vertex_info1;
+      hit_value.hit_info.vertex_info2 = v1.vertex_info2;
+      hit_value.hit_info.vertex_info3 = v1.vertex_info3;
+      hit_value.hit_info.vertex_info4 = v1.vertex_info4;
+    } else if (barycentrics.y > barycentrics.z) {
+      hit_value.hit_info.vertex_info1 = v2.vertex_info1;
+      hit_value.hit_info.vertex_info2 = v2.vertex_info2;
+      hit_value.hit_info.vertex_info3 = v2.vertex_info3;
+      hit_value.hit_info.vertex_info4 = v2.vertex_info4;
+    } else {
+      hit_value.hit_info.vertex_info1 = v0.vertex_info1;
+      hit_value.hit_info.vertex_info2 = v0.vertex_info2;
+      hit_value.hit_info.vertex_info3 = v0.vertex_info3;
+      hit_value.hit_info.vertex_info4 = v0.vertex_info4;
+    }
+
 }

@@ -13,7 +13,7 @@ void GenerateDataForSorghum(const bool use_gpu, const Entity& sorghum_entity,
   gantry_capture_settings->grid_size.x = gantry_capture_settings->grid_size.y = 1;
   data_generation_parameters.point_cloud_capture_settings = gantry_capture_settings;
   if (use_gpu) {
-    gantry_capture_settings->capture_mode = PointCloudCaptureSettings::CaptureMode::OptiX;
+    gantry_capture_settings->capture_mode = PointCloudCaptureSettings::CaptureMode::Gpu;
   } else {
     gantry_capture_settings->capture_mode = PointCloudCaptureSettings::CaptureMode::Cpu;
   }
@@ -26,7 +26,7 @@ void GenerateDataForAllSorghums(const bool use_gpu, const SorghumGantryCaptureSe
   *gantry_capture_settings = capture_settings;
   data_generation_parameters.point_cloud_capture_settings = gantry_capture_settings;
   if (use_gpu) {
-    gantry_capture_settings->capture_mode = PointCloudCaptureSettings::CaptureMode::OptiX;
+    gantry_capture_settings->capture_mode = PointCloudCaptureSettings::CaptureMode::Gpu;
   } else {
     gantry_capture_settings->capture_mode = PointCloudCaptureSettings::CaptureMode::Cpu;
   }

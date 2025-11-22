@@ -173,6 +173,9 @@ class RenderLayer final : public ILayer {
   /// Descriptor set layout for ray tracing data.
   inline static std::shared_ptr<DescriptorSetLayout> ray_tracing_layout;
 
+  /// Descriptor set layout for ray tracing data.
+  inline static std::shared_ptr<DescriptorSetLayout> ray_tracing_point_cloud_layout;
+
 #pragma endregion
 
  private:
@@ -386,6 +389,9 @@ class RenderLayer final : public ILayer {
 #pragma region Ray Tracing Pipelines
   /// Ray tracing pipeline for rendering cameras with ray tracing.
   std::shared_ptr<RayTracingPipeline> ray_tracing_camera_pipeline;
+  /// Ray tracing pipeline for rendering cameras with ray tracing.
+  friend class PointCloud;
+  std::shared_ptr<RayTracingPipeline> ray_tracing_point_cloud_pipeline;
 #pragma endregion
 };
 }  // namespace evo_engine

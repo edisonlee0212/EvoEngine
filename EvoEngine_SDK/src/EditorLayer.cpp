@@ -813,7 +813,7 @@ void EditorLayer::SceneCameraWindow() {
   const auto scene = GetScene();
   auto window_layer = Application::GetLayer<WindowLayer>();
   const auto& graphics = Platform::GetInstance();
-  auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
+  auto& [sceneCameraRotation, sceneCameraPosition, scene_camera] = editor_cameras_.at(scene_camera_handle_);
 #pragma region Scene Window
 
   scene_camera_window_focused_ = false;
@@ -832,9 +832,9 @@ void EditorLayer::SceneCameraWindow() {
         scene_camera_resolution_x_ = view_port_size.x * scene_camera_resolution_multiplier;
         scene_camera_resolution_y_ = view_port_size.y * scene_camera_resolution_multiplier;
         const ImVec2 overlay_pos = ImGui::GetWindowPos();
-        if (sceneCamera && sceneCamera->rendered_) {
+        if (scene_camera && scene_camera->rendered_) {
           // Because I use the texture from OpenGL, I need to invert the V from the UV.
-          ImGui::Image(sceneCamera->GetRenderTexture()->GetColorImTextureId(),
+          ImGui::Image(scene_camera->GetRenderTexture()->GetColorImTextureId(),
                        ImVec2(view_port_size.x, view_port_size.y), ImVec2(0, 1), ImVec2(1, 0));
           CameraWindowDragAndDrop();
         } else {
@@ -851,7 +851,7 @@ void EditorLayer::SceneCameraWindow() {
                                                     ImGuiWindowFlags_NoSavedSettings |
                                                     ImGuiWindowFlags_NoFocusOnAppearing;
           if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_None;
-              ImGui::BeginChild("Info", ImVec2(120, 110), child_flags, window_flags)) {
+              ImGui::BeginChild("Info", ImVec2(150, 150), child_flags, window_flags)) {
             ImGui::Text("Info:");
             ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
             std::string draw_call_info = {};
@@ -873,6 +873,11 @@ void EditorLayer::SceneCameraWindow() {
               ImGui::Text("Mouse: [%.0f,%.0f]", pos.x, pos.y);
             } else {
               ImGui::Text("Mouse: <invalid>");
+            }
+            uint32_t mode = static_cast<uint32_t>(scene_camera->camera_render_mode);
+            if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
+              scene_camera->camera_render_mode = static_cast<Camera::CameraRenderMode>(mode);
+              scene_camera->frame_count_ = 0;
             }
           }
           ImGui::EndChild();
@@ -942,7 +947,7 @@ void EditorLayer::SceneCameraWindow() {
         float view_manipulate_top = ImGui::GetWindowPos().y;
         ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, view_port_size.x, view_port_size.y);
         glm::mat4 camera_view = glm::inverse(glm::translate(sceneCameraPosition) * glm::mat4_cast(sceneCameraRotation));
-        glm::mat4 camera_projection = sceneCamera->GetProjection();
+        glm::mat4 camera_projection = scene_camera->GetProjection();
         const auto op = local_position_selected_   ? ImGuizmo::OPERATION::TRANSLATE
                         : local_rotation_selected_ ? ImGuizmo::OPERATION::ROTATE
                                                    : ImGuizmo::OPERATION::SCALE;
@@ -976,7 +981,7 @@ void EditorLayer::SceneCameraWindow() {
 #pragma endregion
 
       ImGui::EndChild();
-      sceneCamera->SetRequireRendering(
+      scene_camera->SetRequireRendering(
           !(ImGui::GetCurrentWindowRead()->Hidden && !ImGui::GetCurrentWindowRead()->Collapsed));
       ImGui::PopStyleVar();
     } else {
@@ -1063,6 +1068,11 @@ void EditorLayer::MainCameraWindow() {
               ImGui::Text("Mouse Pos: (%.1f,%.1f)", pos.x, pos.y);
             } else {
               ImGui::Text("Mouse Pos: <invalid>");
+            }
+            uint32_t mode = static_cast<uint32_t>(main_camera->camera_render_mode);
+            if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
+              main_camera->camera_render_mode = static_cast<Camera::CameraRenderMode>(mode);
+              main_camera->frame_count_ = 0;
             }
           }
           ImGui::EndChild();

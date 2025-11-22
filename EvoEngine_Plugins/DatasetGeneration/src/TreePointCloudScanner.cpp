@@ -1,11 +1,8 @@
 #include "TreePointCloudScanner.hpp"
-#ifdef CUDA_MODULE_PLUGIN
-#  include <CUDAModule.hpp>
-#  include <OptiXRayTracer.hpp>
-#  include <RayTracerLayer.hpp>
-#endif
+
 #include "CpuRayTracer.hpp"
 #include "EcoSysLabLayer.hpp"
+#include "PointCloud.hpp"
 #include "Soil.hpp"
 #include "Tinyply.hpp"
 using namespace eco_sys_lab_plugin;
@@ -349,13 +346,6 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
   std::vector<PointCloudSample> pc_samples;
   capture_settings->GenerateSamples(pc_samples);
   switch (capture_settings->capture_mode) {
-    case PointCloudCaptureSettings::CaptureMode::OptiX: {
-#ifdef CUDA_MODULE_PLUGIN
-      CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
-#else
-      EVOENGINE_ERROR("Missing CudaModule plugin!")
-#endif
-    } break;
     case PointCloudCaptureSettings::CaptureMode::Cpu: {
       /**
        * You may take a look at render instances, to see what it contains. RenderLayer will prepare a RenderInstance
@@ -387,41 +377,8 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
           });
       cpu_ray_tracer.SamplePointCloud(pc_samples);
     } break;
-    case PointCloudCaptureSettings::CaptureMode::GpuCompute: {
-      std::shared_ptr<RenderInstanceStorage> render_instances{};
-      if (render_layer) {
-        render_instances = render_layer->GetCurrentRenderInstanceStorage();
-      }
-      if (!render_instances) {
-        render_instances = std::make_shared<RenderInstanceStorage>();
-        Bound world_bound;
-        render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
-      }
-      CpuRayTracer cpu_ray_tracer;
-      /**
-       * During this step, the cpu_ray_tracer will scan all MeshRendereres in the scene, and establish TLAS and BLAS
-       * based on them.
-       */
-      cpu_ray_tracer.Initialize(
-          render_instances,
-          [&](uint32_t, const std::shared_ptr<Mesh>&) {
-
-          },
-          [&](const uint32_t node_index, const Entity& entity) {
-
-          });
-      /**
-       * The cpu_ray_tracer will aggregate and flatten TLAS and BLAS so from its hierarcal structure to vectors so we
-       * can use it on GPU.
-       */
-      auto aggregate_scene = cpu_ray_tracer.Aggregate();
-      /**
-       * Upload prepared data to GPU, these data will be linked to the compute pipeline via Descriptors (collectively
-       * DescriptorSet) so we can read them in shader. You may take a look at its implementation to see how easy to send
-       * data to GPU.
-       */
-      aggregate_scene.InitializeBuffers();
-      aggregate_scene.SamplePointCloudGpu(cpu_ray_tracer, pc_samples);
+    case PointCloudCaptureSettings::CaptureMode::Gpu: {
+      PointCloud::SampleCurrentScene(pc_samples);
     } break;
   }
   std::vector<glm::vec3> points;
@@ -435,7 +392,7 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
   std::vector<int> type_index;
 
   for (const auto& sample : pc_samples) {
-    if (!sample.hit)
+    if (sample.hit_count == 0)
       continue;
     if (!capture_settings->SampleFilter(sample))
       continue;
@@ -459,19 +416,19 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
                         ball_rand);
 
     if (point_settings.internode_index) {
-      internode_index.emplace_back(static_cast<int>(sample.hit_info.data.x + 0.1f));
+      internode_index.emplace_back(static_cast<int>(sample.hit_info.vertex_info1 + 0.1f));
     }
     if (point_settings.branch_index) {
-      branch_index.emplace_back(static_cast<int>(sample.hit_info.data.y + 0.1f));
+      branch_index.emplace_back(static_cast<int>(sample.hit_info.vertex_info2 + 0.1f));
     }
     if (point_settings.line_index) {
-      line_index.emplace_back(static_cast<int>(sample.hit_info.data.z + 0.1f));
+      line_index.emplace_back(static_cast<int>(sample.hit_info.vertex_info3 + 0.1f));
     }
     if (point_settings.tree_part_index) {
-      tree_part_index.emplace_back(static_cast<int>(sample.hit_info.data2.x + 0.1f));
+      tree_part_index.emplace_back(static_cast<int>(sample.hit_info.vertex_info4.x + 0.1f));
     }
     if (point_settings.tree_part_type_index) {
-      tree_part_type_index.emplace_back(static_cast<int>(sample.hit_info.data2.y + 0.1f));
+      tree_part_type_index.emplace_back(static_cast<int>(sample.hit_info.vertex_info4.y + 0.1f));
     }
     auto branch_search = branch_mesh_renderer_handles.find(sample.handle);
     auto foliage_search = foliage_mesh_renderer_handles.find(sample.handle);

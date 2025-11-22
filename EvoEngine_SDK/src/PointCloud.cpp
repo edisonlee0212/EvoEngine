@@ -8,10 +8,10 @@
 #include "Material.hpp"
 #include "Particles.hpp"
 #include "ProjectManager.hpp"
+#include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
 #include "Tinyply.hpp"
-
 using namespace evo_engine;
 using namespace tinyply;
 
@@ -414,6 +414,65 @@ void PointCloud::Deserialize(const YAML::Node& in) {
     std::memcpy(normals.data(), vertex_data.data(), vertex_data.size());
   }
 }
+
+void PointCloud::SampleCurrentScene(std::vector<PointCloudSample>& samples) {
+  if (!Platform::RayTracingEnabled()) {
+    EVOENGINE_ERROR("Point Cloud: Ray Tracing Disabled!")
+    return;
+  }
+  const auto render_layer = Application::GetLayer<RenderLayer>();
+  if (!render_layer) {
+    EVOENGINE_ERROR("No RenderLayer!")
+    return;
+  }
+  const auto scene = Application::GetActiveScene();
+  auto reflection_probe = scene->environment.GetReflectionProbe(glm::vec3(0.0f));
+  if (!reflection_probe) {
+    reflection_probe = Resources::default_environmental_map->reflection_probe.Get<ReflectionProbe>();
+  }
+  const auto skybox = Resources::default_skybox;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.usage =
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  VmaAllocationCreateInfo alloc_info{};
+  alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+  buffer_create_info.size = sizeof(PointCloudSample) * samples.size();
+
+  const auto sample_buffer = std::make_shared<Buffer>(buffer_create_info, alloc_info);
+  sample_buffer->UploadVector(samples);
+  const auto sample_descriptor = std::make_shared<DescriptorSet>(RenderLayer::ray_tracing_point_cloud_layout);
+
+  sample_descriptor->UpdateBufferDescriptorBinding(0, sample_buffer);
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    Platform::EverythingBarrier(vk_command_buffer);
+    Platform::EverythingBarrier(vk_command_buffer);
+    render_layer->ray_tracing_point_cloud_pipeline->Bind(vk_command_buffer);
+    render_layer->ray_tracing_point_cloud_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0, render_layer->per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+    render_layer->ray_tracing_point_cloud_pipeline->BindDescriptorSet(
+        vk_command_buffer, 1, render_layer->ray_tracing_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+    render_layer->ray_tracing_point_cloud_pipeline->BindDescriptorSet(vk_command_buffer, 2,
+                                                                      sample_descriptor->GetVkDescriptorSet());
+    RayTracingPointCloudPushConstant push_constant;
+    push_constant.bounce = 0;
+    push_constant.use_clear_color = 0;
+    push_constant.clear_color = glm::vec4(0.0f);
+    push_constant.envIndex = reflection_probe->GetCubemap()->GetTextureStorageIndex();
+    push_constant.skybox_tex_index = skybox->GetTextureStorageIndex();
+    render_layer->ray_tracing_point_cloud_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    render_layer->ray_tracing_point_cloud_pipeline->Trace(vk_command_buffer, samples.size(), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+
+  sample_buffer->DownloadVector(samples, samples.size());
+}
+
 void PointCloud::ApplyOriginal() const {
   const auto scene = Application::GetActiveScene();
   const auto owner = scene->CreateEntity("Original Point Cloud");

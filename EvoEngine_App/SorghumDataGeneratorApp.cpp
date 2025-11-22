@@ -11,10 +11,6 @@
 using namespace digital_agriculture_plugin;
 #endif
 #include "WindowLayer.hpp"
-#ifdef CUDA_MODULE_PLUGIN
-#  include <CUDAModule.hpp>
-#  include <RayTracerLayer.hpp>
-#endif
 
 #ifdef DATASET_GENERATION_PLUGIN
 #  include <SorghumPointCloudScanner.hpp>
@@ -43,9 +39,6 @@ void run_with_editor(const std::filesystem::path& project_path) {
   register_classes();
 
   Application::PushLayer<RenderLayer>("Render Layer");
-#ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
-#endif
   Application::PushLayer<WindowLayer>("Window Layer");
 
   Application::PushLayer<EditorLayer>("Editor Layer");
@@ -70,20 +63,12 @@ void run_windowless(const PointCloudCaptureSettings::CaptureMode capture_mode,
   }
   register_classes();
   switch (capture_mode) {
-    case PointCloudCaptureSettings::CaptureMode::OptiX: {
-#ifdef DIGITAL_AGRICULTURE_PLUGIN
-      Application::PushLayer<SorghumLayer>("Sorghum Layer");
-#endif
-#ifdef CUDA_MODULE_PLUGIN
-      Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
-#endif
-    } break;
     case PointCloudCaptureSettings::CaptureMode::Cpu: {
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
       Application::PushLayer<SorghumLayer>("Sorghum Layer");
 #endif
     } break;
-    case PointCloudCaptureSettings::CaptureMode::GpuCompute:
+    case PointCloudCaptureSettings::CaptureMode::Gpu:
       Application::PushLayer<RenderLayer>("Render Layer");
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
       Application::PushLayer<SorghumLayer>("Sorghum Layer");
@@ -247,7 +232,7 @@ int main() {
   capture_settings->step = 0.005f;  // Smaller -> more points.
   capture_settings->scanner_angles = {30};
   capture_settings->output_spline_info = true;
-  capture_settings->capture_mode = PointCloudCaptureSettings::CaptureMode::OptiX;
+  capture_settings->capture_mode = PointCloudCaptureSettings::CaptureMode::Gpu;
 
   run_windowless(capture_settings->capture_mode, project_path);
   const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Random.sg";

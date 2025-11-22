@@ -310,20 +310,20 @@ void CpuRayTracer::SamplePointCloud(std::vector<PointCloudSample>& samples) cons
   std::vector<HitInfo> hit_infos(samples.size());
   Jobs::RunParallelFor(samples.size(), [&](const size_t index) {
     auto& sample = samples[index];
-    sample.hit = false;
+    sample.hit_count = 0;
   });
   Jobs::RunParallelFor(samples.size(), [&](const size_t index) {
     RayDescriptor ray_descriptor{};
     auto& sample = samples[index];
     ray_descriptor.origin = sample.start;
     ray_descriptor.direction = sample.direction;
-    sample.hit = false;
+    sample.hit_count = 0;
     Trace(ray_descriptor, hit_infos[index]);
   });
   Jobs::RunParallelFor(samples.size(), [&](const size_t index) {
     auto& sample = samples[index];
     if (const auto& hit_info = hit_infos[index]; hit_info.has_hit) {
-      sample.hit = true;
+      sample.hit_count = 1;
       sample.hit_info.position = hit_info.hit;
       sample.hit_info.normal = hit_info.normal;
       sample.handle = GetRendererHandle(hit_info.node_index);
@@ -1053,7 +1053,7 @@ void CpuRayTracer::AggregatedScene::SamplePointCloudGpu(const CpuRayTracer& cpu_
     auto& sample = samples[index];
     ray_descriptor.origin = sample.start;
     ray_descriptor.direction = sample.direction;
-    sample.hit = false;
+    sample.hit_count = 0;
   });
 
   TraceGpu(ray_descriptors, hit_infos, {});
@@ -1061,7 +1061,7 @@ void CpuRayTracer::AggregatedScene::SamplePointCloudGpu(const CpuRayTracer& cpu_
     auto& sample = samples[index];
     const auto& hit_info = hit_infos[index];
     if (hit_info.has_hit) {
-      sample.hit = true;
+      sample.hit_count = 1;
       sample.hit_info.position = hit_info.hit;
       sample.hit_info.normal = hit_info.normal;
       sample.handle = cpu_ray_tracer.GetRendererHandle(hit_info.node_index);

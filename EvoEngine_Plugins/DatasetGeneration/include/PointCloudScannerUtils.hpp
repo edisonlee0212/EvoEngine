@@ -8,12 +8,11 @@ class PointCloudCaptureSettings {
   bool output_spline_info = false;
   uint32_t spline_subdivision_count = 8;
   enum class CaptureMode {
-    OptiX,
     Cpu,
-    GpuCompute,
+    Gpu,
   };
 
-  CaptureMode capture_mode = CaptureMode::OptiX;
+  CaptureMode capture_mode = CaptureMode::Gpu;
 
   virtual bool OnInspect() = 0;
   virtual void Save(const std::string& name, YAML::Emitter& out) const {

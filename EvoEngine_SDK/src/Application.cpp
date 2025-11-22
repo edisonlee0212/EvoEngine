@@ -2,7 +2,6 @@
 
 #include "AnimationPlayer.hpp"
 #include "ClassRegistry.hpp"
-#include "CpuRayTracerCamera.hpp"
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
@@ -18,8 +17,10 @@
 #include "Platform.hpp"
 #include "PlayerController.hpp"
 #include "PointCloud.hpp"
+#include "PointCloudScanner.hpp"
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
+#include "ProceduralNoise.hpp"
 #include "ProjectManager.hpp"
 #include "ReflectionProbe.hpp"
 #include "RenderLayer.hpp"
@@ -35,9 +36,6 @@
 #include "Utilities.hpp"
 #include "WayPoints.hpp"
 #include "WindowLayer.hpp"
-
-#include "GpuRayTracerCamera.hpp"
-#include "ProceduralNoise.hpp"
 
 using namespace evo_engine;
 
@@ -216,6 +214,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   PrivateComponentRegistration<DirectionalLight> directional_light_registry("DirectionalLight");
   PrivateComponentRegistration<WayPoints> way_points_registry("WayPoints");
   PrivateComponentRegistration<LodGroup> lod_group_registry("LodGroup");
+  PrivateComponentRegistration<PointCloudScanner> point_cloud_scanner_registry("PointCloudScanner");
   PrivateComponentRegistration<UnknownPrivateComponent> unknown_registry("UnknownPrivateComponent");
 
   AssetRegistration<PostProcessingStack> pps_registry("PostProcessingStack", {".evepostprocessingstack"});
@@ -248,9 +247,6 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   AssetRegistration<PointCloud> point_cloud_registry("PointCloud", {".evepointcloud"});
 
   AssetRegistration<Json> json_registry("Json", {".json"});
-
-  PrivateComponentRegistration<CpuRayTracerCamera> cpu_ray_tracer_camera_registry("CpuRayTracerCamera");
-  PrivateComponentRegistration<GpuRayTracerCamera> gpu_ray_tracer_camera_registry("GpuRayTracerCamera");
 #pragma endregion
 
   auto& application = GetInstance();
