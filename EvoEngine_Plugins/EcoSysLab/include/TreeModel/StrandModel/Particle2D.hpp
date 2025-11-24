@@ -1,4 +1,3 @@
-
 #pragma once
 #include "ParticleGrid2D.hpp"
 #include "Skeleton.hpp"

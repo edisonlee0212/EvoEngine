@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <Transform.hpp>
@@ -93,5 +92,4 @@ class SphericalVolume : public IVolume {
    */
   bool InVolume(const glm::vec3& position) override;
 };
-
 }  // namespace eco_sys_lab_plugin

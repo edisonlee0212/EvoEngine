@@ -456,9 +456,11 @@ size_t HalfEdgeDelaunayGraph::twin(size_t he_id) {
 const std::vector<HalfEdgeDelaunayGraph::HalfEdge>& HalfEdgeDelaunayGraph::getHalfEdges() const {
   return half_edges;
 }
+
 const std::vector<HalfEdgeDelaunayGraph::Triangle>& HalfEdgeDelaunayGraph::getFaces() const {
   return triangles;
 }
+
 size_t HalfEdgeDelaunayGraph::getVertexCount() const {
   return vertex_count;
 }

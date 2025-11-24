@@ -88,6 +88,7 @@ inline glm::vec3 SkeletonNodeInfo::GetGlobalCenterPosition() const {
 inline glm::vec3 SkeletonNodeInfo::GetGlobalDirection() const {
   return glm::normalize(global_rotation * glm::vec3(0, 0, -1));
 }
+
 struct SkeletonFlowInfo {
   glm::vec3 global_start_position = glm::vec3(0.0f);  ///< Global position at the start of the flow.
   glm::quat global_start_rotation = glm::vec3(0.0f);  ///< Global rotation at the start of the flow.
@@ -516,7 +517,9 @@ class Skeleton {
 };
 
 struct BaseSkeletonData {};
+
 struct BaseFlowData {};
+
 struct BaseNodeData {};
 
 typedef Skeleton<BaseSkeletonData, BaseFlowData, BaseNodeData> BaseSkeleton;
@@ -977,10 +980,12 @@ template <typename SkeletonData, typename FlowData, typename NodeData>
 int Skeleton<SkeletonData, FlowData, NodeData>::GetMaxLevel() const {
   return max_level_;
 }
+
 template <typename SkeletonData, typename FlowData, typename NodeData>
 int Skeleton<SkeletonData, FlowData, NodeData>::GetMaxOrder() const {
   return max_order_;
 }
+
 template <typename SkeletonData, typename FlowData, typename NodeData>
 template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
 void Skeleton<SkeletonData, FlowData, NodeData>::Clone(

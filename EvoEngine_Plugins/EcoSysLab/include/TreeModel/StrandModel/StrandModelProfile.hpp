@@ -1,4 +1,3 @@
-
 #pragma once
 #include "Delaunator2D.hpp"
 #include "Particle2D.hpp"
@@ -851,5 +850,4 @@ void StrandModelProfile<T>::OnInspect(
   draw_func(origin, zoom_factor, draw_list);
   draw_list->PopClipRect();
 }
-
 }  // namespace eco_sys_lab_plugin

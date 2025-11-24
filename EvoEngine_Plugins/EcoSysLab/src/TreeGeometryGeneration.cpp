@@ -156,6 +156,7 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
   line_list->SetParticleInfos(line_particle_infos);
   point_list->SetParticleInfos(point_particle_infos);
 }
+
 void Tree::ClearSkeletalGraph() const {
   const auto scene = GetScene();
   const auto self = GetOwner();
@@ -169,6 +170,7 @@ void Tree::ClearSkeletalGraph() const {
     }
   }
 }
+
 std::shared_ptr<Strands> Tree::GenerateStrands() const {
   const auto strands_asset = AssetManager::CreateTemporaryAsset<Strands>();
   const auto& parameters = strand_model_parameters;
@@ -276,6 +278,7 @@ std::shared_ptr<Mesh> Tree::GenerateShootMesh(const TreeMeshGeneratorSettings& m
   mesh->SetVertices(attributes, vertices, indices);
   return mesh;
 }
+
 std::shared_ptr<Mesh> Tree::GenerateRootMesh(const TreeMeshGeneratorSettings& mesh_generator_settings) {
   std::vector<Vertex> vertices;
   std::vector<unsigned int> indices;
@@ -297,7 +300,6 @@ std::shared_ptr<Mesh> Tree::GenerateRootMesh(const TreeMeshGeneratorSettings& me
         },
         [&](glm::vec2&, float, float) {
         });
-
   } else {
     auto td = tree_descriptor_ref.Get<TreeDescriptor>();
     if (!td) {
@@ -970,6 +972,7 @@ inline void TransformVertex(Vertex& v, const glm::mat4& transform) {
   v.tangent = glm::normalize(transform * glm::vec4(v.tangent, 0.f));
   v.position = transform * glm::vec4(v.position, 1.f);
 }
+
 void Tree::GenerateBillboardClouds(const BillboardCloud::GenerateSettings& foliage_generate_settings) {
   auto mesh_generator_settings = tree_mesh_generator_settings;
   mesh_generator_settings.foliage_instancing = false;

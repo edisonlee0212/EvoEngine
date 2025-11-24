@@ -9,6 +9,7 @@ bool OnSegment(const glm::vec2& p, const glm::vec2& q, const glm::vec2& r) {
 
   return false;
 }
+
 int Orientation(const glm::vec2& p, const glm::vec2& q, const glm::vec2& r) {
   // See https://www.geeksforgeeks.org/orientation-3-ordered-points/
   // for details of below formula.

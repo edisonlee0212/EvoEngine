@@ -93,6 +93,7 @@ struct BranchesRenderPushConstant {
     int instance_index;
     int sub_light_index;
   } index1;
+
   union Index2 {
     int camera_index;
     int light_index;
@@ -113,6 +114,7 @@ struct BranchesRenderPushConstant {
   float global_extrusion_distance = 0.0f;
   float break_threshold = 0.01f;
   int use_polar_coordinates_for_uv = 1;
+  int bark_material_index = 0;
 };
 
 void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
@@ -198,7 +200,7 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
   branches_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Fragment/DynamicStrands/Rendering/Branches.frag");
+                                  "Shaders/Graphics/Fragment/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.frag");
   branches_render_pipeline->geometry_type = GeometryType::Mesh;
   branches_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
   branches_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -319,7 +321,7 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToDirectionalLightShadowMap(
 }
 
 uint32_t DsAlphaShapeMeshing::RenderBranchesToCameraDeferred(
-    const Handle& renderer_handle, int inner_wood_material_index, int snow_material_index,
+    const Handle& renderer_handle, int bark_material_index, int inner_wood_material_index, int snow_material_index,
     const BranchesRenderParameters& render_parameters, const VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view, VkPolygonMode polygon_mode) const {

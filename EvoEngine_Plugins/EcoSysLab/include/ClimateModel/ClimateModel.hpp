@@ -1,4 +1,3 @@
-
 #pragma once
 #include "EnvironmentGrid.hpp"
 
@@ -78,5 +77,4 @@ class ClimateModel {
    */
   void Initialize(const ClimateParameters& climate_parameters);
 };
-
 }  // namespace eco_sys_lab_plugin

@@ -10,8 +10,8 @@
 #define DYNAMIC_STRANDS_SET 1
 #include "DynamicStrands.glsl"
 
-#include "Math.glsl"
 #include "KineticVoronoiMeshing.glsl"
+#include "Math.glsl"
 const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
 const float PI = 3.1415926535897932384626433832795;
@@ -53,14 +53,13 @@ uint laneID = gl_LocalInvocationID.x;
 #include "KineticVoronoiRenderingConstants.glsl"
 
 void SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMeshletVertex segment_meshlet_vertex) {
-  vec3 vertex_position = vec3(segment_meshlet_vertex.relative_position_x, segment_meshlet_vertex.relative_position_y, segment_meshlet_vertex.relative_position_z);
-  mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
+  mat4 transform = EE_DIRECTIONAL_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_INSTANCE_INDEX];
 
-  ms_v_out[vertex_index].FragPos = vertex_position;
+  ms_v_out[vertex_index].FragPos = segment_meshlet_vertex.x;
   ms_v_out[vertex_index].Normal = vertex_normal;
-  ms_v_out[vertex_index].Tangent = vec3(0.0, 1.0, 0.0); // TODO
-  ms_v_out[vertex_index].Color = vec4(1.0, 1.0, 1.0, 1.0); // TODO
-  gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
+  ms_v_out[vertex_index].Tangent = vec3(0.0, 1.0, 0.0);     // TODO
+  ms_v_out[vertex_index].Color = vec4(1.0, 1.0, 1.0, 1.0);  // TODO
+  gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(segment_meshlet_vertex.x, 1.0);
 }
 
 void main() {
@@ -71,25 +70,13 @@ void main() {
   // assign all accepted triangles
   [[unroll]]
   for (uint i = 0; i < uint(PRIMITIVE_ITERATIONS); ++i) {
-    uint triangle_index = laneID + i * WORKGROUP_SIZE; // should always be 0 in our setup
+    uint triangle_index = laneID + i * WORKGROUP_SIZE;  // should always be 0 in our setup
     if (triangle_index < MAX_PRIMITIVE_COUNT) {
-
       [[unroll]]
       for (int j = 0; j < 3; j++) {
-        uint global_vertex_index = tri.vertex_indices_twin_triangle[j];
+        uint global_vertex_index = tri.vertex_indices[j];
         SegmentMeshletVertex segment_meshlet_vertex = segment_meshlet_vertices[global_vertex_index];
-
-        Segment segment = segments[segment_meshlet_vertex.segment_index];
-        // basis vectors of segment space
-        vec3 right = rotate_vec3(segment.q, vec3(1, 0, 0));
-        vec3 up = rotate_vec3(segment.q, vec3(0, 1, 0));
-        vec3 forward = rotate_vec3(segment.q, vec3(0, 0, 1));
-
-        // now do a basis transform from segment to world space
-        mat3 seg_to_world = mat3(right, up, forward);
         vec3 normal = vec3(1, 0, 0);
-        //normalize(seg_to_world * segment_meshlet_vertex.normal_deg.xyz);
-
         SetUpTriangleVertex(j, normal, segment_meshlet_vertex);
       }
     }

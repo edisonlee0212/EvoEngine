@@ -141,6 +141,11 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     }
     ImGui::TreePop();
   }
+  ImGui::RadioButton("Kinetic Voronoi Meshing", reinterpret_cast<int*>(&initialize_parameters.meshing_type),
+                     static_cast<int>(MeshingType::KineticVoronoi));
+  ImGui::SameLine();
+  ImGui::RadioButton("Alpha Shape Meshing", reinterpret_cast<int*>(&initialize_parameters.meshing_type),
+                     static_cast<int>(MeshingType::AlphaShape));
   ImGui::DragInt("Seed", &seed, 1, 0, INT_MAX);
   editor_layer->DragAndDropButton<Material>(materials.bark_material_ref, "Bark Material");
   editor_layer->DragAndDropButton<Material>(materials.inner_wood_material_ref, "Inner wood Material");
@@ -313,22 +318,8 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 }
 
 void DynamicTreeStrands::OnCreate() {
-  switch (DynamicStrandsInitializeParameters::meshing_type) {
-    case MeshingType::AlphaShape: {
-      auto meshing = std::make_shared<DsAlphaShapeMeshing>();
-      dynamic_strands = std::make_shared<DynamicStrands>(meshing, materials);
-      dynamic_strands->meshing->dynamic_strands = dynamic_strands;
-    } break;
-    case MeshingType::KineticVoronoi: {
-      auto meshing = std::make_shared<DsKineticVoronoiMeshing>();
-      dynamic_strands = std::make_shared<DynamicStrands>(meshing, materials);
-      dynamic_strands->meshing->dynamic_strands = dynamic_strands;
-    } break;
-    default:
-      throw std::runtime_error("Unsupported meshing type");
-      break;
-  }
-
+  dynamic_strands = std::make_shared<DynamicStrands>(materials);
+  dynamic_strands->Init(initialize_parameters.meshing_type);
   leaf_drop = std::make_shared<DsLeafDrop>();
   snow = std::make_shared<DsSnow>();
   wind = std::make_shared<DsWind>();
@@ -476,6 +467,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
       for (int z = 0; z < settings.rod_dimension.z; z++) {
         const auto segment_handle = strand_group.Extend(strand_handle);
         auto& segment = strand_group.RefStrandSegment(segment_handle);
+        // TODO: set end_t (?)
         segment.end_position = glm::vec3(
             settings.segment_length * (static_cast<float>(z) + 1.f),
             settings.radius * (static_cast<float>(y) - static_cast<float>(settings.rod_dimension.y) / 2.f) * 2.f,
@@ -744,6 +736,8 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 }
 
 void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& settings) {
+  // TODO: move dynamic strands initialization here
+
   auto& strand_model_skeleton = strand_model.strand_model_skeleton;
   strand_model_skeleton = {1};
   auto& strand_group = strand_model_skeleton.data.strand_group;
@@ -796,17 +790,19 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     auto& strand = strand_group.RefStrand(strand_handle);
     const auto& particle = profile.PeekParticle(i);
     const auto profile_position = particle.GetPosition();
+    float offset = 0.0f;
     strand.start_position =
-        glm::vec3(0.0f, settings.radius * profile_position.x - 0.5f, settings.radius * profile_position.y);
+        glm::vec3(0.0f, settings.radius * profile_position.x + offset, settings.radius * profile_position.y);
     strand.start_color = glm::vec4(1, 1, 1, 1);
     strand.start_thickness = settings.radius * 2.f;
     const float distance_to_boundary = particle.GetDistanceToBoundary();
     for (int z = 0; z < settings.rod_segment_count; z++) {
       const auto segment_handle = strand_group.Extend(strand_handle);
       auto& segment = strand_group.RefStrandSegment(segment_handle);
+      // TODO: set end_t (?)
       segment.end_position =
           glm::vec3(settings.segment_length * (static_cast<float>(z) + 1.f),
-                    settings.radius * profile_position.x - 0.5f, settings.radius * profile_position.y);
+                    settings.radius * profile_position.x + offset, settings.radius * profile_position.y);
       segment.end_color = glm::vec4(1, 1, 1, 1);
       segment.end_thickness = settings.radius * 2.f;
       auto& segment_data = strand_group.RefStrandSegmentData(segment_handle);
@@ -1093,7 +1089,8 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
         const auto& segment_handle = dynamic_strands->strands[i].begin_segment_handle;
         const auto& segment = dynamic_strands->segments[segment_handle];
-        if (segment.boundary_distance >= 0.0f) {  // Only lock segments that are not near a boundary
+        if (segment.boundary_distance >= 0.0f) {
+          // Only lock segments that are not near a boundary
           segment_list[i].first = segment_handle;
           segment_list[i].second.first = true;
           segment_list[i].second.second = false;
@@ -1231,7 +1228,8 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       Jobs::RunParallelFor(dynamic_strands->strands.size(), [&](const size_t i) {
         const auto& segment_handle = dynamic_strands->strands[i].end_segment_handle;
         const auto& segment = dynamic_strands->segments[segment_handle];
-        if (segment.boundary_distance >= 0.0f) {  // Only lock segments that are not near a boundary
+        if (segment.boundary_distance >= 0.0f) {
+          // Only lock segments that are not near a boundary
           segment_list[i].first = segment_handle;
           segment_list[i].second.first = false;
           segment_list[i].second.second = true;

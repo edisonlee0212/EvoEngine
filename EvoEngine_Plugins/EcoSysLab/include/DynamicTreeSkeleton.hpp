@@ -1,4 +1,3 @@
-
 #pragma once
 #include "DynamicSkeleton.hpp"
 
@@ -74,5 +73,4 @@ class DynamicTreeSkeleton : public IPrivateComponent {
   void Visualization(const std::shared_ptr<Camera>& target_camera,
                      const DynamicSkeleton::VisualizationParameters& visualization_parameters) const;
 };
-
 }  // namespace eco_sys_lab_plugin

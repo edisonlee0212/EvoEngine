@@ -108,18 +108,6 @@ bool Shader::Compiled() const {
   return shader_module != nullptr;
 }
 
-bool Shader::TryCompile(const ShaderType target_shader_type, const std::filesystem::path& path) {
-  return TryCompile(target_shader_type, "", path);
-}
-
-bool Shader::TryCompile(const ShaderType target_shader_type, const std::string& header,
-                        const std::filesystem::path& path) {
-  std::stringstream shader_code_stream;
-  shader_code_stream << header;
-  shader_code_stream << FileUtils::LoadFileAsString(path);
-  return TryCompile(target_shader_type, shader_code_stream.str());
-}
-
 class GlslShaderIncluder : public glslang::TShader::Includer {
  public:
   //    explicit GlslShaderIncluder(fileio::Directory* shaderdir)
@@ -200,7 +188,8 @@ void GlslShaderIncluder::releaseInclude(IncludeResult* result) {
 
 GlslShaderIncluder glsl_shader_includer{};
 
-bool CompileGlsl(const ShaderType shader_type, const std::string& source, std::vector<uint32_t>& binaries) {
+bool CompileGlsl(const ShaderType shader_type, const std::string& source, std::vector<uint32_t>& binaries,
+                 const std::filesystem::path& path) {
   // 1. Look for compiled resource.
   const auto binary_search_path =
       std::filesystem::path("./ShaderBinaries") / (std::to_string(std::hash<std::string>{}(source)) + ".yml");
@@ -283,7 +272,7 @@ bool CompileGlsl(const ShaderType shader_type, const std::string& source, std::v
     std::string preprocessedStr;
     if (!shader.preprocess(resources, default_version, default_profile, false, forward_compatible, message_flags,
                            &preprocessedStr, glsl_shader_includer)) {
-      EVOENGINE_ERROR("Failed to preprocess shader: " + std::string(shader.getInfoLog()));
+      EVOENGINE_ERROR("Failed to preprocess shader: " + path.string() + "\n" + std::string(shader.getInfoLog()));
       return false;
     }
     const char* preprocessedSources[1] = {preprocessedStr.c_str()};
@@ -291,13 +280,13 @@ bool CompileGlsl(const ShaderType shader_type, const std::string& source, std::v
 
     if (!shader.parse(resources, default_version, default_profile, false, forward_compatible, message_flags,
                       glsl_shader_includer)) {
-      EVOENGINE_ERROR("Failed to parse shader: " + std::string(shader.getInfoLog()));
+      EVOENGINE_ERROR("Failed to parse shader: " + path.string() + "\n" + std::string(shader.getInfoLog()));
       return false;
     }
     glslang::TProgram program;
     program.addShader(&shader);
     if (!program.link(message_flags)) {
-      EVOENGINE_ERROR("Failed to link shader: " + std::string(program.getInfoLog()));
+      EVOENGINE_ERROR("Failed to link shader: " + path.string() + "\n" + std::string(program.getInfoLog()));
       return false;
     }
 
@@ -322,19 +311,34 @@ bool CompileGlsl(const ShaderType shader_type, const std::string& source, std::v
   }
   return true;
 }
+
+bool Shader::TryCompile(const ShaderType target_shader_type, const std::filesystem::path& path) {
+  return TryCompile(target_shader_type, "", path);
+}
+
+bool Shader::TryCompile(const ShaderType target_shader_type, const std::string& header,
+                        const std::filesystem::path& path) {
+  std::stringstream shader_code_stream;
+  shader_code_stream << header;
+  shader_code_stream << FileUtils::LoadFileAsString(path);
+  shader_type = static_cast<unsigned>(target_shader_type);
+  shader_code = shader_code_stream.str();
+  return TryCompile(path);
+}
+
 bool Shader::TryCompile(const ShaderType target_shader_type, const std::string& target_shader_code) {
   shader_type = static_cast<unsigned>(target_shader_type);
   shader_code = target_shader_code;
   return TryCompile();
 }
 
-bool Shader::TryCompile() {
+bool Shader::TryCompile(const std::filesystem::path& path) {
   if (!Platform::Initialized())
     return false;
   VkShaderModuleCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   std::vector<uint32_t> binaries;
-  if (CompileGlsl(static_cast<ShaderType>(shader_type), shader_code, binaries)) {
+  if (CompileGlsl(static_cast<ShaderType>(shader_type), shader_code, binaries, path)) {
     create_info.pCode = binaries.data();
     create_info.codeSize = binaries.size() * sizeof(uint32_t);
     shader_module = std::make_unique<ShaderModule>(create_info);

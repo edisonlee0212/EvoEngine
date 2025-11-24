@@ -12,6 +12,7 @@
 using namespace eco_sys_lab_plugin;
 
 void DynamicStrands::InitializeMesh(const DynamicStrandsInitializeParameters& initialize_parameters) {
+  // InitMeshingAlgorithm(initialize_parameters.meshing_type);
   meshing->InitializationGraphicsPipeline(initialize_parameters);
 }
 
@@ -683,7 +684,8 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
                                                                     1.f / initialize_parameters.wood_transition,
                                                                     distance_to_boundary));
     segment_pair.max_bending_twist_bundle_strain = segment_pair.bending_twist_bundle_strain_limit =
-        glm::vec3(max_bending_strain, max_twisting_strain, max_bundle_strain);                                // 0.01f
+        glm::vec3(max_bending_strain, max_twisting_strain,
+                  max_bundle_strain);                                                                         // 0.01f
     segment_pair.max_connectivity_strain = segment_pair.connectivity_strain_limit = max_connectivity_strain;  // 0.0001f
 
     segment_pair.compression_lock = segment_pair.positional_lock = segment_pair.rotational_lock =

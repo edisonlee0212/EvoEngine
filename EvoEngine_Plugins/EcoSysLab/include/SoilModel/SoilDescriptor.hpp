@@ -104,5 +104,4 @@ class SoilDescriptor : public IAsset {
    */
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
-
 }  // namespace eco_sys_lab_plugin

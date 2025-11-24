@@ -18,67 +18,71 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	vec2 line_start;
-	vec2 line_end;
-	mat4 projection_view;
-	uint segment_pair_size;
-	uint cut_mode;
+  vec2 line_start;
+  vec2 line_end;
+  mat4 projection_view;
+  uint segment_pair_size;
+  uint cut_mode;
 };
 
-bool LineIntersect(in vec2 A, in vec2 B, in vec2 C, in vec2 D){
-	vec2 r = B - A; // Direction vector of segment AB
-	vec2 s = D - C; // Direction vector of segment CD
+bool LineIntersect(in vec2 A, in vec2 B, in vec2 C, in vec2 D) {
+  vec2 r = B - A;  // Direction vector of segment AB
+  vec2 s = D - C;  // Direction vector of segment CD
 
-	float crossRS = r.x * s.y - r.y * s.x; // Cross product of r and s
-	vec2 diff = C - A;
+  float crossRS = r.x * s.y - r.y * s.x;  // Cross product of r and s
+  vec2 diff = C - A;
 
-	// If crossRS is zero, the lines are parallel or collinear
-	if (abs(crossRS) < 1e-6) return false;
+  // If crossRS is zero, the lines are parallel or collinear
+  if (abs(crossRS) < 1e-6)
+    return false;
 
-	float t = (diff.x * s.y - diff.y * s.x) / crossRS;
-	float u = (diff.x * r.y - diff.y * r.x) / crossRS;
+  float t = (diff.x * s.y - diff.y * s.x) / crossRS;
+  float u = (diff.x * r.y - diff.y * r.x) / crossRS;
 
-	// Check if t and u are within [0, 1]
-	if (t >= 0.0f && t <= 1.0f && u >= 0.0f && u <= 1.0f) {
-		//return A + t * r; // Compute intersection point
-		return true;
-	}
-	return false;
+  // Check if t and u are within [0, 1]
+  if (t >= 0.0f && t <= 1.0f && u >= 0.0f && u <= 1.0f) {
+    // return A + t * r; // Compute intersection point
+    return true;
+  }
+  return false;
 }
 
-void main(){
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint segment_pair_index = baseID + local_index;
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint segment_pair_index = baseID + local_index;
 
-		if(segment_pair_index >= segment_pair_size) break;
+    if (segment_pair_index >= segment_pair_size)
+      break;
 
-		SegmentPair segment_pair = segment_pairs[segment_pair_index];
+    SegmentPair segment_pair = segment_pairs[segment_pair_index];
 
-		Segment segment0 = segments[segment_pair.segment0_handle];
-		Segment segment1 = segments[segment_pair.segment1_handle];
+    Segment segment0 = segments[segment_pair.segment0_handle];
+    Segment segment1 = segments[segment_pair.segment1_handle];
 
-		vec3 segment0_center_position = (segment0.particle0.x + segment0.particle1.x) * 0.5f;
-		vec3 segment1_center_position = (segment1.particle0.x + segment1.particle1.x) * 0.5f;
+    vec3 segment0_center_position = (segment0.particle0.x + segment0.particle1.x) * 0.5f;
+    vec3 segment1_center_position = (segment1.particle0.x + segment1.particle1.x) * 0.5f;
 
-		vec4 segment0_screen_space_coord = projection_view * vec4(segment0_center_position, 1.0f);
-		vec3 segment0_screen_space_position = segment0_screen_space_coord.xyz / segment0_screen_space_coord.w;
-		vec4 segment1_screen_space_coord = projection_view * vec4(segment1_center_position, 1.0f);
-		vec3 segment1_screen_space_position = segment1_screen_space_coord.xyz / segment1_screen_space_coord.w;
-		
-		vec2 segment0_screen = vec2((segment0_screen_space_position.x + 1.0f) * 0.5f, (-segment0_screen_space_position.y + 1.0f) * 0.5f);
-		vec2 segment1_screen = vec2((segment1_screen_space_position.x + 1.0f) * 0.5f, (-segment1_screen_space_position.y + 1.0f) * 0.5f);
+    vec4 segment0_screen_space_coord = projection_view * vec4(segment0_center_position, 1.0f);
+    vec3 segment0_screen_space_position = segment0_screen_space_coord.xyz / segment0_screen_space_coord.w;
+    vec4 segment1_screen_space_coord = projection_view * vec4(segment1_center_position, 1.0f);
+    vec3 segment1_screen_space_position = segment1_screen_space_coord.xyz / segment1_screen_space_coord.w;
 
-		if(LineIntersect(segment0_screen, segment1_screen, line_start, line_end)){
-			if(cut_mode == 0) segment_pairs[segment_pair_index].connectivity_integrity = 0.f;
-			segment_pairs[segment_pair_index].bend_twist_bundle_integrity = 0.f;
-		}
-	}
+    vec2 segment0_screen =
+        vec2((segment0_screen_space_position.x + 1.0f) * 0.5f, (-segment0_screen_space_position.y + 1.0f) * 0.5f);
+    vec2 segment1_screen =
+        vec2((segment1_screen_space_position.x + 1.0f) * 0.5f, (-segment1_screen_space_position.y + 1.0f) * 0.5f);
+
+    if (LineIntersect(segment0_screen, segment1_screen, line_start, line_end)) {
+      if (cut_mode == 0)
+        segment_pairs[segment_pair_index].connectivity_integrity = 0.f;
+      segment_pairs[segment_pair_index].bend_twist_bundle_integrity = 0.f;
+    }
+  }
 }

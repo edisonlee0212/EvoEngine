@@ -1,12 +1,17 @@
 struct SegmentMeshletVertex {
-  float relative_position_x;
-  float relative_position_y;
-  float relative_position_z;
+  vec3 x0;
   int segment_index;
+  vec3 x;
+  int padding;
 };
 
 struct SegmentMeshletTriangle {
-  uint[4] vertex_indices_twin_triangle;
+  uint[3] vertex_indices;
+  int neighbor_segment_index;
+  // TODO: perhaps split these off into separate buffers with indices
+  vec4[3] normal;
+  vec4[3] normal0;
+  vec2[4] uv;
 };
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 8) buffer SEGMENT_MESHLET_VERTICES_BLOCK {

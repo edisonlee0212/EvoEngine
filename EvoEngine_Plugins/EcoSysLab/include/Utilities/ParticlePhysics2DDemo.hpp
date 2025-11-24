@@ -1,4 +1,3 @@
-
 #pragma once
 #include "ProfileConstraints.hpp"
 #include "StrandModelProfile.hpp"
@@ -44,5 +43,4 @@ class ParticlePhysics2DDemo : public IPrivateComponent {
    */
   void FixedUpdate() override;
 };
-
 }  // namespace eco_sys_lab_plugin

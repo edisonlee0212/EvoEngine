@@ -19,76 +19,73 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE) in;
 
-struct Task{
-	uint	baseID;
-	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
+struct Task {
+  uint baseID;
+  uint8_t deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
 
 taskPayloadSharedEXT Task ts_out;
 
 #if EXT_TASK_SUBGROUP_COUNT > 1
-	shared uint s_out_segment_pairs_count;
+shared uint s_out_segment_pairs_count;
 #endif
 
-#define BARRIER() \
-	memoryBarrierShared(); \
-	barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
-	vec4 min_color;
-	vec4 max_color;
+  vec4 min_color;
+  vec4 max_color;
 
-	uint camera_index;
-	uint segment_pairs_size;
-	uint color_mode;
-	uint multiplier;
+  uint camera_index;
+  uint segment_pairs_size;
+  uint color_mode;
+  uint multiplier;
 };
 
-void main(){
-	
+void main() {
 #if EXT_TASK_SUBGROUP_COUNT > 1
-	if (laneID == 0) {
-		s_out_segment_pairs_count = 0;
-	}
-	BARRIER();
+  if (laneID == 0) {
+    s_out_segment_pairs_count = 0;
+  }
+  BARRIER();
 #endif
-	uint out_segment_pairs_count = 0;
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint segment_pair_index_local  = laneID + i * WORKGROUP_SIZE;
-		uint segment_pair_index_global = baseID + segment_pair_index_local;
+  uint out_segment_pairs_count = 0;
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint segment_pair_index_local = laneID + i * WORKGROUP_SIZE;
+    uint segment_pair_index_global = baseID + segment_pair_index_local;
 
-		SegmentPair segment_pair = segment_pairs[segment_pair_index_global];
-		Segment segment0 = segments[segment_pair.segment0_handle];
-		Segment segment1 = segments[segment_pair.segment1_handle];
-		bool render = !(segment_pair_index_global >= segment_pairs_size) 
-			&& (segment_pair.connectivity_integrity > 0.0f || segment_pair.bend_twist_bundle_integrity > 0.0f);
+    SegmentPair segment_pair = segment_pairs[segment_pair_index_global];
+    Segment segment0 = segments[segment_pair.segment0_handle];
+    Segment segment1 = segments[segment_pair.segment1_handle];
+    bool render = !(segment_pair_index_global >= segment_pairs_size) &&
+                  (segment_pair.connectivity_integrity > 0.0f || segment_pair.bend_twist_bundle_integrity > 0.0f);
 
-		uvec4 vote_segment_pairs = subgroupBallot(render);
-		uint num_segment_pairs  = subgroupBallotBitCount(vote_segment_pairs);
+    uvec4 vote_segment_pairs = subgroupBallot(render);
+    uint num_segment_pairs = subgroupBallotBitCount(vote_segment_pairs);
 
 #if EXT_TASK_SUBGROUP_COUNT > 1
-		if (gl_SubgroupInvocationID == 0) {
-			out_segment_pairs_count = atomicAdd(s_out_segment_pairs_count, num_segment_pairs);
-		}
-		out_segment_pairs_count = subgroupBroadcastFirst(out_segment_pairs_count);
+    if (gl_SubgroupInvocationID == 0) {
+      out_segment_pairs_count = atomicAdd(s_out_segment_pairs_count, num_segment_pairs);
+    }
+    out_segment_pairs_count = subgroupBroadcastFirst(out_segment_pairs_count);
 #endif
-		uint idx_offset  = subgroupBallotExclusiveBitCount(vote_segment_pairs) + out_segment_pairs_count;
-		if (render) 
-		{
-			ts_out.deltaIDs[idx_offset] = uint8_t(segment_pair_index_local);
-		}
+    uint idx_offset = subgroupBallotExclusiveBitCount(vote_segment_pairs) + out_segment_pairs_count;
+    if (render) {
+      ts_out.deltaIDs[idx_offset] = uint8_t(segment_pair_index_local);
+    }
 #if EXT_TASK_SUBGROUP_COUNT == 1
-		out_segment_pairs_count += num_segment_pairs;
+    out_segment_pairs_count += num_segment_pairs;
 #endif
-	}
+  }
 
 #if EXT_TASK_SUBGROUP_COUNT > 1
-	BARRIER();
-	out_segment_pairs_count = s_out_segment_pairs_count;
+  BARRIER();
+  out_segment_pairs_count = s_out_segment_pairs_count;
 #endif
-	if (laneID == 0) {
-		ts_out.baseID = baseID;
-	}
-	EmitMeshTasksEXT(out_segment_pairs_count, 1, 1);
+  if (laneID == 0) {
+    ts_out.baseID = baseID;
+  }
+  EmitMeshTasksEXT(out_segment_pairs_count, 1, 1);
 }

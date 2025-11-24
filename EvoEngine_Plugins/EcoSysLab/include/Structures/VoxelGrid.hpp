@@ -465,6 +465,7 @@ void VoxelGrid<VoxelData>::RefEach(const glm::vec3& center, const float min_radi
     }
   }
 }
+
 template <typename VoxelData>
 void VoxelGrid<VoxelData>::PeekEach(const glm::vec3& min_bound, const glm::vec3& max_bound,
                                     const std::function<void(const VoxelData& data)>& func) const {
@@ -483,6 +484,7 @@ void VoxelGrid<VoxelData>::PeekEach(const glm::vec3& min_bound, const glm::vec3&
     }
   }
 }
+
 template <typename VoxelData>
 void VoxelGrid<VoxelData>::PeekEach(const glm::vec3& center, float radius,
                                     const std::function<void(const VoxelData& data)>& func) const {
@@ -502,6 +504,7 @@ void VoxelGrid<VoxelData>::PeekEach(const glm::vec3& center, float radius,
     }
   }
 }
+
 template <typename VoxelData>
 void VoxelGrid<VoxelData>::PeekEach(const glm::vec3& center, const float min_radius, const float max_radius,
                                     const std::function<void(const VoxelData& data)>& func) const {

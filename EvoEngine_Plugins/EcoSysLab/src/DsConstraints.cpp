@@ -262,6 +262,7 @@ void DsPivotTransform::Initialize(const GlobalTransform& target_base_global_tran
     }
   });
 }
+
 void DsPivotTransform::Update(const GlobalTransform& new_global_transform,
                               const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
   const glm::quat rotation = new_global_transform.GetRotation() * inverse_base_global_transform.GetRotation();

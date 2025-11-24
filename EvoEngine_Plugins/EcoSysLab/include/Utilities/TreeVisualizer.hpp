@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include "Application.hpp"
@@ -30,6 +29,7 @@ enum class ShootVisualizerMode {
   SaggingStress,                ///< Visualize based on sagging stress.
   Locked                        ///< Locked visualization mode.
 };
+
 /**
  * @brief Enumeration for different root visualization modes.
  */
@@ -52,6 +52,7 @@ struct ShootVisualizerColorSettings {
   int visualization_mode = static_cast<int>(ShootVisualizerMode::Default);  ///< The active shoot visualization mode.
   float color_multiplier = 1.0f;                                            ///< Multiplier for shoot color intensity.
 };
+
 /**
  * @brief Structure to hold tree visualizer color settings.
  */
@@ -59,6 +60,7 @@ struct RootVisualizerColorSettings {
   int visualization_mode = static_cast<int>(RootVisualizerMode::Default);  ///< The active shoot visualization mode.
   float color_multiplier = 1.0f;                                           ///< Multiplier for shoot color intensity.
 };
+
 class TreeVisualizer {
  protected:
   bool initialized_ = false;  ///< Flag to check if the visualizer is initialized.
@@ -134,6 +136,7 @@ class TreeVisualizer {
   template <typename SkeletonData, typename FlowData, typename NodeData>
   void SetSelectedNode(const Skeleton<SkeletonData, FlowData, NodeData>& skeleton, SkeletonNodeHandle node_handle);
 };
+
 template <typename SkeletonData, typename FlowData, typename NodeData>
 bool TreeVisualizer::RayCastSelection(const std::shared_ptr<Camera>& camera_component, const glm::vec2& mouse_position,
                                       const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
@@ -190,7 +193,8 @@ bool TreeVisualizer::RayCastSelection(const std::shared_ptr<Camera>& camera_comp
     const auto dot_p = a * c - b * b;  // always >= 0
     float sc, tc;
     // compute the line parameters of the two closest points
-    if (dot_p < 0.00001f) {  // the lines are almost parallel
+    if (dot_p < 0.00001f) {
+      // the lines are almost parallel
       sc = 0.0f;
       tc = (b > c ? d / b : e / c);  // use the largest denominator
     } else {
@@ -218,6 +222,7 @@ bool TreeVisualizer::RayCastSelection(const std::shared_ptr<Camera>& camera_comp
   }
   return changed;
 }
+
 template <typename SkeletonData, typename FlowData, typename NodeData>
 bool TreeVisualizer::ScreenCurveSelection(const std::function<void(SkeletonNodeHandle)>& handler,
                                           std::vector<glm::vec2>& mouse_positions,
@@ -287,6 +292,7 @@ bool TreeVisualizer::ScreenCurveSelection(const std::function<void(SkeletonNodeH
   }
   return changed;
 }
+
 template <typename SkeletonData, typename FlowData, typename NodeData>
 void TreeVisualizer::SetSelectedNode(const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
                                      const SkeletonNodeHandle node_handle) {
@@ -381,6 +387,7 @@ class ShootVisualizer : public TreeVisualizer {
    */
   void SyncMatrices(const ShootSkeleton& skeleton, const std::shared_ptr<ParticleInfoList>& particle_info_list);
 };
+
 class RootVisualizer : public TreeVisualizer {
   /**
    * @brief Draws the GUI for inspecting an internode.

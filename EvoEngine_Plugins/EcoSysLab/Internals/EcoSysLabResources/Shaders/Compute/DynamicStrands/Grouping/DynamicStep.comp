@@ -18,51 +18,50 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint segment_size;
+  uint segment_size;
 };
 
 layout(std430, set = 1, binding = 0) buffer NEW_GROUP_INDICES_BLOCK {
-	int new_group_indices[];
+  int new_group_indices[];
 };
-
 
 layout(std430, set = 1, binding = 1) buffer WORK_GROUP_SYNC_BLOCK {
-	uint work_group_updated[];
+  uint work_group_updated[];
 };
 
-
 void main() {
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint segment_index = baseID + local_index;
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint segment_index = baseID + local_index;
 
-		if(segment_index >= segment_size) break;
-		Segment segment = segments[segment_index];
-		SegmentData segment_data = segment_data_list[segment_index];
-		int min_group_index = segment.group_index;
-		uint updated = 0;
-		[[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
-			int pair_handle = segment_data.pair_handles[i];
-			if (pair_handle < 0)
-				continue;
-			SegmentPair segment_pair = segment_pairs[pair_handle];
-			if (segment_pair.connectivity_integrity <= 0.0f && segment_pair.bend_twist_bundle_integrity <= 0.0f)
-				continue;
-			bool is_segment0 = segment_index == segment_pair.segment0_handle;
-			int neighbor_group_index = segments[is_segment0 ? segment_pair.segment1_handle : segment_pair.segment0_handle].group_index;
-			if(min_group_index > neighbor_group_index){
-				min_group_index = neighbor_group_index;
-				updated = 1;
-			}
-		}
-		new_group_indices[segment_index] = min_group_index;
-		atomicOr(work_group_updated[gl_WorkGroupID.x], updated);
-	}
+    if (segment_index >= segment_size)
+      break;
+    Segment segment = segments[segment_index];
+    SegmentData segment_data = segment_data_list[segment_index];
+    int min_group_index = segment.group_index;
+    uint updated = 0;
+    [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
+      int pair_handle = segment_data.pair_handles[i];
+      if (pair_handle < 0)
+        continue;
+      SegmentPair segment_pair = segment_pairs[pair_handle];
+      if (segment_pair.connectivity_integrity <= 0.0f && segment_pair.bend_twist_bundle_integrity <= 0.0f)
+        continue;
+      bool is_segment0 = segment_index == segment_pair.segment0_handle;
+      int neighbor_group_index =
+          segments[is_segment0 ? segment_pair.segment1_handle : segment_pair.segment0_handle].group_index;
+      if (min_group_index > neighbor_group_index) {
+        min_group_index = neighbor_group_index;
+        updated = 1;
+      }
+    }
+    new_group_indices[segment_index] = min_group_index;
+    atomicOr(work_group_updated[gl_WorkGroupID.x], updated);
+  }
 }

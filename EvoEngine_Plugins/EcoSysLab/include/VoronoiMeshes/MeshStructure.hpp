@@ -14,7 +14,7 @@ struct MeshStructure {
   // TODO: will a fixed size array be sufficient here? Alternatively, we need a separate buffer with start index and
   // length
   struct SegmentProperties {
-    static const size_t MAX_NEIGHBORS = 15;
+    static const size_t MAX_NEIGHBORS = 63;
 
     size_t mesh_pair_indices[MAX_NEIGHBORS];
     size_t neighbor_count = 0;
@@ -23,7 +23,7 @@ struct MeshStructure {
   };
 
  private:
-  Mesh mesh;
+  VoronoiMesh mesh;
 
   std::vector<SegmentMeshPair> segment_pairs;  // pairs of (start, end) indices into the index buffer for each meshlet
 };

@@ -85,5 +85,4 @@ class BasicReproductionModuleDescriptor : public IReproductionModuleDescriptor {
    */
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
-
 }  // namespace eco_sys_lab_plugin

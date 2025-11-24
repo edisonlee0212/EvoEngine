@@ -1,4 +1,3 @@
-
 #pragma once
 #include "EnvironmentGrid.hpp"
 #include "Octree.hpp"
@@ -232,5 +231,4 @@ struct StrandModelSkeletonData {
  * @brief A skeleton structure used for strand model simulation.
  */
 typedef Skeleton<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData> StrandModelSkeleton;
-
 }  // namespace eco_sys_lab_plugin

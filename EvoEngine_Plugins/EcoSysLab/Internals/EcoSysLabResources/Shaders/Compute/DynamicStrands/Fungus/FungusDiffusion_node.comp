@@ -57,14 +57,13 @@ void main() {
     // Calculate K based on boundary distance
     segments[segment_index].K = (0.2 + bo) / (16.0 * bo * segments[segment_index].boundary_distance + 1.0);
     segments[segment_index].K = 5.0;
-    //if (segments[segment_index].boundary_distance > 0.13) {
-    //  segments[segment_index].K = 0.0;
-    //}  // Inner fast decay
-    if (segments[segment_index].boundary_distance >
-             0.02 + segments[segment_index].particle0.root_distance / 40.0 ) {
+    // if (segments[segment_index].boundary_distance > 0.13) {
+    //   segments[segment_index].K = 0.0;
+    // }  // Inner fast decay
+    if (segments[segment_index].boundary_distance > 0.02 + segments[segment_index].particle0.root_distance / 40.0) {
       segments[segment_index].K = 0.0;
     }  // Inner faster decay considering root distance for TREE ELM (0.02) SPRUCE (0.015) OAK (0.02)
-    //segments[segment_index].K = 1.0; // for board case
+    // segments[segment_index].K = 1.0; // for board case
 
     // Get diffusion values from the segment
     float diffusion_c = segments[segment_index].diffusion_c;
@@ -73,82 +72,75 @@ void main() {
     float diffusion_m = segments[segment_index].diffusion_m;
 
     // Update chemical protection (C)
-    segments[segment_index].C = segments[segment_index].C_pre +
-                                dt * (0.1 * diffusion_c +
-                                      segments[segment_index].K * (1.0 - segments[segment_index].C_pre) *
-                                      (segments[segment_index].RW_pre + segments[segment_index].RB_pre) *
-                                      segments[segment_index].HC_pre -
-                                      delta * segments[segment_index].C_pre);
+    segments[segment_index].C =
+        segments[segment_index].C_pre +
+        dt * (0.1 * diffusion_c +
+              segments[segment_index].K * (1.0 - segments[segment_index].C_pre) *
+                  (segments[segment_index].RW_pre + segments[segment_index].RB_pre) * segments[segment_index].HC_pre -
+              delta * segments[segment_index].C_pre);
 
     // Clamp to valid range
     segments[segment_index].C = clamp(segments[segment_index].C, 0.0, 1.0);
 
     // Update health of carbon (HC)
     segments[segment_index].HC = segments[segment_index].HC_pre +
-                                 dt * ((-ycw * segments[segment_index].RW_pre -
-                                        ycb * segments[segment_index].RB_pre) *
-                                       segments[segment_index].HC_pre +
-                                       pc * segments[segment_index].C_pre *
-                                       (1.0 - segments[segment_index].HC_pre));
+                                 dt * ((-ycw * segments[segment_index].RW_pre - ycb * segments[segment_index].RB_pre) *
+                                           segments[segment_index].HC_pre +
+                                       pc * segments[segment_index].C_pre * (1.0 - segments[segment_index].HC_pre));
 
     segments[segment_index].HC = clamp(segments[segment_index].HC, 0.0, 1.0);
 
     // Update health of lignin (HL)
     segments[segment_index].HL = segments[segment_index].HL_pre +
-                                 dt * ((-ylw * segments[segment_index].RW_pre) *
-                                       segments[segment_index].HL_pre +
-                                       pl * segments[segment_index].C_pre *
-                                       (1.0 - segments[segment_index].HL_pre));
+                                 dt * ((-ylw * segments[segment_index].RW_pre) * segments[segment_index].HL_pre +
+                                       pl * segments[segment_index].C_pre * (1.0 - segments[segment_index].HL_pre));
 
     segments[segment_index].HL = clamp(segments[segment_index].HL, 0.0, 1.0);
 
     // Update white rot (RW)
-    segments[segment_index].RW = segments[segment_index].RW_pre +
-                                 dt * (aw * (brw + (1.0 - brw) * segments[segment_index].moisture_pre) * segments[segment_index].RW_pre *
-                                       (1.0 - segments[segment_index].RW_pre) *
-                                       (ll * segments[segment_index].HL_pre +
-                                        lc * segments[segment_index].HC_pre) *
-                                       segments[segment_index].HC_pre / (kc + segments[segment_index].HC_pre) -
-                                       bw * segments[segment_index].C_pre *
-                                       segments[segment_index].RW_pre +
-                                       0.1 * diffusion_w);
+    segments[segment_index].RW =
+        segments[segment_index].RW_pre +
+        dt * (aw * (brw + (1.0 - brw) * segments[segment_index].moisture_pre) * segments[segment_index].RW_pre *
+                  (1.0 - segments[segment_index].RW_pre) *
+                  (ll * segments[segment_index].HL_pre + lc * segments[segment_index].HC_pre) *
+                  segments[segment_index].HC_pre / (kc + segments[segment_index].HC_pre) -
+              bw * segments[segment_index].C_pre * segments[segment_index].RW_pre + 0.1 * diffusion_w);
 
     segments[segment_index].RW = clamp(segments[segment_index].RW, 0.0, 1.0);
 
     // Update brown rot (RB)
-    segments[segment_index].RB = segments[segment_index].RB_pre +
-                                 dt * (ab * (brb + (1.0 - brb) * segments[segment_index].moisture_pre) * segments[segment_index].RB_pre *
-                                       (1.0 - segments[segment_index].RB_pre) *
-                                       segments[segment_index].HC_pre -
-                                       bb * segments[segment_index].C_pre *
-                                       segments[segment_index].RB_pre +
-                                       0.1 * diffusion_b);
+    segments[segment_index].RB =
+        segments[segment_index].RB_pre +
+        dt * (ab * (brb + (1.0 - brb) * segments[segment_index].moisture_pre) * segments[segment_index].RB_pre *
+                  (1.0 - segments[segment_index].RB_pre) * segments[segment_index].HC_pre -
+              bb * segments[segment_index].C_pre * segments[segment_index].RB_pre + 0.1 * diffusion_b);
 
     segments[segment_index].RB = clamp(segments[segment_index].RB, 0.0, 1.0);
 
-    segments[segment_index].moisture =
-        segments[segment_index].moisture_pre + dt * (msr * (1.0f + (1.0f - segments[segment_index].HL_pre)) * diffusion_m);
+    segments[segment_index].moisture = segments[segment_index].moisture_pre +
+                                       dt * (msr * (1.0f + (1.0f - segments[segment_index].HL_pre)) * diffusion_m);
 
     if (segments[segment_index].boundary_distance < 0.01) {
       segments[segment_index].moisture -= dt * segments[segment_index].moisture_pre * 0.5f * 0.6f;
     }
 
-    //for log
-    //segments[segment_index].moisture =
-    //    segments[segment_index].moisture_pre +
-    //    dt * (0.1 * diffusion_m +
-    //          25.0 * (1.0 - segments[segment_index].moisture_pre) * max(0.25 - segments[segment_index].boundary_distance, 0.0) *
-    //              (segments[segment_index].HL_pre));
+    // for log
+    // segments[segment_index].moisture =
+    //     segments[segment_index].moisture_pre +
+    //     dt * (0.1 * diffusion_m +
+    //           25.0 * (1.0 - segments[segment_index].moisture_pre) * max(0.25 -
+    //           segments[segment_index].boundary_distance, 0.0) *
+    //               (segments[segment_index].HL_pre));
     //
-    //if (segments[segment_index].boundary_distance < 0.03) {
-    //  segments[segment_index].moisture -= dt * segments[segment_index].moisture_pre * 0.1 *
-    //                                      (1.0 - segments[segment_index].HL_pre + 0.1);
-    //} 
-    //if (segments[segment_index].particle0.x[0] < 0.03 || segments[segment_index].particle0.x[0] > 0.47) {
-    //  segments[segment_index].moisture -= 50.0 * dt * (segments[segment_index].moisture_pre + 0.2) *
-    //                                      (1.0 - segments[segment_index].HL_pre + 0.05) *
-    //                                      (segments[segment_index].boundary_distance + 0.03);
-    //}
+    // if (segments[segment_index].boundary_distance < 0.03) {
+    //   segments[segment_index].moisture -= dt * segments[segment_index].moisture_pre * 0.1 *
+    //                                       (1.0 - segments[segment_index].HL_pre + 0.1);
+    // }
+    // if (segments[segment_index].particle0.x[0] < 0.03 || segments[segment_index].particle0.x[0] > 0.47) {
+    //   segments[segment_index].moisture -= 50.0 * dt * (segments[segment_index].moisture_pre + 0.2) *
+    //                                       (1.0 - segments[segment_index].HL_pre + 0.05) *
+    //                                       (segments[segment_index].boundary_distance + 0.03);
+    // }
     segments[segment_index].moisture = clamp(segments[segment_index].moisture, 0.0, 1.0);
 
     // Update previous values for next iteration

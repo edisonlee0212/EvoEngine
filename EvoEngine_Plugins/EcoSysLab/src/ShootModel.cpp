@@ -30,6 +30,7 @@ void ShootModel::ResetOrgans() {
     }
   }
 }
+
 void ShootModel::CreateOrgansForInternode(SkeletonNode<InternodeGrowthData>& internode,
                                           const FoliageController& foliage_controller,
                                           const ShootReproductionController& reproduction_controller) {
@@ -356,6 +357,7 @@ Vigor ShootModel::SampleShootFlux(const glm::mat4& global_transform, const Clima
   }
   return total_shoot_flux;
 }
+
 void ShootModel::DistributeVigor(const ShootGrowthController& shoot_growth_controller, const Vigor vigor) {
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   float max_grow_potential = 0.0f;
@@ -586,6 +588,7 @@ bool ShootModel::ElongateInternode(const float extended_length, const SkeletonNo
   }
   return graph_changed;
 }
+
 void ShootModel::CalculateGrowthData(const ShootGrowthController& shoot_growth_controller) {
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   {
@@ -826,6 +829,7 @@ bool ShootModel::GrowReproductiveModules(float delta_time, const ClimateModel& c
   }
   return status_changed;
 }
+
 void ShootModel::FormulateReproductiveModules(const ClimateModel& climate_model, const glm::mat4& global_transform,
                                               SkeletonNodeHandle internode_handle,
                                               const ShootReproductionController& reproduction_controller) {
@@ -868,6 +872,7 @@ void ShootModel::CalculateThickness(const ShootGrowthController& shoot_growth_co
     internode_info.thickness = internode_data.internode_thickness * shoot_growth_controller.base_thickness;
   }
 }
+
 void ShootModel::CalculateBiomassFactor(SkeletonNodeHandle internode_handle,
                                         const ShootGrowthController& shoot_growth_controller, float volume_factor) {
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
@@ -964,6 +969,7 @@ void ShootModel::Clear() {
 int ShootModel::GetLeafCount() const {
   return leaf_count_;
 }
+
 int ShootModel::GetFlowerCount() const {
   return flower_count_;
 }
@@ -1104,6 +1110,7 @@ void ShootModel::Reverse(int iteration) {
   shoot_skeleton_ = shoot_history_[iteration];
   shoot_history_.erase((shoot_history_.begin() + iteration), shoot_history_.end());
 }
+
 void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
   {
@@ -1238,6 +1245,7 @@ void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
   }
   out << YAML::EndMap;
 }
+
 void ShootModel::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     if (const auto& in_tree_model = in[name]) {

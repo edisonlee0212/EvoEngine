@@ -14,220 +14,258 @@ const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SI
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 // Push constant for simulation parameters
 layout(push_constant) uniform SimulationParams {
-    float dt;
-    float aw;
-    float ab;
-    float bw;
-    float bb;
-    float ycw;
-    float ycb;
-    float ylw;
-    float pc;
-    float pl;
-    float k;
-    float delta;
-    float ll;
-    float lc;
-    int num_nodes;
-    int edge_count;
-    mat3 matrixAw;
-    mat3 matrixAb;
-    mat3 matrixAc;
-} params;
+  float dt;
+  float aw;
+  float ab;
+  float bw;
+  float bb;
+  float ycw;
+  float ycb;
+  float ylw;
+  float pc;
+  float pl;
+  float k;
+  float delta;
+  float ll;
+  float lc;
+  int num_nodes;
+  int edge_count;
+  mat3 matrixAw;
+  mat3 matrixAb;
+  mat3 matrixAc;
+}
+params;
 
 // Buffers for state variables
-layout(std430, binding = 0) buffer CBuffer { float data[]; } C;
-layout(std430, binding = 1) buffer HCBuffer { float data[]; } HC;
+layout(std430, binding = 0) buffer CBuffer {
+  float data[];
+}
+C;
+layout(std430, binding = 1) buffer HCBuffer {
+  float data[];
+}
+HC;
 
-
-layout(std430, binding = 2) buffer HLBuffer { float data[]; } HL;
-layout(std430, binding = 3) buffer RWBuffer { float data[]; } RW;
-layout(std430, binding = 4) buffer RBBuffer { float data[]; } RB;
-layout(std430, binding = 5) buffer KBuffer { float data[]; } K;
+layout(std430, binding = 2) buffer HLBuffer {
+  float data[];
+}
+HL;
+layout(std430, binding = 3) buffer RWBuffer {
+  float data[];
+}
+RW;
+layout(std430, binding = 4) buffer RBBuffer {
+  float data[];
+}
+RB;
+layout(std430, binding = 5) buffer KBuffer {
+  float data[];
+}
+K;
 
 // Temp buffers to store previous state
-layout(std430, binding = 6) buffer C_PreBuffer { float data[]; } C_pre;
-layout(std430, binding = 7) buffer HC_PreBuffer { float data[]; } HC_pre;
-layout(std430, binding = 8) buffer HL_PreBuffer { float data[]; } HL_pre;
-layout(std430, binding = 9) buffer RW_PreBuffer { float data[]; } RW_pre;
-layout(std430, binding = 10) buffer RB_PreBuffer { float data[]; } RB_pre;
+layout(std430, binding = 6) buffer C_PreBuffer {
+  float data[];
+}
+C_pre;
+layout(std430, binding = 7) buffer HC_PreBuffer {
+  float data[];
+}
+HC_pre;
+layout(std430, binding = 8) buffer HL_PreBuffer {
+  float data[];
+}
+HL_pre;
+layout(std430, binding = 9) buffer RW_PreBuffer {
+  float data[];
+}
+RW_pre;
+layout(std430, binding = 10) buffer RB_PreBuffer {
+  float data[];
+}
+RB_pre;
 
 // Edge data structure
 struct Edge {
-    int source;
-    int target;
+  int source;
+  int target;
 };
-layout(std430, binding = 11) buffer EdgeBuffer { Edge data[]; } edges;
+layout(std430, binding = 11) buffer EdgeBuffer {
+  Edge data[];
+}
+edges;
 
 // Buffers for calculated diffusion values (new)
-layout(std430, binding = 12) buffer DiffusionCBuffer { float data[]; } diffusion_c_values;
-layout(std430, binding = 13) buffer DiffusionWBuffer { float data[]; } diffusion_w_values;
-layout(std430, binding = 14) buffer DiffusionBBuffer { float data[]; } diffusion_b_values;
+layout(std430, binding = 12) buffer DiffusionCBuffer {
+  float data[];
+}
+diffusion_c_values;
+layout(std430, binding = 13) buffer DiffusionWBuffer {
+  float data[];
+}
+diffusion_w_values;
+layout(std430, binding = 14) buffer DiffusionBBuffer {
+  float data[];
+}
+diffusion_b_values;
 
-layout(std430, binding = 15) buffer NodePositionBuffer { vec3 data[]; } node_positions;
-layout(std430, binding = 16) buffer NodeDistanceBuffer { float data[]; } node_distance_to_boundary;
+layout(std430, binding = 15) buffer NodePositionBuffer {
+  vec3 data[];
+}
+node_positions;
+layout(std430, binding = 16) buffer NodeDistanceBuffer {
+  float data[];
+}
+node_distance_to_boundary;
 
 uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
 uint laneID = gl_LocalInvocationID.x;
 
+void computeDiffusionWeights(vec3 source_pos, vec3 target_pos, float source_distance, float target_distance,
+                             out float dc_weight, out float dw_weight, out float db_weight) {
+  vec3 edge_dir = source_pos - target_pos;
+  float d = length(edge_dir);
 
-void computeDiffusionWeights(vec3 source_pos, vec3 target_pos, float source_distance, float target_distance, 
-                             out float dc_weight, out float dw_weight, out float db_weight) 
-{
-    vec3 edge_dir = source_pos - target_pos;
-    float d = length(edge_dir);
-    
-    if (d < 0.000001) {
-        dc_weight = 0.0;
-        dw_weight = 0.0;
-        db_weight = 0.0;
-        return;
-    }
-    
-    edge_dir /= d;
-    //float ex = edge_dir.x;
-    //float ey = edge_dir.y;
-    //float ez = edge_dir.z;
-    
-    //float kw = max(1.0 * ex * ex + 0.5 * ey * ey + 1.0 * ez * ez, 0.0);
-    //float kb = kw; 
-    //float kc = 0.5 * ex * ex + ey * ey + 0.5 * ez * ez;
+  if (d < 0.000001) {
+    dc_weight = 0.0;
+    dw_weight = 0.0;
+    db_weight = 0.0;
+    return;
+  }
 
-    mat3 matrixAw = params.matrixAw;
-    mat3 matrixAb = params.matrixAb;
-    mat3 matrixAc = params.matrixAc;
+  edge_dir /= d;
+  // float ex = edge_dir.x;
+  // float ey = edge_dir.y;
+  // float ez = edge_dir.z;
 
-    float kw = max(dot(edge_dir * matrixAw, edge_dir), 0.0);
-    float kb = max(dot(edge_dir * matrixAb, edge_dir), 0.0);
-    float kc = max(dot(edge_dir * matrixAc, edge_dir), 0.0);
-    
-    float coef = min(source_distance, target_distance);
-    coef = coef * coef * coef * 64.0;
-    
-    dw_weight = kw / d * coef;
-    db_weight = kb / d * coef;
-    dc_weight = kc / d;
+  // float kw = max(1.0 * ex * ex + 0.5 * ey * ey + 1.0 * ez * ez, 0.0);
+  // float kb = kw;
+  // float kc = 0.5 * ex * ex + ey * ey + 0.5 * ez * ez;
+
+  mat3 matrixAw = params.matrixAw;
+  mat3 matrixAb = params.matrixAb;
+  mat3 matrixAc = params.matrixAc;
+
+  float kw = max(dot(edge_dir * matrixAw, edge_dir), 0.0);
+  float kb = max(dot(edge_dir * matrixAb, edge_dir), 0.0);
+  float kc = max(dot(edge_dir * matrixAc, edge_dir), 0.0);
+
+  float coef = min(source_distance, target_distance);
+  coef = coef * coef * coef * 64.0;
+
+  dw_weight = kw / d * coef;
+  db_weight = kb / d * coef;
+  dc_weight = kc / d;
 }
 
 void main() {
-    // PHASE 1: Precompute diffusion contributions
-    // Process edges in parallel - each thread handles multiple edges
-    for (uint edge_index = int(gl_GlobalInvocationID.x); edge_index < params.edge_count; edge_index += gl_NumWorkGroups.x * gl_WorkGroupSize.x) {
-        Edge edge = edges.data[edge_index];
-        uint i = edge.source;
-        uint j = edge.target;
-        
-        vec3 source_pos = node_positions.data[i];
-        vec3 target_pos = node_positions.data[j];
-        
-        float source_distance = node_distance_to_boundary.data[i];
-        float target_distance = node_distance_to_boundary.data[j];
-        
-        float dc_weight, dw_weight, db_weight;
-        computeDiffusionWeights(source_pos, target_pos, source_distance, target_distance, 
-                                dc_weight, dw_weight, db_weight);
-        
-        // Accumulate diffusion contribution from neighbors
-        atomicAdd(diffusion_c_values.data[i], dc_weight * C_pre.data[j]);
-        atomicAdd(diffusion_w_values.data[i], dw_weight * RW_pre.data[j]);
-        atomicAdd(diffusion_b_values.data[i], db_weight * RB_pre.data[j]);
-        
-        // Add reverse direction contributions (undirected graph)
-        atomicAdd(diffusion_c_values.data[j], dc_weight * C_pre.data[i]);
-        atomicAdd(diffusion_w_values.data[j], dw_weight * RW_pre.data[i]);
-        atomicAdd(diffusion_b_values.data[j], db_weight * RB_pre.data[i]);
-        
-        // Add diagonal terms (self-interactions with negative values for conservation)
-        atomicAdd(diffusion_c_values.data[i], -dc_weight * C_pre.data[i]);
-        atomicAdd(diffusion_w_values.data[i], -dw_weight * RW_pre.data[i]);
-        atomicAdd(diffusion_b_values.data[i], -db_weight * RB_pre.data[i]);
-        
-        atomicAdd(diffusion_c_values.data[j], -dc_weight * C_pre.data[j]);
-        atomicAdd(diffusion_w_values.data[j], -dw_weight * RW_pre.data[j]);
-        atomicAdd(diffusion_b_values.data[j], -db_weight * RB_pre.data[j]);
-    }
+  // PHASE 1: Precompute diffusion contributions
+  // Process edges in parallel - each thread handles multiple edges
+  for (uint edge_index = int(gl_GlobalInvocationID.x); edge_index < params.edge_count;
+       edge_index += gl_NumWorkGroups.x * gl_WorkGroupSize.x) {
+    Edge edge = edges.data[edge_index];
+    uint i = edge.source;
+    uint j = edge.target;
 
-    // Ensure all diffusion calculations are complete
-    barrier();
+    vec3 source_pos = node_positions.data[i];
+    vec3 target_pos = node_positions.data[j];
 
-    // PHASE 2: Process each node with precalculated diffusion values
-    [[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-        uint local_index  = laneID + i * WORKGROUP_SIZE;
-	    uint node_index = baseID + local_index;
-        if (node_index >= params.num_nodes) return;
-    
-        float diffusion_c = diffusion_c_values.data[node_index];
-        float diffusion_w = diffusion_w_values.data[node_index];
-        float diffusion_b = diffusion_b_values.data[node_index];
-        K.data[node_index] = 1.0 / (8.0 * node_distance_to_boundary.data[node_index] + 0.25);
-    
-        // Update chemical protection
-        C.data[node_index] = C_pre.data[node_index] + 
-                             params.dt * (0.001 * diffusion_c + 
-                                        K.data[node_index] * (1.0 - C_pre.data[node_index]) * 
-                                        (RW_pre.data[node_index] + RB_pre.data[node_index]) * 
-                                        HC_pre.data[node_index] - 
-                                        params.delta * C_pre.data[node_index]);
-                                    
-        // Clamp to valid range
-        C.data[node_index] = clamp(C.data[node_index], 0.0, 1.0);
-    
-        // Update health of carbon
-        HC.data[node_index] = HC_pre.data[node_index] + 
-                              params.dt * ((-params.ycw * RW_pre.data[node_index] - 
-                                           params.ycb * RB_pre.data[node_index]) * 
-                                          HC_pre.data[node_index] + 
-                                          params.pc * C_pre.data[node_index] * 
-                                          (1.0 - HC_pre.data[node_index]));
-                                      
-        HC.data[node_index] = clamp(HC.data[node_index], 0.0, 1.0);
-    
-        // Update health of linin
-        HL.data[node_index] = HL_pre.data[node_index] + 
-                              params.dt * ((-params.ylw * RW_pre.data[node_index]) * 
-                                          HL_pre.data[node_index] + 
-                                          params.pl * C_pre.data[node_index] * 
-                                          (1.0 - HL_pre.data[node_index]));
-                                      
-        HL.data[node_index] = clamp(HL.data[node_index], 0.0, 1.0);
-    
-        // Update white rot
-        RW.data[node_index] = RW_pre.data[node_index] + 
-                              params.dt * (params.aw * RW_pre.data[node_index] * 
-                                          (1.0 - RW_pre.data[node_index]) * 
-                                          (params.ll * HL_pre.data[node_index] + 
-                                           params.lc * HC_pre.data[node_index]) - 
-                                          params.bw * C_pre.data[node_index] * 
-                                          RW_pre.data[node_index] + 
-                                          0.1 * diffusion_w);
-                                      
-        RW.data[node_index] = clamp(RW.data[node_index], 0.0, 1.0);
-    
-        // Update brown rot
-        RB.data[node_index] = RB_pre.data[node_index] + 
-                              params.dt * (params.ab * RB_pre.data[node_index] * 
-                                          (1.0 - RB_pre.data[node_index]) * 
-                                          HC_pre.data[node_index] - 
-                                          params.bb * C_pre.data[node_index] * 
-                                          RB_pre.data[node_index] + 
-                                          0.1 * diffusion_b);
-                                      
-        RB.data[node_index] = clamp(RB.data[node_index], 0.0, 1.0);
-        C_pre.data[node_index] = C.data[node_index];
-        HC_pre.data[node_index] = HC.data[node_index];
-        HL_pre.data[node_index] = HL.data[node_index];
-        RW_pre.data[node_index] = RW.data[node_index];
-        RB_pre.data[node_index] = RB.data[node_index];
-        diffusion_c_values.data[node_index] = 0.0;
-        diffusion_w_values.data[node_index] = 0.0;
-        diffusion_b_values.data[node_index] = 0.0;
-    }
+    float source_distance = node_distance_to_boundary.data[i];
+    float target_distance = node_distance_to_boundary.data[j];
+
+    float dc_weight, dw_weight, db_weight;
+    computeDiffusionWeights(source_pos, target_pos, source_distance, target_distance, dc_weight, dw_weight, db_weight);
+
+    // Accumulate diffusion contribution from neighbors
+    atomicAdd(diffusion_c_values.data[i], dc_weight * C_pre.data[j]);
+    atomicAdd(diffusion_w_values.data[i], dw_weight * RW_pre.data[j]);
+    atomicAdd(diffusion_b_values.data[i], db_weight * RB_pre.data[j]);
+
+    // Add reverse direction contributions (undirected graph)
+    atomicAdd(diffusion_c_values.data[j], dc_weight * C_pre.data[i]);
+    atomicAdd(diffusion_w_values.data[j], dw_weight * RW_pre.data[i]);
+    atomicAdd(diffusion_b_values.data[j], db_weight * RB_pre.data[i]);
+
+    // Add diagonal terms (self-interactions with negative values for conservation)
+    atomicAdd(diffusion_c_values.data[i], -dc_weight * C_pre.data[i]);
+    atomicAdd(diffusion_w_values.data[i], -dw_weight * RW_pre.data[i]);
+    atomicAdd(diffusion_b_values.data[i], -db_weight * RB_pre.data[i]);
+
+    atomicAdd(diffusion_c_values.data[j], -dc_weight * C_pre.data[j]);
+    atomicAdd(diffusion_w_values.data[j], -dw_weight * RW_pre.data[j]);
+    atomicAdd(diffusion_b_values.data[j], -db_weight * RB_pre.data[j]);
+  }
+
+  // Ensure all diffusion calculations are complete
+  barrier();
+
+  // PHASE 2: Process each node with precalculated diffusion values
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint node_index = baseID + local_index;
+    if (node_index >= params.num_nodes)
+      return;
+
+    float diffusion_c = diffusion_c_values.data[node_index];
+    float diffusion_w = diffusion_w_values.data[node_index];
+    float diffusion_b = diffusion_b_values.data[node_index];
+    K.data[node_index] = 1.0 / (8.0 * node_distance_to_boundary.data[node_index] + 0.25);
+
+    // Update chemical protection
+    C.data[node_index] = C_pre.data[node_index] + params.dt * (0.001 * diffusion_c +
+                                                               K.data[node_index] * (1.0 - C_pre.data[node_index]) *
+                                                                   (RW_pre.data[node_index] + RB_pre.data[node_index]) *
+                                                                   HC_pre.data[node_index] -
+                                                               params.delta * C_pre.data[node_index]);
+
+    // Clamp to valid range
+    C.data[node_index] = clamp(C.data[node_index], 0.0, 1.0);
+
+    // Update health of carbon
+    HC.data[node_index] = HC_pre.data[node_index] +
+                          params.dt * ((-params.ycw * RW_pre.data[node_index] - params.ycb * RB_pre.data[node_index]) *
+                                           HC_pre.data[node_index] +
+                                       params.pc * C_pre.data[node_index] * (1.0 - HC_pre.data[node_index]));
+
+    HC.data[node_index] = clamp(HC.data[node_index], 0.0, 1.0);
+
+    // Update health of linin
+    HL.data[node_index] =
+        HL_pre.data[node_index] + params.dt * ((-params.ylw * RW_pre.data[node_index]) * HL_pre.data[node_index] +
+                                               params.pl * C_pre.data[node_index] * (1.0 - HL_pre.data[node_index]));
+
+    HL.data[node_index] = clamp(HL.data[node_index], 0.0, 1.0);
+
+    // Update white rot
+    RW.data[node_index] =
+        RW_pre.data[node_index] +
+        params.dt * (params.aw * RW_pre.data[node_index] * (1.0 - RW_pre.data[node_index]) *
+                         (params.ll * HL_pre.data[node_index] + params.lc * HC_pre.data[node_index]) -
+                     params.bw * C_pre.data[node_index] * RW_pre.data[node_index] + 0.1 * diffusion_w);
+
+    RW.data[node_index] = clamp(RW.data[node_index], 0.0, 1.0);
+
+    // Update brown rot
+    RB.data[node_index] =
+        RB_pre.data[node_index] +
+        params.dt * (params.ab * RB_pre.data[node_index] * (1.0 - RB_pre.data[node_index]) * HC_pre.data[node_index] -
+                     params.bb * C_pre.data[node_index] * RB_pre.data[node_index] + 0.1 * diffusion_b);
+
+    RB.data[node_index] = clamp(RB.data[node_index], 0.0, 1.0);
+    C_pre.data[node_index] = C.data[node_index];
+    HC_pre.data[node_index] = HC.data[node_index];
+    HL_pre.data[node_index] = HL.data[node_index];
+    RW_pre.data[node_index] = RW.data[node_index];
+    RB_pre.data[node_index] = RB.data[node_index];
+    diffusion_c_values.data[node_index] = 0.0;
+    diffusion_w_values.data[node_index] = 0.0;
+    diffusion_b_values.data[node_index] = 0.0;
+  }
 }

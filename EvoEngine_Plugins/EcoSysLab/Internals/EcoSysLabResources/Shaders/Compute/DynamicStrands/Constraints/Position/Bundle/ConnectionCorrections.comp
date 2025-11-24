@@ -17,32 +17,34 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint segment_pair_size;
-	float inv_time_step;
+  uint segment_pair_size;
+  float inv_time_step;
 };
 
-void main(){
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint segment_pair_index = baseID + local_index;
 
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint segment_pair_index = baseID + local_index;
+    if (segment_pair_index >= segment_pair_size)
+      break;
 
-		if(segment_pair_index >= segment_pair_size) break;
-
-		if(segment_pairs[segment_pair_index].connectivity_integrity <= 0.f) continue;
-		int segment0_handle = segment_pairs[segment_pair_index].segment0_handle;
-		int segment1_handle = segment_pairs[segment_pair_index].segment1_handle;
-		float inv_mass0 = segments[segment0_handle].inv_mass;
-		float inv_mass1 = segments[segment1_handle].inv_mass;
-		vec3 new_position = (segments[segment0_handle].particle1.x * inv_mass1 + segments[segment1_handle].particle0.x * inv_mass0) / (inv_mass0 + inv_mass1);
-		segments[segment0_handle].particle1.x = new_position;
-		segments[segment1_handle].particle0.x = new_position;
-	}
+    if (segment_pairs[segment_pair_index].connectivity_integrity <= 0.f)
+      continue;
+    int segment0_handle = segment_pairs[segment_pair_index].segment0_handle;
+    int segment1_handle = segment_pairs[segment_pair_index].segment1_handle;
+    float inv_mass0 = segments[segment0_handle].inv_mass;
+    float inv_mass1 = segments[segment1_handle].inv_mass;
+    vec3 new_position =
+        (segments[segment0_handle].particle1.x * inv_mass1 + segments[segment1_handle].particle0.x * inv_mass0) /
+        (inv_mass0 + inv_mass1);
+    segments[segment0_handle].particle1.x = new_position;
+    segments[segment1_handle].particle0.x = new_position;
+  }
 }

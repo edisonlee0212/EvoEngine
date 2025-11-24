@@ -266,7 +266,6 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
                                    ? IM_COL32(0, 0, 255, 255)
                                    : IM_COL32(255, 0, 255, 255),
                                3);
-
           } else if (editor_layer->GetKey(GLFW_KEY_E) == Input::KeyActionType::Hold || is_operating_previously) {
             is_operating_previously = true;
 

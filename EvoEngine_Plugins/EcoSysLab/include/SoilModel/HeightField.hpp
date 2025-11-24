@@ -81,5 +81,4 @@ class HeightField : public IAsset {
                     std::vector<Vertex>& vertices, std::vector<glm::uvec3>& triangles, float x_depth = 1.0f,
                     float z_depth = 1.0f) const;
 };
-
 }  // namespace eco_sys_lab_plugin

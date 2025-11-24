@@ -13,6 +13,7 @@ struct BranchesRenderParameters {
   float bifurcation_alpha = 0.00005f;
   float max_dist_squared = 1.0f;
   bool use_cubic_hermite_spline = true;
+
   enum VertexColors {
     Default,
     Normals,
@@ -27,6 +28,7 @@ struct BranchesRenderParameters {
     InitAxis,
     InitAngle
   };
+
   VertexColors vertex_colors = Default;
 
   float u_multiplier = 1;

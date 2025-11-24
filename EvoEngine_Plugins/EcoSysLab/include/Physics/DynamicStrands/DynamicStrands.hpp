@@ -1,4 +1,3 @@
-
 #pragma once
 #include "Delaunay.hpp"
 #include "DsAlphaShapeMeshing.hpp"
@@ -11,9 +10,11 @@
 #include "ShootGrowthData.hpp"
 #include "StrandGroup.hpp"
 #include "StrandModelData.hpp"
+
 namespace eco_sys_lab_plugin {
 class DsSegmentCollisionPostStep;
 }
+
 namespace eco_sys_lab_plugin {
 class DsSegmentCollision;
 class DsDynamicHashedGrid;
@@ -44,24 +45,13 @@ class DsVelocityUpdate;
  * \brief Class responsible for handling dynamic strands physics simulation.
  */
 class DynamicStrands {
- private:
-  void OnCreate();
-
  public:
-  /**
-   * \brief Default constructor for DynamicStrands.
-   */
-  DynamicStrands(std::shared_ptr<DsAlphaShapeMeshing> meshing, DsMaterials& materials)
-      : materials(materials), meshing(meshing) {
-    OnCreate();
-  }
+  void Init(MeshingType meshing_type);
 
   /**
    * \brief Default constructor for DynamicStrands.
    */
-  DynamicStrands(std::shared_ptr<DsKineticVoronoiMeshing> meshing, DsMaterials& materials)
-      : materials(materials), meshing(meshing) {
-    OnCreate();
+  DynamicStrands(DsMaterials& materials) : materials(materials) {
   }
 
   /**
@@ -111,6 +101,8 @@ class DynamicStrands {
                       const StrandModelStrandGroup& strand_model_strand_group,
                       DtsStrandGroup& randomly_subdivided_strand_group,
                       DtsStrandGroup& uniformly_subdivided_strand_group);
+
+  void InitMeshingAlgorithm(MeshingType meshing_type);
 
   /**
    * \brief Initializes the strand mesh with given parameters.

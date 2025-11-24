@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include "StrandModel.hpp"
@@ -144,5 +143,4 @@ class StrandModelMeshGenerator {
                        std::vector<std::pair<unsigned int, unsigned int>>& index_pairs,
                        const StrandModelMeshGeneratorSettings& settings);
 };
-
 }  // namespace eco_sys_lab_plugin

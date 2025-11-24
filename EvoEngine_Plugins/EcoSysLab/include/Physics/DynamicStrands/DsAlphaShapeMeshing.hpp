@@ -19,6 +19,7 @@ using namespace evo_engine;
 
 struct DsAlphaShapeVisualizationParameters {
   enum class UniformParticleRenderMode { Default, SegmentColor, SingleParticles };
+
   bool render_uniform_particles = false;
   uint32_t uniform_particle_render_mode = 2;
   glm::vec4 uniform_particle_main = glm::vec4(1, 1, 1, 0.8f);
@@ -204,7 +205,7 @@ class DsAlphaShapeMeshing : public DsMeshing {
                                                      VkCommandBuffer vk_command_buffer,
                                                      const RenderLayer::DirectionalLightShadowMapView& view) const;
   uint32_t RenderBranchesToCameraDeferred(
-      const Handle& renderer_handle, int inner_wood_material_index, int snow_material_index,
+      const Handle& renderer_handle, int bark_material_index, int inner_wood_material_index, int snow_material_index,
       const BranchesRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view, VkPolygonMode polygon_mode) const;

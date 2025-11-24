@@ -3,6 +3,7 @@
 //
 #include "TreeGrowthSettings.hpp"
 using namespace eco_sys_lab_plugin;
+
 bool TreeGrowthSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Enable space colonization", &use_space_colonization))
@@ -13,6 +14,7 @@ bool TreeGrowthSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   }
   return changed;
 }
+
 void TreeGrowthSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::BeginMap;
   out << YAML::Key << "node_developmental_vigor_filling_rate" << YAML::Value << node_developmental_vigor_filling_rate;
@@ -26,6 +28,7 @@ void TreeGrowthSettings::Save(const std::string& name, YAML::Emitter& out) const
   out << YAML::Key << "space_colonization_theta" << YAML::Value << space_colonization_theta;
   out << YAML::EndMap;
 }
+
 void TreeGrowthSettings::Load(const std::string& name, const YAML::Node& in) {
   if (in["name"]) {
     const auto& in_settings = in["name"];

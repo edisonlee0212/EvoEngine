@@ -1,4 +1,3 @@
-
 #include "Tree.hpp"
 
 using namespace eco_sys_lab_plugin;
@@ -37,7 +36,8 @@ bool Tree::ParseBinvox(const std::filesystem::path& file_path, VoxelGrid<TreeOcc
       std::cout << "  unrecognized keyword [" << line << "], skipping" << std::endl;
 #endif
       char c;
-      do {  // skip until end of line
+      do {
+        // skip until end of line
         c = input.get();
       } while (input.good() && (c != '\n'));
     }
@@ -621,6 +621,7 @@ void Tree::ExportFlowGraph(const std::filesystem::path& path) const {
     EVOENGINE_ERROR(std::string("Failed to save: ") + e.what());
   }
 }
+
 void Tree::ExportNodeGraph(YAML::Emitter& out) const {
   out << YAML::Key << "Nodes" << YAML::Value << YAML::BeginSeq;
   const auto& skeleton = shoot_model.PeekShootSkeleton();
@@ -638,6 +639,7 @@ void Tree::ExportNodeGraph(YAML::Emitter& out) const {
   }
   out << YAML::EndSeq;
 }
+
 void Tree::ExportNodeGraph(const std::filesystem::path& path) const {
   try {
     std::filesystem::path yaml_path = path;

@@ -11,5 +11,4 @@ class ConstantNode : public INode {
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };
-
 }  // namespace eco_sys_lab_plugin

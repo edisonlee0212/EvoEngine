@@ -1,4 +1,3 @@
-
 #pragma once
 #include "CubeVolume.hpp"
 #include "Skeleton.hpp"
@@ -168,5 +167,4 @@ class TreeOccupancyGrid {
    */
   void InsertObstacle(const GlobalTransform& global_transform, const std::shared_ptr<CubeVolume>& cube_volume);
 };
-
 }  // namespace eco_sys_lab_plugin

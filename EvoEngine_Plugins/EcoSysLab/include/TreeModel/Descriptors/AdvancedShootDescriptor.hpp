@@ -3,13 +3,14 @@
 
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
+
 namespace shoot_descriptor {
 enum class NodeType {
   Input,
   Output,
-
 };
 }
+
 /**
  * \class AdvancedShootDescriptor
  * \brief Represents the parameters controlling procedural tree growth.
@@ -44,5 +45,4 @@ class AdvancedShootDescriptor : public IShootDescriptor {
    */
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
-
 }  // namespace eco_sys_lab_plugin

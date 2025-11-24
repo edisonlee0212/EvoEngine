@@ -260,6 +260,7 @@ class Polynomial {
   Polynomial operator+(const Polynomial& other) const {
     return Polynomial(add_poly(coeffs, other.coeffs));
   }
+
   Polynomial operator-(const Polynomial& other) const {
     return Polynomial(add_poly(coeffs, -other.coeffs));
   }

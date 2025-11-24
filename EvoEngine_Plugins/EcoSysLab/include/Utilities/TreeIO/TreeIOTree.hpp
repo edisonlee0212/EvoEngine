@@ -11,7 +11,6 @@
 #include "TreeIOUtils.hpp"
 
 namespace treeio {
-
 /// @brief Data contained within a single TreeNode.
 struct TreeNodeData {
   /// @brief Swaps the values between dira and dirb (x - 1, y - 2, z - 3) Negative number means opposite direction
@@ -57,11 +56,11 @@ struct TreeRuntimeMetaData {
   virtual Ptr duplicate() const = 0;
 
   /// @brief called during loading of the tree to refresh the runtime metadata after deserialization.
-  virtual void onLoad(TreeMetaData &metaData) = 0;
+  virtual void onLoad(TreeMetaData& metaData) = 0;
 
   /// @brief called during saving of the tree to store any runtime variables into the permanent meta data prior to
   /// serialization.
-  virtual void onSave(TreeMetaData &metaData) = 0;
+  virtual void onSave(TreeMetaData& metaData) = 0;
 };  // struct TreeRuntimeMetaData
 
 /// @brief Dynamic meta-data represented by associative container.
@@ -75,7 +74,7 @@ struct TreeDynamicMetaData {
   std::string serialize() const;
 
   /// @brief Load serialized dynamic meta-datafrom given string.
-  void deserialize(const std::string &serialized);
+  void deserialize(const std::string& serialized);
 
   /// Internal data holder.
   nlohmann::json data{};
@@ -91,10 +90,10 @@ struct TreeMetaData {
   /// @brief Serialize all meta-data.
   std::string serialize() const;
   /// @brief De-serialize all meta-data and load them to this instance.
-  void deserialize(const std::string &serialized, const std::shared_ptr<TreeRuntimeMetaData> &runtime);
+  void deserialize(const std::string& serialized, const std::shared_ptr<TreeRuntimeMetaData>& runtime);
 
   /// @brief Insert value to this meta-data instance by key name.
-  void insertValue(const std::string &key, const std::string &value);
+  void insertValue(const std::string& key, const std::string& value);
 
   /// @brief Set invalid values to correct state.
   void validateValues();
@@ -194,18 +193,18 @@ struct TreeMetaData {
   }
 
   /// @brief Set runtime meta-data for this object, automatically initializing it.
-  void setRuntimeMetaData(const std::shared_ptr<TreeRuntimeMetaData> &runtime) {
+  void setRuntimeMetaData(const std::shared_ptr<TreeRuntimeMetaData>& runtime) {
     mRuntimeMetaData = runtime;
     onLoad();
   }
 
   /// @brief Access the dynamic meta-data.
-  const nlohmann::json &dynamicData() const {
+  const nlohmann::json& dynamicData() const {
     return mDynamicMetaData->data;
   }
 
   /// @brief Access the dynamic meta-data.
-  nlohmann::json &dynamicData() {
+  nlohmann::json& dynamicData() {
     return mDynamicMetaData->data;
   }
 
@@ -245,23 +244,23 @@ class TreeNodeT {
   /// @brief Create an invalid tree node.
   TreeNodeT();
   /// @brief Create tree node with provided data.
-  explicit TreeNodeT(const NodeDataT &data);
+  explicit TreeNodeT(const NodeDataT& data);
 
   /// @brief Create a copy of this node with different internal node data type.
   template <typename OutDataT>
   TreeNodeT<OutDataT> copy() const;
 
   /// @brief Get index of nodes parent.
-  const NodeIdT &parent() const;
+  const NodeIdT& parent() const;
   /// @brief Get index of this node.
-  const NodeIdT &id() const;
+  const NodeIdT& id() const;
   /// @brief Get list of nodes children.
-  const NodeArrayT<NodeIdT> &children() const;
+  const NodeArrayT<NodeIdT>& children() const;
 
   /// @brief Access data contained within this node.
-  NodeDataT &data();
+  NodeDataT& data();
   /// @brief Access data contained within this node.
-  const NodeDataT &data() const;
+  const NodeDataT& data() const;
 
  private:
   // Allow access to internals.
@@ -271,7 +270,7 @@ class TreeNodeT {
   friend class TreeNodeT;
 
   /// @brief Get list of nodes children.
-  NodeArrayT<NodeIdT> &children();
+  NodeArrayT<NodeIdT>& children();
 
   /// Index of the parent node.
   NodeIdT mArrayParent{INVALID_NODE_ID};
@@ -302,7 +301,7 @@ class ArrayTreeT {
  public:
   /// @brief Exception thrown when invalid node identifier is provided.
   struct InvalidNodeIdException : public std::runtime_error {
-    InvalidNodeIdException(const char *msg) : std::runtime_error(msg) {
+    InvalidNodeIdException(const char* msg) : std::runtime_error(msg) {
     }
   };  // struct InvalidNodeIdException
 
@@ -357,34 +356,34 @@ class ArrayTreeT {
   ArrayTreeT<OutDataT, MetaDataT> copy() const;
 
   // Copy and move operators:
-  ArrayTreeT(const ArrayTreeT &tree) = default;
-  ArrayTreeT &operator=(const ArrayTreeT &tree) = default;
-  ArrayTreeT(ArrayTreeT &&tree) = default;
-  ArrayTreeT &operator=(ArrayTreeT &&tree) = default;
+  ArrayTreeT(const ArrayTreeT& tree) = default;
+  ArrayTreeT& operator=(const ArrayTreeT& tree) = default;
+  ArrayTreeT(ArrayTreeT&& tree) = default;
+  ArrayTreeT& operator=(ArrayTreeT&& tree) = default;
 
   /// @brief Parse ArrayTreeT from string in .tree format.
   template <typename RuntimeMetaDataT>
-  static ArrayTreeT fromString(const std::string &serialized);
+  static ArrayTreeT fromString(const std::string& serialized);
   /// @brief Parse ArrayTreeT from file path using .tree format.
   template <typename RuntimeMetaDataT>
-  static ArrayTreeT fromPath(const std::string &path);
+  static ArrayTreeT fromPath(const std::string& path);
 
   /// @brief Parse ArrayTreeT from string in .tree format. Does not provide runtime meta-data.
-  inline static ArrayTreeT fromStringNoRuntime(const std::string &serialized);
+  inline static ArrayTreeT fromStringNoRuntime(const std::string& serialized);
   /// @brief Parse ArrayTreeT from file path using .tree format. Does not provide runtime meta-data.
-  inline static ArrayTreeT fromPathNoRuntime(const std::string &path);
+  inline static ArrayTreeT fromPathNoRuntime(const std::string& path);
 
   /// @brief Is given node index a valid one?
-  static constexpr bool isNodeIdValidValue(const NodeIdT &idx);
+  static constexpr bool isNodeIdValidValue(const NodeIdT& idx);
 
   /// @brief Is given node index valid for this tree?
-  bool isNodeIdValid(const NodeIdT &idx) const;
+  bool isNodeIdValid(const NodeIdT& idx) const;
 
   /// @brief Check that given node index is valid or throw.
-  void checkNodeIdValidThrow(const NodeIdT &idx) const;
+  void checkNodeIdValidThrow(const NodeIdT& idx) const;
 
   /// @brief Translate given node index into a new one and returns the new index.
-  NodeIdT translateNodeId(const NodeIdT &idx) const;
+  NodeIdT translateNodeId(const NodeIdT& idx) const;
 
   /// @brief Get first node identifier for iteration.
   NodeIdT beginNodeId() const;
@@ -400,40 +399,40 @@ class ArrayTreeT {
   void clearNodes();
 
   /// @brief Get identifier of the root node.
-  const NodeIdT &getRootId() const;
+  const NodeIdT& getRootId() const;
   /// @brief Is the root node of this tree valid?
   bool isRootNodeValid() const;
 
   /// @brief Get root node of this tree.
-  NodeT &getRoot();
+  NodeT& getRoot();
   /// @brief Get root node of this tree or nullptr if it is empty.
-  const NodeT &getRoot() const;
+  const NodeT& getRoot() const;
 
   /// @brief Get node with given identifier or nullptr if it does not exist.
-  NodeT &getNode(const NodeIdT &idx);
+  NodeT& getNode(const NodeIdT& idx);
   /// @brief Get node with given identifier or nullptr if it does not exist.
-  const NodeT &getNode(const NodeIdT &idx) const;
+  const NodeT& getNode(const NodeIdT& idx) const;
 
   /// @brief Get list of children for node with given identifier. Throws if node does not exist.
-  const NodeChildArrayT &getNodeChildren(const NodeIdT &idx) const;
+  const NodeChildArrayT& getNodeChildren(const NodeIdT& idx) const;
 
   /// @brief Get parent identifier for given node or throws if the node does not exist.
-  const NodeIdT &getNodeParent(const NodeIdT &idx) const;
+  const NodeIdT& getNodeParent(const NodeIdT& idx) const;
 
   /// @brief Create a new root node with given data and return its identifier.
-  NodeIdT addRoot(const NodeDataT &data);
+  NodeIdT addRoot(const NodeDataT& data);
 
   /// @brief Create a new child node with given data and return its identifier.
-  NodeIdT addNodeChild(const NodeIdT &idx, const NodeDataT &data);
+  NodeIdT addNodeChild(const NodeIdT& idx, const NodeDataT& data);
 
   /// @brief Move provided child node to the new parent. Returns child index or INVALID_NODE_ID on error.
-  const NodeIdT &addNodeChild(const NodeIdT &parentIdx, const NodeIdT &childIdx);
+  const NodeIdT& addNodeChild(const NodeIdT& parentIdx, const NodeIdT& childIdx);
 
   /// @brief Remove given child node from provided parent. Returns child index or INVALID_NODE_ID on error.
-  NodeIdT removeNodeChild(const NodeIdT &parentIdx, const NodeIdT &childIdx);
+  NodeIdT removeNodeChild(const NodeIdT& parentIdx, const NodeIdT& childIdx);
 
   /// @brief Set children for given parent index while fixing old and new children. Invalid child ids are skipped.
-  void setNodeChildren(const NodeIdT &parentId, const std::vector<NodeIdT> &children);
+  void setNodeChildren(const NodeIdT& parentId, const std::vector<NodeIdT>& children);
 
   /// @brief Calculate bounding box for this tree.
   treeutil::BoundingBox getBoundingBox() const;
@@ -444,9 +443,9 @@ class ArrayTreeT {
   ArrayTreeT cleanup() const;
 
   /// @brief Get path to file from which was this tree loaded from.
-  const std::string &filePath() const;
+  const std::string& filePath() const;
   /// @brief Set path of file from which was the tree loaded from.
-  void setFilePath(const std::string &filePath);
+  void setFilePath(const std::string& filePath);
 
   /// @brief Has this tree been alredy loaded from file?
   bool loaded() const;
@@ -454,14 +453,14 @@ class ArrayTreeT {
   void setLoaded(bool loaded);
 
   /// @brief Access the node ID translation map.
-  const TranslationMapT &translationMap() const;
+  const TranslationMapT& translationMap() const;
   /// @brief Access the node ID translation map.
-  TranslationMapT &translationMap();
+  TranslationMapT& translationMap();
 
   /// @brief Access tree meta-data.
-  MetaDataT &metaData();
+  MetaDataT& metaData();
   /// @brief Access tree meta-data.
-  const MetaDataT &metaData() const;
+  const MetaDataT& metaData() const;
 
   /// @brief Serialize the tree into a string.
   std::string serialize() const;
@@ -469,13 +468,13 @@ class ArrayTreeT {
   /// @brief Save the tree into file from which it was loaded (filePath()).
   bool saveTree() const;
   /// @brief Save the tree into file specified by provided path.
-  bool saveTree(const std::string &path) const;
+  bool saveTree(const std::string& path) const;
 
   /// @brief Print debug information about tree nodes.
   void printNodeInfo() const;
 
   /// @brief Convert given node identifier to index into node array. Performs no checks!
-  static std::size_t nodeIdToIdx(const NodeIdT &id);
+  static std::size_t nodeIdToIdx(const NodeIdT& id);
   /// @brief Convert given node index into node array into node identifier. Performs no checks!
   static NodeIdT nodeIdxToId(std::size_t idx);
 
@@ -527,16 +526,16 @@ class ArrayTreeT {
    *
    * @return Returns the iterator.
    */
-  iterator begin(const NodeIdT &id, IterationStyle style, bool indirectNodes = true, bool keepHistory = true);
-  const_iterator begin(const NodeIdT &id, IterationStyle style, bool indirectNodes = true,
+  iterator begin(const NodeIdT& id, IterationStyle style, bool indirectNodes = true, bool keepHistory = true);
+  const_iterator begin(const NodeIdT& id, IterationStyle style, bool indirectNodes = true,
                        bool keepHistory = true) const;
 
   /// @brief Get begin iterator using requested style and starting node. This version allows for user data.
   template <typename UserDataT>
-  IteratorT<false, UserDataT> begin(const NodeIdT &id, IterationStyle style, bool indirectNodes = true,
+  IteratorT<false, UserDataT> begin(const NodeIdT& id, IterationStyle style, bool indirectNodes = true,
                                     bool keepHistory = true);
   template <typename UserDataT>
-  IteratorT<true, UserDataT> begin(const NodeIdT &id, IterationStyle style, bool indirectNodes = true,
+  IteratorT<true, UserDataT> begin(const NodeIdT& id, IterationStyle style, bool indirectNodes = true,
                                    bool keepHistory = true) const;
 
  private:
@@ -549,19 +548,19 @@ class ArrayTreeT {
 
   /// @brief Procedure which serializes this tree to given stream using .tree format.
   template <typename ST>
-  void saveTreeRecursion(ST &ss, const NodeIdT &currentId) const;
+  void saveTreeRecursion(ST& ss, const NodeIdT& currentId) const;
 
   /// @brief Create empty tree with a single root node, using given runtime meta-data.
-  static ArrayTreeT emptyTree(const TreeRuntimeMetaData::Ptr &runtime);
+  static ArrayTreeT emptyTree(const TreeRuntimeMetaData::Ptr& runtime);
 
   /// @brief De-serialize ArrayTree from given string.
-  static ArrayTreeT parseTreeFromString(const std::string &serialized, const TreeRuntimeMetaData::Ptr &runtime);
+  static ArrayTreeT parseTreeFromString(const std::string& serialized, const TreeRuntimeMetaData::Ptr& runtime);
 
   /// @brief De-serialize ArrayTree from .tree format.
-  static ArrayTreeT parseTreeFromTreeString(const std::string &serialized, const TreeRuntimeMetaData::Ptr &runtime);
+  static ArrayTreeT parseTreeFromTreeString(const std::string& serialized, const TreeRuntimeMetaData::Ptr& runtime);
 
   /// @brief De-serialize ArrayTree from .json format.
-  static ArrayTreeT parseTreeFromJSONString(const std::string &serialized, const TreeRuntimeMetaData::Ptr &runtime);
+  static ArrayTreeT parseTreeFromJSONString(const std::string& serialized, const TreeRuntimeMetaData::Ptr& runtime);
 
   /// Identifier of the root node.
   NodeIdT mRoot{INVALID_NODE_ID};
@@ -584,11 +583,11 @@ using ArrayTree = ArrayTreeT<TreeNodeData, TreeMetaData>;
 class ArrayTreeDummy {
  public:
   /// @brief Copy from given ArrayTree.
-  ArrayTreeDummy(const ArrayTree &tree) : mPtr{std::make_shared<ArrayTree>(tree)} {
+  ArrayTreeDummy(const ArrayTree& tree) : mPtr{std::make_shared<ArrayTree>(tree)} {
   }
 
   /// @brief get pointer to the internal tree.
-  const std::shared_ptr<ArrayTree> &ptr() const {
+  const std::shared_ptr<ArrayTree>& ptr() const {
     return mPtr;
   }
 
@@ -605,7 +604,7 @@ class TreeIteratorT {
  public:
   /// @brief Exception thrown when invalid operation is used on an iterator.
   struct InvalidIteratorException : public std::runtime_error {
-    InvalidIteratorException(const char *msg) : std::runtime_error(msg) {
+    InvalidIteratorException(const char* msg) : std::runtime_error(msg) {
     }
   };  // struct InvalidIteratorException
 
@@ -634,14 +633,14 @@ class TreeIteratorT {
     /// Identifier of the node.
     NodeIdT identifier{INVALID_NODE_ID};
     /// Pointer to the node itself. May become invalid on operations with the tree.
-    NodeT *node{nullptr};
+    NodeT* node{nullptr};
     /// Depth of the node. May be positive (children) or negative (parents).
     std::ptrdiff_t depth{START_DEPTH};
 
     /// Identifier of the previous node.
     NodeIdT prevIdentifier{INVALID_NODE_ID};
     /// Pointer to the previous node. May become invalid on operations with the tree.
-    NodeT *prevNode{nullptr};
+    NodeT* prevNode{nullptr};
   };  // Struct NodeinfoBase
 
   // Concrete NodeInfo definition:
@@ -654,68 +653,68 @@ class TreeIteratorT {
   /// @brief Initialize end iterator.
   TreeIteratorT();
   /// @brief Initialize iterator for given tree.
-  TreeIteratorT(ArrayTree &tree, Style iterationStyle = Style::BreadthFirstChildren, bool indirectNodes = true,
+  TreeIteratorT(ArrayTree& tree, Style iterationStyle = Style::BreadthFirstChildren, bool indirectNodes = true,
                 bool keepHistory = true);
 
   /// @brief Initialize iterator from given node.
-  TreeIteratorT(NodeT &node, ArrayTree &tree, Style iterationStyle = Style::BreadthFirstChildren,
+  TreeIteratorT(NodeT& node, ArrayTree& tree, Style iterationStyle = Style::BreadthFirstChildren,
                 bool indirectNodes = true, bool keepHistory = true);
   /// @brief Initialize iterator from given node.
-  TreeIteratorT(NodeIdT &node, ArrayTree &tree, Style iterationStyle = Style::BreadthFirstChildren,
+  TreeIteratorT(NodeIdT& node, ArrayTree& tree, Style iterationStyle = Style::BreadthFirstChildren,
                 bool indirectNodes = true, bool keepHistory = true);
 
   /// @brief Clean up and destroy.
   ~TreeIteratorT();
 
   // Lazy copy operators:
-  TreeIteratorT(const TreeIteratorT &other);
-  TreeIteratorT &operator=(const TreeIteratorT &other);
+  TreeIteratorT(const TreeIteratorT& other);
+  TreeIteratorT& operator=(const TreeIteratorT& other);
   // Move operators:
-  TreeIteratorT(TreeIteratorT &&other);
-  TreeIteratorT &operator=(TreeIteratorT &&other);
+  TreeIteratorT(TreeIteratorT&& other);
+  TreeIteratorT& operator=(TreeIteratorT&& other);
 
   /// @brief Get operation style of this iterator.
   Style style() const;
 
   /// @brief Move to the next element, based on operation style. Pre-increment version.
-  ThisT &operator++();
+  ThisT& operator++();
   /// @brief Move to the next element, based on operation style. Post-increment version.
   const ThisT operator++(int);
 
   /// @brief Move to the previous element, based on operation style. Pre-decrement version.
-  ThisT &operator--();
+  ThisT& operator--();
   /// @brief Move to the previous element, based on operation style. Post-decrement version.
   const ThisT operator--(int);
 
   /// @brief Access current node.
   NodeT operator*();
   /// @brief Access current node.
-  NodeT *operator->();
+  NodeT* operator->();
 
   /// @brief Access current node information.
-  const NodeInfo &info() const;
+  const NodeInfo& info() const;
   /// @brief Access current node information.
-  NodeInfo &info();
+  NodeInfo& info();
 
   /// @brief Does this iterator currently point to a valid node?
   bool valid() const;
 
   // Comparison operators.
-  bool operator==(const ThisT &other) const;
-  bool operator!=(const ThisT &other) const;
-  bool operator==(const ThisOtherConstT &other) const;
-  bool operator!=(const ThisOtherConstT &other) const;
+  bool operator==(const ThisT& other) const;
+  bool operator!=(const ThisT& other) const;
+  bool operator==(const ThisOtherConstT& other) const;
+  bool operator!=(const ThisOtherConstT& other) const;
 
  private:
   /// @brief Check if we own the runtime data and make a copy if not.
   void checkRuntimeDataCopy();
 
   /// @brief Initialize from given tree - using root node or leaves.
-  void initialize(ArrayTree &tree, Style iterationStyle, bool indirectNodes, bool keepHistory);
+  void initialize(ArrayTree& tree, Style iterationStyle, bool indirectNodes, bool keepHistory);
   /// @brief Initialize from given tree - using provided node.
-  void initialize(NodeT &node, ArrayTree &tree, Style iterationStyle, bool indirectNodes, bool keepHistory);
+  void initialize(NodeT& node, ArrayTree& tree, Style iterationStyle, bool indirectNodes, bool keepHistory);
   /// @brief Initialize from given tree - using provided node.
-  void initialize(NodeIdT &node, ArrayTree &tree, Style iterationStyle, bool indirectNodes, bool keepHistory);
+  void initialize(NodeIdT& node, ArrayTree& tree, Style iterationStyle, bool indirectNodes, bool keepHistory);
 
   /// @brief Record for a single queued node.
   struct NodeRecord {
@@ -728,7 +727,7 @@ class TreeIteratorT {
   /// @brief Runtime data used by the iterator.
   struct RuntimeData {
     /// Tree being iterated.
-    ArrayTree *tree{nullptr};
+    ArrayTree* tree{nullptr};
     /// Queue used for storage of upcoming nodes.
     std::deque<NodeRecord> queue{};
     /// History of node information structures.
@@ -743,7 +742,7 @@ class TreeIteratorT {
     bool keepHistory{true};
 
     /// Original owner of this data.
-    ThisT *owner{nullptr};
+    ThisT* owner{nullptr};
   };  // struct RuntimeData
 
   /// Currently used runtime data.
@@ -751,19 +750,17 @@ class TreeIteratorT {
 
  protected:
 };  // class TreeIteratorT
-
 }  // namespace treeio
 
 // Template implementation begin.
 
 namespace treeio {
-
 template <typename DataT>
 TreeNodeT<DataT>::TreeNodeT() {
 }
 
 template <typename DataT>
-TreeNodeT<DataT>::TreeNodeT(const DataT &data) : mNodeData{data} {
+TreeNodeT<DataT>::TreeNodeT(const DataT& data) : mNodeData{data} {
 }
 
 template <typename DataT>
@@ -782,40 +779,43 @@ TreeNodeT<OutDataT> TreeNodeT<DataT>::copy() const {
 }
 
 template <typename DataT>
-const typename TreeNodeT<DataT>::NodeIdT &TreeNodeT<DataT>::parent() const {
+const typename TreeNodeT<DataT>::NodeIdT& TreeNodeT<DataT>::parent() const {
   return mArrayParent;
 }
 
 template <typename DataT>
-const typename TreeNodeT<DataT>::NodeIdT &TreeNodeT<DataT>::id() const {
+const typename TreeNodeT<DataT>::NodeIdT& TreeNodeT<DataT>::id() const {
   return mArrayId;
 }
 
 template <typename DataT>
-const typename TreeNodeT<DataT>::NodeChildArrayT &TreeNodeT<DataT>::children() const {
+const typename TreeNodeT<DataT>::NodeChildArrayT& TreeNodeT<DataT>::children() const {
   return mArrayChildren;
 }
 
 template <typename DataT>
-typename TreeNodeT<DataT>::NodeDataT &TreeNodeT<DataT>::data() {
+typename TreeNodeT<DataT>::NodeDataT& TreeNodeT<DataT>::data() {
   return mNodeData;
 }
 
 template <typename DataT>
-const typename TreeNodeT<DataT>::NodeDataT &TreeNodeT<DataT>::data() const {
+const typename TreeNodeT<DataT>::NodeDataT& TreeNodeT<DataT>::data() const {
   return mNodeData;
 }
 
 template <typename DataT>
-typename TreeNodeT<DataT>::NodeChildArrayT &TreeNodeT<DataT>::children() {
+typename TreeNodeT<DataT>::NodeChildArrayT& TreeNodeT<DataT>::children() {
   return mArrayChildren;
 }
 
 template <typename DataT, typename MetaDataT>
-ArrayTreeT<DataT, MetaDataT>::ArrayTreeT() { /* Automatic */
+ArrayTreeT<DataT, MetaDataT>::ArrayTreeT() {
+  /* Automatic */
 }
+
 template <typename DataT, typename MetaDataT>
-ArrayTreeT<DataT, MetaDataT>::~ArrayTreeT() { /* Automatic */
+ArrayTreeT<DataT, MetaDataT>::~ArrayTreeT() {
+  /* Automatic */
 }
 
 template <typename DataT, typename MetaDataT>
@@ -841,7 +841,7 @@ ArrayTreeT<OutDataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::copy() const {
 
 template <typename DataT, typename MetaDataT>
 template <typename RuntimeMetaDataT>
-ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::fromPath(const std::string &path) {
+ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::fromPath(const std::string& path) {
   auto readTree{parseTreeFromString(treeutil::readWholeFile(path), treeutil::WrapperCtrT<RuntimeMetaDataT>())};
   readTree.mLoaded = true;
   readTree.mFilePath = path;
@@ -851,12 +851,12 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::fromPath(const std::s
 
 template <typename DataT, typename MetaDataT>
 template <typename RuntimeMetaDataT>
-ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::fromString(const std::string &serialized) {
+ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::fromString(const std::string& serialized) {
   return parseTreeFromString(serialized, treeutil::WrapperCtrT<RuntimeMetaDataT>());
 }
 
 template <typename DataT, typename MetaDataT>
-inline ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::fromPathNoRuntime(const std::string &path) {
+inline ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::fromPathNoRuntime(const std::string& path) {
   auto readTree{parseTreeFromString(treeutil::readWholeFile(path), nullptr)};
   readTree.mLoaded = true;
   readTree.mFilePath = path;
@@ -865,29 +865,29 @@ inline ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::fromPathNoRunt
 }
 
 template <typename DataT, typename MetaDataT>
-inline ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::fromStringNoRuntime(const std::string &serialized) {
+inline ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::fromStringNoRuntime(const std::string& serialized) {
   return parseTreeFromString(serialized, nullptr);
 }
 
 template <typename DataT, typename MetaDataT>
-constexpr bool ArrayTreeT<DataT, MetaDataT>::isNodeIdValidValue(const NodeIdT &idx) {
+constexpr bool ArrayTreeT<DataT, MetaDataT>::isNodeIdValidValue(const NodeIdT& idx) {
   return idx != INVALID_NODE_ID;
 }
 
 template <typename DataT, typename MetaDataT>
-bool ArrayTreeT<DataT, MetaDataT>::isNodeIdValid(const NodeIdT &idx) const {
+bool ArrayTreeT<DataT, MetaDataT>::isNodeIdValid(const NodeIdT& idx) const {
   return isNodeIdValidValue(idx) && nodeIdToIdx(idx) < mNodes.size();
 }
 
 template <typename DataT, typename MetaDataT>
-void ArrayTreeT<DataT, MetaDataT>::checkNodeIdValidThrow(const NodeIdT &idx) const {
+void ArrayTreeT<DataT, MetaDataT>::checkNodeIdValidThrow(const NodeIdT& idx) const {
   if (!isNodeIdValid(idx)) {
     throw InvalidNodeIdException("Invalid node identifier provided!");
   }
 }
 
 template <typename DataT, typename MetaDataT>
-typename ArrayTreeT<DataT, MetaDataT>::NodeIdT ArrayTreeT<DataT, MetaDataT>::translateNodeId(const NodeIdT &idx) const {
+typename ArrayTreeT<DataT, MetaDataT>::NodeIdT ArrayTreeT<DataT, MetaDataT>::translateNodeId(const NodeIdT& idx) const {
   const auto findIt{mTranslationMap.find(idx)};
   if (findIt != mTranslationMap.end()) {
     return findIt->second;
@@ -923,7 +923,7 @@ void ArrayTreeT<DataT, MetaDataT>::clearNodes() {
 }
 
 template <typename DataT, typename MetaDataT>
-const typename ArrayTreeT<DataT, MetaDataT>::NodeIdT &ArrayTreeT<DataT, MetaDataT>::getRootId() const {
+const typename ArrayTreeT<DataT, MetaDataT>::NodeIdT& ArrayTreeT<DataT, MetaDataT>::getRootId() const {
   return mRoot;
 }
 
@@ -933,45 +933,48 @@ bool ArrayTreeT<DataT, MetaDataT>::isRootNodeValid() const {
 }
 
 template <typename DataT, typename MetaDataT>
-typename ArrayTreeT<DataT, MetaDataT>::NodeT &ArrayTreeT<DataT, MetaDataT>::getRoot() {
-  return getNode(mRoot);
-}
-template <typename DataT, typename MetaDataT>
-const typename ArrayTreeT<DataT, MetaDataT>::NodeT &ArrayTreeT<DataT, MetaDataT>::getRoot() const {
+typename ArrayTreeT<DataT, MetaDataT>::NodeT& ArrayTreeT<DataT, MetaDataT>::getRoot() {
   return getNode(mRoot);
 }
 
 template <typename DataT, typename MetaDataT>
-typename ArrayTreeT<DataT, MetaDataT>::NodeT &ArrayTreeT<DataT, MetaDataT>::getNode(const NodeIdT &idx) {
-  checkNodeIdValidThrow(idx);
-  return mNodes[nodeIdToIdx(idx)];
+const typename ArrayTreeT<DataT, MetaDataT>::NodeT& ArrayTreeT<DataT, MetaDataT>::getRoot() const {
+  return getNode(mRoot);
 }
+
 template <typename DataT, typename MetaDataT>
-const typename ArrayTreeT<DataT, MetaDataT>::NodeT &ArrayTreeT<DataT, MetaDataT>::getNode(const NodeIdT &idx) const {
+typename ArrayTreeT<DataT, MetaDataT>::NodeT& ArrayTreeT<DataT, MetaDataT>::getNode(const NodeIdT& idx) {
   checkNodeIdValidThrow(idx);
   return mNodes[nodeIdToIdx(idx)];
 }
 
 template <typename DataT, typename MetaDataT>
-const typename ArrayTreeT<DataT, MetaDataT>::NodeChildArrayT &ArrayTreeT<DataT, MetaDataT>::getNodeChildren(
-    const NodeIdT &idx) const {
+const typename ArrayTreeT<DataT, MetaDataT>::NodeT& ArrayTreeT<DataT, MetaDataT>::getNode(const NodeIdT& idx) const {
+  checkNodeIdValidThrow(idx);
+  return mNodes[nodeIdToIdx(idx)];
+}
+
+template <typename DataT, typename MetaDataT>
+const typename ArrayTreeT<DataT, MetaDataT>::NodeChildArrayT& ArrayTreeT<DataT, MetaDataT>::getNodeChildren(
+    const NodeIdT& idx) const {
   return getNode(idx).mArrayChildren;
 }
 
 template <typename DataT, typename MetaDataT>
-const typename ArrayTreeT<DataT, MetaDataT>::NodeIdT &ArrayTreeT<DataT, MetaDataT>::getNodeParent(
-    const NodeIdT &idx) const {
+const typename ArrayTreeT<DataT, MetaDataT>::NodeIdT& ArrayTreeT<DataT, MetaDataT>::getNodeParent(
+    const NodeIdT& idx) const {
   return getNode(idx).mArrayParent;
 }
 
 template <typename DataT, typename MetaDataT>
-typename ArrayTreeT<DataT, MetaDataT>::NodeIdT ArrayTreeT<DataT, MetaDataT>::addRoot(const NodeDataT &data) {
+typename ArrayTreeT<DataT, MetaDataT>::NodeIdT ArrayTreeT<DataT, MetaDataT>::addRoot(const NodeDataT& data) {
   const auto newId{nodeIdxToId(mNodes.size())};
 
   // Create the new node.
   NodeT newNode{data};
   newNode.mArrayId = newId;
-  if (isNodeIdValid(mRoot)) {  // The old root is child of the new root.
+  if (isNodeIdValid(mRoot)) {
+    // The old root is child of the new root.
     newNode.children().push_back(mRoot);
     getNode(mRoot).mArrayParent = newId;
   }
@@ -984,8 +987,8 @@ typename ArrayTreeT<DataT, MetaDataT>::NodeIdT ArrayTreeT<DataT, MetaDataT>::add
 }
 
 template <typename DataT, typename MetaDataT>
-typename ArrayTreeT<DataT, MetaDataT>::NodeIdT ArrayTreeT<DataT, MetaDataT>::addNodeChild(const NodeIdT &idx,
-                                                                                          const NodeDataT &data) {
+typename ArrayTreeT<DataT, MetaDataT>::NodeIdT ArrayTreeT<DataT, MetaDataT>::addNodeChild(const NodeIdT& idx,
+                                                                                          const NodeDataT& data) {
   if (!isNodeIdValid(idx)) {
     return INVALID_NODE_ID;
   }
@@ -1005,14 +1008,14 @@ typename ArrayTreeT<DataT, MetaDataT>::NodeIdT ArrayTreeT<DataT, MetaDataT>::add
 }
 
 template <typename DataT, typename MetaDataT>
-const typename ArrayTreeT<DataT, MetaDataT>::NodeIdT &ArrayTreeT<DataT, MetaDataT>::addNodeChild(
-    const NodeIdT &parentIdx, const NodeIdT &childIdx) {
+const typename ArrayTreeT<DataT, MetaDataT>::NodeIdT& ArrayTreeT<DataT, MetaDataT>::addNodeChild(
+    const NodeIdT& parentIdx, const NodeIdT& childIdx) {
   if (!isNodeIdValid(parentIdx) || !isNodeIdValid(childIdx)) {
     return INVALID_NODE_ID;
   }
 
-  auto &parentNode{getNode(parentIdx)};
-  auto &childNode{getNode(childIdx)};
+  auto& parentNode{getNode(parentIdx)};
+  auto& childNode{getNode(childIdx)};
 
   const auto findIt{std::find(parentNode.mArrayChildren.begin(), parentNode.mArrayChildren.end(), childIdx)};
   if (findIt != parentNode.mArrayChildren.end()) {
@@ -1027,10 +1030,10 @@ const typename ArrayTreeT<DataT, MetaDataT>::NodeIdT &ArrayTreeT<DataT, MetaData
 }
 
 template <typename DataT, typename MetaDataT>
-typename ArrayTreeT<DataT, MetaDataT>::NodeIdT ArrayTreeT<DataT, MetaDataT>::removeNodeChild(const NodeIdT &parentIdx,
-                                                                                             const NodeIdT &childIdx) {
-  auto &parentNode{getNode(parentIdx)};
-  auto &childNode{getNode(childIdx)};
+typename ArrayTreeT<DataT, MetaDataT>::NodeIdT ArrayTreeT<DataT, MetaDataT>::removeNodeChild(const NodeIdT& parentIdx,
+                                                                                             const NodeIdT& childIdx) {
+  auto& parentNode{getNode(parentIdx)};
+  auto& childNode{getNode(childIdx)};
 
   const auto findIt{std::find(parentNode.mArrayChildren.begin(), parentNode.mArrayChildren.end(), childIdx)};
   if (findIt == parentNode.mArrayChildren.end()) {
@@ -1045,15 +1048,15 @@ typename ArrayTreeT<DataT, MetaDataT>::NodeIdT ArrayTreeT<DataT, MetaDataT>::rem
 }
 
 template <typename DataT, typename MetaDataT>
-void ArrayTreeT<DataT, MetaDataT>::setNodeChildren(const NodeIdT &parentId, const std::vector<NodeIdT> &children) {
+void ArrayTreeT<DataT, MetaDataT>::setNodeChildren(const NodeIdT& parentId, const std::vector<NodeIdT>& children) {
   if (!isNodeIdValid(parentId)) {
     return;
   }
 
-  auto &parentNode{getNode(parentId)};
+  auto& parentNode{getNode(parentId)};
 
   // Clear current children.
-  for (const auto &childId : parentNode.mArrayChildren) {
+  for (const auto& childId : parentNode.mArrayChildren) {
     if (isNodeIdValid(childId)) {
       getNode(childId).mArrayParent = INVALID_NODE_ID;
     }
@@ -1062,7 +1065,7 @@ void ArrayTreeT<DataT, MetaDataT>::setNodeChildren(const NodeIdT &parentId, cons
   // Set new children.
   parentNode.mArrayChildren.clear();
   parentNode.mArrayChildren.reserve(children.size());
-  for (const auto &childId : children) {
+  for (const auto& childId : children) {
     if (isNodeIdValid(childId)) {
       getNode(childId).mArrayParent = parentId;
       parentNode.mArrayChildren.push_back(childId);
@@ -1079,8 +1082,8 @@ treeutil::BoundingBox ArrayTreeT<DataT, MetaDataT>::getBoundingBox() const {
   auto maxY{std::numeric_limits<float>::lowest()};
   auto maxZ{std::numeric_limits<float>::lowest()};
 
-  for (const auto &node : mNodes) {
-    const auto &data{node.data()};
+  for (const auto& node : mNodes) {
+    const auto& data{node.data()};
     minX = std::min(minX, data.pos.x);
     minY = std::min(minY, data.pos.y);
     minZ = std::min(minZ, data.pos.z);
@@ -1095,7 +1098,7 @@ treeutil::BoundingBox ArrayTreeT<DataT, MetaDataT>::getBoundingBox() const {
 
 template <typename DataT, typename MetaDataT>
 void ArrayTreeT<DataT, MetaDataT>::swapCoords(int dira, int dirb) {
-  for (auto &node : mNodes) {
+  for (auto& node : mNodes) {
     node.data().swapNodeCoords(dira, dirb);
   }
 }
@@ -1119,14 +1122,15 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::cleanup() const {
   nodeTranslation.emplace(mRoot, nodeIdxToId(0u));
   cleanTree.mNodes.emplace_back(TreeNode{});
 
-  while (!nodeStack.empty()) {  // Copy all accessible nodes.
+  while (!nodeStack.empty()) {
+    // Copy all accessible nodes.
     const auto currentNodeIdx{nodeStack.top()};
     nodeStack.pop();
 
     const auto findIt{nodeTranslation.find(currentNodeIdx)};
     const auto newNodeIdx{nodeIdToIdx(findIt->second)};
     const auto newNodeId{nodeIdxToId(newNodeIdx)};
-    auto &newNode{cleanTree.getNode(newNodeId)};
+    auto& newNode{cleanTree.getNode(newNodeId)};
 
     // We mark already processed nodes by setting arrayId.
     if (newNode.id()) {
@@ -1135,7 +1139,7 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::cleanup() const {
     }
 
     // Recover data for the current node.
-    const auto &currentNode{getNode(currentNodeIdx)};
+    const auto& currentNode{getNode(currentNodeIdx)};
 
     // Copy the current node.
     newNode.mNodeData = currentNode.mNodeData;
@@ -1143,12 +1147,13 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::cleanup() const {
     // Mark this node as processed.
     newNode.mArrayId = newNodeId;
 
-    for (const auto &childIdx : currentNode.mArrayChildren) {  // Create all children of the current node.
+    for (const auto& childIdx : currentNode.mArrayChildren) {
+      // Create all children of the current node.
       // Create the new node.
       const auto newChildIdx{cleanTree.mNodes.size()};
       const auto newChildId{nodeIdxToId(newChildIdx)};
       cleanTree.mNodes.emplace_back(TreeNode{});
-      auto &newChildNode{cleanTree.mNodes.back()};
+      auto& newChildNode{cleanTree.mNodes.back()};
 
       // Fill some basic data.
       newChildNode.mArrayParent = newNodeId;
@@ -1168,12 +1173,12 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::cleanup() const {
 }
 
 template <typename DataT, typename MetaDataT>
-const std::string &ArrayTreeT<DataT, MetaDataT>::filePath() const {
+const std::string& ArrayTreeT<DataT, MetaDataT>::filePath() const {
   return mFilePath;
 }
 
 template <typename DataT, typename MetaDataT>
-void ArrayTreeT<DataT, MetaDataT>::setFilePath(const std::string &filePath) {
+void ArrayTreeT<DataT, MetaDataT>::setFilePath(const std::string& filePath) {
   mFilePath = filePath;
 }
 
@@ -1188,22 +1193,22 @@ void ArrayTreeT<DataT, MetaDataT>::setLoaded(bool loaded) {
 }
 
 template <typename DataT, typename MetaDataT>
-const typename ArrayTreeT<DataT, MetaDataT>::TranslationMapT &ArrayTreeT<DataT, MetaDataT>::translationMap() const {
+const typename ArrayTreeT<DataT, MetaDataT>::TranslationMapT& ArrayTreeT<DataT, MetaDataT>::translationMap() const {
   return mTranslationMap;
 }
 
 template <typename DataT, typename MetaDataT>
-typename ArrayTreeT<DataT, MetaDataT>::TranslationMapT &ArrayTreeT<DataT, MetaDataT>::translationMap() {
+typename ArrayTreeT<DataT, MetaDataT>::TranslationMapT& ArrayTreeT<DataT, MetaDataT>::translationMap() {
   return mTranslationMap;
 }
 
 template <typename DataT, typename MetaDataT>
-MetaDataT &ArrayTreeT<DataT, MetaDataT>::metaData() {
+MetaDataT& ArrayTreeT<DataT, MetaDataT>::metaData() {
   return mMetaData;
 }
 
 template <typename DataT, typename MetaDataT>
-const MetaDataT &ArrayTreeT<DataT, MetaDataT>::metaData() const {
+const MetaDataT& ArrayTreeT<DataT, MetaDataT>::metaData() const {
   return mMetaData;
 }
 
@@ -1230,7 +1235,7 @@ bool ArrayTreeT<DataT, MetaDataT>::saveTree() const {
 }
 
 template <typename DataT, typename MetaDataT>
-bool ArrayTreeT<DataT, MetaDataT>::saveTree(const std::string &path) const {
+bool ArrayTreeT<DataT, MetaDataT>::saveTree(const std::string& path) const {
   if (!isNodeIdValid(mRoot)) {
     return false;
   }
@@ -1257,13 +1262,13 @@ void ArrayTreeT<DataT, MetaDataT>::printNodeInfo() const {
     const auto nodeIdx{nodeIdToIdx(nodeId)};
     std::cout << "\tNode (" << nodeId << "), idx: " << nodeIdx << std::endl;
 
-    const auto &node{mNodes[nodeIdx]};
+    const auto& node{mNodes[nodeIdx]};
 
     std::cout << "\t\tArray ID: " << node.id() << std::endl;
     std::cout << "\t\tParent ID: " << node.parent() << std::endl;
 
     std::cout << "\t\tChild IDs: ";
-    for (const auto &childId : node.children()) {
+    for (const auto& childId : node.children()) {
       std::cout << childId << ", ";
     }
     std::cout << std::endl;
@@ -1275,7 +1280,7 @@ void ArrayTreeT<DataT, MetaDataT>::printNodeInfo() const {
 }
 
 template <typename DataT, typename MetaDataT>
-std::size_t ArrayTreeT<DataT, MetaDataT>::nodeIdToIdx(const NodeIdT &id) {
+std::size_t ArrayTreeT<DataT, MetaDataT>::nodeIdToIdx(const NodeIdT& id) {
   return static_cast<std::size_t>(id) - 1u;
 }
 
@@ -1288,14 +1293,17 @@ template <typename DataT, typename MetaDataT>
 typename ArrayTreeT<DataT, MetaDataT>::iterator ArrayTreeT<DataT, MetaDataT>::begin() {
   return iterator(*this, IterationStyle::BreadthFirstChildren, true, true);
 }
+
 template <typename DataT, typename MetaDataT>
 typename ArrayTreeT<DataT, MetaDataT>::iterator ArrayTreeT<DataT, MetaDataT>::end() {
   return iterator();
 }
+
 template <typename DataT, typename MetaDataT>
 typename ArrayTreeT<DataT, MetaDataT>::const_iterator ArrayTreeT<DataT, MetaDataT>::begin() const {
   return const_iterator(*this, IterationStyle::BreadthFirstChildren, true, true);
 }
+
 template <typename DataT, typename MetaDataT>
 typename ArrayTreeT<DataT, MetaDataT>::const_iterator ArrayTreeT<DataT, MetaDataT>::end() const {
   return const_iterator();
@@ -1305,14 +1313,17 @@ template <typename DataT, typename MetaDataT>
 typename ArrayTreeT<DataT, MetaDataT>::reverse_iterator ArrayTreeT<DataT, MetaDataT>::rbegin() {
   return reverse_iterator(*this, IterationStyle::DepthFirstParents, true, true);
 }
+
 template <typename DataT, typename MetaDataT>
 typename ArrayTreeT<DataT, MetaDataT>::reverse_iterator ArrayTreeT<DataT, MetaDataT>::rend() {
   return reverse_iterator();
 }
+
 template <typename DataT, typename MetaDataT>
 typename ArrayTreeT<DataT, MetaDataT>::const_reverse_iterator ArrayTreeT<DataT, MetaDataT>::rbegin() const {
   return const_reverse_iterator(*this, IterationStyle::DepthFirstParents, true, true);
 }
+
 template <typename DataT, typename MetaDataT>
 typename ArrayTreeT<DataT, MetaDataT>::const_reverse_iterator ArrayTreeT<DataT, MetaDataT>::rend() const {
   return const_reverse_iterator();
@@ -1324,6 +1335,7 @@ typename ArrayTreeT<DataT, MetaDataT>::iterator ArrayTreeT<DataT, MetaDataT>::be
                                                                                     bool keepHistory) {
   return iterator(*this, style, indirectNodes, keepHistory);
 }
+
 template <typename DataT, typename MetaDataT>
 typename ArrayTreeT<DataT, MetaDataT>::const_iterator ArrayTreeT<DataT, MetaDataT>::begin(IterationStyle style,
                                                                                           bool indirectNodes,
@@ -1337,6 +1349,7 @@ typename ArrayTreeT<DataT, MetaDataT>::template IteratorT<false, UserDataT> Arra
     IterationStyle style, bool indirectNodes, bool keepHistory) {
   return IteratorT<false, UserDataT>(*this, style, indirectNodes, keepHistory);
 }
+
 template <typename DataT, typename MetaDataT>
 template <typename UserDataT>
 typename ArrayTreeT<DataT, MetaDataT>::template IteratorT<true, UserDataT> ArrayTreeT<DataT, MetaDataT>::begin(
@@ -1345,14 +1358,15 @@ typename ArrayTreeT<DataT, MetaDataT>::template IteratorT<true, UserDataT> Array
 }
 
 template <typename DataT, typename MetaDataT>
-typename ArrayTreeT<DataT, MetaDataT>::iterator ArrayTreeT<DataT, MetaDataT>::begin(const NodeIdT &id,
+typename ArrayTreeT<DataT, MetaDataT>::iterator ArrayTreeT<DataT, MetaDataT>::begin(const NodeIdT& id,
                                                                                     IterationStyle style,
                                                                                     bool indirectNodes,
                                                                                     bool keepHistory) {
   return iterator(id, *this, style, indirectNodes, keepHistory);
 }
+
 template <typename DataT, typename MetaDataT>
-typename ArrayTreeT<DataT, MetaDataT>::const_iterator ArrayTreeT<DataT, MetaDataT>::begin(const NodeIdT &id,
+typename ArrayTreeT<DataT, MetaDataT>::const_iterator ArrayTreeT<DataT, MetaDataT>::begin(const NodeIdT& id,
                                                                                           IterationStyle style,
                                                                                           bool indirectNodes,
                                                                                           bool keepHistory) const {
@@ -1362,29 +1376,30 @@ typename ArrayTreeT<DataT, MetaDataT>::const_iterator ArrayTreeT<DataT, MetaData
 template <typename DataT, typename MetaDataT>
 template <typename UserDataT>
 typename ArrayTreeT<DataT, MetaDataT>::template IteratorT<false, UserDataT> ArrayTreeT<DataT, MetaDataT>::begin(
-    const NodeIdT &id, IterationStyle style, bool indirectNodes, bool keepHistory) {
+    const NodeIdT& id, IterationStyle style, bool indirectNodes, bool keepHistory) {
   return IteratorT<false, UserDataT>(id, *this, style, indirectNodes, keepHistory);
 }
+
 template <typename DataT, typename MetaDataT>
 template <typename UserDataT>
 typename ArrayTreeT<DataT, MetaDataT>::template IteratorT<true, UserDataT> ArrayTreeT<DataT, MetaDataT>::begin(
-    const NodeIdT &id, IterationStyle style, bool indirectNodes, bool keepHistory) const {
+    const NodeIdT& id, IterationStyle style, bool indirectNodes, bool keepHistory) const {
   return IteratorT<true, UserDataT>(id, *this, style, indirectNodes, keepHistory);
 }
 
 template <typename DataT, typename MetaDataT>
 template <typename ST>
-void ArrayTreeT<DataT, MetaDataT>::saveTreeRecursion(ST &ss, const NodeIdT &currentId) const {
+void ArrayTreeT<DataT, MetaDataT>::saveTreeRecursion(ST& ss, const NodeIdT& currentId) const {
   // Get data for current node.
-  auto &currentNode{getNode(currentId)};
-  const auto &currentData{currentNode.data()};
+  auto& currentNode{getNode(currentId)};
+  const auto& currentData{currentNode.data()};
 
   // Serialize the node.
   ss << "(" << currentData.pos.x << "," << currentData.pos.y << "," << currentData.pos.z << "," << currentData.thickness
      << ")";
 
   // Move to the children.
-  const auto &currentChildren{currentNode.children()};
+  const auto& currentChildren{currentNode.children()};
   const auto multipleChildren{currentChildren.size() > 1u};
 
   // Serialize all children recursively.
@@ -1400,7 +1415,7 @@ void ArrayTreeT<DataT, MetaDataT>::saveTreeRecursion(ST &ss, const NodeIdT &curr
 }
 
 template <typename DataT, typename MetaDataT>
-ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::emptyTree(const TreeRuntimeMetaData::Ptr &runtime) {
+ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::emptyTree(const TreeRuntimeMetaData::Ptr& runtime) {
   ArrayTree emptyTree{};
 
   NodeDataT rootNodeData{};
@@ -1417,7 +1432,7 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::emptyTree(const TreeR
 
 template <typename DataT, typename MetaDataT>
 ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromString(
-    const std::string &serialized, const TreeRuntimeMetaData::Ptr &runtime) {
+    const std::string& serialized, const TreeRuntimeMetaData::Ptr& runtime) {
   // Detect the type of file:
   const auto dividerPosition{serialized.find_first_of("#####")};
   const auto firstCharacterPos{std::find_if(serialized.begin(), serialized.end(), [](auto c) {
@@ -1428,14 +1443,14 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromString(
   if (dividerPosition != std::string::npos || firstCharacter != '{') {
     try {
       return parseTreeFromTreeString(serialized, runtime);
-    } catch (std::exception &e) {
+    } catch (std::exception& e) {
       treeutil::Error << "Failed to parse tree from string! : \"" << e.what() << "\"" << std::endl;
       return emptyTree(runtime);
     }
   } else {
     try {
       return parseTreeFromJSONString(serialized, runtime);
-    } catch (std::exception &e) {
+    } catch (std::exception& e) {
       treeutil::Error << "Failed to parse tree from JSON! : \"" << e.what() << "\"" << std::endl;
       return emptyTree(runtime);
     }
@@ -1444,11 +1459,12 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromString(
 
 template <typename DataT, typename MetaDataT>
 ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromTreeString(
-    const std::string &serialized, const TreeRuntimeMetaData::Ptr &runtime) {
+    const std::string& serialized, const TreeRuntimeMetaData::Ptr& runtime) {
   // Split meta info and nodes
   auto divider{serialized.find_first_of("#####")};
   auto dividernext{divider + 5u};
-  if (divider == std::string::npos) {  // No divider found, assume there is no metadata and just read the branches:
+  if (divider == std::string::npos) {
+    // No divider found, assume there is no metadata and just read the branches:
     divider = 0u;
     dividernext = 0u;
   }
@@ -1474,11 +1490,14 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromTreeStri
   // break skips to the end where the tree is assembled as if the reading went fine.
   while (depth >= 0u && ptr < nodetext.size()) {
     const auto nextb{nodetext.find_first_of(brackets, ptr)};
-    if (nextb == std::string::npos) {  // No more brackets
+    if (nextb == std::string::npos) {
+      // No more brackets
       std::cerr << "npos";
-      if (depth > 0u) {  // Mismatched parsing (some nodes were not closed)
+      if (depth > 0u) {
+        // Mismatched parsing (some nodes were not closed)
         return newTree;
-      } else {  // Ok end
+      } else {
+        // Ok end
         break;
       }
     }
@@ -1491,7 +1510,8 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromTreeStri
       depth++;
       turtleDives.push_back(current);
     } else if (b_diveup) {
-      if (depth == 0u) {  // Mismatched parsing (atemped to close square bracket at depth 0)
+      if (depth == 0u) {
+        // Mismatched parsing (atemped to close square bracket at depth 0)
         newTree.mLoaded = false;
         return newTree;
       }
@@ -1554,7 +1574,8 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromTreeStri
 
       // move to the next closing bracket
       const auto nextb{nodetext.find_first_of(')', ptr - 1)};
-      if (nextb == std::string::npos) {  // mismatched parsing (the current node was not closed)
+      if (nextb == std::string::npos) {
+        // mismatched parsing (the current node was not closed)
         newTree.mLoaded = false;
         return newTree;
       }
@@ -1569,18 +1590,16 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromTreeStri
 }
 
 namespace impl {
-
-inline auto getRootJSONObject(const std::string &serialized) {
+inline auto getRootJSONObject(const std::string& serialized) {
   const auto data{treeutil::containsOnlyWhiteSpaces(serialized) ? nlohmann::json{} : nlohmann::json::parse(serialized)};
   const auto isArray{data.type() == nlohmann::json::value_t::array};
   return isArray ? *data.begin() : data;
 }
-
 }  // namespace impl
 
 template <typename DataT, typename MetaDataT>
 ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromJSONString(
-    const std::string &serialized, const TreeRuntimeMetaData::Ptr &runtime) {
+    const std::string& serialized, const TreeRuntimeMetaData::Ptr& runtime) {
   // auto dataRoot{ impl::getRootJSONObject(serialized) };
   // auto data{ dataRoot };
 
@@ -1618,7 +1637,7 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromJSONStri
     std::vector<std::size_t> children{};
   };  // struct NodeInfo
 
-  const auto parseNode{[](const nlohmann::json &dat) {
+  const auto parseNode{[](const nlohmann::json& dat) {
     NodeInfo info{};
 
     // auto chosenDat{ dat };
@@ -1647,7 +1666,8 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromJSONStri
   NodeInfo rootNode{};
   bool rootNodeFound{false};
 
-  for (const auto node : internodes) {  // Parse all nodes within the file.
+  for (const auto node : internodes) {
+    // Parse all nodes within the file.
     const auto nodeInfo{parseNode(node)};
     if (!rootNodeFound) {
       rootNode = nodeInfo;
@@ -1667,7 +1687,8 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromJSONStri
   std::stack<NodeProcessingInfo> toProcess{};
   toProcess.push({rootNode, INVALID_NODE_ID});
 
-  while (!toProcess.empty()) {  // Construct the tree.
+  while (!toProcess.empty()) {
+    // Construct the tree.
     const auto node{toProcess.top()};
     toProcess.pop();
     NodeT newNode{};
@@ -1678,7 +1699,7 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromJSONStri
     const auto newNodeId{node.parentId == INVALID_NODE_ID ? tree.addRoot(newNode.data())
                                                           : tree.addNodeChild(node.parentId, newNode.data())};
 
-    for (const auto &childId : node.info.children) {
+    for (const auto& childId : node.info.children) {
       toProcess.push({nodes[childId], newNodeId});
     }
   }
@@ -1697,332 +1718,356 @@ ArrayTreeT<DataT, MetaDataT> ArrayTreeT<DataT, MetaDataT>::parseTreeFromJSONStri
 
 /// @brief Base case of NodeInfo without any user data.
 template <typename AT, bool ConstIterator, typename UserDataT>
-template <> struct TreeIteratorT<AT, ConstIterator, UserDataT>::NodeInfoT<void> : public NodeInfoBase { };
+template <>
+struct TreeIteratorT<AT, ConstIterator, UserDataT>::NodeInfoT<void> : public NodeInfoBase {
+};
 /// @brief NodeInfo with user data.
 template <typename AT, bool ConstIterator, typename UserDataT>
 template <typename T>
-struct TreeIteratorT<AT, ConstIterator, UserDataT>::NodeInfoT : public NodeInfoBase
-{
-    /// User data container.
-    T userData{ };
+struct TreeIteratorT<AT, ConstIterator, UserDataT>::NodeInfoT : public NodeInfoBase {
+  /// User data container.
+  T userData{};
 }; // struct NodeInfo
 
 template <typename AT, bool ConstIterator, typename UserDataT>
-TreeIteratorT<AT, ConstIterator, UserDataT>::TreeIteratorT()
-{ /* Automatic */}
+TreeIteratorT<AT, ConstIterator, UserDataT>::TreeIteratorT() {
+  /* Automatic */
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 TreeIteratorT<AT, ConstIterator, UserDataT>::TreeIteratorT(
-    ArrayTree &tree, Style iterationStyle, bool indirectNodes, bool keepHistory)
-{ initialize(tree, iterationStyle, indirectNodes, keepHistory); }
+    ArrayTree& tree, Style iterationStyle, bool indirectNodes, bool keepHistory) {
+  initialize(tree, iterationStyle, indirectNodes, keepHistory);
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 TreeIteratorT<AT, ConstIterator, UserDataT>::TreeIteratorT(
-    NodeT &node, ArrayTree &tree, Style iterationStyle, bool indirectNodes, bool keepHistory)
-{ initialize(tree, iterationStyle, indirectNodes, keepHistory); }
+    NodeT& node, ArrayTree& tree, Style iterationStyle, bool indirectNodes, bool keepHistory) {
+  initialize(tree, iterationStyle, indirectNodes, keepHistory);
+}
 template <typename AT, bool ConstIterator, typename UserDataT>
 TreeIteratorT<AT, ConstIterator, UserDataT>::TreeIteratorT(
-    NodeIdT &node, ArrayTree &tree, Style iterationStyle, bool indirectNodes, bool keepHistory)
-{ initialize(tree, iterationStyle, indirectNodes, keepHistory); }
+    NodeIdT& node, ArrayTree& tree, Style iterationStyle, bool indirectNodes, bool keepHistory) {
+  initialize(tree, iterationStyle, indirectNodes, keepHistory);
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
-TreeIteratorT<AT, ConstIterator, UserDataT>::~TreeIteratorT()
-{ /* Automatic */ }
+TreeIteratorT<AT, ConstIterator, UserDataT>::~TreeIteratorT() {
+  /* Automatic */
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
-TreeIteratorT<AT, ConstIterator, UserDataT>::TreeIteratorT(const TreeIteratorT &other)
-{ *this = other; }
+TreeIteratorT<AT, ConstIterator, UserDataT>::TreeIteratorT(const TreeIteratorT& other) {
+  *this = other;
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 TreeIteratorT<AT, ConstIterator, UserDataT>&
-    TreeIteratorT<AT, ConstIterator, UserDataT>::operator=(const TreeIteratorT &other)
-{ mRuntime = other.mRuntime; mCurrentQueueOffset = other.mCurrentQueueOffset; return *this; }
+TreeIteratorT<AT, ConstIterator, UserDataT>::operator=(const TreeIteratorT& other) {
+  mRuntime = other.mRuntime;
+  mCurrentQueueOffset = other.mCurrentQueueOffset;
+  return *this;
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
-TreeIteratorT<AT, ConstIterator, UserDataT>::TreeIteratorT(TreeIteratorT &&other)
-{ *this = std::move(other); }
+TreeIteratorT<AT, ConstIterator, UserDataT>::TreeIteratorT(TreeIteratorT&& other) {
+  *this = std::move(other);
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 TreeIteratorT<AT, ConstIterator, UserDataT>&
-    TreeIteratorT<AT, ConstIterator, UserDataT>::operator=(TreeIteratorT &&other)
-{ mRuntime = other.mRuntime; mRuntime->owner = this; mCurrentQueueOffset = other.mCurrentQueueOffset; return *this; }
+TreeIteratorT<AT, ConstIterator, UserDataT>::operator=(TreeIteratorT&& other) {
+  mRuntime = other.mRuntime;
+  mRuntime->owner = this;
+  mCurrentQueueOffset = other.mCurrentQueueOffset;
+  return *this;
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 typename TreeIteratorT<AT, ConstIterator, UserDataT>::Style
-    TreeIteratorT<AT, ConstIterator, UserDataT>::style() const
-{ return mRuntime->style; }
+TreeIteratorT<AT, ConstIterator, UserDataT>::style() const {
+  return mRuntime->style;
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 TreeIteratorT<AT, ConstIterator, UserDataT>&
-    TreeIteratorT<AT, ConstIterator, UserDataT>::operator++()
-{
-    if (!valid())
-    { throw InvalidIteratorException("Unable to operator++ on invalid iterator!"); }
+TreeIteratorT<AT, ConstIterator, UserDataT>::operator++() {
+  if (!valid()) {
+    throw InvalidIteratorException("Unable to operator++ on invalid iterator!");
+  }
 
-    checkRuntimeDataCopy();
+  checkRuntimeDataCopy();
 
-    if (mRuntime->queue.empty())
-    { // No more nodes to process -> Convert to end pointer.
-        mRuntime->currentNodeId = INVALID_NODE_ID;
-        return *this;
-    }
-
-    // Recover information about the next node in line and its predecessor.
-    const auto nextNodeRecord{ mRuntime->queue.back() }; mRuntime->queue.pop_back();
-    const auto nextNodeId{ nextNodeRecord.identifier };
-    const auto prevNodeId{ nextNodeRecord.prevIdentifier };
-
-    const auto findIt{ mRuntime->history.find(prevNodeId) };
-    const auto *prevNodeInfo{
-        findIt != mRuntime->history.end() ?
-            &findIt->second :
-            nullptr
-    };
-
-    // Add planned nodes to the queue.
-    if (mRuntime->style == Style::DepthFirstChildren ||
-        mRuntime->style == Style::BreadthFirstChildren)
-    { // Parent to children -> Add all child nodes.
-        const auto &nextNodeChildren{
-            mRuntime->tree->getChildren(nextNodeId);
-        };
-        if (mRuntime->style == Style::DepthFirstChildren)
-        { // Depth-first search.
-            for (const auto &child : nextNodeChildren)
-            { mQueue.push_back({ child, nextNodeId }); }
-        }
-        else // (mRuntime->style == Style::BreadthFirstChildren)
-        { // Breadth-first search.
-            for (const auto &child : nextNodeChildren)
-            { mQueue.push_front({ child, nextNodeId }); }
-        }
-    }
-    else // (mRuntime->style == Style::DepthFirstParents ||
-         //  mRuntime->style == Style::BreadthFirstParents)
-    {
-        const auto &nextNodeParent{
-            mRuntime->tree->getNode(nextNodeId).parent();
-        };
-        if (mRuntime->style == Style::DepthFirstParents)
-        { // Depth-first search.
-            mQueue.push_back({ nextNodeParent, nextNodeId });
-        }
-        else // (mRuntime->style == Style::BreadthFirstParents)
-        { // Breadth-first search.
-            mQueue.push_front({ nextNodeParent, nextNodeId });
-        }
-    }
-
-    // Clear history if requested.
-    if (!mRuntime->keepHistory)
-    { mRuntime->history.clear(); }
-
-    // Setup information for the current node.
-    mRuntime->history.emplace(nextNodeId, NodeInfo{
-        nextNodeId, &mRuntime->tree->getNode(nextNodeId),
-        prevNodeInfo ? prevNodeInfo->depth : NodeInfo::START_DEPTH,
-        prevNodeInfo ? prevNodeInfo->identifier : INVALID_NODE_ID,
-        prevNodeInfo ? prevNodeInfo->node : nullptr,
-    });
-
-    // Move iterator to the next node.
-    mRuntime->currentNodeId = nextNodeId;
-
+  if (mRuntime->queue.empty()) {
+    // No more nodes to process -> Convert to end pointer.
+    mRuntime->currentNodeId = INVALID_NODE_ID;
     return *this;
+  }
+
+  // Recover information about the next node in line and its predecessor.
+  const auto nextNodeRecord{mRuntime->queue.back()};
+  mRuntime->queue.pop_back();
+  const auto nextNodeId{nextNodeRecord.identifier};
+  const auto prevNodeId{nextNodeRecord.prevIdentifier};
+
+  const auto findIt{mRuntime->history.find(prevNodeId)};
+  const auto* prevNodeInfo{
+      findIt != mRuntime->history.end() ? &findIt->second : nullptr
+  };
+
+  // Add planned nodes to the queue.
+  if (mRuntime->style == Style::DepthFirstChildren ||
+      mRuntime->style == Style::BreadthFirstChildren) {
+    // Parent to children -> Add all child nodes.
+    const auto& nextNodeChildren
+    {
+      mRuntime->tree->getChildren(nextNodeId);
+    };
+    if (mRuntime->style == Style::DepthFirstChildren) {
+      // Depth-first search.
+      for (const auto& child : nextNodeChildren) {
+        mQueue.push_back({child, nextNodeId});
+      }
+    } else // (mRuntime->style == Style::BreadthFirstChildren)
+    {
+      // Breadth-first search.
+      for (const auto& child : nextNodeChildren) {
+        mQueue.push_front({child, nextNodeId});
+      }
+    }
+  } else // (mRuntime->style == Style::DepthFirstParents ||
+  //  mRuntime->style == Style::BreadthFirstParents)
+  {
+    const auto& nextNodeParent
+    {
+      mRuntime->tree->getNode(nextNodeId).parent();
+    };
+    if (mRuntime->style == Style::DepthFirstParents) {
+      // Depth-first search.
+      mQueue.push_back({nextNodeParent, nextNodeId});
+    } else // (mRuntime->style == Style::BreadthFirstParents)
+    {
+      // Breadth-first search.
+      mQueue.push_front({nextNodeParent, nextNodeId});
+    }
+  }
+
+  // Clear history if requested.
+  if (!mRuntime->keepHistory) {
+    mRuntime->history.clear();
+  }
+
+  // Setup information for the current node.
+  mRuntime->history.emplace(nextNodeId, NodeInfo{
+                                nextNodeId, &mRuntime->tree->getNode(nextNodeId),
+                                prevNodeInfo ? prevNodeInfo->depth : NodeInfo::START_DEPTH,
+                                prevNodeInfo ? prevNodeInfo->identifier : INVALID_NODE_ID,
+                                prevNodeInfo ? prevNodeInfo->node : nullptr,
+                            });
+
+  // Move iterator to the next node.
+  mRuntime->currentNodeId = nextNodeId;
+
+  return *this;
 }
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 const TreeIteratorT<AT, ConstIterator, UserDataT>
-    TreeIteratorT<AT, ConstIterator, UserDataT>::operator++(int)
-{ ThisT copy{ *this }; operator++(); return copy; };
+TreeIteratorT<AT, ConstIterator, UserDataT>::operator++(int) {
+  ThisT copy{*this};
+  operator++();
+  return copy;
+};
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 TreeIteratorT<AT, ConstIterator, UserDataT>&
-    TreeIteratorT<AT, ConstIterator, UserDataT>::operator--()
-{
-    if (!valid())
-    { throw InvalidIteratorException("Unable to operator-- on invalid iterator!"); }
+TreeIteratorT<AT, ConstIterator, UserDataT>::operator--() {
+  if (!valid()) {
+    throw InvalidIteratorException("Unable to operator-- on invalid iterator!");
+  }
 
-    if (!mRuntime->keepHistory)
-    { throw InvalidIteratorException("Unable to operator-- without keepHistory == true!"); }
+  if (!mRuntime->keepHistory) {
+    throw InvalidIteratorException("Unable to operator-- without keepHistory == true!");
+  }
 
-    const auto currentNodeInfo{ info() };
+  const auto currentNodeInfo{info()};
 
-    checkRuntimeDataCopy();
+  checkRuntimeDataCopy();
 
-    if (currentNodeInfo.prevIdentifier == INVALID_NODE_ID)
-    { // No more nodes to process -> Convert to end pointer.
-        mRuntime->currentNodeId = INVALID_NODE_ID;
-        return *this;
-    }
+  if (currentNodeInfo.prevIdentifier == INVALID_NODE_ID) {
+    // No more nodes to process -> Convert to end pointer.
+    mRuntime->currentNodeId = INVALID_NODE_ID;
+    return *this;
+  }
 
-    // Move to the previous node.
-    mRuntime->currentNodeId = currentNodeinfo.prevIdentifier;
+  // Move to the previous node.
+  mRuntime->currentNodeId = currentNodeinfo.prevIdentifier;
 }
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 const TreeIteratorT<AT, ConstIterator, UserDataT>
-    TreeIteratorT<AT, ConstIterator, UserDataT>::operator--(int)
-{ ThisT copy{ *this }; operator--(); return copy; };
+TreeIteratorT<AT, ConstIterator, UserDataT>::operator--(int) {
+  ThisT copy{*this};
+  operator--();
+  return copy;
+};
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 typename TreeIteratorT<AT, ConstIterator, UserDataT>::NodeT
-    TreeIteratorT<AT, ConstIterator, UserDataT>::operator*()
-{ return *info().node; }
+TreeIteratorT<AT, ConstIterator, UserDataT>::operator*() {
+  return *info().node;
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 typename TreeIteratorT<AT, ConstIterator, UserDataT>::NodeT*
-    TreeIteratorT<AT, ConstIterator, UserDataT>::operator->()
-{ return info().node; }
+TreeIteratorT<AT, ConstIterator, UserDataT>::operator->() {
+  return info().node;
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 const typename TreeIteratorT<AT, ConstIterator, UserDataT>::NodeInfo&
-    TreeIteratorT<AT, ConstIterator, UserDataT>::info() const
-{ return const_cast<ThisT*>(this)->info(); }
+TreeIteratorT<AT, ConstIterator, UserDataT>::info() const {
+  return const_cast<ThisT*>(this)->info();
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 typename TreeIteratorT<AT, ConstIterator, UserDataT>::NodeInfo&
-    TreeIteratorT<AT, ConstIterator, UserDataT>::info()
-{
-    if (!valid())
-    { throw InvalidIteratorException("Cannot operator* on an invalid iterator!"); }
+TreeIteratorT<AT, ConstIterator, UserDataT>::info() {
+  if (!valid()) {
+    throw InvalidIteratorException("Cannot operator* on an invalid iterator!");
+  }
 
-    return mRuntime->history[mRuntime->currentNode];
+  return mRuntime->history[mRuntime->currentNode];
 }
 
 template <typename AT, bool ConstIterator, typename UserDataT>
-bool TreeIteratorT<AT, ConstIterator, UserDataT>::valid() const
-{ return mRuntime && mRuntime->currentNode != INVALID_NODE_ID; }
+bool TreeIteratorT<AT, ConstIterator, UserDataT>::valid() const {
+  return mRuntime && mRuntime->currentNode != INVALID_NODE_ID;
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 bool TreeIteratorT<AT, ConstIterator, UserDataT>::operator==(
-    const ThisT &other) const
-{
-    return
-        // Compare iterators sharing runtime data.
-        (mRuntime == other.mRuntime) ||
-        // Compare explicit end iterator and end iterator.
-        (mRuntime && mRuntime->currentNode == INVALID_NODE_ID && !other.mRuntime)
-        // Compare iterators pointing at the same node.
-        (mRuntime && other.mRuntime && mRuntime->currentNode == other.mRuntime->currentNode &&
-            mRuntime->tree == other.mRuntime->tree)
+    const ThisT& other) const {
+  return
+      // Compare iterators sharing runtime data.
+      (mRuntime == other.mRuntime) ||
+      // Compare explicit end iterator and end iterator.
+      (mRuntime && mRuntime->currentNode == INVALID_NODE_ID && !other.mRuntime)
+      // Compare iterators pointing at the same node.
+      (mRuntime && other.mRuntime && mRuntime->currentNode == other.mRuntime->currentNode &&
+       mRuntime->tree == other.mRuntime->tree)
 }
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 bool TreeIteratorT<AT, ConstIterator, UserDataT>::operator!=(
-    const ThisT &other) const
-{ return !(*this == other); }
+    const ThisT& other) const {
+  return !(*this == other);
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 bool TreeIteratorT<AT, ConstIterator, UserDataT>::operator==(
-    const ThisOtherConstT &other) const
-{
-    return
-        // Compare iterators sharing runtime data.
-        (mRuntime == other.mRuntime) ||
-        // Compare explicit end iterator and end iterator.
-        (mRuntime && mRuntime->currentNode == INVALID_NODE_ID && !other.mRuntime)
-            // Compare iterators pointing at the same node.
-            (mRuntime && other.mRuntime && mRuntime->currentNode == other.mRuntime->currentNode &&
-             mRuntime->tree == other.mRuntime->tree)
+    const ThisOtherConstT& other) const {
+  return
+      // Compare iterators sharing runtime data.
+      (mRuntime == other.mRuntime) ||
+      // Compare explicit end iterator and end iterator.
+      (mRuntime && mRuntime->currentNode == INVALID_NODE_ID && !other.mRuntime)
+      // Compare iterators pointing at the same node.
+      (mRuntime && other.mRuntime && mRuntime->currentNode == other.mRuntime->currentNode &&
+       mRuntime->tree == other.mRuntime->tree)
 }
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 bool TreeIteratorT<AT, ConstIterator, UserDataT>::operator!=(
-    const ThisOtherConstT &other) const
-{ return !(*this == other); }
+    const ThisOtherConstT& other) const {
+  return !(*this == other);
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
-void TreeIteratorT<AT, ConstIterator, UserDataT>::checkRuntimeDataCopy()
-{
-    if (!mRuntime)
-    { // No runtime data exists -> Initialize.
-        mRuntime = std::make_shared<RuntimeData>();
-        mRuntime->owner = this;
-    }
-    else if (mRuntime->owner != this)
-    { // We are using runtime data from other instance -> Make a copy.
-        mRuntime = std::make_shared<RuntimeData>(*mRuntime);
-        mRuntime->owner = this;
-    }
+void TreeIteratorT<AT, ConstIterator, UserDataT>::checkRuntimeDataCopy() {
+  if (!mRuntime) {
+    // No runtime data exists -> Initialize.
+    mRuntime = std::make_shared<RuntimeData>();
+    mRuntime->owner = this;
+  } else if (mRuntime->owner != this) {
+    // We are using runtime data from other instance -> Make a copy.
+    mRuntime = std::make_shared<RuntimeData>(*mRuntime);
+    mRuntime->owner = this;
+  }
 }
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 void TreeIteratorT<AT, ConstIterator, UserDataT>::initialize(
-    ArrayTree &tree, Style iterationStyle, bool indirectNodes, bool keepHistory)
-{
-    // Initialize runtime:
-    checkRuntimeDataCopy();
-    mRuntime->tree = &tree;
-    mRuntime->queue = { };
-    mRuntime->history = { };
-    mRuntime->currentNode = INVALID_NODE_ID;
-    mRuntime->style = iterationStyle;
-    mRuntime->indirectNodes = indirectNodes;
-    mRuntime->keepHistory = keepHistory;
+    ArrayTree& tree, Style iterationStyle, bool indirectNodes, bool keepHistory) {
+  // Initialize runtime:
+  checkRuntimeDataCopy();
+  mRuntime->tree = &tree;
+  mRuntime->queue = {};
+  mRuntime->history = {};
+  mRuntime->currentNode = INVALID_NODE_ID;
+  mRuntime->style = iterationStyle;
+  mRuntime->indirectNodes = indirectNodes;
+  mRuntime->keepHistory = keepHistory;
 
-    // Initialize nodes:
-    switch (mRuntime->style)
-    {
-        case Style::DepthFirstChildren:
-        case Style::BreadthFirstChildren:
-        { // Going parents -> children, use root.
-            if (tree.isRootNodeValid())
-            {
-                mRuntime->queue.emplace_back(NodeInfo{
-                    tree.getRootId(), &tree.getRootNode(), NodeInfo::START_DEPTH,
-                    INVALID_NODE_ID, nullptr
-                });
-            }
-            break;
-        }
-        case Style::DepthFirstParents:
-        case Style::BreadthFirstParents:
-        { // Going children -> parents, use leaves
-            for (auto nodeId = tree.beginNodeId(); nodeId != tree.endNodeId(); ++nodeId)
-            { // Search for all leaves in the input tree.
-                const auto &currentNode{ tree.getNode(nodeId) };
-                if (currentNode.children.size() == 0)
-                { // Found a leaf -> Add it.
-                    mRuntime->queue.emplace_back(NodeInfo{
-                        nodeId, &currentNode, NodeInfo::START_DEPTH,
-                        INVALID_NODE_ID, nullptr
-                    });
-                }
-            }
-            break;
-        }
+  // Initialize nodes:
+  switch (mRuntime->style) {
+    case Style::DepthFirstChildren:
+    case Style::BreadthFirstChildren: {
+      // Going parents -> children, use root.
+      if (tree.isRootNodeValid()) {
+        mRuntime->queue.emplace_back(NodeInfo{
+            tree.getRootId(), &tree.getRootNode(), NodeInfo::START_DEPTH,
+            INVALID_NODE_ID, nullptr
+        });
+      }
+      break;
     }
+    case Style::DepthFirstParents:
+    case Style::BreadthFirstParents: {
+      // Going children -> parents, use leaves
+      for (auto nodeId = tree.beginNodeId(); nodeId != tree.endNodeId(); ++nodeId) {
+        // Search for all leaves in the input tree.
+        const auto& currentNode{tree.getNode(nodeId)};
+        if (currentNode.children.size() == 0) {
+          // Found a leaf -> Add it.
+          mRuntime->queue.emplace_back(NodeInfo{
+              nodeId, &currentNode, NodeInfo::START_DEPTH,
+              INVALID_NODE_ID, nullptr
+          });
+        }
+      }
+      break;
+    }
+  }
 }
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 void TreeIteratorT<AT, ConstIterator, UserDataT>::initialize(
-    NodeT &node, ArrayTree &tree, Style iterationStyle, bool indirectNodes, bool keepHistory)
-{ initialize(node.id(), tree, iterationStyle, indirectNodes, keepHistory); }
+    NodeT& node, ArrayTree& tree, Style iterationStyle, bool indirectNodes, bool keepHistory) {
+  initialize(node.id(), tree, iterationStyle, indirectNodes, keepHistory);
+}
 
 template <typename AT, bool ConstIterator, typename UserDataT>
 void TreeIteratorT<AT, ConstIterator, UserDataT>::initialize(
-    NodeIdT &node, ArrayTree &tree, Style iterationStyle, bool indirectNodes, bool keepHistory)
-{
-    // Initialize runtime:
-    checkRuntimeDataCopy();
-    mRuntime->tree = &tree;
-    mRuntime->queue = { };
-    mRuntime->history = { };
-    mRuntime->currentNode = INVALID_NODE_ID;
-    mRuntime->style = iterationStyle;
-    mRuntime->indirectNodes = indirectNodes;
-    mRuntime->keepHistory = keepHistory;
+    NodeIdT& node, ArrayTree& tree, Style iterationStyle, bool indirectNodes, bool keepHistory) {
+  // Initialize runtime:
+  checkRuntimeDataCopy();
+  mRuntime->tree = &tree;
+  mRuntime->queue = {};
+  mRuntime->history = {};
+  mRuntime->currentNode = INVALID_NODE_ID;
+  mRuntime->style = iterationStyle;
+  mRuntime->indirectNodes = indirectNodes;
+  mRuntime->keepHistory = keepHistory;
 
-    // Initialize the single node:
-    mRuntime->queue.emplace_back(NodeInfo{
-        node, &tree.getNode(node), NodeInfo::START_DEPTH,
-        INVALID_NODE_ID, nullptr
-    });
+  // Initialize the single node:
+  mRuntime->queue.emplace_back(NodeInfo{
+      node, &tree.getNode(node), NodeInfo::START_DEPTH,
+      INVALID_NODE_ID, nullptr
+  });
 }
 
 #endif
-
 }  // namespace treeio
 
 // Template implementation end.

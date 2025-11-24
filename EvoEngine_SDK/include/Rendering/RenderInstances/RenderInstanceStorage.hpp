@@ -610,7 +610,8 @@ class RenderInstanceStorage {
    * @return True if the registration was successful.
    */
   bool RegisterRenderInstance(const std::shared_ptr<Scene>& target_scene, const Entity& entity,
-                              const Handle& renderer_handle, const std::shared_ptr<Material>& material);
+                              const Handle& renderer_handle, const std::shared_ptr<Material>& material,
+                              int* out_material_index = nullptr);
 
   /**
    * @brief Registers a material and returns its index.

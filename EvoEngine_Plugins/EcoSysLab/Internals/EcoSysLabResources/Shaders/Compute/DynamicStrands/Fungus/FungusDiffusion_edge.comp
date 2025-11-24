@@ -83,8 +83,8 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 // }
 
 void computeDiffusionWeights(vec3 source_pos, vec3 target_pos, float source_distance, float target_distance, vec3 ob_w,
-                             vec3 ob_b, vec3 ob_c, vec3 ob_m, float max_b, float max_w, out float dc_weight, out float dw_weight, out float db_weight,
-                             out float dm_weight) {
+                             vec3 ob_b, vec3 ob_c, vec3 ob_m, float max_b, float max_w, out float dc_weight,
+                             out float dw_weight, out float db_weight, out float dm_weight) {
   vec3 dvec = target_pos - source_pos;
   float d2 = dot(dvec, dvec);
 
@@ -134,7 +134,7 @@ void computeDiffusionWeights(vec3 source_pos, vec3 target_pos, float source_dist
     // coef = pow(4.0 * (dist_var + 0.01), be);
     coef = pow(dist_var * 10.0 + 0.01, be);
   }
-  coef = 1.0f; //for board
+  coef = 1.0f;  // for board
 
   float multiplier = 20.0f;
   dw_weight = kw * coef * multiplier;
@@ -189,25 +189,26 @@ void computeDiffusionWeights_Tspace(vec3 source_pos, vec3 target_pos, float sour
     M_c = mat3(matrixAc4);
     M_m = mat3(matrixAm4);
 
-    //M_b = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 20.0); //For elm
+    // M_b = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 20.0); //For elm
 
-    //M_w = mat3(1000.0, 0.0, 0.0, 0.0, 1000.0, 0.0, 0.0, 0.0, 1000.0);
-    //M_b = mat3(500.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0, 0.0, 200.0);
-    //M_c = mat3(100.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0);
-    //M_m = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
-    //if ((source_distance + target_distance) < 2.0 * 0.06 && (source_distance + target_distance) > 2.0 * 0.03) {
-    //  M_b = mat3(800.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 200.0);
-    //}
-    //if ((source_distance + target_distance) < 2.0 * 0.1 && (source_distance + target_distance) > 2.0 * 0.08) {
-    //  M_b = mat3(800.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 200.0);
-    //}
-    //if (source_polar.y + target_polar.y > -21.0 * 3.1415926 / 24.0 &&
-    //    source_polar.y + target_polar.y < -5.0 * 3.1415926 / 6.0 && (source_distance + target_distance) > 2.0 * 0.00) {
-    //  M_b = mat3(0.1, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 200.0);
-    //}
-    //if ((source_distance + target_distance) > 2.0 * 0.13) {
-    //  M_b = mat3(0.1, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 1.0);
-    //} //Anisotropic Case
+    // M_w = mat3(1000.0, 0.0, 0.0, 0.0, 1000.0, 0.0, 0.0, 0.0, 1000.0);
+    // M_b = mat3(500.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0, 0.0, 200.0);
+    // M_c = mat3(100.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0);
+    // M_m = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+    // if ((source_distance + target_distance) < 2.0 * 0.06 && (source_distance + target_distance) > 2.0 * 0.03) {
+    //   M_b = mat3(800.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 200.0);
+    // }
+    // if ((source_distance + target_distance) < 2.0 * 0.1 && (source_distance + target_distance) > 2.0 * 0.08) {
+    //   M_b = mat3(800.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 200.0);
+    // }
+    // if (source_polar.y + target_polar.y > -21.0 * 3.1415926 / 24.0 &&
+    //     source_polar.y + target_polar.y < -5.0 * 3.1415926 / 6.0 && (source_distance + target_distance) > 2.0 * 0.00)
+    //     {
+    //   M_b = mat3(0.1, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 200.0);
+    // }
+    // if ((source_distance + target_distance) > 2.0 * 0.13) {
+    //   M_b = mat3(0.1, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 1.0);
+    // } //Anisotropic Case
   }
 
   float rho2_w = max(dot(Tspace_diff * M_w, Tspace_diff), 0.0);
@@ -256,7 +257,7 @@ void main() {
     if (pair_index >= pair_size)
       break;
     if (segment_pairs[pair_index].connectivity_integrity <= 0.0 &&
-     segment_pairs[pair_index].bend_twist_bundle_integrity <= 0.0) {
+        segment_pairs[pair_index].bend_twist_bundle_integrity <= 0.0) {
       continue;
     }
 
@@ -288,14 +289,13 @@ void main() {
     // Calculate diffusion weights
     float dc_weight, dw_weight, db_weight, dm_weight;
     if (treespace == 1) {
-        computeDiffusionWeights_Tspace(segment0_pos, segment1_pos, segment0_distance, segment1_distance, l_dir,
-                                         source_profile, target_profile, source_polar, target_polar, ob_w, ob_b, ob_c, ob_m,
-                                         max_b, max_w, dc_weight, dw_weight, db_weight, dm_weight);
+      computeDiffusionWeights_Tspace(segment0_pos, segment1_pos, segment0_distance, segment1_distance, l_dir,
+                                     source_profile, target_profile, source_polar, target_polar, ob_w, ob_b, ob_c, ob_m,
+                                     max_b, max_w, dc_weight, dw_weight, db_weight, dm_weight);
     } else {
-        computeDiffusionWeights(segment0_pos, segment1_pos, segment0_distance, segment1_distance, ob_w, ob_b, ob_c, ob_m,
+      computeDiffusionWeights(segment0_pos, segment1_pos, segment0_distance, segment1_distance, ob_w, ob_b, ob_c, ob_m,
                               max_b, max_w, dc_weight, dw_weight, db_weight, dm_weight);
     }
-
 
     // Accumulate diffusion contribution from neighbors
     atomicAdd(segments[segment0_handle].diffusion_c, dc_weight * segments[segment1_handle].C_pre);
@@ -354,21 +354,21 @@ void main() {
     //  }
     //}
 
-     if (true) {
-         if (segments[segment1_handle].HL < HL_threshold || segments[segment0_handle].HL < HL_threshold) {
-           segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
-           segment_pairs[pair_index].connectivity_integrity = 0.0;
-         }
-         if (uvec4(clamp(segments[segment1_handle].color * 255.0, 0.0, 255.0)) !=
-             uvec4(clamp(segments[segment0_handle].color * 255.0, 0.0, 255.0))) {
-           if (segments[segment1_handle].HC < HC_threshold &&
-               segments[segment0_handle].HC < HC_threshold)  //Switch to || for non-tree cases
-           {
-             segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
-             segment_pairs[pair_index].connectivity_integrity = 0.0;
-           }
-         }
-     } // For TREE ELM
+    if (true) {
+      if (segments[segment1_handle].HL < HL_threshold || segments[segment0_handle].HL < HL_threshold) {
+        segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
+        segment_pairs[pair_index].connectivity_integrity = 0.0;
+      }
+      if (uvec4(clamp(segments[segment1_handle].color * 255.0, 0.0, 255.0)) !=
+          uvec4(clamp(segments[segment0_handle].color * 255.0, 0.0, 255.0))) {
+        if (segments[segment1_handle].HC < HC_threshold &&
+            segments[segment0_handle].HC < HC_threshold)  // Switch to || for non-tree cases
+        {
+          segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
+          segment_pairs[pair_index].connectivity_integrity = 0.0;
+        }
+      }
+    }  // For TREE ELM
 
     // if (segments[segment1_handle].color != segments[segment0_handle].color &&
     //     (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
@@ -377,12 +377,12 @@ void main() {
     //   segments[segment1_handle].prev_inside = 0;
     //   segments[segment0_handle].prev_inside = 0;
     // }
-     //if ((segments[segment1_handle].boundary_distance < 1.0 || segments[segment0_handle].boundary_distance < 1.0) &&
-     //   uvec4(clamp(segments[segment1_handle].color * 255.0, 0.0, 255.0)) !=
-     //       uvec4(clamp(segments[segment0_handle].color * 255.0, 0.0, 255.0))) {
-     // segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
-     // segment_pairs[pair_index].connectivity_integrity = 0.0;
-     // }
+    // if ((segments[segment1_handle].boundary_distance < 1.0 || segments[segment0_handle].boundary_distance < 1.0) &&
+    //   uvec4(clamp(segments[segment1_handle].color * 255.0, 0.0, 255.0)) !=
+    //       uvec4(clamp(segments[segment0_handle].color * 255.0, 0.0, 255.0))) {
+    // segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
+    // segment_pairs[pair_index].connectivity_integrity = 0.0;
+    // }
 
     /*if ((segments[segment1_handle].boundary_distance >
              0.01 + segments[segment1_handle].particle0.root_distance / 40.0 ||
@@ -393,14 +393,14 @@ void main() {
 
     }*/  // Test: Force break if different color near surface(Spruce)
 
-   //  if ((segments[segment1_handle].boundary_distance >
-   //         0.02 + segments[segment1_handle].particle0.root_distance / 40.0 ||
-   //     segments[segment0_handle].boundary_distance >
-   //         0.02 + segments[segment0_handle].particle0.root_distance / 40.0)) {
-   //  segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
-   //  segment_pairs[pair_index].connectivity_integrity = 0.0;
+    //  if ((segments[segment1_handle].boundary_distance >
+    //         0.02 + segments[segment1_handle].particle0.root_distance / 40.0 ||
+    //     segments[segment0_handle].boundary_distance >
+    //         0.02 + segments[segment0_handle].particle0.root_distance / 40.0)) {
+    //  segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
+    //  segment_pairs[pair_index].connectivity_integrity = 0.0;
 
-   //}  // Test: Force break if different color near surface(Elm)
+    //}  // Test: Force break if different color near surface(Elm)
 
     /*    if ((segments[segment1_handle].boundary_distance >
                  0.1 ||

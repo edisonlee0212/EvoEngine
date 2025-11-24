@@ -1,4 +1,3 @@
-
 #pragma once
 #include "ShootModel.hpp"
 #include "SpatialPlantDistribution.hpp"
@@ -68,5 +67,4 @@ class SpatialPlantDistributionSimulator : public IPrivateComponent {
    */
   void OnCreate() override;
 };
-
 }  // namespace eco_sys_lab_plugin

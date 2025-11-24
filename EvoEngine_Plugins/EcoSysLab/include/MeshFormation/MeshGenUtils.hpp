@@ -3,7 +3,6 @@
 #include "Delaunator2D.hpp"
 
 namespace eco_sys_lab_plugin {
-
 /// @brief An undirected graph represented as an unordered adjacency list
 /// @tparam VertexProperty any property that should be attached to the vertices, e.g. glm::vec2 for a geometric graph in
 /// 2D space
@@ -15,6 +14,7 @@ class AdjacencyList {
 
   ~AdjacencyList() {
   }
+
   struct Edge {
     size_t m_source;
     size_t m_target;
@@ -24,7 +24,7 @@ class AdjacencyList {
   std::vector<Edge> m_edges;
 
   // for now let's only implement undirected
-  std::vector<std::vector<size_t> > m_outEdges;
+  std::vector<std::vector<size_t>> m_outEdges;
   // std::vector<std::vector<size_t> > m_inEdges;
 
   VertexProperty& operator[](size_t i) {
@@ -61,7 +61,7 @@ class AdjacencyList {
 
   void clearEdges() {
     m_edges.clear();
-    m_outEdges = std::vector<std::vector<size_t> >(m_vertices.size());
+    m_outEdges = std::vector<std::vector<size_t>>(m_vertices.size());
   }
 
   const std::vector<size_t>& adjacentVertices(size_t v) const {

@@ -153,8 +153,8 @@ void main() {
                   }
                 }
                 if (diff_length1 < 0.02) {
-                  //segments[segment_handle].particle1.v =
-                  //    scaleAlongDirectional(segments[segment_handle].particle1.v, -direction1, 50 * diff_length);
+                  // segments[segment_handle].particle1.v =
+                  //     scaleAlongDirectional(segments[segment_handle].particle1.v, -direction1, 50 * diff_length);
                   if (segments[segment_handle].quasi_stable == 1 && neighbor_segment.quasi_stable == 1 &&
                       diff_length1 < 0.001) {
                     exert_fricton_1 = 1;
@@ -199,40 +199,39 @@ void main() {
           float friction = 0.8 * 9.8;
           friction = position_offset_length * 0.8f;
           dv0 += length(vec3(segments[segment_handle].particle0.v)) > friction
-                         ? normalize(segments[segment_handle].particle0.v) * friction
-                         : segments[segment_handle].particle0.v;
+                     ? normalize(segments[segment_handle].particle0.v) * friction
+                     : segments[segment_handle].particle0.v;
           segments[segment_handle].particle0.v -= dv0;
 
-          //segments[segment_handle].particle0.v = vec3(0.0);
-          // segments[segment_handle].particle0.v = scaleAlong(
-          //     segments[segment_handle].particle0.v, segment_direction, 0.2);
+          // segments[segment_handle].particle0.v = vec3(0.0);
+          //  segments[segment_handle].particle0.v = scaleAlong(
+          //      segments[segment_handle].particle0.v, segment_direction, 0.2);
         }
         if (exert_fricton_1 == 1) {
           float friction = 0.8 * 9.8;
           friction = position_offset_length * 0.8f;
           dv1 += length(vec3(segments[segment_handle].particle1.v)) > friction
-                         ? normalize(segments[segment_handle].particle1.v) * friction
-                    : segments[segment_handle].particle1.v;
+                     ? normalize(segments[segment_handle].particle1.v) * friction
+                     : segments[segment_handle].particle1.v;
           segments[segment_handle].particle1.v -= dv1;
 
-          //segments[segment_handle].particle1.v = vec3(0.0);
-          // segments[segment_handle].particle1.v =
-          //     scaleAlong(segments[segment_handle].particle1.v, segment_direction, 0.2);
+          // segments[segment_handle].particle1.v = vec3(0.0);
+          //  segments[segment_handle].particle1.v =
+          //      scaleAlong(segments[segment_handle].particle1.v, segment_direction, 0.2);
         }
 
-
-        //if (exert_fricton_0 == 1 || exert_fricton_1 == 1)
+        // if (exert_fricton_0 == 1 || exert_fricton_1 == 1)
         //{
-        //  vec3 J0 = dv0 / 2.0 / segments[segment_handle].inv_mass;
-        //  vec3 J1 = dv1 / 2.0 / segments[segment_handle].inv_mass;
-        //  vec3 r0 = -segments[segment_handle].particle0.x + segment_center_position;
-        //  vec3 r1 = -segments[segment_handle].particle1.x + segment_center_position;
-        //  vec3 dL = cross(r0, J0) + cross(r1, J1);
-        //  segments[segment_handle].angular_v =
-        //      (segments[segment_handle].inv_inertia_w *
-        //      (segments[segment_handle].inertia_w * vec4(segments[segment_handle].angular_v, 0.0) + vec4(dL, 0.0))).xyz;
-        //}
-
+        //   vec3 J0 = dv0 / 2.0 / segments[segment_handle].inv_mass;
+        //   vec3 J1 = dv1 / 2.0 / segments[segment_handle].inv_mass;
+        //   vec3 r0 = -segments[segment_handle].particle0.x + segment_center_position;
+        //   vec3 r1 = -segments[segment_handle].particle1.x + segment_center_position;
+        //   vec3 dL = cross(r0, J0) + cross(r1, J1);
+        //   segments[segment_handle].angular_v =
+        //       (segments[segment_handle].inv_inertia_w *
+        //       (segments[segment_handle].inertia_w * vec4(segments[segment_handle].angular_v, 0.0) + vec4(dL,
+        //       0.0))).xyz;
+        // }
 
       } else {
         dv0 += position_offset * 30.f;

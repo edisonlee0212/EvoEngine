@@ -86,6 +86,7 @@ void BasicPruningDescriptor::PrepareController(const SimulationSettings& simulat
         return pruning_probability;
       };
 }
+
 void BasicPruningDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "low_branch_pruning" << YAML::Value << low_branch_pruning;
   out << YAML::Key << "trunk_protection" << YAML::Value << trunk_protection;
@@ -98,6 +99,7 @@ void BasicPruningDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "branch_breaking_factor" << YAML::Value << branch_breaking_factor;
   out << YAML::Key << "branch_breaking_multiplier" << YAML::Value << branch_breaking_multiplier;
 }
+
 void BasicPruningDescriptor::Deserialize(const YAML::Node& in) {
   if (in["low_branch_pruning"]) {
     low_branch_pruning = in["low_branch_pruning"].as<float>();
@@ -121,6 +123,7 @@ void BasicPruningDescriptor::Deserialize(const YAML::Node& in) {
   if (in["branch_breaking_multiplier"])
     branch_breaking_multiplier = in["branch_breaking_multiplier"].as<float>();
 }
+
 bool BasicPruningDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNodeEx("Pruning", ImGuiTreeNodeFlags_DefaultOpen)) {

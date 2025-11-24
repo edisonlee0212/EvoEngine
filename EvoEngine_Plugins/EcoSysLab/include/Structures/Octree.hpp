@@ -251,10 +251,12 @@ template <typename OctreeNodeData>
 Octree<OctreeNodeData>::Octree() {
   Reset(16, 10, glm::vec3(0.0f));
 }
+
 template <typename OctreeNodeData>
 float Octree<OctreeNodeData>::GetMinRadius() const {
   return minimum_node_radius_;
 }
+
 template <typename OctreeNodeData>
 Octree<OctreeNodeData>::Octree(const float radius, const unsigned max_subdivision_level, const glm::vec3& center) {
   Reset(radius, max_subdivision_level, center);
@@ -280,6 +282,7 @@ bool Octree<OctreeNodeData>::Occupied(const glm::vec3& position) const {
   }
   return true;
 }
+
 template <typename OctreeNodeData>
 void Octree<OctreeNodeData>::Reset(float radius, unsigned max_subdivision_level, const glm::vec3& center) {
   chunk_radius_ = minimum_node_radius_ = radius;
@@ -291,6 +294,7 @@ void Octree<OctreeNodeData>::Reset(float radius, unsigned max_subdivision_level,
   }
   Allocate(chunk_radius_, -1, center);
 }
+
 template <typename OctreeNodeData>
 OctreeNodeHandle Octree<OctreeNodeData>::GetNodeHandle(const glm::vec3& position) const {
   float current_radius = chunk_radius_;
@@ -311,6 +315,7 @@ OctreeNodeHandle Octree<OctreeNodeData>::GetNodeHandle(const glm::vec3& position
   }
   return octree_node_index;
 }
+
 template <typename OctreeNodeData>
 const OctreeNode& Octree<OctreeNodeData>::RefNode(const OctreeNodeHandle node_handle) const {
   return octree_nodes_[node_handle];
@@ -399,6 +404,7 @@ void Octree<OctreeNodeData>::IterateLeaves(const std::function<void(const Octree
     }
   }
 }
+
 template <typename OctreeNodeData>
 void Octree<OctreeNodeData>::GetVoxels(std::vector<glm::mat4>& voxels) const {
   voxels.clear();
@@ -406,6 +412,7 @@ void Octree<OctreeNodeData>::GetVoxels(std::vector<glm::mat4>& voxels) const {
     voxels.push_back(glm::translate(octree_node.center_) * glm::scale(glm::vec3(minimum_node_radius_)));
   });
 }
+
 template <typename OctreeNodeData>
 void Octree<OctreeNodeData>::TriangulateField(std::vector<Vertex>& vertices, std::vector<unsigned>& indices,
                                               const bool remove_duplicate) const {
@@ -423,5 +430,4 @@ void Octree<OctreeNodeData>::TriangulateField(std::vector<Vertex>& vertices, std
       },
       0.5f, minimum_node_radius_, testing_cells, vertices, indices, remove_duplicate);
 }
-
 }  // namespace eco_sys_lab_plugin

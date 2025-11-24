@@ -510,16 +510,13 @@ void EcoSysLabLayer::OnInspectDynamicStrandsSettings(const std::shared_ptr<Edito
 
   ImGui::Checkbox("Rendering", &dynamic_strands_settings_.enable_rendering);
   if (ImGui::TreeNode("Rendering settings")) {
-    switch (DynamicStrandsInitializeParameters::meshing_type) {
-      case MeshingType::AlphaShape:
-        DsAlphaShapeMeshing::OnInspectRenderSettings(editor_layer);
-        break;
-      case MeshingType::KineticVoronoi:
-        DsKineticVoronoiMeshing::OnInspectRenderSettings(editor_layer);
-        break;
-      default:
-        EVOENGINE_WARNING("No render settings were provided for this meshing type!");
-        break;
+    if (ImGui::TreeNode("Alpha Shape Meshing Settings")) {
+      DsAlphaShapeMeshing::OnInspectRenderSettings(editor_layer);
+      ImGui::TreePop();
+    }
+    if (ImGui::TreeNode("Kinetic Voronoi Meshing Settings")) {
+      DsKineticVoronoiMeshing::OnInspectRenderSettings(editor_layer);
+      ImGui::TreePop();
     }
 
     ImGui::Checkbox("Render foliage", &dynamic_strands_settings_.foliage_render_parameters.enabled);

@@ -18,35 +18,36 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	vec4 obb_center;
-	float radius;
-	float softness;
-	uint leaf_size;
+  vec4 obb_center;
+  float radius;
+  float softness;
+  uint leaf_size;
 };
 
-vec3 process_point(in vec3 p){
-	vec3 projected_p = p - obb_center.xyz;
-	float current_radius = length(projected_p);
-	if(current_radius == 0.0f) return obb_center.xyz + radius * vec3(0, 1, 0);
-	return obb_center.xyz + max(current_radius, radius) * normalize(projected_p);
+vec3 process_point(in vec3 p) {
+  vec3 projected_p = p - obb_center.xyz;
+  float current_radius = length(projected_p);
+  if (current_radius == 0.0f)
+    return obb_center.xyz + radius * vec3(0, 1, 0);
+  return obb_center.xyz + max(current_radius, radius) * normalize(projected_p);
 }
 
-void main(){
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint leaf_index = baseID + local_index;
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint leaf_index = baseID + local_index;
 
-		if(leaf_index >= leaf_size) break;
+    if (leaf_index >= leaf_size)
+      break;
 
-		Leaf leaf = foliage[leaf_index];
-		leaf.x = process_point(leaf.x);
-		foliage[leaf_index].x = leaf.x;
-	}
+    Leaf leaf = foliage[leaf_index];
+    leaf.x = process_point(leaf.x);
+    foliage[leaf_index].x = leaf.x;
+  }
 }

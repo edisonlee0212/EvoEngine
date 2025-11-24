@@ -1,4 +1,3 @@
-
 #pragma once
 #include "DynamicStrands.hpp"
 
@@ -235,6 +234,7 @@ class DsVelocityUpdate {
     float angular_velocity_damping;
     float velocity_damping;
   };
+
   struct LeafPushConstant {
     glm::vec3 max_angular_velocity;
     float time_step = 0.01f;
@@ -245,6 +245,7 @@ class DsVelocityUpdate {
     float angular_velocity_damping;
     float velocity_damping;
   };
+
   DsVelocityUpdate();
 
   glm::vec3 max_angular_velocity = glm::vec3(1e6f);
@@ -256,6 +257,7 @@ class DsVelocityUpdate {
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };
+
 class DsDynamicHashedGrid {
  public:
   struct PartitionPushConstant {
@@ -294,10 +296,12 @@ class DsDynamicHashedGrid {
 class DsSegmentCollision {
  public:
   enum class CollisionMode { Spherical };
+
   struct SphericalPushConstant {
     uint32_t segment_size = 0;
     float grid_cell_size;
   };
+
   struct CapsulePushConstant {
     uint32_t segment_size = 0;
     float grid_cell_size;
@@ -310,6 +314,7 @@ class DsSegmentCollision {
     float eta;
     float bmax_far;
   };
+
   uint32_t collision_mode = static_cast<uint32_t>(CollisionMode::Spherical);
   inline static std::shared_ptr<ComputePipeline> spherical_pipeline;
   DsSegmentCollision();
@@ -320,15 +325,16 @@ class DsSegmentCollision {
 class DsSegmentCollisionPostStep {
  public:
   enum class CollisionMode { Spherical };
+
   struct SphericalPushConstant {
     uint32_t segment_size = 0;
     float dt;
   };
+
   uint32_t collision_mode = static_cast<uint32_t>(CollisionMode::Spherical);
   inline static std::shared_ptr<ComputePipeline> spherical_pipeline;
   DsSegmentCollisionPostStep();
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const DynamicStrands& target_dynamic_strands);
 };
-
 }  // namespace eco_sys_lab_plugin

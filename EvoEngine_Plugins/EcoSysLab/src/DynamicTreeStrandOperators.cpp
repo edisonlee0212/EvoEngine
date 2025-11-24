@@ -25,6 +25,7 @@ void AddNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int
   const float result = value0 + value1;
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void SubtractNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                            const NodeGraphNodeHandle node_handle,
                            std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -48,6 +49,7 @@ void SubtractNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData
   const float result = value0 - value1;
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void MultiplyNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                            const NodeGraphNodeHandle node_handle,
                            std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -71,6 +73,7 @@ void MultiplyNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData
   const float result = value0 * value1;
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void DivideNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                          const NodeGraphNodeHandle node_handle,
                          std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -94,6 +97,7 @@ void DivideNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, 
   const float result = value0 / value1;
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void PowerNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                         const NodeGraphNodeHandle node_handle,
                         std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -117,6 +121,7 @@ void PowerNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, i
   const float result = glm::pow(value0, value1);
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void MinNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                       const NodeGraphNodeHandle node_handle,
                       std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -140,6 +145,7 @@ void MinNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int
   const float result = glm::min(value0, value1);
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void MaxNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                       NodeGraphNodeHandle node_handle,
                       std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -163,6 +169,7 @@ void MaxNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int
   const float result = glm::max(value0, value1);
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void AbsNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                       NodeGraphNodeHandle node_handle,
                       std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -178,6 +185,7 @@ void AbsNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int
   }
   results[node.GetOutputPinHandles()[0]] = glm::abs(value0);
 }
+
 void ClampNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                         NodeGraphNodeHandle node_handle,
                         std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -206,6 +214,7 @@ void ClampNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, i
   const float result = glm::clamp(value0, value1, value2);
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void ExponentNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                            NodeGraphNodeHandle node_handle,
                            std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -221,6 +230,7 @@ void ExponentNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData
   }
   results[node.GetOutputPinHandles()[0]] = glm::exp(value0);
 }
+
 void NegateNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                          NodeGraphNodeHandle node_handle,
                          std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -236,6 +246,7 @@ void NegateNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, 
   }
   results[node.GetOutputPinHandles()[0]] = -value0;
 }
+
 void FlipUpNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                          const NodeGraphNodeHandle node_handle,
                          std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -259,6 +270,7 @@ void FlipUpNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, 
   const float result = glm::abs(value0 - value1) + value1;
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void FlipDownNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                            const NodeGraphNodeHandle node_handle,
                            std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -282,6 +294,7 @@ void FlipDownNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData
   const float result = -glm::abs(value0 - value1) + value1;
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void SigmoidNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                           NodeGraphNodeHandle node_handle,
                           std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -316,6 +329,7 @@ void SigmoidNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData,
   const float result = ActivationFunction::Sigmoid(value0, value1, 0, value2, value3);
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void SoftSignNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                            NodeGraphNodeHandle node_handle,
                            std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
@@ -350,6 +364,7 @@ void SoftSignNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData
   const float result = ActivationFunction::SoftSign(value0, value1, 0, value2, value3);
   results[node.GetOutputPinHandles()[0]] = result;
 }
+
 void TanhNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                        NodeGraphNodeHandle node_handle,
                        std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {

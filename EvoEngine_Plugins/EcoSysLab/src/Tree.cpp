@@ -19,6 +19,7 @@
 #include "assimp/contrib/zip/src/miniz.h"
 
 using namespace eco_sys_lab_plugin;
+
 TreeStatistics Tree::GetTreeStatistics() const {
   TreeStatistics ret_val{};
   const auto& skeleton = shoot_model.PeekShootSkeleton();
@@ -337,6 +338,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
   return changed;
 }
+
 void Tree::Update() {
   if (temporal_progression) {
     if (temporal_progression_iteration <= shoot_model.CurrentIteration()) {

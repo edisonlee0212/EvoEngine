@@ -10,12 +10,11 @@
 #include <csvpp.h>
 
 namespace treeio {
-
 void TreeNodeData::swapNodeCoords(int dira, int dirb) {
   float tmp;
   bool flip = (dira < 0) ? !(dirb < 0) : (dirb < 0);  // XOR
-  float *tgta;
-  float *tgtb;
+  float* tgta;
+  float* tgtb;
 
   dira *= (dira < 0) ? -1 : 1;
   dirb *= (dirb < 0) ? -1 : 1;
@@ -41,7 +40,7 @@ void TreeNodeData::swapNodeCoords(int dira, int dirb) {
 }
 
 /// @brief Helper function for meta-data serialization.
-void spliceValues(std::string &row1, std::string &row2, const std::string &txt1, const std::string &txt2) {
+void spliceValues(std::string& row1, std::string& row2, const std::string& txt1, const std::string& txt2) {
   row1 += "," + txt1;
   row2 += "," + txt2;
 }
@@ -50,19 +49,20 @@ std::string TreeDynamicMetaData::serialize() const {
   return data.dump(4);
 }
 
-void TreeDynamicMetaData::deserialize(const std::string &serialized) {
+void TreeDynamicMetaData::deserialize(const std::string& serialized) {
   data = treeutil::containsOnlyWhiteSpaces(serialized) ? nlohmann::json{} : nlohmann::json::parse(serialized);
 }
 
 TreeMetaData::TreeMetaData() : mDynamicMetaData{std::make_shared<TreeDynamicMetaData>()} {
 }
 
-TreeMetaData::~TreeMetaData() { /* Automatic */
+TreeMetaData::~TreeMetaData() {
+  /* Automatic */
 }
 
 std::string TreeMetaData::serialize() const {
   // Push all runtime changes back to metaData proper:
-  const_cast<TreeMetaData *>(this)->onSave();
+  const_cast<TreeMetaData*>(this)->onSave();
 
   // Pseudo info (depends on the users):
   std::string row1 = "TreeID";
@@ -117,7 +117,7 @@ std::string TreeMetaData::serialize() const {
   return serialized.str();
 }
 
-void TreeMetaData::deserialize(const std::string &serialized, const std::shared_ptr<TreeRuntimeMetaData> &runtime) {
+void TreeMetaData::deserialize(const std::string& serialized, const std::shared_ptr<TreeRuntimeMetaData>& runtime) {
   mDynamicMetaData = std::make_shared<TreeDynamicMetaData>();
 
   // Split data into static and dynamic parts
@@ -161,7 +161,7 @@ void TreeMetaData::deserialize(const std::string &serialized, const std::shared_
   setRuntimeMetaData(runtime);
 }
 
-void TreeMetaData::insertValue(const std::string &key, const std::string &value) {
+void TreeMetaData::insertValue(const std::string& key, const std::string& value) {
   const auto lowerKey{treeutil::strToLower(key)};
 
   // Pseudo info (depends on the users):
@@ -190,9 +190,7 @@ void TreeMetaData::insertValue(const std::string &key, const std::string &value)
     style = value;
   } else if (!lowerKey.compare(treeutil::strToLower("Character"))) {
     character = value;
-  }
-
-  else if (!lowerKey.compare(treeutil::strToLower("ReqProcess"))) {
+  } else if (!lowerKey.compare(treeutil::strToLower("ReqProcess"))) {
     reqProcess = 0 != atoi(value.c_str());
   } else if (!lowerKey.compare(treeutil::strToLower("Processed"))) {
     processed = 0 != atoi(value.c_str());
@@ -200,9 +198,7 @@ void TreeMetaData::insertValue(const std::string &key, const std::string &value)
     skeletonized = 0 != atoi(value.c_str());
   } else if (!lowerKey.compare(treeutil::strToLower("Finalized"))) {
     finalized = 0 != atoi(value.c_str());
-  }
-
-  else if (!lowerKey.compare(treeutil::strToLower("Scale"))) {
+  } else if (!lowerKey.compare(treeutil::strToLower("Scale"))) {
     skeletonScale = static_cast<float>(atof(value.c_str()));
   } else if (!lowerKey.compare(treeutil::strToLower("ReferenceScale"))) {
     referenceScale = static_cast<float>(atof(value.c_str()));
@@ -210,15 +206,11 @@ void TreeMetaData::insertValue(const std::string &key, const std::string &value)
     reconstructionScale = static_cast<float>(atof(value.c_str()));
   } else if (!lowerKey.compare(treeutil::strToLower("BaseScale"))) {
     baseScale = static_cast<float>(atof(value.c_str()));
-  }
-
-  else if (!lowerKey.compare(treeutil::strToLower("AgeEstimate"))) {
+  } else if (!lowerKey.compare(treeutil::strToLower("AgeEstimate"))) {
     ageEstimate = static_cast<float>(atof(value.c_str()));
   } else if (!lowerKey.compare(treeutil::strToLower("InternodalDistance"))) {
     internodalDistance = static_cast<float>(atof(value.c_str()));
-  }
-
-  else if (!lowerKey.compare(treeutil::strToLower("ThicknessFactor"))) {
+  } else if (!lowerKey.compare(treeutil::strToLower("ThicknessFactor"))) {
     thicknessFactor = static_cast<float>(atof(value.c_str()));
   } else if (!lowerKey.compare(treeutil::strToLower("StartingThickness"))) {
     startingThickness = static_cast<float>(atof(value.c_str()));
@@ -232,9 +224,7 @@ void TreeMetaData::insertValue(const std::string &key, const std::string &value)
     oldBranchWidthMultiplier = (value == "true");
   } else if (!lowerKey.compare(treeutil::strToLower("RecalculateRadius"))) {
     recalculateRadius = (value == "true");
-  }
-
-  else if (!lowerKey.compare(treeutil::strToLower("DistinctAngle"))) {
+  } else if (!lowerKey.compare(treeutil::strToLower("DistinctAngle"))) {
     distinctAngle = static_cast<float>(atof(value.c_str()));
   } else if (!lowerKey.compare(treeutil::strToLower("Decimated"))) {
     decimated = 0 != static_cast<float>(atoi(value.c_str()));
@@ -265,5 +255,4 @@ void TreeMetaData::onSave() {
     mRuntimeMetaData->onSave(*this);
   }
 }
-
 }  // namespace treeio

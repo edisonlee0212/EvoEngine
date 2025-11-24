@@ -14,7 +14,6 @@
 #include <base64.h>
 
 namespace treeutil {
-
 std::array<float, 3u> BoundingBox::center() const {
   return {
       position[0u] + size[0u] / 2.0f,
@@ -28,7 +27,7 @@ float BoundingBox::diameter() const {
   return std::sqrt(size[0u] * size[0u] + size[1u] * size[1u] + size[2u] * size[2u]);
 }
 
-ProgressBar::ProgressBar(const std::string &text, std::size_t width, bool rewrite)
+ProgressBar::ProgressBar(const std::string& text, std::size_t width, bool rewrite)
     : mText{text}, mWidth{width}, mRewrite{rewrite} {
 }
 
@@ -65,7 +64,7 @@ std::string ProgressBar::progressString(std::size_t width, float progress, unsig
   return ss.str();
 }
 
-std::string strToLower(const std::string &str) {
+std::string strToLower(const std::string& str) {
   auto copy{str};
   std::transform(copy.begin(), copy.end(), copy.begin(), [](const auto c) {
     return std::tolower(c);
@@ -73,7 +72,7 @@ std::string strToLower(const std::string &str) {
   return copy;
 }
 
-bool equalCaseInsensitive(const std::string &first, const std::string &second) {
+bool equalCaseInsensitive(const std::string& first, const std::string& second) {
   if (first.size() != second.size()) {
     return false;
   }
@@ -87,7 +86,7 @@ bool equalCaseInsensitive(const std::string &first, const std::string &second) {
   return true;
 }
 
-std::string capPath(const std::string &filePath) {
+std::string capPath(const std::string& filePath) {
   if (filePath.size() < 0)
     return "";
   auto last = filePath.c_str()[filePath.size() - 1];
@@ -98,19 +97,19 @@ std::string capPath(const std::string &filePath) {
     return filePath;
 }
 
-std::string fileExtension(const std::string &filePath) {
+std::string fileExtension(const std::string& filePath) {
   return std::filesystem::path(filePath).extension().string();
 }
 
-std::string filePath(const std::string &filePath) {
+std::string filePath(const std::string& filePath) {
   return std::filesystem::path(filePath).parent_path().string();
 }
 
-std::string fileBaseName(const std::string &filePath) {
+std::string fileBaseName(const std::string& filePath) {
   return std::filesystem::path(filePath).stem().string();
 }
 
-std::vector<std::string> listFiles(const std::string &extension, const std::string &path, bool recursive,
+std::vector<std::string> listFiles(const std::string& extension, const std::string& path, bool recursive,
                                    bool relative) {
   std::vector<std::string> files{};
 
@@ -122,7 +121,8 @@ std::vector<std::string> listFiles(const std::string &extension, const std::stri
   std::stack<std::filesystem::path> paths{};
   std::set<std::filesystem::path> processed{};
   paths.push({searchPath});
-  while (!paths.empty()) {  // Process paths recursively, if requested.
+  while (!paths.empty()) {
+    // Process paths recursively, if requested.
     const auto currentPath{paths.top()};
     paths.pop();
     // Stop loops, processing each path only once.
@@ -130,8 +130,8 @@ std::vector<std::string> listFiles(const std::string &extension, const std::stri
       continue;
     }
 
-    for (const auto &entry :
-         std::filesystem::directory_iterator(currentPath)) {  // Process all files in the current directory.
+    for (const auto& entry : std::filesystem::directory_iterator(currentPath)) {
+      // Process all files in the current directory.
       // Skip directories, adding them to the stack if recursive processing is requested.
       if (std::filesystem::is_directory(entry)) {
         if (recursive) {
@@ -159,11 +159,11 @@ std::vector<std::string> listFiles(const std::string &extension, const std::stri
   return files;
 }
 
-std::vector<std::string> listFiles(const std::vector<std::string> &extensions, const std::string &path, bool recursive,
+std::vector<std::string> listFiles(const std::vector<std::string>& extensions, const std::string& path, bool recursive,
                                    bool relative) {
   std::vector<std::string> files{};
 
-  for (const auto &extension : extensions) {
+  for (const auto& extension : extensions) {
     const auto newFiles{listFiles(extension, path, recursive, relative)};
     files.insert(files.end(), newFiles.begin(), newFiles.end());
   }
@@ -175,15 +175,15 @@ std::vector<std::string> listFiles(const std::vector<std::string> &extensions, c
   return files;
 }
 
-bool fileExists(const std::string &path) {
+bool fileExists(const std::string& path) {
   return std::filesystem::exists(path);
 }
 
-bool deleteFile(const std::string &path) {
+bool deleteFile(const std::string& path) {
   return std::filesystem::remove(path);
 }
 
-std::string readWholeFile(const std::string &path) {
+std::string readWholeFile(const std::string& path) {
   std::string result{};
   std::ifstream ifs(path, std::ios::in | std::ios::binary | std::ios::ate);
 
@@ -199,17 +199,17 @@ std::string readWholeFile(const std::string &path) {
   return result;
 }
 
-std::string replaceExtension(const std::string &path, const std::string &extension) {
+std::string replaceExtension(const std::string& path, const std::string& extension) {
   const auto oldExtension{fileExtension(path)};
   return path.substr(0, path.size() - oldExtension.size()) + extension;
 }
 
-std::string relativePath(const std::string &path, const std::string &relativePath) {
+std::string relativePath(const std::string& path, const std::string& relativePath) {
   const auto findIt{path.find(relativePath.empty() ? std::filesystem::current_path().string() : relativePath)};
   return findIt != std::string::npos ? path.substr(findIt + relativePath.size() + 1u) : path;
 }
 
-bool containsOnlyWhiteSpaces(const std::string &str) {
+bool containsOnlyWhiteSpaces(const std::string& str) {
   for (auto it = str.begin(); it != str.end(); ++it) {
     if (!isspace(*it)) {
       return false;
@@ -218,8 +218,7 @@ bool containsOnlyWhiteSpaces(const std::string &str) {
   return true;
 }
 
-std::string encodeBinaryJSON(const std::vector<uint8_t> &data) {
+std::string encodeBinaryJSON(const std::vector<uint8_t>& data) {
   return base64::base64_encode_pem(data);
 }
-
 }  // namespace treeutil

@@ -18,7 +18,9 @@ struct RootGrowthData {
 
   glm::vec3 gravity_direction = glm::vec3(0, -1, 0);
 };
+
 struct RootStemGrowthData {};
+
 struct RootNodeGrowthData {
   glm::quat desired_local_rotation = glm::vec3(0.0f);   ///< Desired local rotation.
   glm::quat desired_global_rotation = glm::vec3(0.0f);  ///< Desired global rotation.
@@ -41,6 +43,7 @@ struct RootNodeGrowthData {
   float horizontal_tropism;
   float vertical_tropism;
 };
+
 /**
  * @brief A skeleton representing the structure of a root.
  */

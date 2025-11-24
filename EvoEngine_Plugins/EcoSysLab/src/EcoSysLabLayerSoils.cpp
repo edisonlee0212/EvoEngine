@@ -17,6 +17,7 @@ AssetRegistration<SoilLayerDescriptor> soil_layer_d_registry("SoilLayerDescripto
 PrivateComponentRegistration<Soil> soil_registry("Soil");
 
 AssetRegistration<SoilDescriptor> soil_d_registry("SoilDescriptor", {".soil"});
+
 bool EcoSysLabLayer::SoilVisualizationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   ImGui::Checkbox("Enable", &enable);
@@ -201,10 +202,10 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
           }
         });
       } break;
-        /*case SoilProperty::DiffusionDivergence:
-        {
-                visualize_vec3(soilModel.m_div_diff_x, soilModel.m_div_diff_y, soilModel.m_div_diff_z);
-        }break;*/
+      /*case SoilProperty::DiffusionDivergence:
+      {
+              visualize_vec3(soilModel.m_div_diff_x, soilModel.m_div_diff_y, soilModel.m_div_diff_z);
+      }break;*/
       default: {
         Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
           particle_infos[i].instance_color = {soil_visualization_settings_.scalar_base_color, 0.01f};
@@ -233,41 +234,41 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
 
     const auto actual_vector_multiplier = soil_visualization_settings_.vector_multiplier * soil_model.m_dx;
     switch (static_cast<SoilProperty>(soil_visualization_settings_.vector_soil_property)) {
-        /*
-        case SoilProperty::WaterDensityGradient:
-        {
-                Jobs::ParallelFor(numVoxels, [&](unsigned i)
-                        {
-                                const auto targetVector = glm::vec3(soilModel.m_w_grad_x[i], soilModel.m_w_grad_y[i],
-        soilModel.m_w_grad_z[i]); const auto start =
-        soilModel.GetPositionFromCoordinate(soilModel.GetCoordinateFromIndex(i)); const auto end = start + targetVector
-        * actualVectorMultiplier; const auto direction = glm::normalize(end - start); glm::quat rotation =
-        glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x)); rotation *=
-        glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f)); const auto length = glm::distance(end, start) / 2.0f;
-                                const auto width = glm::min(vector_line_max_width, length * vector_line_width_factor);
-                                const auto model = glm::translate((start + end) / 2.0f) * glm::mat4_cast(rotation) *
-                                        glm::scale(glm::vec3(width, length, width));
-                                particleInfos[i] = model;
-                        }, results);
-        }break;*/
-        /*
-        case SoilProperty::Divergence:
-        {
-                Jobs::ParallelFor(numVoxels, [&](unsigned i)
-                        {
-                                const auto targetVector = glm::vec3(soilModel.m_div_diff_x[i],
-        soilModel.m_div_diff_y[i], soilModel.m_div_diff_z[i]); const auto start =
-        soilModel.GetPositionFromCoordinate(soilModel.GetCoordinateFromIndex(i)); const auto end = start + targetVector
-        * actualVectorMultiplier; const auto direction = glm::normalize(end - start); glm::quat rotation =
-        glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x)); rotation *=
-        glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f)); const auto length = glm::distance(end, start) / 2.0f;
-                                const auto width = glm::min(vector_line_max_width, length * vector_line_width_factor);
-                                const auto model = glm::translate((start + end) / 2.0f) * glm::mat4_cast(rotation) *
-                                        glm::scale(glm::vec3(width, length, width));
-                                particleInfos[i] = model;
-                        }, results);
-        }break;
-        */
+      /*
+      case SoilProperty::WaterDensityGradient:
+      {
+              Jobs::ParallelFor(numVoxels, [&](unsigned i)
+                      {
+                              const auto targetVector = glm::vec3(soilModel.m_w_grad_x[i], soilModel.m_w_grad_y[i],
+      soilModel.m_w_grad_z[i]); const auto start =
+      soilModel.GetPositionFromCoordinate(soilModel.GetCoordinateFromIndex(i)); const auto end = start + targetVector
+      * actualVectorMultiplier; const auto direction = glm::normalize(end - start); glm::quat rotation =
+      glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x)); rotation *=
+      glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f)); const auto length = glm::distance(end, start) / 2.0f;
+                              const auto width = glm::min(vector_line_max_width, length * vector_line_width_factor);
+                              const auto model = glm::translate((start + end) / 2.0f) * glm::mat4_cast(rotation) *
+                                      glm::scale(glm::vec3(width, length, width));
+                              particleInfos[i] = model;
+                      }, results);
+      }break;*/
+      /*
+      case SoilProperty::Divergence:
+      {
+              Jobs::ParallelFor(numVoxels, [&](unsigned i)
+                      {
+                              const auto targetVector = glm::vec3(soilModel.m_div_diff_x[i],
+      soilModel.m_div_diff_y[i], soilModel.m_div_diff_z[i]); const auto start =
+      soilModel.GetPositionFromCoordinate(soilModel.GetCoordinateFromIndex(i)); const auto end = start + targetVector
+      * actualVectorMultiplier; const auto direction = glm::normalize(end - start); glm::quat rotation =
+      glm::quatLookAt(direction, glm::vec3(direction.y, direction.z, direction.x)); rotation *=
+      glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f)); const auto length = glm::distance(end, start) / 2.0f;
+                              const auto width = glm::min(vector_line_max_width, length * vector_line_width_factor);
+                              const auto model = glm::translate((start + end) / 2.0f) * glm::mat4_cast(rotation) *
+                                      glm::scale(glm::vec3(width, length, width));
+                              particleInfos[i] = model;
+                      }, results);
+      }break;
+      */
       default: {
         Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
           particle_infos[i].instance_matrix.value =

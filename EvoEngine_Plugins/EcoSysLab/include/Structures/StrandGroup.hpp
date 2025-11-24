@@ -39,6 +39,8 @@ class StrandSegment {
    */
   glm::vec4 end_color = glm::vec4(1.0f);
 
+  float end_t = std::numeric_limits<float>::quiet_NaN();
+
   /**
    * \brief The rotation of current strand segment.
    */
@@ -432,6 +434,7 @@ StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Alloca
   version_++;
   return new_strand_handle;
 }
+
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RegulateRotations() {
   for (const auto& strand : strands_) {
@@ -1018,6 +1021,7 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::UniformlySubdi
         auto& new_strand_segment = target_strand_group.RefStrandSegment(new_strand_segment_handle);
         const float t_start = (subdivision_index) / static_cast<float>(subdivision);
         const float t_end = (subdivision_index + 1) / static_cast<float>(subdivision);
+        new_strand_segment.end_t = t_end;
         new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t_end);
         new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t_end);
         new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t_end);
@@ -1077,6 +1081,7 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
           // Add a new segment.
           const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
           auto& new_strand_segment = target_strand_group.RefStrandSegment(new_strand_segment_handle);
+          new_strand_segment.end_t = t_next;
           new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, t_next);
           new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, t_next);
           new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, t_next);
@@ -1100,6 +1105,9 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
       const auto& segment = strand_segments_[segment_handle];
       const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
       auto& new_strand_segment = target_strand_group.RefStrandSegment(new_strand_segment_handle);
+
+      // TODO: why do we just copy? Do we have to make changes to end_t?
+      new_strand_segment.end_t = segment.end_t;
       new_strand_segment.end_position = segment.end_position;
       new_strand_segment.end_thickness = segment.end_thickness;
       new_strand_segment.end_color = segment.end_color;

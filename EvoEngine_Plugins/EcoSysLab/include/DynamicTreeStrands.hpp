@@ -1,4 +1,3 @@
-
 #pragma once
 #include "DsConstraints.hpp"
 #include "DsMaterials.hpp"
@@ -20,6 +19,10 @@ class DynamicTreeStrands : public IPrivateComponent {
   Handle foliage_rendering_instance_handle;  ///< Handle for foliage rendering instance.
 
  public:
+  DynamicTreeStrands() {
+    EVOENGINE_LOG("DynamicTreeStrands component created.");
+  }
+
   /**
    * @brief Initializes dynamic tree strands based on a tree structure.
    * @param tree Shared pointer to the tree structure.
@@ -257,6 +260,7 @@ class DynamicTreeStrands : public IPrivateComponent {
     Node* left;
     Node* right;
     int leaf_id;
+
     Node(int id) : axis(AX_NONE), coord(0.0f), left(nullptr), right(nullptr), leaf_id(id) {
     }
   };
@@ -280,6 +284,7 @@ class DynamicTreeStrands : public IPrivateComponent {
     bool has_tilt = false;
 
     Node_tilt() = default;
+
     explicit Node_tilt(int id) : leaf_id(id) {
     }
   };
@@ -297,5 +302,4 @@ class DynamicTreeStrands : public IPrivateComponent {
 
   float normalize_coord(Axis3 axis, float coord);
 };
-
 }  // namespace eco_sys_lab_plugin

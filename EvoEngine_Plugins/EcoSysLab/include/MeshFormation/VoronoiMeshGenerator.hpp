@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include "DynamicStrands.hpp"
@@ -11,7 +10,6 @@
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
-
 /**
  * @class VoronoiMeshGenerator
  * @brief A class responsible for generating mesh representations of strand models
@@ -58,5 +56,4 @@ class VoronoiMeshGenerator {
                        std::vector<std::pair<unsigned int, unsigned int>>& index_pairs,
                        const StrandModelMeshGeneratorSettings& settings);
 };
-
 }  // namespace eco_sys_lab_plugin

@@ -4,9 +4,6 @@
 
 using namespace eco_sys_lab_plugin;
 
-MeshingType DynamicStrandsInitializeParameters::meshing_type = MeshingType::AlphaShape;
-// MeshingType DynamicStrandsInitializeParameters::meshing_type = MeshingType::KineticVoronoi;
-
 bool DynamicStrandsInitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Min segment length", &min_segment_length, 0.001f, 0.001f, max_segment_length))

@@ -1,4 +1,3 @@
-
 /*
     Tables and conventions from
     http://paulbourke.net/geometry/polygonise/
@@ -70,5 +69,4 @@ class MarchingCubes {
                                float cellSize, const std::vector<TestingCell>& testingCells,
                                std::vector<Vertex>& vertices, std::vector<unsigned>& indices, bool removeDuplicate);
 };
-
 }  // namespace eco_sys_lab_plugin

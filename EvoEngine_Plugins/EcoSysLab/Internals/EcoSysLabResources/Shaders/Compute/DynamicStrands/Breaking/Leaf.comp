@@ -17,28 +17,28 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint leaf_size;
+  uint leaf_size;
 };
 
-void main(){
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint leaf_index = baseID + local_index;
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint leaf_index = baseID + local_index;
 
-		if(leaf_index >= leaf_size) break;
+    if (leaf_index >= leaf_size)
+      break;
 
-		Leaf leaf = foliage[leaf_index];
+    Leaf leaf = foliage[leaf_index];
 
-		if(leaf.position_strain > leaf.position_strain_limit){
-			leaf.attachment_integrity = 0.0f;
-			foliage[leaf_index] = leaf;
-		}
-	}
+    if (leaf.position_strain > leaf.position_strain_limit) {
+      leaf.attachment_integrity = 0.0f;
+      foliage[leaf_index] = leaf;
+    }
+  }
 }

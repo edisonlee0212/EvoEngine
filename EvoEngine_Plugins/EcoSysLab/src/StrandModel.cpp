@@ -514,6 +514,7 @@ void StrandModel::ApplyProfile(const StrandModelParameters& strand_model_paramet
     } else {
       start_position = strand_model_skeleton.data.strand_group.RefStrandSegment(prev_segment_handle).end_position;
     }
+    // TODO: set end_t (?)
     strand_segment.end_position =
         node.info.GetGlobalEndPosition() + (node.data.strand_radius * particle.GetInitialPosition().x * current_left +
                                             node.data.strand_radius * particle.GetInitialPosition().y * current_up);
@@ -820,6 +821,7 @@ float StrandModel::InterpolateStrandSegmentRadius(StrandSegmentHandle strand_seg
   Strands::CubicInterpolation(p[0], p[1], p[2], p[3], radius, tangent, a);
   return radius;
 }
+
 void StrandModel::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
   {
@@ -932,6 +934,7 @@ void StrandModel::Save(const std::string& name, YAML::Emitter& out) const {
   }
   out << YAML::EndMap;
 }
+
 void StrandModel::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     if (const auto& in_strand_model = in[name]) {

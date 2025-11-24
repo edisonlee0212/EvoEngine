@@ -12,6 +12,7 @@ using namespace evo_engine;
 typedef int PointHandle;
 typedef int BranchHandle;
 typedef int TreePartHandle;
+
 struct ScatteredPoint {
   PointHandle handle = -1;
   std::vector<PointHandle> neighbor_scatter_points;
@@ -21,6 +22,7 @@ struct ScatteredPoint {
   std::vector<std::pair<float, BranchHandle>> p0;
   glm::vec3 position = glm::vec3(0.0f);
 };
+
 struct AllocatedPoint {
   glm::vec3 color;
   glm::vec3 position;
@@ -33,6 +35,7 @@ struct AllocatedPoint {
   SkeletonNodeHandle node_handle = -1;
   int skeleton_index = -1;
 };
+
 struct PredictedBranch {
   glm::vec3 color;
   float foliage = 0.0f;
@@ -122,6 +125,7 @@ struct PointData {
   int index = -1;
   float min_distance = FLT_MAX;
 };
+
 struct BranchEndData {
   bool is_p0 = true;
   glm::vec3 position = glm::vec3(0.0f);
@@ -171,7 +175,9 @@ struct ReconstructionSkeletonData {
   glm::vec3 root_position = glm::vec3(0.0f);
   float max_end_distance = 0.0f;
 };
+
 struct ReconstructionFlowData {};
+
 struct ReconstructionNodeData {
   glm::vec3 global_start_position = glm::vec3(0.f);
   glm::vec3 global_end_position = glm::vec3(0.0f);
@@ -188,6 +194,7 @@ struct ReconstructionNodeData {
   int marker_size = 0;
   glm::vec3 regrow_direction = glm::vec3(0.0f);
 };
+
 typedef Skeleton<ReconstructionSkeletonData, ReconstructionFlowData, ReconstructionNodeData> ReconstructionSkeleton;
 
 class TreeStructor : public IPrivateComponent {

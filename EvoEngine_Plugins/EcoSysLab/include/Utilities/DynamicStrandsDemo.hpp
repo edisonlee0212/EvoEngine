@@ -1,4 +1,3 @@
-
 #pragma once
 #include "DynamicStrands.hpp"
 #include "DynamicTreeSkeleton.hpp"
@@ -7,7 +6,6 @@
 #include "Tree.hpp"
 
 namespace eco_sys_lab_plugin {
-
 /**
  * @class DynamicStrandsDemo
  * @brief A demonstration class for simulating dynamic strands in a tree model.
@@ -114,5 +112,4 @@ class DynamicStrandsDemo : public IPrivateComponent {
    */
   void Update() override;
 };
-
 }  // namespace eco_sys_lab_plugin

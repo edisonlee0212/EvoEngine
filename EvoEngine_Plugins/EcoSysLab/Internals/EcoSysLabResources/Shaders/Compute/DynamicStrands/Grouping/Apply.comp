@@ -18,26 +18,26 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint segment_size;
+  uint segment_size;
 };
 
 layout(std430, set = 1, binding = 0) buffer NEW_GROUP_INDICES_BLOCK {
-	int new_group_indices[];
+  int new_group_indices[];
 };
 
 void main() {
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint segment_index = baseID + local_index;
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint segment_index = baseID + local_index;
 
-		if(segment_index >= segment_size) break;
-		segments[segment_index].group_index = new_group_indices[segment_index];
-	}
+    if (segment_index >= segment_size)
+      break;
+    segments[segment_index].group_index = new_group_indices[segment_index];
+  }
 }

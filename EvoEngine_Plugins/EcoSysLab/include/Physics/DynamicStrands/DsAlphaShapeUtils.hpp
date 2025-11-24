@@ -1,10 +1,8 @@
-
 #pragma once
 
 #include "DsAlphaShapeMeshing.hpp"
 
 namespace eco_sys_lab_plugin {
-
 /**
  * @class DsAlphaShapeUtils
  * @brief A utility class for performing various computations related to dynamic strands.
@@ -61,5 +59,4 @@ class DsAlphaShapeUtils {
   static std::vector<std::map<int, std::vector<size_t>>> ComputeBundleMaps(
       std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& uniform_particles);
 };
-
 }  // namespace eco_sys_lab_plugin

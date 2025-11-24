@@ -135,7 +135,7 @@ class Shader final : public IAsset {
    *
    * @return True if compilation succeeded, false otherwise.
    */
-  [[maybe_unused]] bool TryCompile();
+  [[maybe_unused]] bool TryCompile(const std::filesystem::path& path = std::filesystem::path());
 
   /**
    * @brief Retrieves the shader module.

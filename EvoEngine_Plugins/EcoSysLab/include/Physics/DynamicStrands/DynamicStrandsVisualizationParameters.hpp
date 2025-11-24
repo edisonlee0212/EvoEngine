@@ -32,6 +32,7 @@ struct DynamicStrandsVisualizationParameters {
     ConnectivityLimit,
     SegmentColor
   };
+
   bool render_segments = true;
   bool render_segment_pairs = false;
   bool render_foliage = false;

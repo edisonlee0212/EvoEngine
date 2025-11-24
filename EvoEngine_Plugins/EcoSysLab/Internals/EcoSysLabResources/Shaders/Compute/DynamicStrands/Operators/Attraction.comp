@@ -18,35 +18,34 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
-
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(std430, set = 1, binding = 0) readonly buffer EXTERNAL_FORCE_BLOCK {
   int particle_indices[];
 };
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	vec4 target_position_multiplier;
-	uint command_size;
+  vec4 target_position_multiplier;
+  uint command_size;
 };
 
-void main(){
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint global_index = baseID + local_index;
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint global_index = baseID + local_index;
 
-		if(global_index >= command_size) break;
-		int particle_index = particle_indices[global_index];
-		Particle particle = particles[particle_index];
-		Segment segment = segments[particle.segment_handle];
+    if (global_index >= command_size)
+      break;
+    int particle_index = particle_indices[global_index];
+    Particle particle = particles[particle_index];
+    Segment segment = segments[particle.segment_handle];
 
-		vec3 diff = target_position_multiplier.xyz - particle.x;
-		vec3 force = diff * target_position_multiplier.w;
+    vec3 diff = target_position_multiplier.xyz - particle.x;
+    vec3 force = diff * target_position_multiplier.w;
 
-		particles[particle_index].acceleration.xyz += force * segment.inv_mass;
-	}
+    particles[particle_index].acceleration.xyz += force * segment.inv_mass;
+  }
 }

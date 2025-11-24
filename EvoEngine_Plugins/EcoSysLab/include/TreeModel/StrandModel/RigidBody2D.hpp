@@ -1,4 +1,3 @@
-
 #pragma once
 
 namespace eco_sys_lab_plugin {
@@ -192,5 +191,4 @@ template <typename T>
 void RigidBody2D<T>::SetRadius(const float radius) {
   thickness_ = radius;
 }
-
 }  // namespace eco_sys_lab_plugin
