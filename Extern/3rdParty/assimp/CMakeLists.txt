@@ -49,6 +49,14 @@ if (WIN32)
     set(3RDPARTY_DLLS ${3RDPARTY_DLLS} 
         ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc143-mt.dll
         ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc143-mt.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc144-mt.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc144-mt.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc145-mt.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc145-mt.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc146-mt.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc146-mt.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc147-mt.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc147-mt.dll
         PARENT_SCOPE)
 else()
     set(3RDPARTY_DLLS ${3RDPARTY_DLLS} 
@@ -62,7 +70,13 @@ set(3RDPARTY_LIBS ${3RDPARTY_LIBS}
 
 if (WIN32)
     set(3RDPARTY_PDBS ${3RDPARTY_PDBS} 
-        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc143-mt.pdb
-        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc143-mt.pdb
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc144-mt.pdb
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc144-mt.pdb
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc145-mt.pdb
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc145-mt.pdb
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc146-mt.pdb
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc146-mt.pdb
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/assimp-vc147-mt.pdb
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}/bin/$<CONFIGURATION>/assimp-vc147-mt.pdb
         PARENT_SCOPE)
 endif()

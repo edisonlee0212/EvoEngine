@@ -751,10 +751,30 @@ void RenderLayer::OnCreate() {
     ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout);
     ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_storage_layout);
     auto& push_constant_range = ray_tracing_camera_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RayTracingPushConstant);
+    push_constant_range.size = sizeof(RayTracingCameraPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
     ray_tracing_camera_pipeline->Initialize();
+  }
+  if (Platform::RayTracingEnabled() && !ray_tracing_point_cloud_pipeline) {
+    ray_tracing_point_cloud_pipeline = std::make_shared<RayTracingPipeline>();
+    ray_tracing_point_cloud_pipeline->raygen_shader = Shader::CreateTemporary(
+        ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/RayGen/PointCloud.rgen");
+    ray_tracing_point_cloud_pipeline->miss_shader = Shader::CreateTemporary(
+        ShaderType::Miss, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/Miss/PointCloud.rmiss");
+    ray_tracing_point_cloud_pipeline->closest_hit_shader = Shader::CreateTemporary(
+        ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/ClosestHit/PointCloud.rchit");
+    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
+    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout);
+    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_point_cloud_layout);
+    auto& push_constant_range = ray_tracing_point_cloud_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RayTracingPointCloudPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    ray_tracing_point_cloud_pipeline->Initialize();
   }
 #pragma endregion
 
@@ -821,8 +841,15 @@ void RenderLayer::ClearAllEditorCameras() const {
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (const auto& i : cameras) {
-      if (const auto render_texture = i.second->GetRenderTexture()) {
-        render_texture->Clear(vk_command_buffer);
+      if (i.second->prev_global_transform_ != i.first.value) {
+        i.second->frame_count_ = 0;
+        i.second->prev_global_transform_ = i.first.value;
+      }
+      if ((i.second->camera_render_mode == Camera::CameraRenderMode::Rasterization && i.second->rendered_) ||
+          (i.second->camera_render_mode == Camera::CameraRenderMode::RayTracing && i.second->frame_count_ == 0)) {
+        if (const auto render_texture = i.second->GetRenderTexture()) {
+          render_texture->Clear(vk_command_buffer);
+        }
       }
     }
   });
@@ -2042,7 +2069,7 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
           vk_command_buffer, 1, ray_tracing_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
       ray_tracing_camera_pipeline->BindDescriptorSet(
           vk_command_buffer, 2, camera->GetRenderTexture()->storage_descriptor_set_->GetVkDescriptorSet());
-      RayTracingPushConstant push_constant;
+      RayTracingCameraPushConstant push_constant;
       push_constant.camera_index = camera_index;
       push_constant.frame_id = camera->frame_count_;
       ray_tracing_camera_pipeline->PushConstant(vk_command_buffer, 0, push_constant);

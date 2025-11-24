@@ -3,9 +3,6 @@
 //
 
 #include "EcoSysLabLayer.hpp"
-#ifdef CUDA_MODULE_PLUGIN
-#  include <RayTracerLayer.hpp>
-#endif
 #include "Times.hpp"
 #ifdef BILLBOARD_CLOUDS_PLUGIN
 #  include "BillboardCloudsConverter.hpp"

@@ -37,7 +37,7 @@ namespace tinyply {
 enum class Type : uint8_t { INVALID, INT8, UINT8, INT16, UINT16, INT32, UINT32, FLOAT32, FLOAT64 };
 
 struct PropertyInfo {
-  PropertyInfo(){};
+  PropertyInfo() {};
   PropertyInfo(int stride, std::string str) : stride(stride), str(str) {
   }
   int stride{0};
@@ -62,7 +62,7 @@ class Buffer {
   size_t size{0};
 
  public:
-  Buffer(){};
+  Buffer() {};
   Buffer(const size_t size) : data(new uint8_t[size], delete_array()), size(size) {
     alias = data.get();
   }  // allocating

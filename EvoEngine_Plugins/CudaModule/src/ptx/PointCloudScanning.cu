@@ -68,7 +68,7 @@ extern "C" __global__ void __raygen__PCS() {
              static_cast<int>(RayType::Radiance),      // missSBTIndex
              u0, u1);
   samples.handle = perRayData.handle;
-  samples.hit = perRayData.hit;
+  samples.hit_count = perRayData.hit ? 1 : 0;
   samples.hit_info = perRayData.hit_info;
 }
 #pragma endregion

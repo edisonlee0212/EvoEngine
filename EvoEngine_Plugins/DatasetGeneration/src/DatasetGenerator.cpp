@@ -9,13 +9,6 @@
 #include "Sorghum.hpp"
 #include "SorghumLayer.hpp"
 
-#ifdef CUDA_MODULE_PLUGIN
-#  include <CUDAModule.hpp>
-#  include <OptiXRayTracer.hpp>
-#  include <RayTracerLayer.hpp>
-#  include "RayTracerCamera.hpp"
-#endif
-
 using namespace eco_sys_lab_plugin;
 using namespace dataset_generation_plugin;
 using namespace digital_agriculture_plugin;
@@ -89,7 +82,8 @@ void DatasetGenerator::CaptureTreeData(const std::shared_ptr<Scene>& scene, int 
     tree->ExportNodeGraph(data_generation_parameters.output_folder /
                           (data_generation_parameters.output_file_name + "_nodes" + post_fix + ".yml"));
   }
-  if (data_generation_parameters.export_rendering || data_generation_parameters.export_depth) {
+  if (data_generation_parameters.export_rendering || data_generation_parameters.export_depth ||
+      data_generation_parameters.export_ray_traced_rendering) {
     const auto camera = scene->GetOrSetPrivateComponent<Camera>(camera_entity).lock();
     for (int image_index = 0; image_index < data_generation_parameters.camera_capture_settings.size(); image_index++) {
       const auto& camera_capture_settings = data_generation_parameters.camera_capture_settings[image_index];
@@ -131,32 +125,16 @@ void DatasetGenerator::CaptureTreeData(const std::shared_ptr<Scene>& scene, int 
             data_generation_parameters.max_depth, camera_capture_settings.output_resolution.x,
             camera_capture_settings.output_resolution.y);
       }
+      if (data_generation_parameters.export_ray_traced_rendering) {
+        camera->camera_render_mode = Camera::CameraRenderMode::RayTracing;
+        Application::Loop();
+        camera->GetRenderTexture()->StoreToPng(
+            data_generation_parameters.output_folder /
+                (data_generation_parameters.output_file_name + post_fix + "_" + std::to_string(image_index) + "_r.png"),
+            camera_capture_settings.output_resolution.x, camera_capture_settings.output_resolution.y);
+      }
     }
   }
-#ifdef CUDA_MODULE_PLUGIN
-  if (data_generation_parameters.export_ray_traced_rendering) {
-    const auto ray_tracer_camera = scene->GetOrSetPrivateComponent<RayTracerCamera>(camera_entity).lock();
-    for (int image_index = 0; image_index < data_generation_parameters.camera_capture_settings.size(); image_index++) {
-      const auto& camera_capture_settings = data_generation_parameters.camera_capture_settings[image_index];
-      ray_tracer_camera->ApplyCameraSettings(camera_capture_settings.camera_settings);
-      GlobalTransform camera_global_transform{};
-      camera_global_transform.SetPosition(camera_capture_settings.pivot_position +
-                                          camera_capture_settings.pivot_position_delta *
-                                              static_cast<float>(post_fix_index));
-      camera_global_transform.SetEulerRotation(
-          glm::radians(camera_capture_settings.pivot_euler_rotation +
-                       camera_capture_settings.pivot_euler_rotation_delta * static_cast<float>(post_fix_index)));
-      scene->SetDataComponent(camera_entity, camera_global_transform);
-      Application::Loop();
-
-      ray_tracer_camera->Render();
-      ray_tracer_camera->render_texture->StoreToPng(
-          data_generation_parameters.output_folder /
-              (data_generation_parameters.output_file_name + post_fix + "_" + std::to_string(image_index) + ".png"),
-          camera_capture_settings.output_resolution.x, camera_capture_settings.output_resolution.y);
-    }
-  }
-#endif
 }
 
 std::shared_ptr<TreeDescriptor> DatasetGenerator::TreeDataGenerationParameters::GetActualTreeDescriptor() const {

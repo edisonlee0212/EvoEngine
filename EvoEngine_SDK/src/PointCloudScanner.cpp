@@ -2,15 +2,14 @@
 // Created by lllll on 12/15/2021.
 //
 
-#include "BasicPointCloudScanner.hpp"
+#include "PointCloudScanner.hpp"
 
 #include "EditorLayer.hpp"
 #include "Jobs.hpp"
-#include "RayTracerLayer.hpp"
 #include "Resources.hpp"
 using namespace evo_engine;
 
-bool BasicPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
+bool PointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
   bool changed = false;
 
   if (ImGui::DragFloat("Angle", &rotate_angle, 0.1f, -90.0f, 90.0f))
@@ -64,13 +63,13 @@ bool BasicPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &edito
   return changed;
 }
 
-void BasicPointCloudScanner::Serialize(YAML::Emitter &out) const {
+void PointCloudScanner::Serialize(YAML::Emitter &out) const {
 }
 
-void BasicPointCloudScanner::Deserialize(const YAML::Node &in) {
+void PointCloudScanner::Deserialize(const YAML::Node &in) {
 }
 
-void BasicPointCloudScanner::Scan() {
+void PointCloudScanner::Scan() {
   const auto column = static_cast<unsigned>(size.x / distance.x);
   const int column_start = -static_cast<int>(column / 2);
   const auto row = static_cast<unsigned>(size.y / distance.y);
@@ -95,7 +94,7 @@ void BasicPointCloudScanner::Scan() {
     pc_samples[i].direction = glm::normalize(actual_vector);
   });
 
-  CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
+  PointCloud::SampleCurrentScene(pc_samples);
   for (const auto &sample : pc_samples) {
     if (sample.hit_count != 0) {
       points.push_back(sample.hit_info.position);
@@ -105,7 +104,7 @@ void BasicPointCloudScanner::Scan() {
   }
 }
 
-void BasicPointCloudScanner::ConstructPointCloud(const std::shared_ptr<PointCloud> &point_cloud) const {
+void PointCloudScanner::ConstructPointCloud(const std::shared_ptr<PointCloud> &point_cloud) const {
   point_cloud->positions.reserve(points.size());
   point_cloud->colors.reserve(point_colors.size());
   for (int i = 0; i < points.size(); i++) {

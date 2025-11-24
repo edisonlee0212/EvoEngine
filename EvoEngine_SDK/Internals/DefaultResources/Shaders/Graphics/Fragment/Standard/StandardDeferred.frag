@@ -22,23 +22,11 @@ void main()
 	Instance instance = EE_INSTANCES[instance_index];
 	MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[instance.material_index];
 	vec2 tex_coord = fs_in.TexCoord;
-	vec4 albedo = materialProperties.albedo;
-	if (materialProperties.albedo_map_index != -1) 
-		albedo = texture(EE_TEXTURE_2DS[materialProperties.albedo_map_index], tex_coord);
+	vec4 albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, tex_coord, materialProperties.albedo);
 	if (albedo.a <= 0.5f) discard;
-
-	vec3 normal = fs_in.Normal;
-	if (materialProperties.normal_map_index != -1){
-		vec3 B = cross(fs_in.Normal, fs_in.Tangent);
-		mat3 TBN = mat3(fs_in.Tangent, B, fs_in.Normal);
-		normal = texture(EE_TEXTURE_2DS[materialProperties.normal_map_index], tex_coord).rgb;
-		normal = normal * 2.0f - 1.0f;
-		normal = normalize(TBN * normal);
-	}
-
+	vec3 normal = EE_SAMPLE_NORMAL(materialProperties.normal_map_index, tex_coord, fs_in.Normal, fs_in.Tangent);
 	// also store the per-fragment normals into the gbuffer
 	outNormal.rgb = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
 	outNormal.a = instance_index;
-	
 	outMaterial = vec4(tex_coord.x, tex_coord.y, instance.material_index, instance.info_index);
 }

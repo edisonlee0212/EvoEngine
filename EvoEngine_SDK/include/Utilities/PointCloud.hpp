@@ -3,6 +3,7 @@
 #include "Application.hpp"
 #include "Camera.hpp"
 #include "Mesh.hpp"
+#include "PointCloudSample.hpp"
 
 namespace evo_engine {
 
@@ -123,6 +124,12 @@ class PointCloud : public IAsset {
    * @param in The YAML node containing the serialized data.
    */
   void Deserialize(const YAML::Node& in) override;
+
+  /**
+   * @brief Samples the current scene to generate point cloud samples.
+   * @param samples The collection to store the generated point cloud samples.
+   */
+  static void SampleCurrentScene(std::vector<PointCloudSample>& samples);
 };
 
 }  // namespace evo_engine

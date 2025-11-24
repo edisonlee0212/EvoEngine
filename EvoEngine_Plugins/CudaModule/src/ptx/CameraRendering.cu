@@ -53,7 +53,6 @@ extern "C" __global__ void __raygen__CR() {
   auto pixel_normal = glm::vec4(0.f);
   auto pixel_albedo = glm::vec4(0.f);
   auto pixel_position = glm::vec3(0.0f);
-  int hit_count = 0;
   float halfX = cameraRenderingLaunchParams.camera_properties.target_frame.size.x * .5f;
   float halfY = cameraRenderingLaunchParams.camera_properties.target_frame.size.y * .5f;
 
@@ -90,18 +89,15 @@ extern "C" __global__ void __raygen__CR() {
                static_cast<int>(RayType::Radiance),      // missSBTIndex
                u0, u1);
     if (camera_ray_data.hit_count > 0) {
-      hit_count++;
       pixel_color += glm::vec4(camera_ray_data.energy, 1.0f);
     } else {
       switch (cameraRenderingLaunchParams.camera_properties.background_type) {
         case BackgroundType::Environment: {
           pixel_color += glm::vec4(camera_ray_data.energy, 1.0f);
-          hit_count++;
           break;
         }
         case BackgroundType::Color: {
           pixel_color += cameraRenderingLaunchParams.camera_properties.background_color;
-          hit_count++;
         }
         default:
           break;
@@ -117,8 +113,7 @@ extern "C" __global__ void __raygen__CR() {
     camera_ray_data.position = glm::vec3(0.0f);
     camera_ray_data.hit_count = 0;
   }
-  if (hit_count != 0)
-    pixel_color /= hit_count;
+  pixel_color /= samples;
   pixel_normal /= samples;
   pixel_albedo /= samples;
   pixel_position /= samples;

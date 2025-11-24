@@ -22,127 +22,108 @@
 //
 //*********************************************************
 #ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
-#include <fstream>
-#include <iomanip>
+#  include <fstream>
+#  include <iomanip>
 
-#include "NsightAftermathShaderDatabase.h"
+#  include "NsightAftermathShaderDatabase.h"
 
 //*********************************************************
 // ShaderDatabase implementation
 //*********************************************************
 
-ShaderDatabase::ShaderDatabase()
-    : m_shaderBinaries()
-    , m_shaderBinariesWithDebugInfo()
-{
-    // Add shader binaries to database
-    AddShaderBinary("cube.vert.spirv");
-    AddShaderBinary("cube.frag.spirv");
+ShaderDatabase::ShaderDatabase() : m_shaderBinaries(), m_shaderBinariesWithDebugInfo() {
+  // Add shader binaries to database
+  AddShaderBinary("cube.vert.spirv");
+  AddShaderBinary("cube.frag.spirv");
 
-    // Add the not stripped shader binaries to the database, too.
-    AddShaderBinaryWithDebugInfo("cube.vert.spirv", "cube.vert.full.spirv");
-    AddShaderBinaryWithDebugInfo("cube.frag.spirv", "cube.frag.full.spirv");
+  // Add the not stripped shader binaries to the database, too.
+  AddShaderBinaryWithDebugInfo("cube.vert.spirv", "cube.vert.full.spirv");
+  AddShaderBinaryWithDebugInfo("cube.frag.spirv", "cube.frag.full.spirv");
 }
 
-ShaderDatabase::~ShaderDatabase()
-{
+ShaderDatabase::~ShaderDatabase() {
 }
 
-bool ShaderDatabase::ReadFile(const char* filename, std::vector<uint8_t>& data)
-{
-    std::ifstream fs(filename, std::ios::in | std::ios::binary);
-    if (!fs)
-    {
-        return false;
-    }
+bool ShaderDatabase::ReadFile(const char* filename, std::vector<uint8_t>& data) {
+  std::ifstream fs(filename, std::ios::in | std::ios::binary);
+  if (!fs) {
+    return false;
+  }
 
-    fs.seekg(0, std::ios::end);
-    data.resize(fs.tellg());
-    fs.seekg(0, std::ios::beg);
-    fs.read(reinterpret_cast<char*>(data.data()), data.size());
-    fs.close();
+  fs.seekg(0, std::ios::end);
+  data.resize(fs.tellg());
+  fs.seekg(0, std::ios::beg);
+  fs.read(reinterpret_cast<char*>(data.data()), data.size());
+  fs.close();
 
-    return true;
+  return true;
 }
 
-void ShaderDatabase::AddShaderBinary(const char* shaderFilePath)
-{
-    // Read the shader binary code from the file
-    std::vector<uint8_t> data;
-    if (!ReadFile(shaderFilePath, data))
-    {
-        return;
-    }
+void ShaderDatabase::AddShaderBinary(const char* shaderFilePath) {
+  // Read the shader binary code from the file
+  std::vector<uint8_t> data;
+  if (!ReadFile(shaderFilePath, data)) {
+    return;
+  }
 
-   // Create shader hash for the shader
-    const GFSDK_Aftermath_SpirvCode shader{ data.data(), uint32_t(data.size()) };
-    GFSDK_Aftermath_ShaderBinaryHash shaderHash;
-    AFTERMATH_CHECK_ERROR(GFSDK_Aftermath_GetShaderHashSpirv(
-        GFSDK_Aftermath_Version_API,
-        &shader,
-        &shaderHash));
+  // Create shader hash for the shader
+  const GFSDK_Aftermath_SpirvCode shader{data.data(), uint32_t(data.size())};
+  GFSDK_Aftermath_ShaderBinaryHash shaderHash;
+  AFTERMATH_CHECK_ERROR(GFSDK_Aftermath_GetShaderHashSpirv(GFSDK_Aftermath_Version_API, &shader, &shaderHash));
 
-    // Store the data for shader mapping when decoding GPU crash dumps.
-    // cf. FindShaderBinary()
-    m_shaderBinaries[shaderHash].swap(data);
+  // Store the data for shader mapping when decoding GPU crash dumps.
+  // cf. FindShaderBinary()
+  m_shaderBinaries[shaderHash].swap(data);
 }
 
-void ShaderDatabase::AddShaderBinaryWithDebugInfo(const char* strippedShaderFilePath, const char* shaderFilePath)
-{
-    // Read the shader debug data from the file
-    std::vector<uint8_t> data;
-    if (!ReadFile(shaderFilePath, data))
-    {
-        return;
-    }
-    std::vector<uint8_t> strippedData;
-    if (!ReadFile(strippedShaderFilePath, strippedData))
-    {
-        return;
-    }
+void ShaderDatabase::AddShaderBinaryWithDebugInfo(const char* strippedShaderFilePath, const char* shaderFilePath) {
+  // Read the shader debug data from the file
+  std::vector<uint8_t> data;
+  if (!ReadFile(shaderFilePath, data)) {
+    return;
+  }
+  std::vector<uint8_t> strippedData;
+  if (!ReadFile(strippedShaderFilePath, strippedData)) {
+    return;
+  }
 
-    // Generate shader debug name.
-    GFSDK_Aftermath_ShaderDebugName debugName;
-    const GFSDK_Aftermath_SpirvCode shader{ data.data(), uint32_t(data.size()) };
-    const GFSDK_Aftermath_SpirvCode strippedShader{ strippedData.data(), uint32_t(strippedData.size()) };
-    AFTERMATH_CHECK_ERROR(GFSDK_Aftermath_GetShaderDebugNameSpirv(
-        GFSDK_Aftermath_Version_API,
-        &shader,
-        &strippedShader,
-        &debugName));
+  // Generate shader debug name.
+  GFSDK_Aftermath_ShaderDebugName debugName;
+  const GFSDK_Aftermath_SpirvCode shader{data.data(), uint32_t(data.size())};
+  const GFSDK_Aftermath_SpirvCode strippedShader{strippedData.data(), uint32_t(strippedData.size())};
+  AFTERMATH_CHECK_ERROR(
+      GFSDK_Aftermath_GetShaderDebugNameSpirv(GFSDK_Aftermath_Version_API, &shader, &strippedShader, &debugName));
 
-    // Store the data for shader instruction address mapping when decoding GPU crash dumps.
-    // cf. FindShaderBinaryWithDebugData()
-    m_shaderBinariesWithDebugInfo[debugName].swap(data);
+  // Store the data for shader instruction address mapping when decoding GPU crash dumps.
+  // cf. FindShaderBinaryWithDebugData()
+  m_shaderBinariesWithDebugInfo[debugName].swap(data);
 }
 
 // Find a shader binary by shader hash.
-bool ShaderDatabase::FindShaderBinary(const GFSDK_Aftermath_ShaderBinaryHash& shaderHash, std::vector<uint8_t>& shader) const
-{
-    // Find shader binary data for the shader hash
-    auto i_shader = m_shaderBinaries.find(shaderHash);
-    if (i_shader == m_shaderBinaries.end())
-    {
-        // Nothing found.
-        return false;
-    }
+bool ShaderDatabase::FindShaderBinary(const GFSDK_Aftermath_ShaderBinaryHash& shaderHash,
+                                      std::vector<uint8_t>& shader) const {
+  // Find shader binary data for the shader hash
+  auto i_shader = m_shaderBinaries.find(shaderHash);
+  if (i_shader == m_shaderBinaries.end()) {
+    // Nothing found.
+    return false;
+  }
 
-    shader = i_shader->second;
-    return true;
+  shader = i_shader->second;
+  return true;
 }
 
 // Find a shader binary with debug information by shader debug name.
-bool ShaderDatabase::FindShaderBinaryWithDebugData(const GFSDK_Aftermath_ShaderDebugName& shaderDebugName, std::vector<uint8_t>& shader) const
-{
-    // Find shader binary for the shader debug name.
-    auto i_shader = m_shaderBinariesWithDebugInfo.find(shaderDebugName);
-    if (i_shader == m_shaderBinariesWithDebugInfo.end())
-    {
-        // Nothing found.
-        return false;
-    }
+bool ShaderDatabase::FindShaderBinaryWithDebugData(const GFSDK_Aftermath_ShaderDebugName& shaderDebugName,
+                                                   std::vector<uint8_t>& shader) const {
+  // Find shader binary for the shader debug name.
+  auto i_shader = m_shaderBinariesWithDebugInfo.find(shaderDebugName);
+  if (i_shader == m_shaderBinariesWithDebugInfo.end()) {
+    // Nothing found.
+    return false;
+  }
 
-    shader = i_shader->second;
-    return true;
+  shader = i_shader->second;
+  return true;
 }
 #endif

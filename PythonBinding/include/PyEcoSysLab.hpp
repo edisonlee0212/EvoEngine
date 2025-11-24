@@ -21,11 +21,6 @@
 #  include "pybind11/pybind11.h"
 #  include "pybind11/stl/filesystem.h"
 
-#  ifdef CUDA_MODULE_PLUGIN
-#    include <CUDAModule.hpp>
-#    include <RayTracerLayer.hpp>
-#  endif
-
 #  if DATASET_GENERATION_PLUGIN
 #    include <TreePointCloudScanner.hpp>
 #    include "DatasetGenerator.hpp"

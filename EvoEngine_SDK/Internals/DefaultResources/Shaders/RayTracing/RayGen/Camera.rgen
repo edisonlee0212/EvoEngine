@@ -1,4 +1,5 @@
 #extension GL_ARB_shading_language_include : enable
+#extension GL_ARB_shading_language_include : enable
 #include "RayTracingBasic.glsl"
 #include "Random.glsl"
 
@@ -18,11 +19,12 @@ void main()
 {
 	const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
 	const uvec2 pixel_coordinate = gl_LaunchIDEXT.xy;
-	hit_value.seed = pixel_coordinate.x + pixel_coordinate.y * gl_LaunchSizeEXT.x + 1664525u * EE_FRAME_ID;
+	hit_value.seed = 1664525u * EE_FRAME_ID + pixel_coordinate.x + pixel_coordinate.x * pixel_coordinate.y;
 	hit_value.seed = uint(1664525u * EE_RANDOM(hit_value.seed));
 
 	vec3 result_color = vec3(0, 0, 0);
 	const uint sample_size = camera.sample_size;
+
 
 	[[unroll]]
 	for(uint i = 0; i < sample_size; i++){
@@ -38,10 +40,8 @@ void main()
 		vec3 sample_origin = camera_start.xyz;
 		vec3 sample_direction = normalize(camera_end.xyz - camera_start.xyz);
 
-
 		hit_value.type = 0;
 		hit_value.hit_count = 0;
-		
 		traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, camera_start.xyz, 0, sample_direction, 1e20f, 0);
 		result_color += hit_value.color;
 	}

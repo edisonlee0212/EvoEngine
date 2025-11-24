@@ -1,3 +1,4 @@
+#extension GL_ARB_gpu_shader_int64 : enable
 
 struct Instance {
   mat4 model;
@@ -7,9 +8,8 @@ struct Instance {
   int meshlet_size;
 
   int info_index;
-  int padding0;
-  int padding1;
-  int padding2;
+  uint entity_index;
+  uint64_t renderer_handle;
 };
 
 layout(set = EE_INSTANCES_BLOCK_SET, binding = EE_INSTANCES_BLOCK_BINDING) readonly buffer EE_INSTANCE_BLOCK {

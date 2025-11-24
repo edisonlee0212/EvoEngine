@@ -255,13 +255,21 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
   if (!RenderLayer::ray_tracing_layout) {
     RenderLayer::ray_tracing_layout = std::make_shared<DescriptorSetLayout>();
     RenderLayer::ray_tracing_layout->PushDescriptorBinding(
-        0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+        0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
     RenderLayer::ray_tracing_layout->PushDescriptorBinding(
-        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
     RenderLayer::ray_tracing_layout->PushDescriptorBinding(
         2, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
     RenderLayer::ray_tracing_layout->Initialize();
+  }
+  if (!RenderLayer::ray_tracing_point_cloud_layout) {
+    RenderLayer::ray_tracing_point_cloud_layout = std::make_shared<DescriptorSetLayout>();
+    RenderLayer::ray_tracing_point_cloud_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                                       VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    RenderLayer::ray_tracing_point_cloud_layout->Initialize();
   }
   if (!ParticleInfoList::instanced_data_layout) {
     ParticleInfoList::instanced_data_layout = std::make_shared<DescriptorSetLayout>();
