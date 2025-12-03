@@ -35,7 +35,8 @@ class EcoSysLabLayer : public ILayer {
    * @param path The file path where data should be exported.
    */
   void ExportAllTrees(const std::filesystem::path& path) const;
-
+  bool show_visualization_camera_info = true;
+  bool enable_visualization_background = false;
   SimulationSettings simulation_settings{};  ///< The simulation settings used for eco-system simulation.
   SimulationStats simulation_stats{};        ///< The statistics of the simulation.
   bool need_full_flow_update = false;        ///< Flag indicating if a full flow update is required.

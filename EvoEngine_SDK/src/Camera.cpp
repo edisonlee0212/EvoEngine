@@ -637,6 +637,12 @@ void Camera::CollectAssetRef(std::vector<AssetRef>& list) {
 const std::shared_ptr<DescriptorSet>& Camera::GetGBufferDescriptorSet() const {
   return g_buffer_descriptor_set_;
 }
+void Camera::SetRendered() {
+  rendered_ = true;
+}
+void Camera::ResetFrameCount() {
+  frame_count_ = 0;
+}
 
 void Camera::DebugViews(const float debug_scale) const {
   if (ImGui::TreeNodeEx("Normal", ImGuiTreeNodeFlags_DefaultOpen)) {

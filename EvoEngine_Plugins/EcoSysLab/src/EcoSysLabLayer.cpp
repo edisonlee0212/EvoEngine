@@ -324,13 +324,36 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     if (ImGui::BeginChild("InternodeCameraRenderer", ImVec2(0, 0), false)) {
       ImVec2 view_port_size;
       view_port_size = ImGui::GetWindowSize();
+      const ImVec2 overlay_pos = ImGui::GetWindowPos();
+      static int corner = 1;
       visualization_camera_resolution_x = view_port_size.x;
       visualization_camera_resolution_y = view_port_size.y;
       ImGui::Image(visualization_camera_->GetRenderTexture()->GetColorImTextureId(),
                    ImVec2(view_port_size.x, view_port_size.y), ImVec2(0, 1), ImVec2(1, 0));
 
       VisualizationCameraDragAndDrop();
-
+      const auto window_pos = ImVec2((corner & 1) ? (overlay_pos.x + view_port_size.x) : (overlay_pos.x),
+                                     (corner & 2) ? (overlay_pos.y + view_port_size.y) : (overlay_pos.y));
+      if (show_visualization_camera_info) {
+        const auto window_pos_pivot = ImVec2((corner & 1) ? 1.0f : 0.0f, (corner & 2) ? 1.0f : 0.0f);
+        ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+        ImGui::SetNextWindowBgAlpha(0.35f);
+        constexpr ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking |
+                                                  ImGuiWindowFlags_NoSavedSettings |
+                                                  ImGuiWindowFlags_NoFocusOnAppearing;
+        if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_None;
+            ImGui::BeginChild("Render Info", ImVec2(300, 150), child_flags, window_flags)) {
+          ImGui::Text("Info & Settings");
+          ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
+          ImGui::Checkbox("Background", &enable_visualization_background);
+          uint32_t mode = static_cast<uint32_t>(visualization_camera_->camera_render_mode);
+          if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
+            visualization_camera_->camera_render_mode = static_cast<Camera::CameraRenderMode>(mode);
+            visualization_camera_->ResetFrameCount();
+          }
+        }
+        ImGui::EndChild();
+      }
       visualization_camera_mouse_position = glm::vec2(FLT_MAX, -FLT_MAX);
       auto scene_camera_rotation = editor_layer->GetSceneCameraRotation();
       auto scene_camera_position = editor_layer->GetSceneCameraPosition();
@@ -346,7 +369,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
           if (visualization_camera_mouse_position.x < 0 || visualization_camera_mouse_position.y < 0 ||
               visualization_camera_mouse_position.x > view_port_size.x ||
               visualization_camera_mouse_position.y > view_port_size.y ||
-              editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
+              EditorLayer::GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
             mouse_drag = false;
           }
           static float prev_x = 0;
@@ -364,22 +387,22 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
           if (mouse_drag && !editor_layer->lock_camera) {
             glm::vec3 front = scene_camera_rotation * glm::vec3(0, 0, -1);
             glm::vec3 right = scene_camera_rotation * glm::vec3(1, 0, 0);
-            if (editor_layer->GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
+            if (EditorLayer::GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
               scene_camera_position += front * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
             }
-            if (editor_layer->GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
+            if (EditorLayer::GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
               scene_camera_position -= front * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
             }
-            if (editor_layer->GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
+            if (EditorLayer::GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
               scene_camera_position -= right * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
             }
-            if (editor_layer->GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
+            if (EditorLayer::GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
               scene_camera_position += right * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
             }
-            if (editor_layer->GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
+            if (EditorLayer::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
               scene_camera_position.y += editor_layer->velocity * static_cast<float>(Times::DeltaTime());
             }
-            if (editor_layer->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
+            if (EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
               scene_camera_position.y -= editor_layer->velocity * static_cast<float>(Times::DeltaTime());
             }
             if (x_offset != 0.0f || y_offset != 0.0f) {
@@ -404,7 +427,13 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     }
     ImGui::EndChild();
     auto* window = ImGui::FindWindowByName("Plant Visual");
-    visualization_camera_->SetEnabled(!(window->Hidden && !window->Collapsed));
+    if (!(window->Hidden && !window->Collapsed)) {
+      if (enable_visualization_background) {
+        visualization_camera_->SetRequireRendering(true);
+      } else {
+        visualization_camera_->SetRendered();
+      }
+    }
   }
   ImGui::End();
   ImGui::PopStyleVar();

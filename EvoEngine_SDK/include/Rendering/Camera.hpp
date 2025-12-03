@@ -230,6 +230,9 @@ class Camera final : public IPrivateComponent {
    */
   const std::shared_ptr<DescriptorSet>& GetGBufferDescriptorSet() const;
 
+  void SetRendered();
+  void ResetFrameCount();
+
  private:
   /**
    * @brief Displays debug views for camera operations, scaled for debugging.
