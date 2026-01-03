@@ -1,111 +1,111 @@
-#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
-#extension GL_KHR_shader_subgroup_basic : require
-#extension GL_KHR_shader_subgroup_ballot : require
-#extension GL_KHR_shader_subgroup_vote : require
-#extension GL_ARB_shading_language_include : enable
-#extension GL_EXT_control_flow_attributes : require
-
-#define DYNAMIC_STRANDS_SET 0
-#include "DynamicStrands.glsl"
-#include "Math.glsl"
-
-const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
-
-const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-
-uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
-uint laneID = gl_LocalInvocationID.x;
-
-layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
-
-#define BARRIER()        \
-  memoryBarrierShared(); \
-  barrier();
-
-layout(push_constant) uniform PUSH_CONSTANTS {
-  vec4 obb_rotation;
-  vec4 obb_center;
-  float radius;
-  float height;
-  float softness;
-  uint segment_size;
-};
-
-bool is_inside(in vec3 p, in float offset) {
-  vec3 q = p - obb_center.xyz;
-  q = rotate_vec3(conjugate(obb_rotation), q);
-  if (abs(q.y) > height - offset)
-    return false;
-  float r2 = q.x * q.x + q.z * q.z;
-  return r2 < (radius - offset) * (radius - offset);
-}
-
-vec3 process_point(in vec3 p) {
-  vec3 projected_p = p - obb_center.xyz;
-  projected_p = rotate_vec3(conjugate(obb_rotation), projected_p);
-  float current_height = abs(projected_p.y);
-  if (height - current_height < 0.f)
-    return p;
-  float current_radius = length(projected_p.xz);
-  if (radius - current_radius < 0.f)
-    return p;
-  float radius_diff = radius - current_radius;
-  float height_diff = height - current_height;
-  if (radius_diff > height_diff) {
-    if (projected_p.y >= 0.f)
-      projected_p += vec3(0, height_diff, 0);
-    else
-      projected_p -= vec3(0, height_diff, 0);
-  } else {
-    vec2 direction = vec2(0, 1);
-    if (current_radius > 0.f) {
-      direction = normalize(projected_p.xz);
-    }
-    vec2 push = radius_diff * direction;
-    projected_p += vec3(push.x, 0.f, push.y);
-  }
-  return rotate_vec3(obb_rotation, projected_p) + obb_center.xyz;
-}
-
-void main() {
-  [[unroll]]
-  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
-    uint local_index = laneID + i * WORKGROUP_SIZE;
-    uint segment_index = baseID + local_index;
-
-    if (segment_index >= segment_size)
-      break;
-
-    Segment segment = segments[segment_index];
-    Particle particle0 = segment.particle0;
-    Particle particle1 = segment.particle1;
-
-    vec3 p0 = particle0.x;
-    vec3 p1 = particle1.x;
-
-    float offset = 0.0;
-    bool in0 = is_inside(p0, offset);
-    bool in1 = is_inside(p1, offset);
-
-    bool in0_hard = is_inside(p0, 0.0);
-    bool in1_hard = is_inside(p1, 0.0);
-
-    int prev = segment.prev_inside;
-
-    if (prev == 0 && in0) {
-      p0 = process_point(p0);
-      in0_hard = false;
-    }
-    if (prev == 0 && in1) {
-      p1 = process_point(p1);
-      in1_hard = false;
-    }
-    segments[segment_index].particle0.x = p0;
-    segments[segment_index].particle1.x = p1;
-    if (in0_hard && in1_hard) {
-      segments[segment_index].prev_inside = 1;
-    } else {
-      segments[segment_index].prev_inside = 0;
-    }
-  }
-}
+//#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+//#extension GL_KHR_shader_subgroup_basic : require
+//#extension GL_KHR_shader_subgroup_ballot : require
+//#extension GL_KHR_shader_subgroup_vote : require
+//#extension GL_ARB_shading_language_include : enable
+//#extension GL_EXT_control_flow_attributes : require
+//
+//#define DYNAMIC_STRANDS_SET 0
+//#include "DynamicStrands.glsl"
+//#include "Math.glsl"
+//
+//const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+//
+//const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+//
+//uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+//uint laneID = gl_LocalInvocationID.x;
+//
+//layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+//
+//#define BARRIER()        \
+//  memoryBarrierShared(); \
+//  barrier();
+//
+//layout(push_constant) uniform PUSH_CONSTANTS {
+//  vec4 obb_rotation;
+//  vec4 obb_center;
+//  float radius;
+//  float height;
+//  float softness;
+//  uint segment_size;
+//};
+//
+//bool is_inside(in vec3 p, in float offset) {
+//  vec3 q = p - obb_center.xyz;
+//  q = rotate_vec3(conjugate(obb_rotation), q);
+//  if (abs(q.y) > height - offset)
+//    return false;
+//  float r2 = q.x * q.x + q.z * q.z;
+//  return r2 < (radius - offset) * (radius - offset);
+//}
+//
+//vec3 process_point(in vec3 p) {
+//  vec3 projected_p = p - obb_center.xyz;
+//  projected_p = rotate_vec3(conjugate(obb_rotation), projected_p);
+//  float current_height = abs(projected_p.y);
+//  if (height - current_height < 0.f)
+//    return p;
+//  float current_radius = length(projected_p.xz);
+//  if (radius - current_radius < 0.f)
+//    return p;
+//  float radius_diff = radius - current_radius;
+//  float height_diff = height - current_height;
+//  if (radius_diff > height_diff) {
+//    if (projected_p.y >= 0.f)
+//      projected_p += vec3(0, height_diff, 0);
+//    else
+//      projected_p -= vec3(0, height_diff, 0);
+//  } else {
+//    vec2 direction = vec2(0, 1);
+//    if (current_radius > 0.f) {
+//      direction = normalize(projected_p.xz);
+//    }
+//    vec2 push = radius_diff * direction;
+//    projected_p += vec3(push.x, 0.f, push.y);
+//  }
+//  return rotate_vec3(obb_rotation, projected_p) + obb_center.xyz;
+//}
+//
+//void main() {
+//  [[unroll]]
+//  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+//    uint local_index = laneID + i * WORKGROUP_SIZE;
+//    uint segment_index = baseID + local_index;
+//
+//    if (segment_index >= segment_size)
+//      break;
+//
+//    Segment segment = segments[segment_index];
+//    Particle particle0 = segment.particle0;
+//    Particle particle1 = segment.particle1;
+//
+//    vec3 p0 = particle0.x;
+//    vec3 p1 = particle1.x;
+//
+//    float offset = 0.0;
+//    bool in0 = is_inside(p0, offset);
+//    bool in1 = is_inside(p1, offset);
+//
+//    bool in0_hard = is_inside(p0, 0.0);
+//    bool in1_hard = is_inside(p1, 0.0);
+//
+//    int prev = segment.prev_inside;
+//
+//    if (prev == 0 && in0) {
+//      p0 = process_point(p0);
+//      in0_hard = false;
+//    }
+//    if (prev == 0 && in1) {
+//      p1 = process_point(p1);
+//      in1_hard = false;
+//    }
+//    segments[segment_index].particle0.x = p0;
+//    segments[segment_index].particle1.x = p1;
+//    if (in0_hard && in1_hard) {
+//      segments[segment_index].prev_inside = 1;
+//    } else {
+//      segments[segment_index].prev_inside = 0;
+//    }
+//  }
+//}

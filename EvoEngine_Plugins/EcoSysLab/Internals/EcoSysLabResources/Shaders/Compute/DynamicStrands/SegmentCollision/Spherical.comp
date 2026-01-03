@@ -59,8 +59,6 @@ void main() {
 
     vec3 segment_direction = normalize(p1 - p0);
 
-    int apply_constraint = segment.prev_inside;
-
     ivec3 coordinate;
     coordinate.x = int(segment_center_position.x / cell_size);
     coordinate.y = int(segment_center_position.y / cell_size);

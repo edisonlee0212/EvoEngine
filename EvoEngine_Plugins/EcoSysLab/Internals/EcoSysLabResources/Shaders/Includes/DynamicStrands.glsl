@@ -115,7 +115,7 @@ struct Segment {
   int cube_pattern;
 
   vec3 Obstruction_w;
-  int prev_inside;
+  int unlink_constraint;
 
   vec3 Obstruction_b;
   float ground_damping;

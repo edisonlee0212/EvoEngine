@@ -283,12 +283,12 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
                 draw_list->AddCircle(canvas_p0 + ImVec2(strands_operator_mouse_start.x, strands_operator_mouse_start.y),
                                      5.0f, IM_COL32(255, 0, 0, 255), 0, 3);
 
-                const glm::vec3 acceleration = dynamic_strands_settings_.drag_multiplier *
+                /*const glm::vec3 acceleration = dynamic_strands_settings_.drag_multiplier *
                                                (camera_right * screen_vector.x - camera_up * screen_vector.y);
                 for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
                   dts->drag_operator->enabled = true;
                   dts->drag_operator->Update(acceleration);
-                });
+                });*/
                 break;
               }
               case DynamicStrandsSettings::OperatorMode::Saw: {
@@ -381,6 +381,19 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
                       strands_operator_mouse_start / glm::vec2(canvas_size.x, canvas_size.y),
                       strands_operator_mouse_current / glm::vec2(canvas_size.x, canvas_size.y), camera_projection_view,
                       dynamic_strands_settings_.cut_bend_twist_bundle_only ? 1 : 0);
+                });
+                break;
+              }
+              case DynamicStrandsSettings::OperatorMode::Drag: {
+                const auto screen_vector = strands_operator_mouse_current - strands_operator_mouse_start;
+                if (glm::length(screen_vector) < 0.01f) {
+                  break;
+                }
+                const glm::vec3 acceleration = dynamic_strands_settings_.drag_multiplier *
+                                               (camera_right * screen_vector.x - camera_up * screen_vector.y);
+                for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+                  dts->drag_operator->enabled = true;
+                  dts->drag_operator->Update(acceleration);
                 });
                 break;
               }

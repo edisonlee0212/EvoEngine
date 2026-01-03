@@ -179,6 +179,7 @@ class DynamicStrands {
     float boundary_strength_decay_factor = 0.0f;
     float HL_threshold = 0.4f;
     float HC_threshold = 0.4f;
+    float bd_offset = 0.02f;
     glm::mat3 matrixAw = glm::mat3(2.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
     glm::mat3 matrixAb = glm::mat3(2.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
     glm::mat3 matrixAc = glm::mat3(100.0f, 0.0f, 0.0f, 0.0f, 100.0f, 0.0f, 0.0f, 0.0f, 100.0f);
@@ -194,6 +195,11 @@ class DynamicStrands {
     int treespace = 1;
     int moisture_breaking_rod = 0;
     int internal_pattern = 0;
+
+    int pull_cubical = 0;
+
+    int leaf_break_from_moisture = 0;
+    float leaf_break_threshold = 0.4f;
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -335,7 +341,7 @@ class DynamicStrands {
     int32_t cube_pattern = 0;
 
     glm::vec3 Obstruction_w;
-    int32_t prev_inside = 1;
+    int32_t unlink_constraint = 0;
 
     glm::vec3 Obstruction_b;
     float ground_damping = 1.0f;

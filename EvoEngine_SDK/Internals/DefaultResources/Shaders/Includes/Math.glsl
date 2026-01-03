@@ -259,4 +259,17 @@ vec3 ProjectOntoPlane(in vec3 vector, in vec3 normalizedPlaneNormal) {
   return vector - dotProduct * normalizedPlaneNormal;
 }
 
+float rand01(uint seed) {
+  seed ^= seed >> 16;
+  seed *= 0x7feb352d;
+  seed ^= seed >> 15;
+  seed *= 0x846ca68b;
+  seed ^= seed >> 16;
+  return float(seed) * (1.0 / 4294967296.0);
+}
+
+float rand_ab(uint seed, float a, float b) {
+  return mix(a, b, rand01(seed));
+}
+
 #endif  // _MATH_GLSL_

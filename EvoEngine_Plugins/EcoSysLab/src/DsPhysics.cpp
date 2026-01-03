@@ -87,6 +87,7 @@ void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_paramete
   node_push_constant.brw = physics_parameters.brw;
   node_push_constant.brb = physics_parameters.brb;
   node_push_constant.msr = physics_parameters.msr;
+  node_push_constant.bd_offset = physics_parameters.bd_offset;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     // Process node diffusion first
@@ -355,9 +356,12 @@ void DsStructuralDamage::Execute(const DynamicStrands::PhysicsParameters& physic
   segment_pair_push_constant.bundle_strength_factor = physics_parameters.bundle_strength_factor;
   segment_pair_push_constant.boundary_strength_decay_factor = physics_parameters.boundary_strength_decay_factor;
   segment_pair_push_constant.moisture_breaking_rod = physics_parameters.moisture_breaking_rod;
+  segment_pair_push_constant.pull_cubical = physics_parameters.pull_cubical;
 
   LeafBreakingPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();
+  leaf_push_constant.leaf_break_from_moisture = physics_parameters.leaf_break_from_moisture;
+  leaf_push_constant.leaf_break_threshold = physics_parameters.leaf_break_threshold;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     if (physics_parameters.enable_segment_breaking || physics_parameters.enable_segment_disconnection) {
