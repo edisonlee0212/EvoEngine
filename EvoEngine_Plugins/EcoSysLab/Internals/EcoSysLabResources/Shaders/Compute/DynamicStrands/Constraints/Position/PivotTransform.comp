@@ -41,6 +41,7 @@ layout(std430, set = 1, binding = 0) readonly buffer SEGMENT_UPDATE_BLOCK {
 
 layout(push_constant) uniform PUSH_CONSTANTS {
 	uint command_size;
+	float ring_radius;
 };
 
 void main(){
@@ -62,6 +63,8 @@ void main(){
                 if (segment.HC < 0.1 + max(0.3 - segment.boundary_distance,
                                            0.0))  // Todo: Automatically align with fungus threshold
 			continue;
+                if (segment.boundary_distance > ring_radius)  
+                        continue;
 		segment.q = segment.last_q = segment_update.new_rotation;
 		segment.torque = vec3(0, 0, 0);
 		segment.inv_mass = 0.0f;

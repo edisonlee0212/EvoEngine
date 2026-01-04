@@ -55,9 +55,14 @@ void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_paramete
   edge_push_constant.pair_size = target_dynamic_strands.segment_pairs.size();
   edge_push_constant.be = physics_parameters.be;
   edge_push_constant.lignin_threshold = physics_parameters.lignin_threshold;
+  edge_push_constant.global_parameter = physics_parameters.global_parameter;
+  edge_push_constant.HC_threshold = physics_parameters.HC_threshold;
+  edge_push_constant.HL_threshold = physics_parameters.HL_threshold;
+  edge_push_constant.treespace = physics_parameters.treespace;
   edge_push_constant.matrixAw4 = glm::mat4(physics_parameters.matrixAw);
   edge_push_constant.matrixAb4 = glm::mat4(physics_parameters.matrixAb);
   edge_push_constant.matrixAc4 = glm::mat4(physics_parameters.matrixAc);
+  edge_push_constant.matrixAm4 = glm::mat4(physics_parameters.matrixAm);
 
   // Then, update fungal properties on nodes (segments)
   FungusDiffusionNodePushConstant node_push_constant;
@@ -77,6 +82,10 @@ void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_paramete
   node_push_constant.ll = physics_parameters.ll;
   node_push_constant.lc = physics_parameters.lc;
   node_push_constant.bo = physics_parameters.bo;
+  node_push_constant.kc = physics_parameters.kc;
+  node_push_constant.brw = physics_parameters.brw;
+  node_push_constant.brb = physics_parameters.brb;
+  node_push_constant.msr = physics_parameters.msr;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     // Process node diffusion first
@@ -341,6 +350,10 @@ void DsStructuralDamage::Execute(const DynamicStrands::PhysicsParameters& physic
       physics_parameters.enable_segment_compression_disconnection ? 1 : 0;
   segment_pair_push_constant.positional_breaking = physics_parameters.enable_positional_breaking ? 1 : 0;
   segment_pair_push_constant.rotational_breaking = physics_parameters.enable_rotational_breaking ? 1 : 0;
+  segment_pair_push_constant.rod_strength_factor = physics_parameters.rod_strength_factor;
+  segment_pair_push_constant.bundle_strength_factor = physics_parameters.bundle_strength_factor;
+  segment_pair_push_constant.boundary_strength_decay_factor = physics_parameters.boundary_strength_decay_factor;
+  segment_pair_push_constant.moisture_breaking_rod = physics_parameters.moisture_breaking_rod;
 
   LeafBreakingPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();

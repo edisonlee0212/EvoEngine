@@ -114,6 +114,33 @@ void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
 }
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  if (ImGui::TreeNode("Preset settings")) {
+    if (ImGui::Button("Oak Trunk")) {
+      initialize_parameters.min_segment_length = 0.005f;
+      initialize_parameters.max_segment_length = 0.01f;
+    }
+    if (ImGui::Button("Spruce")) {
+      if (dynamic_strands) {
+        for (auto& constraint : dynamic_strands->constraints) {
+          if (auto bundle = std::dynamic_pointer_cast<DsBundle>(constraint)) {
+            bundle->sub_iteration = 5;
+            break;  // stop once we found the bundle constraint
+          }
+        }
+      }
+    }
+    if (ImGui::Button("Oak")) {
+      if (dynamic_strands) {
+        for (auto& constraint : dynamic_strands->constraints) {
+          if (auto bundle = std::dynamic_pointer_cast<DsBundle>(constraint)) {
+            bundle->sub_iteration = 3;
+            break;  // stop once we found the bundle constraint
+          }
+        }
+      }
+    }
+    ImGui::TreePop();
+  }
   ImGui::DragInt("Seed", &seed, 1, 0, INT_MAX);
   editor_layer->DragAndDropButton<Material>(materials.bark_material_ref, "Bark Material");
   editor_layer->DragAndDropButton<Material>(materials.inner_wood_material_ref, "Inner wood Material");
@@ -142,8 +169,8 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
   const auto& strand_group = strand_model.strand_model_skeleton.data.strand_group;
   if (ImGui::Button("Re-subdivide")) {
-    initialize_parameters.min_segment_length = 0.03f;
-    initialize_parameters.max_segment_length = 0.06f;
+    // initialize_parameters.min_segment_length = 0.005f;
+    // initialize_parameters.max_segment_length = 0.01f;
 
     DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
     UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
@@ -166,7 +193,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       //                            segment.particle0.x[1] * 0.5 + 0.1f};
       std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
                                  segment.particle0.root_distance * 0.5f + 0.1f};
-      int id = classify_point_jitter_axis(pt, root, 0.0f, 0xA53A5F1Bu);
+      int id = classify_point_jitter_axis(pt, root, 0.0f, 0xA53A5F1Bu, true);
       segment.color = region_colors[id];
     });
 
@@ -488,6 +515,32 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
     segment.angular_v = settings.initial_angular_velocity;
   });
 
+  if (settings.fungus_test) {
+    {
+      auto& segment = dynamic_strands->segments[0];
+      segment.RB = 1.0f;
+      segment.RB_pre = 1.0f;
+      Region INIT{0.0f, 100.0f, -glm::pi<float>(), glm::pi<float>(), 0.0f, 1.0f};
+      std::vector<Region> regions;
+      Node_tilt* root = build_bsp_tilt(INIT, /*N=*/3200, 0.1f, 1.8f, 10,
+                                       /*tilt_eps=*/0.0f, /*enable_tilt=*/false, regions);
+
+      std::mt19937 rng(std::random_device{}());
+      int K = (int)regions.size();
+      std::uniform_real_distribution<float> dc(0.0f, 1.0f);
+      std::vector<glm::vec4> region_colors(K);
+      for (int i = 0; i < K; ++i) {
+        region_colors[i] = glm::vec4(dc(rng), dc(rng), dc(rng), 1.0f);
+      }
+      Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+        auto& segment = dynamic_strands->segments[i];
+        std::array<float, 3> pt = {segment.profile_position[0], segment.profile_position[1],
+                                   segment.particle0.x[0] + 0.05f};
+        int id = classify_point_jitter_axis(pt, root, 0.000f, 0xA53A5F1Bu, true);
+        segment.color = region_colors[id];
+      });
+    }
+  }
   dynamic_strands->Upload();
   dynamic_strands->InitializeMesh(initialize_parameters);
   initialize_parameters.trunk_additional_strength = trunk;
@@ -770,10 +823,10 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   initialize_parameters.trunk_additional_strength = false;
   DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
   initialized_from_tree = false;
-  if (settings.fungus_test) {
-    initialize_parameters.min_segment_length = 0.005f;
-    initialize_parameters.max_segment_length = 0.01f;
-  }
+  // if (settings.fungus_test) {
+  //   initialize_parameters.min_segment_length = 0.005f;
+  //   initialize_parameters.max_segment_length = 0.01f;
+  // }
   UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
 
   const auto& target_strand_segment_data_list = randomly_subdivided_strand_group.PeekStrandSegmentDataList();
@@ -859,7 +912,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
                                    segment.particle0.x[0]};
         // int id = classify_point(pt, root);
         // int id = classify_point_tilt(pt, root);
-        int id = classify_point_jitter_axis(pt, root, 0.002f, 0xA53A5F1Bu);
+        int id = classify_point_jitter_axis(pt, root, 0.002f, 0xA53A5F1Bu, false);
         segment.color = region_colors[id];
       });
     }
@@ -1681,7 +1734,7 @@ void DynamicTreeStrands::delete_tree(Node_tilt* n) {
 }
 
 int DynamicTreeStrands::classify_point_jitter_axis(const std::array<float, 3>& pt, const Node_tilt* node,
-                                                   float eps_norm, uint32_t base_seed) {
+                                                   float eps_norm, uint32_t base_seed, bool wrap) {
   glm::vec3 pn = normalize_param(pt[0], pt[1], pt[2]);
 
   const Node_tilt* n = node;
@@ -1697,13 +1750,19 @@ int DynamicTreeStrands::classify_point_jitter_axis(const std::array<float, 3>& p
     float vj = v_n + j;
     if (n->axis == AX_PHI)
       vj = wrap01(vj);
-    if (n->axis == AX_R)
-      vj = glm::clamp(vj, 0.0f, 1.0f);
-    // vj = wrap01(vj);
+    if (n->axis == AX_R) {
+      if (wrap) {
+        vj = wrap01(vj);
+      } else {
+        vj = glm::clamp(vj, 0.0f, 1.0f);
+      }
+    }
     if (n->axis == AX_X)
-      vj = glm::clamp(vj, 0.0f, 1.0f);
-    // vj = wrap01(vj);
-
+      if (wrap) {
+        vj = wrap01(vj);
+      } else {
+        vj = glm::clamp(vj, 0.0f, 1.0f);
+      }
     n = (vj < coord_n) ? n->left : n->right;
   }
   return n->leaf_id;

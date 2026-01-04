@@ -4,6 +4,11 @@ using namespace eco_sys_lab_plugin;
 bool StrandModelParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNodeEx("Profile settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::Button("Oak Trunk")) {
+      end_node_strands = 3200;
+      strand_radius_distribution.mean.max_value = 0.003f;
+      strand_radius_distribution.mean.curve = Curve2D(1.0f, 0.8f, {0, 0}, {1, 1});
+    }
     if (ImGui::TreeNode("Physics settings")) {
       if (ImGui::DragFloat("Physics damping", &profile_physics_settings.damping, 0.01f, 0.0f, 1.0f))
         changed = true;
@@ -31,7 +36,7 @@ bool StrandModelParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor
     changed = true;
   if (ImGui::DragInt("Initial branch strand count", &strands_along_branch, 1, 0, 50))
     changed = true;
-  if (ImGui::DragInt("Initial end node strand count", &end_node_strands, 10, 1, 2000))
+  if (ImGui::DragInt("Initial end node strand count", &end_node_strands, 20, 1, 3200))
     changed = true;
 
   if (ImGui::Checkbox("Pre-merge", &pre_merge))

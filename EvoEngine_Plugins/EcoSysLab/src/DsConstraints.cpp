@@ -291,6 +291,7 @@ void DsPivotTransform::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
   if (!commands.empty()) {
     SegmentUpdatePushConstant push_constant;
     push_constant.commands_size = commands.size();
+    push_constant.ring_radius = physics_parameters.pivot_ring_radius;
     const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -538,6 +539,11 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
   constraint_constant.segment_size = static_cast<uint32_t>(target_dynamic_strands.segment_data_list.size());
   constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   constraint_constant.over_relaxation = over_relaxation;
+  constraint_constant.crack_bd_shrinkage_offset = physics_parameters.crack_bd_shrinkage_offset;
+  constraint_constant.crack_R_scale = physics_parameters.crack_R_scale;
+  constraint_constant.crack_T_scale = physics_parameters.crack_T_scale;
+  constraint_constant.treespace = physics_parameters.treespace;
+  constraint_constant.internal_pattern = physics_parameters.internal_pattern;
 
   RandomBundleBendTwistConstant bend_twist_constraint_constant;
   bend_twist_constraint_constant.skip_size = skip_size;

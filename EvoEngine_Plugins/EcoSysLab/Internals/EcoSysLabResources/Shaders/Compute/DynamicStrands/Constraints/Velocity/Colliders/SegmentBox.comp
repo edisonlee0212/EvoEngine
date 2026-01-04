@@ -67,6 +67,8 @@ void process_velocity(in vec3 p, inout vec3 v, inout vec3 angular_v){
 	v = rotate_vec3(obb_rotation, projected_v);*/
 	v *= 1.f - velocity_friction;
 	angular_v *= 1.f - angular_velocity_friction;
+        v *= 0.5f;
+        angular_v *= 0.5f;
 }
 
 void main(){

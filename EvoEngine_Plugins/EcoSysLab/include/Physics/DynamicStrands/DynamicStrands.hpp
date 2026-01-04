@@ -175,12 +175,33 @@ class DynamicStrands {
     float delta = 0.05f;  // defense decay rate
     float ll = 0.5f;      // lignin weight for w
     float lc = 0.5f;      // carbon weight for w
-    float bo = 1.0f;
-    float be = 2.0f;
+    float bo = 1.0f;      // Boundary reaction for rot growth
+    float kc = 0.2f;      // Adjustment from carbon to white rot growth
+    float be = 2.0f;      // Boundary reaction for propogation
+    float brw = 0.5f;     // Base growth rate for white rot regardless of moisture
+    float brb = 0.5f;     // Base growth rate for brown rot regardless of moisture
+    float msr = 0.15f;    // Moisture spread rate
     float lignin_threshold = -1.0f;
-    glm::mat3 matrixAw = glm::mat3(0.1f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
-    glm::mat3 matrixAb = glm::mat3(0.1f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
-    glm::mat3 matrixAc = glm::mat3(0.01f, 0.0f, 0.0f, 0.0f, 0.01f, 0.0f, 0.0f, 0.0f, 0.01f);
+    float rod_strength_factor = 1.0f;
+    float bundle_strength_factor = 1.0f;
+    float boundary_strength_decay_factor = 0.0f;
+    float HL_threshold = 0.4f;
+    float HC_threshold = 0.4f;
+    glm::mat3 matrixAw = glm::mat3(2.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
+    glm::mat3 matrixAb = glm::mat3(2.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
+    glm::mat3 matrixAc = glm::mat3(100.0f, 0.0f, 0.0f, 0.0f, 100.0f, 0.0f, 0.0f, 0.0f, 100.0f);
+    glm::mat3 matrixAm = glm::mat3(2.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
+
+    float pivot_ring_radius = 10.0f;
+
+    float crack_bd_shrinkage_offset = 0.0f;
+    float crack_R_scale = 1.0f;
+    float crack_T_scale = 1.0f;
+
+    int global_parameter = 1;
+    int treespace = 1;
+    int moisture_breaking_rod = 0;
+    int internal_pattern = 0;
 
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
@@ -321,9 +342,16 @@ class DynamicStrands {
     int32_t internal_pattern = 0;
     int32_t cube_pattern = 0;
 
+    glm::vec3 Obstruction_w;
     int32_t prev_inside = 1;
+
+    glm::vec3 Obstruction_b;
     float ground_damping = 1.0f;
+
+    glm::vec3 Obstruction_c;
     int32_t quasi_stable = 0;
+
+    glm::vec3 Obstruction_m;
     float quasi_damping = 1.0f;
 
     GpuParticle particle0{};

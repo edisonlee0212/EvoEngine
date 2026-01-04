@@ -232,6 +232,10 @@ float DistSquared(in vec3 A, in vec3 B) {
 }
 
 vec3 scaleAlong(in vec3 v, in vec3 d, in float k) {
+  if (abs(k-1.0) < 0.0001)
+  {
+        return v;
+  }
   vec3 v_dir = dot(v, d) * d;
   vec3 v_perp = v - v_dir;
   return v_perp + k * v_dir;

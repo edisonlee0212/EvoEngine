@@ -22,7 +22,7 @@ void project_bend_twist_constraint(in float inv_time_step, in vec4 q0, in float 
                                    in float inv_mass_q1, in vec3 alpha, in vec4 rest_darboux_vector,
                                    out vec4 q0_correction, out vec4 q1_correction);
 
-void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in float over_relaxation);
+void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in float over_relaxation, in float crack_bd_shrinkage_offset, in float crack_R_scale, in float crack_T_scale);
 void BundleSegmentRotation(in uint segment_handle, in float inv_time_step, in float over_relaxation);
 void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in float over_relaxation);
 void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step);
@@ -247,7 +247,7 @@ vec2 bend_twist_strain(in vec4 q0, in vec4 q1, in vec4 rest_darboux_vector) {
   return vec2(max(abs(lambda.x), abs(lambda.y)), abs(lambda.z));
 }
 
-void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in float over_relaxation) {
+void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in float over_relaxation, in float crack_bd_shrinkage_offset, in float crack_R_scale, in float crack_T_scale, in uint treespace, in uint internal_pattern) {
   vec3 movement0_sum = vec3(0.0f, 0.0f, 0.0f);
   vec3 movement1_sum = vec3(0.0f, 0.0f, 0.0f);
 
@@ -263,16 +263,38 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
   float RW = segments[segment_handle].RW;
   float moisture = segments[segment_handle].moisture;
   int cube_pattern = segments[segment_handle].cube_pattern;
-  int internal_pattern = segments[segment_handle].internal_pattern;
+
 
   vec2 tree_profile_position = segments[segment_handle].profile_position;
-  // tree_profile_position = vec2(segment0_center_position.z, segment0_center_position.y - 1.0f); //Previous
+
+
+  //vec3 R_normal_world =
+  //    vec3(0.0, segments[segment_handle].profile_position /
+  //                  (length(segments[segment_handle].profile_position) + 0.000001));  // TODO: Rewrite for General Case
+  //vec3 T_normal_world = vec3(0.0, mat2(0.0, -1.0, 1.0, 0.0) * segments[segment_handle].profile_position /
+  //                                    (length(segments[segment_handle].profile_position) + 0.000001));
+  //vec3 L_normal_world = vec3(1.0, 0.0, 0.0);  //for lying log
+
+
+  vec3 L_normal_world = normalize(segments[segment_handle].particle1.x - segments[segment_handle].particle0.x);// for tree (For log case, localX and localY need to be inverse)
+  vec3 up = vec3(0.0, 0.0, 1.0);
+  if (length(dot(L_normal_world, up)) > 0.99) {
+    up = vec3(0.0, -1.0, 0.0);
+  }
+  vec3 localX = -normalize(cross(up, L_normal_world));
+  vec3 localY = normalize(cross(localX, L_normal_world));
   vec3 R_normal_world =
-      vec3(0.0, segments[segment_handle].profile_position /
-                    (length(segments[segment_handle].profile_position) + 0.000001));  // TODO: Rewrite for General Case
-  vec3 T_normal_world = vec3(0.0, mat2(0.0, -1.0, 1.0, 0.0) * segments[segment_handle].profile_position /
-                                      (length(segments[segment_handle].profile_position) + 0.000001));
-  vec3 L_normal_world = vec3(1.0, 0.0, 0.0);
+      normalize(segments[segment_handle].profile_position.x * localX + segments[segment_handle].profile_position.y * localY);
+  vec3 T_normal_world = normalize( - segments[segment_handle].profile_position.y * localX +
+                        segments[segment_handle].profile_position.x * localY);
+
+  //vec2 profile_corrected =
+  //    segments[segment_handle].profile_position / (length(segments[segment_handle].profile_position) + 0.000001);
+  //vec3 R_normal_world =
+  //    vec3(profile_corrected.x, 0.0, profile_corrected.y);  
+  // vec3 T_normal_world = vec3(-profile_corrected.y, 0.0, profile_corrected.x);  
+  // vec3 L_normal_world = vec3(0.0, 1.0, 0.0);  
+
 
   float t2 = inv_time_step * inv_time_step;
 
@@ -296,18 +318,33 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
     vec3 offset_local =
         is_segment0 ? segment_pairs[pair_handle].segment0_offset.xyz : segment_pairs[pair_handle].segment1_offset.xyz;
 
-    bd_factor = min(max(bd, 0.0f), 0.1) * 2.0;
+    //bd_factor = min(max(bd - 0.1f, 0.0f), 0.1) * 2.0; //for log inner crack
+    bd_factor = min(max(bd - crack_bd_shrinkage_offset, 0.0f), 0.1) * 2.0;  // for trunk inner crack
+    //bd_factor = min(max(bd, 0.0f), 0.04) * 5.0;
     float moist_factor = 1.0f - moisture;
-    moist_factor = RW;  // For test only
+    //moist_factor = RW;  // For test only
+    moist_factor = 1.0f;
     if (internal_pattern == 0) {
       moist_factor = 0.0f;
     }
     vec3 offset_world = rotate_vec3(segments[neighbor_segment_handle].q, offset_local);
-    vec3 scaled_offset_world = vec3(0.0f, 0.0f, 0.0f);
+    vec3 scaled_offset_world = offset_world;
 
-    scaled_offset_world = scaleAlong(offset_world, R_normal_world, max(1.0 - 3.0 * bd_factor * moist_factor, 0.0));
-    scaled_offset_world =
-        scaleAlong(scaled_offset_world, T_normal_world, max(1.0 - 3.0 * bd_factor * moist_factor, 0.0));
+    if (treespace == 1)
+    {
+      scaled_offset_world = scaleAlong(scaled_offset_world, R_normal_world,
+                                       max(1.0 - 0.6 * bd_factor * moist_factor * crack_R_scale, 0.0));
+      scaled_offset_world = scaleAlong(scaled_offset_world, T_normal_world,
+                                       max(1.0 - 0.6 * bd_factor * moist_factor * crack_T_scale, 0.0));
+    } else {
+      scaled_offset_world =
+          scaleAlong(scaled_offset_world, vec3(0.0, 0.0, 1.0), max(1.0 - 0.1 * moist_factor * crack_R_scale, 0.0));
+      scaled_offset_world =
+          scaleAlong(scaled_offset_world, vec3(0.0, 1.0, 0.0), max(1.0 - 0.1 * moist_factor * crack_T_scale, 0.0));
+    }
+    
+    //scaled_offset_world = scaleAlong(scaled_offset_world, vec3(0.0, 0.0, 1.0), max(1.0 - 3.0 * bd_factor * moist_factor, 0.0));
+    //scaled_offset_world.z = -offset_world.z;
 
     vec3 target_segment0_center_position = neighbor_segment_center_position + scaled_offset_world;
     // Always enforce inf stiffness.

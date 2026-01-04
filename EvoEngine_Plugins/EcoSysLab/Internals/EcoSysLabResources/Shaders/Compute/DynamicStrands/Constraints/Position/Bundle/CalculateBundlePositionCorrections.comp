@@ -24,8 +24,13 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 	uint skip_index;
 	uint skip_size;
 	uint segment_size;
+        uint treespace;
 	float inv_time_step;
 	float over_relaxation;
+        float crack_bd_factor_offset;
+        float crack_R_scale;
+        float crack_T_scale;
+        uint internal_pattern;
 };
 
 void main(){
@@ -36,6 +41,6 @@ void main(){
 		uint local_index  = laneID + i * WORKGROUP_SIZE;
 		uint segment_index = (baseID + local_index) * skip_size + skip_index;
 		if(segment_index >= segment_size) break;
-		BundleSegmentPosition(segment_index, inv_time_step, over_relaxation);
+		BundleSegmentPosition(segment_index, inv_time_step, over_relaxation, crack_bd_factor_offset, crack_R_scale, crack_T_scale, treespace, internal_pattern);
 	}
 }

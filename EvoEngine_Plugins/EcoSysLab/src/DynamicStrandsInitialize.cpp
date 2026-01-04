@@ -230,6 +230,11 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
 
     segment.shear_stretch_alpha = 1.f / (segment.max_young_modulus * area / segment.rest_length);
 
+    segment.Obstruction_w = glm::vec3(2.f);
+    segment.Obstruction_b = glm::vec3(2.f);
+    segment.Obstruction_c = glm::vec3(100.f);
+    segment.Obstruction_m = glm::vec3(2.f);
+
     StrengthGraph::Input strength_input;
     strength_input.root_distance = root_distance;
     strength_input.polar_distance = segment.profile_polar_coordinate.x;
@@ -263,6 +268,17 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     particle0.user_bound = particle1.user_bound = 1e30f;
     particle0.root_distance = particle1.root_distance = root_distance;
   });
+
+  // Jobs::RunParallelFor(target_strand_segments.size(), [&](const auto i) {
+  //   auto& segment = segments[i];
+  //   const auto& strand_segment_data = target_strand_segment_data_list[i];
+  //   const float root_distance = (segment.particle1.root_distance + segment.particle0.root_distance) * .5f;
+  //   const float distance_to_center = glm::abs(root_distance - 0.2f);
+  //   segment.strength -=
+  //       glm::clamp(ActivationFunction::Sigmoid(0.5f, 0.f, 0.1f,
+  //                                              1.f / 0.1f, distance_to_center),
+  //                  0.f, 1.f);
+  // });
 
   // TODO: does anything here rely on uniformly subdivided strand group?
 
