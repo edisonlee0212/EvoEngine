@@ -101,9 +101,13 @@ class DynamicStrands {
                       const StrandModelSkeleton& strand_model_skeleton,
                       const StrandModelStrandGroup& strand_model_strand_group,
                       DtsStrandGroup& randomly_subdivided_strand_group,
-                      DtsStrandGroup& uniformly_subdivided_strand_group);
+                      DtsStrandGroup& uniformly_subdivided_strand_group,
+                      const std::vector<std::vector<double>>* prescribed_subdivisions_by_strand = nullptr);
 
   void InitMeshingAlgorithm(MeshingType meshing_type);
+
+  /// Create / drop Kinetic and Alpha meshing objects to match @p meshing_type without rebuilding physics buffers.
+  void EnsureMeshingAlgorithms(MeshingType meshing_type);
 
   /**
    * \brief Initializes the strand mesh with given parameters.
@@ -217,7 +221,40 @@ class DynamicStrands {
   std::shared_ptr<DsSegmentCollision> segment_collision;
   std::shared_ptr<DsSegmentCollisionPostStep> collision_post_step;
   std::vector<std::shared_ptr<IDsConstraint>> constraints;
-  std::shared_ptr<DsMeshing> meshing;
+  /// Kinetic Voronoi meshing (bindings 8–9). Present for KineticVoronoi and Both.
+  std::shared_ptr<DsKineticVoronoiMeshing> kinetic_voronoi_meshing;
+  /// Alpha Shape meshing (bindings 10–11). Present for AlphaShape and Both.
+  std::shared_ptr<DsAlphaShapeMeshing> alpha_shape_meshing;
+
+  DsKineticVoronoiMeshing* GetKineticVoronoiMeshing() const {
+    return kinetic_voronoi_meshing.get();
+  }
+  DsAlphaShapeMeshing* GetAlphaShapeMeshing() const {
+    return alpha_shape_meshing.get();
+  }
+  bool HasAnyMeshing() const {
+    return kinetic_voronoi_meshing != nullptr || alpha_shape_meshing != nullptr;
+  }
+
+  template <typename Fn>
+  void ForEachMeshing(Fn&& fn) {
+    if (kinetic_voronoi_meshing) {
+      fn(*kinetic_voronoi_meshing);
+    }
+    if (alpha_shape_meshing) {
+      fn(*alpha_shape_meshing);
+    }
+  }
+
+  template <typename Fn>
+  void ForEachMeshing(Fn&& fn) const {
+    if (kinetic_voronoi_meshing) {
+      fn(*kinetic_voronoi_meshing);
+    }
+    if (alpha_shape_meshing) {
+      fn(*alpha_shape_meshing);
+    }
+  }
 
   void UpdateBindings() const;
 #pragma endregion
@@ -485,6 +522,8 @@ class DynamicStrands {
   std::shared_ptr<Buffer> device_hashed_grid_elements_buffer;
   std::shared_ptr<Buffer> device_hashed_grid_cell_starts_buffer;
   std::shared_ptr<Buffer> device_foliage_buffer;
+  /// Fills unused Kinetic (8–9) / Alpha (10–11) slots so the 0–11 layout stays valid.
+  std::shared_ptr<Buffer> device_meshing_binding_placeholder_buffer;
 
   std::vector<GpuStrand> strands;
   std::vector<GpuSegment> segments;
@@ -535,6 +574,7 @@ class DynamicStrands {
                const std::function<void(int)>& fungus_sub_step_action);
   void FungusStep(const FungusParameters& fungus_parameters, int steps);
   void UpdateGeometry() const;
+  void RenderCompute(bool physics_simulation_active) const;
   static void BuildFoliageRenderingPipelines();
   static void BuildSegmentPairsRenderingPipeline();
   static void ReleaseStaticGpuResources();

@@ -133,6 +133,7 @@ void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_p
     }
   }
 
+  EVOENGINE_LOG("Inserting Particles into Particle map...");
   for (const auto& internode_handle : sorted_internode_list) {
     auto& internode = strand_model_skeleton.RefNode(internode_handle);
     internode.data.particle_map.clear();
@@ -142,6 +143,8 @@ void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_p
     }
     internode.data.strand_count = profile.RefParticles().size();
   }
+  EVOENGINE_LOG("Done!");
+
   strand_model_skeleton.data.num_of_particles = 0;
   for (const auto& internode_handle : sorted_internode_list) {
     auto& internode = strand_model_skeleton.RefNode(internode_handle);

@@ -206,6 +206,49 @@ register_evoengine_app(EcoSysLabApp OFF)
 register_evoengine_app(DigitalAgricultureApp OFF)
 register_evoengine_app(LSystemApp OFF)
 
+# kinDS-only worker EXE (no EvoEngine / Vulkan). Same layout/install path as other apps,
+# but intentionally not register_evoengine_app — it must stay a lightweight companion.
+function(register_kinds_worker_app app_name default_enable)
+	if (NOT ${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
+		return()
+	endif()
+	set(option_name EvoEngine_App-${app_name})
+	option(${option_name} "Build ${app_name} application" ${default_enable})
+	if(NOT ${option_name})
+		return()
+	endif()
+
+	if (WIN32)
+		add_executable(${app_name}
+			${EVOENGINE_APP_SOURCE_DIR}/${app_name}.cpp
+			${EVOENGINE_APP_RESOURCE_DIR}/${app_name}.rc
+			)
+	else()
+		add_executable(${app_name}
+			${EVOENGINE_APP_SOURCE_DIR}/${app_name}.cpp
+			)
+	endif()
+	target_compile_features(${app_name} PRIVATE cxx_std_20)
+	target_include_directories(${app_name} PRIVATE ${EVOENGINE_APP_RESOURCE_DIR})
+	target_link_libraries(${app_name} PRIVATE kinDS)
+	if (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
+		target_compile_options(${app_name} PRIVATE /EHsc /W2 /c)
+	endif()
+
+	# Install beside EvoEngineEditor so SpawnPrecomputeWorker can find it by exe dir.
+	evoengine_deploy_target_runtime(${app_name} "${EVOENGINE_APP_INSTALL_RUNTIME_DIR}")
+	install(TARGETS ${app_name} RUNTIME DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+	evoengine_install_target_pdb(${app_name} "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+	set_property(TARGET ${app_name} PROPERTY FOLDER Executables)
+	message("Enabled [${app_name}] application (kinDS-only).")
+endfunction()
+
+register_kinds_worker_app(KineticMeshPrecomputeApp ON)
+if(TARGET EvoEngineEditor AND TARGET KineticMeshPrecomputeApp)
+	add_dependencies(EvoEngineEditor KineticMeshPrecomputeApp)
+endif()
+
+# Setup an empty application for quicker compilation for testing SDK
 if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	evoengine_install_runtime_payload("${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
 	install(FILES ${EVOENGINE_APP_RESOURCE_DIR}/imgui.ini

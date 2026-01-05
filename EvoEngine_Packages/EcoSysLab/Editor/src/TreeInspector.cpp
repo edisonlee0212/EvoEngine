@@ -45,6 +45,15 @@ bool TreeEditorState::Inspect(InspectorContext& context, Tree& target) {
       // values[5] = glm::vec2(0.04f, 0.0f);     // right tangent offset
       changed = true;
     }
+    if (ImGui::Button("Branchless tree")) {
+      target.strand_model_parameters.end_node_strands = 1600;
+      target.strand_model_parameters.strand_radius_distribution.mean.max_value = 0.004f;
+      target.strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(1.0f, 0.6f, {0, 0}, {1, 1});
+      auto& values = target.strand_model_parameters.strand_radius_distribution.mean.curve.UnsafeGetValues();
+      values[2] = glm::vec2(0.0f, -0.4f);
+      values[3] = glm::vec2(-0.1f, 0.0f);
+      changed = true;
+    }
     if (ImGui::Button("Elm")) {
       target.strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(0.65f, 0.5f, {0, 0}, {1, 1});
       changed = true;

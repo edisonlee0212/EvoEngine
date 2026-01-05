@@ -109,7 +109,7 @@ function(evoengine_configure_editor_package target_name runtime_target)
     target_link_libraries(${target_name} PRIVATE ${dependency}EditorPackage)
   endforeach()
   set_property(TARGET ${runtime_target} PROPERTY EVOENGINE_EDITOR_DEPENDENCIES "${EDITOR_DEPENDS}")
-  list(JOIN EDITOR_DEPENDS "|" editor_dependencies)
+  list(JOIN EDITOR_DEPENDS "," editor_dependencies)
   get_target_property(runtime_binary_dir ${runtime_target} BINARY_DIR)
   target_link_libraries(${target_name} PRIVATE ${runtime_target} EvoEngine_EditorSDK)
   target_include_directories(${target_name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -234,7 +234,7 @@ function(evoengine_runtime_package_platform_supported supported_platforms out_su
 endfunction()
 
 function(evoengine_generate_runtime_package_manifest package_name target_name package_version package_description package_dependencies)
-	string(REPLACE ";" "|" dependencies_encoded "${package_dependencies}")
+	string(REPLACE ";" "," dependencies_encoded "${package_dependencies}")
 	add_custom_command(TARGET ${target_name} POST_BUILD
 		COMMAND ${CMAKE_COMMAND}
 			"-DOUTPUT=$<TARGET_FILE_DIR:${target_name}>/${package_name}.evepackage"

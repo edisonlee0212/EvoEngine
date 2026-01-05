@@ -110,7 +110,12 @@ void StrandModelMeshGenerator::CylindricalMeshing(const StrandModel& strand_mode
   }
 }
 
-void StrandModelMeshGenerator::MeshSmoothing(std::vector<Vertex>& vertices, std::vector<unsigned>& indices) {
+void StrandModelMeshGenerator::MeshSmoothing(std::vector<Vertex>& vertices, std::vector<unsigned>& indices,
+                                             const bool lock_ground_plane, const float factor) {
+  const float blend = glm::clamp(factor, 0.0f, 1.0f);
+  if (blend <= 0.0f) {
+    return;
+  }
   std::vector<std::vector<unsigned>> connectivity;
   connectivity.resize(vertices.size());
   for (int i = 0; i < indices.size() / 3; i++) {
@@ -171,7 +176,15 @@ void StrandModelMeshGenerator::MeshSmoothing(std::vector<Vertex>& vertices, std:
   }
   std::vector<glm::vec3> new_positions;
   std::vector<glm::vec2> new_uvs;
+  new_positions.reserve(vertices.size());
+  new_uvs.reserve(vertices.size());
   for (int i = 0; i < vertices.size(); i++) {
+    // Isolated / hole-isolated vertices: keep position (avoid divide-by-zero).
+    if (connectivity.at(i).empty()) {
+      new_positions.push_back(vertices[i].position);
+      new_uvs.push_back(vertices[i].tex_coord);
+      continue;
+    }
     auto position = glm::vec3(0.0f);
     auto uv = glm::vec2(0.f);
     for (const auto& index : connectivity.at(i)) {
@@ -183,18 +196,25 @@ void StrandModelMeshGenerator::MeshSmoothing(std::vector<Vertex>& vertices, std:
     new_uvs.push_back(uv / static_cast<float>(connectivity.at(i).size()));
   }
   for (int i = 0; i < vertices.size(); i++) {
-    if (vertices[i].position.y > 0.001f)
-      vertices[i].position = new_positions[i];
+    const glm::vec3 blended_position = glm::mix(vertices[i].position, new_positions[i], blend);
+    const glm::vec2 blended_uv = glm::mix(vertices[i].tex_coord, new_uvs[i], blend);
+    if (!lock_ground_plane || vertices[i].position.y > 0.001f)
+      vertices[i].position = blended_position;
     else {
-      vertices[i].position.x = new_positions[i].x;
-      vertices[i].position.z = new_positions[i].z;
+      vertices[i].position.x = blended_position.x;
+      vertices[i].position.z = blended_position.z;
     }
-    vertices[i].tex_coord = new_uvs[i];
+    vertices[i].tex_coord = blended_uv;
   }
 }
 
 void StrandModelMeshGenerator::MeshSmoothing(std::vector<Vertex>& vertices,
-                                             std::vector<std::pair<unsigned, unsigned>>& indices) {
+                                             std::vector<std::pair<unsigned, unsigned>>& indices,
+                                             const bool lock_ground_plane, const float factor) {
+  const float blend = glm::clamp(factor, 0.0f, 1.0f);
+  if (blend <= 0.0f) {
+    return;
+  }
   std::vector<std::vector<unsigned>> connectivity;
   connectivity.resize(vertices.size());
   for (int i = 0; i < indices.size() / 3; i++) {
@@ -255,7 +275,14 @@ void StrandModelMeshGenerator::MeshSmoothing(std::vector<Vertex>& vertices,
   }
   std::vector<glm::vec3> new_positions;
   std::vector<glm::vec2> new_uvs;
+  new_positions.reserve(vertices.size());
+  new_uvs.reserve(vertices.size());
   for (int i = 0; i < vertices.size(); i++) {
+    if (connectivity.at(i).empty()) {
+      new_positions.push_back(vertices[i].position);
+      new_uvs.push_back(vertices[i].tex_coord);
+      continue;
+    }
     auto position = glm::vec3(0.0f);
     auto uv = glm::vec2(0.f);
     for (const auto& index : connectivity.at(i)) {
@@ -267,13 +294,15 @@ void StrandModelMeshGenerator::MeshSmoothing(std::vector<Vertex>& vertices,
     new_uvs.push_back(uv / static_cast<float>(connectivity.at(i).size()));
   }
   for (int i = 0; i < vertices.size(); i++) {
-    if (vertices[i].position.y > 0.001f)
-      vertices[i].position = new_positions[i];
+    const glm::vec3 blended_position = glm::mix(vertices[i].position, new_positions[i], blend);
+    const glm::vec2 blended_uv = glm::mix(vertices[i].tex_coord, new_uvs[i], blend);
+    if (!lock_ground_plane || vertices[i].position.y > 0.001f)
+      vertices[i].position = blended_position;
     else {
-      vertices[i].position.x = new_positions[i].x;
-      vertices[i].position.z = new_positions[i].z;
+      vertices[i].position.x = blended_position.x;
+      vertices[i].position.z = blended_position.z;
     }
-    vertices[i].tex_coord = new_uvs[i];
+    vertices[i].tex_coord = blended_uv;
   }
 }
 

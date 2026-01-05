@@ -26,7 +26,9 @@
 #endif
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
+#include "DsAlphaShapeMeshing.hpp"
 #include "DsColliders.hpp"
+#include "DsKineticVoronoiMeshing.hpp"
 #include "DsOperators.hpp"
 #include "DynamicStrandsDemo.hpp"
 #include "DynamicStrandsVisualizationParameters.hpp"
@@ -453,7 +455,30 @@ void EcoSysLabEditorLayer::DrawDynamicStrandsSettingsGui(const std::shared_ptr<E
     runtime->dynamic_strands_settings_.remaining_geometry_step++;
   }
   ImGui::Checkbox("Rendering", &runtime->dynamic_strands_settings_.enable_rendering);
+  enum class ActiveMeshVisualization : int { Kinetic = 0, Alpha = 1 };
+  static int active_mesh_visualization = static_cast<int>(ActiveMeshVisualization::Kinetic);
+  bool has_kinetic_meshing = false;
+  bool has_alpha_meshing = false;
+  if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
+    if (const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+        dts_entities) {
+      for (const auto& entity : *dts_entities) {
+        const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(entity).lock();
+        if (!dts || !dts->dynamic_strands)
+          continue;
+        has_kinetic_meshing |= dts->dynamic_strands->GetKineticVoronoiMeshing() != nullptr;
+        has_alpha_meshing |= dts->dynamic_strands->GetAlphaShapeMeshing() != nullptr;
+      }
+    }
+  }
   if (ImGui::TreeNode("Rendering settings")) {
+    if (has_kinetic_meshing && has_alpha_meshing) {
+      ImGui::TextUnformatted("Active mesh visualization");
+      ImGui::RadioButton("Kinetic Voronoi", &active_mesh_visualization,
+                         static_cast<int>(ActiveMeshVisualization::Kinetic));
+      ImGui::SameLine();
+      ImGui::RadioButton("Alpha Shape", &active_mesh_visualization, static_cast<int>(ActiveMeshVisualization::Alpha));
+    }
     if (ImGui::TreeNode("Alpha Shape Meshing Settings")) {
       DynamicStrandsMeshingInspector::DrawDsAlphaShapeMeshingSettings(editor_layer);
       ImGui::TreePop();
@@ -487,6 +512,17 @@ void EcoSysLabEditorLayer::DrawDynamicStrandsSettingsGui(const std::shared_ptr<E
     }
 
     ImGui::TreePop();
+  }
+
+  // Keep draw enable flags aligned with the selected visualization whenever both
+  // backends are active (not only on radio click — otherwise both render at startup).
+  // Only toggle the primary meshes here; splinters/strands/visualization checkboxes
+  // keep their own state and are gated via secondary_rendering_allowed.
+  if (has_kinetic_meshing && has_alpha_meshing) {
+    const bool show_kinetic = active_mesh_visualization == static_cast<int>(ActiveMeshVisualization::Kinetic);
+    DsKineticVoronoiMeshing::RefRenderSettings().segment_meshlet_render_parameters.enabled = show_kinetic;
+    DsAlphaShapeMeshing::RefRenderSettings().branches_render_parameters.enabled = !show_kinetic;
+    DsAlphaShapeMeshing::RefRenderSettings().secondary_rendering_allowed = !show_kinetic;
   }
 
   ImGui::Checkbox("Visualization", &dynamic_strands_settings_.enable_visualization);

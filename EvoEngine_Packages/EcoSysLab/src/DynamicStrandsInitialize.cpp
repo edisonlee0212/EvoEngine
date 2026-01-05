@@ -12,8 +12,9 @@
 using namespace eco_sys_lab_package;
 
 void DynamicStrands::InitializeMesh(const DynamicStrandsInitializeParameters& initialize_parameters) {
-  // InitMeshingAlgorithm(initialize_parameters.meshing_type);
-  meshing->InitializationGraphicsPipeline(initialize_parameters);
+  ForEachMeshing([&](DsMeshing& m) {
+    m.InitializationGraphicsPipeline(initialize_parameters);
+  });
 }
 
 void DynamicStrands::InitializeData(std::mt19937& random_engine,
@@ -21,91 +22,100 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
                                     const StrandModelSkeleton& strand_model_skeleton,
                                     const StrandModelStrandGroup& strand_model_strand_group,
                                     DtsStrandGroup& randomly_subdivided_strand_group,
-                                    DtsStrandGroup& uniformly_subdivided_strand_group) {
+                                    DtsStrandGroup& uniformly_subdivided_strand_group,
+                                    const std::vector<std::vector<double>>* prescribed_subdivisions_by_strand) {
   Clear();
 
   constraints.emplace_back(std::make_shared<DsStiffRod>());
   constraints.emplace_back(std::make_shared<DsBundle>());
   constraints.emplace_back(std::make_shared<DsLeafAttachment>());
 
-  strand_model_strand_group.Subdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
-      randomly_subdivided_strand_group,
-      [&]() {
-        return Random::Uniform(random_engine, initialize_parameters.min_segment_length,
-                               initialize_parameters.max_segment_length);
-      },
-      [](StrandHandle src_handle, DtsStrandData& strand_data) {
-      },
-      [&](const float start_root_distance, const float end_root_distance, const StrandSegmentHandle src_handle,
-          const uint32_t original_segment_index, const float segment_t, DtsStrandSegmentData& segment_data,
-          const uint32_t sub_segment_index) {
-        const auto& src_segment_data = strand_model_strand_group.PeekStrandSegmentData(src_handle);
-        segment_data.node_handle = src_segment_data.node_handle;
-        segment_data.original_segment_t = segment_t;
-        segment_data.original_segment_handle = src_handle;
-        segment_data.original_segment_index = original_segment_index;
-        segment_data.segment_index = sub_segment_index;
-        segment_data.start_root_distance = start_root_distance;
-        segment_data.end_root_distance = end_root_distance;
-        const auto& strand_segment = strand_model_strand_group.PeekStrandSegment(src_handle);
-        const auto& strand = strand_model_strand_group.PeekStrand(strand_segment.GetStrandHandle());
-        const auto& strand_segment_handles = strand.PeekStrandSegmentHandles();
-        glm::vec2 p0, p1, p3;
-        const glm::vec2 p2 = src_segment_data.profile_position;
-        float d0, d1, d3;
-        const float d2 = src_segment_data.initial_distance_to_boundary;
-        if (src_handle == strand_segment_handles.front()) {
-          d1 = d2;
-          d0 = d1 * 2.0f - d2;
+  const auto strand_data_action = [](StrandHandle /*src_handle*/, DtsStrandData& /*strand_data*/) {
+  };
+  const auto segment_data_action = [&](const float start_root_distance, const float end_root_distance,
+                                       const StrandSegmentHandle src_handle, const uint32_t original_segment_index,
+                                       const float segment_t, DtsStrandSegmentData& segment_data,
+                                       const uint32_t sub_segment_index) {
+    const auto& src_segment_data = strand_model_strand_group.PeekStrandSegmentData(src_handle);
+    segment_data.node_handle = src_segment_data.node_handle;
+    segment_data.original_segment_t = segment_t;
+    segment_data.original_segment_handle = src_handle;
+    segment_data.original_segment_index = original_segment_index;
+    segment_data.segment_index = sub_segment_index;
+    segment_data.start_root_distance = start_root_distance;
+    segment_data.end_root_distance = end_root_distance;
+    const auto& strand_segment = strand_model_strand_group.PeekStrandSegment(src_handle);
+    const auto& strand = strand_model_strand_group.PeekStrand(strand_segment.GetStrandHandle());
+    const auto& strand_segment_handles = strand.PeekStrandSegmentHandles();
+    glm::vec2 p0, p1, p3;
+    const glm::vec2 p2 = src_segment_data.profile_position;
+    float d0, d1, d3;
+    const float d2 = src_segment_data.initial_distance_to_boundary;
+    if (src_handle == strand_segment_handles.front()) {
+      d1 = d2;
+      d0 = d1 * 2.0f - d2;
 
-          p1 = p2;
-          p0 = p1 * 2.0f - p2;
-        } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
-          const auto& prev_segment_data =
-              strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
-          d0 = d2;
-          d1 = prev_segment_data.initial_distance_to_boundary;
+      p1 = p2;
+      p0 = p1 * 2.0f - p2;
+    } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
+      const auto& prev_segment_data = strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
+      d0 = d2;
+      d1 = prev_segment_data.initial_distance_to_boundary;
 
-          p0 = p2;
-          p1 = prev_segment_data.profile_position;
-        } else {
-          const auto& prev_segment = strand_model_strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
-          const auto& prev_segment_data =
-              strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
-          const auto& prev_prev_segment_data =
-              strand_model_strand_group.PeekStrandSegmentData(prev_segment.GetPrevHandle());
-          d0 = prev_prev_segment_data.initial_distance_to_boundary;
-          d1 = prev_segment_data.initial_distance_to_boundary;
+      p0 = p2;
+      p1 = prev_segment_data.profile_position;
+    } else {
+      const auto& prev_segment = strand_model_strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
+      const auto& prev_segment_data = strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
+      const auto& prev_prev_segment_data =
+          strand_model_strand_group.PeekStrandSegmentData(prev_segment.GetPrevHandle());
+      d0 = prev_prev_segment_data.initial_distance_to_boundary;
+      d1 = prev_segment_data.initial_distance_to_boundary;
 
-          p0 = prev_prev_segment_data.profile_position;
-          p1 = prev_segment_data.profile_position;
-        }
-        if (src_handle == strand_segment_handles.back()) {
-          d3 = d2 * 2.0f - d1;
+      p0 = prev_prev_segment_data.profile_position;
+      p1 = prev_segment_data.profile_position;
+    }
+    if (src_handle == strand_segment_handles.back()) {
+      d3 = d2 * 2.0f - d1;
 
-          p3 = p2 * 2.0f - p1;
-        } else {
-          const auto& next_segment_data =
-              strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetNextHandle());
-          d3 = next_segment_data.initial_distance_to_boundary;
+      p3 = p2 * 2.0f - p1;
+    } else {
+      const auto& next_segment_data = strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetNextHandle());
+      d3 = next_segment_data.initial_distance_to_boundary;
 
-          p3 = next_segment_data.profile_position;
-        }
-        segment_data.initial_distance_to_boundary = Strands::CubicInterpolation(d0, d1, d2, d3, segment_t);
-        segment_data.profile_position = Strands::CubicInterpolation(p0, p1, p2, p3, segment_t);
-        const auto calculate_polar_coordinates = [](const glm::vec2& profile_position) {
-          const auto r = glm::length(profile_position);
-          if (r <= glm::epsilon<float>()) {
-            return glm::vec2(0.0f);
-          }
-          if (profile_position.y >= 0)
-            return glm::vec2(r, glm::acos(profile_position.x / r));
-          return glm::vec2(r, -glm::acos(profile_position.x / r));
-        };
+      p3 = next_segment_data.profile_position;
+    }
+    segment_data.initial_distance_to_boundary = Strands::CubicInterpolation(d0, d1, d2, d3, segment_t);
+    segment_data.profile_position = Strands::CubicInterpolation(p0, p1, p2, p3, segment_t);
+    const auto calculate_polar_coordinates = [](const glm::vec2& profile_position) {
+      const auto r = glm::length(profile_position);
+      if (r <= glm::epsilon<float>()) {
+        return glm::vec2(0.0f);
+      }
+      if (profile_position.y >= 0)
+        return glm::vec2(r, glm::acos(profile_position.x / r));
+      return glm::vec2(r, -glm::acos(profile_position.x / r));
+    };
 
-        segment_data.profile_polar_coordinate = calculate_polar_coordinates(segment_data.profile_position);
-      },
-      (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
+    segment_data.profile_polar_coordinate = calculate_polar_coordinates(segment_data.profile_position);
+  };
+  const float subdiv_tolerance =
+      (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f;
+
+  if (prescribed_subdivisions_by_strand && !prescribed_subdivisions_by_strand->empty()) {
+    strand_model_strand_group.SubdivideAtSubdivisionParameters<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
+        randomly_subdivided_strand_group, *prescribed_subdivisions_by_strand,
+        static_cast<float>(initialize_parameters.uniform_subdivision), strand_data_action, segment_data_action,
+        subdiv_tolerance);
+  } else {
+    strand_model_strand_group.Subdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
+        randomly_subdivided_strand_group,
+        [&]() {
+          return Random::Uniform(random_engine, initialize_parameters.min_segment_length,
+                                 initialize_parameters.max_segment_length);
+        },
+        strand_data_action, segment_data_action, subdiv_tolerance);
+  }
 
   randomly_subdivided_strand_group.RandomAssignColor();
 
@@ -571,8 +581,11 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     nodes[i].prev_handle = skeleton_nodes[i].GetParentHandle();
   }
 
-  meshing->InitData(initialize_parameters, strand_model_skeleton, strand_model_strand_group,
-                    randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
+  // Kinetic first so optional pair recompute finishes before Alpha consumes pairs.
+  ForEachMeshing([&](DsMeshing& m) {
+    m.InitData(initialize_parameters, strand_model_skeleton, strand_model_strand_group,
+               randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
+  });
 
   // compute pair properties after meshing in case we recomputed them
   EVOENGINE_LOG("Computing pair properties...");

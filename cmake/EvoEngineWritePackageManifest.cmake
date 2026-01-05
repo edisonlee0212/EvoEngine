@@ -47,7 +47,7 @@ file(APPEND "${OUTPUT}"
 file(APPEND "${OUTPUT}" "dependencies:\n")
 
 if (DEPENDENCIES)
-	string(REPLACE "|" ";" dependency_list "${DEPENDENCIES}")
+	string(REPLACE "," ";" dependency_list "${DEPENDENCIES}")
 	foreach(dependency_name IN LISTS dependency_list)
 		if (NOT dependency_name STREQUAL "")
 			file(APPEND "${OUTPUT}" "  - ${dependency_name}\n")

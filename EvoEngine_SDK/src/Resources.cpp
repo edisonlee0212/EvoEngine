@@ -1,5 +1,6 @@
 #include "Resources.hpp"
 
+#include "Application.hpp"
 #include "Cubemap.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GeometryStorage.hpp"
@@ -169,6 +170,9 @@ void Resources::Initialize() {
   resources.resources_.clear();
   resources.current_max_handle_ = Handle(1);
   resources.LoadPrimitives();
+  if (!ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    return;
+  }
 
   GeometryStorage::DeviceSync();
   GeometryStorage::WaitForPendingUploads();

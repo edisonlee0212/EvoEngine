@@ -1,6 +1,7 @@
 #include "DynamicTreeStrands.hpp"
 #include "Application.hpp"
 #include "BasicBarkDescriptor.hpp"
+#include "BufferExporter.hpp"
 #include "DsAlphaShapeMeshing.hpp"
 #include "DsConstraints.hpp"
 #include "DsKineticVoronoiMeshing.hpp"
@@ -11,6 +12,7 @@
 #include "DynamicStrandsStageSchedule.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 #include "Tree.hpp"
+#include "Utilities.hpp"
 #include "VoronoiMeshGenerator.hpp"
 using namespace eco_sys_lab_package;
 
@@ -35,7 +37,12 @@ void DynamicTreeStrands::UpdateDynamicStrands(DtsStrandGroup& randomly_subdivide
     }
   }
 
-  std::mt19937 random_engine(seed);
+  std::mt19937 random_engine;
+  if (fixed_subdivision_seed) {
+    random_engine = std::mt19937(static_cast<uint32_t>(seed));
+  } else {
+    random_engine = std::mt19937(std::random_device{}());
+  }
 
   transform_pivots.clear();
   const auto owner = GetOwner();
@@ -44,9 +51,12 @@ void DynamicTreeStrands::UpdateDynamicStrands(DtsStrandGroup& randomly_subdivide
   // initialize_parameters.min_segment_length = 0.005f;
   // initialize_parameters.max_segment_length = 0.01f;
 
+  dynamic_strands->EnsureMeshingAlgorithms(initialize_parameters.meshing_type);
+  const std::vector<std::vector<double>>* prescribed =
+      prescribed_subdivisions_by_strand.empty() ? nullptr : &prescribed_subdivisions_by_strand;
   dynamic_strands->InitializeData(random_engine, initialize_parameters, strand_model.strand_model_skeleton,
                                   strand_model_strand_group, randomly_subdivided_strand_group,
-                                  uniformly_subdivided_strand_group);
+                                  uniformly_subdivided_strand_group, prescribed);
   if (initialized_from_tree) {
     CreateStaticRoot();
   }
@@ -73,6 +83,7 @@ void DynamicTreeStrands::CreateStaticRoot() {
 
 void eco_sys_lab_package::SerializeDynamicTreeStrands(YAML::Emitter& out, const DynamicTreeStrands& target) {
   out << YAML::Key << "seed" << YAML::Value << target.seed;
+  out << YAML::Key << "fixed_subdivision_seed" << YAML::Value << target.fixed_subdivision_seed;
   out << YAML::Key << "enable_physics" << YAML::Value << target.enable_physics;
   out << YAML::Key << "limit_strand_length" << YAML::Value << target.limit_strand_length;
   out << YAML::Key << "max_strand_length" << YAML::Value << target.max_strand_length;
@@ -94,6 +105,8 @@ void eco_sys_lab_package::SerializeDynamicTreeStrands(YAML::Emitter& out, const 
 void eco_sys_lab_package::DeserializeDynamicTreeStrands(const YAML::Node& in, DynamicTreeStrands& target) {
   if (in["seed"])
     target.seed = in["seed"].as<int>();
+  if (in["fixed_subdivision_seed"])
+    target.fixed_subdivision_seed = in["fixed_subdivision_seed"].as<bool>();
   if (in["initialized_from_tree"])
     target.initialized_from_tree = in["initialized_from_tree"].as<bool>();
 
@@ -195,6 +208,9 @@ void DynamicTreeStrands::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
 void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings& settings) {
+  DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description =
+      settings.meshing_buffer_description.empty() ? "created from DynamicTreeStrands BoardExperimentSetup"
+                                                  : settings.meshing_buffer_description;
   auto& strand_model_skeleton = strand_model.strand_model_skeleton;
   strand_model_skeleton = {1};
   auto& strand_group = strand_model_skeleton.data.strand_group;
@@ -202,11 +218,14 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 
   auto& root_node = strand_model_skeleton.RefNode(0);
   root_node.info.global_position = glm::vec3(0.0f);
+  root_node.info.length = settings.segment_length;
   root_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
   for (int z = 1; z < settings.rod_dimension.z; z++) {
     const auto new_node_handle = strand_model_skeleton.Extend(z - 1, false);
     auto& new_node = strand_model_skeleton.RefNode(new_node_handle);
-    new_node.info.global_position = glm::vec3(settings.segment_length * (static_cast<float>(z) + 1.f), 0.0f, 0.0f);
+    // Proximal end of this internode (distal end is global_position + length along front).
+    new_node.info.global_position = glm::vec3(settings.segment_length * static_cast<float>(z), 0.0f, 0.0f);
+    new_node.info.length = settings.segment_length;
     new_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
   }
   strand_model_skeleton.SortLists();
@@ -496,6 +515,9 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 
 void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& settings) {
   // TODO: move dynamic strands initialization here
+  DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description =
+      settings.meshing_buffer_description.empty() ? "created from DynamicTreeStrands LogExperimentSetup"
+                                                  : settings.meshing_buffer_description;
 
   auto& strand_model_skeleton = strand_model.strand_model_skeleton;
   strand_model_skeleton = {1};
@@ -503,16 +525,24 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   const float log_length = static_cast<float>(settings.rod_segment_count) * settings.segment_length;
   auto& root_node = strand_model_skeleton.RefNode(0);
   root_node.info.global_position = glm::vec3(0.0f);
+  root_node.info.length = settings.segment_length;
   root_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
   for (int z = 1; z < settings.rod_segment_count; z++) {
     const auto new_node_handle = strand_model_skeleton.Extend(z - 1, false);
     auto& new_node = strand_model_skeleton.RefNode(new_node_handle);
-    new_node.info.global_position = glm::vec3(settings.segment_length * (static_cast<float>(z) + 1.f), 0.0f, 0.0f);
+    // Proximal end of this internode (distal end is global_position + length along front).
+    new_node.info.global_position = glm::vec3(settings.segment_length * static_cast<float>(z), 0.0f, 0.0f);
+    new_node.info.length = settings.segment_length;
     new_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
   }
   strand_model_skeleton.SortLists();
   strand_model_skeleton.CalculateRegulatedGlobalRotation();
-  std::mt19937 random_engine(seed);
+  std::mt19937 random_engine;
+  if (fixed_subdivision_seed) {
+    random_engine = std::mt19937(static_cast<uint32_t>(seed));
+  } else {
+    random_engine = std::mt19937(std::random_device{}());
+  }
 
   StrandModelProfile<CellParticlePhysicsData> profile;
   for (int i = 0; i < settings.rod_size; i++) {
@@ -1078,13 +1108,51 @@ void DynamicTreeStrands::ClearStrandParticles() const {
   }
 }
 
+void DynamicTreeStrands::Reset() {
+  const auto scene = GetScene();
+  const auto owner = GetOwner();
+  if (scene && scene->IsEntityValid(owner)) {
+    // Copy children first — DeleteEntity mutates the child list.
+    const auto children = scene->GetChildren(owner);
+    for (const auto& child : children) {
+      if (!scene->IsEntityValid(child)) {
+        continue;
+      }
+      const auto name = scene->GetEntityName(child);
+      if (name == "Branch Strand Particles" || name == "Left Pivot" || name == "Right Pivot" ||
+          name.rfind("Intersection Meshes", 0) == 0) {
+        scene->DeleteEntity(child);
+      }
+    }
+  }
+
+  point_pivots.clear();
+  axis_pivots.clear();
+  transform_pivots.clear();
+  strand_model = {};
+  initialized_from_tree = false;
+  foliage_rendering_instance_handle = Handle();
+
+  if (dynamic_strands) {
+    dynamic_strands->Clear();
+    dynamic_strands->Upload();
+    dynamic_strands->UpdateBindings();
+  }
+
+  EVOENGINE_LOG("DynamicTreeStrands reset: cleared strands, meshlets, pivots, and related child entities.");
+}
+
 void DynamicTreeStrands::InteractionStep() const {
   if (box_selection_operator->enabled) {
     box_selection_operator->Execute(dynamic_strands);
   }
 }
 
-void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree) {
+void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree,
+                                            const std::string& meshing_buffer_description) {
+  DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description =
+      meshing_buffer_description.empty() ? "created from DynamicTreeStrands InitializeFromTree"
+                                         : meshing_buffer_description;
   tree->BuildStrandModel();
   if (const auto td = tree->tree_descriptor_ref.Get<TreeDescriptor>()) {
     initialize_parameters.foliage_descriptor = td->foliage_descriptor;

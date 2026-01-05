@@ -1,8 +1,11 @@
 #pragma once
-
+#include <cstdint>
+#include <unordered_map>
+#include <vector>
 #include "DsMeshing.hpp"
 #include "RenderLayer.hpp"
 #include "RenderParameters.hpp"
+#include "VolumeMeasureGpu.hpp"
 
 #ifdef USE_CGAL
 #  include <CGAL/Delaunay_triangulation_3.h>
@@ -47,7 +50,7 @@ class DsAlphaShapeMeshing : public DsMeshing {
   void InitializationGraphicsPipeline(const DynamicStrandsInitializeParameters& initialize_parameters) override;
 
   void BuildRenderComputePipelines() override;
-  void UpdateGeometry() const override;
+  void RenderCompute(bool physics_simulation_active) const override;
   void BuildRenderingPipelines() override;
 
   void Download() override;
@@ -62,6 +65,10 @@ class DsAlphaShapeMeshing : public DsMeshing {
                  const DynamicStrandsInitializeParameters& initialize_parameters,
                  const DynamicStrandsVisualizationParameters& visualization_parameters) override;
 
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  void Stats(const std::shared_ptr<EditorLayer>& editor_layer);
+  static void OnInspectRenderSettings(const std::shared_ptr<EditorLayer>& editor_layer);
+
   // everything specific to alpha shape meshing
   struct RenderSettings {
     BranchesRenderParameters branches_render_parameters{};             ///< Rendering parameters for branches.
@@ -69,12 +76,15 @@ class DsAlphaShapeMeshing : public DsMeshing {
     SmallSegmentsVisualizationRenderParameters
         small_segments_visualization_render_parameters{};  ///< Visualization settings for small segments.
     bool visualization_rendering = false;
+    /// When false (e.g. Kinetic active in dual-mesh mode), skip splinter/strand registration without
+    /// changing the user checkbox preferences for those features.
+    bool secondary_rendering_allowed = true;
+    /// Per-frame GPU cumulative volume → CSV (absolute + %% of initial).
+    bool enable_volume_measure = false;
     DsAlphaShapeVisualizationParameters meshing_visualization_parameters;
   };
 
   static RenderSettings& RefRenderSettings();
-
- private:
   static RenderSettings render_settings;
 
  public:
@@ -152,6 +162,34 @@ class DsAlphaShapeMeshing : public DsMeshing {
 
   std::shared_ptr<Buffer> device_uniform_particles_buffer;
   std::shared_ptr<Buffer> device_delaunay_tetrahedrons_buffer;
+  std::shared_ptr<Buffer> device_near_degenerate_buffer;
+  std::shared_ptr<Buffer> device_tet_current_volumes_buffer;
+  std::shared_ptr<Buffer> device_tet_initial_volumes_buffer;
+  /// One result buffer per frames-in-flight slot (safe delayed readback).
+  std::vector<std::shared_ptr<Buffer>> device_volume_result_buffers;
+
+  inline static std::shared_ptr<ComputePipeline> volume_measure_pipeline{};
+
+  /// Profile-space bark boundary per bundle; used for interior UV ray tests (CPU export + pre-upload prep).
+  std::unordered_map<uint64_t, std::vector<glm::dvec2>> profile_bundle_boundary_polygons_;
+
+  /// Rest-pose tet volumes captured after GPU Interior/BarkFlag init (parallel to @ref delaunay_tetrahedrons).
+  /// Near-degenerate-at-init inside tets keep their measured absolute volume here (still flagged in
+  /// @ref initial_near_degenerate_tets_ and omitted from @ref initial_tet_cumulative_volume_).
+  std::vector<double> initial_tet_volumes_;
+  /// 1 = nearly degenerate at initialization (rest pose); omitted from heatmap / cumulative baselines.
+  std::vector<uint8_t> initial_near_degenerate_tets_;
+  double initial_tet_cumulative_volume_ = 0.0;
+  bool has_initial_tet_volumes_ = false;
+
+  /// Snapshot rest-pose tet volumes and classify near-degenerate tets for later heatmap lookups.
+  void CaptureInitialTetrahedronVolumes();
+
+  void DispatchVolumeMeasure(VkCommandBuffer vk_command_buffer) const;
+  void ReadbackVolumeMeasureToCsv() const;
+
+  mutable VolumeMeasureCsvLogger volume_measure_csv_{};
+  mutable uint32_t volume_measure_frame_counter_ = 0;
 
   Handle mesh_wireframe_rendering_instance_handle;  ///< Handle for mesh wireframe rendering instance.
   Handle small_segments_rendering_instance_handle;  ///< Handle for small segment rendering instance.
@@ -166,6 +204,8 @@ class DsAlphaShapeMeshing : public DsMeshing {
   void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
   void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false,
                        size_t min_bundle_size = 3);
+
+  void BuildProfileBundleBoundaryPolygons();
 
   // registration
 

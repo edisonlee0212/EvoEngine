@@ -59,6 +59,9 @@ bool eco_sys_lab_package::InspectSettings(BranchesRenderParameters& target,
       changed = true;
     if (ImGui::RadioButton("Initial Angle", (int*)&target.vertex_colors, BranchesRenderParameters::InitAngle))
       changed = true;
+    if (ImGui::RadioButton("Volume change heatmap", (int*)&target.vertex_colors,
+                           BranchesRenderParameters::VolumeChangeHeatmap))
+      changed = true;
 
     ImGui::TreePop();
   }
@@ -85,6 +88,8 @@ bool eco_sys_lab_package::InspectSettings(BranchesRenderParameters& target,
   }
 
   if (ImGui::DragFloat("V-coordinate multiplier", &target.v_multiplier, 0.001f, 0.0f, 100.0f))
+    changed = true;
+  if (ImGui::DragFloat("Interior texture diameter", &target.texture_diameter, 0.01f, 0.1f, 2.0f))
     changed = true;
 
   if (ImGui::Checkbox("Persistent damage", &target.persistent_damage)) {
