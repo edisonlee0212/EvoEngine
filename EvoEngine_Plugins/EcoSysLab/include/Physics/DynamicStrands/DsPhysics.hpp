@@ -59,6 +59,7 @@ class DsFungus {
     float brw = 0.5f;
     float brb = 0.5f;
     float msr = 0.15f;
+    float bd_offset = 0.02f;
   };
 
   inline static std::shared_ptr<ComputePipeline>
@@ -210,10 +211,14 @@ class DsStructuralDamage {
     float bundle_strength_factor;
     float boundary_strength_decay_factor;
     uint32_t moisture_breaking_rod;
+
+    uint32_t pull_cubical = 0;
   };
 
   struct LeafBreakingPushConstant {
     uint32_t leaf_size = 0;
+    uint32_t leaf_break_from_moisture = 0;
+    float leaf_break_threshold;
   };
 
   inline static std::shared_ptr<ComputePipeline> segment_pair_breaking_pipeline;

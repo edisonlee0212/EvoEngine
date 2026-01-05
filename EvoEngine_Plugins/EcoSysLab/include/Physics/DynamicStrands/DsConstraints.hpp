@@ -133,6 +133,8 @@ class DsPivotTransform final : public IDsConstraint {
   struct SegmentUpdatePushConstant {
     uint32_t commands_size = 0;
     float ring_radius = 10.0f;
+    float HC_threshold = 0.4f;
+    float HL_threshold = 0.4f;
   };
 
   inline static std::shared_ptr<ComputePipeline> segment_update_pipeline;

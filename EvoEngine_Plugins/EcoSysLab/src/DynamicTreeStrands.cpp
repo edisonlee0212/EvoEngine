@@ -182,8 +182,9 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     Region INIT{0.0f, 100.0f, -glm::pi<float>(), glm::pi<float>(), 0.0f, 1.0f};
     std::vector<Region> regions;
-    Node_tilt* root = build_bsp_tilt(INIT, /*N=*/12800, 0.1f, 1.8f, 10,
-                                     /*tilt_eps=*/0.0f, /*enable_tilt=*/false, regions, 1500.f, 3000.f);
+    Node_tilt* root = build_bsp_tilt(INIT, /*N=*/800, 0.1f, 1.8f, 10,
+                                     /*tilt_eps=*/0.0f, /*enable_tilt=*/false, regions, 1500.f,
+                                     3000.f);  // ZY: 800 for pull operator test
 
     std::mt19937 rng(std::random_device{}());
     int K = (int)regions.size();
@@ -198,7 +199,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       //                            segment.particle0.x[1] * 0.5 + 0.1f};
       std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
                                  segment.particle0.root_distance * 0.5f + 0.1f};
-      int id = classify_point_jitter_axis(pt, root, 0.0f, 0xA53A5F1Bu, true);
+      int id = classify_point_jitter_axis(pt, root, 0.0f, 0xA53A5F1Bu, false);  // ZY:false for pull operator test
       segment.color = region_colors[id];
     });
 

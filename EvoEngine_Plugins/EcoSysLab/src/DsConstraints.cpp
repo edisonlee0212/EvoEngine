@@ -293,6 +293,8 @@ void DsPivotTransform::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
     SegmentUpdatePushConstant push_constant;
     push_constant.commands_size = commands.size();
     push_constant.ring_radius = physics_parameters.pivot_ring_radius;
+    push_constant.HC_threshold = physics_parameters.HC_threshold;
+    push_constant.HL_threshold = physics_parameters.HL_threshold;
     const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
 
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {

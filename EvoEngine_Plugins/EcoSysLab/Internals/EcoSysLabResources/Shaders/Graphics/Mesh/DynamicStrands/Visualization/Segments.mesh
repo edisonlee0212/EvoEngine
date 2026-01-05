@@ -116,23 +116,21 @@ void main() {
   } else if (color_mode == 8) {
     color = segments[segment.strand_handle].color;
   } else if (color_mode == 9) {  // fungus density
-    color = vec4(0.0, clamp(segments[segment_id].RB, 0.0, 1.0), clamp(segments[segment_id].RB, 0.0, 1.0), 1.0);
-    // color = vec4(clamp(segments[segment_id].HL, 0.0, 1.0), clamp(segments[segment_id].HL, 0.0, 1.0), 0.0, 1.0);
-    // color = vec4(0.2, 0.2, 0.2, 1.0) * float(segments[segment_id].reach_ground);
-    // color = vec4(vec3(1.0, 1.0, 1.0) *
-    //                  (clamp(segments[segment_id].profile_polar_coordinate.y / (2.0 * 3.1415926), -0.5, 0.5) + 0.5),
-    //              1.0);
-    // color = vec4(vec3(1.0, 1.0, 1.0) * (clamp(segments[segment_id].profile_position.x / 80.0, -0.5, 0.5) +
-    // 0.5), 1.0);
+    color = vec4(0.0, clamp(segments[segment_id].RW, 0.0, 1.0), clamp(segments[segment_id].RW, 0.0, 1.0), 1.0);
+    //color = vec4(clamp(segments[segment_id].HL, 0.0, 1.0), clamp(segments[segment_id].HL, 0.0, 1.0), 0.0, 1.0);
+    //color = vec4(0.2, 0.2, 0.2, 1.0) * float(segments[segment_id].reach_ground);
+    //color = vec4(vec3(1.0, 1.0, 1.0) *
+    //                 (clamp(segments[segment_id].profile_polar_coordinate.y / (2.0 * 3.1415926), -0.5, 0.5) + 0.5),
+    //             1.0);
+    //color = vec4(vec3(1.0, 1.0, 1.0) * (clamp(segments[segment_id].profile_position.x / 80.0, -0.5, 0.5) + 0.5), 1.0);
   } else if (color_mode == 10) {  // health
-    color = vec4(clamp(segments[segment_id].HC, 0.0, 1.0), clamp(segments[segment_id].HC, 0.0, 1.0), 0.0, 1.0);
-    // color = vec4(0.2, 0.2, 0.2, 1.0) * float(segments[segment_id].reach_ground);
-    // color = vec4(clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0),
-    // clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0),
-    // clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0), 1.0);
-    // color = vec4(vec3(1.0, 1.0, 1.0) * (clamp(segments[segment_id].profile_position.y / 80.0, -0.5, 0.5) +
-    // 0.5), 1.0); color = vec4(vec3(1.0, 1.0, 1.0) * (clamp(segments[segment_id].boundary_distance / 0.3,
-    // 0.0, 1.0)), 1.0);
+    color = vec4(clamp(segments[segment_id].HL, 0.0, 1.0), clamp(segments[segment_id].HL, 0.0, 1.0), 0.0, 1.0);
+    //color = vec4(0.2, 0.2, 0.2, 1.0) * float(segments[segment_id].reach_ground);
+    //color = vec4(clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0),
+                  //clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0),
+                  //clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0), 1.0);
+    //color = vec4(vec3(1.0, 1.0, 1.0) * (clamp(segments[segment_id].profile_position.y / 80.0, -0.5, 0.5) + 0.5), 1.0); 
+    //color = vec4(vec3(1.0, 1.0, 1.0) * (clamp(segments[segment_id].boundary_distance / 0.3, 0.0, 1.0)), 1.0);
   } else if (color_mode == 11) {  // fungus moisture
     color =
         vec4(mix(vec3(1.00, 0.90, 0.20), vec3(0.00, 0.45, 0.80), clamp(segments[segment_id].moisture, 0.0, 1.0)), 1.0);

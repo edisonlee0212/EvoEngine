@@ -227,6 +227,9 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
       HC_threshold = 0.5f;
       HL_threshold = 0.1f;
       moisture_breaking_rod = 1;
+      bd_offset = 0.02f;
+      leaf_break_from_moisture = 1;
+      leaf_break_threshold = 0.4f;
       changed = true;
     }
     if (ImGui::Button("Spruce")) {
@@ -236,6 +239,9 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
       HC_threshold = 0.5f;
       HL_threshold = 0.1f;
       moisture_breaking_rod = 1;
+      bd_offset = 0.015f;
+      leaf_break_from_moisture = 1;
+      leaf_break_threshold = 0.4f;
       // rod_strength_factor = 0.7f;
       changed = true;
     }
@@ -246,6 +252,9 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
       HC_threshold = 0.5f;
       HL_threshold = 0.1f;
       moisture_breaking_rod = 1;
+      bd_offset = 0.02f;
+      leaf_break_from_moisture = 1;
+      leaf_break_threshold = 0.4f;
       changed = true;
     }
     ImGui::TreePop();
@@ -275,6 +284,13 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     changed = true;
   if (ImGui::DragFloat("Bundle strength factor", &bundle_strength_factor, 0.01f, 0.0f, 2.0f))
     changed = true;
+
+  bool pull_cubical_bool = (pull_cubical != 0);
+  if (ImGui::Checkbox("Test on Pull Operators for cubical rotting?", &pull_cubical_bool)) {
+    pull_cubical = pull_cubical_bool ? 1u : 0u;
+    changed = true;
+  }
+
   if (ImGui::TreeNode("Fungus propagation")) {
     if (ImGui::InputFloat("Time Step", &dt, 0.0f, 0.0f, "%.5f")) {
       changed = true;
@@ -416,6 +432,18 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
       changed = true;
     }
     if (ImGui::DragFloat("Crack T Scale", &crack_T_scale, 0.01f, 0.0f, 2.0f)) {
+      changed = true;
+    }
+    ImGui::TreePop();
+  }
+
+  if (ImGui::TreeNode("Leaf Parameters:")) {
+    if (ImGui::DragFloat("Leaf Break Threshold", &leaf_break_threshold, 0.01f, 0.0f, 1.0f)) {
+      changed = true;
+    }
+    bool break_from_moisture = (leaf_break_from_moisture != 0);
+    if (ImGui::Checkbox("Leaf Break from Moisture?", &break_from_moisture)) {
+      leaf_break_from_moisture = break_from_moisture ? 1u : 0u;
       changed = true;
     }
     ImGui::TreePop();

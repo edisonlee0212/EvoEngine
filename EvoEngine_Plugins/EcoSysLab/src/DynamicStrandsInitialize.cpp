@@ -202,7 +202,7 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     segment.internal_pattern = 0;
     segment.reach_ground = 0;
 
-    segment.prev_inside = 1;
+    segment.unlink_constraint = 0;
     segment.ground_damping = 1.0f;
     segment.quasi_stable = 0;
     segment.quasi_damping = 1.0f;

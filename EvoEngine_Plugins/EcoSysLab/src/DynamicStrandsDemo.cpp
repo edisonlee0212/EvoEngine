@@ -146,7 +146,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.fungus_test = true;
     log_experiment_setup_settings.internal_pattern = true;
     log_experiment_setup_settings.cube_pattern = false;
-    physics_parameters.enable_fungus = true;
+    physics_parameters.enable_fungus = false;
     physics_parameters.pivot_ring_radius = 0.05f;
 
     log_experiment_setup_settings.right_pivot_type =
@@ -187,8 +187,11 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     physics_parameters.be = 0.0f;
 
     physics_parameters.ycw = 0.1f;
+    physics_parameters.ycb = 2.0f;
     physics_parameters.aw = 3.5f;
     physics_parameters.bw = 4.0f;
+
+    physics_parameters.bd_offset = 100.f;  // disable boundary decay
 
     // physics_parameters.matrixAw = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
     // physics_parameters.matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
@@ -215,8 +218,15 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.cube_pattern = false;
     log_experiment_setup_settings.internal_pattern = false;
     physics_parameters.enable_fungus = true;
+    physics_parameters.enable_segment_collision = true;
     physics_parameters.bo = 0.0f;
     physics_parameters.be = 0.0f;
+    physics_parameters.ycb = 0.1f;
+    physics_parameters.ylw = 3.0f;
+    physics_parameters.ab = 3.5f;
+
+    physics_parameters.bd_offset = 100.f;  // disable boundary decay
+
     // physics_parameters.matrixAw = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
     // physics_parameters.matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
     dts->initialize_parameters.max_segment_length = 0.01f;
@@ -250,6 +260,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     physics_parameters.matrixAb = glm::mat3(1000.f, 0.0f, 0.0f, 0.0f, 0.2f, 0.0f, 0.0f, 0.0f, 0.2f);  // slow x
     physics_parameters.brb = 0.75f;
     physics_parameters.pc = 0.05f;
+
+    physics_parameters.bd_offset = 100.f;  // disable boundary decay
 
     board_experiment_setup_settings.center_damage = 0.7f;
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};

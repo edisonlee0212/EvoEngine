@@ -62,7 +62,7 @@ class DsLeafDrop final : public IDsPhysicsOperator {
   float rotation_correction_strength = 1.f;           ///< Default rotation correction strength.
   float air_resistance_strength = 0.8f;               ///< Default air resistance strength.
   glm::vec3 disturbance_frequency = glm::vec3(0.1f);  ///< Default disturbance frequency.
-  float disturbance_strength = 0.2f;                  ///< Default disturbance strength.
+  float disturbance_strength = 0.1f;                  ///< Default disturbance strength.
 
   inline static std::shared_ptr<ComputePipeline> pipeline{};  ///< Compute pipeline for leaf drop.
 
