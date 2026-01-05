@@ -1,4 +1,5 @@
 #pragma once
+#include <format>
 #include <queue>
 #include "CubicHermiteSpline.hpp"
 #include "HalfEdgeDelaunayGraph.hpp"
@@ -6,6 +7,12 @@
 #include "ProgressBar.hpp"
 
 namespace kinDS {
+struct BoundaryPoint {
+  size_t vertex_id;
+  size_t he_id;
+  Point<2> p;
+};
+
 /**
  * \brief Class for computing the Delaunay triangulation of a set of cubic Hermite splines.
  *
@@ -24,8 +31,10 @@ class KineticDelaunay {
     double creation_time;  // Time when the event was created, used do check validity after a quadrilateral is updated
     Point<2> position;     // Position of the event
 
-    Event(double t, size_t he_id, double creation_time, Point<2> position)
-        : time(t), half_edge_id(he_id), creation_time(creation_time), position(position) {
+    enum Type { SWAP, BOUNDARY } type;
+
+    Event(double t, size_t he_id, double creation_time, Point<2> position, Type type)
+        : time(t), half_edge_id(he_id), creation_time(creation_time), position(position), type(type) {
     }
 
     bool operator<(const Event& other) const {
@@ -38,7 +47,7 @@ class KineticDelaunay {
    public:
     virtual ~EventHandler() = default;
     /**
-     * \brief Handle an event before it is processed.
+     * \brief Handle a SWAP event before it is processed, i.e. before any edges are swapped
      *
      * @param e The event to handle.
      */
@@ -46,11 +55,21 @@ class KineticDelaunay {
     }
 
     /**
-     * \brief Handle an event after it is processed.
+     * \brief Handle a SWAP event after it is processed, i.e. after edges are swapped
      *
      * @param e The event to handle.
      */
     virtual void afterEvent(Event& e) {
+    }
+
+    /**
+     * \brief Handle a BOUNDARY event.
+     * Unlike swap events, boundary events do not modify the triangulation, so no distinct before/after methods are
+     * necessary. It is called before the face inside/outside status is updated.
+     *
+     * @param e The event to handle
+     */
+    virtual void boundaryEvent(Event& e) {
     }
 
     virtual void betweenSections(size_t index) {
@@ -75,7 +94,11 @@ class KineticDelaunay {
   std::vector<CubicHermiteSpline<2>> splines;
   HalfEdgeDelaunayGraph graph;
   EventQueue events;
-  size_t sections_advanced = 0;  // Counter for the number of sections advanced
+  size_t sections_advanced = 0;               // Counter for the number of sections advanced
+  double cutoff = 10.0;                       // Cutoff radius for boundary events
+  std::vector<bool> face_inside;              // Tracks whether faces are inside or outside the boundary
+  std::vector<size_t> branch_ids;             // track branch ID for each vertex/spline
+  std::vector<std::vector<size_t>> branches;  // track which vertices/splines belong to which branch
 
   /* Compare to Leonidas Guibas and Jorge Stolfi. 1985. Primitives for the manipulation of general subdivisions and the
    * computation of Voronoi. ACM Trans. Graph. 4, 2 (April 1985), 74–123. https://doi.org/10.1145/282918.282923
@@ -101,7 +124,98 @@ class KineticDelaunay {
     return (ax * by) + (bx * cy) + (cx * ay) - (ay * bx) - (by * cx) - (cy * ax);
   }
 
-  void computeEvents(double t, size_t quad_id) {
+  // Polynomial that evaluates to zero iff the distance from A to the circumcenter equals the value r
+  static Polynomial circumradiusEquals(const Polynomial& ax, const Polynomial& ay, const Polynomial& bx,
+                                       const Polynomial& by, const Polynomial& cx, const Polynomial& cy, double r) {
+    // We first do the same computations as for the circumcenter
+    Polynomial D = (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by)) * 2.0;
+
+    // only compute the numerators
+    Polynomial Nx =
+        ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by));
+    Polynomial Ny =
+        ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax));
+
+    // By taking the distance formula between the circumcenter and the point A and setting it equal to r, we get the
+    // following after rearranging:
+    Polynomial circumradius_eq = (Nx - ax * D) * (Nx - ax * D) + (Ny - ay * D) * (Ny - ay * D) - (D * D * (r * r));
+    return circumradius_eq;
+  }
+
+  double circumradius(const Point<2>& p0, const Point<2>& p1, const Point<2>& p2) {
+    const double x0 = p0[0], y0 = p0[1];
+    const double x1 = p1[0], y1 = p1[1];
+    const double x2 = p2[0], y2 = p2[1];
+
+    // Side lengths
+    const double a = std::hypot(x1 - x2, y1 - y2);
+    const double b = std::hypot(x0 - x2, y0 - y2);
+    const double c = std::hypot(x0 - x1, y0 - y1);
+
+    // Twice the triangle area (cross product magnitude)
+    const double area2 = std::abs((x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0));
+
+    if (area2 == 0.0) {
+      throw std::runtime_error("Degenerate triangle: circumradius undefined");
+    }
+
+    // R = (a * b * c) / (4 * A), and area2 = 2 * A
+    return (a * b * c) / (2.0 * area2);
+  }
+
+  void computeBoundaryEvents(double t, size_t he_id) {
+    const size_t section = static_cast<size_t>(t);
+    const float fraction = t - section;
+
+    size_t face_id = graph.getHalfEdges()[he_id].face;
+    size_t u = graph.getHalfEdges()[he_id].origin;
+    size_t v = graph.destination(he_id);
+    size_t w = graph.triangleOppositeVertex(he_id);
+
+    if (u == -1 || v == -1 || w == -1) {
+      // one of the vertices is at infinity, no event possible
+      return;
+    }
+
+    std::vector<Trajectory<2>> trajs;
+
+    trajs.push_back(splines[u].getPiecePolynomial(section));
+    trajs.push_back(splines[v].getPiecePolynomial(section));
+    trajs.push_back(splines[w].getPiecePolynomial(section));
+
+    Polynomial event_trigger =
+        circumradiusEquals(trajs[0][0], trajs[0][1], trajs[1][0], trajs[1][1], trajs[2][0], trajs[2][1], cutoff);
+
+    event_trigger.trim();
+    auto zeros = event_trigger.realRoots();
+
+    // print roots:
+    for (const auto& root : zeros) {
+      if (isnan(root)) {
+        continue;  // Skip NaN roots
+      }
+      if (root > fraction && root <= 1) {  // Check if the root is within the valid range
+        double event_time = root + section;
+        // std::cout << "Root found at t = " << event_time << std::endl;
+
+        Point<2> center{};
+
+        for (const auto& traj : trajs) {
+          center[0] += traj[0](root);
+          center[1] += traj[1](root);
+        }
+        center[0] /= trajs.size();
+        center[1] /= trajs.size();
+        EVOENGINE_LOG("Boundary Event at time " << event_time << " for half-edge ID " << he_id << " at center position "
+                                                << center.toString().c_str());
+
+        events.emplace(
+            Event(event_time, he_id, t, center, Event::BOUNDARY));  // Store the event with the time and half-edge index
+      }
+    }
+  }
+
+  void computeSwapEvents(double t, size_t quad_id) {
     const size_t section = static_cast<size_t>(t);
     const float fraction = t - section;
 
@@ -110,12 +224,12 @@ class KineticDelaunay {
 
     std::vector<Trajectory<2>> trajs;
 
-    if (graph.isOnBoundary(he_id) || graph.isOutsideBoundary(he_id)) {
+    if (graph.isOnConvexBoundary(he_id) || graph.isOutsideConvexBoundary(he_id)) {
       // boundary edges must be treated separately using ccw
 
       // need to get the inner half-edge so we have access to the triangle
       // in case both are outside, this swap does not matter, so we just let it happen
-      if (graph.isOutsideBoundary(he_id)) {
+      if (graph.isOutsideConvexBoundary(he_id)) {
         he_id = he_id ^ 1;  // use the twin half-edge if the current one is on the boundary
       }
 
@@ -185,10 +299,11 @@ class KineticDelaunay {
         center[0] /= trajs.size();
         center[1] /= trajs.size();
 
-        EVOENGINE_LOG("Event at time " << event_time << " for half-edge ID " << he_id << " at center position "
-                                       << center.toString().c_str());
+        EVOENGINE_LOG("Swap Event at time " << event_time << " for half-edge ID " << he_id << " at center position "
+                                            << center.toString().c_str());
 
-        events.emplace(Event(event_time, he_id, t, center));  // Store the event with the time and half-edge index
+        events.emplace(
+            Event(event_time, he_id, t, center, Event::SWAP));  // Store the event with the time and half-edge index
       }
     }
   }
@@ -198,8 +313,61 @@ class KineticDelaunay {
     // change in the triangulation.
     size_t quad_count = graph.getHalfEdges().size() / 2;
     for (size_t i = 0; i < quad_count; i++) {
-      computeEvents(t, i);
+      computeSwapEvents(t, i);
     }
+
+    size_t he_count = graph.getHalfEdges().size();
+    for (size_t i = 0; i < face_inside.size(); i++) {
+      size_t he_id = graph.getFaces()[i].half_edges[0];
+      computeBoundaryEvents(t, he_id);
+    }
+  }
+
+  void handleSwapEvent(EventHandler& event_handler, Event& event, std::vector<double>& quadrilateral_last_updated) {
+    // Check if the event is still valid
+    if (event.creation_time < quadrilateral_last_updated[event.half_edge_id / 2]) {
+      // This event is outdated, skip it
+      return;
+    }
+
+    // Process the event at the given time
+    EVOENGINE_LOG("Processing event at time " << event.time << " for half-edge ID " << event.half_edge_id);
+
+    // Call the event handler if provided
+    event_handler.beforeEvent(event);
+
+    graph.flipEdge(event.half_edge_id);
+
+    // After flipping the edge, we need to recompute the events for all surrounding half-edges
+    size_t next1 = graph.getHalfEdges()[event.half_edge_id].next;
+    size_t next2 = graph.getHalfEdges()[next1].next;
+
+    size_t twin_next1 = graph.getHalfEdges()[event.half_edge_id ^ 1].next;
+    size_t twin_next2 = graph.getHalfEdges()[twin_next1].next;
+
+    computeSwapEvents(event.time, next1 / 2);
+    quadrilateral_last_updated[next1 / 2] = event.time;  // Update the last updated time for the quadrilateral
+
+    computeSwapEvents(event.time, next2 / 2);
+    quadrilateral_last_updated[next2 / 2] = event.time;  // Update the last updated time for the quadrilateral
+
+    computeSwapEvents(event.time, twin_next1 / 2);
+    quadrilateral_last_updated[twin_next1 / 2] = event.time;  // Update the last updated time for the quadrilateral
+
+    computeSwapEvents(event.time, twin_next2 / 2);
+    quadrilateral_last_updated[twin_next2 / 2] = event.time;  // Update the last updated time for the quadrilateral
+
+    event_handler.afterEvent(event);  // Call the event handler after processing the event
+  }
+
+  void handleBoundaryEvent(EventHandler& event_handler, Event& event) {
+    assert(event.type == Event::BOUNDARY);
+    // Process the event at the given time
+    EVOENGINE_LOG("Processing boundary event at time " << event.time << " for half-edge ID " << event.half_edge_id);
+    // Call the event handler if provided
+    event_handler.boundaryEvent(event);
+    size_t face_id = graph.getHalfEdges()[event.half_edge_id].face;
+    face_inside[face_id] = !face_inside[face_id];
   }
 
   void handleEvents(EventHandler& event_handler) {
@@ -208,40 +376,14 @@ class KineticDelaunay {
       Event event = events.top();
       events.pop();
 
-      // Check if the event is still valid
-      if (event.creation_time < quadrilateral_last_updated[event.half_edge_id / 2]) {
-        // This event is outdated, skip it
-        continue;
+      switch (event.type) {
+        case Event::SWAP:
+          handleSwapEvent(event_handler, event, quadrilateral_last_updated);
+          break;
+        case Event::BOUNDARY:
+          handleBoundaryEvent(event_handler, event);
+          break;
       }
-
-      // Process the event at the given time
-      EVOENGINE_LOG("Processing event at time " << event.time << " for half-edge ID " << event.half_edge_id);
-
-      // Call the event handler if provided
-      event_handler.beforeEvent(event);
-
-      graph.flipEdge(event.half_edge_id);
-
-      // After flipping the edge, we need to recompute the events for all surrounding half-edges
-      size_t next1 = graph.getHalfEdges()[event.half_edge_id].next;
-      size_t next2 = graph.getHalfEdges()[next1].next;
-
-      size_t twin_next1 = graph.getHalfEdges()[event.half_edge_id ^ 1].next;
-      size_t twin_next2 = graph.getHalfEdges()[twin_next1].next;
-
-      computeEvents(event.time, next1 / 2);
-      quadrilateral_last_updated[next1 / 2] = event.time;  // Update the last updated time for the quadrilateral
-
-      computeEvents(event.time, next2 / 2);
-      quadrilateral_last_updated[next2 / 2] = event.time;  // Update the last updated time for the quadrilateral
-
-      computeEvents(event.time, twin_next1 / 2);
-      quadrilateral_last_updated[twin_next1 / 2] = event.time;  // Update the last updated time for the quadrilateral
-
-      computeEvents(event.time, twin_next2 / 2);
-      quadrilateral_last_updated[twin_next2 / 2] = event.time;  // Update the last updated time for the quadrilateral
-
-      event_handler.afterEvent(event);  // Call the event handler after processing the event
     }
   }
 
@@ -261,7 +403,34 @@ class KineticDelaunay {
   const HalfEdgeDelaunayGraph& init() {
     graph.init(splines);
     sections_advanced = 0;  // Reset the section counter
-    // graph.printDebug();
+
+    face_inside.resize(graph.getFaces().size(), false);
+
+    for (size_t face_index = 0; face_index < graph.getFaces().size(); face_index++) {
+      const HalfEdgeDelaunayGraph::Triangle& tri = graph.getFaces()[face_index];
+
+      // compute circumradius at t = 0 and check if within cutoff
+      auto vertices = graph.adjacentTriangleVertices(tri.half_edges[0]);
+      std::vector<Point<2>> points;
+      bool outer_face = false;
+      for (const auto& v : vertices) {
+        if (v == -1) {
+          outer_face = true;
+          break;
+        }
+        points.push_back(splines[v].evaluate(0.0));
+      }
+
+      if (outer_face) {
+        continue;
+      }
+
+      double r = circumradius(points[0], points[1], points[2]);
+      // EVOENGINE_LOG("Circumradius: " << r);
+      if (r < cutoff) {
+        face_inside[face_index] = true;
+      }
+    }
 
     return graph;
   }
@@ -299,6 +468,144 @@ class KineticDelaunay {
       advanceOneSection(event_handler);
     }
     progress_bar.Finish();
+  }
+
+  std::vector<size_t> extractConnectedComponent(size_t u, std::vector<bool>& visited) const {
+    std::vector<size_t> component;
+
+    // Perform an iterative DFS with edges induced by inside faces
+
+    std::vector<size_t> stack;
+    stack.push_back(u);
+
+    while (!stack.empty()) {
+      size_t v = stack.back();
+      stack.pop_back();
+
+      if (visited[v])
+        continue;
+
+      visited[v] = true;
+      component.push_back(v);
+
+      const auto& nbrs = graph.inducedNeighbors(v, face_inside);
+
+      // Push neighbors in reverse order, the same order as recursive DFS
+      for (auto it = nbrs.rbegin(); it != nbrs.rend(); ++it) {
+        size_t w = *it;
+        if (!visited[w])
+          stack.push_back(w);
+      }
+    }
+
+    return component;
+  }
+
+  std::vector<std::vector<size_t>> extractConnectedComponents() const {
+    std::vector<std::vector<size_t>> components;
+    std::vector<bool> visited(graph.getVertexCount(), false);
+    for (size_t u = 0; u < graph.getVertexCount(); u++) {
+      if (visited[u]) {
+        continue;
+      }
+
+      auto component = extractConnectedComponent(u, visited);
+      components.push_back(component);
+    }
+
+    return components;
+  }
+
+  std::vector<BoundaryPoint> extractComponentBoundary(const std::vector<size_t>& component, double t) const {
+    // Find an extreme point to start the boundary walk as it must be on the boundary
+    // Note that merely being on the outside of the boundary is not sufficent as there can also be holes inside the
+    // component
+
+    size_t start_vertex_id = -1;
+    double min_x = std::numeric_limits<double>::infinity();
+    for (size_t i = 0; i < component.size(); i++) {
+      const size_t& v = component[i];
+
+      // Get position and check if it's the minimum x
+      Point<2> pos = splines[v].evaluate(t);  // Evaluate at t=0 for starting point
+      if (pos[0] < min_x) {
+        min_x = pos[0];
+        start_vertex_id = v;
+      }
+    }
+
+    // From the starting vertex, find a half-edge that is on the boundary
+    size_t start_he_id = -1;
+    for (auto it = graph.incidentEdgesBegin(start_vertex_id); it != graph.incidentEdgesEnd(start_vertex_id); it++) {
+      if (isOnComponentBoundaryOutside(*it)) {
+        start_he_id = *it;
+        break;
+      }
+    }
+
+    // Walk the boundary to extract the boundary half-edges
+    // std::vector<size_t> boundary_he_ids;
+    std::vector<BoundaryPoint> boundary_points;
+    size_t he_id = start_he_id;
+    do {
+      // boundary_he_ids.push_back(he_id);
+      size_t origin = graph.getHalfEdges()[he_id].origin;
+      Point<2> pos = splines[origin].evaluate(t);
+      boundary_points.emplace_back(BoundaryPoint{origin, he_id, pos});
+      he_id = nextOnComponentBoundaryId(he_id);
+    } while (he_id != start_he_id);
+
+    return boundary_points;
+  }
+
+  bool faceInside(size_t face_index) const {
+    return face_inside[face_index];
+  }
+
+  bool isOnComponentBoundary(size_t he_id) const {
+    size_t face_id = graph.getHalfEdges()[he_id].face;
+    size_t twin_face_id = graph.getHalfEdges()[he_id ^ 1].face;
+    return (face_inside[face_id] != face_inside[twin_face_id]);
+  }
+
+  bool isOnComponentBoundaryOutside(size_t he_id) const {
+    size_t face_id = graph.getHalfEdges()[he_id].face;
+    size_t twin_face_id = graph.getHalfEdges()[he_id ^ 1].face;
+    return (!face_inside[face_id] && face_inside[twin_face_id]);
+  }
+
+  size_t nextOnComponentBoundaryId(size_t he_id) const {
+    size_t next_he_id = graph.getHalfEdges()[he_id].next;
+
+    while (!isOnComponentBoundaryOutside(next_he_id)) {
+      next_he_id = graph.twin(next_he_id);
+      next_he_id = graph.getHalfEdges()[next_he_id].next;
+    }
+
+    return next_he_id;
+  }
+
+  size_t split(size_t branch_id, const std::vector<size_t>& new_subbranch) {
+    size_t new_branch_id = branches.size();
+
+    for (size_t strand_id : new_subbranch) {
+      branch_ids[strand_id] = new_branch_id;
+    }
+
+    std::vector<size_t> old_branch;
+
+    for (size_t strand_id : branches[branch_id]) {
+      if (branch_ids[strand_id] == branch_id) {
+        old_branch.push_back(strand_id);
+      }
+    }
+
+    branches[branch_id] = old_branch;
+    branches.push_back(new_subbranch);
+
+    // TODO: separate the triangles
+
+    return new_branch_id;
   }
 };
 }  // namespace kinDS

@@ -11,7 +11,7 @@ class HalfEdgeDelaunayGraph {
  public:
   struct HalfEdge {
     int origin = -1;  // index into vertices
-    int next = -1;    // index into half_edges
+    int next = -1;    // index into half_edges, always represents the next half-edge in the face
     int face = -1;    // index into faces
     // twin = index ^ 1
   };
@@ -56,18 +56,18 @@ class HalfEdgeDelaunayGraph {
    * Determines whether a half-edge is outside the boundary. This includes all edges from/to infinity as well as the
    * outer half-edges along the boundary.
    */
-  bool isOutsideBoundary(size_t he_id) const;
+  bool isOutsideConvexBoundary(size_t he_id) const;
 
   /**
    * Determines whether a half-edge is on the boundary. This includes both, the inner and the outer half-edges along the
    * boundary.
    */
-  bool isOnBoundary(size_t he_id) const;
+  bool isOnConvexBoundary(size_t he_id) const;
 
   /**
    * Determines whether a half-edge is on the outer side along the boundary.
    */
-  bool isOnBoundaryOutside(size_t he_id) const;
+  bool isOnConvexBoundaryOutside(size_t he_id) const;
 
   /**
    * Determines whether a half-edge is connected to the vertex at infinity.
@@ -75,10 +75,12 @@ class HalfEdgeDelaunayGraph {
   bool isInfinite(size_t he_id) const;
   int destination(size_t he_id) const;
   int triangleOppositeVertex(size_t he_id) const;
-
   std::array<int, 3> adjacentTriangleVertices(size_t he_id) const;
   size_t neighborEdgeId(size_t he_id) const;
-  size_t nextOnBoundaryId(size_t he_id) const;
+  size_t nextOnConvexBoundaryId(size_t he_id) const;
+
+  std::vector<size_t> neighbors(size_t v);
+  std::vector<size_t> inducedNeighbors(size_t v, const std::vector<bool>& face_inside) const;
 
   static size_t twin(size_t he_id);
 
@@ -155,7 +157,7 @@ class HalfEdgeDelaunayGraph {
   }
 
   // ---------------- Iterator definition ----------------
-  class BoundaryEdgeIterator {
+  class ConvexHullEdgeIterator {
    public:
     using iterator_category = std::forward_iterator_tag;
     using value_type = size_t;  // returning halfedge indices
@@ -163,7 +165,7 @@ class HalfEdgeDelaunayGraph {
     using pointer = const size_t*;
     using reference = const size_t&;
 
-    BoundaryEdgeIterator(const HalfEdgeDelaunayGraph* g, size_t he_id, bool end = false)
+    ConvexHullEdgeIterator(const HalfEdgeDelaunayGraph* g, size_t he_id, bool end = false)
         : g_(g), start_he_(he_id), curr_he_(end ? npos : he_id), first_(true) {
       if (!end) {
         assert(g_->triangleOppositeVertex(curr_he_) == -1 && "Iterator started on non-boundary half-edge!");
@@ -174,11 +176,11 @@ class HalfEdgeDelaunayGraph {
       return curr_he_;
     }
 
-    BoundaryEdgeIterator& operator++() {
+    ConvexHullEdgeIterator& operator++() {
       if (curr_he_ == npos)
         return *this;  // already at end
 
-      curr_he_ = g_->nextOnBoundaryId(curr_he_);
+      curr_he_ = g_->nextOnConvexBoundaryId(curr_he_);
 
       assert(g_->triangleOppositeVertex(curr_he_) == -1 && "Iterator moved to non-boundary half-edge!");
 
@@ -190,17 +192,17 @@ class HalfEdgeDelaunayGraph {
       return *this;
     }
 
-    BoundaryEdgeIterator operator++(int) {
-      BoundaryEdgeIterator tmp = *this;
+    ConvexHullEdgeIterator operator++(int) {
+      ConvexHullEdgeIterator tmp = *this;
       ++(*this);
       return tmp;
     }
 
-    bool operator==(const BoundaryEdgeIterator& other) const {
+    bool operator==(const ConvexHullEdgeIterator& other) const {
       return curr_he_ == other.curr_he_ && g_ == other.g_;
     }
 
-    bool operator!=(const BoundaryEdgeIterator& other) const {
+    bool operator!=(const ConvexHullEdgeIterator& other) const {
       return !(*this == other);
     }
 
@@ -213,26 +215,26 @@ class HalfEdgeDelaunayGraph {
   };
 
   // helper functions to get iterator ranges
-  BoundaryEdgeIterator boundaryEdgesBegin() const {
+  ConvexHullEdgeIterator boundaryEdgesBegin() const {
     size_t start_boundary_edge_index = static_cast<size_t>(-1);
 
     // TODO: this could be more efficient if we store and maintain a boundary edge
     for (size_t i = 0; i < getHalfEdges().size(); i++) {
-      if (isOnBoundaryOutside(i)) {
+      if (isOnConvexBoundaryOutside(i)) {
         start_boundary_edge_index = i;
         break;
       }
     }
 
     if (start_boundary_edge_index != static_cast<size_t>(-1)) {
-      return BoundaryEdgeIterator(this, start_boundary_edge_index, false);
+      return ConvexHullEdgeIterator(this, start_boundary_edge_index, false);
     } else {
       return boundaryEdgesEnd();
     }
   }
 
-  BoundaryEdgeIterator boundaryEdgesEnd() const {
-    return BoundaryEdgeIterator(this, 0, true);
+  ConvexHullEdgeIterator boundaryEdgesEnd() const {
+    return ConvexHullEdgeIterator(this, 0, true);
   }
 };
 }  // namespace kinDS

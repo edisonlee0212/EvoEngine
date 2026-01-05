@@ -391,7 +391,7 @@ std::vector<std::pair<Point<2>, bool>> HalfEdgeDelaunayGraph::computeCircumcente
 }
 
 // utils
-bool HalfEdgeDelaunayGraph::isOutsideBoundary(size_t he_id) const {
+bool HalfEdgeDelaunayGraph::isOutsideConvexBoundary(size_t he_id) const {
   // walk the triangle and check if any vertex is -1
   for (size_t i = 0; i < 3; i++) {
     if (half_edges[he_id].origin == -1) {
@@ -403,13 +403,13 @@ bool HalfEdgeDelaunayGraph::isOutsideBoundary(size_t he_id) const {
   return false;
 }
 
-bool HalfEdgeDelaunayGraph::isOnBoundary(size_t he_id) const {
+bool HalfEdgeDelaunayGraph::isOnConvexBoundary(size_t he_id) const {
   // XOR this as one half-edge will be inside and the other one outside
-  return isOutsideBoundary(he_id) != isOutsideBoundary(he_id ^ 1);
+  return isOutsideConvexBoundary(he_id) != isOutsideConvexBoundary(he_id ^ 1);
 }
 
-bool kinDS::HalfEdgeDelaunayGraph::isOnBoundaryOutside(size_t he_id) const {
-  return isOutsideBoundary(he_id) && isOnBoundary(he_id);
+bool kinDS::HalfEdgeDelaunayGraph::isOnConvexBoundaryOutside(size_t he_id) const {
+  return isOutsideConvexBoundary(he_id) && isOnConvexBoundary(he_id);
 }
 
 bool kinDS::HalfEdgeDelaunayGraph::isInfinite(size_t he_id) const {
@@ -427,6 +427,37 @@ int HalfEdgeDelaunayGraph::triangleOppositeVertex(size_t he_id) const {
   return half_edges[next_he_id].origin;
 }
 
+std::vector<size_t> kinDS::HalfEdgeDelaunayGraph::neighbors(size_t v) {
+  std::vector<size_t> nbrs;
+
+  // Iterate over incident edges
+  for (IncidentEdgeIterator it = incidentEdgesBegin(v); it != incidentEdgesEnd(v); ++it) {
+    size_t he_id = *it;
+    nbrs.push_back(destination(he_id));
+  }
+
+  return nbrs;
+}
+
+std::vector<size_t> kinDS::HalfEdgeDelaunayGraph::inducedNeighbors(size_t v,
+                                                                   const std::vector<bool>& face_inside) const {
+  std::vector<size_t> nbrs;
+
+  // Iterate over incident edges
+  for (IncidentEdgeIterator it = incidentEdgesBegin(v); it != incidentEdgesEnd(v); ++it) {
+    size_t he_id = *it;
+
+    // Check if the face on the half-edge or its twin is inside
+    if (!face_inside[half_edges[he_id].face] && !face_inside[half_edges[he_id ^ 1].face]) {
+      continue;  // skip this neighbor
+    }
+
+    nbrs.push_back(destination(he_id));
+  }
+
+  return nbrs;
+}
+
 std::array<int, 3> HalfEdgeDelaunayGraph::adjacentTriangleVertices(size_t he_id) const {
   // Returns the vertices of the triangle that the half-edge belongs to
   std::array<int, 3> vertices;
@@ -441,7 +472,7 @@ size_t kinDS::HalfEdgeDelaunayGraph::neighborEdgeId(size_t he_id) const {
   return half_edges[twin(he_id)].next;
 }
 
-size_t kinDS::HalfEdgeDelaunayGraph::nextOnBoundaryId(size_t he_id) const {
+size_t kinDS::HalfEdgeDelaunayGraph::nextOnConvexBoundaryId(size_t he_id) const {
   size_t next_he_id = half_edges[he_id].next;
   next_he_id = twin(next_he_id);
   next_he_id = half_edges[next_he_id].next;

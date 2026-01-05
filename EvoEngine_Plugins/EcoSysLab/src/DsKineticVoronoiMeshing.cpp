@@ -278,6 +278,10 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
   auto& boundary_mesh = mesh_builder.getBoundaryMesh();
 
   bool debug_export_meshes = false;
+
+  if (debug_export_meshes) {
+    kinDS::ObjExporter::writeMesh(boundary_mesh, "boundary_mesh.obj");
+  }
   size_t max_meshlet_export = 500;
   // intersect all meshes with the boundary mesh and save the result
   // Build an AABB-tree of the boundary-mesh to prefilter
@@ -596,7 +600,6 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
   // combined_mesh.mergeDuplicateVertices(0.0001);
   kinDS::ObjExporter::writeMesh(transformed_mesh, "transformed_mesh.obj");
   kinDS::ObjExporter::writeMesh(combined_mesh, "meshtest_subdivided.obj");
-  kinDS::ObjExporter::writeMesh(boundary_mesh, "boundary_mesh.obj");
   EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshes exported.");
 }
 
@@ -621,8 +624,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     const DynamicStrandsInitializeParameters& initialize_parameters, const StrandModelSkeleton& strand_model_skeleton,
     const StrandModelStrandGroup& strand_model_strand_group, DtsStrandGroup& randomly_subdivided_strand_group,
     DtsStrandGroup& uniformly_subdivided_strand_group) {
-  const auto& target_strands = randomly_subdivided_strand_group.PeekStrands();
-  const auto& target_strand_segments = randomly_subdivided_strand_group.PeekStrandSegments();
+  const auto& randomly_subdivided_strands = randomly_subdivided_strand_group.PeekStrands();
+  const auto& randomly_subdivided_strand_segments = randomly_subdivided_strand_group.PeekStrandSegments();
 
   strand_model_strand_group.UniformlySubdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
       uniformly_subdivided_strand_group, initialize_parameters.uniform_subdivision,
@@ -701,21 +704,22 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       },
       (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
 
-  std::vector<std::vector<kinDS::Point<2>>> strand_guide_points(target_strands.size());
-  std::vector<int> uniform_particle_offsets(target_strands.size());
+  std::vector<std::pair<std::vector<kinDS::Point<2>>, std::vector<SkeletonNodeHandle>>> strand_guide_points(
+      randomly_subdivided_strands.size());
+  std::vector<int> uniform_particle_offsets(randomly_subdivided_strands.size());
   if (!uniform_particle_offsets.empty())
     uniform_particle_offsets[0] = 0;
-  for (uint32_t strand_index = 1; strand_index < target_strands.size(); strand_index++) {
+  for (uint32_t strand_index = 1; strand_index < randomly_subdivided_strands.size(); strand_index++) {
     uniform_particle_offsets[strand_index] =
         uniform_particle_offsets[strand_index - 1] +
         uniformly_subdivided_strand_group.PeekStrand(strand_index - 1).PeekStrandSegmentHandles().size() + 1;
   }
 
-  std::vector<std::vector<int>> segment_indices(target_strands.size());
-  std::vector<std::vector<double>> subdivisions_by_strand(target_strands.size());
+  std::vector<std::vector<int>> randomly_subdivided_segment_handles(randomly_subdivided_strands.size());
+  std::vector<std::vector<double>> random_subdivisions_by_strand(randomly_subdivided_strands.size());
 
   // for debugging
-  std::vector<std::vector<double>> uniform_subdivisions_by_strand(target_strands.size());
+  std::vector<std::vector<double>> uniform_subdivisions_by_strand(randomly_subdivided_strands.size());
 
   int maxSegmentCount = std::numeric_limits<int>::min();
   std::mutex m;
@@ -725,18 +729,20 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     maxSegmentCount = std::max(maxSegmentCount, candidate);
   };
 
-  Jobs::RunParallelFor(target_strands.size(), [&](const size_t strand_index) {
-    auto& random_subdivided_strand = target_strands[strand_index];
+  Jobs::RunParallelFor(randomly_subdivided_strands.size(), [&](const size_t strand_index) {
+    auto& random_subdivided_strand = randomly_subdivided_strands[strand_index];
     auto& uniformly_subdivided_strand = uniformly_subdivided_strand_group.PeekStrand(strand_index);
+
     const auto uniform_particle_offset = uniform_particle_offsets[strand_index];
 
     auto& first_uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(
         uniformly_subdivided_strand.PeekStrandSegmentHandles()[0]);
-
+    auto node_handle = first_uniform_segment_data.node_handle;
     // First 2 particles within same strand will always have same profile position/polar coordinate.
     kinDS::Point<2> profile_position{first_uniform_segment_data.profile_position.x,
                                      first_uniform_segment_data.profile_position.y};
-    strand_guide_points[strand_index].push_back(profile_position);
+    strand_guide_points[strand_index].first.push_back(profile_position);
+    strand_guide_points[strand_index].second.push_back(node_handle);
 
     int last_index_with_new_node = 0;
     float previous_root_distance = 0.0f;
@@ -747,6 +753,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       size_t segment_handle = uniformly_subdivided_strand.PeekStrandSegmentHandles()[uniform_segment_index];
       const auto& uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(segment_handle);
       const auto& uniform_segment = uniformly_subdivided_strand_group.PeekStrandSegment(segment_handle);
+      auto node_handle = uniform_segment_data.node_handle;
       kinDS::Point<2> profile_position{uniform_segment_data.profile_position.x,
                                        uniform_segment_data.profile_position.y};
 
@@ -755,7 +762,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
                                       std::to_string(strand_guide_points[strand_index].size()) + " has distance " +
                                       std::to_string(uniform_segment_data.segment_index)));
       }*/
-      strand_guide_points[strand_index].push_back(profile_position);
+      strand_guide_points[strand_index].first.push_back(profile_position);
+      strand_guide_points[strand_index].second.push_back(node_handle);
       uniform_subdivisions_by_strand[strand_index].push_back(uniform_segment.end_t);
     }
 
@@ -763,25 +771,26 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     for (int random_segment_index = 0;
          random_segment_index < random_subdivided_strand.PeekStrandSegmentHandles().size(); random_segment_index++) {
       size_t segment_handle = random_subdivided_strand.PeekStrandSegmentHandles()[random_segment_index];
-      const auto& segment = target_strand_segments[segment_handle];
+      const auto& segment = randomly_subdivided_strand_segments[segment_handle];
       const auto& random_segment_data = randomly_subdivided_strand_group.PeekStrandSegmentData(
           random_subdivided_strand.PeekStrandSegmentHandles()[random_segment_index]);
 
-      segment_indices[strand_index].push_back(segment_handle);
+      randomly_subdivided_segment_handles[strand_index].push_back(segment_handle);
 
       // scale parameters to subdivision
       if (!isnan(segment.end_t)) {
-        subdivisions_by_strand[strand_index].push_back(initialize_parameters.uniform_subdivision *
-                                                       (segment.end_t + random_segment_data.original_segment_index));
+        random_subdivisions_by_strand[strand_index].push_back(
+            initialize_parameters.uniform_subdivision * (segment.end_t + random_segment_data.original_segment_index));
       }
     }
   });
 
-  // Sort profile positions and global positions by t (todo: should be by node index later). This needs to be sequential
+  // Sort profile positions and global positions by t (TODO: should be by node index later). This needs to be sequential
   // because push_back is not thread-safe.
+  size_t node_count = strand_model_skeleton.PeekRawNodes().size();
   std::vector<std::vector<size_t>> sorted_segments(maxSegmentCount);
 
-  for (size_t strand_index = 0; strand_index < target_strands.size(); ++strand_index) {
+  for (size_t strand_index = 0; strand_index < randomly_subdivided_strands.size(); ++strand_index) {
     auto& uniformly_subdivided_strand = uniformly_subdivided_strand_group.PeekStrand(strand_index);
     Jobs::RunParallelFor(
         uniformly_subdivided_strand.PeekStrandSegmentHandles().size(), [&](const size_t segment_index) {
@@ -797,12 +806,12 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
 
   std::vector<glm::mat4> profile_to_model_transforms(maxSegmentCount + 1);
 
-  // create a file for debigging global vs profile positions
-  std::ofstream debug_file("profile_to_global_debug.csv");
+  // create a file for debugging global vs profile positions
+  /*std::ofstream debug_file("profile_to_global_debug.csv");
   // create header
   debug_file << "segment_index,p0_profile.x,p0_profile.y,p0_profile.z,p0_global.x,p0_global.y,p0_global.z,"
                 "p1_profile.x,p1_profile.y,p1_profile.z,p1_global.x,p1_global.y,p1_global.z,"
-                "p2_profile.x,p2_profile.y,p2_profile.z,p2_global.x,p2_global.y,p2_global.z\n";
+                "p2_profile.x,p2_profile.y,p2_profile.z,p2_global.x,p2_global.y,p2_global.z\n";*/
 
   // we need to treat the first transform separately as it derives from the start points of the first segments
   const auto& strands = uniformly_subdivided_strand_group.PeekStrands();
@@ -907,7 +916,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       }
 
       p2_global = p0_global + v_global;
-      p2_profile = p0_profile + glm::vec3(0.0f, 0.0f, 1.0f);
+      p2_profile = p0_profile + glm::vec3(0.0f, 0.0f, 1.0f);  // TODO: is this correct?
     } else {
       const auto& triple = triple_opt.value();
 
@@ -941,32 +950,29 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       }
     }
 
-    debug_file << segment_index << "," << p0_profile.x << "," << p0_profile.y << "," << p0_profile.z << ","
+    /*debug_file << segment_index << "," << p0_profile.x << "," << p0_profile.y << "," << p0_profile.z << ","
                << p0_global.x << "," << p0_global.y << "," << p0_global.z << "," << p1_profile.x << "," << p1_profile.y
                << "," << p1_profile.z << "," << p1_global.x << "," << p1_global.y << "," << p1_global.z << ","
                << p2_profile.x << "," << p2_profile.y << "," << p2_profile.z << "," << p2_global.x << "," << p2_global.y
-               << "," << p2_global.z << "\n";
+               << "," << p2_global.z << "\n";*/
 
     profile_to_model_transforms[segment_index] =
         ComputeAffineFromCoplanarPoints(p0_profile, p1_profile, p2_profile, p0_global, p1_global, p2_global);
   };
 
-  Jobs::RunParallelFor(
-      maxSegmentCount + 1,
-      [&](const size_t segment_index) {
-        get_transforms(segment_index);
-      },
-      1);  // set to 1 for debugging
+  Jobs::RunParallelFor(maxSegmentCount + 1, [&](const size_t segment_index) {
+    get_transforms(segment_index);
+  });
 
   // Proof of concept, just assume we have one trunk with no branches and all strands have the same length
   // construct cubic hermite spline for each strand
   std::vector<kinDS::CubicHermiteSpline<2>> strand_splines;
   for (const auto& guide_points : strand_guide_points) {
-    strand_splines.push_back(kinDS::CubicHermiteSpline<2>(guide_points));
+    strand_splines.push_back(kinDS::CubicHermiteSpline<2>(guide_points.first));
   }
 
-  RunMeshingAlgorithm(strand_splines, subdivisions_by_strand, segment_indices, profile_to_model_transforms,
-                      initialize_parameters.root_transform);
+  RunMeshingAlgorithm(strand_splines, random_subdivisions_by_strand, randomly_subdivided_segment_handles,
+                      profile_to_model_transforms, initialize_parameters.root_transform);
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitializationGraphicsPipeline(

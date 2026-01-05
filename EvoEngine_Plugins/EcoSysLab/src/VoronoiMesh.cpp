@@ -61,6 +61,11 @@ size_t VoronoiMesh::addTriangle(size_t v1, size_t v2, size_t v3) {
 size_t VoronoiMesh::addTriangle(size_t v1, size_t v2, size_t v3, size_t uv1, size_t uv2, size_t uv3) {
   size_t index = triangles.size() / 3;
 
+  // Check vertex indices
+  if (v1 >= vertices.size() || v2 >= vertices.size() || v3 >= vertices.size()) {
+    throw std::out_of_range("Vertex index out of range when adding triangle.");
+  }
+
   triangles.push_back(v1);
   triangles.push_back(v2);
   triangles.push_back(v3);
