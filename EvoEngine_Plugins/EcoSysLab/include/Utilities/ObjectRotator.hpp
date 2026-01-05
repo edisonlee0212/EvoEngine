@@ -1,4 +1,3 @@
-
 #pragma once
 
 namespace eco_sys_lab_plugin {
@@ -50,5 +49,4 @@ class ObjectRotator : public IPrivateComponent {
    */
   void Deserialize(const YAML::Node& in) override;
 };
-
 }  // namespace eco_sys_lab_plugin

@@ -28,6 +28,7 @@ float ClimateModel::GetHighTemp(const glm::vec3& position) const {
 
   return temp_max;
 }
+
 float ClimateModel::GetLowTemp(const glm::vec3& position) const {
   const int month = glm::mod(time / 30.416667f, 12.f);
   const int days = glm::mod(time, 30.416667f);
@@ -50,6 +51,7 @@ float ClimateModel::GetLowTemp(const glm::vec3& position) const {
   }
   return temp_min;
 }
+
 float ClimateModel::GetMaxRh(const glm::vec3& position) const {
   const int month = glm::mod(time / 30.416667f, 12.f);
   const int days = glm::mod(time, 30.416667f);
@@ -74,6 +76,7 @@ float ClimateModel::GetMaxRh(const glm::vec3& position) const {
 
   return temp_max;
 }
+
 float ClimateModel::GetMinRh(const glm::vec3& position) const {
   const int month = glm::mod(time / 30.416667f, 12.f);
   const int days = glm::mod(time, 30.416667f);
@@ -97,6 +100,7 @@ float ClimateModel::GetMinRh(const glm::vec3& position) const {
   }
   return temp_min;
 }
+
 float ClimateModel::GetDaylightHours(const glm::vec3& position) const {
   const int month = glm::mod(time / 30.416667f, 12.f);
   const int days = glm::mod(time, 30.416667f);
@@ -124,6 +128,7 @@ float ClimateModel::GetDaylightHours(const glm::vec3& position) const {
 float ClimateModel::GetEnvironmentalLight(const glm::vec3& position, glm::vec3& light_direction) const {
   return environment_grid.Sample(position, light_direction);
 }
+
 float ClimateModel::GetTimeInYear() const {
   return glm::mod(time, 365.f) / 365.f;
 }

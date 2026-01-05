@@ -20,6 +20,7 @@ bool SkeletalGraphSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor
 
   return changed;
 }
+
 void SkeletalGraphSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::BeginMap;
 
@@ -40,6 +41,7 @@ void SkeletalGraphSettings::Save(const std::string& name, YAML::Emitter& out) co
 
   out << YAML::EndMap;
 }
+
 void SkeletalGraphSettings::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     const auto& in_settings = in[name];

@@ -44,6 +44,6 @@ class DsMeshing {
                          const DynamicStrandsInitializeParameters& initialize_parameters,
                          const DynamicStrandsVisualizationParameters& visualization_parameters) = 0;
 
-  std::shared_ptr<DynamicStrands> dynamic_strands;
+  DynamicStrands* dynamic_strands;  // Raw pointer is fine here since DynamicStrands owns DsMeshing
 };
 }  // namespace eco_sys_lab_plugin

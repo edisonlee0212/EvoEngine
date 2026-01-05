@@ -1,7 +1,7 @@
-
 #pragma once
 
 #include "ClimateModel.hpp"
+
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
 
@@ -90,5 +90,4 @@ class Climate : public IPrivateComponent {
    */
   void PrepareForGrowth();
 };
-
 }  // namespace eco_sys_lab_plugin

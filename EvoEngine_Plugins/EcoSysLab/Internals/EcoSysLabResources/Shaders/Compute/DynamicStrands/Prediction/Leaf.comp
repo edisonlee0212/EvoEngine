@@ -17,54 +17,52 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint leaf_size;
-	float time_step;
-	float inv_time_step;
-	
+  uint leaf_size;
+  float time_step;
+  float inv_time_step;
 };
 
-void main(){
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint leaf_index = baseID + local_index;
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint leaf_index = baseID + local_index;
 
-		if(leaf_index >= leaf_size) break;
+    if (leaf_index >= leaf_size)
+      break;
 
-		Leaf leaf = foliage[leaf_index];
+    Leaf leaf = foliage[leaf_index];
 
-		//Shift rotation values
-		leaf.last_q = leaf.q;
-		//Apply angular velocity
-		vec4 angular_velocity_q = vec4(leaf.angular_v, 0.0f);
+    // Shift rotation values
+    leaf.last_q = leaf.q;
+    // Apply angular velocity
+    vec4 angular_velocity_q = vec4(leaf.angular_v, 0.0f);
 
-		leaf.q += 0.5f * time_step * quat_mul(angular_velocity_q, leaf.q);
-		leaf.q = normalize(leaf.q);
+    leaf.q += 0.5f * time_step * quat_mul(angular_velocity_q, leaf.q);
+    leaf.q = normalize(leaf.q);
 
-		//Update inertia
-		update_inertia_w(leaf.q, leaf.inertia_tensor, leaf.inv_inertia_tensor, leaf.inertia_w, leaf.inv_inertia_w);
+    // Update inertia
+    update_inertia_w(leaf.q, leaf.inertia_tensor, leaf.inv_inertia_tensor, leaf.inertia_w, leaf.inv_inertia_w);
 
-		//Shift position values
-		leaf.last_x = leaf.x;
-		//Apply velocity
-		leaf.x += time_step * leaf.v;
-		
-		if(leaf.attachment_integrity != 0.0f){
-			Segment segment = segments[leaf.segment_handle];
-			vec3 segment_center_position =
-				(segment.particle0.x + segment.particle1.x) * 0.5f;
-			vec3 desired_position = segment_center_position + rotate_vec3(segment.q, leaf.position_offset);
+    // Shift position values
+    leaf.last_x = leaf.x;
+    // Apply velocity
+    leaf.x += time_step * leaf.v;
 
-			float offset_length = length(leaf.position_offset);
-			leaf.position_strain = length(desired_position - leaf.x) / offset_length * inv_time_step;
-		}
+    if (leaf.attachment_integrity != 0.0f) {
+      Segment segment = segments[leaf.segment_handle];
+      vec3 segment_center_position = (segment.particle0.x + segment.particle1.x) * 0.5f;
+      vec3 desired_position = segment_center_position + rotate_vec3(segment.q, leaf.position_offset);
 
-		foliage[leaf_index] = leaf;
-	}
+      float offset_length = length(leaf.position_offset);
+      leaf.position_strain = length(desired_position - leaf.x) / offset_length * inv_time_step;
+    }
+
+    foliage[leaf_index] = leaf;
+  }
 }

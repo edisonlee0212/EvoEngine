@@ -14,54 +14,56 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint strand_size;
-	float inv_time_step;
-	uint frame_index;
+  uint strand_size;
+  float inv_time_step;
+  uint frame_index;
 };
 
 #define DYNAMIC_STRANDS_SET 0
 #include "DynamicStrandsPhysics.glsl"
 
-void main(){
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint strand_index = baseID + local_index;
 
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint strand_index = baseID + local_index;
+    if (strand_index >= strand_size)
+      break;
 
-		if(strand_index >= strand_size) break;
+    Strand strand = strands[strand_index];
+    int front_propagate_handle = frame_index % 2 == 0 ? strand.front_propagate_begin_segment_handle
+                                                      : strand.alternative_front_propagate_begin_segment_handle;
+    int back_propagate_handle = frame_index % 2 == 0 ? strand.back_propagate_begin_segment_handle
+                                                     : strand.alternative_back_propagate_begin_segment_handle;
 
-		Strand strand = strands[strand_index];
-		int front_propagate_handle = frame_index % 2 == 0 ? strand.front_propagate_begin_segment_handle : strand.alternative_front_propagate_begin_segment_handle;
-		int back_propagate_handle = frame_index % 2 == 0 ? strand.back_propagate_begin_segment_handle : strand.alternative_back_propagate_begin_segment_handle;
-		
-		while(front_propagate_handle != -1 || back_propagate_handle != -1){
-			int prev_segment_pair_handle = segment_data_list[front_propagate_handle].pair_handles[0];
-			if(prev_segment_pair_handle != -1){
-				project_bend_twist_constraint(inv_time_step, prev_segment_pair_handle);
-			}
-			if(front_propagate_handle != -1) {
-				project_shear_stretch_constraint(inv_time_step, front_propagate_handle);
-				front_propagate_handle = segments[front_propagate_handle].next_handle;
-				if(front_propagate_handle != -1) front_propagate_handle = segments[front_propagate_handle].next_handle;
-			}
+    while (front_propagate_handle != -1 || back_propagate_handle != -1) {
+      int prev_segment_pair_handle = segment_data_list[front_propagate_handle].pair_handles[0];
+      if (prev_segment_pair_handle != -1) {
+        project_bend_twist_constraint(inv_time_step, prev_segment_pair_handle);
+      }
+      if (front_propagate_handle != -1) {
+        project_shear_stretch_constraint(inv_time_step, front_propagate_handle);
+        front_propagate_handle = segments[front_propagate_handle].next_handle;
+        if (front_propagate_handle != -1)
+          front_propagate_handle = segments[front_propagate_handle].next_handle;
+      }
 
-			int next_segment_pair_handle = segment_data_list[back_propagate_handle].pair_handles[1];
-			if(next_segment_pair_handle != -1){
-				project_bend_twist_constraint(inv_time_step, next_segment_pair_handle);
-			}
-			if(back_propagate_handle != -1) {
-				project_shear_stretch_constraint(inv_time_step, back_propagate_handle);
-				back_propagate_handle = segments[back_propagate_handle].prev_handle;
-				if(back_propagate_handle != -1) back_propagate_handle = segments[back_propagate_handle].prev_handle;
-			}
-		}
-	}
+      int next_segment_pair_handle = segment_data_list[back_propagate_handle].pair_handles[1];
+      if (next_segment_pair_handle != -1) {
+        project_bend_twist_constraint(inv_time_step, next_segment_pair_handle);
+      }
+      if (back_propagate_handle != -1) {
+        project_shear_stretch_constraint(inv_time_step, back_propagate_handle);
+        back_propagate_handle = segments[back_propagate_handle].prev_handle;
+        if (back_propagate_handle != -1)
+          back_propagate_handle = segments[back_propagate_handle].prev_handle;
+      }
+    }
+  }
 }
-

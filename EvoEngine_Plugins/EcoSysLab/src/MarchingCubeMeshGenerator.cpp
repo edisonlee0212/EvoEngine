@@ -2,8 +2,8 @@
 #include "MeshGenUtils.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab_plugin {
 
+namespace eco_sys_lab_plugin {
 void MarchingCubeMeshGenerator::Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,
                                          std::vector<unsigned int>& indices,
                                          const StrandModelMeshGeneratorSettings& settings) {

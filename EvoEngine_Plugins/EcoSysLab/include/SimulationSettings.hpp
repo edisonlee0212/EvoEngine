@@ -81,5 +81,4 @@ class SimulationSettings {
    */
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 };
-
 }  // namespace eco_sys_lab_plugin

@@ -1,6 +1,7 @@
 #include "StrandModelParameters.hpp"
 
 using namespace eco_sys_lab_plugin;
+
 bool StrandModelParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNodeEx("Profile settings", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -77,6 +78,7 @@ bool StrandModelParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor
     changed = true;
   return changed;
 }
+
 void StrandModelParameters::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::BeginMap;
   out << YAML::Key << "center_attraction_strength" << YAML::Value << center_attraction_strength;
@@ -105,6 +107,7 @@ void StrandModelParameters::Save(const std::string& name, YAML::Emitter& out) co
 
   out << YAML::EndMap;
 }
+
 void StrandModelParameters::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     const auto& in_settings = in[name];

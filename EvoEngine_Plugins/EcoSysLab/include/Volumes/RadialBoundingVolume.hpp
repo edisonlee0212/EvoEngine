@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <Mesh.hpp>
@@ -146,5 +145,4 @@ class RadialBoundingVolume : public IVolume {
    */
   void Augmentation(float value);
 };
-
 }  // namespace eco_sys_lab_plugin

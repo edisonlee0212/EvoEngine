@@ -26,6 +26,7 @@ bool SmallSegmentsRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>
 
   return changed;
 }
+
 bool SmallSegmentsVisualizationRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Thickness multiplier", &thickness_multiplier, 0.1f, 0.1f, 10.f)) {
@@ -72,15 +73,18 @@ bool SmallSegmentsVisualizationRenderParameters::OnInspect(const std::shared_ptr
 
   return changed;
 }
+
 struct SmallSegmentsRenderPushConstant {
   union Index1 {
     int instance_index;
     int sub_light_index;
   } index1;
+
   union Index2 {
     int camera_index;
     int light_index;
   } index2;
+
   uint32_t uniform_particle_size;
   float thickness_multiplier;
   glm::vec3 position_scale;
@@ -236,10 +240,12 @@ struct SmallSegmentsVisualizationRenderPushConstant {
     int instance_index;
     int sub_light_index;
   } index1;
+
   union Index2 {
     int camera_index;
     int light_index;
   } index2;
+
   uint32_t uniform_particle_size;
   float thickness_multiplier;
 

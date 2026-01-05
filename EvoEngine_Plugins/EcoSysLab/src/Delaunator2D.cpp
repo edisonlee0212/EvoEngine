@@ -282,8 +282,8 @@ Delaunator2D::Delaunator2D(std::vector<float> const& inCoords)
     size_t e = start;
     size_t q;
 
-    while (q = hull_next[e], !orient(x, y, coords[2 * e], coords[2 * e + 1], coords[2 * q],
-                                     coords[2 * q + 1])) {  // TODO: does it works in a same way as in JS
+    while (q = hull_next[e], !orient(x, y, coords[2 * e], coords[2 * e + 1], coords[2 * q], coords[2 * q + 1])) {
+      // TODO: does it works in a same way as in JS
       e = q;
       if (e == start) {
         e = INVALID_INDEX;
@@ -425,7 +425,6 @@ std::size_t Delaunator2D::legalize(std::size_t a) {
         m_edge_stack.push_back(br);
       }
       i++;
-
     } else {
       if (i > 0) {
         i--;

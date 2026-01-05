@@ -12,7 +12,6 @@
 #include "TreeIOUtils.hpp"
 
 namespace treeutil {
-
 /// @brief Helper class used for generating chain ArrayTree representation.
 class TreeChains : public treeutil::PointerWrapper<TreeChains> {
  public:
@@ -39,35 +38,35 @@ class TreeChains : public treeutil::PointerWrapper<TreeChains> {
               typename NodeT = typename std::conditional_t<std::is_const_v<TreeT>, const typename TreeT::NodeT,
                                                            typename TreeT::NodeT>>
     using SegmentFun =
-        std::conditional_t<std::is_same_v<ReturnT, void>, std::function<ReturnT(NodeT &, NodeT &)>,
-                           std::function<ReturnT(NodeT &, NodeT &, const other_than_void_t<ReturnT, int> &)>>;
+        std::conditional_t<std::is_same_v<ReturnT, void>, std::function<ReturnT(NodeT&, NodeT&)>,
+                           std::function<ReturnT(NodeT&, NodeT&, const other_than_void_t<ReturnT, int>&)>>;
 
     /// @brief Lambda function operating on nodes.
     template <typename TreeT, typename ReturnT,
               typename NodeT = typename std::conditional_t<std::is_const_v<TreeT>, const typename TreeT::NodeT,
                                                            typename TreeT::NodeT>>
-    using NodeFun = std::conditional_t<std::is_same_v<ReturnT, void>, std::function<ReturnT(NodeT &)>,
-                                       std::function<ReturnT(NodeT &, const other_than_void_t<ReturnT, int> &)>>;
+    using NodeFun = std::conditional_t<std::is_same_v<ReturnT, void>, std::function<ReturnT(NodeT&)>,
+                                       std::function<ReturnT(NodeT&, const other_than_void_t<ReturnT, int>&)>>;
 
     /// @brief Run given lambda on each segment in this chain.
     template <typename TreeT>
-    void forEachSegment(TreeT &tree, const SegmentFun<TreeT, void> &lambda) const;
+    void forEachSegment(TreeT& tree, const SegmentFun<TreeT, void>& lambda) const;
 
     /// @brief Run given lambda on each segment in this chain.
     template <typename TreeT, typename ReturnT>
-    ReturnT forEachSegment(TreeT &tree, const SegmentFun<TreeT, ReturnT> &lambda, const ReturnT &initial = {}) const;
+    ReturnT forEachSegment(TreeT& tree, const SegmentFun<TreeT, ReturnT>& lambda, const ReturnT& initial = {}) const;
 
     /// @brief Run given lambda on each node in this chain.
     template <typename TreeT>
-    void forEachNode(TreeT &tree, const NodeFun<TreeT, void> &lambda) const;
+    void forEachNode(TreeT& tree, const NodeFun<TreeT, void>& lambda) const;
 
     /// @brief Run given lambda on each node in this chain.
     template <typename TreeT, typename ReturnT>
-    ReturnT forEachNode(TreeT &tree, const NodeFun<TreeT, ReturnT> &lambda, const ReturnT &initial = {}) const;
+    ReturnT forEachNode(TreeT& tree, const NodeFun<TreeT, ReturnT>& lambda, const ReturnT& initial = {}) const;
 
     /// @brief Calculate chain length using nodes in given tree.
     template <typename TreeT>
-    auto calculateChainLength(const TreeT &tree) const;
+    auto calculateChainLength(const TreeT& tree) const;
 
     /**
      * List of node indices contained within this chain in order from lowest depth to highest.
@@ -118,7 +117,7 @@ class TreeChains : public treeutil::PointerWrapper<TreeChains> {
     /// @brief Default initialization;
     InternalNodeData();
     /// @brief Copy common information from the original tree node.
-    InternalNodeData(const treeio::TreeNodeData &original);
+    InternalNodeData(const treeio::TreeNodeData& original);
 
     /// Position of this node in model-space.
     treeutil::Vector3D pos{};
@@ -166,29 +165,29 @@ class TreeChains : public treeutil::PointerWrapper<TreeChains> {
   using ChainIdxStorage = std::vector<NodeChain::ChainIdxT>;
 
   /// @brief Function used for upward propagation tasks - current tree and current node ID are provided.
-  using UpwardPropFunT = std::function<bool(InternalArrayTree &, const NodeIdT &)>;
+  using UpwardPropFunT = std::function<bool(InternalArrayTree&, const NodeIdT&)>;
   /// @brief Function used for downward propagation tasks - current tree and current node ID are provided.
-  using DownwardPropFunT = std::function<bool(InternalArrayTree &, const NodeIdT &)>;
+  using DownwardPropFunT = std::function<bool(InternalArrayTree&, const NodeIdT&)>;
 
   // Constructors:
 
   /// @brief Initialize helper structures.
   TreeChains();
   /// @brief Initialize helper structures and generate tree chains.
-  TreeChains(const treeio::ArrayTree &tree);
+  TreeChains(const treeio::ArrayTree& tree);
   /// @brief Cleanup and destroy.
   ~TreeChains();
 
   // Allow copy and move:
-  TreeChains(const TreeChains &other) = default;
-  TreeChains(TreeChains &&other) = default;
-  TreeChains &operator=(const TreeChains &other) = default;
-  TreeChains &operator=(TreeChains &&other) = default;
+  TreeChains(const TreeChains& other) = default;
+  TreeChains(TreeChains&& other) = default;
+  TreeChains& operator=(const TreeChains& other) = default;
+  TreeChains& operator=(TreeChains&& other) = default;
 
   // Builders:
 
   /// @brief Generate tree chains and additional structures for given tree.
-  bool buildTree(const treeio::ArrayTree &tree);
+  bool buildTree(const treeio::ArrayTree& tree);
 
   // Oprations:
 
@@ -202,14 +201,14 @@ class TreeChains : public treeutil::PointerWrapper<TreeChains> {
   // Accessors:
 
   /// @brief Access the internal tree and its data.
-  const InternalArrayTree &internalTree() const;
+  const InternalArrayTree& internalTree() const;
   /// @brief Access the list of leaf nodes in the internalTree().
-  const NodeIdStorage &leafNodes() const;
+  const NodeIdStorage& leafNodes() const;
 
   /// @brief Access the chains. The first chain is always the root one.
-  const ChainStorage &chains() const;
+  const ChainStorage& chains() const;
   /// @brief Access the list of leaf chains in the chains().
-  const ChainIdxStorage &leafChains() const;
+  const ChainIdxStorage& leafChains() const;
   /// @brief Get maximum depth of all of the chains.
   std::size_t maxChainDepth() const;
   /// @brief Get maximum Gravelius depth of all of the chains.
@@ -233,7 +232,7 @@ class TreeChains : public treeutil::PointerWrapper<TreeChains> {
   // Appliers:
 
   /// @brief Apply all internal changes to given tree.
-  bool applyChangesTo(treeio::ArrayTree &tree) const;
+  bool applyChangesTo(treeio::ArrayTree& tree) const;
 
  private:
   /// @brief Minimum distance of two nodes in order to compute the MRF.
@@ -250,14 +249,14 @@ class TreeChains : public treeutil::PointerWrapper<TreeChains> {
   };  // stuct FrenetFrame
 
   /// @brief Generate information going from root to the leaves of the current tree.
-  bool generateUpwardPassInformation(InternalArrayTree &tree);
+  bool generateUpwardPassInformation(InternalArrayTree& tree);
   /// @brief Generate information going from leaves to the root of the current tree.
-  bool generateDownwardPassInformation(InternalArrayTree &tree);
+  bool generateDownwardPassInformation(InternalArrayTree& tree);
   /// @brief Generate orthonormal bases for the current tree.
-  bool generateOrthoBases(InternalArrayTree &tree);
+  bool generateOrthoBases(InternalArrayTree& tree);
   /// @brief Generate node chains for the current tree.
-  bool generateNodeChains(const InternalArrayTree &tree, ChainStorage &chains, ChainIdxStorage &leafChains,
-                          std::size_t &maxChainDepth, std::size_t &maxGraveliusDepth);
+  bool generateNodeChains(const InternalArrayTree& tree, ChainStorage& chains, ChainIdxStorage& leafChains,
+                          std::size_t& maxChainDepth, std::size_t& maxGraveliusDepth);
 
   /**
    * @brief Perform double reflection rotation minimization for given frames.
@@ -265,20 +264,20 @@ class TreeChains : public treeutil::PointerWrapper<TreeChains> {
    * @param inputFrame Input frame for the child node, which should be oriented as the rotatedFrame.
    * @return Returns frame rotated as the rotatedFrame created from the inputFrame.
    */
-  FrenetFrame doubleReflectionRMF(const FrenetFrame &rotatedFrame, const FrenetFrame &inputFrame) const;
+  FrenetFrame doubleReflectionRMF(const FrenetFrame& rotatedFrame, const FrenetFrame& inputFrame) const;
 
   /// @brief Calculate basis for given node ID using only its children.
-  OrthoBasis calculateBasisFromChildren(const InternalArrayTree &tree, const NodeIdT &nodeId) const;
+  OrthoBasis calculateBasisFromChildren(const InternalArrayTree& tree, const NodeIdT& nodeId) const;
 
   /// @brief Calculate basis for given node ID using only its parent.
-  OrthoBasis calculateBasisFromParent(const InternalArrayTree &tree, const NodeIdT &nodeId) const;
+  OrthoBasis calculateBasisFromParent(const InternalArrayTree& tree, const NodeIdT& nodeId) const;
 
   /// @brief Calculate basis for node at srcPos, which continues with dstPos.
-  OrthoBasis calculateBasis(const Vector3D &srcPos, const Vector3D &dstPos) const;
+  OrthoBasis calculateBasis(const Vector3D& srcPos, const Vector3D& dstPos) const;
 
   /// @brief Mark given chain, all of its children and associated nodes for removal. Returns number of chains marked.
-  std::size_t markChainForRemoval(InternalArrayTree &tree, ChainStorage &chains,
-                                  const NodeChain::ChainIdxT &chainIdx) const;
+  std::size_t markChainForRemoval(InternalArrayTree& tree, ChainStorage& chains,
+                                  const NodeChain::ChainIdxT& chainIdx) const;
 
   /// Internal tree used by this instance.
   InternalArrayTree mInternalTree{};
@@ -295,15 +294,13 @@ class TreeChains : public treeutil::PointerWrapper<TreeChains> {
 
  protected:
 };  // class TreeChains
-
 }  // namespace treeutil
 
 // Template implementation begin.
 
 namespace treeutil {
-
 template <typename TreeT>
-void TreeChains::NodeChain::forEachSegment(TreeT &tree, const SegmentFun<TreeT, void> &lambda) const {
+void TreeChains::NodeChain::forEachSegment(TreeT& tree, const SegmentFun<TreeT, void>& lambda) const {
   if (nodes.size() < 2u) {
     return;
   }
@@ -316,8 +313,8 @@ void TreeChains::NodeChain::forEachSegment(TreeT &tree, const SegmentFun<TreeT, 
 }
 
 template <typename TreeT, typename ReturnT>
-ReturnT TreeChains::NodeChain::forEachSegment(TreeT &tree, const SegmentFun<TreeT, ReturnT> &lambda,
-                                              const ReturnT &initial) const {
+ReturnT TreeChains::NodeChain::forEachSegment(TreeT& tree, const SegmentFun<TreeT, ReturnT>& lambda,
+                                              const ReturnT& initial) const {
   if (nodes.size() < 2u) {
     return ReturnT{};
   }
@@ -334,18 +331,18 @@ ReturnT TreeChains::NodeChain::forEachSegment(TreeT &tree, const SegmentFun<Tree
 }
 
 template <typename TreeT>
-void TreeChains::NodeChain::forEachNode(TreeT &tree, const NodeFun<TreeT, void> &lambda) const {
-  for (const auto &currentNodeIdx : nodes) {
+void TreeChains::NodeChain::forEachNode(TreeT& tree, const NodeFun<TreeT, void>& lambda) const {
+  for (const auto& currentNodeIdx : nodes) {
     lambda(tree.getNode(currentNodeIdx));
   }
 }
 
 template <typename TreeT, typename ReturnT>
-ReturnT TreeChains::NodeChain::forEachNode(TreeT &tree, const NodeFun<TreeT, ReturnT> &lambda,
-                                           const ReturnT &initial) const {
+ReturnT TreeChains::NodeChain::forEachNode(TreeT& tree, const NodeFun<TreeT, ReturnT>& lambda,
+                                           const ReturnT& initial) const {
   ReturnT returnVal{initial};
 
-  for (const auto &currentNodeIdx : nodes) {
+  for (const auto& currentNodeIdx : nodes) {
     returnVal = lambda(tree.getNode(currentNodeIdx, returnVal));
   }
 
@@ -353,16 +350,15 @@ ReturnT TreeChains::NodeChain::forEachNode(TreeT &tree, const NodeFun<TreeT, Ret
 }
 
 template <typename TreeT>
-auto TreeChains::NodeChain::calculateChainLength(const TreeT &tree) const {
+auto TreeChains::NodeChain::calculateChainLength(const TreeT& tree) const {
   return forEachSegment(
       tree,
-      [](auto &node1, auto &node2, auto &runningLength) {
+      [](auto& node1, auto& node2, auto& runningLength) {
         const auto segmentLength{node1.data().pos.distanceTo(node2.data().pos)};
         return runningLength + segmentLength;
       },
       0.0f);
 }
-
 }  // namespace treeutil
 
 // Template implementation end.

@@ -1,4 +1,3 @@
-
 #pragma once
 #include "Plot2D.hpp"
 #include "Skeleton.hpp"
@@ -188,5 +187,4 @@ void DynamicSkeleton::Initialize(const InitializeParameters& initialize_paramete
   dts_skeleton.Clone(src_skeleton);
   Initialize(initialize_parameters);
 }
-
 }  // namespace eco_sys_lab_plugin

@@ -36,6 +36,7 @@ std::shared_ptr<Texture2D> IShootDescriptor::GenerateThumbnailTexture() {
   }
   return thumbnail;
 }
+
 std::shared_ptr<Texture2D> IRootDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
@@ -45,6 +46,7 @@ std::shared_ptr<Texture2D> IRootDescriptor::GenerateThumbnailTexture() {
   }
   return thumbnail;
 }
+
 std::shared_ptr<Texture2D> IFineRootDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
@@ -54,6 +56,7 @@ std::shared_ptr<Texture2D> IFineRootDescriptor::GenerateThumbnailTexture() {
   }
   return thumbnail;
 }
+
 std::shared_ptr<Texture2D> IPruningDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
@@ -63,6 +66,7 @@ std::shared_ptr<Texture2D> IPruningDescriptor::GenerateThumbnailTexture() {
   }
   return thumbnail;
 }
+
 std::shared_ptr<Texture2D> IFoliageDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
@@ -72,6 +76,7 @@ std::shared_ptr<Texture2D> IFoliageDescriptor::GenerateThumbnailTexture() {
   }
   return thumbnail;
 }
+
 std::shared_ptr<Texture2D> IReproductionModuleDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
@@ -81,6 +86,7 @@ std::shared_ptr<Texture2D> IReproductionModuleDescriptor::GenerateThumbnailTextu
   }
   return thumbnail;
 }
+
 std::shared_ptr<Texture2D> IBarkDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
@@ -90,6 +96,7 @@ std::shared_ptr<Texture2D> IBarkDescriptor::GenerateThumbnailTexture() {
   }
   return thumbnail;
 }
+
 std::shared_ptr<Texture2D> IFlowerDescriptor::GenerateThumbnailTexture() {
   static std::shared_ptr<Texture2D> thumbnail;
   if (!thumbnail) {
@@ -99,6 +106,7 @@ std::shared_ptr<Texture2D> IFlowerDescriptor::GenerateThumbnailTexture() {
   }
   return thumbnail;
 }
+
 void TreeDescriptor::OnCreate() {
 }
 

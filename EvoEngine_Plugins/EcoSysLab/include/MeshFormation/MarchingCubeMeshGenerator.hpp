@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include "StrandModel.hpp"
@@ -78,5 +77,4 @@ class MarchingCubeMeshGenerator {
   static void MarchingCube(const StrandModel& strand_model, std::vector<Vertex>& vertices,
                            std::vector<unsigned>& indices, const StrandModelMeshGeneratorSettings& settings);
 };
-
 }  // namespace eco_sys_lab_plugin

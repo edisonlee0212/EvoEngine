@@ -3,6 +3,7 @@
 #include "Shader.hpp"
 
 using namespace eco_sys_lab_plugin;
+
 DsFungus::DsFungus() {
   if (!fungus_diffusion_node_pipeline) {
     static std::shared_ptr<Shader> shader{};

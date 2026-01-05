@@ -18,15 +18,15 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
-struct SegmentUpdate{
-	float axis_offset;
-	float axis_distance;
-	uint segment_index;
-	uint padding;
+struct SegmentUpdate {
+  float axis_offset;
+  float axis_distance;
+  uint segment_index;
+  uint padding;
 };
 
 layout(std430, set = 1, binding = 0) readonly buffer SEGMENT_UPDATE_BLOCK {
@@ -34,38 +34,38 @@ layout(std430, set = 1, binding = 0) readonly buffer SEGMENT_UPDATE_BLOCK {
 };
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	vec3 pivot_position;
-	uint command_size;
-	vec3 axis;
+  vec3 pivot_position;
+  uint command_size;
+  vec3 axis;
 };
 
-void main(){
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint global_index = baseID + local_index;
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint global_index = baseID + local_index;
 
-		if(global_index >= command_size) break;
+    if (global_index >= command_size)
+      break;
 
-		SegmentUpdate segment_update = segment_updates[global_index];
-		uint segment_index = segment_update.segment_index;
-		Segment segment = segments[segment_index];
+    SegmentUpdate segment_update = segment_updates[global_index];
+    uint segment_index = segment_update.segment_index;
+    Segment segment = segments[segment_index];
 
-		vec3 front_direction = normalize(rotate_vec3(segment.q, vec3(0, 0, -1)));
+    vec3 front_direction = normalize(rotate_vec3(segment.q, vec3(0, 0, -1)));
 
-		float current_segment_length = distance(segment.particle0.x, segment.particle1.x);
-		vec3 segment_center_position = (segment.particle0.x + segment.particle1.x) * 0.5f;
-		
-		vec3 axis_position = pivot_position + segment_update.axis_offset * axis;
-		vec3 line_projection = dot(segment_center_position - pivot_position, axis) * axis;
-		vec3 diff = segment_center_position - pivot_position - line_projection;
-		vec3 direction = length(diff) == 0.0f ? front_direction : normalize(diff);
-		vec3 desired_segment_center_position = axis_position + segment_update.axis_distance * direction;
+    float current_segment_length = distance(segment.particle0.x, segment.particle1.x);
+    vec3 segment_center_position = (segment.particle0.x + segment.particle1.x) * 0.5f;
 
-		vec3 offset = front_direction * 0.5f * current_segment_length;
-		segment.particle0.x = segment.particle0.last_x = desired_segment_center_position - offset;
-		segment.particle1.x = segment.particle1.last_x = desired_segment_center_position + offset;
-		segments[segment_index] = segment;
-	}
+    vec3 axis_position = pivot_position + segment_update.axis_offset * axis;
+    vec3 line_projection = dot(segment_center_position - pivot_position, axis) * axis;
+    vec3 diff = segment_center_position - pivot_position - line_projection;
+    vec3 direction = length(diff) == 0.0f ? front_direction : normalize(diff);
+    vec3 desired_segment_center_position = axis_position + segment_update.axis_distance * direction;
+
+    vec3 offset = front_direction * 0.5f * current_segment_length;
+    segment.particle0.x = segment.particle0.last_x = desired_segment_center_position - offset;
+    segment.particle1.x = segment.particle1.last_x = desired_segment_center_position + offset;
+    segments[segment_index] = segment;
+  }
 }

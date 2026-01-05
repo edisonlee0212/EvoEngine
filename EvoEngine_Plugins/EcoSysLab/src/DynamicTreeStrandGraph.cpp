@@ -8,11 +8,13 @@ using namespace eco_sys_lab_plugin;
 bool NodeData::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const {
   return node_impl->OnInspect(editor_layer);
 }
+
 bool InputPinData::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const {
   bool changed = false;
   ImGui::Text(name.c_str());
   return changed;
 }
+
 bool OutputPinData::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const {
   bool changed = false;
   ImGui::Text(name.c_str());
@@ -132,6 +134,7 @@ ModulusGraph::Output ModulusGraph::GetValues(const Input& input) const {
   output.twisting_modulus = GetTwistingModulus(input);
   return output;
 }
+
 void ModulusGraph::SetValues(const ModulusGraph::Output& values) {
   SetDensity(values.density);
   SetShearStretchModulus(values.shear_stretch_modulus);
@@ -227,6 +230,7 @@ bool ModulusGraph::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
   return changed;
 }
+
 void eco_sys_lab_plugin::ModulusGraph::SetOutput(NodeGraphNodeHandle output_node_handle, const glm::vec2& value) {
   // Create two new constant nodes to input the values into the output node
   const auto min_node_handle = node_graph.AllocateNode(0, 1);
@@ -921,7 +925,6 @@ bool IDynamicTreeStrands::ShowGraph(const std::string& window_title, const std::
         },
         [&](const std::vector<NodeGraphNodeHandle>& selected_node_handles,
             const std::vector<NodeGraphLinkHandle>& selected_link_handles) {
-
         },
         [&](const ImVec2 click_pos) {
           if (hovered_node_handle > 1) {
@@ -1178,6 +1181,7 @@ bool IDynamicTreeStrands::ShowGraph(const std::string& window_title, const std::
   ImGui::End();
   return changed;
 }
+
 void IDynamicTreeStrands::SerializeImpl(YAML::Emitter& out) const {
   node_graph.Save(
       "node_graph", out,
@@ -1194,9 +1198,9 @@ void IDynamicTreeStrands::SerializeImpl(YAML::Emitter& out) const {
         node_out << YAML::EndMap;
       },
       [&](YAML::Emitter& link_out, const int& data) {
-
       });
 }
+
 void IDynamicTreeStrands::DeserializeImpl(const YAML::Node& in) {
   node_graph.Load(
       "node_graph", in,
@@ -1325,9 +1329,9 @@ void IDynamicTreeStrands::DeserializeImpl(const YAML::Node& in) {
         }
       },
       [&](const YAML::Node& link_in, int& data) {
-
       });
 }
+
 bool INode::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   return false;
 }
@@ -1348,8 +1352,10 @@ void INode::PrepareInputs(const NodeGraph<InputPinData, OutputPinData, NodeData,
     }
   }
 }
+
 void INode::Serialize(YAML::Emitter& out) const {
 }
+
 void INode::Deserialize(const YAML::Node& in) {
 }
 
@@ -1357,6 +1363,7 @@ void InputNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, i
                         const NodeGraphNodeHandle node_handle,
                         std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
 }
+
 void OutputNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                          const NodeGraphNodeHandle node_handle,
                          std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {

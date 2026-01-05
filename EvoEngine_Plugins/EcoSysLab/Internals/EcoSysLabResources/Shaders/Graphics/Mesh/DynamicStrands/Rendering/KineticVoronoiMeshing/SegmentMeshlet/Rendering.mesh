@@ -10,8 +10,8 @@
 #define DYNAMIC_STRANDS_SET 1
 #include "DynamicStrands.glsl"
 
-#include "Math.glsl"
 #include "KineticVoronoiMeshing.glsl"
+#include "Math.glsl"
 const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
 const float PI = 3.1415926535897932384626433832795;
@@ -24,8 +24,8 @@ layout(triangles) out;
 
 layout(max_vertices = MAX_VERTEX_COUNT, max_primitives = MAX_PRIMITIVE_COUNT) out;
 
-const uint TETRAHEDRON_VERTEX_ITERATIONS = ((MAX_VERTEX_COUNT + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-const uint TETRAHEDRON_PRIMITIVE_ITERATIONS = ((MAX_PRIMITIVE_COUNT + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint VERTEX_ITERATIONS = ((MAX_VERTEX_COUNT + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint PRIMITIVE_ITERATIONS = ((MAX_PRIMITIVE_COUNT + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
 layout(location = 0) out MS_V_OUT {
   vec3 FragPos;
@@ -35,6 +35,11 @@ layout(location = 0) out MS_V_OUT {
   vec4 Color;
 }
 ms_v_out[];
+
+layout(location = 5) perprimitiveEXT out MS_PRIM_OUT {
+  int MaterialIndex;
+}
+ms_prim[];
 
 struct Task {
   uint baseID;
@@ -53,47 +58,67 @@ uint laneID = gl_LocalInvocationID.x;
 
 #include "KineticVoronoiRenderingConstants.glsl"
 
-void SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMeshletVertex segment_meshlet_vertex) {
-  vec3 vertex_position = vec3(segment_meshlet_vertex.relative_position_x, segment_meshlet_vertex.relative_position_y, segment_meshlet_vertex.relative_position_z);
+vec3 SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMeshletVertex segment_meshlet_vertex,
+                         in vec4 color, in vec2 uv_coords, in bool is_bark) {
   mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
 
-  ms_v_out[vertex_index].FragPos = vertex_position;
-  ms_v_out[vertex_index].Normal = vertex_normal;
-  ms_v_out[vertex_index].Tangent = vec3(0.0, 1.0, 0.0); // TODO
-  ms_v_out[vertex_index].Color = vec4(1.0, 1.0, 1.0, 1.0); // TODO
-  gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
+  ms_v_out[vertex_index].FragPos = segment_meshlet_vertex.x;
+  // this is certainly incorrect, but somehow the lighting computation expects the x-coordinate to be inverted
+  ms_v_out[vertex_index].Normal = vec3(-vertex_normal.x, vertex_normal.y, vertex_normal.z);
+  ms_v_out[vertex_index].Tangent = vec3(0.0, 1.0, 0.0);  // TODO
+
+  if (is_bark) {
+    uv_coords.x *= uv_circum_factor;
+    uv_coords.y *= uv_height_factor;
+  }
+
+  ms_v_out[vertex_index].TexCoord = uv_coords;
+
+  switch (color_mode) {
+    case COLOR_STANDARD:
+      ms_v_out[vertex_index].Color = color;
+      break;
+    case COLOR_NORMALS:
+      ms_v_out[vertex_index].Color = vec4(vertex_normal, 1.0);
+      break;
+    case COLOR_UVS:
+      ms_v_out[vertex_index].Color = vec4(uv_coords, 0.0, 1.0);
+      break;
+  }
+
+  gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(segment_meshlet_vertex.x, 1.0);
+
+  return segment_meshlet_vertex.x;
 }
 
 void main() {
+  // TODO: the loop structure here does not make sense
   SegmentMeshletTriangle tri = segment_meshlet_triangles[tri_id];
   // report amount of accepted triangles
   SetMeshOutputsEXT(MAX_VERTEX_COUNT, 1);
 
   // assign all accepted triangles
   [[unroll]]
-  for (uint i = 0; i < uint(TETRAHEDRON_PRIMITIVE_ITERATIONS); ++i) {
-    uint triangle_index = laneID + i * WORKGROUP_SIZE; // should always be 0 in our setup
+  for (uint i = 0; i < uint(PRIMITIVE_ITERATIONS); ++i) {
+    uint triangle_index = laneID + i * WORKGROUP_SIZE;  // should always be 0 in our setup
     if (triangle_index < MAX_PRIMITIVE_COUNT) {
+      vec4 color = vec4(0, 0, 0, 0);
+
+      int material_index = inner_wood_material_index;
+      if (tri.neighbor_segment_index == -2) {
+        material_index = bark_material_index;
+      }
 
       [[unroll]]
       for (int j = 0; j < 3; j++) {
-        uint global_vertex_index = tri.vertex_indices_twin_triangle[j];
+        uint global_vertex_index = tri.vertex_indices[j];
         SegmentMeshletVertex segment_meshlet_vertex = segment_meshlet_vertices[global_vertex_index];
-
-        Segment segment = segments[segment_meshlet_vertex.segment_index];
-        // basis vectors of segment space
-        vec3 right = rotate_vec3(segment.q, vec3(1, 0, 0));
-        vec3 up = rotate_vec3(segment.q, vec3(0, 1, 0));
-        vec3 forward = rotate_vec3(segment.q, vec3(0, 0, 1));
-
-        // now do a basis transform from segment to world space
-        mat3 seg_to_world = mat3(right, up, forward);
-        vec3 normal = vec3(1, 0, 0);
-        //normalize(seg_to_world * segment_meshlet_vertex.normal_deg.xyz);
-
-        SetUpTriangleVertex(j, normal, segment_meshlet_vertex);
+        SetUpTriangleVertex(j, tri.normal[j].xyz, segment_meshlet_vertex, color, tri.uv[j],
+                            tri.neighbor_segment_index == -2);
       }
+
+      ms_prim[0].MaterialIndex = material_index;
+      gl_PrimitiveTriangleIndicesEXT[0] = uvec3(0, 1, 2);
     }
   }
-  gl_PrimitiveTriangleIndicesEXT[0] = uvec3(0, 1, 2);
 }

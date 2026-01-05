@@ -18,29 +18,30 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint segment_size;
-	float ground_height;
-	float ground_softness;
-	float ground_friction;
+  uint segment_size;
+  float ground_height;
+  float ground_softness;
+  float ground_friction;
 };
 
-void main(){
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint segment_index = baseID + local_index;
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint segment_index = baseID + local_index;
 
-		if(segment_index >= segment_size) break;
-		Segment segment = segments[segment_index];
-		if(segment.inv_mass == 0.0f) return;
+    if (segment_index >= segment_size)
+      break;
+    Segment segment = segments[segment_index];
+    if (segment.inv_mass == 0.0f)
+      return;
 
-		segments[segment_index].particle0.x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment.particle0.x.y);
-		segments[segment_index].particle1.x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment.particle1.x.y);
-	}
+    segments[segment_index].particle0.x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment.particle0.x.y);
+    segments[segment_index].particle1.x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment.particle1.x.y);
+  }
 }

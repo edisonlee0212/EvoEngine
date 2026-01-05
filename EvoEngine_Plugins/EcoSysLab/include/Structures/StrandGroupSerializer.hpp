@@ -5,6 +5,7 @@
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
 
+// TODO: Add parameter end_t
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 class StrandGroupSerializer {
  public:

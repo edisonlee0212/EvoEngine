@@ -343,5 +343,4 @@ void ShootModel::Initialize(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNode
   shoot_skeleton_.SortLists();
   initialized_ = true;
 }
-
 }  // namespace eco_sys_lab_plugin

@@ -36,11 +36,11 @@
 #define TREE_UNUSED(x) (void)(x)
 
 namespace treeutil {
-
 /// @brief Color wrapper.
 struct Color {
   constexpr Color(float rv, float gv, float bv, float av = 1.0f) : r{rv}, g{gv}, b{bv}, a{av} {
   }
+
   constexpr Color() : Color(0.0f, 0.0f, 0.0f, 1.0f) {
   }
 
@@ -52,11 +52,12 @@ struct Color {
   }
 
   /// @brief Get pointer to the first value of 4-value float array containing RGBA.
-  float *data() {
+  float* data() {
     return &r;
   }
+
   /// @brief Get pointer to the first value of 4-value float array containing RGBA.
-  const float *data() const {
+  const float* data() const {
     return &r;
   }
 
@@ -99,7 +100,7 @@ static auto WrapperCtrT(CArgTs... cArgs) {
 };
 /// @brief Perform pointer cast from PT to TT.
 template <typename TT, typename PT>
-static auto WrapperCastT(const WrapperPtrT<PT> &ptr) {
+static auto WrapperCastT(const WrapperPtrT<PT>& ptr) {
   return std::dynamic_pointer_cast<TT>(ptr);
 }
 
@@ -132,21 +133,21 @@ struct CopyableSmartPtr {
   ~CopyableSmartPtr() = default;
 
   /// @brief Initialize from given pointer.
-  CopyableSmartPtr(T *pointer);
+  CopyableSmartPtr(T* pointer);
   /// @brief Initialize from given pointer.
-  CopyableSmartPtr(const PtrT<T> &pointer);
+  CopyableSmartPtr(const PtrT<T>& pointer);
 
   // Copy and move constructors.
-  CopyableSmartPtr(const CopyableSmartPtr &other);
-  CopyableSmartPtr &operator=(CopyableSmartPtr other);
-  CopyableSmartPtr(CopyableSmartPtr &&other);
-  CopyableSmartPtr &operator=(CopyableSmartPtr &&other);
+  CopyableSmartPtr(const CopyableSmartPtr& other);
+  CopyableSmartPtr& operator=(CopyableSmartPtr other);
+  CopyableSmartPtr(CopyableSmartPtr&& other);
+  CopyableSmartPtr& operator=(CopyableSmartPtr&& other);
 
   /// @brief Swap content with other smart pointer.
-  void swap(CopyableSmartPtr &other);
+  void swap(CopyableSmartPtr& other);
 
   /// @brief Swap content with other smart pointer.
-  static void swap(CopyableSmartPtr &first, CopyableSmartPtr &second);
+  static void swap(CopyableSmartPtr& first, CopyableSmartPtr& second);
 
   // See-through operation routing.
   // Implicit cast to underlying pointer type.
@@ -154,14 +155,14 @@ struct CopyableSmartPtr {
   operator PtrT<T>() const;
 
   // Access internal data:
-  T &operator*();
-  const T &operator*() const;
-  T *operator->();
-  const T *operator->() const;
+  T& operator*();
+  const T& operator*() const;
+  T* operator->();
+  const T* operator->() const;
   operator bool() const;
 
   // Assign external data:
-  CopyableSmartPtr &operator=(const PtrT<T> &other);
+  CopyableSmartPtr& operator=(const PtrT<T>& other);
 
   /// Internal pointer.
   PtrT<T> ptr{nullptr};
@@ -171,7 +172,7 @@ template <typename InputItT, typename LambdaT>
 class LambdaIterator : public InputItT {
  public:
   /// @brief Initialize the lambda iterator.
-  LambdaIterator(const InputItT &iterator, const LambdaT &lambda);
+  LambdaIterator(const InputItT& iterator, const LambdaT& lambda);
   /// @brief Clean up and destroy.
   ~LambdaIterator();
 
@@ -191,8 +192,8 @@ class LambdaIterator : public InputItT {
   // Provide return type information using provided transformation lambda.
   using value_type = typename std::remove_const<typename std::remove_reference<decltype(std::declval<LambdaT>()(
       std::declval<InputItT>().operator*()))>::type>::type;
-  using reference = value_type &;
-  using pointer = value_type *;
+  using reference = value_type&;
+  using pointer = value_type*;
 
  private:
   /// Transformation function to be called on each access.
@@ -202,7 +203,7 @@ class LambdaIterator : public InputItT {
 };  // class LambdaIterator
 
 /// @brief Convert given string to lower-case.
-std::string strToLower(const std::string &str);
+std::string strToLower(const std::string& str);
 
 /// @brief Generate random real number from 0.0 to 1.0 .
 template <typename T = double>
@@ -210,23 +211,23 @@ T uniformZeroToOne();
 
 /// @brief Calculate sgn(val) in {T(-1), T(0), T(1)}.
 template <typename T>
-T sgn(const T &val);
+T sgn(const T& val);
 
 /// @brief Get min and max for given container.
 template <typename ArrT>
-auto minMax(const ArrT &arr);
+auto minMax(const ArrT& arr);
 
 /// @brief Get min and argmin for given container. In case of duplicates, the last index will be reported.
 template <typename ArrT>
-auto argMin(const ArrT &arr);
+auto argMin(const ArrT& arr);
 
 /// @brief Get max and argmax for given container. In case of duplicates, the last index will be reported.
 template <typename ArrT>
-auto argMax(const ArrT &arr);
+auto argMax(const ArrT& arr);
 
 /// @brief Get min, argmin, max and argmax for given container. In case of duplicates, the last index will be reported.
 template <typename ArrT>
-auto argMinMax(const ArrT &arr);
+auto argMinMax(const ArrT& arr);
 
 /// @brief Simple logging manager.
 class Logger {
@@ -251,7 +252,7 @@ class Logger {
   Logger() = delete;
 
   /// @brief Get logging stream for given logging level.
-  static inline std::ostream &log(Level level);
+  static inline std::ostream& log(Level level);
 
   /// @brief Set maximum logging level.
   static inline void setLoggingLevel(Level level);
@@ -262,7 +263,9 @@ class Logger {
    public:
     NullOStream() : std::ostream(&mNullBuffer) {
     }
-    virtual ~NullOStream() override { /* Automatic */
+
+    virtual ~NullOStream() override {
+      /* Automatic */
     }
 
    private:
@@ -282,7 +285,7 @@ class Logger {
   static constexpr std::size_t levelToIdx(Level level);
 
   /// List of output streams used for logging.
-  static inline std::ostream *sOutputStreams[LOG_LEVEL_COUNT + 1u]{};
+  static inline std::ostream* sOutputStreams[LOG_LEVEL_COUNT + 1u]{};
   /// Null output stream used for disabled logging outputs.
   static inline NullOStream sNullOStream{};
 
@@ -293,7 +296,7 @@ class Logger {
 class LoggerAccess {
  public:
   /// @brief Type of manipulator used on the internal streams.
-  using ManipT = std::ostream &(*)(std::ostream &);
+  using ManipT = std::ostream& (*)(std::ostream&);
 
   /// @brief Initialize the logger access for given log level.
   constexpr explicit LoggerAccess(Logger::Level level) : mLevel{level} {
@@ -304,17 +307,17 @@ class LoggerAccess {
   }
 
   /// @brief Route stream manipulators.
-  inline LoggerAccess &operator<<(ManipT manipulator);
+  inline LoggerAccess& operator<<(ManipT manipulator);
 
   /// @brief Stream output routing.
   template <typename T>
-  LoggerAccess &operator<<(const T &other);
+  LoggerAccess& operator<<(const T& other);
 
   // @brief Get the corresponding output stream.
-  inline std::ostream &ostream() const;
+  inline std::ostream& ostream() const;
 
   // @brief Automatic conversion to output stream.
-  inline operator std::ostream &() const;
+  inline operator std::ostream&() const;
 
  private:
   /// Which logging stream are we accessing?
@@ -406,7 +409,7 @@ class Timer {
 class ProgressBar {
  public:
   /// @brief Initialize the progress printer with given parameters.
-  ProgressBar(const std::string &text, std::size_t width = 32u, bool rewrite = true);
+  ProgressBar(const std::string& text, std::size_t width = 32u, bool rewrite = true);
 
   /// @brief Get progress-bar string for given percentage of completion in <0.0f, 1.0f>.
   std::string progress(float progress);
@@ -446,21 +449,21 @@ template <typename T>
 class ProgressPrinter {
  public:
   /// @brief Initialize the progress printer for given value count.
-  ProgressPrinter(const ProgressBar &progressBar, const T &totalCount, std::size_t milestoneCount,
+  ProgressPrinter(const ProgressBar& progressBar, const T& totalCount, std::size_t milestoneCount,
                   bool displayCount = true, bool displayTime = true);
 
   /// @brief Print progress if necessary and return whether printing occurred.
   template <typename StreamT>
-  bool printProgress(StreamT &oStream, const T &currentCount, bool printNewLine = true);
+  bool printProgress(StreamT& oStream, const T& currentCount, bool printNewLine = true);
 
  private:
   /// @brief Update the timer with current count.
-  void updateTimer(const T &currentCount);
+  void updateTimer(const T& currentCount);
 
   /// @brief Prepare count string for display count functionality.
-  std::string prepareCountString(const T &currentCount);
+  std::string prepareCountString(const T& currentCount);
   /// @brief Prepare time string for display time functionality.
-  std::string prepareTimeString(const T &currentCount);
+  std::string prepareTimeString(const T& currentCount);
 
   /// Progress bar used.
   ProgressBar mProgressBar{""};
@@ -495,144 +498,194 @@ class ProgressPrinter {
 
 /// @brief Tuple of N elements of type T.
 template <typename T, std::size_t N>
-struct TupleN
-{ template< typename...Args> using type = typename TupleN<T, N - 1u>::template type<T, Args...>; };
+struct TupleN {
+  template <typename... Args>
+  using type = typename TupleN<T, N - 1u>::template type<T, Args...>;
+};
 
 /// @brief Tuple of N elements of type T.
 template <typename T>
-struct TupleN<T, 0u>
-{ template<typename...Args> using type = std::tuple<Args...>; };
+struct TupleN<T, 0u> {
+  template <typename... Args>
+  using type = std::tuple<Args...>;
+};
 
 /// @brief Tuple of N elements of type T.
 template <typename T, std::size_t N>
 using TupleOf = typename TupleN<T, N>::template type<>;
 
-namespace impl
-{
-
+namespace impl {
 /// @brief Check range tuples for ==.
 template <typename T, std::size_t N>
-bool rangeTupleEqual(const TupleOf<T, N> &first, const TupleOf<T, N> &second);
+bool rangeTupleEqual(const TupleOf<T, N>& first, const TupleOf<T, N>& second);
 
 /// @brief Check range tuples for <.
 template <typename T, std::size_t N>
-bool rangeTupleLess(const TupleOf<T, N> &first, const TupleOf<T, N> &second);
+bool rangeTupleLess(const TupleOf<T, N>& first, const TupleOf<T, N>& second);
 
 /// @brief Check range tuples for <=.
 template <typename T, std::size_t N>
-bool rangeTupleLessEqual(const TupleOf<T, N> &first, const TupleOf<T, N> &second);
+bool rangeTupleLessEqual(const TupleOf<T, N>& first, const TupleOf<T, N>& second);
 
 /// @brief Check range tuples for >.
 template <typename T, std::size_t N>
-bool rangeTupleGreater(const TupleOf<T, N> &first, const TupleOf<T, N> &second);
+bool rangeTupleGreater(const TupleOf<T, N>& first, const TupleOf<T, N>& second);
 
 /// @brief Check range tuples for >=.
 template <typename T, std::size_t N>
-bool rangeTupleGreaterEqual(const TupleOf<T, N> &first, const TupleOf<T, N> &second);
+bool rangeTupleGreaterEqual(const TupleOf<T, N>& first, const TupleOf<T, N>& second);
 
 /// @brief Perform advance on given range tuple.
 template <typename T, std::size_t N, std::size_t IDX = N>
-TupleOf<T, IDX> rangeTupleAdvance(const TupleOf<T, N> &value,
-    const TupleOf<T, N> &min, const TupleOf<T, N> &max,
-    std::ptrdiff_t delta);
-
+TupleOf<T, IDX> rangeTupleAdvance(const TupleOf<T, N>& value,
+                                  const TupleOf<T, N>& min, const TupleOf<T, N>& max,
+                                  std::ptrdiff_t delta);
 } // namespace impl
 
 /// @brief Simple iterable range function.
 template <typename T, std::size_t N>
-class Range
-{
+class Range {
 public:
-    /// @brief Value provided by this class.
-    using value_type = TupleN<T, N>;
+  /// @brief Value provided by this class.
+  using value_type = TupleN<T, N>;
 
-    /// @brief Iterator over a range.
-    class RangeIterator
-    {
-    public:
-        /// @brief Create default (end) range iterator.
-        RangeIterator() = default;
-        /// @brief Clean up and destroy.
-        ~RangeIterator() = default;
-        /// @brief Create iterator from range <min, max>.
-        RangeIterator(const value_type &max, const value_type &min = { }) :
-        { initialize(max, min); }
-
-        // Copy and move constructors:
-        RangeIterator(const RangeIterator &other) = default;
-        RangeIterator &operator=(const RangeIterator &other) = default;
-        RangeIterator(RangeIterator &&other) = default;
-        RangeIterator &operator=(RangeIterator &&other) = default;
-
-        // Comparison:
-        bool operator==(const RangeIterator &other)
-        { return (end && other.end) || impl::rangeTupleEqual(mCurrent, other.mCurrent); }
-        bool operator!=(const RangeIterator &other)
-        { return !(*this == other); }
-        bool operator<(const RangeIterator &other)
-        { return (!end && other.end) || impl::rangeTupleLess(mCurrent, other.mCurrent); }
-        bool operator>(const RangeIterator &other)
-        { return (!end && other.end) || impl::rangeTupleGreater(mCurrent, other.mCurrent); }
-        bool operator<=(const RangeIterator &other)
-        { return (*this == other) || (*this < other); }
-        bool operator>=(const RangeIterator &other)
-        { return (*this == other) || (*this > other); }
-
-        // De-referencing:
-        value_type operator*() const
-        { return mCurrent; }
-        value_type *operator->() const
-        { return &mCurrent; }
-
-        // Increment and decrement:
-        RangeIterator &operator++()
-        { advance(1u); return *this; }
-        RangeIterator operator++(int)
-        { auto copy{ *this }; operator++(); return copy; }
-        RangeIterator &operator--()
-        { advance(-1u); return *this; }
-        RangeIterator operator--(int)
-        { auto copy{ *this }; operator++(); return copy; }
-
-        // Move by n:
-        RangeIterator operator+(std::size_t n) const
-        { auto copy{ *this }; copy.advance(n); }
-        friend RangeIterator operator+(std::size_t n, const RangeIterator &rhs)
-        { auto copy{ rhs }; copy.advance(n); }
-        RangeIterator operator-(std::size_t n) const
-        { auto copy{ *this }; copy.advance(-n); }
-        friend RangeIterator operator-(std::size_t n, const RangeIterator &rhs)
-        { auto copy{ rhs }; copy.advance(-n); }
-        RangeIterator &operator+=(std::size_t n)
-        { advance(n); return *this; }
-        RangeIterator &operator-=(std::size_t n)
-        { advance(-n); return *this; }
-
-        // Indexing:
-        const value_type &operator[](std::size_t n) const
-        { auto copy{ *this }; copy.advance(n); return *copy; }
-
-        /// @brief Advance this iterator by positive or negative amount. Returns wheter we are at the end.
-        bool advance(std::ptrdiff_t delta);
-    private:
-        /// Current iterator value.
-        value_type mCurrent{ };
-        /// Minimal iterator value.
-        value_type mMin{ };
-        /// Maximmal iterator value.
-        value_type mMax{ };
-        /// Is this end iterator?
-        bool mEnd{ true };
-    protected:
-    }; // class RangeIterator
-
-    /// @brief Initialize empty range.
-    Range() = default;
+  /// @brief Iterator over a range.
+  class RangeIterator {
+  public:
+    /// @brief Create default (end) range iterator.
+    RangeIterator() = default;
     /// @brief Clean up and destroy.
-    ~Range() = default;
+    ~RangeIterator() = default;
+    /// @brief Create iterator from range <min, max>.
+    RangeIterator(const value_type& max, const value_type& min = {}) : {
+      initialize(max, min);
+    }
 
-    /// @brief Initialize the range <min, max>.
-    Range(const value_type &max, const value_type &min = { });
+    // Copy and move constructors:
+    RangeIterator(const RangeIterator& other) = default;
+    RangeIterator& operator=(const RangeIterator& other) = default;
+    RangeIterator(RangeIterator&& other) = default;
+    RangeIterator& operator=(RangeIterator&& other) = default;
+
+    // Comparison:
+    bool operator==(const RangeIterator& other) {
+      return (end && other.end) || impl::rangeTupleEqual(mCurrent, other.mCurrent);
+    }
+
+    bool operator!=(const RangeIterator& other) {
+      return !(*this == other);
+    }
+
+    bool operator<(const RangeIterator& other) {
+      return (!end && other.end) || impl::rangeTupleLess(mCurrent, other.mCurrent);
+    }
+
+    bool operator>(const RangeIterator& other) {
+      return (!end && other.end) || impl::rangeTupleGreater(mCurrent, other.mCurrent);
+    }
+
+    bool operator<=(const RangeIterator& other) {
+      return (*this == other) || (*this < other);
+    }
+
+    bool operator>=(const RangeIterator& other) {
+      return (*this == other) || (*this > other);
+    }
+
+    // De-referencing:
+    value_type operator*() const {
+      return mCurrent;
+    }
+
+    value_type* operator->() const {
+      return &mCurrent;
+    }
+
+    // Increment and decrement:
+    RangeIterator& operator++() {
+      advance(1u);
+      return *this;
+    }
+
+    RangeIterator operator++(int) {
+      auto copy{*this};
+      operator++();
+      return copy;
+    }
+
+    RangeIterator& operator--() {
+      advance(-1u);
+      return *this;
+    }
+
+    RangeIterator operator--(int) {
+      auto copy{*this};
+      operator++();
+      return copy;
+    }
+
+    // Move by n:
+    RangeIterator operator+(std::size_t n) const {
+      auto copy{*this};
+      copy.advance(n);
+    }
+
+    friend RangeIterator operator+(std::size_t n, const RangeIterator& rhs) {
+      auto copy{rhs};
+      copy.advance(n);
+    }
+
+    RangeIterator operator-(std::size_t n) const {
+      auto copy{*this};
+      copy.advance(-n);
+    }
+
+    friend RangeIterator operator-(std::size_t n, const RangeIterator& rhs) {
+      auto copy{rhs};
+      copy.advance(-n);
+    }
+
+    RangeIterator& operator+=(std::size_t n) {
+      advance(n);
+      return *this;
+    }
+
+    RangeIterator& operator-=(std::size_t n) {
+      advance(-n);
+      return *this;
+    }
+
+    // Indexing:
+    const value_type& operator[](std::size_t n) const {
+      auto copy{*this};
+      copy.advance(n);
+      return *copy;
+    }
+
+    /// @brief Advance this iterator by positive or negative amount. Returns wheter we are at the end.
+    bool advance(std::ptrdiff_t delta);
+
+  private:
+    /// Current iterator value.
+    value_type mCurrent{};
+    /// Minimal iterator value.
+    value_type mMin{};
+    /// Maximmal iterator value.
+    value_type mMax{};
+    /// Is this end iterator?
+    bool mEnd{true};
+
+  protected:
+  }; // class RangeIterator
+
+  /// @brief Initialize empty range.
+  Range() = default;
+  /// @brief Clean up and destroy.
+  ~Range() = default;
+
+  /// @brief Initialize the range <min, max>.
+  Range(const value_type& max, const value_type& min = {});
+
 private:
 protected:
 }; // class Range
@@ -641,7 +694,7 @@ protected:
 
 /// @brief Closure generator for calling instance method.
 template <typename InstanceT, typename ReturnT, typename... ArgumentTs>
-std::function<ReturnT(ArgumentTs...)> closure(InstanceT *instance, ReturnT (InstanceT::*method)(ArgumentTs...));
+std::function<ReturnT(ArgumentTs...)> closure(InstanceT* instance, ReturnT (InstanceT::*method)(ArgumentTs...));
 
 /**
  * @brief Validation fixture inspired by boost::hana.
@@ -650,7 +703,7 @@ std::function<ReturnT(ArgumentTs...)> closure(InstanceT *instance, ReturnT (Inst
  *   where <EXPR> is expression that is to be tested.
  */
 template <typename T, typename F>
-constexpr auto is_valid(F &&f) -> decltype(f(std::declval<T>()), true) {
+constexpr auto is_valid(F&& f) -> decltype(f(std::declval<T>()), true) {
   return true;
 }
 
@@ -662,7 +715,7 @@ constexpr bool is_valid(...) {
 
 /// @brief Helper for simple use of is_valid fixture.
 #define IS_VALID(T, EXPR)                            \
-  is_valid<T>([](auto &&obj) -> decltype(obj.EXPR) { \
+  is_valid<T>([](auto&& obj) -> decltype(obj.EXPR) { \
     return {};                                       \
   })
 
@@ -695,69 +748,69 @@ template <typename TestT, template <typename...> typename RefT>
 static constexpr auto is_specialization_v{is_specialization<TestT, RefT>::value};
 
 /// @brief Compare two strings for equality in case insensitive manner.
-bool equalCaseInsensitive(const std::string &first, const std::string &second);
+bool equalCaseInsensitive(const std::string& first, const std::string& second);
 
 /// @brief Returns a path capped off by a slash - e.g. "/123/abc" -> "123/abc/". Useful for adding filenames to paths
-std::string capPath(const std::string &filePath);
+std::string capPath(const std::string& filePath);
 
 /// @brief Returns extension of given file or file path including the dot - e.g. "/123/abc.txt" -> ".txt".
-std::string fileExtension(const std::string &filePath);
+std::string fileExtension(const std::string& filePath);
 
 /// @brief Returns only path from given file path - e.g. "/123/abc.txt" -> "/123/".
-std::string filePath(const std::string &filePath);
+std::string filePath(const std::string& filePath);
 
 /// @brief Returns only base name from given file path - e.g. "/123/abc.txt" -> "abc".
-std::string fileBaseName(const std::string &filePath);
+std::string fileBaseName(const std::string& filePath);
 
 /// @brief Get list of files with given extension. Extension must include dot.
-std::vector<std::string> listFiles(const std::string &extension, const std::string &path = "", bool recursive = false,
+std::vector<std::string> listFiles(const std::string& extension, const std::string& path = "", bool recursive = false,
                                    bool relative = false);
 
 /// @brief Get list of files with given extensions. Extension must include dot.
-std::vector<std::string> listFiles(const std::vector<std::string> &extensions, const std::string &path = "",
+std::vector<std::string> listFiles(const std::vector<std::string>& extensions, const std::string& path = "",
                                    bool recursive = false, bool relative = false);
 
 /// @brief Does given file exist?
-bool fileExists(const std::string &path);
+bool fileExists(const std::string& path);
 
 /// @brief Delete file with given path, if it exists. Returns success.
-bool deleteFile(const std::string &path);
+bool deleteFile(const std::string& path);
 
 /// @brief Read all of the given file into a string and return the result.
-std::string readWholeFile(const std::string &path);
+std::string readWholeFile(const std::string& path);
 
 /// @brief Replace extension of the input path with given extension. Extension should include the ".".
-std::string replaceExtension(const std::string &path, const std::string &extension);
+std::string replaceExtension(const std::string& path, const std::string& extension);
 
 /// @brief Convert given absolute path to relative path. Leave relative path empty to use current directory.
-std::string relativePath(const std::string &path, const std::string &relativePath = "");
+std::string relativePath(const std::string& path, const std::string& relativePath = "");
 
 /// @brief Normalize given image data into RGB <0.0f, 1.0f> image.
 template <typename T>
-std::vector<Vector3D> convertImageNormalizedRGB(const std::vector<T> &data);
+std::vector<Vector3D> convertImageNormalizedRGB(const std::vector<T>& data);
 
 /// @brief Normalize given image data into RGB <0.0f, 1.0f> image.
 template <typename ItT>
-std::vector<Vector3D> convertImageNormalizedRGB(const ItT &begin, const ItT &end);
+std::vector<Vector3D> convertImageNormalizedRGB(const ItT& begin, const ItT& end);
 
 /// @brief Get maximum value such that value - delta == numeric_limits<VT>::min().
 template <typename VT>
-VT maximumNegativeDelta(const VT &val);
+VT maximumNegativeDelta(const VT& val);
 
 /// @brief Get maximum value such that value + delta == numeric_limits<VT>::max().
 template <typename VT>
-VT maximumPositiveDelta(const VT &val);
+VT maximumPositiveDelta(const VT& val);
 
 /// @brief Does given string contain only white spaces?
-bool containsOnlyWhiteSpaces(const std::string &str);
+bool containsOnlyWhiteSpaces(const std::string& str);
 
 /// @brief Calculate angle between two vectors in radians.
 template <typename VT, typename VecT>
-VT angleBetweenVectorsRad(const VecT &first, const VecT &second);
+VT angleBetweenVectorsRad(const VecT& first, const VecT& second);
 
 /// @brief Calculate angle between two normalized vectors in radians.
 template <typename VT, typename VecT>
-VT angleBetweenNormVectorsRad(const VecT &first, const VecT &second);
+VT angleBetweenNormVectorsRad(const VecT& first, const VecT& second);
 
 /// @brief Value of the number pi.
 template <typename T>
@@ -765,23 +818,23 @@ static constexpr T PI{T(3.1415926535897932385L)};
 
 /// @brief Convert radians to degrees.
 template <typename VT>
-VT radToDegrees(const VT &val);
+VT radToDegrees(const VT& val);
 
 /// @brief Convert degrees to radians.
 template <typename VT>
-VT degreesToRadians(const VT &val);
+VT degreesToRadians(const VT& val);
 
 /// @brief Calculate smoothstep function - 3x^2 - 2x^3. Clamps automatically to <0, 1>.
 template <typename VT>
-VT smoothstep(const VT &val);
+VT smoothstep(const VT& val);
 
 /// @brief Is given value in abs greater than epsilon?
 template <typename VT>
-bool aboveEpsilon(const VT &value, const VT &epsilon = std::numeric_limits<VT>::epsilon());
+bool aboveEpsilon(const VT& value, const VT& epsilon = std::numeric_limits<VT>::epsilon());
 
 /// @brief Calculate volume of circular cone frustum.
 template <typename VT>
-VT circularConeFrustumVolume(const VT &h, const VT &r1, const VT &r2);
+VT circularConeFrustumVolume(const VT& h, const VT& r1, const VT& r2);
 
 /**
  * @brief Break down duration into component durations. Inspired by: https://stackoverflow.com/a/42139394 .
@@ -794,75 +847,75 @@ std::tuple<DurTs...> breakDownDuration(DurT duration);
 
 /// @brief Create readable string from given duration - up to hours.
 template <typename DurT>
-std::string formatTime(const DurT &duration);
+std::string formatTime(const DurT& duration);
 
 /// @brief Format an integer into its string hexadecimal representation.
 template <typename T>
-std::string formatIntHex(const T &val);
+std::string formatIntHex(const T& val);
 
 /// @brief Encode given binary data into string which can be stored in JSON format.
-std::string encodeBinaryJSON(const std::vector<uint8_t> &data);
+std::string encodeBinaryJSON(const std::vector<uint8_t>& data);
 
 /// @brief Compress given data vector using HDF5 and return the resulting byte buffer.
-std::vector<uint8_t> hdf5Compress(const std::vector<float> &data);
+std::vector<uint8_t> hdf5Compress(const std::vector<float>& data);
 /// @brief Compress given data vector using HDF5 and return the resulting byte buffer.
-std::vector<uint8_t> hdf5Compress(const std::vector<uint32_t> &data);
+std::vector<uint8_t> hdf5Compress(const std::vector<uint32_t>& data);
 /// @brief Compress given data vector using HDF5 and return the resulting byte buffer.
-std::vector<uint8_t> hdf5Compress(const std::vector<std::pair<float, float>> &data);
+std::vector<uint8_t> hdf5Compress(const std::vector<std::pair<float, float>>& data);
 /// @brief Compress given data vector using HDF5 and return the resulting byte buffer.
-std::vector<uint8_t> hdf5Compress(const std::vector<std::pair<uint32_t, float>> &data);
-
+std::vector<uint8_t> hdf5Compress(const std::vector<std::pair<uint32_t, float>>& data);
 }  // namespace treeutil
 
 // Template implementation begin.
 
 namespace treeutil {
-
 #if 0
 
-namespace impl
-{
+namespace impl {
+template <typename T, std::size_t N>
+bool rangeTupleEqual(const TupleOf<T, N>& first, const TupleOf<T, N>& second) {
+  return first == second;
+}
 
 template <typename T, std::size_t N>
-bool rangeTupleEqual(const TupleOf<T, N> &first, const TupleOf<T, N> &second)
-{ return first == second; }
+bool rangeTupleLess(const TupleOf<T, N>& first, const TupleOf<T, N>& second) {
+  return first < second;
+}
 
 template <typename T, std::size_t N>
-bool rangeTupleLess(const TupleOf<T, N> &first, const TupleOf<T, N> &second)
-{ return first < second; }
+bool rangeTupleLessEqual(const TupleOf<T, N>& first, const TupleOf<T, N>& second) {
+  return first <= second;
+}
 
 template <typename T, std::size_t N>
-bool rangeTupleLessEqual(const TupleOf<T, N> &first, const TupleOf<T, N> &second)
-{ return first <= second; }
+bool rangeTupleGreater(const TupleOf<T, N>& first, const TupleOf<T, N>& second) {
+  return first > second;
+}
 
 template <typename T, std::size_t N>
-bool rangeTupleGreater(const TupleOf<T, N> &first, const TupleOf<T, N> &second)
-{ return first > second; }
-
-template <typename T, std::size_t N>
-bool rangeTupleGreaterEqual(const TupleOf<T, N> &first, const TupleOf<T, N> &second)
-{ return first >= second; }
+bool rangeTupleGreaterEqual(const TupleOf<T, N>& first, const TupleOf<T, N>& second) {
+  return first >= second;
+}
 
 template <typename T, std::size_t N, std::size_t IDX>
-TupleOf<T, IDX> rangeTupleAdvance(const TupleOf<T, N> &value,
-    const TupleOf<T, N> &min, const TupleOf<T, N> &max,
-    std::ptrdiff_t delta)
-{
-    //const auto intervalLength{ std::get<IDX>(max) - std::get<IDX>(min) };
-    //std::get<IDX>(value) - std::get<IDX>(min)
+TupleOf<T, IDX> rangeTupleAdvance(const TupleOf<T, N>& value,
+                                  const TupleOf<T, N>& min, const TupleOf<T, N>& max,
+                                  std::ptrdiff_t delta) {
+  //const auto intervalLength{ std::get<IDX>(max) - std::get<IDX>(min) };
+  //std::get<IDX>(value) - std::get<IDX>(min)
 
-    /*
-    if (delta < 0)
-    {
-        if (std::get<IDX>(value) + delta) < std::get<IDX>(min)
-    }
-     */
+  /*
+  if (delta < 0)
+  {
+      if (std::get<IDX>(value) + delta) < std::get<IDX>(min)
+  }
+   */
 
-    return std::tuple_cat(
-        rangeTupleAdvance<T, N, IDX - 1u>(value, min, max,
-            delta / (std::get<IDX>(max) - std::get<IDX>(min))),
-        std::tuple<T>{ 1u }
-    );
+  return std::tuple_cat(
+      rangeTupleAdvance<T, N, IDX - 1u>(value, min, max,
+                                        delta / (std::get<IDX>(max) - std::get<IDX>(min))),
+      std::tuple<T>{1u}
+      );
 }
 
 /*
@@ -874,43 +927,41 @@ TupleOf<T, 1u> rangeTupleAdvance<T, N, 1u>(const TupleOf<T, N> &value,
     return std::tuple{ 0u };
 }
  */
-
 }
 
 template <typename T, std::size_t N>
-bool Range<T, N>::RangeIterator::advance(std::ptrdiff_t delta)
-{
-    if (mEnd)
-    { return true; }
+bool Range<T, N>::RangeIterator::advance(std::ptrdiff_t delta) {
+  if (mEnd) {
+    return true;
+  }
 
-    if (delta > 0)
-    {
-        mCurrent = impl::rangeTupleAdvancePositive<N>(mCurrent, mMax, delta);
-        if (impl::rangeTupleGreaterEqual(mCurrent, mMax))
-        { mEnd = true; }
+  if (delta > 0) {
+    mCurrent = impl::rangeTupleAdvancePositive<N>(mCurrent, mMax, delta);
+    if (impl::rangeTupleGreaterEqual(mCurrent, mMax)) {
+      mEnd = true;
     }
-    else if (delta < 0)
-    {
-        mCurrent = impl::rangeTupleAdvanceNegative<N>(mCurrent, mMin, delta);
-        if (impl::rangeTupleLessEqual(mCurrent, mMin))
-        { mEnd = true; }
+  } else if (delta < 0) {
+    mCurrent = impl::rangeTupleAdvanceNegative<N>(mCurrent, mMin, delta);
+    if (impl::rangeTupleLessEqual(mCurrent, mMin)) {
+      mEnd = true;
     }
+  }
 
-    return mEnd;
+  return mEnd;
 }
 
 #endif
 
 template <typename T, template <typename> typename PtrT>
-CopyableSmartPtr<T, PtrT>::CopyableSmartPtr(T *pointer) : ptr{pointer} {
+CopyableSmartPtr<T, PtrT>::CopyableSmartPtr(T* pointer) : ptr{pointer} {
 }
 
 template <typename T, template <typename> typename PtrT>
-CopyableSmartPtr<T, PtrT>::CopyableSmartPtr(const PtrT<T> &pointer) : ptr{pointer} {
+CopyableSmartPtr<T, PtrT>::CopyableSmartPtr(const PtrT<T>& pointer) : ptr{pointer} {
 }
 
 template <typename T, template <typename> typename PtrT>
-CopyableSmartPtr<T, PtrT>::CopyableSmartPtr(const CopyableSmartPtr &other) {
+CopyableSmartPtr<T, PtrT>::CopyableSmartPtr(const CopyableSmartPtr& other) {
   if constexpr (IS_VALID(T, duplicate())) {
     if (other.ptr) {
       ptr = PtrT<T>{other.ptr->duplicate()};
@@ -927,29 +978,29 @@ CopyableSmartPtr<T, PtrT>::CopyableSmartPtr(const CopyableSmartPtr &other) {
 }
 
 template <typename T, template <typename> typename PtrT>
-CopyableSmartPtr<T, PtrT> &CopyableSmartPtr<T, PtrT>::operator=(CopyableSmartPtr other) {
+CopyableSmartPtr<T, PtrT>& CopyableSmartPtr<T, PtrT>::operator=(CopyableSmartPtr other) {
   swap(other);
   return *this;
 }
 
 template <typename T, template <typename> typename PtrT>
-CopyableSmartPtr<T, PtrT>::CopyableSmartPtr(CopyableSmartPtr &&other) {
+CopyableSmartPtr<T, PtrT>::CopyableSmartPtr(CopyableSmartPtr&& other) {
   swap(other);
 }
 
 template <typename T, template <typename> typename PtrT>
-CopyableSmartPtr<T, PtrT> &CopyableSmartPtr<T, PtrT>::operator=(CopyableSmartPtr &&other) {
+CopyableSmartPtr<T, PtrT>& CopyableSmartPtr<T, PtrT>::operator=(CopyableSmartPtr&& other) {
   swap(other);
   return *this;
 }
 
 template <typename T, template <typename> typename PtrT>
-void CopyableSmartPtr<T, PtrT>::swap(CopyableSmartPtr &other) {
+void CopyableSmartPtr<T, PtrT>::swap(CopyableSmartPtr& other) {
   swap(*this, other);
 }
 
 template <typename T, template <typename> typename PtrT>
-void CopyableSmartPtr<T, PtrT>::swap(CopyableSmartPtr &first, CopyableSmartPtr &second) {
+void CopyableSmartPtr<T, PtrT>::swap(CopyableSmartPtr& first, CopyableSmartPtr& second) {
   using std::swap;
   swap(first.ptr, second.ptr);
 }
@@ -965,22 +1016,22 @@ CopyableSmartPtr<T, PtrT>::operator PtrT<T>() const {
 }
 
 template <typename T, template <typename> typename PtrT>
-T &CopyableSmartPtr<T, PtrT>::operator*() {
+T& CopyableSmartPtr<T, PtrT>::operator*() {
   return ptr.operator*();
 }
 
 template <typename T, template <typename> typename PtrT>
-const T &CopyableSmartPtr<T, PtrT>::operator*() const {
+const T& CopyableSmartPtr<T, PtrT>::operator*() const {
   return ptr.operator*();
 }
 
 template <typename T, template <typename> typename PtrT>
-T *CopyableSmartPtr<T, PtrT>::operator->() {
+T* CopyableSmartPtr<T, PtrT>::operator->() {
   return ptr.operator->();
 }
 
 template <typename T, template <typename> typename PtrT>
-const T *CopyableSmartPtr<T, PtrT>::operator->() const {
+const T* CopyableSmartPtr<T, PtrT>::operator->() const {
   return ptr.operator->();
 }
 
@@ -990,39 +1041,46 @@ CopyableSmartPtr<T, PtrT>::operator bool() const {
 }
 
 template <typename T, template <typename> typename PtrT>
-CopyableSmartPtr<T, PtrT> &CopyableSmartPtr<T, PtrT>::operator=(const PtrT<T> &other) {
+CopyableSmartPtr<T, PtrT>& CopyableSmartPtr<T, PtrT>::operator=(const PtrT<T>& other) {
   ptr = other;
   return *this;
 }
 
 template <typename InputItT, typename LambdaT>
-LambdaIterator<InputItT, LambdaT>::LambdaIterator(const InputItT &iterator, const LambdaT &lambda)
+LambdaIterator<InputItT, LambdaT>::LambdaIterator(const InputItT& iterator, const LambdaT& lambda)
     : InputItT{iterator}, mLambda{lambda} {
 }
+
 template <typename InputItT, typename LambdaT>
-LambdaIterator<InputItT, LambdaT>::~LambdaIterator() { /* Automatic */
+LambdaIterator<InputItT, LambdaT>::~LambdaIterator() {
+  /* Automatic */
 }
 
 template <typename InputItT, typename LambdaT>
 auto LambdaIterator<InputItT, LambdaT>::operator*() {
   return mLambda(InputItT::operator*());
 }
+
 template <typename InputItT, typename LambdaT>
 auto LambdaIterator<InputItT, LambdaT>::operator*() const {
   return mLambda(InputItT::operator*());
 }
+
 template <typename InputItT, typename LambdaT>
 auto LambdaIterator<InputItT, LambdaT>::operator->() {
   return mLambda(InputItT::operator->());
 }
+
 template <typename InputItT, typename LambdaT>
 auto LambdaIterator<InputItT, LambdaT>::operator->() const {
   return mLambda(InputItT::operator->());
 }
+
 template <typename InputItT, typename LambdaT>
 auto LambdaIterator<InputItT, LambdaT>::operator[](std::size_t n) {
   return mLambda(InputItT::operator[](n));
 }
+
 template <typename InputItT, typename LambdaT>
 auto LambdaIterator<InputItT, LambdaT>::operator[](std::size_t n) const {
   return mLambda(InputItT::operator[](n));
@@ -1039,18 +1097,18 @@ T uniformZeroToOne() {
 }
 
 template <typename T>
-T sgn(const T &val) {
+T sgn(const T& val) {
   return (T(0) < val) - (val < T(0));
 }
 
 template <typename ArrT>
-auto minMax(const ArrT &arr) {
+auto minMax(const ArrT& arr) {
   using ValueT = typename remove_const_reference<decltype(*arr.begin())>::type;
 
   ValueT minVal{std::numeric_limits<ValueT>::max()};
   ValueT maxVal{std::numeric_limits<ValueT>::lowest()};
 
-  for (const auto &val : arr) {
+  for (const auto& val : arr) {
     minVal = std::min<ValueT>(minVal, val);
     maxVal = std::max<ValueT>(maxVal, val);
   }
@@ -1059,14 +1117,14 @@ auto minMax(const ArrT &arr) {
 }
 
 template <typename ArrT>
-auto argMin(const ArrT &arr) {
+auto argMin(const ArrT& arr) {
   using ValueT = typename remove_const_reference<decltype(*arr.begin())>::type;
 
   auto argMin{std::numeric_limits<std::size_t>::max()};
   ValueT minVal{std::numeric_limits<ValueT>::max()};
 
   std::size_t indexCounter{0u};
-  for (const auto &val : arr) {
+  for (const auto& val : arr) {
     if (val <= minVal) {
       minVal = val;
       argMin = indexCounter;
@@ -1078,14 +1136,14 @@ auto argMin(const ArrT &arr) {
 }
 
 template <typename ArrT>
-auto argMax(const ArrT &arr) {
+auto argMax(const ArrT& arr) {
   using ValueT = typename remove_const_reference<decltype(*arr.begin())>::type;
 
   auto argMax{std::numeric_limits<std::size_t>::max()};
   ValueT maxVal{std::numeric_limits<ValueT>::lowest()};
 
   std::size_t indexCounter{0u};
-  for (const auto &val : arr) {
+  for (const auto& val : arr) {
     if (val >= maxVal) {
       maxVal = val;
       argMax = indexCounter;
@@ -1097,7 +1155,7 @@ auto argMax(const ArrT &arr) {
 }
 
 template <typename ArrT>
-auto argMinMax(const ArrT &arr) {
+auto argMinMax(const ArrT& arr) {
   using ValueT = typename remove_const_reference<decltype(*arr.begin())>::type;
 
   auto argMin{std::numeric_limits<std::size_t>::max()};
@@ -1106,7 +1164,7 @@ auto argMinMax(const ArrT &arr) {
   auto maxVal{std::numeric_limits<ValueT>::lowest()};
 
   std::size_t indexCounter{0u};
-  for (const auto &val : arr) {
+  for (const auto& val : arr) {
     if (val <= minVal) {
       minVal = val;
       argMin = indexCounter;
@@ -1121,26 +1179,26 @@ auto argMinMax(const ArrT &arr) {
   return std::tuple<ValueT, std::size_t, ValueT, std::size_t>{minVal, argMin, maxVal, argMax};
 }
 
-inline std::ostream &Logger::log(Level level) {
+inline std::ostream& Logger::log(Level level) {
   return *sOutputStreams[levelToIdx(level)];
 }
 
-inline LoggerAccess &LoggerAccess::operator<<(LoggerAccess::ManipT manipulator) {
+inline LoggerAccess& LoggerAccess::operator<<(LoggerAccess::ManipT manipulator) {
   manipulator(Logger::log(mLevel));
   return *this;
 }
 
 template <typename T>
-LoggerAccess &LoggerAccess::operator<<(const T &other) {
+LoggerAccess& LoggerAccess::operator<<(const T& other) {
   Logger::log(mLevel) << other;
   return *this;
 }
 
-inline std::ostream &LoggerAccess::ostream() const {
+inline std::ostream& LoggerAccess::ostream() const {
   return Logger::log(mLevel);
 }
 
-inline LoggerAccess::operator std::ostream &() const {
+inline LoggerAccess::operator std::ostream&() const {
   return ostream();
 }
 
@@ -1203,7 +1261,7 @@ inline Timer::SecondsT Timer::elapsed() const {
 }
 
 template <typename T>
-ProgressPrinter<T>::ProgressPrinter(const ProgressBar &progressBar, const T &totalCount, std::size_t milestoneCount,
+ProgressPrinter<T>::ProgressPrinter(const ProgressBar& progressBar, const T& totalCount, std::size_t milestoneCount,
                                     bool displayCount, bool displayTime)
     : mProgressBar{progressBar},
       mTotalCount{totalCount},
@@ -1221,7 +1279,7 @@ ProgressPrinter<T>::ProgressPrinter(const ProgressBar &progressBar, const T &tot
 
 template <typename T>
 template <typename StreamT>
-bool ProgressPrinter<T>::printProgress(StreamT &oStream, const T &currentCount, bool printNewLine) {
+bool ProgressPrinter<T>::printProgress(StreamT& oStream, const T& currentCount, bool printNewLine) {
   if (mDisplayTime) {
     updateTimer(currentCount);
   }
@@ -1251,15 +1309,17 @@ bool ProgressPrinter<T>::printProgress(StreamT &oStream, const T &currentCount, 
 }
 
 template <typename T>
-void ProgressPrinter<T>::updateTimer(const T &currentCount) {
+void ProgressPrinter<T>::updateTimer(const T& currentCount) {
   const auto deltaSeconds{mTimer.elapsed()};
   const auto newSteps{currentCount - mLastCount};
   const auto secondsPerStep{newSteps > T{} ? deltaSeconds / newSteps : 0};
 
   // Update per-step estimate.
-  if (mTimeStepsAccumulated == 0u) {  // No previous data -> use only current estimate.
+  if (mTimeStepsAccumulated == 0u) {
+    // No previous data -> use only current estimate.
     mTimePerStepEstimate = secondsPerStep;
-  } else {  // We have previous samples -> filter them together with new samples.
+  } else {
+    // We have previous samples -> filter them together with new samples.
     mTimePerStepEstimate =
         (mTimePerStepEstimate * mTimeStepsAccumulated + secondsPerStep * newSteps) / (mTimeStepsAccumulated + newSteps);
   }
@@ -1270,7 +1330,7 @@ void ProgressPrinter<T>::updateTimer(const T &currentCount) {
 }
 
 template <typename T>
-std::string ProgressPrinter<T>::prepareCountString(const T &currentCount) {
+std::string ProgressPrinter<T>::prepareCountString(const T& currentCount) {
   // Generate the count string.
   std::stringstream countString{};
   const auto totalCountString{std::to_string(mTotalCount)};
@@ -1281,7 +1341,7 @@ std::string ProgressPrinter<T>::prepareCountString(const T &currentCount) {
 }
 
 template <typename T>
-std::string ProgressPrinter<T>::prepareTimeString(const T &currentCount) {
+std::string ProgressPrinter<T>::prepareTimeString(const T& currentCount) {
   static constexpr auto S_TO_MS{1000.0};
   const auto timeTotalMs{static_cast<std::size_t>(mTimeTotal * S_TO_MS)};
   const auto timeTotalCompleteMs{
@@ -1298,12 +1358,12 @@ std::string ProgressPrinter<T>::prepareTimeString(const T &currentCount) {
 }
 
 template <typename T>
-std::vector<Vector3D> convertImageNormalizedRGB(const std::vector<T> &data) {
+std::vector<Vector3D> convertImageNormalizedRGB(const std::vector<T>& data) {
   return convertImageNormalizedRGB(data.begin(), data.end());
 }
 
 template <typename ItT>
-std::vector<Vector3D> convertImageNormalizedRGB(const ItT &begin, const ItT &end) {
+std::vector<Vector3D> convertImageNormalizedRGB(const ItT& begin, const ItT& end) {
   using T = typename std::remove_const<typename std::remove_reference<decltype(*begin)>::type>::type;
   auto min{std::numeric_limits<T>::max()};
   auto max{std::numeric_limits<T>::min()};
@@ -1342,37 +1402,37 @@ inline std::vector<Vector3D> convertImageNormalizedRGB<Vector3D>(const std::vect
  */
 
 template <typename VT>
-VT maximumNegativeDelta(const VT &val) {
+VT maximumNegativeDelta(const VT& val) {
   return std::max<VT>(val - std::numeric_limits<VT>::min(), VT{});
 }
 
 template <typename VT>
-VT maximumPositiveDelta(const VT &val) {
+VT maximumPositiveDelta(const VT& val) {
   return std::max<VT>(std::numeric_limits<VT>::max() - val, VT{});
 }
 
 template <typename VT, typename VecT>
-VT angleBetweenVectorsRad(const VecT &first, const VecT &second) {
+VT angleBetweenVectorsRad(const VecT& first, const VecT& second) {
   return static_cast<VT>(std::acos(std::clamp<VT>(first.normalized().dot(second.normalized()), -1, 1)));
 }
 
 template <typename VT, typename VecT>
-VT angleBetweenNormVectorsRad(const VecT &first, const VecT &second) {
+VT angleBetweenNormVectorsRad(const VecT& first, const VecT& second) {
   return static_cast<VT>(std::acos(std::clamp<VT>(first.dot(second), -1, 1)));
 }
 
 template <typename VT>
-VT radToDegrees(const VT &val) {
+VT radToDegrees(const VT& val) {
   return (VT(180.0L) / ::treeutil::PI<VT>)*val;
 }
 
 template <typename VT>
-VT degreesToRadians(const VT &val) {
+VT degreesToRadians(const VT& val) {
   return (::treeutil::PI<VT> / VT(180.0L)) * val;
 }
 
 template <typename VT>
-VT smoothstep(const VT &val) {
+VT smoothstep(const VT& val) {
   const auto clamped{std::clamp(val, VT(0), VT(1))};
   const auto x2{clamped * clamped};
   const auto x3{x2 * clamped};
@@ -1380,7 +1440,7 @@ VT smoothstep(const VT &val) {
 }
 
 template <typename VT>
-bool aboveEpsilon(const VT &value, const VT &epsilon) {
+bool aboveEpsilon(const VT& value, const VT& epsilon) {
   if constexpr (std::numeric_limits<VT>::is_signed) {
     return std::abs(value) > epsilon;
   } else {
@@ -1389,7 +1449,7 @@ bool aboveEpsilon(const VT &value, const VT &epsilon) {
 }
 
 template <typename VT>
-VT circularConeFrustumVolume(const VT &h, const VT &r1, const VT &r2) {
+VT circularConeFrustumVolume(const VT& h, const VT& r1, const VT& r2) {
   return (treeutil::PI<VT> * h) / 3.0f * (r1 * r1 + r1 * r2 + r2 * r2);
 }
 
@@ -1407,7 +1467,7 @@ std::tuple<DurTs...> breakDownDuration(DurT duration) {
 }
 
 template <typename DurT>
-std::string formatTime(const DurT &duration) {
+std::string formatTime(const DurT& duration) {
   const auto [hours, minutes, seconds, milliseconds]{
       breakDownDuration<std::chrono::hours, std::chrono::minutes, std::chrono::seconds, std::chrono::milliseconds>(
           duration)};
@@ -1420,26 +1480,23 @@ std::string formatTime(const DurT &duration) {
 }
 
 template <typename T>
-std::string formatIntHex(const T &val) {
+std::string formatIntHex(const T& val) {
   std::stringstream ss{};
   ss << "0x" << std::setfill('0') << std::setw(sizeof(T) * 2) << std::hex << val;
   return ss.str();
 }
-
 }  // namespace treeutil
 
 namespace std {
-
-static inline treeutil::LoggerAccess &endl(treeutil::LoggerAccess &stream) {
+static inline treeutil::LoggerAccess& endl(treeutil::LoggerAccess& stream) {
   stream.ostream() << std::endl;
   return stream;
 }
 
 template <typename T1, typename T2>
-static inline auto operator+(const std::pair<T1, T2> &first, const std::pair<T1, T2> &second) {
+static inline auto operator+(const std::pair<T1, T2>& first, const std::pair<T1, T2>& second) {
   return std::make_pair(first.first + second.first, first.second + second.second);
 }
-
 }  // namespace std
 
 // Template implementation end.

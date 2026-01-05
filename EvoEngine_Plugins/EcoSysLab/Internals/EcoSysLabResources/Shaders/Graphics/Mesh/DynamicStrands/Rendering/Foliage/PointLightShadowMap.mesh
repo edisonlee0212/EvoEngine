@@ -8,8 +8,8 @@
 
 #define DYNAMIC_STRANDS_SET 1
 #include "DynamicStrands.glsl"
-#include "Math.glsl"
 #include "DynamicStrandsFoliageRenderingConstants.glsl"
+#include "Math.glsl"
 const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
 layout(local_size_x = WORKGROUP_SIZE) in;
@@ -20,39 +20,30 @@ layout(triangles) out;
 
 layout(max_vertices = LEAF_VERTICES_SIZE, max_primitives = LEAF_TRIANGLE_SIZE) out;
 
-const uint LEAF_VERTEX_ITERATIONS    = ((LEAF_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-const uint LEAF_PRIMITIVE_ITERATIONS = ((LEAF_TRIANGLE_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint LEAF_VERTEX_ITERATIONS = ((LEAF_VERTICES_SIZE + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint LEAF_PRIMITIVE_ITERATIONS = ((LEAF_TRIANGLE_SIZE + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
 layout(location = 0) out MS_V_OUT {
-	vec3 FragPos;
-	vec3 Normal;
-	vec3 Tangent;
-	vec2 TexCoord;
-	vec4 Color;
-} ms_v_out[];
+  vec3 FragPos;
+  vec3 Normal;
+  vec3 Tangent;
+  vec2 TexCoord;
+  vec4 Color;
+}
+ms_v_out[];
 
-struct Task{
-	uint	baseID;
-	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
+struct Task {
+  uint baseID;
+  uint8_t deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
 
-vec3 positions[] = {
-    vec3(-0.5, 0, -0.5),
-	vec3(-0.5, 0, 0.5),
-	vec3(0.5, 0, 0.5),
-	vec3(0.5, 0, -0.5)
-};
+vec3 positions[] = {vec3(-0.5, 0, -0.5), vec3(-0.5, 0, 0.5), vec3(0.5, 0, 0.5), vec3(0.5, 0, -0.5)};
 
-vec2 tex_coords[] = {
-	vec2(0, 0),
-	vec2(0, 1),
-	vec2(1, 1),
-	vec2(1, 0)
-};
+vec2 tex_coords[] = {vec2(0, 0), vec2(0, 1), vec2(1, 1), vec2(1, 0)};
 
 uvec3 triangles[] = {
-	uvec3(0, 1, 2),
-	uvec3(2, 3, 0),
+    uvec3(0, 1, 2),
+    uvec3(2, 3, 0),
 };
 
 taskPayloadSharedEXT Task ts_in;
@@ -61,42 +52,41 @@ taskPayloadSharedEXT Task ts_in;
 uint leaf_id = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
 uint laneID = gl_LocalInvocationID.x;
 
+void main() {
+  if (leaf_id >= foliage_size)
+    return;
 
-void main(){
-	if(leaf_id >= foliage_size) return;
+  SetMeshOutputsEXT(LEAF_VERTICES_SIZE, LEAF_TRIANGLE_SIZE);
 
-	SetMeshOutputsEXT(LEAF_VERTICES_SIZE, LEAF_TRIANGLE_SIZE);
-	
-	Leaf leaf = foliage[leaf_id];
+  Leaf leaf = foliage[leaf_id];
 
-	vec3 leaf_position = leaf.x;
-	vec4 leaf_rotation = leaf.q;
-	vec3 leaf_scale = leaf.scale;
-	mat4 instance_matrix = translate(leaf_position) * mat4_cast(leaf_rotation) * scale(leaf_scale);
-	
-	mat4 transform = EE_POINT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_INSTANCE_INDEX] * instance_matrix;
-	
-	[[unroll]]
-	for (uint i = 0; i < uint(LEAF_VERTEX_ITERATIONS); ++i)
-	{
-		uint vertex_index = laneID + i * WORKGROUP_SIZE;
-		if (vertex_index > LEAF_VERTICES_SIZE) break;
-		vec3 vertex_position = positions[vertex_index];
+  vec3 leaf_position = leaf.x;
+  vec4 leaf_rotation = leaf.q;
+  vec3 leaf_scale = leaf.scale;
+  mat4 instance_matrix = translate(leaf_position) * mat4_cast(leaf_rotation) * scale(leaf_scale);
 
-		ms_v_out[vertex_index].FragPos = vec4(instance_matrix * vec4(vertex_position, 1.0f)).xyz;
-		ms_v_out[vertex_index].TexCoord = tex_coords[vertex_index];
-		ms_v_out[vertex_index].Normal = vec4(instance_matrix * vec4(0, 1, 0, 0)).xyz;
-		ms_v_out[vertex_index].Tangent = vec4(instance_matrix * vec4(0, 0, 1, 0)).xyz;
-		ms_v_out[vertex_index].Color = vec4(leaf.attachment_integrity, leaf.rotation_integrity, 0, 1);
-		gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0f);
-	}
+  mat4 transform = EE_POINT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_INSTANCE_INDEX] * instance_matrix;
 
-	[[unroll]]
-	for (uint i = 0; i < uint(LEAF_PRIMITIVE_ITERATIONS); ++i)
-	{
-		uint triangle_index = laneID + i * WORKGROUP_SIZE;
-		if(triangle_index <= LEAF_TRIANGLE_SIZE){
-			gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
-		}
-	}
+  [[unroll]]
+  for (uint i = 0; i < uint(LEAF_VERTEX_ITERATIONS); ++i) {
+    uint vertex_index = laneID + i * WORKGROUP_SIZE;
+    if (vertex_index > LEAF_VERTICES_SIZE)
+      break;
+    vec3 vertex_position = positions[vertex_index];
+
+    ms_v_out[vertex_index].FragPos = vec4(instance_matrix * vec4(vertex_position, 1.0f)).xyz;
+    ms_v_out[vertex_index].TexCoord = tex_coords[vertex_index];
+    ms_v_out[vertex_index].Normal = vec4(instance_matrix * vec4(0, 1, 0, 0)).xyz;
+    ms_v_out[vertex_index].Tangent = vec4(instance_matrix * vec4(0, 0, 1, 0)).xyz;
+    ms_v_out[vertex_index].Color = vec4(leaf.attachment_integrity, leaf.rotation_integrity, 0, 1);
+    gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0f);
+  }
+
+  [[unroll]]
+  for (uint i = 0; i < uint(LEAF_PRIMITIVE_ITERATIONS); ++i) {
+    uint triangle_index = laneID + i * WORKGROUP_SIZE;
+    if (triangle_index <= LEAF_TRIANGLE_SIZE) {
+      gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
+    }
+  }
 }

@@ -139,15 +139,19 @@ void BasicReproductionModuleDescriptor::PrepareController(ShootReproductionContr
     return status_changed;
   };
 }
+
 void BasicReproductionModuleDescriptor::Serialize(YAML::Emitter& out) const {
 }
+
 void BasicReproductionModuleDescriptor::Deserialize(const YAML::Node& in) {
 }
+
 bool BasicReproductionModuleDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   return changed;
 }
+
 void BasicReproductionModuleDescriptor::GenerateFruitMatrices(std::vector<glm::mat4>& matrices,
                                                               const SkeletonNodeInfo& internode_info,
                                                               float tree_size) const {

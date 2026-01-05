@@ -1,4 +1,3 @@
-
 #pragma once
 #include "ShootGrowthData.hpp"
 
@@ -126,5 +125,4 @@ class StrandModel {
    */
   void Load(const std::string& name, const YAML::Node& in);
 };
-
 }  // namespace eco_sys_lab_plugin

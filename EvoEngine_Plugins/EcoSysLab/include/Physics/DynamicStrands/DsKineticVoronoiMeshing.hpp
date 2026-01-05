@@ -4,6 +4,7 @@
 
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
+
 class DsKineticVoronoiMeshing : public DsMeshing {
  public:
   DsKineticVoronoiMeshing();
@@ -38,28 +39,35 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   struct SegmentMeshletsRenderParameters {
     // TODO
     bool enabled = true;
+    enum ColorMode { Standard, Normals, UVs };
+    int color_mode = 0;
+    float uv_height_factor = 0.02f;
+    float uv_circum_factor = 2.0f;
   };
 
   struct RenderSettings {
     // TODO: Add render settings specific to kinetic voronoi meshing
-    bool render_segment_meshlets = true;
     SegmentMeshletsRenderParameters segment_meshlet_render_parameters;
   };
 
   static RenderSettings render_settings;
 
   struct GpuSegmentMeshletVertex {
-    float relative_position_x;
-    float relative_position_y;
-    float relative_position_z;
+    glm::vec3 x0;
     unsigned int segment_index;
+    glm::vec3 x = glm::vec3(1.0f, 2.0f, 3.0f);
+    int padding;
   };
 
   struct GpuSegmentMeshletTriangle {
     unsigned int vertex_index0;
     unsigned int vertex_index1;
     unsigned int vertex_index2;
-    int twin_triangle_index;
+    int neighbor_segment_index;
+    // TODO: perhaps split these off into separate buffers with indices
+    glm::vec4 normal[3];   // 4th dimension is padding
+    glm::vec4 normal0[3];  // 4th dimension is padding
+    glm::vec2 uv[4];       // 4th element is padding
   };
 
   struct SegmentMeshletPushConstant {
@@ -67,6 +75,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
       int instance_index;
       int sub_light_index;
     } index1;
+
     union Index2 {
       int camera_index;
       int light_index;
@@ -74,9 +83,16 @@ class DsKineticVoronoiMeshing : public DsMeshing {
 
     unsigned int vertex_count;
     unsigned int triangle_count;
+    int color_mode;
+
+    int bark_material_index;
+    int inner_wood_material_index;
+    float uv_height_factor;
+    float uv_circum_factor;
   };
 
   // public:
+  inline static std::shared_ptr<ComputePipeline> branches_uniform_particle_update_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_point_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_spot_light_render_pipeline{};
@@ -107,7 +123,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
       const SegmentMeshletsRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
       const RenderLayer::DirectionalLightShadowMapView& view) const;
   uint32_t RenderSegmentMeshletsToCameraDeferred(
-      const Handle& renderer_handle, int inner_wood_material_index, int snow_material_index,
+      const Handle& renderer_handle, int bark_material_index, int inner_wood_material_index, int snow_material_index,
       const SegmentMeshletsRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view, VkPolygonMode polygon_mode) const;
@@ -117,6 +133,9 @@ class DsKineticVoronoiMeshing : public DsMeshing {
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;*/
 
-  void RunMeshingAlgorithm(std::vector<kinDS::CubicHermiteSpline<2>> strand_splines);
+  void RunMeshingAlgorithm(std::vector<kinDS::CubicHermiteSpline<2>> strand_splines,
+                           std::vector<std::vector<double>>& subdivisions_by_strand,
+                           std::vector<std::vector<int>>& physics_strand_to_segment_indices,
+                           std::vector<glm::mat4>& profile_to_global_transforms, const GlobalTransform& root_transform);
 };
 }  // namespace eco_sys_lab_plugin

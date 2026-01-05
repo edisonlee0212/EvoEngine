@@ -1,4 +1,3 @@
-
 #include "Delaunay.hpp"
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"
@@ -22,10 +21,12 @@ struct FoliageRenderPushConstant {
     int instance_index;
     int sub_light_index;
   } index1;
+
   union Index2 {
     int camera_index;
     int light_index;
   } index2;
+
   uint32_t leaf_size;
 };
 

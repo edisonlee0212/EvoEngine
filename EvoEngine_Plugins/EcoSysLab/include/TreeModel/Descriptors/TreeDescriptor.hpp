@@ -21,6 +21,7 @@ class IShootDescriptor : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 };
+
 /**
  * \class IRootDescriptor
  * \brief Represents the parameters controlling procedural tree growth.
@@ -38,6 +39,7 @@ class IRootDescriptor : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 };
+
 /**
  * \class IRootDescriptor
  * \brief Represents the parameters controlling procedural tree growth.
@@ -55,6 +57,7 @@ class IFineRootDescriptor : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 };
+
 /**
  * \class IPruningDescriptor
  * \brief Represents the parameters controlling procedural tree pruning.
@@ -74,6 +77,7 @@ class IPruningDescriptor : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 };
+
 /**
  * \class IFoliageDescriptor
  * \brief Represents the parameters controlling foliage generation.
@@ -99,6 +103,7 @@ class IFoliageDescriptor : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 };
+
 /**
  * \class IReproductionModuleDescriptor
  * \brief Represents the parameters controlling fruit generation.
@@ -124,6 +129,7 @@ class IReproductionModuleDescriptor : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 };
+
 /**
  * \class IBarkDescriptor
  * \brief Represents the parameters controlling foliage generation.
@@ -143,6 +149,7 @@ class IBarkDescriptor : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 };
+
 /**
  * \class IFlowerDescriptor
  * \brief Represents the parameters controlling foliage generation.
@@ -155,6 +162,7 @@ class IFlowerDescriptor : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
 };
+
 /**
  * @brief Represents a tree descriptor asset in the EcoSysLab plugin.
  *
@@ -247,5 +255,4 @@ class TreeDescriptor : public IAsset {
    */
   void Deserialize(const YAML::Node& in) override;
 };
-
 }  // namespace eco_sys_lab_plugin

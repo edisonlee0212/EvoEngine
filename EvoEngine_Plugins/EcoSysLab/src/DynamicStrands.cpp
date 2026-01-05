@@ -101,7 +101,25 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
   frame_index++;
 }
 
-void DynamicStrands::OnCreate() {
+void DynamicStrands::InitMeshingAlgorithm(MeshingType meshing_type) {
+  // create new meshing object
+
+  switch (meshing_type) {
+    case MeshingType::AlphaShape:
+      meshing = std::make_shared<DsAlphaShapeMeshing>();
+      break;
+    case MeshingType::KineticVoronoi:
+      meshing = std::make_shared<DsKineticVoronoiMeshing>();
+      break;
+    default:
+      EVOENGINE_ERROR("Unsupported meshing type.");
+      return;
+  }
+
+  meshing->dynamic_strands = this;
+}
+
+void DynamicStrands::Init(MeshingType meshing_type) {
 #ifdef USE_RENDERDOC
   if (rdoc_api == nullptr) {
     if (HMODULE mod = GetModuleHandleA("renderdoc.dll")) {
@@ -111,6 +129,8 @@ void DynamicStrands::OnCreate() {
     }
   }
 #endif
+
+  InitMeshingAlgorithm(meshing_type);
 
   if (!strands_layout) {
     strands_layout = std::make_shared<DescriptorSetLayout>();
@@ -740,7 +760,6 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     max_iterations = glm::max(iterations, max_iterations);
     // EVOENGINE_LOG("Iterations: " + std::to_string(iterations), + ", max: " + std::to_string(max_iterations));
     const auto method3_time = std::to_string(Times::Now() - start_time);
-
   } else {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       reset_pipeline->Bind(vk_command_buffer);

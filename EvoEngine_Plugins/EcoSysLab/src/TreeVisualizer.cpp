@@ -76,9 +76,11 @@ bool ShootVisualizer::DrawInternodeInspectionGui(ShootModel& tree_model, const S
   }
   return modified;
 }
+
 void TreeVisualizer::ClearSelections() {
   selected_node_handle = -1;
 }
+
 bool ShootVisualizer::OnInspect(ShootModel& model) {
   bool updated = false;
   if (ImGui::Combo("Visualizer mode",
@@ -527,6 +529,7 @@ void ShootVisualizer::Reset(const ShootModel& model) {
   node_matrices_->SetParticleInfos({});
   need_update = true;
 }
+
 void ShootVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
                                    const std::shared_ptr<ParticleInfoList>& particle_info_list) {
   if (random_colors_.empty()) {
@@ -630,6 +633,7 @@ void ShootVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
   });
   particle_info_list->SetParticleInfos(matrices);
 }
+
 bool RootVisualizer::DrawNodeInspectionGui(RootModel& root_model, SkeletonNodeHandle node_handle, bool& deleted,
                                            const unsigned& hierarchy_level) {
   auto& treeSkeleton = root_model.RefRootSkeleton();
@@ -672,6 +676,7 @@ bool RootVisualizer::DrawNodeInspectionGui(RootModel& root_model, SkeletonNodeHa
   }
   return modified;
 }
+
 void RootVisualizer::PeekNodeInspectionGui(const RootSkeleton& skeleton, SkeletonNodeHandle node_handle,
                                            const unsigned& hierarchy_level) {
   const int index = selected_node_hierarchy_list.size() - hierarchy_level - 1;
@@ -696,6 +701,7 @@ void RootVisualizer::PeekNodeInspectionGui(const RootSkeleton& skeleton, Skeleto
     ImGui::TreePop();
   }
 }
+
 void RootVisualizer::PeekRootNode(const RootSkeleton& skeleton, SkeletonNodeHandle node_handle) const {
   const auto& internode = skeleton.PeekNode(node_handle);
   if (ImGui::TreeNode("Internode info")) {
@@ -732,6 +738,7 @@ void RootVisualizer::PeekRootNode(const RootSkeleton& skeleton, SkeletonNodeHand
     ImGui::TreePop();
   }
 }
+
 bool RootVisualizer::InspectRootNode(RootSkeleton& skeleton, SkeletonNodeHandle node_handle) {
   bool changed = false;
 
@@ -790,6 +797,7 @@ bool RootVisualizer::InspectRootNode(RootSkeleton& skeleton, SkeletonNodeHandle 
   }
   return changed;
 }
+
 bool RootVisualizer::OnInspect(RootModel& model) {
   bool updated = false;
   if (ImGui::Combo("Visualizer mode",
@@ -876,6 +884,7 @@ bool RootVisualizer::OnInspect(RootModel& model) {
   }
   return updated;
 }
+
 void RootVisualizer::Visualize(const RootModel& model, const GlobalTransform& global_transform) {
   const auto& root_skeleton = model.PeekRootSkeleton(checkpoint_iteration);
   if (visualization) {
@@ -910,6 +919,7 @@ void RootVisualizer::Visualize(const RootModel& model, const GlobalTransform& gl
     }
   }
 }
+
 void RootVisualizer::SyncMatrices(const RootSkeleton& skeleton,
                                   const std::shared_ptr<ParticleInfoList>& particle_info_list) {
   if (random_colors_.empty()) {
@@ -994,6 +1004,7 @@ void RootVisualizer::SyncMatrices(const RootSkeleton& skeleton,
   });
   particle_info_list->SetParticleInfos(matrices);
 }
+
 void RootVisualizer::Reset(const RootModel& root_model) {
   selected_node_handle = -1;
   selected_node_hierarchy_list.clear();

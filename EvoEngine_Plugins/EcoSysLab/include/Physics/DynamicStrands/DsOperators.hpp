@@ -1,4 +1,3 @@
-
 #pragma once
 #include "DynamicStrands.hpp"
 
@@ -622,5 +621,4 @@ class DsFungusInjection : public IDsOperator {
    */
   void Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
 };
-
 }  // namespace eco_sys_lab_plugin

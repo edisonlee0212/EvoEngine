@@ -52,6 +52,7 @@ void RootModel::CalculateGrowthData(const RootGrowthController& root_growth_cont
   }
   root_skeleton_.CalculateFlows();
 }
+
 void RootModel::Initialize(const RootGrowthController& root_growth_controller) {
   if (initialized_)
     Clear();
@@ -95,6 +96,7 @@ Vigor RootModel::SampleRootFlux(const glm::mat4& global_transform, const VoxelSo
   CalculateGrowthData(root_growth_controller);
   return total_shoot_flux;
 }
+
 void RootModel::CalculateTransform(const RootGrowthController& root_growth_controller) {
   root_skeleton_.min = glm::vec3(FLT_MAX);
   root_skeleton_.max = glm::vec3(-FLT_MAX);
@@ -144,6 +146,7 @@ void RootModel::CalculateTransform(const RootGrowthController& root_growth_contr
     root_skeleton_.data.desired_max = glm::max(root_skeleton_.data.desired_max, desired_end_position);
   }
 }
+
 void RootModel::DistributeVigor(const RootGrowthController& root_growth_controller, const Vigor vigor) {
   const auto& sorted_node_list = root_skeleton_.PeekSortedNodeList();
   float max_grow_potential = 0.0f;
@@ -167,15 +170,18 @@ void RootModel::DistributeVigor(const RootGrowthController& root_growth_controll
     node.data.growth_rate = clamped_factor * node.data.desired_growth_rate;
   }
 }
+
 RootSkeleton& RootModel::RefRootSkeleton() {
   return root_skeleton_;
 }
+
 const RootSkeleton& RootModel::PeekRootSkeleton(int iteration) const {
   assert(iteration < 0 || iteration <= root_history_.size());
   if (iteration == root_history_.size() || iteration < 0)
     return root_skeleton_;
   return root_history_.at(iteration);
 }
+
 void RootModel::Clear() {
   root_skeleton_ = {};
   root_history_ = {};
@@ -203,11 +209,13 @@ void RootModel::Pop() {
 int RootModel::CurrentIteration() const {
   return root_history_.size();
 }
+
 void RootModel::Reverse(const int iteration) {
   assert(iteration >= 0 && iteration < root_history_.size());
   root_skeleton_ = root_history_[iteration];
   root_history_.erase((root_history_.begin() + iteration), root_history_.end());
 }
+
 bool RootModel::Grow(float delta_time, const glm::mat4& global_transform, const ClimateModel& climate_model,
                      const VoxelSoilModel& soil_model, const RootGrowthController& root_growth_controller,
                      const FineRootController& fine_root_controller,
@@ -309,6 +317,7 @@ bool RootModel::GrowRootNode(SkeletonNodeHandle node_handle, const RootGrowthCon
 
   return graph_changed;
 }
+
 bool RootModel::ElongateRootNode(float extended_length, SkeletonNodeHandle internode_handle,
                                  const RootGrowthController& root_growth_controller,
                                  const FineRootController& fine_root_controller,
@@ -372,6 +381,7 @@ bool RootModel::ElongateRootNode(float extended_length, SkeletonNodeHandle inter
   }
   return graph_changed;
 }
+
 bool RootModel::PruneRootNodes(const glm::mat4& global_transform, const ClimateModel& climate_model,
                                const VoxelSoilModel& soil_model, const RootGrowthController& root_growth_controller,
                                const RootPruningController& root_pruning_controller) {

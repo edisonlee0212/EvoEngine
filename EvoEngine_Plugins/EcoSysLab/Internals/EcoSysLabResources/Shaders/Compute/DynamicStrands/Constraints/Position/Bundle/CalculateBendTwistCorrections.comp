@@ -16,26 +16,25 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint skip_index;
-	uint skip_size;
-	uint segment_size;
-	float inv_time_step;
-	float over_relaxation;
+  uint skip_index;
+  uint skip_size;
+  uint segment_size;
+  float inv_time_step;
+  float over_relaxation;
 };
 
-void main(){
-
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint segment_index = (baseID + local_index) * skip_size + skip_index;
-		if(segment_index >= segment_size) break;
-		BundleSegmentBendTwist(segment_index, inv_time_step, over_relaxation);
-	}
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint segment_index = (baseID + local_index) * skip_size + skip_index;
+    if (segment_index >= segment_size)
+      break;
+    BundleSegmentBendTwist(segment_index, inv_time_step, over_relaxation);
+  }
 }

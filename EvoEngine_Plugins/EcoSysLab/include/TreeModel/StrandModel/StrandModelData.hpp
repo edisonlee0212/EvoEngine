@@ -1,4 +1,3 @@
-
 #pragma once
 #include "Skeleton.hpp"
 #include "StrandGroup.hpp"
@@ -60,5 +59,4 @@ typedef StrandGroup<StrandModelStrandGroupData, StrandModelStrandData, StrandMod
  * \brief Represents physics-related data associated with a cell particle in the strand model.
  */
 struct CellParticlePhysicsData {};
-
 }  // namespace eco_sys_lab_plugin

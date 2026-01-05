@@ -1,4 +1,3 @@
-
 #pragma once
 
 namespace eco_sys_lab_plugin {
@@ -123,5 +122,4 @@ class ProfileConstraints {
    */
   [[nodiscard]] glm::vec2 GetTarget(const glm::vec2& position) const;
 };
-
 }  // namespace eco_sys_lab_plugin

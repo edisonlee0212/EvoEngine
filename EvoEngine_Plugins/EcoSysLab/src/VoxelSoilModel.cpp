@@ -972,6 +972,7 @@ vec3 VoxelSoilModel::GetBoundingBoxMin() const {
 vec3 eco_sys_lab_plugin::VoxelSoilModel::GetBoundingBoxMax() const {
   return m_boundingBoxMin + vec3(m_resolution) * m_dx;
 }
+
 vec3 eco_sys_lab_plugin::VoxelSoilModel::GetBoundingBoxCenter() const {
   return m_boundingBoxMin + vec3(m_resolution) * m_dx * 0.5f;
 }

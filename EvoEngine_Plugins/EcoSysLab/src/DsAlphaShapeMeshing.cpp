@@ -50,7 +50,6 @@ void DsAlphaShapeMeshing::InitData(const DynamicStrandsInitializeParameters& ini
   strand_model_strand_group.UniformlySubdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
       uniformly_subdivided_strand_group, initialize_parameters.uniform_subdivision,
       [&](const StrandHandle src_handle, DtsStrandData& strand_data) {
-
       },
       [&](const float start_root_distance, const float end_root_distance, const StrandSegmentHandle src_handle,
           const uint32_t original_segment_index, const float segment_t, DtsStrandSegmentData& segment_data,
@@ -77,7 +76,6 @@ void DsAlphaShapeMeshing::InitData(const DynamicStrandsInitializeParameters& ini
 
           p1 = p2;
           p0 = p1 * 2.0f - p2;
-
         } else if (strand_segment.GetPrevHandle() == strand_segment_handles.front()) {
           const auto& prev_segment_data =
               strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetPrevHandle());
@@ -86,7 +84,6 @@ void DsAlphaShapeMeshing::InitData(const DynamicStrandsInitializeParameters& ini
 
           p0 = p2;
           p1 = prev_segment_data.profile_position;
-
         } else {
           const auto& prev_segment = strand_model_strand_group.PeekStrandSegment(strand_segment.GetPrevHandle());
           const auto& prev_segment_data =
@@ -103,7 +100,6 @@ void DsAlphaShapeMeshing::InitData(const DynamicStrandsInitializeParameters& ini
           d3 = d2 * 2.0f - d1;
 
           p3 = p2 * 2.0f - p1;
-
         } else {
           const auto& next_segment_data =
               strand_model_strand_group.PeekStrandSegmentData(strand_segment.GetNextHandle());
@@ -473,8 +469,8 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
   const float snow_factor = 100.f;
   const float snow_deduction = 0.1f;
 
-  // Tetrahedrons
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    // Uniform Particles
     UniformParticlePredictionPushConstant uniform_particle_push_constant;
     uniform_particle_push_constant.uniform_particle_size = uniform_particles.size();
     uniform_particle_push_constant.snow_deduction = snow_deduction;
@@ -488,6 +484,8 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
     vkCmdDispatch(vk_command_buffer,
                   Platform::DivUp(uniform_particle_push_constant.uniform_particle_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
+
+    // Tetrahedrons
     TetrahedronFilteringPushConstant filtering_push_constant;
     filtering_push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
     filtering_push_constant.alpha = render_settings.branches_render_parameters.alpha;
@@ -507,6 +505,7 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
                   1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
+    // Triangles
     branches_triangle_filtering_pipeline->Bind(vk_command_buffer);
     branches_triangle_filtering_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
@@ -1062,7 +1061,7 @@ void DsAlphaShapeMeshing::ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& t
                                           size_t min_bundle_size) {
   auto bundle_maps = DsAlphaShapeUtils::ComputeBundleMaps(uniform_particles);
 
-// TODO: maybe we should scrap CGAL
+  // TODO: maybe we should scrap CGAL
 #ifdef USE_CGAL
   if (use_cgal) {
     std::vector<std::pair<Point_CGAL, unsigned>> points;
@@ -1161,16 +1160,19 @@ void DsAlphaShapeMeshing::RegisterBranchesRenderInstance(Handle& rendering_insta
       if (branches_render_pipeline && branches_render_pipeline->Initialized()) {
         const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = rendering_instance_handle;
-        current_render_storage->RegisterRenderInstance(scene, owner, renderer_handle, bark_material);
+        int bark_material_index = -1;
+        current_render_storage->RegisterRenderInstance(scene, owner, renderer_handle, bark_material,
+                                                       &bark_material_index);
         const auto inner_material_index = current_render_storage->RegisterMaterial(inner_wood_material);
         const auto snow_material_index = current_render_storage->RegisterMaterial(snow_material);
         render_layer->DeferredRenderingAllCameras(
             [=](const VkCommandBuffer vk_command_buffer,
                 const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
                 const RenderLayer::DeferredRenderingView& view) {
-              return RenderBranchesToCameraDeferred(renderer_handle, inner_material_index, snow_material_index,
-                                                    render_settings.branches_render_parameters, vk_command_buffer,
-                                                    geometry_pass_color_attachment_infos, view, VK_POLYGON_MODE_FILL);
+              return RenderBranchesToCameraDeferred(renderer_handle, bark_material_index, inner_material_index,
+                                                    snow_material_index, render_settings.branches_render_parameters,
+                                                    vk_command_buffer, geometry_pass_color_attachment_infos, view,
+                                                    VK_POLYGON_MODE_FILL);
             });
       }
     }
@@ -1192,6 +1194,7 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RegisterBranchesWireframeRenderIns
       if (branches_render_pipeline && branches_render_pipeline->Initialized()) {
         const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = mesh_wireframe_rendering_instance_handle;
+        // TODO: fix double registration
         current_render_storage->RegisterRenderInstance(scene, owner, renderer_handle, wireframe_material);
         const auto wireframe_material_index = current_render_storage->RegisterMaterial(wireframe_material);
         render_layer->DeferredRenderingAllCameras(
@@ -1199,6 +1202,7 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RegisterBranchesWireframeRenderIns
                 const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
                 const RenderLayer::DeferredRenderingView& view) {
               return RenderBranchesToCameraDeferred(renderer_handle, wireframe_material_index, wireframe_material_index,
+                                                    wireframe_material_index,
                                                     render_settings.branches_render_parameters, vk_command_buffer,
                                                     geometry_pass_color_attachment_infos, view, VK_POLYGON_MODE_LINE);
             });

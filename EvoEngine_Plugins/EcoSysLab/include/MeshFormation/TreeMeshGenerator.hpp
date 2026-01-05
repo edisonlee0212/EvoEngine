@@ -191,6 +191,7 @@ class CylindricalMeshGenerator {
                                float distance_to_root)>& vertex_position_modifier,
       const std::function<void(glm::vec2& tex_coords, float x_factor, float distance_to_root)>& tex_coords_modifier);
 };
+
 template <typename SkeletonData, typename FlowData, typename NodeData>
 class VoxelMeshGenerator {
  public:

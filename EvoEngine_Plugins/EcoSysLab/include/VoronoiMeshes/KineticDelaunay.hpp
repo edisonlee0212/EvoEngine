@@ -6,7 +6,6 @@
 #include "ProgressBar.hpp"
 
 namespace kinDS {
-
 /**
  * \brief Class for computing the Delaunay triangulation of a set of cubic Hermite splines.
  *
@@ -28,6 +27,7 @@ class KineticDelaunay {
     Event(double t, size_t he_id, double creation_time, Point<2> position)
         : time(t), half_edge_id(he_id), creation_time(creation_time), position(position) {
     }
+
     bool operator<(const Event& other) const {
       return time > other.time;  // For priority queue, we want the earliest event first
     }
@@ -44,6 +44,7 @@ class KineticDelaunay {
      */
     virtual void beforeEvent(Event& e) {
     }
+
     /**
      * \brief Handle an event after it is processed.
      *
@@ -170,7 +171,8 @@ class KineticDelaunay {
         continue;  // Skip NaN roots
       }
 
-      if (root > fraction && root <= 1) {  // Check if the root is within the valid range
+      if (root > fraction && root <= 1) {
+        // Check if the root is within the valid range
         double event_time = root + section;
         // std::cout << "Root found at t = " << event_time << std::endl;
 

@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include "Skeleton.hpp"
@@ -99,5 +98,4 @@ class LSystemString : public IAsset {
 
   std::vector<LSystemCommand> m_commands;  ///< A sequence of parsed L-system commands.
 };
-
 }  // namespace eco_sys_lab_plugin

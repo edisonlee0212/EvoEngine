@@ -1,4 +1,3 @@
-
 #pragma once
 #include "SimulationSettings.hpp"
 #include "Tree.hpp"
@@ -216,5 +215,4 @@ class ForestDescriptor : public IAsset {
    */
   Entity InstantiatePatch(bool set_parent, int seed) const;
 };
-
 }  // namespace eco_sys_lab_plugin

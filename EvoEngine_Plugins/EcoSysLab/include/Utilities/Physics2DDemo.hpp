@@ -1,4 +1,3 @@
-
 #pragma once
 #include "Physics2D.hpp"
 
@@ -48,5 +47,4 @@ class Physics2DDemo : public IPrivateComponent {
    */
   void FixedUpdate() override;
 };
-
 }  // namespace eco_sys_lab_plugin

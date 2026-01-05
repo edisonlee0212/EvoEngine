@@ -1,4 +1,3 @@
-
 #pragma once
 #include "BasicPruningDescriptor.hpp"
 #include "RootModel.hpp"
@@ -414,6 +413,7 @@ class Tree : public IPrivateComponent {
    */
   void ClearAnimatedGeometryEntities() const;
 };
+
 /**
  * @brief Imports a tree model from a skeleton structure.
  * @param src_skeleton The source skeleton to import from.
@@ -432,5 +432,4 @@ void Tree::FromSkeleton(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData
   shoot_model.Initialize(src_skeleton);
   // TODO: Set up buds here.
 }
-
 }  // namespace eco_sys_lab_plugin

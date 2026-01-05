@@ -18,48 +18,60 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	vec3 main_force;
-	uint segment_size;
+  vec3 main_force;
+  uint segment_size;
 
-	float turbulence_direction_frequency;
-	float turbulence_speed_frequency;
-	float turbulence_strength;
-	float simulated_time;
+  float turbulence_direction_frequency;
+  float turbulence_speed_frequency;
+  float turbulence_strength;
+  float simulated_time;
 };
 
-void main(){
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint segment_index = baseID + local_index;
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint segment_index = baseID + local_index;
 
-		if(segment_index >= segment_size) break;
+    if (segment_index >= segment_size)
+      break;
 
-		Segment segment = segments[segment_index];
-		vec3 front = rotate_vec3(segment.q, vec3(0, 0, 1));
+    Segment segment = segments[segment_index];
+    vec3 front = rotate_vec3(segment.q, vec3(0, 0, 1));
 
-		vec3 position = (segment.particle0.x + segment.particle1.x) * .5f;
+    vec3 position = (segment.particle0.x + segment.particle1.x) * .5f;
 
-		vec3 turbulence_direction;
-		turbulence_direction.x = EE_SIMPLEX_NOISE(vec4((position + vec3(100, 100, 100)) * turbulence_direction_frequency, simulated_time)) * 2.f - 1.f;
-		turbulence_direction.y = EE_SIMPLEX_NOISE(vec4((position + vec3(200, 200, 200)) * turbulence_direction_frequency, simulated_time)) * 2.f - 1.f;
-		turbulence_direction.z = EE_SIMPLEX_NOISE(vec4((position + vec3(300, 300, 300)) * turbulence_direction_frequency, simulated_time)) * 2.f - 1.f;
+    vec3 turbulence_direction;
+    turbulence_direction.x =
+        EE_SIMPLEX_NOISE(vec4((position + vec3(100, 100, 100)) * turbulence_direction_frequency, simulated_time)) *
+            2.f -
+        1.f;
+    turbulence_direction.y =
+        EE_SIMPLEX_NOISE(vec4((position + vec3(200, 200, 200)) * turbulence_direction_frequency, simulated_time)) *
+            2.f -
+        1.f;
+    turbulence_direction.z =
+        EE_SIMPLEX_NOISE(vec4((position + vec3(300, 300, 300)) * turbulence_direction_frequency, simulated_time)) *
+            2.f -
+        1.f;
 
-		float turbulence_base_speed = EE_SIMPLEX_NOISE(vec4((position + vec3(400, 400, 400)) * turbulence_speed_frequency, simulated_time));
+    float turbulence_base_speed =
+        EE_SIMPLEX_NOISE(vec4((position + vec3(400, 400, 400)) * turbulence_speed_frequency, simulated_time));
 
-		float max_turbulence_speed = length(main_force) * turbulence_strength;
-		vec3 turbulance = length(turbulence_direction) == 0.f ? vec3(0.0f) : normalize(turbulence_direction) * max_turbulence_speed * turbulence_base_speed;
-		vec3 wind_force = main_force + turbulance;
+    float max_turbulence_speed = length(main_force) * turbulence_strength;
+    vec3 turbulance = length(turbulence_direction) == 0.f
+                          ? vec3(0.0f)
+                          : normalize(turbulence_direction) * max_turbulence_speed * turbulence_base_speed;
+    vec3 wind_force = main_force + turbulance;
 
-		float directional_scale = max(0.05f, 1.f - abs(dot(front, normalize(wind_force))));
+    float directional_scale = max(0.05f, 1.f - abs(dot(front, normalize(wind_force))));
 
-		segments[segment_index].particle0.acceleration += wind_force * directional_scale * segment.inv_mass;
-		segments[segment_index].particle1.acceleration += wind_force * directional_scale * segment.inv_mass;
-	}
+    segments[segment_index].particle0.acceleration += wind_force * directional_scale * segment.inv_mass;
+    segments[segment_index].particle1.acceleration += wind_force * directional_scale * segment.inv_mass;
+  }
 }

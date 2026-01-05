@@ -9,9 +9,11 @@ class IDsCollider : public IPrivateComponent {
   glm::vec4 bound_color = glm::vec4(1, 0, 1, 0.1f);
   virtual void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer,
                            const std::shared_ptr<Camera>& editor_camera, const glm::vec4& color) = 0;
+
   virtual void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                          const DynamicStrands& target_dynamic_strands) {
   }
+
   virtual void ProjectVelocityConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                          const DynamicStrands& target_dynamic_strands) {
   }
@@ -30,6 +32,7 @@ class DsBoxCollider : public IDsCollider {
     float friction = 1.0f;
     float rotational_friction;
   };
+
   struct LeafPositionPushConstant {
     glm::quat obb_rotation;
     glm::vec3 obb_center;
@@ -52,6 +55,7 @@ class DsBoxCollider : public IDsCollider {
     float angular_velocity_friction;
     uint32_t segment_size;
   };
+
   struct LeafVelocityPushConstant {
     glm::quat obb_rotation;
     glm::vec3 obb_center;
@@ -110,6 +114,7 @@ class DsCylinderCollider : public IDsCollider {
     float softness = 1.0f;
     uint32_t leaf_size;
   };
+
   float radius = .51f;
   float height = .51f;
 
@@ -159,5 +164,4 @@ class DsSphereCollider : public IDsCollider {
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };
-
 }  // namespace eco_sys_lab_plugin

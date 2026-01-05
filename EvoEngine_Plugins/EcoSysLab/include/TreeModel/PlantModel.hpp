@@ -22,13 +22,13 @@ class PlantModel {
  public:
   int history_limit = -1;  ///< The limit for stored history states.
   int seed = 0;            ///< The seed value for random number generation.
-                           /**
-                            * @brief Applies tropism effects to a directional vector.
-                            * @param target_dir The target direction vector.
-                            * @param tropism The strength of the tropism effect.
-                            * @param front The front-facing direction to be adjusted.
-                            * @param up The up direction to be maintained.
-                            */
+  /**
+   * @brief Applies tropism effects to a directional vector.
+   * @param target_dir The target direction vector.
+   * @param tropism The strength of the tropism effect.
+   * @param front The front-facing direction to be adjusted.
+   * @param up The up direction to be maintained.
+   */
   static void ApplyTropism(const glm::vec3& target_dir, float tropism, glm::vec3& front, glm::vec3& up);
 
   /**

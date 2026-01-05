@@ -17,28 +17,27 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-#define BARRIER() \
-memoryBarrierShared(); \
-barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint skip_index;
-	uint skip_size;
-	uint segment_size;
-	float inv_time_step;
+  uint skip_index;
+  uint skip_size;
+  uint segment_size;
+  float inv_time_step;
 };
 
-void main(){
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint segment_index = (baseID + local_index) * skip_size + skip_index;
+    if (segment_index >= segment_size)
+      break;
 
-	[[unroll]]
-	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
-	{
-		uint local_index  = laneID + i * WORKGROUP_SIZE;
-		uint segment_index = (baseID + local_index) * skip_size + skip_index;
-		if(segment_index >= segment_size) break;
-		
-		segments[segment_index].q = normalize(segment_data_list[segment_index].q_correction + segments[segment_index].q);
+    segments[segment_index].q = normalize(segment_data_list[segment_index].q_correction + segments[segment_index].q);
 
-		segment_data_list[segment_index].q_correction = vec4(0, 0, 0, 0);
-	}
+    segment_data_list[segment_index].q_correction = vec4(0, 0, 0, 0);
+  }
 }

@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <functional>
@@ -656,5 +655,4 @@ class SoilParameters {
   glm::vec3 m_gravityForce = glm::vec3(0, -1.0, 0);  ///< Gravity force acting on the soil.
   float m_nutrientForce = 0.5;                       ///< Scaling factor for nutrient transport.
 };
-
 }  // namespace eco_sys_lab_plugin

@@ -26,8 +26,8 @@ typedef Alpha_shape_3::NT NT;
 #endif
 
 using namespace evo_engine;
-namespace eco_sys_lab_plugin {
 
+namespace eco_sys_lab_plugin {
 void AlphaShapeMeshGenerator::Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,
                                        std::vector<unsigned int>& indices,
                                        const StrandModelMeshGeneratorSettings& settings) {

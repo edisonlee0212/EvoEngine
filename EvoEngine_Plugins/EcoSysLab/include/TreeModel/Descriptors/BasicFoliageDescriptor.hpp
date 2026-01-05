@@ -93,5 +93,4 @@ class BasicFoliageDescriptor : public IFoliageDescriptor {
   void GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internode_info,
                                float tree_size) const override;
 };
-
 }  // namespace eco_sys_lab_plugin

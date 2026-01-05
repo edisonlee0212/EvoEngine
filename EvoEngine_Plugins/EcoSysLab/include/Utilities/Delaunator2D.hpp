@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <algorithm>
@@ -12,7 +11,6 @@
 // Source from https://github.com/delfrrr/delaunator-cpp
 
 namespace Delaunator {
-
 /**
  * @struct compare
  * @brief Comparator for sorting points based on their coordinates.
@@ -112,5 +110,4 @@ class Delaunator2D {
    */
   void link(std::size_t a, std::size_t b);
 };
-
 }  // namespace Delaunator

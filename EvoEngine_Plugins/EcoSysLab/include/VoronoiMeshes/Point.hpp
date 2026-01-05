@@ -30,6 +30,29 @@ class Point : public std::array<double, dim> {
     return result;
   }
 
+  Point& operator+=(const Point& rhs) {
+    *this = *this + rhs;
+    return *this;
+  }
+
+  Point& operator-=(const Point& rhs) {
+    *this = *this - rhs;
+    return *this;
+  }
+
+  Point operator-() const {
+    Point result;
+    for (size_t i = 0; i < dim; ++i) {
+      result[i] = -(*this)[i];
+    }
+    return result;
+  }
+
+  Point& operator*=(double scalar) {
+    *this = *this * scalar;
+    return *this;
+  }
+
   double len_sqr() const {
     return (*this) * (*this);
   }
@@ -87,8 +110,16 @@ Point<dim> operator*(const Point<dim>& a, double scalar) {
   return result;
 }
 
-// allow multiplication with a scalar before a point
+template <size_t dim>
+Point<dim> operator/(const Point<dim>& a, double scalar) {
+  Point<dim> result{};
+  for (size_t i = 0; i < dim; ++i) {
+    result[i] = a[i] / scalar;
+  }
+  return result;
+}
 
+// allow multiplication with a scalar before a point
 template <size_t dim>
 Point<dim> operator*(double scalar, const Point<dim>& a) {
   Point<dim> result{};
@@ -98,8 +129,9 @@ Point<dim> operator*(double scalar, const Point<dim>& a) {
   return result;
 }
 
-// cross product for 3D points
+// cross product
 Point<3> operator%(const Point<3>& a, const Point<3>& b);
+double operator%(const Point<2>& a, const Point<2>& b);
 
 // also provide Vector as alias
 template <size_t dim>

@@ -1,6 +1,7 @@
 #include "StrandModelProfile.hpp"
 
 using namespace eco_sys_lab_plugin;
+
 void ParticlePhysicsSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::BeginMap;
   out << YAML::Key << "particle_softness" << YAML::Value << particle_softness;
@@ -8,6 +9,7 @@ void ParticlePhysicsSettings::Save(const std::string& name, YAML::Emitter& out) 
   out << YAML::Key << "max_speed" << YAML::Value << max_speed;
   out << YAML::EndMap;
 }
+
 void ParticlePhysicsSettings::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     const auto& in_settings = in[name];

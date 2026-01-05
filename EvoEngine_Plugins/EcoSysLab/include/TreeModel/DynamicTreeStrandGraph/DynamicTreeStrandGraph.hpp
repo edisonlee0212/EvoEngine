@@ -56,10 +56,12 @@ struct NodeData {
   std::shared_ptr<INode> node_impl;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const;
 };
+
 struct InputPinData {
   std::string name = "Input";
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const;
 };
+
 struct OutputPinData {
   std::string name = "Output";
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const;
@@ -194,6 +196,7 @@ class StrengthGraph : public IAsset, public IDynamicTreeStrands {
     float polar_angle;
     float profile_boundary_distance;
   };
+
   struct Output {
     typedef glm::vec2 ShearStretchStrengthType;
     typedef glm::vec2 BendingStrengthType;
@@ -209,6 +212,7 @@ class StrengthGraph : public IAsset, public IDynamicTreeStrands {
     ConnectivityStrengthType connectivity_strength = {250.f,
                                                       125.f};  ///< Strength settings for connectivity constraints.
   };
+
   void Reset() override;
   StrengthGraph();
   StrengthGraph(const Output& output);  ///< Constructor to create constant nodes to be fed into output
@@ -261,6 +265,7 @@ class StrengthGraph : public IAsset, public IDynamicTreeStrands {
     }
     return output_result;
   }
+
   void SetOutput(NodeGraphNodeHandle output_node_handle, const glm::vec2& value);
   // Store handles to the output nodes for easier access
   NodeGraphNodeHandle output_shear_stretch_node_handle;
@@ -301,5 +306,4 @@ class BiologicalPropertiesGraph : public IAsset, public IDynamicTreeStrands {
   NodeGraphNodeHandle output_node_handle;
   NodeGraphNodeHandle input_node_handle;
 };
-
 }  // namespace eco_sys_lab_plugin

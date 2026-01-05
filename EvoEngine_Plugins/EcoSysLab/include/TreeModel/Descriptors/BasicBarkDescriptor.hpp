@@ -85,5 +85,4 @@ class BasicBarkDescriptor : public IBarkDescriptor {
    */
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
-
 }  // namespace eco_sys_lab_plugin

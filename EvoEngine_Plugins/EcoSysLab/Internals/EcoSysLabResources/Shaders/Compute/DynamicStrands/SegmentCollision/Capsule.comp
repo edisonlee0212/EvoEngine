@@ -28,7 +28,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
   float cell_size;
 };
 
- void closestPointsSegments(in vec3 A, in vec3 B, in vec3 C, in vec3 D, out float s, out float t, out vec3 P, out vec3 Q,
+void closestPointsSegments(in vec3 A, in vec3 B, in vec3 C, in vec3 D, out float s, out float t, out vec3 P, out vec3 Q,
                            out float dist) {
   vec3 u = B - A, v = D - C, w = A - C;
   float a = dot(u, u), b = dot(u, v), c = dot(v, v), d0 = dot(u, w), e = dot(v, w);
@@ -104,7 +104,7 @@ void main() {
         }
       }
     }
-    while (begin < end) {  
+    while (begin < end) {
       uint neighbor_segment_handle = hashed_grid_elements[begin].segment_handle;
       Segment neighbor_segment = segments[neighbor_segment_handle];
       if (neighbor_segment.group_index != group_index) {
@@ -128,7 +128,6 @@ void main() {
         vec3 diff1 = particle1.x - neighbor_segment_center_position;
         float diff_length0 = length(diff0);
         float diff_length1 = length(diff1);
-
 
         vec3 direction = vec3(0, 0, 0);
 
@@ -162,7 +161,7 @@ void main() {
             if (segments[segment_handle].quasi_stable == 1 && neighbor_segment.quasi_stable == 1 &&
                 diff_length1 < 0.0015) {
               exert_fricton_1 = 1;
-            } 
+            }
           }
           sum++;
         }
@@ -173,7 +172,6 @@ void main() {
       position_offset /= sum;
       position_offset *= 10.f;
       if (segments[segment_handle].quasi_stable == 1) {
-
         vec3 up = vec3(0.0, 1.0, 0.0);
 
         if (exert_fricton_0 == 1) {

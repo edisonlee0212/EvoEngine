@@ -15,28 +15,29 @@
 layout(local_size_x_id = 0) in;
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint segment_size;
-	uint group_size;
+  uint segment_size;
+  uint group_size;
 };
 
-void global_compare_and_swap(ivec2 idx){
-	if (COMPARE(hashed_grid_elements[idx.x], hashed_grid_elements[idx.y])) {
-		HashedGridElement tmp = hashed_grid_elements[idx.x];
-		hashed_grid_elements[idx.x] = hashed_grid_elements[idx.y];
-		hashed_grid_elements[idx.y] = tmp;
-	}
+void global_compare_and_swap(ivec2 idx) {
+  if (COMPARE(hashed_grid_elements[idx.x], hashed_grid_elements[idx.y])) {
+    HashedGridElement tmp = hashed_grid_elements[idx.x];
+    hashed_grid_elements[idx.x] = hashed_grid_elements[idx.y];
+    hashed_grid_elements[idx.y] = tmp;
+  }
 }
 
 // Performs full-height flip (h height) over globally available indices.
 void big_flip(in uint h) {
-	uint t_prime = gl_GlobalInvocationID.x;
-	uint half_h = h >> 1; // Note: h >> 1 is equivalent to h / 2 
-	uint q = ((2 * t_prime) / h) * h;
-	uint x = q     + (t_prime % half_h);
-	uint y = q + h - (t_prime % half_h) - 1;
-	if(x < segment_size && y < segment_size) global_compare_and_swap(ivec2(x,y));
+  uint t_prime = gl_GlobalInvocationID.x;
+  uint half_h = h >> 1;  // Note: h >> 1 is equivalent to h / 2
+  uint q = ((2 * t_prime) / h) * h;
+  uint x = q + (t_prime % half_h);
+  uint y = q + h - (t_prime % half_h) - 1;
+  if (x < segment_size && y < segment_size)
+    global_compare_and_swap(ivec2(x, y));
 }
 
-void main(){
-	big_flip(group_size);
+void main() {
+  big_flip(group_size);
 }

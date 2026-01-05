@@ -1,4 +1,3 @@
-
 #pragma once
 #include "CellGrid.hpp"
 #include "ProfileConstraints.hpp"
@@ -150,5 +149,4 @@ class ParticleGrid2D {
    */
   void Clear();
 };
-
 }  // namespace eco_sys_lab_plugin

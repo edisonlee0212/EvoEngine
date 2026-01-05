@@ -8,10 +8,11 @@
 #include "TreeIOChains.hpp"
 
 namespace treeutil {
-
-TreeChains::InternalNodeData::InternalNodeData() { /* Automatic */
+TreeChains::InternalNodeData::InternalNodeData() {
+  /* Automatic */
 }
-TreeChains::InternalNodeData::InternalNodeData(const treeio::TreeNodeData &original) : InternalNodeData() {
+
+TreeChains::InternalNodeData::InternalNodeData(const treeio::TreeNodeData& original) : InternalNodeData() {
   pos = original.pos;
   thickness = original.thickness;
   calculatedThickness = original.thickness;
@@ -24,15 +25,19 @@ TreeChains::InternalNodeData::InternalNodeData(const treeio::TreeNodeData &origi
   }
 }
 
-TreeChains::TreeChains() { /* Automatic */
-}
-TreeChains::TreeChains(const treeio::ArrayTree &tree) : TreeChains() {
-  buildTree(tree);
-}
-TreeChains::~TreeChains() { /* Automatic */
+TreeChains::TreeChains() {
+  /* Automatic */
 }
 
-bool TreeChains::buildTree(const treeio::ArrayTree &tree) {
+TreeChains::TreeChains(const treeio::ArrayTree& tree) : TreeChains() {
+  buildTree(tree);
+}
+
+TreeChains::~TreeChains() {
+  /* Automatic */
+}
+
+bool TreeChains::buildTree(const treeio::ArrayTree& tree) {
   // Create copy of the provided tree, including its structure and base properties.
   mInternalTree = tree.copy<InternalNodeData>();
   mLeafNodes.clear();
@@ -65,13 +70,14 @@ void TreeChains::cascadeUpwards(UpwardPropFunT fun) {
   std::stack<NodeIdT> vertexStack{};
   vertexStack.emplace(mInternalTree.getRootId());
 
-  while (!vertexStack.empty() && !prematureStop) {  // Process all vertices root to leaves.
+  while (!vertexStack.empty() && !prematureStop) {
+    // Process all vertices root to leaves.
     const auto currentNode{vertexStack.top()};
     vertexStack.pop();
     // Perform provided operation.
     prematureStop = fun(mInternalTree, currentNode);
     // Add child vertices.
-    for (const auto &cId : mInternalTree.getNodeChildren(currentNode)) {
+    for (const auto& cId : mInternalTree.getNodeChildren(currentNode)) {
       vertexStack.emplace(cId);
     }
   }
@@ -84,9 +90,10 @@ void TreeChains::cascadeDownwards(DownwardPropFunT fun) {
   std::set<NodeIdT> newNodes{};
   std::set<NodeIdT> finishedNodes{};
 
-  while (!currentNodes.empty() &&
-         !prematureStop) {  // Proceed in waves from the leaf nodes while storing parent vertices to the newVertices.
-    for (const auto &currentNode : currentNodes) {  // Process nodes in current wave.
+  while (!currentNodes.empty() && !prematureStop) {
+    // Proceed in waves from the leaf nodes while storing parent vertices to the newVertices.
+    for (const auto& currentNode : currentNodes) {
+      // Process nodes in current wave.
       // Stop loops and repeats.
       if (finishedNodes.find(currentNode) != finishedNodes.end()) {
         continue;
@@ -94,7 +101,7 @@ void TreeChains::cascadeDownwards(DownwardPropFunT fun) {
 
       // Check all children are ready.
       auto childrenReady{true};
-      for (const auto &cId : mInternalTree.getNodeChildren(currentNode)) {
+      for (const auto& cId : mInternalTree.getNodeChildren(currentNode)) {
         if (finishedNodes.find(cId) == finishedNodes.end()) {
           childrenReady = false;
         }
@@ -122,19 +129,19 @@ void TreeChains::cascadeDownwards(DownwardPropFunT fun) {
   }
 }
 
-const TreeChains::InternalArrayTree &TreeChains::internalTree() const {
+const TreeChains::InternalArrayTree& TreeChains::internalTree() const {
   return mInternalTree;
 }
 
-const TreeChains::NodeIdStorage &TreeChains::leafNodes() const {
+const TreeChains::NodeIdStorage& TreeChains::leafNodes() const {
   return mLeafNodes;
 }
 
-const TreeChains::ChainStorage &TreeChains::chains() const {
+const TreeChains::ChainStorage& TreeChains::chains() const {
   return mChains;
 }
 
-const TreeChains::ChainIdxStorage &TreeChains::leafChains() const {
+const TreeChains::ChainIdxStorage& TreeChains::leafChains() const {
   return mLeafChains;
 }
 
@@ -147,7 +154,7 @@ std::size_t TreeChains::maxChainGraveliusDepth() const {
 }
 
 TreeChains::CompactChainStorage TreeChains::generateCompactChains(float maxLength) const {
-  const auto &allChains{mChains};
+  const auto& allChains{mChains};
   CompactChainStorage compactChains{};
 
   if (allChains.empty()) {
@@ -182,15 +189,16 @@ TreeChains::CompactChainStorage TreeChains::generateCompactChains(float maxLengt
   std::stack<ChainRecord> toProcess{};
   toProcess.push({0u});
 
-  while (!toProcess.empty()) {  // Process all input chains.
+  while (!toProcess.empty()) {
+    // Process all input chains.
     const auto chainRecord{toProcess.top()};
     toProcess.pop();
-    const auto &srcChain{allChains[chainRecord.srcChainIdx]};
+    const auto& srcChain{allChains[chainRecord.srcChainIdx]};
 
     // Create the compact chain.
     const auto compactChainIdx{compactChains.size()};
     compactChains.push_back({});
-    auto &compactChain{compactChains.back()};
+    auto& compactChain{compactChains.back()};
 
     compactChain.compactedChains.push_back({CompactNodeChain::INVALID_CHAIN_IDX, chainRecord.srcChainIdx});
     compactChain.parentChain = {0u, chainRecord.parentChainIdx};
@@ -200,7 +208,7 @@ TreeChains::CompactChainStorage TreeChains::generateCompactChains(float maxLengt
     }
 
     std::stack<ChildChainRecord> childChains{};
-    for (const auto &ccIdx : srcChain.childChains) {
+    for (const auto& ccIdx : srcChain.childChains) {
       childChains.push({ccIdx, 0u, 0.0f});
     }
 
@@ -208,18 +216,18 @@ TreeChains::CompactChainStorage TreeChains::generateCompactChains(float maxLengt
       const auto childChainRecord{childChains.top()};
       childChains.pop();
       const auto childChainIdx{childChainRecord.srcChildIdx};
-      const auto &srcChildChain{allChains[childChainIdx]};
+      const auto& srcChildChain{allChains[childChainIdx]};
       const auto chainLength{childChainRecord.accumulatedLength + srcChildChain.calculateChainLength(mInternalTree)};
 
-      if (chainLength <= maxLength &&
-          !srcChildChain.childChains
-               .empty()) {  // Compact child chain into this one, only in case when it is not a leaf.
+      if (chainLength <= maxLength && !srcChildChain.childChains.empty()) {
+        // Compact child chain into this one, only in case when it is not a leaf.
         const auto parentCompactedChainsIdx{compactChain.compactedChains.size()};
-        for (const auto &ccIdx : srcChildChain.childChains) {
+        for (const auto& ccIdx : srcChildChain.childChains) {
           childChains.push({ccIdx, parentCompactedChainsIdx, chainLength});
         }
         compactChain.compactedChains.push_back({parentCompactedChainsIdx, childChainIdx});
-      } else {  // Child chain is longer, keep it for later processing.
+      } else {
+        // Child chain is longer, keep it for later processing.
         toProcess.push({childChainIdx, compactChainIdx, childChainRecord.parentCompactedChainIdx});
       }
     }
@@ -231,8 +239,8 @@ TreeChains::CompactChainStorage TreeChains::generateCompactChains(float maxLengt
 std::size_t TreeChains::removeChainsDownToDepth(std::size_t depth) {
   std::size_t totalChainsMarked{0u};
 
-  for (std::size_t iii = 0u; iii < mChains.size();
-       ++iii) {  // Find chains at exactly the depth and recursively remove all following.
+  for (std::size_t iii = 0u; iii < mChains.size(); ++iii) {
+    // Find chains at exactly the depth and recursively remove all following.
     if (mChains[iii].chainDepth == depth) {
       totalChainsMarked += markChainForRemoval(mInternalTree, mChains, iii);
     }
@@ -245,9 +253,11 @@ std::size_t TreeChains::removeLeafChains(std::size_t count) {
   std::size_t totalChainsMarked{0u};
 
   std::set<NodeChain::ChainIdxT> chainsToRemove{};
-  for (const auto &leafChainIdx : mLeafChains) {  // Accumulate chains to be removed.
+  for (const auto& leafChainIdx : mLeafChains) {
+    // Accumulate chains to be removed.
     auto chainToRemove{leafChainIdx};
-    for (std::size_t iii = 0u; iii < count - 1u; ++iii) {  // Descent given number of chains.
+    for (std::size_t iii = 0u; iii < count - 1u; ++iii) {
+      // Descent given number of chains.
       chainToRemove = mChains[chainToRemove].parentChain;
     }
 
@@ -255,8 +265,8 @@ std::size_t TreeChains::removeLeafChains(std::size_t count) {
   }
 
   // Remove all of the accumulated chains.
-  for (const auto &chainIdx :
-       chainsToRemove) {  // Find chains at exactly the depth and recursively remove all following.
+  for (const auto& chainIdx : chainsToRemove) {
+    // Find chains at exactly the depth and recursively remove all following.
     totalChainsMarked += markChainForRemoval(mInternalTree, mChains, chainIdx);
   }
 
@@ -267,10 +277,11 @@ std::size_t TreeChains::removeLeafChainsGravelius(std::size_t order) {
   std::size_t totalChainsMarked{0u};
 
   std::set<NodeChain::ChainIdxT> chainsToRemove{};
-  for (const auto &leafChainIdx : mLeafChains) {  // Accumulate chains to be removed.
+  for (const auto& leafChainIdx : mLeafChains) {
+    // Accumulate chains to be removed.
     auto chainToRemove{leafChainIdx};
-    while (chainToRemove != NodeChain::INVALID_CHAIN_IDX &&
-           mChains[chainToRemove].graveliusOrder < order) {  // Descent given number of chains.
+    while (chainToRemove != NodeChain::INVALID_CHAIN_IDX && mChains[chainToRemove].graveliusOrder < order) {
+      // Descent given number of chains.
       chainToRemove = mChains[chainToRemove].parentChain;
     }
 
@@ -280,8 +291,8 @@ std::size_t TreeChains::removeLeafChainsGravelius(std::size_t order) {
   }
 
   // Remove all of the accumulated chains.
-  for (const auto &chainIdx :
-       chainsToRemove) {  // Find chains at exactly the depth and recursively remove all following.
+  for (const auto& chainIdx : chainsToRemove) {
+    // Find chains at exactly the depth and recursively remove all following.
     totalChainsMarked += markChainForRemoval(mInternalTree, mChains, chainIdx);
   }
 
@@ -291,8 +302,8 @@ std::size_t TreeChains::removeLeafChainsGravelius(std::size_t order) {
 std::size_t TreeChains::remoChainsDownToGraveliusDepth(std::size_t depth) {
   std::size_t totalChainsMarked{0u};
 
-  for (std::size_t iii = 0u; iii < mChains.size();
-       ++iii) {  // Find chains at exactly the depth and recursively remove all following.
+  for (std::size_t iii = 0u; iii < mChains.size(); ++iii) {
+    // Find chains at exactly the depth and recursively remove all following.
     if (mChains[iii].graveliusDepth == depth) {
       totalChainsMarked += markChainForRemoval(mInternalTree, mChains, iii);
     }
@@ -301,22 +312,23 @@ std::size_t TreeChains::remoChainsDownToGraveliusDepth(std::size_t depth) {
   return totalChainsMarked;
 }
 
-bool TreeChains::applyChangesTo(treeio::ArrayTree &tree) const {
+bool TreeChains::applyChangesTo(treeio::ArrayTree& tree) const {
   // Start with the root node.
   std::stack<treeio::ArrayTree::NodeIdT> vertices{};
   vertices.emplace(tree.getRootId());
 
-  while (!vertices.empty()) {  // Apply changes recursively going through the tree.
+  while (!vertices.empty()) {
+    // Apply changes recursively going through the tree.
     const auto currentId{vertices.top()};
     vertices.pop();
-    auto &currentNode{tree.getNode(currentId)};
-    const auto &internalNode{mInternalTree.getNode(currentId)};
+    auto& currentNode{tree.getNode(currentId)};
+    const auto& internalNode{mInternalTree.getNode(currentId)};
 
     // TODO - Apply changes to the node data?
 
     std::vector<treeio::ArrayTree::NodeIdT> resultChildArray{};
-    for (const auto &cid : tree.getNodeChildren(currentId)) {
-      const auto &internalChildNode{mInternalTree.getNode(cid)};
+    for (const auto& cid : tree.getNodeChildren(currentId)) {
+      const auto& internalChildNode{mInternalTree.getNode(cid)};
       if (!internalChildNode.data().markedForRemoval) {
         vertices.push(cid);
         resultChildArray.push_back(cid);
@@ -328,7 +340,7 @@ bool TreeChains::applyChangesTo(treeio::ArrayTree &tree) const {
   return true;
 }
 
-bool TreeChains::generateUpwardPassInformation(InternalArrayTree &tree) {
+bool TreeChains::generateUpwardPassInformation(InternalArrayTree& tree) {
   /// @brief Helper structure for computing the depth.
   struct DepthHelper {
     /// The vertex itself.
@@ -344,21 +356,24 @@ bool TreeChains::generateUpwardPassInformation(InternalArrayTree &tree) {
   std::stack<DepthHelper> vertexStack{};
   vertexStack.emplace(DepthHelper{tree.getRootId(), INVALID_NODE_ID, 0u, 0.0f});
 
-  while (!vertexStack.empty()) {  // Process all vertices root to leaves.
+  while (!vertexStack.empty()) {
+    // Process all vertices root to leaves.
     const auto currentHelper{vertexStack.top()};
     vertexStack.pop();
     // Update depth and distance of the current vertex.
-    auto &currentNode{tree.getNode(currentHelper.vertex)};
+    auto& currentNode{tree.getNode(currentHelper.vertex)};
     currentNode.data().depth = currentHelper.depth;
     currentNode.data().distance = currentHelper.distance;
 
-    for (const auto &cId : tree.getNodeChildren(currentHelper.vertex)) {  // Add child vertices.
+    for (const auto& cId : tree.getNodeChildren(currentHelper.vertex)) {
+      // Add child vertices.
       const auto distanceFromParent{(tree.getNode(cId).data().pos - currentNode.data().pos).length()};
       vertexStack.emplace(DepthHelper{cId, currentHelper.vertex, currentHelper.depth + 1u,
                                       currentHelper.distance + distanceFromParent});
     }
 
-    if (tree.getNodeChildren(currentHelper.vertex).empty()) {  // We found a leaf node.
+    if (tree.getNodeChildren(currentHelper.vertex).empty()) {
+      // We found a leaf node.
       mLeafNodes.push_back(currentHelper.vertex);
     }
   }
@@ -366,16 +381,17 @@ bool TreeChains::generateUpwardPassInformation(InternalArrayTree &tree) {
   return true;
 }
 
-bool TreeChains::generateDownwardPassInformation(InternalArrayTree &tree) {
+bool TreeChains::generateDownwardPassInformation(InternalArrayTree& tree) {
   // Initialize the set with leaf nodes:
   std::set<NodeIdT> currentVertices{mLeafNodes.begin(), mLeafNodes.end()};
   std::set<NodeIdT> newVertices{};
   std::set<NodeIdT> finishedVertices{};
 
-  while (!currentVertices
-              .empty()) {  // Proceed in waves from the leaf nodes while storing parent vertices to the newVertices.
-    for (const auto &currentVertex : currentVertices) {  // Calculate child count of this vertex.
-      auto &currentNode{tree.getNode(currentVertex).data()};
+  while (!currentVertices.empty()) {
+    // Proceed in waves from the leaf nodes while storing parent vertices to the newVertices.
+    for (const auto& currentVertex : currentVertices) {
+      // Calculate child count of this vertex.
+      auto& currentNode{tree.getNode(currentVertex).data()};
       if (finishedVertices.find(currentVertex) != finishedVertices.end()) {
         continue;
       }
@@ -387,13 +403,13 @@ bool TreeChains::generateDownwardPassInformation(InternalArrayTree &tree) {
       auto foundUnfinished{false};
       const auto parent{tree.getNodeParent(currentVertex)};
 
-      for (const auto &cId : tree.getNodeChildren(
-               currentVertex)) {  // Accumulate child counts for all child vertices and store parent for next iteration.
+      for (const auto& cId : tree.getNodeChildren(currentVertex)) {
+        // Accumulate child counts for all child vertices and store parent for next iteration.
         if (finishedVertices.find(cId) == finishedVertices.end()) {
           foundUnfinished = true;
           break;
         }
-        const auto &childNode{tree.getNode(cId).data()};
+        const auto& childNode{tree.getNode(cId).data()};
 
         childCount += childNode.totalChildCount;
 
@@ -425,9 +441,11 @@ bool TreeChains::generateDownwardPassInformation(InternalArrayTree &tree) {
       currentNode.totalChildCount = childCount;
       currentNode.totalChildLength = childLength;
 
-      if (graveliusMaxChildren > 1u) {  // We found a tributary joining.
+      if (graveliusMaxChildren > 1u) {
+        // We found a tributary joining.
         currentNode.graveliusOrder = graveliusMaxChildOrder + 1u;
-      } else {  // Continue with the same stream.
+      } else {
+        // Continue with the same stream.
         currentNode.graveliusOrder = graveliusMaxChildOrder;
       }
 
@@ -441,7 +459,7 @@ bool TreeChains::generateDownwardPassInformation(InternalArrayTree &tree) {
   return true;
 }
 
-bool TreeChains::generateOrthoBases(InternalArrayTree &tree) {
+bool TreeChains::generateOrthoBases(InternalArrayTree& tree) {
   /// @brief Helper structure for computing the orthonormal bases.
   struct BasisHelper {
     /// The vertex itself.
@@ -458,20 +476,23 @@ bool TreeChains::generateOrthoBases(InternalArrayTree &tree) {
   std::stack<BasisHelper> vertexStack{};
   vertexStack.emplace(BasisHelper{tree.getRootId(), INVALID_NODE_ID});
 
-  while (!vertexStack.empty()) {  // Process all vertices root to leaves.
+  while (!vertexStack.empty()) {
+    // Process all vertices root to leaves.
     const auto currentHelper{vertexStack.top()};
     vertexStack.pop();
 
     // Skip the root node, which has already been initialized.
-    if (currentHelper.parent != INVALID_NODE_ID) {  // Processing non-root node -> Minimize rotation frames.
-      const auto &parentNode{tree.getNode(currentHelper.parent)};
-      auto &currentNode{tree.getNode(currentHelper.vertex)};
+    if (currentHelper.parent != INVALID_NODE_ID) {
+      // Processing non-root node -> Minimize rotation frames.
+      const auto& parentNode{tree.getNode(currentHelper.parent)};
+      auto& currentNode{tree.getNode(currentHelper.vertex)};
 
-      if (Vector3D::distance(currentNode.data().pos, parentNode.data().pos) <
-          MINIMUM_MRF_DISTANCE) {  // The two nodes are nearly identical -> use same information as the parent does.
+      if (Vector3D::distance(currentNode.data().pos, parentNode.data().pos) < MINIMUM_MRF_DISTANCE) {
+        // The two nodes are nearly identical -> use same information as the parent does.
         // Save the MRF as the new basis.
         currentNode.data().basis = parentNode.data().basis;
-      } else {  // The Two nodes are different -> calculate next step.
+      } else {
+        // The Two nodes are different -> calculate next step.
         // Recover parent frame, which is already correctly rotated.
         const FrenetFrame parentFrenetFrame{parentNode.data().pos, parentNode.data().basis.bitangent,
                                             // parentNode.data().basis.tangent
@@ -495,7 +516,7 @@ bool TreeChains::generateOrthoBases(InternalArrayTree &tree) {
     }
 
     // Move to the child vertices.
-    for (const auto &cId : tree.getNodeChildren(currentHelper.vertex)) {
+    for (const auto& cId : tree.getNodeChildren(currentHelper.vertex)) {
       vertexStack.emplace(BasisHelper{cId, currentHelper.vertex});
     }
   }
@@ -503,8 +524,8 @@ bool TreeChains::generateOrthoBases(InternalArrayTree &tree) {
   return true;
 }
 
-bool TreeChains::generateNodeChains(const InternalArrayTree &tree, ChainStorage &chains, ChainIdxStorage &leafChains,
-                                    std::size_t &maxChainDepth, std::size_t &maxGraveliusDepth) {
+bool TreeChains::generateNodeChains(const InternalArrayTree& tree, ChainStorage& chains, ChainIdxStorage& leafChains,
+                                    std::size_t& maxChainDepth, std::size_t& maxGraveliusDepth) {
   /// @brief Helper structure for computing the chains.
   struct ChainHelper {
     /// The vertex itself.
@@ -523,7 +544,8 @@ bool TreeChains::generateNodeChains(const InternalArrayTree &tree, ChainStorage 
   chains.push_back(NodeChain{});
   maxChainDepth = std::numeric_limits<std::size_t>::min();
 
-  while (!vertexStack.empty()) {  // Process the whole tree from the root towards the leaves.
+  while (!vertexStack.empty()) {
+    // Process the whole tree from the root towards the leaves.
     const auto currentHelper{vertexStack.top()};
     vertexStack.pop();
     // We will be adding chains on the way, not safe to keep reference to it...
@@ -544,15 +566,18 @@ bool TreeChains::generateNodeChains(const InternalArrayTree &tree, ChainStorage 
       chains[currentChainIdx].nodes.push_back(itParent);
     }
 
-    while (!foundEnd) {  // Search for the chain end.
+    while (!foundEnd) {
+      // Search for the chain end.
       chains[currentChainIdx].nodes.push_back(itVertex);
 
-      const auto &children{tree.getNodeChildren(itVertex)};
+      const auto& children{tree.getNodeChildren(itVertex)};
       const auto childCount{children.size()};
-      if (childCount == 1u || (childCount > 1u && itVertex == tree.getRootId())) {  // Found the next link in the chain.
+      if (childCount == 1u || (childCount > 1u && itVertex == tree.getRootId())) {
+        // Found the next link in the chain.
         itParent = itVertex;
         itVertex = children[0];
-      } else {  // Found end-point or branching point.
+      } else {
+        // Found end-point or branching point.
         foundEnd = true;
       }
     }
@@ -562,12 +587,13 @@ bool TreeChains::generateNodeChains(const InternalArrayTree &tree, ChainStorage 
 
     // Generate the adjacent chains:
     auto vertexChildren{tree.getNodeChildren(finalVertex)};
-    if (currentHelper.vertex == tree.getRootId() &&
-        currentHelper.vertex != finalVertex) {  // Add root node children, if there are any - roots for example.
+    if (currentHelper.vertex == tree.getRootId() && currentHelper.vertex != finalVertex) {
+      // Add root node children, if there are any - roots for example.
       const auto rootChildren{tree.getNodeChildren(currentHelper.vertex)};
       vertexChildren.insert(vertexChildren.end(), rootChildren.begin() + 1u, rootChildren.end());
     }
-    for (const auto &cid : vertexChildren) {  // Add new child-chain and register it.
+    for (const auto& cid : vertexChildren) {
+      // Add new child-chain and register it.
       const auto childChainIdx{chains.size()};
 
       NodeChain nodeChain{};
@@ -584,7 +610,8 @@ bool TreeChains::generateNodeChains(const InternalArrayTree &tree, ChainStorage 
       chains[currentChainIdx].childChains.push_back(childChainIdx);
     }
 
-    if (tree.getNodeChildren(finalVertex).empty()) {  // Found a leaf chain.
+    if (tree.getNodeChildren(finalVertex).empty()) {
+      // Found a leaf chain.
       leafChains.push_back(currentChainIdx);
     }
   }
@@ -592,20 +619,20 @@ bool TreeChains::generateNodeChains(const InternalArrayTree &tree, ChainStorage 
   return true;
 }
 
-TreeChains::FrenetFrame TreeChains::doubleReflectionRMF(const FrenetFrame &rotatedFrame,
-                                                        const FrenetFrame &inputFrame) const {
+TreeChains::FrenetFrame TreeChains::doubleReflectionRMF(const FrenetFrame& rotatedFrame,
+                                                        const FrenetFrame& inputFrame) const {
   /*
    * Using the original variable names from the "Computation of Rotation Minimizing Frames":
    *   i -> 1
    *   i + 1 -> 2
    */
 
-  const auto &x1{rotatedFrame.pos};
-  const auto &r1{rotatedFrame.rot};
-  const auto &t1{rotatedFrame.tan};
-  const auto &x2{inputFrame.pos};
-  const auto &r2{inputFrame.rot};
-  const auto &t2{inputFrame.tan};
+  const auto& x1{rotatedFrame.pos};
+  const auto& r1{rotatedFrame.rot};
+  const auto& t1{rotatedFrame.tan};
+  const auto& x2{inputFrame.pos};
+  const auto& r2{inputFrame.rot};
+  const auto& t2{inputFrame.tan};
 
   // Compute reflection vector between the two centers.
   const auto v1{x2 - x1};
@@ -630,11 +657,11 @@ TreeChains::FrenetFrame TreeChains::doubleReflectionRMF(const FrenetFrame &rotat
   return resultFrame;
 }
 
-TreeChains::OrthoBasis TreeChains::calculateBasisFromChildren(const InternalArrayTree &tree,
-                                                              const NodeIdT &nodeId) const {
+TreeChains::OrthoBasis TreeChains::calculateBasisFromChildren(const InternalArrayTree& tree,
+                                                              const NodeIdT& nodeId) const {
   Vector3D childPositionSum{};
   const auto childCount{tree.getNodeChildren(nodeId).size()};
-  for (const auto &cid : tree.getNodeChildren(nodeId)) {
+  for (const auto& cid : tree.getNodeChildren(nodeId)) {
     childPositionSum += tree.getNode(cid).data().pos;
   }
 
@@ -649,8 +676,8 @@ TreeChains::OrthoBasis TreeChains::calculateBasisFromChildren(const InternalArra
   return calculateBasis(parentPosition, childPosition);
 };
 
-TreeChains::OrthoBasis TreeChains::calculateBasisFromParent(const InternalArrayTree &tree,
-                                                            const NodeIdT &nodeId) const {
+TreeChains::OrthoBasis TreeChains::calculateBasisFromParent(const InternalArrayTree& tree,
+                                                            const NodeIdT& nodeId) const {
   const auto parentId{tree.getNodeParent(nodeId)};
 
   // Fallback to basis from children if there is no parent for this node.
@@ -664,7 +691,7 @@ TreeChains::OrthoBasis TreeChains::calculateBasisFromParent(const InternalArrayT
   return calculateBasis(parentPosition, childPosition);
 }
 
-TreeChains::OrthoBasis TreeChains::calculateBasis(const Vector3D &srcPos, const Vector3D &dstPos) const {
+TreeChains::OrthoBasis TreeChains::calculateBasis(const Vector3D& srcPos, const Vector3D& dstPos) const {
   // Calculate orthonormal basis:
   const auto direction{(dstPos - srcPos).normalized()};
   const auto startTangent{Vector3D{1.0f, 0.0f, 0.0f}.dot(direction) >= (0.999f) ? Vector3D{0.0f, 1.0f, 0.0f}
@@ -681,33 +708,33 @@ TreeChains::OrthoBasis TreeChains::calculateBasis(const Vector3D &srcPos, const 
   return result;
 }
 
-std::size_t TreeChains::markChainForRemoval(InternalArrayTree &tree, ChainStorage &chains,
-                                            const NodeChain::ChainIdxT &chainIdx) const {
+std::size_t TreeChains::markChainForRemoval(InternalArrayTree& tree, ChainStorage& chains,
+                                            const NodeChain::ChainIdxT& chainIdx) const {
   // Initialize the process with provided chain.
   std::stack<NodeChain::ChainIdxT> chainsToRemove{};
   chainsToRemove.emplace(chainIdx);
 
   std::size_t markedchains{0u};
 
-  while (!chainsToRemove.empty()) {  // Repeat for all chains recursively.
+  while (!chainsToRemove.empty()) {
+    // Repeat for all chains recursively.
     const auto currentChainIdx{chainsToRemove.top()};
     chainsToRemove.pop();
-    auto &chain{chains[currentChainIdx]};
+    auto& chain{chains[currentChainIdx]};
 
     // Mark for removal
     chain.markedForRemoval = true;
     markedchains++;
-    for (const auto &nid : chain.nodes) {
+    for (const auto& nid : chain.nodes) {
       tree.getNode(nid).data().markedForRemoval = true;
     }
 
     // Continue with child chains.
-    for (const auto &childChainIdx : chain.childChains) {
+    for (const auto& childChainIdx : chain.childChains) {
       chainsToRemove.emplace(childChainIdx);
     }
   }
 
   return markedchains;
 }
-
 }  // namespace treeutil

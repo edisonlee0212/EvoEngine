@@ -42,6 +42,7 @@ struct TreeStatistics {
   template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
   void Calculate(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& skeleton);
 };
+
 template <typename SrcSkeletonData, typename SrcFlowData, typename SrcNodeData>
 void TreeStatistics::Calculate(const Skeleton<SrcSkeletonData, SrcFlowData, SrcNodeData>& skeleton) {
   const auto& sorted_node_list = skeleton.PeekSortedNodeList();

@@ -1,4 +1,3 @@
-
 #pragma once
 #include "Skeleton.hpp"
 #include "VoxelGrid.hpp"
@@ -81,5 +80,4 @@ class EnvironmentGrid {
    */
   void AddNode(const InternodeVoxelRegistration& registration);
 };
-
 }  // namespace eco_sys_lab_plugin

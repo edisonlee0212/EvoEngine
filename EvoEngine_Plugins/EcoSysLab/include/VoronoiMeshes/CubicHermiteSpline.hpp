@@ -3,7 +3,6 @@
 #include "Polynomial.hpp"
 
 namespace kinDS {
-
 template <size_t dim>
 using Trajectory = std::array<Polynomial, dim>;
 
@@ -34,6 +33,7 @@ class CubicHermiteSpline {
 
  public:
   CubicHermiteSpline() = default;
+
   CubicHermiteSpline(const std::vector<Point<dim>>& controlPoints) : points(controlPoints) {
   }
 

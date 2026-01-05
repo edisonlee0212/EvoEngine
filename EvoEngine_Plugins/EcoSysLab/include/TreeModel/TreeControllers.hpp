@@ -1,4 +1,3 @@
-
 #pragma once
 #include "ClimateModel.hpp"
 #include "RootGrowthData.hpp"
@@ -342,5 +341,4 @@ struct RootPruningController : ITreeController {
                       const SkeletonNode<RootNodeGrowthData>& node)>
       base_to_end_pruning_factor;
 };
-
 }  // namespace eco_sys_lab_plugin

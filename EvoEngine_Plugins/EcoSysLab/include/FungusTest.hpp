@@ -102,5 +102,4 @@ class FungusTest : public IPrivateComponent {
   void InitializeGpuResources();
   void DownloadGpuResults();
 };
-
 }  // namespace eco_sys_lab_plugin

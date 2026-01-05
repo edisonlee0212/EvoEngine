@@ -6,8 +6,8 @@
 #include "VoronoiMesh.hpp"
 
 using namespace evo_engine;
-namespace eco_sys_lab_plugin {
 
+namespace eco_sys_lab_plugin {
 void printStrandGuidePoints(const std::vector<std::vector<kinDS::Point<2>>>& strand_guide_points) {
   // Print the points such that they can be copy-pasted into C++
   std::cout << "std::vector<std::vector<kinDS::Point<2>>> strand_guide_points = {\n";
@@ -50,23 +50,35 @@ static void RunMeshingAlgorithm(std::vector<Vertex>& vertices, std::vector<glm::
 
   mesh_builder.finalize(section_count);
 
-  auto meshes = mesh_builder.extractSegmentMeshlets();
+  auto [meshes, neighbor_segments] = mesh_builder.extractSegmentMeshlets();
 
   auto& boundary_mesh = mesh_builder.getBoundaryMesh();
 
   // intersect all meshes with the boundary mesh and save the result
 
-  std::vector<kinDS::Mesh> intersections;
-  intersections.reserve(meshes.size());
-  for (size_t i = 0; i < meshes.size(); ++i) {
-    meshes[i].checkForDegenerateTriangles();
-    auto intersection = kinDS::MeshIntersection::intersect(meshes[i], boundary_mesh);
-    intersections.push_back(intersection);
-  }
+  kinDS::MeshIntersection boundary_intersector(boundary_mesh);
+
+  // TODO: We should probably remove this entire file
+  // We no longer need this
+  /* Jobs::RunParallelFor(meshes.size(), [&](const size_t mesh_index) {
+    auto intersect_relation = boundary_intersector.ClassifyMeshRelation(meshes[mesh_index]);
+
+    if (intersect_relation == kinDS::MeshIntersection::MeshRelation::INSIDE) {
+      // fully inside, no need to compute intersection
+      return;
+    } else if (intersect_relation == kinDS::MeshIntersection::MeshRelation::OUTSIDE) {
+      // fully outside, result is empty mesh
+      meshes[mesh_index] = kinDS::VoronoiMesh();
+      return;
+    } else {
+      // partially intersecting, compute intersection}
+      meshes[mesh_index] = boundary_intersector.Intersect(meshes[mesh_index]);
+    }
+  });*/
 
   // for now, just combine all meshes into one
-  kinDS::Mesh combined_mesh;
-  for (const auto& mesh : intersections) {
+  kinDS::VoronoiMesh combined_mesh;
+  for (const auto& mesh : meshes) {
     combined_mesh += mesh;
   }
 
@@ -83,7 +95,7 @@ static void RunMeshingAlgorithm(std::vector<Vertex>& vertices, std::vector<glm::
     vertex.position = glm::vec3(v[0], v[2], v[1]);
     vertices.push_back(vertex);
   }
-  for (const auto& idx : combined_mesh.getVertexIndices()) {
+  for (const auto& idx : combined_mesh.getTriangles()) {
     index_pairs.push_back(std::make_pair(static_cast<unsigned int>(idx), 0));
   }
 }
@@ -156,6 +168,7 @@ void VoronoiMeshGenerator::Generate(const StrandModel& strand_model, std::vector
 
   RunMeshingAlgorithm(vertices, tex_coords, index_pairs, strand_splines);
 }
+
 void VoronoiMeshGenerator::Generate(const DtsStrandGroup& randomly_subdivided_strands, const StrandModel& strand_model,
                                     std::vector<Vertex>& vertices, std::vector<glm::vec2>& tex_coords,
                                     std::vector<std::pair<unsigned int, unsigned int>>& index_pairs,

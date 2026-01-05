@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <iostream>
+#include <mutex>
 #include <string>
 
 namespace evo_engine {
@@ -25,6 +26,7 @@ class ProgressBar {
   }
 
   void Update(size_t value) {
+    std::lock_guard<std::mutex> lock(mutex_);
     value = std::clamp(value, start_, end_);
     double progress = double(value - start_) / double(end_ - start_);
 
@@ -74,6 +76,7 @@ class ProgressBar {
   size_t start_;
   size_t end_;
   Display mode_;
+  std::mutex mutex_;
 
   size_t width_;
   char fill_;

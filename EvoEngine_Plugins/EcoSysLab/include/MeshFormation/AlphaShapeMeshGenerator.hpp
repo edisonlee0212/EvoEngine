@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include "StrandModel.hpp"
@@ -52,5 +51,4 @@ class AlphaShapeMeshGenerator {
   static void ComputeAlphaShape(std::vector<glm::vec3> points, std::vector<Vertex>& vertices,
                                 std::vector<unsigned int>& indices, double alpha);
 };
-
 }  // namespace eco_sys_lab_plugin

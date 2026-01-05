@@ -138,6 +138,7 @@ void BasicRootDescriptor::PrepareController(RootGrowthController& root_growth_co
     return flushing_rate;
   };
 }
+
 void BasicRootDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "base_root_node_count" << YAML::Value << base_root_node_count;
   out << YAML::Key << "straight_tap_root" << YAML::Value << straight_tap_root;
@@ -165,6 +166,7 @@ void BasicRootDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "tropism_switch_probability" << YAML::Value << tropism_switch_probability;
   out << YAML::Key << "tropism_switch_base_distance_factor" << YAML::Value << tropism_switch_base_distance_factor;
 }
+
 void BasicRootDescriptor::Deserialize(const YAML::Node& in) {
   if (in["base_root_node_count"])
     base_root_node_count = in["base_root_node_count"].as<int>();
@@ -211,6 +213,7 @@ void BasicRootDescriptor::Deserialize(const YAML::Node& in) {
   if (in["tropism_switch_base_distance_factor"])
     tropism_switch_base_distance_factor = in["tropism_switch_base_distance_factor"].as<float>();
 }
+
 bool BasicRootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   changed = ImGui::DragFloat("Growth rate", &growth_rate, 0.01f, 0.0f, 10.0f) || changed;

@@ -849,7 +849,6 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           }
           selected_branch_info_list->ApplyConnections(predicted_branch_starts, predicted_branch_ends,
                                                       predicted_branch_colors, predicted_branch_widths);
-
         } break;
         case 1: {
           // Branch
@@ -877,7 +876,6 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           }
           selected_branch_info_list->ApplyConnections(predicted_branch_starts, predicted_branch_ends,
                                                       predicted_branch_colors, predicted_branch_widths);
-
         } break;
         case 2: {
           // Node
@@ -904,7 +902,6 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           }
           selected_branch_info_list->ApplyConnections(predicted_branch_starts, predicted_branch_ends,
                                                       predicted_branch_colors, predicted_branch_widths);
-
         } break;
       }
 
@@ -2095,6 +2092,7 @@ void TreeStructor::ClearForest() {
   }
   forest_ref.Clear();
 }
+
 void TreeStructor::ExportForestStatistics(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginSeq;
   int i = 0;
@@ -2109,6 +2107,7 @@ void TreeStructor::ExportForestStatistics(const std::string& name, YAML::Emitter
   }
   out << YAML::EndSeq;
 }
+
 void TreeStructor::ExportForestStatistics(const std::filesystem::path& path) const {
   try {
     YAML::Emitter out;
@@ -2122,6 +2121,7 @@ void TreeStructor::ExportForestStatistics(const std::filesystem::path& path) con
     EVOENGINE_ERROR("Failed to save: " + std::string(e.what()))
   }
 }
+
 void TreeStructor::ExportNodeGraphs(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginSeq;
   int i = 0;
@@ -2197,6 +2197,7 @@ void TreeStructor::ExportFlowGraphs(const std::string& name, YAML::Emitter& out)
   }
   out << YAML::EndSeq;
 }
+
 void TreeStructor::ExportFlowGraphs(const std::filesystem::path& path) const {
   try {
     YAML::Emitter out;
@@ -2320,6 +2321,7 @@ void TreeStructor::CollectAssetRef(std::vector<AssetRef>& list) {
   if (tree_descriptor_ref.Get<TreeDescriptor>())
     list.emplace_back(tree_descriptor_ref);
 }
+
 void TreeStructor::Relink(const std::unordered_map<Handle, Handle>& map, const std::shared_ptr<Scene>& scene) {
   forest_ref.Relink(map);
 }

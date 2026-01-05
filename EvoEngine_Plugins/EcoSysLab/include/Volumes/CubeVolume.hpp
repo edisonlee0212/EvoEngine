@@ -1,4 +1,3 @@
-
 #pragma once
 #include "IVolume.hpp"
 #include "Mesh.hpp"
@@ -68,5 +67,4 @@ class CubeVolume : public IVolume {
    */
   void Deserialize(const YAML::Node& in) override;
 };
-
 }  // namespace eco_sys_lab_plugin

@@ -1,4 +1,3 @@
-
 #include "Delaunay.hpp"
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"

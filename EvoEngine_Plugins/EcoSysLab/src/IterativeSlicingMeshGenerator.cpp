@@ -7,6 +7,7 @@
 #define DEBUG_OUTPUT false
 
 using namespace evo_engine;
+
 namespace eco_sys_lab_plugin {
 typedef std::vector<std::pair<StrandHandle, glm::vec3>> Slice;
 typedef std::vector<StrandHandle> PipeCluster;
@@ -73,7 +74,6 @@ void ObtainProfiles(const StrandModelStrandGroup& pipes, std::vector<StrandSegme
       do {
         profile.push_back(handle);
         visited[pipes.PeekStrandSegment(handle).GetStrandHandle()] = true;
-
       } while (handle != seg_handle);
 
       profiles.push_back(profile);
@@ -660,7 +660,6 @@ bool ConnectSlices(const StrandModelStrandGroup& pipes, Slice& bottom_slice,
             top_indices[j - 1] = tmp;
           }
         }
-
       } while (found_error);
 
       for (size_t j = 1; j < indices_with_same_branch_correspondence.size(); j++) {
@@ -839,7 +838,6 @@ std::vector<SlicingData> Slicing(const StrandModel& strand_model, std::vector<Sl
         connected = ConnectSlices(pipe_group, bottom_slices[i], bottom_offsets[i], top_slices, offsets, vertices,
                                   tex_coords, indices, settings.branch_connections, settings);
       }
-
     } else {
       std::cout << "Merging branches at t = " << t << std::endl;
       std::vector<Slice> bottom_slices;

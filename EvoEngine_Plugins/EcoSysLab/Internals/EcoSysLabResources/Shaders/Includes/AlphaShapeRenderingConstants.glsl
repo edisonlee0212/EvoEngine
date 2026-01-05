@@ -20,4 +20,5 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
   float break_threshold;
 
   int use_polar_coordinates_for_uv;
+  int bark_material_index;
 };

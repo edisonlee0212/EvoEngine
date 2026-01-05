@@ -11,21 +11,28 @@ class IDsConstraint {
                               const DtsStrandGroup& subdivided_strand_group,
                               const DynamicStrands& target_dynamic_strands) {
   }
+
   virtual void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                          const DynamicStrands& target_dynamic_strands) {
   }
+
   virtual void ProjectVelocityConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                          const DynamicStrands& target_dynamic_strands) {
   }
+
   virtual void DownloadData() {
   }
+
   virtual void UploadData() {
   }
+
   virtual void UpdateBindings() {
   }
+
   virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     return false;
   }
+
   bool enabled = true;
 };
 
@@ -41,6 +48,7 @@ class DsPivotPoint final : public IDsConstraint {
     uint32_t padding0;
     uint32_t padding1;
   };
+
   inline static std::shared_ptr<DescriptorSetLayout> layout{};
   std::vector<SegmentUpdate> commands;
   std::shared_ptr<Buffer> segment_update_commands_buffer;
@@ -75,6 +83,7 @@ class DsPivotAxis final : public IDsConstraint {
     uint32_t segment_index;
     uint32_t particle0_closer;
   };
+
   inline static std::shared_ptr<DescriptorSetLayout> layout{};
   std::vector<SegmentUpdate> commands;
   std::shared_ptr<Buffer> segment_update_commands_buffer;
@@ -84,6 +93,7 @@ class DsPivotAxis final : public IDsConstraint {
     uint32_t commands_size = 0;
     glm::vec3 axis;
   };
+
   SegmentUpdatePushConstant push_constant;
   inline static std::shared_ptr<ComputePipeline> segment_update_pipeline;
   std::vector<std::shared_ptr<DescriptorSet>> segment_commands_descriptor_sets;
@@ -115,6 +125,7 @@ class DsPivotTransform final : public IDsConstraint {
     uint32_t padding1;
     uint32_t padding2;
   };
+
   inline static std::shared_ptr<DescriptorSetLayout> layout{};
   std::vector<SegmentUpdate> commands;
   std::vector<std::shared_ptr<Buffer>> segment_update_commands_buffer;
@@ -142,6 +153,7 @@ class DsStiffRod final : public IDsConstraint {
  public:
   DsStiffRod();
   inline static std::shared_ptr<DescriptorSetLayout> layout{};
+
   struct ShearStretchConstraintConstant {
     uint32_t strand_size = 0;
     float inv_time_step;
@@ -199,6 +211,7 @@ class DsBundle : public IDsConstraint {
     uint32_t segment_pair_size = 0;
     float inv_time_step = 0.0f;
   };
+
   int skip_size = 1;
   float over_relaxation = 1.f;
   float bend_twist_over_relaxation = 1.f;
@@ -230,6 +243,7 @@ class DsLeafAttachment : public IDsConstraint {
   struct LeafPredictionPushConstant {
     uint32_t leaf_size = 0;
   };
+
   inline static std::shared_ptr<ComputePipeline> pipeline{};
   DsLeafAttachment();
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,

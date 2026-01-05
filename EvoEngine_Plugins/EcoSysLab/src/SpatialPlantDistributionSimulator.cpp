@@ -197,7 +197,6 @@ bool SpatialPlantDistributionSimulator::OnInspect(const std::shared_ptr<EditorLa
     OnInspectSpatialPlantDistributionFunction(
         m_distribution,
         [&](glm::vec2 position) {
-
         },
         [&](ImVec2 origin, float zoomFactor, ImDrawList* drawList) {
           drawList->AddQuad(

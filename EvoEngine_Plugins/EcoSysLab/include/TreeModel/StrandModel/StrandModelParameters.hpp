@@ -1,4 +1,3 @@
-
 #pragma once
 #include <Plot2D.hpp>
 
@@ -149,5 +148,4 @@ struct StrandModelParameters {
    */
   void Load(const std::string& name, const YAML::Node& in);
 };
-
 }  // namespace eco_sys_lab_plugin

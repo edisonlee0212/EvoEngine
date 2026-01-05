@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include "Climate.hpp"
@@ -179,6 +178,7 @@ class EcoSysLabLayer : public ILayer {
     float leaf_maturity = 0.0f;        ///< The maturity level of the leaf.
     float leaf_health = 1.0f;          ///< The health level of the leaf.
   };
+
   /**
    * @struct Leaf
    * @brief Represents a leaf with its transformation and properties.
@@ -188,11 +188,13 @@ class EcoSysLabLayer : public ILayer {
     float flower_maturity = 0.0f;      ///< The maturity level of the leaf.
     float flower_health = 1.0f;        ///< The health level of the leaf.
   };
+
   /**
    * @enum TreeOperatorMode
    * @brief Defines different operational modes for tree manipulation.
    */
   enum class TreeOperatorMode { Disabled, Select, Rotate, Prune, Invigorate, Reduce };
+
   unsigned tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::Disabled);  ///< Current tree operator mode.
   float tree_reduce_rate = 0.1f;  ///< The reduction rate for tree pruning.
 
@@ -243,6 +245,7 @@ class EcoSysLabLayer : public ILayer {
      * @brief Defines different transformation modes for strands.
      */
     enum class TransformMode { Disabled, Translate, Rotate };
+
     unsigned transform_mode = static_cast<unsigned>(TransformMode::Disabled);  ///< Current transformation mode.
 
     /**
@@ -250,6 +253,7 @@ class EcoSysLabLayer : public ILayer {
      * @brief Defines different operator modes for strand manipulation.
      */
     enum class OperatorMode { Drag, Saw, LineCut, PointCut, FungusInjection };
+
     unsigned operator_mode = static_cast<unsigned>(OperatorMode::FungusInjection);  ///< Current operator mode.
 
     bool cut_bend_twist_bundle_only = false;  ///< Flag to restrict cutting to bend/twist bundles only.
@@ -357,6 +361,7 @@ class EcoSysLabLayer : public ILayer {
      */
     bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
+
   SoilVisualizationSettings soil_visualization_settings_{};  ///< Settings for soil visualization.
 
   bool need_flow_update_for_selection_ = false;  ///< Flag indicating if flow updates are needed for selection.

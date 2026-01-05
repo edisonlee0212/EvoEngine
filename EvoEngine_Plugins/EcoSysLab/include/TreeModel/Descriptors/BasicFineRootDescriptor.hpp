@@ -46,5 +46,4 @@ class BasicFineRootDescriptor : public IFineRootDescriptor {
    */
   void PrepareController(FineRootController& foliage_controller) const override;
 };
-
 }  // namespace eco_sys_lab_plugin
